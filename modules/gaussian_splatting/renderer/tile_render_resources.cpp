@@ -1267,11 +1267,12 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		bool wants_shrink = false;
 		// The shrink is gated on a live sorter because it reclaims by RECREATING the sorter
 		// at the lower capacity. On a GPU that lacks RadixSort indirect support the sorter is
-		// disabled and the global sort degrades to unsorted tiles; the key/value buffers then
-		// stay at their high-water capacity and are not reclaimed by this path. That is an
-		// accepted limitation of the opt-in shrink on an already-degraded (unsorted) fallback —
-		// reclaiming there would need a separate sorter-less buffer-resize path, which is not
-		// worth the added complexity for that narrow, low-capability-GPU case.
+		// disabled and every translucent global-composite frame is rejected (#586); the
+		// key/value buffers then stay at their high-water capacity and are not reclaimed by
+		// this path. That is an accepted limitation of the opt-in shrink on an already-degraded
+		// (rejecting) fallback — reclaiming there would need a separate sorter-less
+		// buffer-resize path, which is not worth the added complexity for that narrow,
+		// low-capability-GPU case.
 		if (g_gpu_sorting_config.bounded_buffer_shrink_enabled && sorter_available && sorter.is_valid() &&
 				!key_config_changed && capacity > effective_demand) {
 			// keys (1-2 words) + values (1 word), matching the real allocation below.
@@ -1343,8 +1344,9 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			// shrink target never recreates above max_overlap_records.
 			const uint32_t resize_elements = wants_shrink ? effective_demand : attempt_elements;
 
-			// must_recreate failures render unsorted; an optional-shrink failure keeps
-			// the working sorter untouched and simply skips the reclaim this frame.
+			// must_recreate failures leave no sorter, so every translucent frame is
+			// rejected at the choke point (#586); an optional-shrink failure keeps the
+			// working sorter untouched and simply skips the reclaim this frame.
 			auto handle_recreate_failure = [&](const char *p_reason) {
 				if (must_recreate) {
 					disable_sorter(p_reason);
@@ -1355,15 +1357,15 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 
 			// Global composite sort requires indirect support for GPU-driven element count.
 			if (!GPUSorterFactory::probe_supports_indirect(GPUSorterFactory::ALGORITHM_RADIX, device)) {
-				handle_recreate_failure("[TileRenderer] Global composite sort requires RadixSort indirect support; rendering unsorted tiles");
+				handle_recreate_failure("[TileRenderer] Global composite sort requires RadixSort indirect support; translucent frames will be REJECTED (nothing presented) until a sorter exists (#586)");
 			} else {
 				Ref<IGPUSorter> created_sorter = GPUSorterFactory::create_sorter(
 						GPUSorterFactory::ALGORITHM_RADIX, device, resize_elements, config_to_use);
 				if (!created_sorter.is_valid()) {
-					handle_recreate_failure("[TileRenderer] Failed to create global composite GPU sorter; rendering unsorted tiles");
+					handle_recreate_failure("[TileRenderer] Failed to create global composite GPU sorter; translucent frames will be REJECTED (nothing presented) until a sorter exists (#586)");
 				} else if (!created_sorter->supports_indirect()) {
 					created_sorter->shutdown();
-					handle_recreate_failure("[TileRenderer] Created sorter does not support indirect sorting; rendering unsorted tiles");
+					handle_recreate_failure("[TileRenderer] Created sorter does not support indirect sorting; translucent frames will be REJECTED (nothing presented) until a sorter exists (#586)");
 				} else {
 					// Replacement is good. For a pure shrink the old sorter is still live;
 					// retire it now that the smaller one is known to initialize.

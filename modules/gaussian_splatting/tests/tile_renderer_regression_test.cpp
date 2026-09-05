@@ -14,6 +14,8 @@
 
 #include "../renderer/tile_renderer.h"
 #include "../renderer/gpu_sorting_config.h"
+#include "../renderer/gpu_sorting_constants.h"
+#include "../renderer/sort_fallback_policy.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/pipeline_io_contracts.h"
 #include "../core/gaussian_data.h"
@@ -238,6 +240,10 @@ public:
     // resident-signal telemetry (overflow_drop_events) goes non-zero. Self-initializes the
     // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
     TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
+    // #586: with the global-composite sorter unavailable and translucent work present, the
+    // frame must be REJECTED (nothing published) instead of rasterized in the wrong alpha
+    // order -- and a healthy sorter must still publish. Self-initializes the tile renderer.
+    TestResult test_sorter_unavailable_rejects_frame(RenderingDevice *p_rd);
 
     // Test utilities
     Vector<Gaussian> generate_test_gaussians(uint32_t count, bool valid = true);
@@ -1652,6 +1658,287 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
     return result;
 }
 
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_unavailable_rejects_frame(RenderingDevice *p_rd) {
+    // #586 on-GPU proof, driving the REAL failure path rather than an injected end state.
+    //
+    // The defect: when TileGlobalSortResources::sorter is invalid and there is translucent
+    // work, TileRenderer::render() fell straight through binning/emit/raster and PRESENTED
+    // tiles in atomic-append order -- mathematically wrong alpha compositing dressed up as a
+    // normal render (unsorted_composite_frames counted it; nothing stopped it). The fix turns
+    // that into a publish reject: render() returns an invalid RID, the caller presents
+    // nothing, and global_composite_rejected_frames counts it.
+    //
+    // How the sorter is made unavailable -- the production path, not a test hook:
+    // radix_bits=8 x workgroup_size=64 x key_bits=64 makes RadixSort's histogram buffer
+    // 128 bytes per element (workgroups * 256 bins * 8 passes * 4 bytes), so a capacity
+    // request of REFUSED_CAPACITY (34,000,000) records needs 4,352,000,000 bytes for that
+    // one buffer, above the RenderingDevice uint32 size limit. RadixSort::initialize()
+    // refuses ("refusing to initialize", ERR_INVALID_PARAMETER),
+    // GPUSorterFactory::create_sorter() returns an invalid Ref, and
+    // TileGlobalSortResources::ensure_resources() runs its disable_sorter() lambda for real:
+    // sorter shut down and unref'd, sorter_available latched false. The key/value buffers
+    // (34M * 12 B = 408 MB) are then allocated normally, which is exactly the state the choke
+    // point sees in the field. The same recipe reproduces the defect in the QA project from
+    // project settings alone (max_overlap_records_adaptive_min), so this is the live trigger,
+    // not a simulation of one. NOT covered here: the capability-probe-false cause (no
+    // supported desktop GPU fails the probe) and the VRAM-pressure allocation-failure cause
+    // (not deterministically reproducible on NVIDIA, which spills to host memory).
+    //
+    // Phases; the discriminating assertion is the OBSERVABLE CONSEQUENCE (was a frame
+    // published?), never a log line:
+    //   1. HEALTHY CONTROL -- default sorter config, same scene: render() must publish and
+    //      neither counter may move. Without this the fix could "pass" by rejecting everything.
+    //   2. SORTER UNAVAILABLE -- the real trigger above, same scene, splat_count > 0: render()
+    //      must return an INVALID RID, global_composite_rejected_frames must go +1 with reason
+    //      SORTER_UNAVAILABLE, unsorted_composite_frames must NOT move, and the per-frame stage
+    //      timings must not keep reporting the healthy frame. Pre-fix this phase publishes a
+    //      valid RID and increments unsorted_composite_frames: RED on base by design.
+    //   3. RECOVERY CONTROL -- config restored and the latch cleared through the test accessor:
+    //      the renderer must rebuild a sorter and publish again, so the reject is a per-frame
+    //      decision and not a one-way kill switch. Clearing the latch is a TEST action at this
+    //      revision; production retry is the follow-up PR for #586.
+    //
+    // Premise assertions guard every link, so a RED run shows the branch was actually reached
+    // rather than the test having quietly missed it. Missing preconditions FAIL, never skip.
+    TestResult result;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the #586 sorter-unavailable reject test";
+        return result;
+    }
+
+    const uint32_t splat_count = 4096u;
+    // Above the uint32 buffer limit for radix_bits=8 x workgroup_size=64 x key_bits=64 (128 B/record),
+    // and below max_overlap_records' validation ceiling (200M) so ensure_resources does not clamp it away.
+    const uint32_t REFUSED_CAPACITY = 34000000u;
+
+    Vector<Gaussian> gaussians = generate_test_gaussians(splat_count);
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+            gaussian_buffer = RID();
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+            sorted_indices = RID();
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+        free_scene();
+        result.error_message = "Failed to create scene buffers for the #586 sorter-unavailable reject test";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    auto &sort_resources = tile_renderer->_test_global_sort_resources();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+
+    result = [&]() -> TestResult {
+        TestResult r;
+
+        // ---- Phase 1: healthy control. A working sorter must still publish the frame. ----
+        const uint64_t rejected_before_control = tile_renderer->get_global_composite_rejected_frames();
+        const uint64_t unsorted_before_control = tile_renderer->get_unsorted_composite_frames();
+        RID healthy_output = tile_renderer->render(p_rd, params);
+        if (!healthy_output.is_valid()) {
+            r.error_message = "Healthy control frame did not publish: render() returned an invalid RID with a "
+                              "working sorter. The scene setup, not the #586 reject, is at fault.";
+            return r;
+        }
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "Premise failed: after the healthy control frame the global-composite sorter is not live "
+                    "(sorter_valid=%s sorter_available=%s). This device never built one, so the control does not "
+                    "control for anything and phase 2 would prove nothing.",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false");
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_control) {
+            r.error_message = "Healthy control frame was counted as REJECTED. The fix must not reject frames on a "
+                              "capable GPU with a working sorter.";
+            return r;
+        }
+        if (tile_renderer->get_unsorted_composite_frames() != unsorted_before_control) {
+            r.error_message = "Healthy control frame was counted as UNSORTED with a working sorter; the scene does "
+                              "not control for the defect.";
+            return r;
+        }
+
+        // ---- Phase 2: make the sorter unavailable through the production path, then render. ----
+        const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
+        const uint64_t unsorted_before = tile_renderer->get_unsorted_composite_frames();
+        {
+            // Scoped so the settings are restored BEFORE the recovery phase re-syncs the config.
+            // A named gpu_preset would override the manual radix/workgroup values below
+            // (load_from_project_settings applies the preset first), so pin "custom".
+            ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
+            ProjectSettingGuard radix_guard(ps, GPUSortingConfig::RADIX_BITS_PATH);
+            ProjectSettingGuard workgroup_guard(ps, GPUSortingConfig::WORKGROUP_SIZE_PATH);
+            ProjectSettingGuard key_bits_guard(ps, GPUSortingConfig::KEY_BITS_PATH);
+            ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+            if (ps) {
+                ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, "custom");
+                ps->set_setting(GPUSortingConfig::RADIX_BITS_PATH, 8);
+                ps->set_setting(GPUSortingConfig::WORKGROUP_SIZE_PATH, 64);
+                ps->set_setting(GPUSortingConfig::KEY_BITS_PATH, 64);
+                ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
+            }
+            g_gpu_sorting_config.load_from_project_settings();
+
+            // Premise: with the config as loaded, the request really is above the device limit,
+            // so create_sorter() MUST refuse. If it is not, no latch would be provoked and the
+            // case would be testing nothing.
+            const uint64_t largest_bytes = GPUSortingConstants::sort_path_max_buffer_bytes(
+                    uint64_t(REFUSED_CAPACITY), g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size,
+                    g_gpu_sorting_config.key_bits);
+            if (largest_bytes <= uint64_t(UINT32_MAX)) {
+                r.error_message = vformat(
+                        "Premise failed: %d records at radix_bits=%d workgroup_size=%d key_bits=%d need %s bytes for the "
+                        "largest sort buffer, which does NOT exceed the uint32 limit, so create_sorter() would succeed and "
+                        "the production latch could not be provoked (ProjectSettings present=%s).",
+                        int(REFUSED_CAPACITY), int(g_gpu_sorting_config.radix_bits), int(g_gpu_sorting_config.workgroup_size),
+                        int(g_gpu_sorting_config.key_bits), String::num_uint64(largest_bytes), ps ? "true" : "false");
+                return r;
+            }
+
+            // Grow the global sort capacity through the production function: the sorter is shut
+            // down for the grow, create_sorter() refuses, and disable_sorter() latches.
+            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
+        }
+        // The guards restored the project settings; re-sync so the recovery phase and every
+        // later case in this process see the original sorter configuration.
+        g_gpu_sorting_config.load_from_project_settings();
+
+        if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "Premise failed: the refused capacity request did not disable the global-composite sorter "
+                    "(sorter_valid=%s sorter_available=%s capacity=%d). The production latch was not provoked, so the "
+                    "frame below would not reach the sorter-unavailable branch.",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false", int(sort_resources.capacity));
+            return r;
+        }
+        if (!sort_resources.keys_buffer.is_valid() || !sort_resources.values_buffer.is_valid()) {
+            r.error_message = "Premise failed: the key/value sort buffers were not allocated after the sorter was "
+                              "disabled, so the frame would exit at the pre-binning resource check instead of reaching "
+                              "the choke point this case is about (out of VRAM?).";
+            return r;
+        }
+
+        RID degraded_output = tile_renderer->render(p_rd, params);
+
+        // Premise: the latch held across ensure_resources -- no sorter was rebuilt, so the frame
+        // really reached the draw path with no sorter.
+        if (sort_resources.sorter.is_valid()) {
+            r.error_message = "Premise failed: a global-composite sorter was rebuilt during the degraded frame, so the "
+                              "sorter-unavailable branch was never reached and this case proves nothing.";
+            return r;
+        }
+        if (params.splat_count == 0) {
+            r.error_message = "Premise failed: the degraded frame carried splat_count == 0, so there was nothing to "
+                              "composite and no wrong output was possible.";
+            return r;
+        }
+
+        // DISCRIMINATING ASSERTION: the observable consequence. Nothing was published.
+        if (degraded_output.is_valid()) {
+            r.error_message = vformat(
+                    "#586 REGRESSION: with the global-composite sorter unavailable and splat_count=%d, render() "
+                    "PUBLISHED a frame (valid output RID). That frame rasterizes tiles in unsorted atomic-append "
+                    "order, i.e. mathematically incorrect alpha compositing presented as a normal render. It must be "
+                    "rejected instead. (global_composite_rejected_frames=%d, unsorted_composite_frames %d -> %d)",
+                    int(params.splat_count),
+                    int(tile_renderer->get_global_composite_rejected_frames()),
+                    int(unsorted_before), int(tile_renderer->get_unsorted_composite_frames()));
+            return r;
+        }
+        // ... and the reject is visible in telemetry, per frame, not as a one-shot log line.
+        const uint64_t rejected_after = tile_renderer->get_global_composite_rejected_frames();
+        if (rejected_after != rejected_before + 1u) {
+            r.error_message = vformat(
+                    "The degraded frame was not published but global_composite_rejected_frames went %d -> %d "
+                    "(expected +1). The reject is invisible in telemetry, which is half the defect.",
+                    int(rejected_before), int(rejected_after));
+            return r;
+        }
+        if (tile_renderer->get_global_composite_last_reject_reason() !=
+                uint8_t(GaussianSplatting::UnsortedCompositeReason::SORTER_UNAVAILABLE)) {
+            r.error_message = vformat(
+                    "Reject reason was %d, expected SORTER_UNAVAILABLE (%d). Telemetry cannot attribute the "
+                    "degradation without log scraping.",
+                    int(tile_renderer->get_global_composite_last_reject_reason()),
+                    int(GaussianSplatting::UnsortedCompositeReason::SORTER_UNAVAILABLE));
+            return r;
+        }
+        // A rejected frame must NOT also be counted as presented-unsorted: the two counters answer
+        // different questions and a frame lands in exactly one of them.
+        if (tile_renderer->get_unsorted_composite_frames() != unsorted_before) {
+            r.error_message = vformat(
+                    "A REJECTED frame also incremented unsorted_composite_frames (%d -> %d). That counter means "
+                    "\"wrong pixels were shipped\"; nothing was shipped.",
+                    int(unsorted_before), int(tile_renderer->get_unsorted_composite_frames()));
+            return r;
+        }
+        // The instruments must not lie: a rejected frame reports no stage timings instead of the
+        // healthy frame's.
+        if (tile_renderer->get_tile_assignment_time() != 0.0f || tile_renderer->get_rasterization_time() != 0.0f ||
+                tile_renderer->get_last_setup_cpu_ms() != 0.0f) {
+            r.error_message = vformat(
+                    "The rejected frame still reports stage timings (assignment=%f raster=%f setup_cpu=%f); a frame "
+                    "that produced no output must not describe the last successful one.",
+                    double(tile_renderer->get_tile_assignment_time()), double(tile_renderer->get_rasterization_time()),
+                    double(tile_renderer->get_last_setup_cpu_ms()));
+            return r;
+        }
+
+        // ---- Phase 3: recovery control. With the latch cleared, frames must publish again. ----
+        // Proves the reject is a per-frame decision driven by sorter availability, not a one-way
+        // kill switch. The config is back at its defaults, so ensure_resources rebuilds a sorter at
+        // the scene's demand on this render.
+        sort_resources.sorter_available = true;
+        RID recovered_output = tile_renderer->render(p_rd, params);
+        if (!recovered_output.is_valid()) {
+            r.error_message = "Recovery control failed: with sorter_available restored and the default sorter config, "
+                              "render() still published nothing. The reject is not recovering, which would black-screen "
+                              "the renderer.";
+            return r;
+        }
+        if (!sort_resources.sorter.is_valid()) {
+            r.error_message = "Recovery control is vacuous: no sorter was rebuilt, so the recovered frame did not prove "
+                              "the sorted path came back.";
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_after) {
+            r.error_message = vformat(
+                    "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
+                    int(rejected_after), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+        // The timing invalidation must clear timings for rejected frames only, not wedge them at 0.
+        if (!(tile_renderer->get_tile_assignment_time() > 0.0f) || !(tile_renderer->get_rasterization_time() > 0.0f)) {
+            r.error_message = vformat(
+                    "The recovered, PUBLISHED frame reports no stage timings (assignment=%f raster=%f).",
+                    double(tile_renderer->get_tile_assignment_time()), double(tile_renderer->get_rasterization_time()));
+            return r;
+        }
+
+        r.passed = true;
+        return r;
+    }();
+
+    free_scene();
+    return result;
+}
+
 bool TileRendererRegressionTest::validate_against_reference(RID output_texture, const String &reference_name) {
     // Stub implementation
     return true;
@@ -1722,6 +2009,47 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
 
     if (!result.passed) {
         MESSAGE(result.error_message.utf8().get_data());
+    }
+    CHECK(result.passed);
+}
+
+// #586: the global-composite sorter-unavailable reject, on a real device. See
+// test_sorter_unavailable_rejects_frame for the phases and for why the sorter is made
+// unavailable through the production create_sorter() refusal rather than a test hook.
+//
+// Device acquisition: the TileRenderer constructor dereferences the RenderingDevice
+// singleton through upstream ShaderRD (see REQUIRE_RENDERING_DEVICE_SINGLETON), so its
+// absence is an unmet precondition and FAILs; the owned local device is then taken through
+// the same ScopedLocalRD RAII as the other [RequiresGPU] cases in this file and FAILs
+// (never skips) if it cannot be created. Headless lanes exclude *][RequiresGPU]*, so no
+// headless lane can reach this case; the --gs-gpu-test harness (tests/ci/run_gpu_harness.py,
+// TileRenderer batch) is where it runs.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sorter-unavailable global composite rejects the frame instead of rasterizing unsorted tiles (#586)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+
+    // Declared before the Ref below so it destructs LAST: ~TileRenderer runs cleanup() on this
+    // device, so freeing the device first would be a use-after-free at teardown.
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("Could not create a local RenderingDevice from the harness-bootstrapped singleton. "
+             "This [RequiresGPU] case must run under tests/ci/run_gpu_harness.py.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_sorter_unavailable_rejects_frame(local_device);
+
+    // Same teardown ordering constraint as the cases above: ~TileRenderer must run cleanup()
+    // while local_device is still alive.
+    regression_test.unref();
+
+    // ::String is stringified by tests/test_macros.h; the .utf8().get_data() idiom used by
+    // older cases in this file prints the pointer, not the text.
+    if (!result.passed) {
+        MESSAGE(result.error_message);
     }
     CHECK(result.passed);
 }

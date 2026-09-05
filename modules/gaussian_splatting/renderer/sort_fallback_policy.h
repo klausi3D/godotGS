@@ -37,13 +37,21 @@ static inline bool allow_unsorted_cpu_fallback_in_orchestrator(bool p_strict_glo
 }
 
 // ---------------------------------------------------------------------------
-// Unsorted global-composite fallback — observability contract (#586)
+// Unsorted global-composite fallback — reject + observability contract (#586)
 // ---------------------------------------------------------------------------
 //
 // The global-composite path can end up rasterizing tiles in UNSORTED order, which
 // is WRONG output: alpha compositing is order-dependent, so an unsorted draw is
-// not "slightly off", it is incorrect. #586 tracks FIXING that. The helpers below
-// only make the wrong-output frames COUNTABLE — observability, not correctness.
+// not "slightly off", it is incorrect.
+//
+// #586: the PERMANENT class of that failure — no sorter exists at all
+// (TileGlobalSortResources::sorter is invalid) — no longer rasterizes.
+// `unsorted_composite_must_reject_frame()` below marks it fatal for the frame,
+// and the choke point in tile_renderer.cpp turns that into a publish REJECT:
+// render() returns an invalid RID and the caller presents nothing for the
+// frame. The TRANSIENT reasons (sorter exists, one dispatch failed) keep the
+// counter + throttled WARN and are still presented; see the rationale on
+// `unsorted_composite_must_reject_frame`.
 //
 // DESIGN RULE (this is the point of the refactor): the "is this frame producing
 // unsorted output?" decision is derived from exactly TWO pure inputs computed once
@@ -61,9 +69,16 @@ static inline bool allow_unsorted_cpu_fallback_in_orchestrator(bool p_strict_glo
 // Why the sort did not produce a correctly-ordered result for this frame.
 enum class UnsortedCompositeReason : uint8_t {
 	NONE = 0, // Output is correctly sorted (or there was nothing to composite).
-	SORTER_UNAVAILABLE = 1, // Capability-gated: no sorter could be built at all.
+	SORTER_UNAVAILABLE = 1, // No sorter could be built at all (probe false, creation failed, or no indirect entry point).
 	SORT_DISPATCH_FAILED = 2, // Sorter exists; the sync fallback dispatch returned an error.
 	ASYNC_SORT_NOT_SUBMITTED = 3, // Async submit returned timeline=0 and sync fallback is disallowed.
+	// NOT produced by classify_unsorted_composite(): the frame is abandoned BEFORE a sort
+	// outcome can exist, at the pre-binning resource check in tile_renderer.cpp. It is
+	// still a REJECT of a frame that carried translucent work (render() returns an invalid
+	// RID), and it is the exit a VRAM-pressure sorter failure takes: disable_sorter() frees
+	// the key/value buffers and the same pressure then fails their reallocation. Recorded
+	// so that reject telemetry can attribute it instead of counting nothing (#586).
+	GLOBAL_SORT_RESOURCES_UNAVAILABLE = 4,
 };
 
 static inline const char *unsorted_composite_reason_name(UnsortedCompositeReason p_reason) {
@@ -76,6 +91,8 @@ static inline const char *unsorted_composite_reason_name(UnsortedCompositeReason
 			return "sync sort dispatch failed";
 		case UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED:
 			return "async sort not submitted (timeline=0, sync fallback disallowed)";
+		case UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE:
+			return "global sort resources unavailable (sort capacity, key/value/tile buffers or binning pipeline)";
 	}
 	return "unknown";
 }
@@ -132,6 +149,48 @@ static inline UnsortedCompositeReason classify_unsorted_composite(
 	return UnsortedCompositeReason::NONE;
 }
 
+// #586 FIX: which unsorted-composite reasons must REJECT the frame (nothing is
+// published) instead of presenting it. This is the whole correctness decision,
+// isolated as one pure function so it is testable without a GPU, and so adding an
+// UnsortedCompositeReason forces an explicit fatal / non-fatal choice here: the
+// switch has no default label (a new enumerator is a compiler warning), and the
+// fall-through after it FAILS CLOSED — an enumerator this function does not know
+// is rejected, never presented.
+//
+// SORTER_UNAVAILABLE is FATAL for the frame that observes it. It is the class where
+// no sorter exists at all, so EVERY frame that reaches the composite in this state
+// would order translucent splats by atomic-append order. Presenting nothing is
+// honest; presenting wrong alpha ordering that looks like a normal render is not.
+// This is a PER-FRAME verdict: whether the state persists is decided by
+// TileGlobalSortResources::ensure_resources (at this revision it latches until
+// reset_state(); making it retry is the follow-up PR for #586).
+//
+// GLOBAL_SORT_RESOURCES_UNAVAILABLE is recorded at an exit that has ALREADY
+// abandoned the frame, so "must reject" is a statement of fact about it; it is
+// listed as fatal so the predicate stays total and a future caller that did have
+// a choice could not present a frame that was never binned.
+//
+// The two TRANSIENT reasons are deliberately NOT fatal:
+//   * SORT_DISPATCH_FAILED     — the sorter EXISTS and the device is capable; the
+//                                sync fallback dispatch returned an error for one frame.
+//   * ASYNC_SORT_NOT_SUBMITTED — async submit returned timeline=0 and the sync
+//                                fallback is disallowed by the readback policy.
+// Both are per-frame and recover on the next frame on working hardware; rejecting
+// them would turn a one-frame ordering artefact into a visible hitch. They keep the
+// counter + throttled WARN (observable, not silent).
+static inline bool unsorted_composite_must_reject_frame(UnsortedCompositeReason p_reason) {
+	switch (p_reason) {
+		case UnsortedCompositeReason::SORTER_UNAVAILABLE:
+		case UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE:
+			return true;
+		case UnsortedCompositeReason::NONE:
+		case UnsortedCompositeReason::SORT_DISPATCH_FAILED:
+		case UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED:
+			return false;
+	}
+	return true; // Fail closed: an unclassified reason is never presented.
+}
+
 // Warning throttle for the unsorted global-composite fallback.
 //
 // Every frame classified as wrong-output bumps a persistent counter
@@ -139,7 +198,8 @@ static inline UnsortedCompositeReason classify_unsorted_composite(
 // get_binning_debug_counters()); this predicate rate-limits the paired WARN so the
 // degradation is visible in production without one log line per frame. It fires on
 // the first degraded frame and then once per interval — NOT one-shot-forever, so a
-// persistent degradation keeps re-surfacing in the log.
+// persistent degradation keeps re-surfacing in the log. The reject counter
+// (TilePerformanceMetrics::global_composite_rejected_frames) uses the same throttle.
 //
 // Argument is the post-increment counter value (first degraded frame == 1).
 static constexpr uint64_t UNSORTED_COMPOSITE_WARN_INTERVAL_FRAMES = 300;
