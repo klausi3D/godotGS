@@ -182,7 +182,7 @@ by us, while the v1.0 program is still being built.
 
 | | Public Alpha | v1.0 Production |
 | --- | --- | --- |
-| Envelope | Single scene, resident, ~2M splats | + multi-node + streaming |
+| Envelope | Single resident scene (see §10.1) | + multi-node + streaming |
 | Blocks | User-visible correctness only | + evidence integrity (§4.2) |
 | Visual proof | Real-scan human pass **required** | Same, across full envelope |
 | API stability | **No promise**, stated plainly | Bounded public surface (§7) |
@@ -192,6 +192,31 @@ by us, while the v1.0 program is still being built.
 
 The real-scan visual pass is required at **both** stages. An alpha may ship with
 gaps; it may not ship with splats missing under its own default settings.
+
+### 10.1 The alpha envelope, stated precisely
+
+"A single resident scene" is not self-explanatory, and an earlier draft of this
+document said "~2M splats", which the defaults do not produce. The alpha
+envelope is:
+
+- **Forward+, single view.** The pre-upscale composite is single-view only;
+  multiview and reflection probes keep the legacy post-scene hook, and Forward
+  Mobile is a separate route. None of those are in the alpha envelope.
+- **`GaussianSplatNode3D` with an imported asset.** The `GaussianSplatWorld3D`
+  route is **out** of the alpha envelope — see the note below.
+- **Import preset and node quality pinned, not defaulted.** The import dialog's
+  balanced fallback is the `desktop` preset: `max_splats = 750000`,
+  `density_multiplier = 0.7`
+  (`io/gaussian_import_preset.cpp:56-57`). The node then caps rendering at
+  `max_splats_per_frame = 500000`
+  (`core/gaussian_splat_quality_config.h:17`). A visual pass run at defaults
+  therefore signs off a scene thinned roughly fourfold. The pass **must** state
+  the import preset and node quality it ran at, or it proves nothing about the
+  splat count it claims.
+
+**Open decision:** whether the alpha admits `GaussianSplatWorld3D`. It is
+excluded above. If it is admitted, #862 becomes an alpha blocker. This is a
+maintainer decision and should be recorded here rather than left implicit.
 
 ## 11. Work items this bar creates
 
@@ -220,9 +245,39 @@ this document.
 
 **Blocking the Public Alpha:**
 
-- #921 / GPU-001 — splats absent at viewport scale 0.75 and under FSR2 with
-  `composite/depth_test = true`, the shipped default.
-- Real-scan visual pass on the alpha envelope.
+Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
+against this base. Ranked by user impact.
+
+1. **#586** — every sort-failure mode is classified into a
+   `GlobalSortAttemptOutcome` and rendering continues to composite regardless,
+   with the unsorted output owned by a counter and a throttled warning rather
+   than by a stop (`renderer/tile_renderer.cpp:993-1048`). The reported
+   consequences — a latch that never retries and a failed grow that destroys a
+   working sorter (`renderer/tile_render_resources.cpp:1314-1332`) — were
+   reported by triage and are *not* independently re-read here; Phase B must
+   confirm them before fixing. Symptom: wrong alpha ordering for the rest of the
+   session, reached via non-default sort settings or VRAM pressure.
+2. **#929** — splats swim under TAA/FSR2.
+3. **#851** — black contours and inert shadows with painterly enabled.
+4. **#930** — over-bright painterly splats.
+5. **#928** — opaque splat edges on transparent viewports.
+6. **#833** — starter-template overlay never updates.
+7. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
+   scenes.
+
+Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
+
+**#921 / GPU-001 is not in this list.** The code fix landed in #924
+(`873025f5783`), an ancestor of this base: the composite now runs at the
+pre-upscale seam before the FSR2/TAA block
+(`servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp:2658-2683`),
+and #965 added a blocking QA scene covering depth-test-on at scale 1.0 and 0.75.
+What remains open on #921 is the **human visual disposition** requested
+2026-08-23, plus one coverage gap: FSR2 has only a source-order guard and no
+pixel lane, so the production-defaults QA scene needs an FSR2 row. An earlier
+draft of this document described #921 as a live "splats absent" defect. That was
+wrong at this base, and is recorded here rather than silently corrected —
+under §8 a doc asserting behaviour the code no longer has is itself a defect.
 
 **Newly identified, not previously tracked:**
 
