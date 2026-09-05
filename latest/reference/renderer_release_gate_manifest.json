@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 156,
-    "sha256": "50aecb38c222f2e26d9eab6047d90660f95bcc379c317000b88559e04be97090",
-    "sha256_last_changed_by": "T4 x GPU-003 MERGE RE-PIN: composes #925's INCREASE (155 -> 156 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_gpu_sorting.h, tagged [GaussianSplatting][GpuSort][RequiresGPU], selected by the required GpuSorting batch) with T4/#908's RENAME (the three test_gpu_streaming.h cases retagged [GaussianSplatting][Streaming][RequiresGPU]; counts unchanged by a rename). Merged truth: 156 cases, 90 running in a named batch (87 base + 1 from #925 + 3 retagged into Streaming, of which 'GPU Memory Streaming Performance' is then deferred by waiver, so running = 88 + 3 - 1 = 90), deferred_count 3, unbatched_backlog 63. Counts and digest RECOMPUTED against the MERGED tree with the repo's own functions: check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract._batch_membership. Never hand-edited. Previous pins, for audit: 3708327312616675f5534294ecde556d61ac3bc260d90786de1bb852b83479cb (T4 branch, count 155) and 41ca4ca96db8b293cecaee242bb812dc2b4ff9c61f2950d0dabbec3c5ceec0bd (#925 master, count 156).",
+    "test_count": 157,
+    "sha256": "d15f5c0c0ab8211f293b57c668285263bcb70de6ae6d4ed29e1593156d079d8b",
+    "sha256_last_changed_by": "#586 PR 1 (reject the frame instead of compositing translucent splats unsorted): INCREASE 156 -> 157 cases; adds exactly ONE case in modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp, tagged [GaussianSplatting][TileRenderer][RequiresGPU] (\"Sorter-unavailable global composite rejects the frame instead of rasterizing unsorted tiles (#586)\"), selected by the TileRenderer batch (not in REQUIRED_BATCHES; a failing case still fails the harness because max_rc != 0 flips gate_failed). running_in_a_named_batch 90 -> 91, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 50aecb38c222f2e26d9eab6047d90660f95bcc379c317000b88559e04be97090 (count 156, T4 x GPU-003 merge re-pin).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -447,8 +447,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 156,
-      "running_in_a_named_batch": 90,
+      "requires_gpu_total": 157,
+      "running_in_a_named_batch": 91,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },
