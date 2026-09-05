@@ -539,6 +539,11 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// a degraded frame is counted in exactly one of them.
 	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
 	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
+	// #586 PR 2: the tile sorter's retry state (shared GPU-003 policy). A non-zero
+	// failure count with a rising rejected-frames counter is "retrying on backoff";
+	// recoveries counts episodes that ended with a sorter rebuilt by the renderer itself.
+	out["global_sort_sorter_init_failures"] = (int64_t)tr->get_global_sort_sorter_init_failure_count();
+	out["global_sort_sorter_recoveries"] = (int64_t)tr->get_global_sort_sorter_recoveries();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.

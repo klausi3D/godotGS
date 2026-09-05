@@ -244,6 +244,9 @@ public:
     // frame must be REJECTED (nothing published) instead of rasterized in the wrong alpha
     // order -- and a healthy sorter must still publish. Self-initializes the tile renderer.
     TestResult test_sorter_unavailable_rejects_frame(RenderingDevice *p_rd);
+    // #586 PR 2: after a real creation failure the tile sorter must be rebuilt by the
+    // production code on the shared GPU-003 backoff -- not before the window, not never.
+    TestResult test_sorter_unavailable_retries_and_recovers(RenderingDevice *p_rd);
 
     // Test utilities
     Vector<Gaussian> generate_test_gaussians(uint32_t count, bool valid = true);
@@ -1672,11 +1675,11 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     // radix_bits=8 x workgroup_size=64 x key_bits=64 makes RadixSort's histogram buffer
     // 128 bytes per element (workgroups * 256 bins * 8 passes * 4 bytes), so a capacity
     // request of REFUSED_CAPACITY (34,000,000) records needs 4,352,000,000 bytes for that
-    // one buffer, above the RenderingDevice uint32 size limit. RadixSort::initialize()
-    // refuses ("refusing to initialize", ERR_INVALID_PARAMETER),
-    // GPUSorterFactory::create_sorter() returns an invalid Ref, and
+    // one buffer, above the RenderingDevice uint32 size limit. ensure_resources()'s
+    // allocation-free size preflight (#586 PR 2; before it, RadixSort::initialize()'s own
+    // guard after a full shader compile) refuses the request, and
     // TileGlobalSortResources::ensure_resources() runs its disable_sorter() lambda for real:
-    // sorter shut down and unref'd, sorter_available latched false. The key/value buffers
+    // sorter shut down and unref'd, sorter_available cleared. The key/value buffers
     // (34M * 12 B = 408 MB) are then allocated normally, which is exactly the state the choke
     // point sees in the field. The same recipe reproduces the defect in the QA project from
     // project settings alone (max_overlap_records_adaptive_min), so this is the live trigger,
@@ -1694,10 +1697,11 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //      (which DID run: count, prefix, emit) must still report its measured CPU cost, and
     //      rasterization (which did not run) must report none. Pre-fix this phase publishes a
     //      valid RID and increments unsorted_composite_frames: RED on base by design.
-    //   3. RECOVERY CONTROL -- config restored and the latch cleared through the test accessor:
-    //      the renderer must rebuild a sorter and publish again, so the reject is a per-frame
-    //      decision and not a one-way kill switch. Clearing the latch is a TEST action at this
-    //      revision; production retry is the follow-up PR for #586.
+    //   3. RECOVERY CONTROL -- config restored and the unavailable flag cleared through the
+    //      test accessor: the renderer must rebuild a sorter and publish again, so the reject
+    //      is a per-frame decision and not a one-way kill switch. Clearing the flag here is a
+    //      TEST action so this case stays about the reject; the production retry (on the
+    //      shared GPU-003 backoff) is proven by the retries-and-recovers case below.
     //
     // Premise assertions guard every link, so a RED run shows the branch was actually reached
     // rather than the test having quietly missed it. Missing preconditions FAIL, never skip.
@@ -1909,10 +1913,12 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
-        // ---- Phase 3: recovery control. With the latch cleared, frames must publish again. ----
+        // ---- Phase 3: recovery control. With the flag cleared, frames must publish again. ----
         // Proves the reject is a per-frame decision driven by sorter availability, not a one-way
         // kill switch. The config is back at its defaults, so ensure_resources rebuilds a sorter at
-        // the scene's demand on this render.
+        // the scene's demand on this render (the next frame serial is 1 after the failure, inside
+        // the backoff window, so without this flag flip the production retry would NOT fire yet --
+        // which is what makes the accessor necessary here).
         sort_resources.sorter_available = true;
         RID recovered_output = tile_renderer->render(p_rd, params);
         if (!recovered_output.is_valid()) {
@@ -1937,6 +1943,251 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             r.error_message = vformat(
                     "The recovered, PUBLISHED frame reports no stage timings (assignment=%f raster=%f).",
                     double(tile_renderer->get_tile_assignment_time()), double(tile_renderer->get_rasterization_time()));
+            return r;
+        }
+
+        r.passed = true;
+        return r;
+    }();
+
+    free_scene();
+    return result;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_unavailable_retries_and_recovers(RenderingDevice *p_rd) {
+    // #586 PR 2 on-GPU proof: the tile sorter's "unavailable" state is a RETRY state on the
+    // shared GPU-003 backoff, not a latch.
+    //
+    // At the base of this change TileGlobalSortResources::ensure_resources() never called
+    // create_sorter() again once disable_sorter() had cleared sorter_available: the only
+    // creation branch sat behind `else if`, so one failure -- a refused grow, a transient
+    // allocation failure -- left the renderer with no sorter until reset_state(), i.e. every
+    // translucent frame rejected (#976) for the rest of the session. The PR-1 case above
+    // proves the reject; it has to clear the latch THROUGH THE TEST ACCESSOR to show the
+    // sorted path can come back. This case removes that intervention: after the same real
+    // failure, the production code must rebuild the sorter by itself, and it must do so on
+    // the policy's schedule -- not before the backoff window has elapsed (the rate bound
+    // that keeps a persistent failure from becoming an allocation/compile storm) and not
+    // later than it (the retry that ends the episode).
+    //
+    // The frame serial is driven explicitly through RenderParams::frame_serial, so the
+    // backoff window is measured in exactly the frames the policy counts; no wall clock,
+    // no machine-speed dependence.
+    //
+    // Phases:
+    //   1. HEALTHY CONTROL -- publishes; sorter live; failure count 0.
+    //   2. FAILURE through the production path -- the same refused capacity as the PR-1
+    //      case (34M records at radix 8 x wg 64 x 64-bit keys is above the RenderingDevice
+    //      32-bit buffer limit). Premises: sorter gone, sorter_available false, failure
+    //      count 1, key/value buffers live (so frames reject at the choke point), failure
+    //      frame stamped with the healthy frame's serial.
+    //   3. INSIDE THE BACKOFF WINDOW -- render frames failure+1 .. failure+backoff-1 with the
+    //      DEFAULT configuration restored: every one must be rejected, and no sorter may be
+    //      rebuilt. A retry gate that fires every frame (the M2 mutation) goes RED here.
+    //   4. AT failure+backoff -- the renderer must rebuild the sorter WITHOUT any test action
+    //      and publish: sorter live, sorter_available true, failure count back to 0,
+    //      recoveries +1, the reject counter no longer moving. A deleted retry (the M1
+    //      mutation, which is also the base behaviour) goes RED here.
+    //   5. STEADY STATE -- one more frame publishes with the counters unchanged.
+    TestResult result;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the #586 sorter-retry test";
+        return result;
+    }
+
+    const uint32_t splat_count = 4096u;
+    const uint32_t REFUSED_CAPACITY = 34000000u;
+    const uint64_t FIRST_FRAME_SERIAL = 1000u;
+
+    Vector<Gaussian> gaussians = generate_test_gaussians(splat_count);
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+            gaussian_buffer = RID();
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+            sorted_indices = RID();
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+        free_scene();
+        result.error_message = "Failed to create scene buffers for the #586 sorter-retry test";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    auto &sort_resources = tile_renderer->_test_global_sort_resources();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+
+    result = [&]() -> TestResult {
+        TestResult r;
+
+        // ---- Phase 1: healthy control. ----
+        params.frame_serial = FIRST_FRAME_SERIAL;
+        RID healthy_output = tile_renderer->render(p_rd, params);
+        if (!healthy_output.is_valid()) {
+            r.error_message = "Healthy control frame did not publish: render() returned an invalid RID with a "
+                              "working sorter. The scene setup, not the retry policy, is at fault.";
+            return r;
+        }
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available ||
+                tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
+            r.error_message = vformat(
+                    "Premise failed: after the healthy control frame the global-composite sorter is not live or "
+                    "already counts failures (sorter_valid=%s sorter_available=%s failures=%d).",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        const uint64_t recoveries_before = tile_renderer->get_global_sort_sorter_recoveries();
+
+        // ---- Phase 2: provoke the failure through the production path. ----
+        {
+            ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
+            ProjectSettingGuard radix_guard(ps, GPUSortingConfig::RADIX_BITS_PATH);
+            ProjectSettingGuard workgroup_guard(ps, GPUSortingConfig::WORKGROUP_SIZE_PATH);
+            ProjectSettingGuard key_bits_guard(ps, GPUSortingConfig::KEY_BITS_PATH);
+            ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+            if (ps) {
+                ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, "custom");
+                ps->set_setting(GPUSortingConfig::RADIX_BITS_PATH, 8);
+                ps->set_setting(GPUSortingConfig::WORKGROUP_SIZE_PATH, 64);
+                ps->set_setting(GPUSortingConfig::KEY_BITS_PATH, 64);
+                ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
+            }
+            g_gpu_sorting_config.load_from_project_settings();
+            if (GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(REFUSED_CAPACITY),
+                        g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, g_gpu_sorting_config.key_bits)) {
+                r.error_message = vformat(
+                        "Premise failed: %d records at radix_bits=%d workgroup_size=%d key_bits=%d fit the device size limit, "
+                        "so no creation failure could be provoked (ProjectSettings present=%s).",
+                        int(REFUSED_CAPACITY), int(g_gpu_sorting_config.radix_bits), int(g_gpu_sorting_config.workgroup_size),
+                        int(g_gpu_sorting_config.key_bits), ps ? "true" : "false");
+                return r;
+            }
+            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+
+        if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
+            r.error_message = "Premise failed: the refused capacity request did not disable the global-composite sorter.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_init_failure_count() != 1u) {
+            r.error_message = vformat(
+                    "Premise failed: after one refused creation the failure count is %d, expected 1; the failure was "
+                    "not recorded, so no backoff schedule exists to test.",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        if (!sort_resources.keys_buffer.is_valid() || !sort_resources.values_buffer.is_valid()) {
+            r.error_message = "Premise failed: the key/value sort buffers are not live after the failure, so frames would exit "
+                              "at the pre-binning check rather than the choke point (out of VRAM?).";
+            return r;
+        }
+        const uint64_t failure_frame = sort_resources.last_sorter_init_failure_frame;
+        if (failure_frame != FIRST_FRAME_SERIAL) {
+            r.error_message = vformat(
+                    "Premise failed: the failure was stamped with frame %d, expected the healthy frame's serial %d; the "
+                    "backoff window below would be measured from the wrong frame.",
+                    int(failure_frame), int(FIRST_FRAME_SERIAL));
+            return r;
+        }
+        const uint64_t backoff = GaussianSplatting::sorter_init_backoff_frames(1u);
+        if (backoff < 2u) {
+            r.error_message = vformat("Premise failed: the first backoff is %d frames, too short to observe a window.", int(backoff));
+            return r;
+        }
+
+        // ---- Phase 3: inside the backoff window, every frame rejects and nothing is rebuilt. ----
+        const uint64_t rejected_before_window = tile_renderer->get_global_composite_rejected_frames();
+        uint64_t frames_in_window = 0;
+        for (uint64_t serial = failure_frame + 1u; serial < failure_frame + backoff; serial++) {
+            params.frame_serial = serial;
+            RID output = tile_renderer->render(p_rd, params);
+            frames_in_window++;
+            if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
+                r.error_message = vformat(
+                        "RATE BOUND VIOLATED: a sorter was rebuilt at frame %d, only %d frame(s) after the failure at %d, "
+                        "inside the %d-frame backoff window. A persistent failure would be re-attempted every frame.",
+                        int(serial), int(serial - failure_frame), int(failure_frame), int(backoff));
+                return r;
+            }
+            if (output.is_valid()) {
+                r.error_message = vformat(
+                        "Frame %d inside the backoff window PUBLISHED with no sorter (%d frame(s) after the failure).",
+                        int(serial), int(serial - failure_frame));
+                return r;
+            }
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_window + frames_in_window) {
+            r.error_message = vformat(
+                    "Inside the backoff window %d frames were rendered but global_composite_rejected_frames moved %d -> %d.",
+                    int(frames_in_window), int(rejected_before_window), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+
+        // ---- Phase 4: at failure+backoff the renderer rebuilds on its own and publishes. ----
+        params.frame_serial = failure_frame + backoff;
+        const uint64_t rejected_before_retry = tile_renderer->get_global_composite_rejected_frames();
+        RID recovered_output = tile_renderer->render(p_rd, params);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "#586 RETRY REGRESSION: %d frames after the creation failure (backoff %d) the renderer still has no "
+                    "global-composite sorter (sorter_valid=%s sorter_available=%s failures=%d). The unavailable state "
+                    "latched; translucent frames stay rejected for the session.",
+                    int(backoff), int(backoff), sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        if (!recovered_output.is_valid()) {
+            r.error_message = "The renderer rebuilt a sorter at the retry frame but still published nothing.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
+            r.error_message = vformat(
+                    "The sorter was rebuilt but the failure count is still %d; the episode was not closed, so the next "
+                    "failure would start from a longer backoff than it should.",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_recoveries() != recoveries_before + 1u) {
+            r.error_message = vformat(
+                    "The sorter was rebuilt after a failure but global_sort_sorter_recoveries went %d -> %d (expected +1); "
+                    "the recovery is invisible in telemetry.",
+                    int(recoveries_before), int(tile_renderer->get_global_sort_sorter_recoveries()));
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry) {
+            r.error_message = vformat(
+                    "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
+                    int(rejected_before_retry), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+
+        // ---- Phase 5: steady state. ----
+        params.frame_serial = failure_frame + backoff + 1u;
+        RID steady_output = tile_renderer->render(p_rd, params);
+        if (!steady_output.is_valid() || !sort_resources.sorter.is_valid() ||
+                tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry ||
+                tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
+            r.error_message = "The frame after the recovery did not stay healthy (published=%s sorter_valid=%s rejected=%d failures=%d).";
+            r.error_message = vformat(r.error_message, steady_output.is_valid() ? "true" : "false",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    int(tile_renderer->get_global_composite_rejected_frames()),
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
             return r;
         }
 
@@ -2057,6 +2308,33 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sorter-unavailable glo
 
     // ::String is stringified by tests/test_macros.h; the .utf8().get_data() idiom used by
     // older cases in this file prints the pointer, not the text.
+    if (!result.passed) {
+        MESSAGE(result.error_message);
+    }
+    CHECK(result.passed);
+}
+
+// #586 PR 2: the tile sorter's unavailable state retries on the shared GPU-003 backoff and
+// recovers without any test intervention. See test_sorter_unavailable_retries_and_recovers
+// for the phases; same device/teardown idiom as the reject case above.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sorter-unavailable global composite retries on the shared backoff and recovers without intervention (#586)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("Could not create a local RenderingDevice from the harness-bootstrapped singleton. "
+             "This [RequiresGPU] case must run under tests/ci/run_gpu_harness.py.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_sorter_unavailable_retries_and_recovers(local_device);
+
+    regression_test.unref();
+
     if (!result.passed) {
         MESSAGE(result.error_message);
     }

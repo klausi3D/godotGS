@@ -195,8 +195,22 @@ struct TileGlobalSortResources {
 
 	TileRenderer &owner;
 	Ref<IGPUSorter> sorter;
+	// false while no sorter exists. #586 PR 2: this is a RETRY state, not a latch --
+	// ensure_resources() re-attempts creation on the shared GPU-003 backoff
+	// (sort_fallback_policy.h) and flips it back on success.
 	bool sorter_available = true;
 	bool sorter_missing_logged = false;
+	// GPU-003 policy state for the tile sorter (mirrors SortingState's fields for the
+	// instance sorter). Consecutive creation failures; reset to 0 by a successful
+	// (re)creation and by reset_state().
+	uint32_t sorter_init_failure_count = 0;
+	// TileRenderer::frame_state.current_frame_serial at the last failure. The backoff
+	// delta is computed in uint32 modular arithmetic so a counter wrap cannot bypass
+	// the window (GPU-003, Codex R1 P3).
+	uint64_t last_sorter_init_failure_frame = 0;
+	// Persistent count of successful recreations that followed at least one failure --
+	// "the retry worked", surfaced via get_binning_debug_counters().
+	uint64_t sorter_recoveries = 0;
 	uint64_t sorter_device_id = 0;
 	uint32_t capacity = 0;
 	uint32_t shrink_candidate_frames = 0; // consecutive low-demand frames, for bounded shrink hysteresis
