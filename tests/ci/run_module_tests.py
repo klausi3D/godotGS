@@ -1959,6 +1959,29 @@ def _run_history_artifact_guard(mode: str) -> tuple[bool, int, list[str]]:
     return True, 0, messages
 
 
+# #790 asked for `--godot-binary` to be forwarded here. Measured, it cannot be:
+# this runner shares a workspace with a QA corpus pinned to the Python-fallback
+# `test_splats.ply`. `tests/ci/baselines/qa_results.json` records
+# `source_splat_count: 1024`, and the committed `test_splats.gsplatworld` is a
+# 1024-splat bake that the world-vs-instance A/B compares against the PLY -- it
+# refuses to score when the two disagree (`scripts/qa_route_capture_base.gd`).
+# The evidence collector this job runs afterwards
+# (`tests/ci/collect_production_evidence.ps1`) executes that whole QA suite.
+# Regenerating the fixture at the C++ count here would therefore not upgrade a
+# benchmark; it would break a blocking gate whose committed expectations were
+# measured against the other corpus. Flipping it is a baseline change: rebake the
+# world and re-measure the QA baseline first. FallbackPinnedCorpusTests in
+# tests/ci/test_benchmark_fixture_contract.py enforces that coupling so it stays
+# visible instead of being rediscovered from a red GPU lane.
+FIXTURE_CORPUS_BLOCKER = (
+    "the QA corpus in this workspace is pinned to the Python-fallback fixture "
+    "(tests/ci/baselines/qa_results.json records source_splat_count=1024 and "
+    "tests/examples/godot/test_project/tests/fixtures/test_splats.gsplatworld is a "
+    "1024-splat bake); regenerating at the C++ count requires rebaking the world and "
+    "re-measuring the QA baseline first (#790)"
+)
+
+
 def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         return (
@@ -1966,12 +1989,13 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
             [f"Missing synthetic asset prep script: {SYNTHETIC_ASSET_PREP_SCRIPT.relative_to(ROOT)}"],
         )
 
-    code, out, err = _run_command(
-        [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"],
-        cwd=ROOT,
-    )
+    command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    code, out, err = _run_command(command, cwd=ROOT)
 
     messages = ["Preparing synthetic PLY assets for runtime and template lanes."]
+    # The prep script prints the per-fixture cost of the fallback; this names the
+    # reason the rich path is not attempted, which the script cannot know.
+    messages.append(f"Fixture generator: Python fallback by design -- {FIXTURE_CORPUS_BLOCKER}.")
     combined = (out + err).strip()
     if combined:
         messages.extend(combined.splitlines())

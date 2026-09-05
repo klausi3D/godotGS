@@ -749,6 +749,16 @@ def _parse_args() -> argparse.Namespace:
         help="Path to benchmark asset manifest JSON. Defaults to the project-local canonical manifest.",
     )
     parser.add_argument(
+        "--require-asset-variant",
+        default="",
+        choices=["", "python_fallback", "cpp_rich"],
+        help="Refuse to benchmark unless every lane's fixture was written by this "
+             "producer (see asset_expected_splat_counts in the asset manifest). "
+             "Lanes whose asset has no such producer declared are exempt -- "
+             "synthetic_spiral and synthetic_flower_field have no C++ generator. "
+             "Default: report the producer, do not enforce it.",
+    )
+    parser.add_argument(
         "--generate-dummy-assets",
         action="store_true",
         help="Generate placeholder PLY assets for lanes that need them.",
@@ -942,12 +952,147 @@ def read_ply_vertex_count(path: Path) -> int | None:
                 parts = stripped.split()
                 if len(parts) == 3 and parts[0] == b"element" and parts[1] == b"vertex":
                     try:
-                        return int(parts[2])
+                        count = int(parts[2])
                     except ValueError:
                         return None
+                    # Keep reading: the count alone does not establish that this
+                    # is even a Gaussian cloud. See _ply_has_gaussian_properties.
+                    if not _ply_header_declares_gaussian_properties(fh):
+                        return None
+                    return count
     except OSError:
         return None
     return None
+
+
+#: Properties every Gaussian PLY this suite consumes must declare. Deliberately a
+#: SUBSET -- SH degree varies by asset, so `f_rest_*` is not required.
+_REQUIRED_PLY_PROPERTIES = frozenset(
+    {b"x", b"y", b"z", b"opacity", b"scale_0", b"scale_1", b"scale_2",
+     b"rot_0", b"rot_1", b"rot_2", b"rot_3", b"f_dc_0", b"f_dc_1", b"f_dc_2"}
+)
+
+
+def ply_header_declares_rich_sh(path: Path) -> bool:
+    """Whether a PLY header carries the `f_rest_*` block only the C++ generator writes.
+
+    This is what makes the variant label mean the PRODUCER rather than the size.
+    `synthetic_ply_writer.cpp:48` emits `f_rest_0..44` whenever `p_write_sh1` is
+    set, and every generator call site sets it; the Python fallback emits none.
+    So a fixture claiming `cpp_rich` while lacking `f_rest_*` is a
+    fallback-shaped file wearing a rich vertex count -- which the count check
+    alone, and the generic Gaussian-property check alone, both accepted.
+    """
+    seen: set[bytes] = set()
+    try:
+        with path.open("rb") as fh:
+            if fh.readline().strip() != b"ply":
+                return False
+            for _ in range(256):
+                line = fh.readline()
+                if not line:
+                    return False
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    break
+                parts = stripped.split()
+                if len(parts) >= 3 and parts[0] == b"property" and parts[-1].startswith(b"f_rest_"):
+                    seen.add(parts[-1])
+    except OSError:
+        return False
+    return _RICH_SH_PROPERTIES.issubset(seen)
+
+
+def _ply_header_declares_gaussian_properties(fh) -> bool:
+    """Whether the remaining header declares the Gaussian property set.
+
+    Provenance was being inferred from vertex count ALONE, so any PLY whose
+    header happened to carry a declared producer's count was labelled as that
+    producer -- and `--require-asset-variant` then treated the label as fidelity
+    evidence. Swapping in an unrelated point cloud of the right size satisfied it.
+
+    Checking the property set does not make the label tamper-proof: a genuine
+    Gaussian fixture thinned to a colliding count still passes, and only a
+    producer marker written at generation time would close that. It does rule
+    out the case the review named -- an unrelated cloud standing in for a
+    fixture -- at the cost of a few more header lines.
+    """
+    seen: set[bytes] = set()
+    for _ in range(256):
+        line = fh.readline()
+        if not line:
+            return False
+        stripped = line.strip()
+        if stripped == b"end_header":
+            break
+        parts = stripped.split()
+        if len(parts) >= 3 and parts[0] == b"property":
+            seen.add(parts[-1])
+    return _REQUIRED_PLY_PROPERTIES.issubset(seen)
+
+
+# Issue #790: a lane's fixture is classified by which producer wrote it, not only
+# by whether it clears a floor. The floors were deliberately set equal to the
+# committed Python-fallback sizes so a clean checkout passes, which means a 2048
+# sphere and a 50000 sphere both satisfy `synthetic_sphere.ply` -- a 24x workload
+# difference with no signal. `asset_expected_splat_counts` in the manifest carries
+# the EXACT count each producer writes, both numbers derived from their producers.
+VARIANT_UNDECLARED = "undeclared"
+
+#: `asset_source` for a lane resolving to a chunked-world stage manifest rather
+#: than a PLY fixture. Such a lane has no producer counts and never can.
+CHUNKED_WORLD_CONTRACT_SOURCE = "chunked_world_contract"
+VARIANT_UNRECOGNIZED = "unrecognized"
+VARIANT_CPP_RICH = "cpp_rich"
+
+
+#: The COMPLETE rich SH block. `synthetic_ply_writer.cpp:46-48` declares all 45
+#: slots unconditionally ("declare all 45 slots so the loader finds G/B at the
+#: right indices"), so a partial set is not something the producer can emit.
+#: Accepting any single `f_rest_*` let a header carrying only `f_rest_44` claim
+#: to be rich.
+_RICH_SH_PROPERTIES = frozenset(b"f_rest_%d" % i for i in range(45))
+
+#: Variants whose producer writes the full `f_rest_*` SH block. A fixture may only
+#: be labelled one of these if its header actually carries that block.
+RICH_SH_VARIANTS = frozenset({VARIANT_CPP_RICH})
+
+
+def classify_fixture_variant(
+    actual_splats: int,
+    expected_variants: dict[str, int],
+    has_rich_sh: bool | None = None,
+) -> str:
+    """Return which declared producer wrote a fixture of this exact size.
+
+    `undeclared` when the asset declares no producer counts (a
+    `--generate-dummy-assets` placeholder, a chunked-ladder asset, any fixture the
+    manifest does not list), `unrecognized` when the count matches no declared
+    producer -- a thinned, truncated or hand-edited fixture.
+    """
+    if not expected_variants:
+        return VARIANT_UNDECLARED
+    matches = sorted(
+        variant for variant, count in expected_variants.items() if count == actual_splats
+    )
+    if not matches:
+        return VARIANT_UNRECOGNIZED
+    # A count match is not producer evidence on its own. When the header was
+    # inspected, a rich label additionally requires the rich SH block; without it
+    # the file is fallback-shaped wearing a rich count, which is `unrecognized`.
+    if has_rich_sh is False:
+        matches = [m for m in matches if m not in RICH_SH_VARIANTS]
+        if not matches:
+            return VARIANT_UNRECOGNIZED
+    # Two producers writing the same count is not an error, but the label must be
+    # deterministic rather than dict-order dependent.
+    return matches[0]
+
+
+def describe_fixture_variants(expected_variants: dict[str, int]) -> str:
+    return ", ".join(
+        f"{variant}={count}" for variant, count in sorted(expected_variants.items())
+    )
 
 
 def evaluate_fixture_contract(
@@ -957,8 +1102,9 @@ def evaluate_fixture_contract(
     asset_file: Path,
     required_splats: int,
     asset_source: str = "",
+    expected_variants: dict[str, int] | None = None,
 ) -> str:
-    """Return a failure string when a lane's fixture is absent or undersized.
+    """Return a failure string when a lane's fixture is absent, undersized or unrecognized.
 
     Returns an empty string when the fixture satisfies the lane's declared need.
     Fails CLOSED: a fixture whose splat count cannot be determined is rejected
@@ -971,20 +1117,25 @@ def evaluate_fixture_contract(
             f"      expected on disk at: {asset_file}\n"
             f"      generate it with: {PLY_PREP_COMMAND}"
         )
-    if required_splats <= 0:
+    variants = dict(expected_variants or {})
+    if required_splats <= 0 and not variants:
         return ""
     if asset_file.suffix.lower() != ".ply":
         return ""
     actual = read_ply_vertex_count(asset_file)
     if actual is None:
+        need = (
+            f"the lane needs >= {required_splats} splats"
+            if required_splats > 0
+            else f"the fixture must be one of: {describe_fixture_variants(variants)}"
+        )
         return (
             f"lane={lane_id}: UNVERIFIABLE benchmark fixture: {asset_path}{source_suffix}\n"
             f"      file: {asset_file}\n"
-            f"      could not read a vertex count from the PLY header; the lane needs "
-            f">= {required_splats} splats\n"
+            f"      could not read a vertex count from the PLY header; {need}\n"
             f"      regenerate it with: {PLY_PREP_COMMAND}"
         )
-    if actual < required_splats:
+    if required_splats > 0 and actual < required_splats:
         return (
             f"lane={lane_id}: UNDERSIZED benchmark fixture: {asset_path}{source_suffix}\n"
             f"      file: {asset_file}\n"
@@ -992,6 +1143,20 @@ def evaluate_fixture_contract(
             f"      a fixture this size is the lightweight Python-fallback build; it is a "
             f"different workload and will not reproduce published numbers\n"
             f"      regenerate it WITH a binary: {PLY_PREP_COMMAND}"
+        )
+    if variants and classify_fixture_variant(
+        actual, variants, ply_header_declares_rich_sh(asset_file)
+    ) == VARIANT_UNRECOGNIZED:
+        # This is the half a floor can never catch: a fixture the right side of
+        # the floor but produced by nothing. Import-time thinning, a truncated
+        # write and a hand-edited header all land here.
+        return (
+            f"lane={lane_id}: UNRECOGNIZED benchmark fixture: {asset_path}{source_suffix}\n"
+            f"      file: {asset_file}\n"
+            f"      has {actual} splats, which no declared producer writes "
+            f"({describe_fixture_variants(variants)})\n"
+            f"      a fixture no generator produced cannot be attributed to a workload\n"
+            f"      regenerate it with: {PLY_PREP_COMMAND}"
         )
     return ""
 
@@ -1028,17 +1193,132 @@ def _validate_suite_dependencies(
         # asset override is a deliberate placeholder, so only the manifest-declared
         # contract is enforced for it.
         required_splats = 0
+        expected_variants: dict[str, int] = {}
         if asset_policy.asset_source != "generated_dummy":
             required_splats = asset_manifest.min_splat_count_for(asset_policy.asset_path)
+            expected_variants = asset_manifest.expected_splat_counts_for(asset_policy.asset_path)
         contract_failure = evaluate_fixture_contract(
             lane_id=lane.lane_id,
             asset_path=asset_policy.asset_path,
             asset_file=asset_path,
             required_splats=required_splats,
             asset_source=asset_policy.asset_source,
+            expected_variants=expected_variants,
         )
         if contract_failure:
             failures.append(contract_failure)
+    return failures
+
+
+def collect_fixture_provenance(
+    project_path: Path,
+    lanes: list[LaneDefinition],
+    asset_manifest: BenchmarkAssetManifest,
+    generated_assets: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Return, per lane, which producer wrote the fixture the lane will measure.
+
+    Reported unconditionally so a published number carries its provenance rather
+    than only its value: #790's headline defect is that the fallback and rich
+    corpora are indistinguishable once a number exists. Runs after preflight, so
+    every fixture named here already satisfied the contract.
+    """
+    records: list[dict[str, Any]] = []
+    for lane in lanes:
+        generated_asset_path = generated_assets.get(lane.lane_id, "")
+        asset_policy = resolve_lane_asset_policy(
+            asset_manifest,
+            lane_id=lane.lane_id,
+            scene_path=lane.scene,
+            generated_asset_path=generated_asset_path if _lane_supports_asset_override(lane) else "",
+        )
+        expected_variants: dict[str, int] = {}
+        if asset_policy.asset_source != "generated_dummy":
+            expected_variants = asset_manifest.expected_splat_counts_for(asset_policy.asset_path)
+
+        actual: int | None = None
+        if asset_policy.asset_path:
+            if asset_policy.asset_path.startswith("res://"):
+                asset_file = _resolve_res_path(project_path, asset_policy.asset_path)
+            else:
+                asset_file = Path(asset_policy.asset_path)
+            if asset_file.suffix.lower() == ".ply" and asset_file.exists():
+                actual = read_ply_vertex_count(asset_file)
+
+        variant = (
+            VARIANT_UNDECLARED
+            if actual is None
+            else classify_fixture_variant(
+                actual, expected_variants, ply_header_declares_rich_sh(asset_file)
+            )
+        )
+        records.append(
+            {
+                "lane_id": lane.lane_id,
+                "asset_path": asset_policy.asset_path,
+                "asset_source": asset_policy.asset_source,
+                "asset_splat_count": actual,
+                "asset_variant": variant,
+                "asset_expected_splat_counts": dict(expected_variants),
+                # A fixture is at maximum available fidelity when no richer
+                # producer exists. synthetic_spiral and synthetic_flower_field
+                # have no C++ generator at all, so calling their committed size a
+                # "fallback" would misreport them as degraded.
+                "asset_rich_variant_available": VARIANT_CPP_RICH in expected_variants,
+            }
+        )
+    return records
+
+
+def evaluate_required_asset_variant(
+    records: list[dict[str, Any]],
+    required_variant: str,
+) -> list[str]:
+    """Return failures for lanes whose fixture is not the demanded producer.
+
+    A lane whose asset DECLARES producers, none of which is the required one,
+    cannot fail this: demanding a variant nothing can write would be a contract
+    no tree satisfies. `synthetic_spiral` and `synthetic_flower_field` have no
+    C++ generator at all, so their committed sizes are already maximum fidelity.
+
+    A lane that declares NOTHING is a different case and must NOT be exempt.
+    Empty `expected` means the manifest says nothing about the asset -- a
+    `--generate-dummy-assets` placeholder, or a custom manifest without
+    `asset_expected_splat_counts` -- so its fidelity is UNKNOWN, not known-absent.
+    Skipping those silently let `--require-asset-variant` pass over exactly the
+    lanes least likely to be running real content, which is the failure mode the
+    flag exists to prevent.
+    """
+    failures: list[str] = []
+    for record in records:
+        expected = record["asset_expected_splat_counts"]
+        # A chunked-world contract lane resolves to a stage manifest, not a PLY,
+        # so it has no producer counts and never can. Failing it was a REGRESSION
+        # introduced by the fail-closed change below: it broke the
+        # `openworld-proof-dev` dispatch before Godot even launched, on a lane
+        # whose fixture is not a PLY at all. "Unknown fidelity" and "not a PLY"
+        # are different, and only the first should fail.
+        if record.get("asset_source") == CHUNKED_WORLD_CONTRACT_SOURCE:
+            continue
+        if not expected:
+            failures.append(
+                f"lane={record['lane_id']}: requires asset_variant={required_variant} but "
+                f"{record['asset_path']} declares no producer counts at all, so its "
+                f"fidelity cannot be established ({record['asset_splat_count']} splats "
+                f"on disk). Declare asset_expected_splat_counts for it, or do not pass "
+                f"--require-asset-variant for this profile."
+            )
+            continue
+        if required_variant not in expected:
+            continue
+        if record["asset_variant"] == required_variant:
+            continue
+        failures.append(
+            f"lane={record['lane_id']}: requires asset_variant={required_variant} but "
+            f"{record['asset_path']} is {record['asset_variant']} "
+            f"({record['asset_splat_count']} splats; declared "
+            f"{describe_fixture_variants(expected)})"
+        )
     return failures
 
 
@@ -1666,6 +1946,45 @@ def _write_suite_summary_markdown(
             f"{_fmt(lane.get('capture_psnr_min'))} | "
             f"{lane.get('exit_code', 'n/a')} |"
         )
+    # Issue #790: the numbers above are only interpretable next to the fixture
+    # that produced them. Rendered as its own section rather than more columns on
+    # an already 31-column table -- a provenance nobody can find is the same as
+    # none. Emitted unconditionally: a run with no declared fixtures must say so
+    # rather than omit the section and read as "nothing to report".
+    lines.extend(
+        [
+            "",
+            "## Fixture Provenance",
+            "",
+            "Which producer wrote the fixture each lane measured. `python_fallback` is the",
+            "lightweight generator built into `prepare_synthetic_assets.py`; `cpp_rich` is the",
+            "C++ `[GeneratePLY]` case, reached only via `--godot-binary`. A lane running",
+            "`python_fallback` where `cpp_rich` exists measured a workload up to 24x smaller",
+            "than the one its asset names (#790).",
+            "",
+            "| Lane | Asset | Splats | Variant | Declared Producers | Richer Producer Available |",
+            "| --- | --- | ---: | --- | --- | --- |",
+        ]
+    )
+    for lane in lane_results:
+        expected = lane.get("asset_expected_splat_counts") or {}
+        rich_available = bool(lane.get("asset_rich_variant_available"))
+        splats = lane.get("asset_splat_count")
+        variant = lane.get("asset_variant", "undeclared")
+        if not rich_available:
+            richer = "no (maximum available fidelity)" if expected else "n/a"
+        else:
+            richer = "no" if variant == VARIANT_CPP_RICH else "**yes -- this lane ran the small fixture**"
+        lines.append(
+            "| "
+            f"`{lane['lane_id']}` | "
+            f"`{lane.get('resolved_asset_path', 'n/a')}` | "
+            f"{splats if splats is not None else 'n/a'} | "
+            f"`{variant}` | "
+            f"{describe_fixture_variants(expected) if expected else 'n/a'} | "
+            f"{richer} |"
+        )
+
     proof_lanes = [lane for lane in lane_results if bool(lane.get("proof_required"))]
     if proof_lanes:
         lines.extend(
@@ -1829,6 +2148,42 @@ def main() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 2
 
+    # Issue #790: state which producer wrote each fixture BEFORE any number is
+    # measured. Preflight proves the fixture is adequate; this says what it is.
+    provenance_records = collect_fixture_provenance(
+        project_path=project_path,
+        lanes=selected_lanes,
+        asset_manifest=asset_manifest,
+        generated_assets=generated_assets,
+    )
+    provenance_by_lane = {record["lane_id"]: record for record in provenance_records}
+    for record in provenance_records:
+        fidelity = ""
+        if record["asset_rich_variant_available"] and record["asset_variant"] != VARIANT_CPP_RICH:
+            fidelity = " -- NOT the rich C++ fixture this asset can be built at"
+        elif record["asset_expected_splat_counts"] and not record["asset_rich_variant_available"]:
+            fidelity = " -- maximum available fidelity (no C++ generator exists for it)"
+        print(
+            f"[suite] fixture lane={record['lane_id']} asset={record['asset_path'] or 'n/a'} "
+            f"splats={record['asset_splat_count'] if record['asset_splat_count'] is not None else 'n/a'} "
+            f"variant={record['asset_variant']}{fidelity}"
+        )
+
+    if args.require_asset_variant:
+        variant_failures = evaluate_required_asset_variant(
+            provenance_records, args.require_asset_variant
+        )
+        if variant_failures:
+            print(
+                f"ERROR: --require-asset-variant={args.require_asset_variant} is not satisfied; "
+                "refusing to produce benchmark numbers:",
+                file=sys.stderr,
+            )
+            for failure in variant_failures:
+                print(f"  - {failure}", file=sys.stderr)
+            print(f"  regenerate the fixtures with: {PLY_PREP_COMMAND}", file=sys.stderr)
+            return 2
+
     lane_results: list[dict[str, Any]] = []
     failed = False
     capture_dir = None if not capture_lane_ids else Path(args.capture_dir).resolve() if args.capture_dir else (output_dir / "captures")
@@ -1893,6 +2248,17 @@ def main() -> int:
         result["asset_classification"] = asset_policy.asset_classification
         result["evidence_role"] = asset_policy.evidence_role
         result["asset_policy_notes"] = asset_policy.notes
+        # #790: carry the fixture's producer into the lane record, so a stored
+        # number can still be attributed to a workload months later.
+        lane_provenance = provenance_by_lane.get(lane.lane_id, {})
+        result["asset_variant"] = lane_provenance.get("asset_variant", VARIANT_UNDECLARED)
+        result["asset_splat_count"] = lane_provenance.get("asset_splat_count")
+        result["asset_expected_splat_counts"] = lane_provenance.get(
+            "asset_expected_splat_counts", {}
+        )
+        result["asset_rich_variant_available"] = bool(
+            lane_provenance.get("asset_rich_variant_available", False)
+        )
         lane_results.append(result)
         score = result.get("score")
         avg_fps = result.get("avg_fps")

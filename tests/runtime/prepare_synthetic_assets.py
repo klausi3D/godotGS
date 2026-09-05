@@ -12,11 +12,14 @@ import argparse
 import json
 import math
 import os
+import pathlib
 import random
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,19 +46,114 @@ class PLYSpec:
     pattern: str
     scale: float
 
-# Files that the C++ [GeneratePLY] test case generates with rich generators
-# (fBm noise, SH coefficients, anisotropy, etc.).  When --godot-binary is
-# given these are produced by the engine binary; otherwise the Python fallback
-# generators below create lightweight versions.
-CPP_GENERATED_FILENAMES: frozenset[str] = frozenset({
-    "test_splats.ply",
-    "synthetic_sphere.ply",
-    "synthetic_cube.ply",
-    "synthetic_plane.ply",
-    "synthetic_torus.ply",
-    "synthetic_mandelbulb.ply",
-    "synthetic_cloud.ply",
-})
+# The C++ [GeneratePLY] test case is the only producer of the rich fixtures
+# (fBm noise, SH coefficients, anisotropy).  Which files it writes, and how many
+# splats each carries, is DERIVED from the generator source rather than restated
+# here: a hand-maintained copy of that list is the exact shape of invariant this
+# repository has already watched drift (see tests/AGENTS.md, "Derive coverage
+# lists").  Parsing fails closed - an unparseable or moved header raises at
+# import instead of silently yielding an empty set that would make
+# _generate_via_godot's completeness check vacuous.
+CPP_GENERATOR_HEADER: Path = (
+    RUNTIME_DIR.parents[1]
+    / "modules"
+    / "gaussian_splatting"
+    / "tests"
+    / "generate_synthetic_ply_fixtures.h"
+)
+
+# One alternation so the two tokens are read in source order: each generator
+# block sets `cfg.splat_count = N;` and then names its output with
+# `path_join("<name>.ply")`.  `CHECK(splats.size() == cfg.splat_count);` does not
+# match (no `= <digits>;`), and the `path_join("..")` calls that build the output
+# directory do not match either (no `.ply` suffix).
+_CPP_GENERATOR_TOKEN_RE = re.compile(
+    r'cfg\.splat_count\s*=\s*(\d+)\s*;|path_join\("([^"]+\.ply)"\)'
+)
+
+
+def parse_cpp_generator_counts(header_path: Path | None = None) -> dict[str, int]:
+    """Return {fixture filename: splat count} as declared by the C++ generators."""
+    path = header_path if header_path is not None else CPP_GENERATOR_HEADER
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            f"[prepare_synthetic_assets] cannot read the C++ fixture generator at {path}: {exc}. "
+            "The rich-fixture splat counts are derived from it; refusing to continue with an "
+            "unknown contract."
+        ) from exc
+
+    counts: dict[str, int] = {}
+    pending: int | None = None
+    for token in _CPP_GENERATOR_TOKEN_RE.finditer(text):
+        raw_count, filename = token.group(1), token.group(2)
+        if raw_count is not None:
+            pending = int(raw_count)
+            continue
+        if pending is None:
+            raise RuntimeError(
+                f"[prepare_synthetic_assets] {path.name} writes '{filename}' before declaring a "
+                "cfg.splat_count; the generator layout changed and the derived counts would be wrong."
+            )
+        previous = counts.get(filename)
+        if previous is not None and previous != pending:
+            raise RuntimeError(
+                f"[prepare_synthetic_assets] {path.name} declares two different splat counts for "
+                f"'{filename}' ({previous} and {pending})."
+            )
+        counts[filename] = pending
+        pending = None
+
+    if not counts:
+        raise RuntimeError(
+            f"[prepare_synthetic_assets] found no fixture generators in {path}. Either the file "
+            "moved or its shape changed; the derived rich-fixture contract would be empty."
+        )
+    return counts
+
+
+# {filename: splat count} written by the C++ [GeneratePLY] generators.
+SYNTHETIC_PLY_WRITER = (
+    RUNTIME_DIR.parents[1] / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
+)
+
+_PLY_PROPERTY_RE = re.compile(r'header \+= "property float ([A-Za-z0-9_]+)')
+_PLY_PROPERTY_LOOP_RE = re.compile(
+    r'for \(int i = 0; i < (\d+); i\+\+\) \{\s*header \+= vformat\("property float ([a-z_]+)%d'
+)
+
+
+def parse_cpp_writer_properties() -> tuple[str, ...]:
+    """The property names the C++ writer emits, READ FROM THE WRITER.
+
+    The rich-fixture tests previously hand-authored the producer's header shape.
+    A locally invented shape can only ever confirm what the author already
+    believed: if `synthetic_ply_writer.cpp` changed its header, the positive test
+    would stay green while describing a file the producer no longer writes.
+
+    This is derivation from source, and NOT the same thing as a fixture captured
+    from a real producer run -- the reviewer asked for capture, which needs the
+    module build. It does establish the coupling: the writer changing its header
+    changes this list, so the shape a test asserts against cannot silently drift
+    away from the shape the producer emits.
+    """
+    try:
+        source = SYNTHETIC_PLY_WRITER.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    names: list[str] = list(_PLY_PROPERTY_RE.findall(source))
+    for count, prefix in _PLY_PROPERTY_LOOP_RE.findall(source):
+        names.extend(f"{prefix}{i}" for i in range(int(count)))
+    return tuple(names)
+
+
+CPP_GENERATOR_SPLAT_COUNTS: dict[str, int] = parse_cpp_generator_counts()
+
+# Files the C++ generators produce.  When --godot-binary is given these come from
+# the engine binary; otherwise the Python fallback generators below create
+# lightweight versions of them.
+CPP_GENERATED_FILENAMES: frozenset[str] = frozenset(CPP_GENERATOR_SPLAT_COUNTS)
 
 CANONICAL_SPECS: tuple[PLYSpec, ...] = (
     PLYSpec("tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0),
@@ -360,16 +458,105 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
 
+# ---------------------------------------------------------------------------
+# Fixture provenance (#790)
+#
+# A FLOOR cannot answer the question the benchmarks actually need answered.
+# The floors above are set to the committed (Python-fallback) sizes so a clean
+# checkout passes, which means a 2048-splat sphere and a 50000-splat sphere both
+# satisfy `synthetic_sphere.ply` — a 24x workload difference with no signal.
+# Raising the floors is not available: it would fail every clean checkout, and
+# which workload a published lane is *entitled* to is a maintainer decision, not
+# something a floor should decide by accident.
+#
+# So instead of one floor, each fixture declares the EXACT count each producer
+# writes.  Both numbers are derived from their producers — CANONICAL_SPECS for
+# the Python fallback, generate_synthetic_ply_fixtures.h for the C++ generators —
+# so nothing here is invented and nothing can drift.  That turns "how big is it"
+# into "which producer made it", which is the question a benchmark number needs
+# stamped on it, and it makes a count matching NEITHER producer (a thinned,
+# truncated or hand-edited fixture) detectable without moving any floor.
+#
+# Note synthetic_spiral.ply and synthetic_flower_field.ply have no C++ generator
+# at all: 25000/30000 is their maximum available fidelity, not a reduced variant.
+VARIANT_PYTHON_FALLBACK = "python_fallback"
+VARIANT_CPP_RICH = "cpp_rich"
+
+
+def _python_fallback_counts() -> dict[str, int]:
+    """Return {fixture filename: splat count} the Python fallback generators write."""
+    counts: dict[str, int] = {}
+    for spec in CANONICAL_SPECS:
+        filename = Path(spec.relative_path).name
+        previous = counts.get(filename)
+        if previous is not None and previous != spec.count:
+            raise RuntimeError(
+                "[prepare_synthetic_assets] CANONICAL_SPECS declares two different counts for "
+                f"'{filename}' ({previous} and {spec.count}); the primary and project-local copies "
+                "of a fixture must be identical or the same res:// path means two workloads."
+            )
+        counts[filename] = spec.count
+    return counts
+
+
+PYTHON_FALLBACK_SPLAT_COUNTS: dict[str, int] = _python_fallback_counts()
+
+
+def _expected_splat_counts() -> dict[str, dict[str, int]]:
+    """Return {asset res:// path: {variant: exact splat count}} for every declared fixture."""
+    out: dict[str, dict[str, int]] = {}
+    for asset_path in ASSET_MIN_SPLAT_COUNTS:
+        filename = Path(asset_path).name
+        variants: dict[str, int] = {}
+        if filename in PYTHON_FALLBACK_SPLAT_COUNTS:
+            variants[VARIANT_PYTHON_FALLBACK] = PYTHON_FALLBACK_SPLAT_COUNTS[filename]
+        if filename in CPP_GENERATOR_SPLAT_COUNTS:
+            variants[VARIANT_CPP_RICH] = CPP_GENERATOR_SPLAT_COUNTS[filename]
+        if not variants:
+            raise RuntimeError(
+                f"[prepare_synthetic_assets] {asset_path} declares a splat-count floor but no "
+                "generator produces it; a lane would enforce a contract nothing can satisfy."
+            )
+        out[asset_path] = variants
+    return out
+
+
+ASSET_EXPECTED_SPLAT_COUNTS: dict[str, dict[str, int]] = _expected_splat_counts()
+
+
+def _validate_floor_provenance() -> None:
+    """Every floor must be a count some generator actually writes.
+
+    This is what stops a floor from becoming a number someone chose. Both
+    directions are covered: a floor invented above any producer's output would
+    fail every run, and a floor invented below the smallest producer's output
+    would quietly stop discriminating.
+    """
+    for asset_path, floor in ASSET_MIN_SPLAT_COUNTS.items():
+        variants = ASSET_EXPECTED_SPLAT_COUNTS[asset_path]
+        if floor not in set(variants.values()):
+            raise RuntimeError(
+                f"[prepare_synthetic_assets] floor {floor} for {asset_path} matches no generator "
+                f"output (declared: {variants}). Floors must name a producer, not a preference."
+            )
+
+
+_validate_floor_provenance()
+
 
 def _benchmark_asset_manifest() -> dict[str, object]:
     return {
         "chunked_asset_ladder": build_chunked_asset_ladder(),
-        "version": "2.4.0",
+        "version": "2.5.0",
         "default_asset": "res://tests/fixtures/test_splats.ply",
         "scene_defaults": dict(SCENE_DEFAULT_ASSETS),
         "lane_defaults": dict(LANE_DEFAULT_ASSETS),
         "lane_metadata": dict(LANE_METADATA),
         "asset_min_splat_counts": dict(ASSET_MIN_SPLAT_COUNTS),
+        "asset_expected_splat_counts": {
+            asset_path: dict(variants)
+            for asset_path, variants in ASSET_EXPECTED_SPLAT_COUNTS.items()
+        },
     }
 
 
@@ -822,10 +1009,19 @@ def _check_only(repo_root: Path) -> int:
     return 0
 
 
+# The C++ generators write ~390k splats across seven fixtures. On the CI runner
+# the binary under test is a dev_build (-O0) editor, where that is minutes rather
+# than seconds; the previous 120 s budget was never measured against that build.
+# A timeout here is indistinguishable from a broken generator, and since #790
+# that outcome is a hard failure rather than a silent downgrade - so the budget
+# has to be generous enough that only a genuinely stuck generator hits it.
+CPP_GENERATION_TIMEOUT_S = 900
+
+
 def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bool:
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
-    Returns True on success, False on failure (caller should fall back to Python).
+    Returns True on success, False on failure.
     """
     env = os.environ.copy()
     env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(output_dir)
@@ -837,10 +1033,75 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     ]
     if not quiet:
         print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
+    # Move the expected outputs aside BEFORE launching, so their later existence
+    # is proof that THIS invocation created them.
+    #
+    # This replaces a wall-clock comparison (`mtime < started_at - 2.0`) that
+    # could not do the job: a caller who ran the fallback prep and immediately
+    # retried with a binary whose filter matches zero tests but exits 0 left
+    # files whose mtimes fell inside the two-second grace, so every stale
+    # fallback fixture was accepted as freshly generated and `cpp_generated`
+    # was set on a corpus the producer never touched.
+    #
+    # Moved rather than deleted: if the producer fails we put them back, so a
+    # failed attempt does not leave the workspace worse than it found it.
+    quarantine = output_dir / ".pre_cpp_generation"
+    stashed: dict[str, pathlib.Path] = {}
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+        if any((output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES):
+            quarantine.mkdir(parents=True, exist_ok=True)
+            for name in sorted(CPP_GENERATED_FILENAMES):
+                src = output_dir / name
+                if src.is_file():
+                    dst = quarantine / name
+                    if dst.exists():
+                        dst.unlink()
+                    src.replace(dst)
+                    stashed[name] = dst
+    except OSError as exc:
+        print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
+        return False
+
+    def _restore_stashed() -> None:
+        """Undo the isolation after a FAILED attempt, partial output included.
+
+        A failed producer may have written some expected files before dying, and
+        those are not fixtures -- they are the debris of a run that did not
+        finish, of unknown content and unknown splat count. Restoring only where
+        the target is ABSENT (the first version of this) left that debris in
+        place and silently dropped the original underneath it, leaving the
+        workspace as a mix of partial output and stale originals: worse than
+        either, and indistinguishable from a good corpus by name alone.
+
+        So the partial output is discarded and the original put back. A file the
+        producer created that had no original is removed outright, since keeping
+        it would present a half-written fixture as a real one.
+        """
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            target = output_dir / name
+            src = stashed.get(name)
+            try:
+                if src is not None:
+                    if target.exists():
+                        target.unlink()          # discard partial output
+                    src.replace(target)          # put the original back
+                elif target.exists():
+                    target.unlink()              # partial, and nothing to restore
+            except OSError:
+                pass
+        try:
+            if quarantine.is_dir() and not any(quarantine.iterdir()):
+                quarantine.rmdir()
+        except OSError:
+            pass
+
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=CPP_GENERATION_TIMEOUT_S, env=env
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
+        _restore_stashed()
         return False
 
     if proc.returncode != 0:
@@ -848,22 +1109,86 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         if proc.stderr:
             for line in proc.stderr.strip().splitlines()[-5:]:
                 print(f"  {line}")
+        _restore_stashed()
         return False
 
-    # Verify all expected files were written.
-    missing = [name for name in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / name).is_file()]
+    # Existence IS the proof now: the expected outputs were moved aside above, so
+    # anything present here was created by the run that just finished. No
+    # timestamp reasoning, and therefore no grace window to slip through.
+    missing = [n for n in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / n).is_file()]
     if missing:
-        print(f"[prepare_synthetic_assets] C++ generation missing files: {missing}")
+        print(
+            "[prepare_synthetic_assets] C++ generation exited 0 but did not write: "
+            f"{missing}; the producer ran without producing these, so the corpus is "
+            "not C++-generated"
+        )
+        _restore_stashed()
         return False
+
+    # The producer succeeded, so the stashed copies are superseded.
+    for src in stashed.values():
+        try:
+            src.unlink()
+        except OSError:
+            pass
+    try:
+        if quarantine.is_dir() and not any(quarantine.iterdir()):
+            quarantine.rmdir()
+    except OSError:
+        pass
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
             size = (output_dir / name).stat().st_size
-            print(f"[prepare_synthetic_assets] C++ generated {name} ({size:,} bytes)")
+            print(
+                f"[prepare_synthetic_assets] C++ generated {name} "
+                f"({CPP_GENERATOR_SPLAT_COUNTS[name]} splats, {size:,} bytes)"
+            )
     return True
 
 
-def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) -> int:
+CPP_PREP_COMMAND_HINT = (
+    "python tests/runtime/prepare_synthetic_assets.py --godot-binary ./bin/<godot built with tests=yes>"
+)
+
+
+def _fallback_fidelity_report() -> list[str]:
+    """Lines naming, per fixture, what the Python fallback costs against the C++ generator."""
+    lines: list[str] = []
+    for filename in sorted(CPP_GENERATOR_SPLAT_COUNTS):
+        rich = CPP_GENERATOR_SPLAT_COUNTS[filename]
+        fallback = PYTHON_FALLBACK_SPLAT_COUNTS.get(filename)
+        if fallback is None:
+            continue
+        lines.append(f"    {filename}: {fallback} splats instead of {rich} ({rich / fallback:.0f}x smaller)")
+    return lines
+
+
+def _print_fallback_notice(reason: str) -> None:
+    """Say plainly that the fixtures about to be written are not the benchmark workload.
+
+    Deliberately unconditional on --quiet: --quiet is exactly what every CI
+    invocation passes, and the whole defect in #790 was that this downgrade
+    happened where nobody could see it.
+    """
+    print("[prepare_synthetic_assets] WARNING: LOW-FIDELITY FIXTURES")
+    print(f"[prepare_synthetic_assets]   {reason}")
+    print("[prepare_synthetic_assets]   the Python fallback generators will write:")
+    for line in _fallback_fidelity_report():
+        print(f"[prepare_synthetic_assets] {line}")
+    print(
+        "[prepare_synthetic_assets]   any benchmark number produced from these fixtures measures a "
+        "different workload than the lane names."
+    )
+    print(f"[prepare_synthetic_assets]   to fix: {CPP_PREP_COMMAND_HINT}")
+
+
+def _generate(
+    repo_root: Path,
+    quiet: bool,
+    godot_binary: Path | None = None,
+    allow_fallback: bool = False,
+) -> int:
     removed: list[str] = []
     fixtures_dir = repo_root / "tests" / "fixtures"
 
@@ -872,7 +1197,25 @@ def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) ->
     if godot_binary is not None:
         cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
         if not cpp_generated:
-            print("[prepare_synthetic_assets] falling back to Python generators for all files")
+            # #790: this used to fall back to Python and still exit 0. A caller
+            # that passed --godot-binary asked for the benchmark workload; handing
+            # it a 10x-smaller one and reporting success is the exact shape of
+            # defect the issue documents. --allow-fallback opts back in explicitly.
+            if not allow_fallback:
+                print(
+                    "[prepare_synthetic_assets] ERROR: --godot-binary was given but the C++ "
+                    "generators did not produce the fixtures."
+                )
+                _print_fallback_notice(
+                    "refusing to substitute them silently; re-run with --allow-fallback if a "
+                    "low-fidelity tree is genuinely acceptable here"
+                )
+                return 1
+            _print_fallback_notice(
+                "C++ generation failed and --allow-fallback was given"
+            )
+    else:
+        _print_fallback_notice("no --godot-binary was given")
 
     # Phase 2: Generate remaining files via Python.
     for spec in CANONICAL_SPECS:
@@ -951,7 +1294,17 @@ def main() -> int:
         help="Path to a Godot editor binary built with tests=yes.  When given, "
              "the C++ [GeneratePLY] test case generates high-quality fixtures "
              "(50K-100K splats with SH, anisotropy, fBm noise) instead of the "
-             "lightweight Python fallback generators.",
+             "lightweight Python fallback generators.  Giving this flag is a "
+             "REQUIREMENT, not a preference: if the C++ generators cannot run, "
+             "the script fails instead of substituting the small fixtures.",
+    )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Permit the lightweight Python fallback fixtures even though "
+             "--godot-binary was given.  Only for trees where a low-fidelity "
+             "corpus is genuinely acceptable; benchmark numbers produced from "
+             "such a tree do not describe the workload their lane names.",
     )
     args = parser.parse_args()
 
@@ -969,7 +1322,7 @@ def main() -> int:
 
     if args.check:
         return _check_only(repo_root)
-    return _generate(repo_root, args.quiet, godot_binary)
+    return _generate(repo_root, args.quiet, godot_binary, allow_fallback=args.allow_fallback)
 
 
 if __name__ == "__main__":

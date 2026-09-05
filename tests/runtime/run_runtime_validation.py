@@ -203,6 +203,25 @@ def ensure_build_dir() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# #790 asked for `--godot-binary` to be forwarded here too. It cannot be, for the
+# same measured reason as tests/ci/run_module_tests.py: this harness runs in the
+# module-validation workspace, whose evidence step
+# (tests/ci/collect_production_evidence.ps1) executes the QA scene suite, and that
+# suite's committed expectations are pinned to the 1024-splat Python-fallback
+# test_splats.ply. Six harness scripts here load that fixture directly
+# (test_canonical_node_asset_render.gd, test_data_flow_recent_window.gd,
+# test_pipeline_trace_freshness.gd, test_scene_effector_runtime_controls.gd,
+# test_world_streaming_gate.gd) or the world baked from it
+# (test_mixed_residency_routing.gd). Flipping the corpus is a baseline change,
+# not a wiring fix.
+FIXTURE_CORPUS_BLOCKER = (
+    "the QA corpus this workspace also runs is pinned to it "
+    "(tests/ci/baselines/qa_results.json records source_splat_count=1024 and the "
+    "committed test_splats.gsplatworld is a 1024-splat bake); regenerating at the C++ "
+    "count requires rebaking the world and re-measuring the QA baseline first (#790)"
+)
+
+
 def ensure_synthetic_assets() -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
@@ -210,6 +229,7 @@ def ensure_synthetic_assets() -> None:
         )
 
     command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    print(f"[runtime] Fixture generator: Python fallback by design -- {FIXTURE_CORPUS_BLOCKER}.")
     print(f"[runtime] Preparing synthetic assets: {_format_command(command)}")
     try:
         completed = subprocess.run(
@@ -222,9 +242,31 @@ def ensure_synthetic_assets() -> None:
     except (OSError, PermissionError) as exc:
         raise RuntimeError(f"Synthetic asset prep failed to launch: {type(exc).__name__}: {exc}") from exc
 
+    # Echo prep output on success too: under --quiet the only thing it prints is
+    # the low-fidelity warning (#790), and a warning nobody sees is not a warning.
+    for line in (completed.stdout or "").splitlines():
+        if line.strip():
+            print(line)
+
     if completed.returncode != 0:
-        output = ((completed.stdout or "") + (completed.stderr or "")).strip()
-        detail = _first_non_empty_line(output) or f"exit code {completed.returncode}"
+        # Report the FAILURE, not the notice that happens to precede it.
+        #
+        # The child now emits the low-fidelity warning to stdout before it does
+        # any file work, so the first non-empty line of stdout is that warning
+        # even when prep died of something unrelated -- a read-only checkout, a
+        # full disk. Taking line one would report "low-fidelity fixtures" as the
+        # cause of a permission error and send the reader somewhere useless.
+        #
+        # stderr is where the real failure lands, so it wins. Falling back to the
+        # LAST stdout line rather than the first keeps the diagnostic close to
+        # the point of death when a child writes its error to stdout instead.
+        stderr_detail = _first_non_empty_line(completed.stderr or "")
+        stdout_lines = [ln.strip() for ln in (completed.stdout or "").splitlines() if ln.strip()]
+        detail = (
+            stderr_detail
+            or (stdout_lines[-1] if stdout_lines else None)
+            or f"exit code {completed.returncode}"
+        )
         raise RuntimeError(f"Synthetic asset prep failed: {detail}")
 
 

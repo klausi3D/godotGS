@@ -145,6 +145,44 @@ the `--godot-binary` requirement above enforced rather than merely documented: a
 Python-fallback `test_splats.ply` fails the 10000-splat floor instead of silently benchmarking a
 10x-smaller workload.
 
+### Which producer wrote the fixture (#790)
+
+A floor answers "is it big enough". It cannot answer "which corpus is this", and for the committed
+`synthetic_*.ply` fixtures it never could: their floors are set equal to the committed
+Python-fallback sizes so that a clean checkout passes, so a 2048-splat sphere and a 50000-splat
+sphere both satisfy `synthetic_sphere.ply`. Raising those floors is not available — it would fail
+every fresh clone.
+
+So the manifest also carries `asset_expected_splat_counts`: the **exact** count each producer
+writes, per fixture. Both numbers are derived from their producers — `CANONICAL_SPECS` for the
+Python fallback, `generate_synthetic_ply_fixtures.h` for the C++ generators — so neither is a
+number anyone chose.
+
+| | effect |
+| --- | --- |
+| Count matches a declared producer | the lane is labelled `python_fallback` or `cpp_rich` |
+| Count matches **no** declared producer | preflight fails `UNRECOGNIZED` — a thinned, truncated or hand-edited fixture cannot be attributed to a workload |
+| Asset declares no producers (`--generate-dummy-assets`, chunked ladder) | `undeclared`, no size rule |
+
+`run_benchmark.py` prints the label per lane before measuring anything, writes it into each lane's
+result (`asset_variant`, `asset_splat_count`) and into a **Fixture Provenance** section of
+`benchmark_suite_summary.md`, so a stored number can still be attributed to a workload later.
+`--require-asset-variant cpp_rich` turns the label into enforcement; lanes whose asset has no C++
+generator (`synthetic_spiral`, `synthetic_flower_field`) are exempt, because demanding a producer
+that does not exist is a gate that can never go green.
+
+!!! warning "Only the benchmark evidence job preps with `--godot-binary`"
+    `tests/ci/run_module_tests.py`, `tests/ci/run_baseline_qa.py` and
+    `tests/runtime/run_runtime_validation.py` deliberately do **not**. They share a workspace with
+    the QA scene suite, whose committed expectations were measured against the Python-fallback
+    fixture: `tests/ci/baselines/qa_results.json` records `source_splat_count: 1024`, and the
+    committed `test_splats.gsplatworld` is a 1024-splat bake that the world-vs-instance A/B
+    compares against the PLY. Regenerating at the C++ count there would break a blocking gate
+    rather than improve a benchmark. Moving that corpus is a baseline change — rebake the world,
+    re-measure the QA baseline, and forward the binary in one sequence.
+    `tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests` keeps the coupling
+    enforced, and each runner states it at the point of prep.
+
 Before #669 such a lane instantiated zero splat nodes and reported an *implausibly high* FPS with
 a passing recommendation — the failure presented as a spectacular result rather than a broken one.
 Regression coverage lives in `tests/ci/test_benchmark_fixture_contract.py`.
