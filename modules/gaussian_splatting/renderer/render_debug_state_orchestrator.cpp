@@ -534,6 +534,11 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+	// #586 FIX: frames the global-composite path REFUSED to publish (nothing presented)
+	// rather than composite translucent splats unsorted. Partition with the pair above:
+	// a degraded frame is counted in exactly one of them.
+	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
+	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.
