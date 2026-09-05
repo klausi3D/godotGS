@@ -219,13 +219,15 @@ struct TileGlobalSortResources {
 	// Persistent count of successful recreations that followed at least one failure --
 	// "the retry worked", surfaced via get_binning_debug_counters().
 	uint64_t sorter_recoveries = 0;
-	// #586 PR 3: a GROW (or key-layout change) that cannot build its replacement keeps
-	// the WORKING sorter, its capacity and its buffers, and renders sorted at the old
-	// budget (records above it are clamped by the prefix pass and counted by the
-	// overflow-drop telemetry). The pending grow is re-attempted on the same GPU-003
-	// backoff, tracked separately from the no-sorter episode above because frames keep
-	// publishing throughout: consecutive failed grow attempts, the frame of the last
-	// one, and the number of grow episodes that ended with the grow succeeding.
+	// #586 PR 3: a capacity GROW that cannot build its replacement keeps the WORKING
+	// sorter, its capacity and its buffers, and renders sorted at the old budget
+	// (records above it are clamped by the prefix pass and counted by the overflow-drop
+	// telemetry). The pending grow is re-attempted on the same GPU-003 backoff, tracked
+	// separately from the no-sorter episode above because frames keep publishing
+	// throughout: consecutive failed grow attempts, the frame of the last one, and the
+	// number of grow episodes that ended with the grow succeeding. A KEY-LAYOUT change
+	// is not a grow: the shaders already follow the new layout, so a failed one retires
+	// the sorter (no-sorter episode, #982 review) and abandons any pending grow episode.
 	uint32_t sorter_grow_failure_count = 0;
 	uint64_t last_sorter_grow_failure_frame = 0;
 	uint64_t sorter_grow_recoveries = 0;

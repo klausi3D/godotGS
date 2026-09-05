@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 159,
-    "sha256": "e067d9384476d311d2da708074a30426ea6c8bac473a1445dfb0c5104af422f4",
-    "sha256_last_changed_by": "#586 PR 3 (a failed grow keeps the working sorter): INCREASE 158 -> 159 cases; adds exactly ONE case in modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp, tagged [GaussianSplatting][TileRenderer][RequiresGPU] (\"A failed global composite sort grow keeps the working sorter and retries on the shared backoff (#586)\"), selected by the TileRenderer batch. running_in_a_named_batch 92 -> 93, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 9a797b85ee5651d7f486cf0969e4c5050cf685e0620f06fc4d9a43fb024306ca (count 158, #586 PR 2 / #977).",
+    "test_count": 160,
+    "sha256": "a96ee21d8879f72cc904b9724b392d1f85708e517ec008ff063023af5fd00eb8",
+    "sha256_last_changed_by": "#586 PR 3 / #982 review round 1 (a failed key-layout change retires the old sorter): INCREASE 159 -> 160 cases; adds exactly ONE case in modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp, tagged [GaussianSplatting][TileRenderer][RequiresGPU] (\"A failed global composite sort key-layout change retires the old sorter instead of keeping one that no longer matches the shaders (#586)\"), selected by the TileRenderer batch. running_in_a_named_batch 93 -> 94, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: e067d9384476d311d2da708074a30426ea6c8bac473a1445dfb0c5104af422f4 (count 159, #586 PR 3 first cut / #982).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -447,8 +447,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 159,
-      "running_in_a_named_batch": 93,
+      "requires_gpu_total": 160,
+      "running_in_a_named_batch": 94,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },
