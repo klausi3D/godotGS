@@ -1997,6 +1997,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //   5. PUBLISH -- the next frame publishes with the recovered sorter and the preserved
     //      buffers; only now the episode closes: failure count 0, recoveries +1, the reject
     //      counter unchanged.
+    //   6. SECOND EPISODE -- the episode close must also have re-armed the one-shot guard for
+    //      disable_sorter()'s root-cause line (sorter_missing_logged), so an independent later
+    //      failure logs its own cause instead of only the generic attempt line (#977 round 4).
+    //      The guard is the sole gate of that line and is set only inside the branch that
+    //      emits it, so its transitions ARE the emission: false after the close, true again
+    //      after the second episode's first failure. A close that leaves it set (the M5
+    //      mutation, also the round-3 behaviour) goes RED here.
     TestResult result;
 
     Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
@@ -2226,6 +2233,51 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     "A sorted frame was published after the failure but global_sort_sorter_recoveries went %d -> %d "
                     "(expected +1); the recovery is invisible in telemetry.",
                     int(recoveries_before), int(tile_renderer->get_global_sort_sorter_recoveries()));
+            return r;
+        }
+
+        // ---- Phase 6: a second, independent episode must surface its own root cause. ----
+        if (sort_resources.sorter_missing_logged) {
+            r.error_message = "LOG GUARD NOT RESET: the episode closed (failure count 0, recovery counted) but "
+                              "sorter_missing_logged is still set, so the next episode's disable_sorter() root-cause "
+                              "line would be suppressed: the log would report the first degradation and go quiet while "
+                              "the counters keep moving.";
+            return r;
+        }
+        {
+            ProjectSettingGuard preset_guard2(ps, GPUSortingConfig::GPU_PRESET_PATH);
+            ProjectSettingGuard radix_guard2(ps, GPUSortingConfig::RADIX_BITS_PATH);
+            ProjectSettingGuard workgroup_guard2(ps, GPUSortingConfig::WORKGROUP_SIZE_PATH);
+            ProjectSettingGuard key_bits_guard2(ps, GPUSortingConfig::KEY_BITS_PATH);
+            ProjectSettingGuard overlap_guard2(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+            if (ps) {
+                ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, "custom");
+                ps->set_setting(GPUSortingConfig::RADIX_BITS_PATH, 8);
+                ps->set_setting(GPUSortingConfig::WORKGROUP_SIZE_PATH, 64);
+                ps->set_setting(GPUSortingConfig::KEY_BITS_PATH, 64);
+                ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
+            }
+            g_gpu_sorting_config.load_from_project_settings();
+            // A GROW above the recovered capacity, so ensure_resources() must attempt a
+            // recreation (an equal request would be satisfied by the live sorter) and the
+            // size preflight refuses it: a fresh failure with a fresh reason text.
+            tile_renderer->set_frame_serial(failure_frame + backoff + 2u);
+            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY + 1000000u);
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (sort_resources.sorter.is_valid() || sort_resources.sorter_available ||
+                tile_renderer->get_global_sort_sorter_init_failure_count() != 1u) {
+            r.error_message = vformat(
+                    "Premise failed: the second refused grow did not open a new episode (sorter_valid=%s "
+                    "sorter_available=%s failures=%d, expected an unavailable sorter with failure count 1).",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        if (!sort_resources.sorter_missing_logged) {
+            r.error_message = "The second episode's first failure did not set sorter_missing_logged, i.e. disable_sorter() "
+                              "did not take the branch that emits the root-cause line.";
             return r;
         }
 

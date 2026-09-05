@@ -1680,6 +1680,11 @@ void TileGlobalSortResources::note_sorted_frame_published() {
 			int(sorter_init_failure_count)));
 	sorter_init_failure_count = 0;
 	sorter_recoveries++;
+	// The one-shot guard for disable_sorter()'s root-cause line is per EPISODE, not per
+	// process: a later, independent failure must log its own cause, otherwise the log
+	// reports the first episode and goes quiet while the counters keep moving (#977
+	// review round 4). Cleared here, at the only episode boundary.
+	sorter_missing_logged = false;
 }
 
 void TileUniformBuffers::release(RenderingDevice *p_default_device) {
