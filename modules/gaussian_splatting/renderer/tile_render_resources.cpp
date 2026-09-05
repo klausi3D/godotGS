@@ -1437,13 +1437,11 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					key_config = desired_key_config;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
-					if (sorter_init_failure_count > 0) {
-						// The retry worked: end the failure episode and count the recovery.
-						GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter recovered after %d failed attempt(s); translucent frames are presented again (#586)",
-								int(sorter_init_failure_count)));
-						sorter_init_failure_count = 0;
-						sorter_recoveries++;
-					}
+					// NOTE: a non-zero sorter_init_failure_count is NOT cleared here. The sorter
+					// coming back is necessary but not sufficient: the key/value/tile buffers
+					// below can still fail under the same pressure, and then the frame is
+					// rejected at the pre-binning check. The episode closes at the end of this
+					// function, once every buffer the frame needs has been verified (#977 review).
 					GS_LOG_INFO_DEFAULT(vformat("[TileRenderer] Global sort capacity initialized: %d (config max_overlap_records=%d)",
 						int(capacity), int(g_gpu_sorting_config.max_overlap_records)));
 					if (capacity < resize_elements) {
@@ -1650,6 +1648,17 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 
 		if (buffers_recreated) {
 			owner._invalidate_descriptor_cache();
+		}
+		if (sorter_init_failure_count > 0 && sorter_available && sorter.is_valid()) {
+			// #586 PR 2: the failure episode ends HERE, not at sorter creation -- this is the
+			// first point where the sorter AND every buffer a frame needs (keys, values, tile
+			// counts/ranges, prefix total, workgroup sums/offsets) are all verified. A sorter
+			// that was rebuilt while a later allocation failed is not a recovery: that frame is
+			// still rejected, and the counters must not say otherwise (#977 review round 1).
+			GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter recovered after %d failed attempt(s); translucent frames are presented again (#586)",
+					int(sorter_init_failure_count)));
+			sorter_init_failure_count = 0;
+			sorter_recoveries++;
 		}
 		return;
 	}
