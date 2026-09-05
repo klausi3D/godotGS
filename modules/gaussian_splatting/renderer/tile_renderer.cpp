@@ -862,6 +862,7 @@ private:
 			if (renderer.global_sort_resources.capacity == 0 ||
 					!renderer.global_sort_resources.keys_buffer.is_valid() || !renderer.global_sort_resources.values_buffer.is_valid() ||
 					!renderer.global_sort_resources.get_tile_counts_buffer().is_valid() || !renderer.global_sort_resources.tile_ranges_buffer.is_valid() ||
+					!renderer.global_sort_resources.indirect_dispatch_buffer.is_valid() ||
 					!renderer.shader_resources.tile_binning_count_pipeline.is_valid()) {
 				GS_LOG_ERROR_DEFAULT("[TileRenderer] Global composite sort enabled but resources are unavailable");
 				// #586: this exit REJECTS the frame (run() returns an invalid RID, nothing is

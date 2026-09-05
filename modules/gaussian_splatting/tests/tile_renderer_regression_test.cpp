@@ -1984,11 +1984,17 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //   3. INSIDE THE BACKOFF WINDOW -- render frames failure+1 .. failure+backoff-1 with the
     //      DEFAULT configuration restored: every one must be rejected, and no sorter may be
     //      rebuilt. A retry gate that fires every frame (the M2 mutation) goes RED here.
-    //   4. AT failure+backoff -- the renderer must rebuild the sorter WITHOUT any test action
-    //      and publish: sorter live, sorter_available true, failure count back to 0,
-    //      recoveries +1, the reject counter no longer moving. A deleted retry (the M1
-    //      mutation, which is also the base behaviour) goes RED here.
-    //   5. STEADY STATE -- one more frame publishes with the counters unchanged.
+    //   4. AT failure+backoff -- ensure_resources() is driven (through the production
+    //      function) at the SAME capacity the buffers were sized for, which fits again now
+    //      that the default configuration is back: the retry must succeed, close the
+    //      episode (failure count 0, recoveries +1), and KEEP the existing key/value/tile
+    //      buffers -- a transient failure recovers at an unchanged capacity and key layout,
+    //      and reallocating hundreds of MB under the same pressure would turn the recovery
+    //      into another rejected frame (#977 round 2). A deleted retry (the M1 mutation,
+    //      also the base behaviour) goes RED here; so does a success path that still
+    //      reallocates (the M3 mutation).
+    //   5. STEADY STATE -- the next frame publishes with the recovered sorter and the
+    //      preserved buffers, counters unchanged.
     TestResult result;
 
     Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
@@ -2091,9 +2097,10 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     int(tile_renderer->get_global_sort_sorter_init_failure_count()));
             return r;
         }
-        if (!sort_resources.keys_buffer.is_valid() || !sort_resources.values_buffer.is_valid()) {
-            r.error_message = "Premise failed: the key/value sort buffers are not live after the failure, so frames would exit "
-                              "at the pre-binning check rather than the choke point (out of VRAM?).";
+        if (!sort_resources.keys_buffer.is_valid() || !sort_resources.values_buffer.is_valid() ||
+                !sort_resources.tile_ranges_buffer.is_valid() || !sort_resources.indirect_dispatch_buffer.is_valid()) {
+            r.error_message = "Premise failed: the key/value/tile/indirect sort buffers are not all live after the failure, so "
+                              "frames would exit at the pre-binning check rather than the choke point (out of VRAM?).";
             return r;
         }
         const uint64_t failure_frame = sort_resources.last_sorter_init_failure_frame;
@@ -2138,10 +2145,15 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
-        // ---- Phase 4: at failure+backoff the renderer rebuilds on its own and publishes. ----
-        params.frame_serial = failure_frame + backoff;
+        // ---- Phase 4: at failure+backoff the production code rebuilds at the same capacity and keeps the buffers. ----
+        const RID keys_before = sort_resources.keys_buffer;
+        const RID values_before = sort_resources.values_buffer;
+        const RID ranges_before = sort_resources.tile_ranges_buffer;
+        const RID indirect_before = sort_resources.indirect_dispatch_buffer;
+        const uint32_t capacity_before = sort_resources.capacity;
         const uint64_t rejected_before_retry = tile_renderer->get_global_composite_rejected_frames();
-        RID recovered_output = tile_renderer->render(p_rd, params);
+        tile_renderer->set_frame_serial(failure_frame + backoff);
+        tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
         if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
             r.error_message = vformat(
                     "#586 RETRY REGRESSION: %d frames after the creation failure (backoff %d) the renderer still has no "
@@ -2152,8 +2164,24 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     int(tile_renderer->get_global_sort_sorter_init_failure_count()));
             return r;
         }
-        if (!recovered_output.is_valid()) {
-            r.error_message = "The renderer rebuilt a sorter at the retry frame but still published nothing.";
+        if (sort_resources.capacity != capacity_before) {
+            r.error_message = vformat(
+                    "Premise failed: the retry changed the sort capacity (%d -> %d); this phase is about a recovery at an "
+                    "unchanged capacity, so the buffer-preservation assertion below would not apply.",
+                    int(capacity_before), int(sort_resources.capacity));
+            return r;
+        }
+        if (sort_resources.keys_buffer != keys_before || sort_resources.values_buffer != values_before ||
+                sort_resources.tile_ranges_buffer != ranges_before || sort_resources.indirect_dispatch_buffer != indirect_before) {
+            r.error_message = vformat(
+                    "BUFFER CHURN: a retry that succeeded at the unchanged capacity %d and key layout freed and reallocated "
+                    "the sort buffers (keys %s, values %s, ranges %s, indirect %s). Under the VRAM pressure that caused the "
+                    "failure, that reallocation is what turns a recovery into another rejected frame.",
+                    int(capacity_before),
+                    sort_resources.keys_buffer != keys_before ? "changed" : "kept",
+                    sort_resources.values_buffer != values_before ? "changed" : "kept",
+                    sort_resources.tile_ranges_buffer != ranges_before ? "changed" : "kept",
+                    sort_resources.indirect_dispatch_buffer != indirect_before ? "changed" : "kept");
             return r;
         }
         if (tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
@@ -2177,10 +2205,11 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
-        // ---- Phase 5: steady state. ----
+        // ---- Phase 5: the next frame publishes with the recovered sorter and the preserved buffers. ----
         params.frame_serial = failure_frame + backoff + 1u;
         RID steady_output = tile_renderer->render(p_rd, params);
         if (!steady_output.is_valid() || !sort_resources.sorter.is_valid() ||
+                sort_resources.keys_buffer != keys_before ||
                 tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry ||
                 tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
             r.error_message = "The frame after the recovery did not stay healthy (published=%s sorter_valid=%s rejected=%d failures=%d).";

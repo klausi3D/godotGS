@@ -1435,6 +1435,7 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 					}
 					sorter = created_sorter;
 					key_config = desired_key_config;
+					const uint32_t previous_capacity = capacity;
 					capacity = sorter->get_max_elements();
 					sorter_available = true;
 					// NOTE: a non-zero sorter_init_failure_count is NOT cleared here. The sorter
@@ -1448,7 +1449,16 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 						WARN_PRINT_ONCE(vformat("[TileRenderer] Global sort capacity capped (requested=%d, actual=%d)",
 							int(resize_elements), int(capacity)));
 					}
-					sorter_recreated = true;
+					// Free and reallocate the key/value/tile buffers only when their size or
+					// layout actually changed. A retry that succeeds at the capacity and key
+					// layout the buffers were already sized for (the shape a transient failure
+					// recovers in) keeps them: reallocating hundreds of MB under the same
+					// pressure that caused the failure would turn the recovery into another
+					// rejected frame (#977 review round 2). Device changes are handled by the
+					// buffer_owner checks below, independently of this flag.
+					if (capacity != previous_capacity || key_config_changed) {
+						sorter_recreated = true;
+					}
 				}
 			}
 		}
@@ -1613,9 +1623,13 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 			buffers_recreated = true;
 		}
 
+		// Every buffer a frame binds must be live before this call may report success:
+		// the prefix stage's uniform set and sort_indirect_async() both require the
+		// indirect-dispatch buffer, which this check used to omit (#977 review round 2).
 		if (!keys_buffer.is_valid() || !values_buffer.is_valid() ||
 				!tile_counts_buffers[0].is_valid() || !tile_counts_buffers[1].is_valid() ||
 				!tile_ranges_buffer.is_valid() || !prefix_total_buffer.is_valid() ||
+				!indirect_dispatch_buffer.is_valid() ||
 				!wg_sums_buffer.is_valid() || !wg_offsets_buffer.is_valid()) {
 			GS_LOG_ERROR_DEFAULT("[TileRenderer] Failed to allocate global composite sort buffers");
 			if (!attempted_fallback && attempt_elements > 1u) {
