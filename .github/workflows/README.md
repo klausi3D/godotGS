@@ -13,7 +13,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The `build_linux_export_template` / `build_windows_export_template` jobs (#825) upload export templates as **artifacts only** — they are deliberately not wired into `release_candidate_gate` or `publish_release`; see [export templates](../../docs/development/export-templates.md). |
-| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
@@ -37,6 +37,12 @@ boundary.
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
 without touching the self-hosted lanes. It runs:
 
+- `python tests/ci/test_validate_automation.py -v` followed by
+  `python tests/ci/validate_automation.py --contracts-only` after installing the
+  version-and-hash-pinned PyYAML dependency; the validator derives and parses
+  every `*.yml` and `*.yaml` workflow, and fails closed if the parser or corpus
+  is absent, or if a document lacks a typed, non-empty top-level trigger or
+  `jobs` mapping
 - `python scripts/agentic/validate_repo_contract.py --strict-hierarchy` (the
   `--strict-hierarchy` flag also requires the AGENTS.md hierarchy and
   `docs/governance/*`; without it those could all be deleted with the gate green)
@@ -417,6 +423,8 @@ which brings it into the derived set automatically.
 ## Dependencies
 
 - Python 3.11
+- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
+  CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
 - SCons/build toolchain for compiled lanes
 - Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
 - Optional GPU evidence label `gpu` for the Windows evidence lane

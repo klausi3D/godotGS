@@ -295,39 +295,117 @@ def test_baseline_qa_runner(godot_binary: str) -> dict:
         return {"success": False, "error": str(exc)}
 
 
-def check_ci_workflow() -> bool:
-    """Check that required CI workflow files exist and are valid YAML when parser is available."""
-    workflow_files = [
-        ".github/workflows/baseline_qa.yml",
-        ".github/workflows/gaussian_production_gates.yml",
-        ".github/workflows/gaussian_shader_validation.yml",
-        ".github/workflows/agentic_pr_gate.yml",
-    ]
+REQUIRED_WORKFLOW_NAMES = frozenset(
+    {
+        "agentic_pr_gate.yml",
+        "baseline_qa.yml",
+        "gaussian_production_gates.yml",
+        "gaussian_shader_validation.yml",
+    }
+)
 
+
+def _has_nonempty_workflow_trigger(value: object) -> bool:
+    """Return whether a GitHub Actions `on` value declares at least one event."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value) and all(
+            isinstance(event, str) and bool(event.strip()) for event in value
+        )
+    if isinstance(value, dict):
+        return bool(value) and all(
+            isinstance(event, str) and bool(event.strip()) for event in value
+        )
+    return False
+
+
+def _github_actions_loader(yaml_module: object) -> type:
+    """Preserve the literal `on` key while retaining all other safe scalar types."""
+    safe_loader = yaml_module.SafeLoader  # type: ignore[attr-defined]
+    bool_tag = "tag:yaml.org,2002:bool"
+    string_tag = "tag:yaml.org,2002:str"
+
+    class GitHubActionsLoader(safe_loader):
+        def construct_mapping(self, node: object, deep: bool = False) -> object:
+            # GitHub Actions follows YAML 1.2 for its reserved `on` mapping key,
+            # while PyYAML resolves that YAML 1.1 spelling as boolean True.
+            # Retag only mapping keys; scalar values keep SafeLoader's null,
+            # boolean, numeric, sequence, and mapping types.
+            for key_node, _value_node in node.value:  # type: ignore[attr-defined]
+                if key_node.tag == bool_tag and key_node.value.lower() == "on":
+                    key_node.tag = string_tag
+            return super().construct_mapping(node, deep=deep)
+
+    return GitHubActionsLoader
+
+
+def check_ci_workflow() -> bool:
+    """Parse every workflow GitHub Actions discovers, failing closed on absence."""
     try:
         import yaml  # type: ignore
-    except ImportError:
-        yaml = None
+    except ImportError as exc:
+        print(f"❌ PyYAML is required for CI workflow validation: {exc}")
+        print(
+            "   Install the pinned automation dependencies from "
+            "tests/ci/requirements-automation.txt"
+        )
+        return False
 
-    success = True
-    for relative in workflow_files:
-        workflow_file = ROOT_DIR / relative
-        if not workflow_file.exists():
-            print(f"❌ Missing CI workflow file: {relative}")
-            success = False
-            continue
+    workflow_dir = ROOT_DIR / ".github" / "workflows"
+    try:
+        workflow_files = sorted(
+            path
+            for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in {".yml", ".yaml"}
+        )
+    except OSError as exc:
+        print(f"❌ Cannot enumerate CI workflow directory {workflow_dir}: {exc}")
+        return False
 
+    if not workflow_files:
+        print("❌ No GitHub Actions workflow files found")
+        return False
+
+    discovered_names = {path.name for path in workflow_files}
+    missing_required = sorted(REQUIRED_WORKFLOW_NAMES - discovered_names)
+    success = not missing_required
+    for name in missing_required:
+        print(f"❌ Missing required CI workflow file: .github/workflows/{name}")
+
+    for workflow_file in workflow_files:
+        relative = workflow_file.relative_to(ROOT_DIR).as_posix()
         print(f"✅ CI workflow file exists: {relative}")
-        if yaml is None:
-            print("⚠️ PyYAML not available, skipping YAML parse validation")
-            continue
-
         try:
-            yaml.safe_load(workflow_file.read_text(encoding="utf-8"))
-            print(f"✅ YAML valid: {relative}")
+            # PyYAML's YAML 1.1 resolver converts an unquoted top-level `on` key
+            # to boolean True. The narrow loader preserves that key while SafeLoader
+            # retains null/bool/number value types for fail-closed trigger checks.
+            document = yaml.load(
+                workflow_file.read_text(encoding="utf-8"),
+                Loader=_github_actions_loader(yaml),
+            )
         except Exception as exc:
             print(f"❌ CI workflow YAML is invalid ({relative}): {exc}")
             success = False
+            continue
+
+        if not isinstance(document, dict):
+            print(f"❌ CI workflow root must be a mapping: {relative}")
+            success = False
+            continue
+
+        jobs = document.get("jobs")
+        if not isinstance(jobs, dict) or not jobs:
+            print(f"❌ CI workflow must define a non-empty jobs mapping: {relative}")
+            success = False
+            continue
+
+        if not _has_nonempty_workflow_trigger(document.get("on")):
+            print(f"❌ CI workflow must define a non-empty top-level on trigger: {relative}")
+            success = False
+            continue
+
+        print(f"✅ YAML workflow structure valid: {relative}")
 
     return success
 
