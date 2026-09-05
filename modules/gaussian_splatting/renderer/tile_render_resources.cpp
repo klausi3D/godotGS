@@ -1663,19 +1663,23 @@ void TileGlobalSortResources::ensure_resources(uint32_t p_visible_count) {
 		if (buffers_recreated) {
 			owner._invalidate_descriptor_cache();
 		}
-		if (sorter_init_failure_count > 0 && sorter_available && sorter.is_valid()) {
-			// #586 PR 2: the failure episode ends HERE, not at sorter creation -- this is the
-			// first point where the sorter AND every buffer a frame needs (keys, values, tile
-			// counts/ranges, prefix total, workgroup sums/offsets) are all verified. A sorter
-			// that was rebuilt while a later allocation failed is not a recovery: that frame is
-			// still rejected, and the counters must not say otherwise (#977 review round 1).
-			GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter recovered after %d failed attempt(s); translucent frames are presented again (#586)",
-					int(sorter_init_failure_count)));
-			sorter_init_failure_count = 0;
-			sorter_recoveries++;
-		}
+		// NOTE: a pending failure episode is NOT closed here either. Resources being live
+		// is still not a presented frame: the count/emit uniform sets, the tile-range build
+		// and the raster stage can all fail after this point. The episode closes in
+		// note_sorted_frame_published(), called by the frame executor only once a sorted
+		// frame has actually been published (#977 review round 3).
 		return;
 	}
+}
+
+void TileGlobalSortResources::note_sorted_frame_published() {
+	if (sorter_init_failure_count == 0) {
+		return;
+	}
+	GS_LOG_WARN_DEFAULT(vformat("[TileRenderer] Global composite sorter recovered after %d failed attempt(s): a sorted frame was published again (#586)",
+			int(sorter_init_failure_count)));
+	sorter_init_failure_count = 0;
+	sorter_recoveries++;
 }
 
 void TileUniformBuffers::release(RenderingDevice *p_default_device) {

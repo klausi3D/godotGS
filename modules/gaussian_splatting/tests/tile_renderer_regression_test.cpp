@@ -1986,15 +1986,17 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //      rebuilt. A retry gate that fires every frame (the M2 mutation) goes RED here.
     //   4. AT failure+backoff -- ensure_resources() is driven (through the production
     //      function) at the SAME capacity the buffers were sized for, which fits again now
-    //      that the default configuration is back: the retry must succeed, close the
-    //      episode (failure count 0, recoveries +1), and KEEP the existing key/value/tile
-    //      buffers -- a transient failure recovers at an unchanged capacity and key layout,
-    //      and reallocating hundreds of MB under the same pressure would turn the recovery
-    //      into another rejected frame (#977 round 2). A deleted retry (the M1 mutation,
+    //      that the default configuration is back: the retry must succeed and KEEP the
+    //      existing key/value/tile buffers -- a transient failure recovers at an unchanged
+    //      capacity and key layout, and reallocating hundreds of MB under the same pressure
+    //      would turn the recovery into another rejected frame (#977 round 2). The episode
+    //      must still be OPEN here (failure count 1, recoveries unchanged): resources being
+    //      live is not a presented frame (#977 round 3). A deleted retry (the M1 mutation,
     //      also the base behaviour) goes RED here; so does a success path that still
-    //      reallocates (the M3 mutation).
-    //   5. STEADY STATE -- the next frame publishes with the recovered sorter and the
-    //      preserved buffers, counters unchanged.
+    //      reallocates (M3), and so does an episode closed before publication (M4).
+    //   5. PUBLISH -- the next frame publishes with the recovered sorter and the preserved
+    //      buffers; only now the episode closes: failure count 0, recoveries +1, the reject
+    //      counter unchanged.
     TestResult result;
 
     Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
@@ -2184,39 +2186,46 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                     sort_resources.indirect_dispatch_buffer != indirect_before ? "changed" : "kept");
             return r;
         }
+        // Resources are back, but nothing has been PRESENTED yet: the episode must still be open.
+        if (tile_renderer->get_global_sort_sorter_init_failure_count() != 1u ||
+                tile_renderer->get_global_sort_sorter_recoveries() != recoveries_before) {
+            r.error_message = vformat(
+                    "PREMATURE RECOVERY: the sorter and buffers were rebuilt but no frame has been published, yet the "
+                    "episode was closed (failures=%d, recoveries %d -> %d). Telemetry must not report a recovery the user "
+                    "has not seen -- the uniform-set, tile-range and raster stages can still fail after this point.",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()),
+                    int(recoveries_before), int(tile_renderer->get_global_sort_sorter_recoveries()));
+            return r;
+        }
+
+        // ---- Phase 5: the next frame publishes with the recovered sorter; only now the episode closes. ----
+        params.frame_serial = failure_frame + backoff + 1u;
+        RID steady_output = tile_renderer->render(p_rd, params);
+        if (!steady_output.is_valid()) {
+            r.error_message = "The frame after the resource recovery did not publish.";
+            return r;
+        }
+        if (!sort_resources.sorter.is_valid() || sort_resources.keys_buffer != keys_before ||
+                tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry) {
+            r.error_message = vformat(
+                    "The published frame after the recovery did not keep the recovered state (sorter_valid=%s keys_kept=%s rejected %d -> %d).",
+                    sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.keys_buffer == keys_before ? "true" : "false",
+                    int(rejected_before_retry), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
         if (tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
             r.error_message = vformat(
-                    "The sorter was rebuilt but the failure count is still %d; the episode was not closed, so the next "
-                    "failure would start from a longer backoff than it should.",
+                    "A sorted frame was published after the failure but the failure count is still %d; the episode was "
+                    "not closed, so the next failure would start from a longer backoff than it should.",
                     int(tile_renderer->get_global_sort_sorter_init_failure_count()));
             return r;
         }
         if (tile_renderer->get_global_sort_sorter_recoveries() != recoveries_before + 1u) {
             r.error_message = vformat(
-                    "The sorter was rebuilt after a failure but global_sort_sorter_recoveries went %d -> %d (expected +1); "
-                    "the recovery is invisible in telemetry.",
+                    "A sorted frame was published after the failure but global_sort_sorter_recoveries went %d -> %d "
+                    "(expected +1); the recovery is invisible in telemetry.",
                     int(recoveries_before), int(tile_renderer->get_global_sort_sorter_recoveries()));
-            return r;
-        }
-        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry) {
-            r.error_message = vformat(
-                    "The recovered frame was ALSO counted as rejected (%d -> %d) even though it published.",
-                    int(rejected_before_retry), int(tile_renderer->get_global_composite_rejected_frames()));
-            return r;
-        }
-
-        // ---- Phase 5: the next frame publishes with the recovered sorter and the preserved buffers. ----
-        params.frame_serial = failure_frame + backoff + 1u;
-        RID steady_output = tile_renderer->render(p_rd, params);
-        if (!steady_output.is_valid() || !sort_resources.sorter.is_valid() ||
-                sort_resources.keys_buffer != keys_before ||
-                tile_renderer->get_global_composite_rejected_frames() != rejected_before_retry ||
-                tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
-            r.error_message = "The frame after the recovery did not stay healthy (published=%s sorter_valid=%s rejected=%d failures=%d).";
-            r.error_message = vformat(r.error_message, steady_output.is_valid() ? "true" : "false",
-                    sort_resources.sorter.is_valid() ? "true" : "false",
-                    int(tile_renderer->get_global_composite_rejected_frames()),
-                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
             return r;
         }
 

@@ -541,7 +541,8 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
 	// #586 PR 2: the tile sorter's retry state (shared GPU-003 policy). A non-zero
 	// failure count with a rising rejected-frames counter is "retrying on backoff";
-	// recoveries counts episodes that ended with a sorter rebuilt by the renderer itself.
+	// recoveries counts episodes that ended with a SORTED FRAME PUBLISHED by the
+	// renderer's own retry -- not merely a sorter or buffers rebuilt.
 	out["global_sort_sorter_init_failures"] = (int64_t)tr->get_global_sort_sorter_init_failure_count();
 	out["global_sort_sorter_recoveries"] = (int64_t)tr->get_global_sort_sorter_recoveries();
 

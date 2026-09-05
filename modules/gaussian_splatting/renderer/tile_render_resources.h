@@ -192,6 +192,14 @@ struct TileGlobalSortResources {
 	void release(RenderingDevice *p_default_device);
 	void reset_state(bool p_clear_sorter);
 	void ensure_resources(uint32_t p_visible_count);
+	// #586 PR 2: called by the frame executor once a frame whose translucent content was
+	// SORTED by this sorter has been PUBLISHED (valid output RID). Closes an open failure
+	// episode: failure count -> 0, sorter_recoveries + 1, one WARN. This is the only place
+	// the episode closes -- not sorter creation, not buffer allocation -- because every
+	// later stage of the frame (uniform sets, tile ranges, raster) can still fail after
+	// ensure_resources() returns, and a "recovered" that precedes presentation is a claim
+	// the telemetry cannot back (#977 review rounds 1-3).
+	void note_sorted_frame_published();
 
 	TileRenderer &owner;
 	Ref<IGPUSorter> sorter;
