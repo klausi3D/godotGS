@@ -202,8 +202,10 @@ envelope is:
 - **Forward+, single view.** The pre-upscale composite is single-view only;
   multiview and reflection probes keep the legacy post-scene hook, and Forward
   Mobile is a separate route. None of those are in the alpha envelope.
-- **`GaussianSplatNode3D` with an imported asset.** The `GaussianSplatWorld3D`
-  route is **out** of the alpha envelope — see the note below.
+- **`GaussianSplatNode3D` with an imported asset, and `GaussianSplatWorld3D`.**
+  The world route is **in** the alpha envelope by maintainer decision, which
+  makes #862 an alpha blocker (see §11). Streaming *open worlds* remain out —
+  admitting the world node is not admitting the 50M chunked ladder.
 - **Import preset and node quality pinned, not defaulted.** The import dialog's
   balanced fallback is the `desktop` preset: `max_splats = 750000`,
   `density_multiplier = 0.7`
@@ -214,9 +216,10 @@ envelope is:
   the import preset and node quality it ran at, or it proves nothing about the
   splat count it claims.
 
-**Open decision:** whether the alpha admits `GaussianSplatWorld3D`. It is
-excluded above. If it is admitted, #862 becomes an alpha blocker. This is a
-maintainer decision and should be recorded here rather than left implicit.
+**Decided:** the alpha admits `GaussianSplatWorld3D`, so #862 is an alpha
+blocker. Triage had classified it out-of-envelope on the assumption that the
+world route was excluded; that assumption is now reversed, and the issue enters
+the blocker set by this decision rather than by a change in its severity.
 
 ## 11. Work items this bar creates
 
@@ -257,12 +260,16 @@ against this base. Ranked by user impact.
    reported by triage and are *not* independently re-read here; Phase B must
    confirm them before fixing. Symptom: wrong alpha ordering for the rest of the
    session, reached via non-default sort settings or VRAM pressure.
-2. **#929** — splats swim under TAA/FSR2.
-3. **#851** — black contours and inert shadows with painterly enabled.
-4. **#930** — over-bright painterly splats.
-5. **#928** — opaque splat edges on transparent viewports.
-6. **#833** — starter-template overlay never updates.
-7. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
+2. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
+   parameters change, so edits silently do not apply. Enters this set by the
+   §10.1 envelope decision, not by triage ranking, which had classified it
+   out-of-envelope.
+3. **#929** — splats swim under TAA/FSR2.
+4. **#851** — black contours and inert shadows with painterly enabled.
+5. **#930** — over-bright painterly splats.
+6. **#928** — opaque splat edges on transparent viewports.
+7. **#833** — starter-template overlay never updates.
+8. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
 
 Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
