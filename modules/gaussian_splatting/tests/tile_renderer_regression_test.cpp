@@ -247,6 +247,15 @@ public:
     // #586 PR 2: after a real creation failure the tile sorter must be rebuilt by the
     // production code on the shared GPU-003 backoff -- not before the window, not never.
     TestResult test_sorter_unavailable_retries_and_recovers(RenderingDevice *p_rd);
+    // #586 PR 3: a grow that cannot build its replacement must keep the working sorter (and
+    // its capacity and buffers), keep publishing sorted frames, and retry the grow on the
+    // shared backoff.
+    TestResult test_failed_grow_keeps_working_sorter(RenderingDevice *p_rd);
+    // #586 PR 3, #982 review (P1): a KEY-LAYOUT change is not a grow. When its replacement
+    // cannot be built the old sorter must NOT be kept -- the shaders already follow the new
+    // layout -- it must leave no sorter (rejected frames), re-size the buffers for the new
+    // layout, and let the no-sorter retry rebuild at the new layout.
+    TestResult test_failed_relayout_leaves_no_mismatched_sorter(RenderingDevice *p_rd);
 
     // Test utilities
     Vector<Gaussian> generate_test_gaussians(uint32_t count, bool valid = true);
@@ -1675,33 +1684,40 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     // radix_bits=8 x workgroup_size=64 x key_bits=64 makes RadixSort's histogram buffer
     // 128 bytes per element (workgroups * 256 bins * 8 passes * 4 bytes), so a capacity
     // request of REFUSED_CAPACITY (34,000,000) records needs 4,352,000,000 bytes for that
-    // one buffer, above the RenderingDevice uint32 size limit. ensure_resources()'s
+    // one buffer, above the RenderingDevice uint32 size limit. The renderer's FIRST sort
+    // capacity request -- before any sorter exists -- asks for it; ensure_resources()'s
     // allocation-free size preflight (#586 PR 2; before it, RadixSort::initialize()'s own
-    // guard after a full shader compile) refuses the request, and
-    // TileGlobalSortResources::ensure_resources() runs its disable_sorter() lambda for real:
-    // sorter shut down and unref'd, sorter_available cleared. The key/value buffers
-    // (34M * 12 B = 408 MB) are then allocated normally, which is exactly the state the choke
-    // point sees in the field. The same recipe reproduces the defect in the QA project from
-    // project settings alone (max_overlap_records_adaptive_min), so this is the live trigger,
-    // not a simulation of one. NOT covered here: the capability-probe-false cause (no
-    // supported desktop GPU fails the probe) and the VRAM-pressure allocation-failure cause
-    // (not deterministically reproducible on NVIDIA, which spills to host memory).
+    // guard after a full shader compile) refuses, and TileGlobalSortResources::
+    // ensure_resources() runs its disable_sorter() lambda for real: sorter_available
+    // cleared, failure counted. The key/value buffers (34M * 12 B = 408 MB) are then
+    // allocated normally, which is exactly the state the choke point sees in the field.
+    // The same recipe reproduces the defect in the QA project from project settings alone
+    // (max_overlap_records_adaptive_min), so this is the live trigger, not a simulation of
+    // one. It is provoked as a FIRST creation rather than a grow because since #586 PR 3 a
+    // refused grow keeps the working sorter -- a first-creation failure is the production
+    // route to "no sorter" (the other is a device change/teardown). NOT covered here: the
+    // capability-probe-false cause (no supported desktop GPU fails the probe) and the
+    // VRAM-pressure allocation-failure cause (not deterministically reproducible on NVIDIA,
+    // which spills to host memory).
     //
     // Phases; the discriminating assertion is the OBSERVABLE CONSEQUENCE (was a frame
     // published?), never a log line:
-    //   1. HEALTHY CONTROL -- default sorter config, same scene: render() must publish and
-    //      neither counter may move. Without this the fix could "pass" by rejecting everything.
-    //   2. SORTER UNAVAILABLE -- the real trigger above, same scene, splat_count > 0: render()
+    //   1. FIRST CREATION REFUSED -- the real trigger above on the fresh renderer; premises:
+    //      no sorter, sorter_available false, buffers live (so the frame reaches the choke
+    //      point, not the pre-binning exit), failure count 1.
+    //   2. SORTER UNAVAILABLE -- same scene, splat_count > 0, next frame serial: render()
     //      must return an INVALID RID, global_composite_rejected_frames must go +1 with reason
     //      SORTER_UNAVAILABLE, unsorted_composite_frames must NOT move, the assignment stage
     //      (which DID run: count, prefix, emit) must still report its measured CPU cost, and
     //      rasterization (which did not run) must report none. Pre-fix this phase publishes a
     //      valid RID and increments unsorted_composite_frames: RED on base by design.
-    //   3. RECOVERY CONTROL -- config restored and the unavailable flag cleared through the
-    //      test accessor: the renderer must rebuild a sorter and publish again, so the reject
-    //      is a per-frame decision and not a one-way kill switch. Clearing the flag here is a
-    //      TEST action so this case stays about the reject; the production retry (on the
-    //      shared GPU-003 backoff) is proven by the retries-and-recovers case below.
+    //   3. RECOVERY / HEALTHY CONTROL -- config restored and the unavailable flag cleared
+    //      through the test accessor: the renderer must rebuild a sorter and publish again,
+    //      with neither counter moving on that healthy frame. That is the control that keeps
+    //      "reject everything" from passing, and it proves the reject is a per-frame decision,
+    //      not a one-way kill switch. Clearing the flag here is a TEST action so this case
+    //      stays about the reject; the production retry (on the shared GPU-003 backoff) is
+    //      proven by the retries-and-recovers case below.
     //
     // Premise assertions guard every link, so a RED run shows the branch was actually reached
     // rather than the test having quietly missed it. Missing preconditions FAIL, never skip.
@@ -1749,38 +1765,18 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     result = [&]() -> TestResult {
         TestResult r;
 
-        // ---- Phase 1: healthy control. A working sorter must still publish the frame. ----
-        const uint64_t rejected_before_control = tile_renderer->get_global_composite_rejected_frames();
-        const uint64_t unsorted_before_control = tile_renderer->get_unsorted_composite_frames();
-        RID healthy_output = tile_renderer->render(p_rd, params);
-        if (!healthy_output.is_valid()) {
-            r.error_message = "Healthy control frame did not publish: render() returned an invalid RID with a "
-                              "working sorter. The scene setup, not the #586 reject, is at fault.";
-            return r;
-        }
-        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
-            r.error_message = vformat(
-                    "Premise failed: after the healthy control frame the global-composite sorter is not live "
-                    "(sorter_valid=%s sorter_available=%s). This device never built one, so the control does not "
-                    "control for anything and phase 2 would prove nothing.",
-                    sort_resources.sorter.is_valid() ? "true" : "false",
-                    sort_resources.sorter_available ? "true" : "false");
-            return r;
-        }
-        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before_control) {
-            r.error_message = "Healthy control frame was counted as REJECTED. The fix must not reject frames on a "
-                              "capable GPU with a working sorter.";
-            return r;
-        }
-        if (tile_renderer->get_unsorted_composite_frames() != unsorted_before_control) {
-            r.error_message = "Healthy control frame was counted as UNSORTED with a working sorter; the scene does "
-                              "not control for the defect.";
-            return r;
-        }
-
-        // ---- Phase 2: make the sorter unavailable through the production path, then render. ----
+        // ---- Phase 1: the renderer's FIRST creation is refused through the production path. ----
+        // The frame serial is driven explicitly so the failure is stamped with a known frame
+        // and the degraded render below lands 1 frame later, inside the backoff window.
+        const uint64_t FIRST_FRAME_SERIAL = 3000u;
+        tile_renderer->set_frame_serial(FIRST_FRAME_SERIAL);
         const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
         const uint64_t unsorted_before = tile_renderer->get_unsorted_composite_frames();
+        if (sort_resources.sorter.is_valid()) {
+            r.error_message = "Premise failed: a global-composite sorter already exists before the first capacity "
+                              "request, so the refusal below would be a grow, which since PR 3 keeps the sorter.";
+            return r;
+        }
         {
             // Scoped so the settings are restored BEFORE the recovery phase re-syncs the config.
             // A named gpu_preset would override the manual radix/workgroup values below
@@ -1815,8 +1811,9 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                 return r;
             }
 
-            // Grow the global sort capacity through the production function: the sorter is shut
-            // down for the grow, create_sorter() refuses, and disable_sorter() latches.
+            // The first capacity request goes through the production function: no sorter exists
+            // yet, the size preflight refuses, disable_sorter() clears sorter_available and counts
+            // the failure, and the buffers are allocated at the refused capacity.
             tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
         }
         // The guards restored the project settings; re-sync so the recovery phase and every
@@ -1825,9 +1822,9 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
 
         if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
             r.error_message = vformat(
-                    "Premise failed: the refused capacity request did not disable the global-composite sorter "
-                    "(sorter_valid=%s sorter_available=%s capacity=%d). The production latch was not provoked, so the "
-                    "frame below would not reach the sorter-unavailable branch.",
+                    "Premise failed: the refused first capacity request did not leave the global-composite sorter "
+                    "unavailable (sorter_valid=%s sorter_available=%s capacity=%d), so the frame below would not "
+                    "reach the sorter-unavailable branch.",
                     sort_resources.sorter.is_valid() ? "true" : "false",
                     sort_resources.sorter_available ? "true" : "false", int(sort_resources.capacity));
             return r;
@@ -1839,10 +1836,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // ---- Phase 2: the next frame carries translucent work and no sorter. ----
+        params.frame_serial = FIRST_FRAME_SERIAL + 1u;
         RID degraded_output = tile_renderer->render(p_rd, params);
 
-        // Premise: the latch held across ensure_resources -- no sorter was rebuilt, so the frame
-        // really reached the draw path with no sorter.
+        // Premise: the unavailable state held across ensure_resources (1 frame after the failure
+        // is inside the backoff window) -- no sorter was rebuilt, so the frame really reached the
+        // draw path with no sorter.
         if (sort_resources.sorter.is_valid()) {
             r.error_message = "Premise failed: a global-composite sorter was rebuilt during the degraded frame, so the "
                               "sorter-unavailable branch was never reached and this case proves nothing.";
@@ -1920,11 +1920,17 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
         // the backoff window, so without this flag flip the production retry would NOT fire yet --
         // which is what makes the accessor necessary here).
         sort_resources.sorter_available = true;
+        params.frame_serial = FIRST_FRAME_SERIAL + 2u;
         RID recovered_output = tile_renderer->render(p_rd, params);
         if (!recovered_output.is_valid()) {
             r.error_message = "Recovery control failed: with sorter_available restored and the default sorter config, "
                               "render() still published nothing. The reject is not recovering, which would black-screen "
                               "the renderer.";
+            return r;
+        }
+        // Healthy control: a published frame with a working sorter moves neither counter.
+        if (tile_renderer->get_unsorted_composite_frames() != unsorted_before) {
+            r.error_message = "The recovered, published frame was counted as UNSORTED with a working sorter.";
             return r;
         }
         if (!sort_resources.sorter.is_valid()) {
@@ -1975,12 +1981,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     // no machine-speed dependence.
     //
     // Phases:
-    //   1. HEALTHY CONTROL -- publishes; sorter live; failure count 0.
-    //   2. FAILURE through the production path -- the same refused capacity as the PR-1
-    //      case (34M records at radix 8 x wg 64 x 64-bit keys is above the RenderingDevice
-    //      32-bit buffer limit). Premises: sorter gone, sorter_available false, failure
-    //      count 1, key/value buffers live (so frames reject at the choke point), failure
-    //      frame stamped with the healthy frame's serial.
+    //   1-2. FIRST CREATION REFUSED through the production path -- the same refused capacity
+    //      as the PR-1 case (34M records at radix 8 x wg 64 x 64-bit keys is above the
+    //      RenderingDevice 32-bit buffer limit), requested before any sorter exists. Since
+    //      #586 PR 3 a refused GROW keeps a working sorter, so "no sorter" is reached the way
+    //      production reaches it: the first creation failing. Premises: no sorter,
+    //      sorter_available false, failure count 1, key/value buffers live (so frames reject
+    //      at the choke point), failure frame stamped with the explicit serial.
     //   3. INSIDE THE BACKOFF WINDOW -- render frames failure+1 .. failure+backoff-1 with the
     //      DEFAULT configuration restored: every one must be rejected, and no sorter may be
     //      rebuilt. A retry gate that fires every frame (the M2 mutation) goes RED here.
@@ -2000,6 +2007,8 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     //   6. SECOND EPISODE -- the episode close must also have re-armed the one-shot guard for
     //      disable_sorter()'s root-cause line (sorter_missing_logged), so an independent later
     //      failure logs its own cause instead of only the generic attempt line (#977 round 4).
+    //      (Since PR 3 a refused grow keeps the working sorter, so this phase first drops the
+    //      live sorter through the accessor and then provokes the real refusal.)
     //      The guard is the sole gate of that line and is set only inside the branch that
     //      emits it, so its transitions ARE the emission: false after the close, true again
     //      after the second episode's first failure. A close that leaves it set (the M5
@@ -2047,27 +2056,13 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
     result = [&]() -> TestResult {
         TestResult r;
 
-        // ---- Phase 1: healthy control. ----
-        params.frame_serial = FIRST_FRAME_SERIAL;
-        RID healthy_output = tile_renderer->render(p_rd, params);
-        if (!healthy_output.is_valid()) {
-            r.error_message = "Healthy control frame did not publish: render() returned an invalid RID with a "
-                              "working sorter. The scene setup, not the retry policy, is at fault.";
-            return r;
-        }
-        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available ||
-                tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
-            r.error_message = vformat(
-                    "Premise failed: after the healthy control frame the global-composite sorter is not live or "
-                    "already counts failures (sorter_valid=%s sorter_available=%s failures=%d).",
-                    sort_resources.sorter.is_valid() ? "true" : "false",
-                    sort_resources.sorter_available ? "true" : "false",
-                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
-            return r;
-        }
+        // ---- Phases 1-2: the renderer's FIRST creation is refused through the production path. ----
+        tile_renderer->set_frame_serial(FIRST_FRAME_SERIAL);
         const uint64_t recoveries_before = tile_renderer->get_global_sort_sorter_recoveries();
-
-        // ---- Phase 2: provoke the failure through the production path. ----
+        if (sort_resources.sorter.is_valid() || tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
+            r.error_message = "Premise failed: a sorter or a failure count already exists before the first capacity request.";
+            return r;
+        }
         {
             ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
             ProjectSettingGuard radix_guard(ps, GPUSortingConfig::RADIX_BITS_PATH);
@@ -2258,11 +2253,15 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
                 ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
             }
             g_gpu_sorting_config.load_from_project_settings();
-            // A GROW above the recovered capacity, so ensure_resources() must attempt a
-            // recreation (an equal request would be satisfied by the live sorter) and the
-            // size preflight refuses it: a fresh failure with a fresh reason text.
+            // Since #586 PR 3 a refused GROW keeps the working sorter (its own episode kind),
+            // so a second NO-SORTER episode must start from a missing sorter: drop the live
+            // one through the accessor (the state a device-side loss leaves) and let the
+            // real size-preflight refusal open the episode. The refusal, its accounting and
+            // its root-cause line are all production code.
+            sort_resources.sorter->shutdown();
+            sort_resources.sorter.unref();
             tile_renderer->set_frame_serial(failure_frame + backoff + 2u);
-            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY + 1000000u);
+            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
         }
         g_gpu_sorting_config.load_from_project_settings();
         if (sort_resources.sorter.is_valid() || sort_resources.sorter_available ||
@@ -2284,6 +2283,590 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
         r.passed = true;
         return r;
     }();
+
+    free_scene();
+    return result;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_grow_keeps_working_sorter(RenderingDevice *p_rd) {
+    // #586 PR 3 on-GPU proof: a grow that cannot build its replacement keeps the WORKING
+    // sorter, and the pending grow is retried on the shared backoff.
+    //
+    // At the base of this change TileGlobalSortResources::ensure_resources() shut down and
+    // unref'd the live sorter BEFORE the preflights and create_sorter() ran for a grow (the
+    // `must_recreate` block), so a grow that failed at the one moment it is likely to fail
+    // (VRAM pressure) traded a working, slightly-too-small sorter for a missing one: every
+    // translucent frame rejected (#976) until the no-sorter retry (#977). The optional shrink
+    // already built before retiring; this change makes the grow do the same.
+    //
+    // The failure is provoked through the production path exactly as in the PR-1/PR-2 cases:
+    // the refusing configuration (radix 8 x wg 64 x 64-bit keys) makes a 34M-record request
+    // fail the allocation-free size preflight. The frame serial is driven explicitly.
+    //
+    // Phases:
+    //   1. HEALTHY CONTROL -- publishes; sorter live at the scene's capacity C; sorter object
+    //      identity and key-buffer RID captured.
+    //   2. REFUSED GROW -- request 34M under the refusing config. The working sorter must
+    //      SURVIVE: same object, still available, capacity still C, key buffer unchanged, grow
+    //      failure count 1, no-sorter failure count still 0. Base: the sorter is gone -> RED.
+    //   3. FRAMES KEEP PUBLISHING -- with the default config restored, a frame at the scene's
+    //      demand publishes (base: rejected); the reject counter does not move.
+    //   4. RATE BOUND -- inside the backoff window a second refused grow request must not be
+    //      attempted (grow failure count still 1, sorter untouched).
+    //   5. GROW SUCCEEDS -- at failure+backoff the same 34M request under the default config
+    //      builds the replacement: a different sorter object at capacity 34M, buffers
+    //      reallocated (key RID changed), the old sorter retired only now. The grow episode
+    //      stays OPEN (grow failure count still 1, recoveries unchanged) until the next frame
+    //      has PUBLISHED through the replacement and its enlarged buffers; only then grow
+    //      failure count 0 and grow recoveries +1 (#982 review round 2, mirroring #977's
+    //      no-sorter episode close).
+    TestResult result;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the #586 failed-grow test";
+        return result;
+    }
+
+    const uint32_t splat_count = 4096u;
+    const uint32_t REFUSED_CAPACITY = 34000000u;
+    const uint64_t FIRST_FRAME_SERIAL = 5000u;
+
+    Vector<Gaussian> gaussians = generate_test_gaussians(splat_count);
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+            gaussian_buffer = RID();
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+            sorted_indices = RID();
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+        free_scene();
+        result.error_message = "Failed to create scene buffers for the #586 failed-grow test";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    auto &sort_resources = tile_renderer->_test_global_sort_resources();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+
+    // Drives ensure_resources() at REFUSED_CAPACITY under the refusing configuration, with
+    // the settings restored (and the global config re-synced) before returning.
+    auto request_refused_grow = [&](uint64_t p_frame_serial) {
+        ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
+        ProjectSettingGuard radix_guard(ps, GPUSortingConfig::RADIX_BITS_PATH);
+        ProjectSettingGuard workgroup_guard(ps, GPUSortingConfig::WORKGROUP_SIZE_PATH);
+        ProjectSettingGuard key_bits_guard(ps, GPUSortingConfig::KEY_BITS_PATH);
+        ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+        if (ps) {
+            ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, "custom");
+            ps->set_setting(GPUSortingConfig::RADIX_BITS_PATH, 8);
+            ps->set_setting(GPUSortingConfig::WORKGROUP_SIZE_PATH, 64);
+            ps->set_setting(GPUSortingConfig::KEY_BITS_PATH, 64);
+            ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        const bool refused = !GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(REFUSED_CAPACITY),
+                g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, g_gpu_sorting_config.key_bits);
+        if (refused) {
+            tile_renderer->set_frame_serial(p_frame_serial);
+            tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
+        }
+        return refused;
+    };
+
+    result = [&]() -> TestResult {
+        TestResult r;
+
+        // ---- Phase 1: healthy control. ----
+        params.frame_serial = FIRST_FRAME_SERIAL;
+        RID healthy_output = tile_renderer->render(p_rd, params);
+        if (!healthy_output.is_valid() || !sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = "Healthy control did not publish with a live sorter; the scene setup, not the grow path, is at fault.";
+            return r;
+        }
+        const IGPUSorter *working_sorter = sort_resources.sorter.ptr();
+        const uint32_t working_capacity = sort_resources.capacity;
+        const RID keys_before = sort_resources.keys_buffer;
+        const uint64_t grow_recoveries_before = tile_renderer->get_global_sort_sorter_grow_recoveries();
+        if (working_capacity >= REFUSED_CAPACITY) {
+            r.error_message = vformat("Premise failed: the healthy capacity %d is not below the refused request %d, so no grow would occur.",
+                    int(working_capacity), int(REFUSED_CAPACITY));
+            return r;
+        }
+
+        // ---- Phase 2: a refused grow must keep the working sorter. ----
+        if (!request_refused_grow(FIRST_FRAME_SERIAL)) {
+            r.error_message = "Premise failed: the refusing configuration did not make the grow request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "#586 REGRESSION (GROW DESTROYED A WORKING SORTER): a grow to %d that could not build its replacement left "
+                    "the renderer with no sorter (sorter_valid=%s sorter_available=%s, no-sorter failures=%d). Every translucent "
+                    "frame is now rejected until the no-sorter retry, although a correct sorter at capacity %d existed.",
+                    int(REFUSED_CAPACITY), sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()), int(working_capacity));
+            return r;
+        }
+        if (sort_resources.sorter.ptr() != working_sorter || sort_resources.capacity != working_capacity ||
+                sort_resources.keys_buffer != keys_before) {
+            r.error_message = vformat(
+                    "The refused grow replaced or resized the working sorter (same_object=%s capacity %d -> %d keys_kept=%s); "
+                    "the failed grow must leave the working sorter and its buffers exactly as they were.",
+                    sort_resources.sorter.ptr() == working_sorter ? "true" : "false", int(working_capacity),
+                    int(sort_resources.capacity), sort_resources.keys_buffer == keys_before ? "true" : "false");
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u ||
+                tile_renderer->get_global_sort_sorter_init_failure_count() != 0u) {
+            r.error_message = vformat(
+                    "The refused grow was not accounted as a grow failure (grow failures=%d, expected 1; no-sorter failures=%d, "
+                    "expected 0), so no grow backoff schedule exists and telemetry cannot tell the state apart.",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        const uint64_t grow_failure_frame = sort_resources.last_sorter_grow_failure_frame;
+        const uint64_t backoff = GaussianSplatting::sorter_init_backoff_frames(1u);
+
+        // ---- Phase 3: frames keep publishing, sorted at the old budget. ----
+        const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
+        params.frame_serial = grow_failure_frame + 1u;
+        RID kept_output = tile_renderer->render(p_rd, params);
+        if (!kept_output.is_valid()) {
+            r.error_message = "After the refused grow the next frame did not publish although a working sorter was kept.";
+            return r;
+        }
+        if (tile_renderer->get_global_composite_rejected_frames() != rejected_before) {
+            r.error_message = vformat("The frame after the refused grow was counted as rejected (%d -> %d).",
+                    int(rejected_before), int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+        if (sort_resources.sorter.ptr() != working_sorter || tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u) {
+            r.error_message = "The published frame after the refused grow altered the kept sorter or closed the grow episode prematurely.";
+            return r;
+        }
+
+        // ---- Phase 4: inside the backoff window the grow must not be re-attempted. ----
+        if (!request_refused_grow(grow_failure_frame + 2u)) {
+            r.error_message = "Premise failed (phase 4): the refusing configuration did not make the grow request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u || sort_resources.sorter.ptr() != working_sorter) {
+            r.error_message = vformat(
+                    "RATE BOUND VIOLATED: a grow was re-attempted %d frame(s) after its failure, inside the %d-frame backoff "
+                    "window (grow failures now %d, same sorter object=%s). A persistent failure would be re-attempted every frame.",
+                    2, int(backoff), int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    sort_resources.sorter.ptr() == working_sorter ? "true" : "false");
+            return r;
+        }
+
+        // ---- Phase 5: at failure+backoff the grow succeeds under the default config. ----
+        tile_renderer->set_frame_serial(grow_failure_frame + backoff);
+        tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = "The grow retry at failure+backoff left no sorter.";
+            return r;
+        }
+        if (sort_resources.sorter.ptr() == working_sorter || sort_resources.capacity != REFUSED_CAPACITY) {
+            r.error_message = vformat(
+                    "The grow retry at failure+backoff did not build the replacement (same_object=%s capacity=%d, expected %d). "
+                    "Either the grow was not re-attempted when due or the replacement was not swapped in.",
+                    sort_resources.sorter.ptr() == working_sorter ? "true" : "false", int(sort_resources.capacity),
+                    int(REFUSED_CAPACITY));
+            return r;
+        }
+        if (sort_resources.keys_buffer == keys_before) {
+            r.error_message = "The grow succeeded but the key buffer was not reallocated for the larger capacity.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u ||
+                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before) {
+            r.error_message = vformat(
+                    "#982 ROUND-2 REGRESSION (GROW CLOSED BEFORE PUBLISH): the grow episode was closed as soon as the replacement "
+                    "sorter was built (grow failures=%d, grow recoveries %d -> %d), before its enlarged buffers were allocated and "
+                    "before any frame went through it; a buffer failure after the build would be reported as a recovery and the "
+                    "accumulated backoff lost.",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    int(grow_recoveries_before), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
+            return r;
+        }
+        params.frame_serial = grow_failure_frame + backoff + 1u;
+        RID grown_output = tile_renderer->render(p_rd, params);
+        if (!grown_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before) {
+            r.error_message = "The first frame after the successful grow did not publish cleanly.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u ||
+                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before + 1u) {
+            r.error_message = vformat(
+                    "A sorted frame was published through the grown sorter but the grow episode was not closed "
+                    "(grow failures=%d, grow recoveries %d -> %d).",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    int(grow_recoveries_before), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
+            return r;
+        }
+
+        r.passed = true;
+        return r;
+    }();
+
+    free_scene();
+    return result;
+}
+
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_failed_relayout_leaves_no_mismatched_sorter(RenderingDevice *p_rd) {
+    // #586 PR 3, #982 review round 1 (P1): a KEY-LAYOUT change is not a grow.
+    //
+    // TileRenderer recompiles the binning/raster shaders from _get_effective_sort_key_config()
+    // whenever the effective layout changes (_check_pipeline_validity folds it into the shader
+    // defines hash, and _ensure_resources() runs before the sort stages), while
+    // TileGlobalSortResources sizes its key buffer from ITS OWN key_config (one word per record
+    // for 32-bit keys, two for 64-bit). The first cut of PR 3 treated a layout change like a
+    // capacity grow and KEPT the old sorter and buffers when the replacement could not be
+    // built; the next frame would then write keys in the new layout into buffers sized for the
+    // old one -- a 32 -> 64-bit change writes two-word keys past the end of a one-word key
+    // buffer. This case drives exactly that change through the production path and asserts
+    // that a failed layout change leaves NO sorter (rejected frames, #976), the buffers
+    // re-sized for the new layout, and the no-sorter retry (#977) rebuilding at the new layout.
+    //
+    // Phases (frame serial driven explicitly; settings through guards; the sorting config is
+    // re-synced after every change):
+    //   1. HEALTHY CONTROL at 32-bit keys (custom preset, tile_bits 16 / depth_bits 16 so the
+    //      32-bit layout is actually effective): publishes with a live sorter; sorter object,
+    //      capacity C and key-buffer RID captured.
+    //   2. PENDING GROW: a refused capacity-only grow (68M records at radix 8 x wg 64 x 32-bit
+    //      keys is above the 32-bit buffer limit) keeps the sorter and opens a grow episode
+    //      (grow failures 1) -- the state a later layout change must not be held back by.
+    //   3. FAILED LAYOUT CHANGE one frame later, inside that grow backoff: the layout becomes
+    //      64-bit and the request 34M at radix 8 x wg 64 (refused). The old sorter must be
+    //      GONE: no sorter, sorter_available false, no-sorter failure count +1, key_config
+    //      already the 64-bit layout, capacity 34M, key buffer reallocated (RID changed), the
+    //      grow episode abandoned (grow failures 0, recoveries unchanged). First cut of PR 3:
+    //      the 32-bit sorter and its one-word key buffer are kept -> RED.
+    //   4. REJECT: the next frame is rejected (no RID published, reject counter +1); nothing
+    //      is rendered through the old sorter.
+    //   5. RETRY at failure+backoff under the buildable custom defaults (radix 4 x wg 256): a
+    //      sorter exists again, at the 64-bit layout and 34M, and the next frame publishes.
+    //   6. PENDING GROW AGAIN: a refused 64-bit grow (68M at radix 8 x wg 64) keeps the 34M
+    //      sorter and opens a grow episode (grow failures 1).
+    //   7. SUCCESSFUL LAYOUT CHANGE (64 -> 32-bit, at the scene's capacity C) with that episode
+    //      pending: the replacement is built and is no larger than the retired sorter. The
+    //      episode must be ABANDONED, not counted: grow failures 0, grow recoveries unchanged,
+    //      also after the next frame publishes. Round-1 head: counted as a grow recovery -> RED
+    //      (#982 review round 2).
+    TestResult result;
+
+    Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+    if (err != OK) {
+        result.error_message = "Failed to initialize tile renderer for the #586 failed-relayout test";
+        return result;
+    }
+
+    const uint32_t splat_count = 4096u;
+    // Above the RenderingDevice uint32 buffer limit at radix_bits=8 x workgroup_size=64:
+    // 34M records for 64-bit keys (128 B/record histogram), 68M for 32-bit keys (64 B/record);
+    // both below max_overlap_records' 200M validation ceiling.
+    const uint32_t REFUSED_CAPACITY_64 = 34000000u;
+    const uint32_t REFUSED_CAPACITY_32 = 68000000u;
+    const uint64_t FIRST_FRAME_SERIAL = 7000u;
+
+    Vector<Gaussian> gaussians = generate_test_gaussians(splat_count);
+    RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+    RID sorted_indices = create_test_sorted_indices(p_rd, splat_count);
+    InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, splat_count);
+    auto free_scene = [&]() {
+        if (gaussian_buffer.is_valid()) {
+            p_rd->free(gaussian_buffer);
+            gaussian_buffer = RID();
+        }
+        if (sorted_indices.is_valid()) {
+            p_rd->free(sorted_indices);
+            sorted_indices = RID();
+        }
+        instance_inputs.free(p_rd);
+    };
+    if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+        free_scene();
+        result.error_message = "Failed to create scene buffers for the #586 failed-relayout test";
+        return result;
+    }
+
+    TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices, splat_count,
+            TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+    bind_instance_pipeline_inputs(params, instance_inputs, splat_count);
+
+    auto &sort_resources = tile_renderer->_test_global_sort_resources();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+
+    result = [&]() -> TestResult {
+        TestResult r;
+        // The key layout is held for the whole case and restored when this lambda returns:
+        // the custom preset first (a named preset pins tile_bits/depth_bits to 32/32 and
+        // would undo the manual layout), then the layout itself.
+        ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
+        ProjectSettingGuard key_bits_guard(ps, GPUSortingConfig::KEY_BITS_PATH);
+        ProjectSettingGuard tile_bits_guard(ps, GPUSortingConfig::TILE_BITS_PATH);
+        ProjectSettingGuard depth_bits_guard(ps, GPUSortingConfig::DEPTH_BITS_PATH);
+        auto set_key_layout = [&](int p_key_bits, int p_tile_bits, int p_depth_bits) {
+            if (ps) {
+                ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, "custom");
+                ps->set_setting(GPUSortingConfig::KEY_BITS_PATH, p_key_bits);
+                ps->set_setting(GPUSortingConfig::TILE_BITS_PATH, p_tile_bits);
+                ps->set_setting(GPUSortingConfig::DEPTH_BITS_PATH, p_depth_bits);
+            }
+            g_gpu_sorting_config.load_from_project_settings();
+        };
+        // Drives ensure_resources() at p_capacity under the refusing radix/workgroup pair.
+        // Those settings (and the overlap ceiling) are restored before returning; the key
+        // layout from set_key_layout() stays. The caller re-syncs the config afterwards.
+        auto request_refused = [&](uint64_t p_frame_serial, uint32_t p_capacity) {
+            ProjectSettingGuard radix_guard(ps, GPUSortingConfig::RADIX_BITS_PATH);
+            ProjectSettingGuard workgroup_guard(ps, GPUSortingConfig::WORKGROUP_SIZE_PATH);
+            ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);
+            if (ps) {
+                ps->set_setting(GPUSortingConfig::RADIX_BITS_PATH, 8);
+                ps->set_setting(GPUSortingConfig::WORKGROUP_SIZE_PATH, 64);
+                ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);
+            }
+            g_gpu_sorting_config.load_from_project_settings();
+            const bool refused = !GPUSortingConstants::sort_path_allocation_fits_device_size(uint64_t(p_capacity),
+                    g_gpu_sorting_config.radix_bits, g_gpu_sorting_config.workgroup_size, g_gpu_sorting_config.key_bits);
+            if (refused) {
+                tile_renderer->set_frame_serial(p_frame_serial);
+                tile_renderer->_test_ensure_global_sort_resources(p_capacity);
+            }
+            return refused;
+        };
+
+        // ---- Phase 1: healthy control at the 32-bit layout. ----
+        set_key_layout(32, 16, 16);
+        if (g_gpu_sorting_config.key_bits != 32) {
+            r.error_message = vformat(
+                    "Premise failed: the sorting config did not take the 32-bit layout (key_bits=%d, ProjectSettings present=%s).",
+                    int(g_gpu_sorting_config.key_bits), ps ? "true" : "false");
+            return r;
+        }
+        params.frame_serial = FIRST_FRAME_SERIAL;
+        RID healthy_output = tile_renderer->render(p_rd, params);
+        if (!healthy_output.is_valid() || !sort_resources.sorter.is_valid() || !sort_resources.sorter_available) {
+            r.error_message = "Healthy control at 32-bit keys did not publish with a live sorter; the scene setup or the "
+                              "32-bit key path, not the layout-change path, is at fault.";
+            return r;
+        }
+        if (sort_resources.key_config.key_bits != 32) {
+            r.error_message = vformat(
+                    "Premise failed: the live sorter's effective layout is %d-bit, not 32-bit (the renderer fell back), so "
+                    "no key-width change could be provoked.",
+                    int(sort_resources.key_config.key_bits));
+            return r;
+        }
+        const IGPUSorter *sorter_32 = sort_resources.sorter.ptr();
+        const uint32_t capacity_32 = sort_resources.capacity;
+        const RID keys_32 = sort_resources.keys_buffer;
+        const uint64_t init_failures_before = tile_renderer->get_global_sort_sorter_init_failure_count();
+        const uint64_t grow_recoveries_before = tile_renderer->get_global_sort_sorter_grow_recoveries();
+        if (capacity_32 >= REFUSED_CAPACITY_32) {
+            r.error_message = vformat("Premise failed: the healthy capacity %d is not below the refused request %d, so no grow would occur.",
+                    int(capacity_32), int(REFUSED_CAPACITY_32));
+            return r;
+        }
+
+        // ---- Phase 2: a refused capacity-only grow keeps the sorter and opens a grow episode. ----
+        if (!request_refused(FIRST_FRAME_SERIAL, REFUSED_CAPACITY_32)) {
+            r.error_message = "Premise failed (phase 2): the refusing configuration did not make the 32-bit grow request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (sort_resources.sorter.ptr() != sorter_32 || !sort_resources.sorter_available ||
+                tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u) {
+            r.error_message = vformat(
+                    "Premise failed (phase 2): the refused 32-bit capacity grow did not keep the sorter and open a grow episode "
+                    "(same_object=%s available=%s grow failures=%d); the capacity-grow path this case builds on is broken.",
+                    sort_resources.sorter.ptr() == sorter_32 ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()));
+            return r;
+        }
+        const uint64_t grow_failure_frame = sort_resources.last_sorter_grow_failure_frame;
+
+        // ---- Phase 3: a failed key-layout change, inside the grow backoff, must retire the old sorter. ----
+        set_key_layout(64, 32, 32);
+        const uint64_t relayout_frame = grow_failure_frame + 1u;
+        if (!request_refused(relayout_frame, REFUSED_CAPACITY_64)) {
+            r.error_message = "Premise failed (phase 3): the refusing configuration did not make the 64-bit request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (sort_resources.sorter.is_valid() || sort_resources.sorter_available) {
+            r.error_message = vformat(
+                    "#982 REVIEW REGRESSION (MISMATCHED SORTER KEPT): a key-layout change (32 -> 64-bit keys) whose replacement "
+                    "could not be built kept the old sorter (same_object=%s sorter_available=%s key_config.key_bits=%d "
+                    "capacity=%d, no-sorter failures=%d, grow failures=%d). The binning shaders already compile for the new "
+                    "layout, so the next frame would write two-word keys into the one-word key buffer.",
+                    sort_resources.sorter.ptr() == sorter_32 ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false", int(sort_resources.key_config.key_bits),
+                    int(sort_resources.capacity), int(tile_renderer->get_global_sort_sorter_init_failure_count()),
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()));
+            return r;
+        }
+        if (sort_resources.key_config.key_bits != 64 || sort_resources.key_config.tile_bits != 32 ||
+                sort_resources.key_config.depth_bits != 32) {
+            r.error_message = vformat(
+                    "After the failed layout change the sort resources still carry the old layout (key_bits=%d tile_bits=%d "
+                    "depth_bits=%d); the buffers would be sized for it while the shaders write the new one.",
+                    int(sort_resources.key_config.key_bits), int(sort_resources.key_config.tile_bits),
+                    int(sort_resources.key_config.depth_bits));
+            return r;
+        }
+        if (sort_resources.capacity != REFUSED_CAPACITY_64 || !sort_resources.keys_buffer.is_valid() ||
+                sort_resources.keys_buffer == keys_32) {
+            r.error_message = vformat(
+                    "After the failed layout change the key buffer was not reallocated for the new layout and capacity "
+                    "(capacity=%d expected %d, keys_valid=%s, keys_reallocated=%s).",
+                    int(sort_resources.capacity), int(REFUSED_CAPACITY_64),
+                    sort_resources.keys_buffer.is_valid() ? "true" : "false",
+                    sort_resources.keys_buffer != keys_32 ? "true" : "false");
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_init_failure_count() != init_failures_before + 1u) {
+            r.error_message = vformat(
+                    "The failed layout change was not accounted as a no-sorter failure (%d -> %d), so no retry schedule exists.",
+                    int(init_failures_before), int(tile_renderer->get_global_sort_sorter_init_failure_count()));
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u ||
+                tile_renderer->get_global_sort_sorter_grow_recoveries() != grow_recoveries_before) {
+            r.error_message = vformat(
+                    "The grow episode of the retired sorter was not abandoned (grow failures=%d, grow recoveries %d -> %d); "
+                    "a fresh sorter's first grow would inherit a stale schedule and its success be reported as a recovery.",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()),
+                    int(grow_recoveries_before), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
+            return r;
+        }
+        const uint64_t failure_frame = sort_resources.last_sorter_init_failure_frame;
+        if (failure_frame != relayout_frame) {
+            r.error_message = vformat(
+                    "Premise failed: the no-sorter failure was stamped at frame %d, expected %d, so the backoff window below "
+                    "would be measured from the wrong frame.",
+                    int(failure_frame), int(relayout_frame));
+            return r;
+        }
+        const uint64_t backoff = GaussianSplatting::sorter_init_backoff_frames(1u);
+
+        // ---- Phase 4: the next frame is rejected, never rendered through a mismatched sorter. ----
+        const uint64_t rejected_before = tile_renderer->get_global_composite_rejected_frames();
+        params.frame_serial = failure_frame + 1u;
+        RID rejected_output = tile_renderer->render(p_rd, params);
+        if (rejected_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before + 1u) {
+            r.error_message = vformat("The frame after the failed layout change was not rejected (published=%s, rejected %d -> %d).",
+                    rejected_output.is_valid() ? "true" : "false", int(rejected_before),
+                    int(tile_renderer->get_global_composite_rejected_frames()));
+            return r;
+        }
+        if (sort_resources.sorter.is_valid()) {
+            r.error_message = "A sorter was rebuilt inside the backoff window after the failed layout change.";
+            return r;
+        }
+
+        // ---- Phase 5: the no-sorter retry rebuilds at the NEW layout; the next frame publishes. ----
+        tile_renderer->set_frame_serial(failure_frame + backoff);
+        tile_renderer->_test_ensure_global_sort_resources(REFUSED_CAPACITY_64);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available ||
+                sort_resources.key_config.key_bits != 64 || sort_resources.capacity != REFUSED_CAPACITY_64) {
+            r.error_message = vformat(
+                    "The retry at failure+backoff did not rebuild at the 64-bit layout (sorter_valid=%s available=%s key_bits=%d "
+                    "capacity=%d expected %d).",
+                    sort_resources.sorter.is_valid() ? "true" : "false", sort_resources.sorter_available ? "true" : "false",
+                    int(sort_resources.key_config.key_bits), int(sort_resources.capacity), int(REFUSED_CAPACITY_64));
+            return r;
+        }
+        params.frame_serial = failure_frame + backoff + 1u;
+        RID recovered_output = tile_renderer->render(p_rd, params);
+        if (!recovered_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before + 1u) {
+            r.error_message = "The first frame after the rebuilt 64-bit sorter did not publish cleanly.";
+            return r;
+        }
+
+        // ---- Phase 6: a refused 64-bit grow opens a grow episode on the rebuilt sorter. ----
+        const IGPUSorter *sorter_64 = sort_resources.sorter.ptr();
+        const uint64_t recoveries_before_relayout = tile_renderer->get_global_sort_sorter_grow_recoveries();
+        // Above the 32-bit buffer limit at radix 8 x wg 64 x 64-bit keys (128 B/record), below the 200M ceiling.
+        const uint32_t REFUSED_GROW_64 = 68000000u;
+        if (!request_refused(failure_frame + backoff + 2u, REFUSED_GROW_64)) {
+            r.error_message = "Premise failed (phase 6): the refusing configuration did not make the 64-bit grow request exceed the device size limit.";
+            return r;
+        }
+        g_gpu_sorting_config.load_from_project_settings();
+        if (sort_resources.sorter.ptr() != sorter_64 || !sort_resources.sorter_available ||
+                tile_renderer->get_global_sort_sorter_grow_failure_count() != 1u) {
+            r.error_message = vformat(
+                    "Premise failed (phase 6): the refused 64-bit grow did not keep the sorter and open a grow episode "
+                    "(same_object=%s available=%s grow failures=%d).",
+                    sort_resources.sorter.ptr() == sorter_64 ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()));
+            return r;
+        }
+
+        // ---- Phase 7: a SUCCESSFUL layout change with that episode pending abandons it; it is not a grow recovery. ----
+        set_key_layout(32, 16, 16);
+        tile_renderer->set_frame_serial(failure_frame + backoff + 3u);
+        tile_renderer->_test_ensure_global_sort_resources(capacity_32);
+        if (!sort_resources.sorter.is_valid() || !sort_resources.sorter_available || sort_resources.sorter.ptr() == sorter_64 ||
+                sort_resources.key_config.key_bits != 32) {
+            r.error_message = vformat(
+                    "Premise failed (phase 7): the 64 -> 32-bit layout change at capacity %d did not build a replacement "
+                    "(sorter_valid=%s available=%s same_object=%s key_bits=%d).",
+                    int(capacity_32), sort_resources.sorter.is_valid() ? "true" : "false",
+                    sort_resources.sorter_available ? "true" : "false",
+                    sort_resources.sorter.ptr() == sorter_64 ? "true" : "false", int(sort_resources.key_config.key_bits));
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_recoveries() != recoveries_before_relayout ||
+                tile_renderer->get_global_sort_sorter_grow_failure_count() != 0u) {
+            r.error_message = vformat(
+                    "#982 ROUND-2 REGRESSION (RELAYOUT COUNTED AS GROW RECOVERY): a successful key-layout change with a grow "
+                    "episode pending was reported as a grow recovery (grow recoveries %d -> %d, grow failures=%d, capacity now %d). "
+                    "The replacement is no larger than the retired sorter; the episode must be abandoned, not recovered, so the "
+                    "grow backoff is not cleared by an unrelated replacement.",
+                    int(recoveries_before_relayout), int(tile_renderer->get_global_sort_sorter_grow_recoveries()),
+                    int(tile_renderer->get_global_sort_sorter_grow_failure_count()), int(sort_resources.capacity));
+            return r;
+        }
+        params.frame_serial = failure_frame + backoff + 4u;
+        RID relaid_output = tile_renderer->render(p_rd, params);
+        if (!relaid_output.is_valid() || tile_renderer->get_global_composite_rejected_frames() != rejected_before + 1u) {
+            r.error_message = "The first frame after the successful 64 -> 32-bit layout change did not publish cleanly.";
+            return r;
+        }
+        if (tile_renderer->get_global_sort_sorter_grow_recoveries() != recoveries_before_relayout) {
+            r.error_message = vformat(
+                    "The published frame after the layout change closed the abandoned grow episode as a recovery (%d -> %d).",
+                    int(recoveries_before_relayout), int(tile_renderer->get_global_sort_sorter_grow_recoveries()));
+            return r;
+        }
+
+        r.passed = true;
+        return r;
+    }();
+    // The guards restored the project settings when the lambda returned; re-sync so every
+    // later case in this process sees the original sorter configuration.
+    g_gpu_sorting_config.load_from_project_settings();
 
     free_scene();
     return result;
@@ -2422,6 +3005,61 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sorter-unavailable glo
     regression_test.instantiate();
 
     TileRendererRegressionTest::TestResult result = regression_test->test_sorter_unavailable_retries_and_recovers(local_device);
+
+    regression_test.unref();
+
+    if (!result.passed) {
+        MESSAGE(result.error_message);
+    }
+    CHECK(result.passed);
+}
+
+// #586 PR 3: a grow that cannot build its replacement keeps the working sorter and is
+// retried on the shared backoff. See test_failed_grow_keeps_working_sorter for the phases;
+// same device/teardown idiom as the cases above.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A failed global composite sort grow keeps the working sorter and retries on the shared backoff (#586)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("Could not create a local RenderingDevice from the harness-bootstrapped singleton. "
+             "This [RequiresGPU] case must run under tests/ci/run_gpu_harness.py.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_failed_grow_keeps_working_sorter(local_device);
+
+    regression_test.unref();
+
+    if (!result.passed) {
+        MESSAGE(result.error_message);
+    }
+    CHECK(result.passed);
+}
+
+// #586 PR 3, #982 review (P1): a key-layout change whose replacement cannot be built must
+// retire the old sorter (the shaders already follow the new layout) instead of keeping one
+// that no longer matches. See test_failed_relayout_leaves_no_mismatched_sorter for the phases;
+// same device/teardown idiom as the cases above.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A failed global composite sort key-layout change retires the old sorter instead of keeping one that no longer matches the shaders (#586)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("Could not create a local RenderingDevice from the harness-bootstrapped singleton. "
+             "This [RequiresGPU] case must run under tests/ci/run_gpu_harness.py.");
+        return;
+    }
+
+    Ref<TileRendererRegressionTest> regression_test;
+    regression_test.instantiate();
+
+    TileRendererRegressionTest::TestResult result = regression_test->test_failed_relayout_leaves_no_mismatched_sorter(local_device);
 
     regression_test.unref();
 
