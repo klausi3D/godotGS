@@ -128,6 +128,10 @@ struct SortingState {
 	bool sorting_in_progress = false;
 	bool sorting_initialized = false;
 	uint32_t sorted_splat_count = 0;
+	// #980: how many times refresh_gpu_sorter() republished the instance contract's sort
+	// buffers after a rebuild reallocated them (surfaced as instance_sort_buffer_republishes
+	// in get_render_stats()). Moves together with instance_pipeline_content_generation.
+	uint64_t instance_sort_buffer_republishes = 0;
 	uint64_t last_cull_indices_signature = 0;
 	bool last_cull_indices_signature_valid = false;
 	String active_sort_algorithm = "uninitialized";
