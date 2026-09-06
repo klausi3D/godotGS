@@ -251,17 +251,32 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-1. **#980** — calling the GDScript-bound
+**Status: 10 identified, 3 fixed on master, 7 open.** Two of the ten were found
+not by triage but by **verification conditions attached to a fix in flight** —
+#980 by the tooling built to demonstrate #586's reload path, and #985 by the
+condition requiring #980's deferred triggers to be covered. Neither would have
+been found by reading issues. That is the argument for keeping such conditions
+attached to the remaining tracks, and the reason this list is treated as a floor
+rather than a ceiling.
+
+1. **#980** — **fixed on master** by #984 (`330a764fc14`). Calling the
+   GDScript-bound
    `GaussianSplatRenderer.reload_gpu_sorting_config_from_project_settings()` at
-   runtime, **with no configuration change at all**, leaves the instance
+   runtime, **with no configuration change at all**, left the instance
    depth-sort pipeline unable to build its uniform set (binding 6 invalid) on
-   every subsequent frame. `visible_splats` drops to 0 and stays there until the
-   process exits; the `retry_next_frame` fallback never succeeds. Reproduced on
-   RTX 3090 / Vulkan at base `af178febda3`. Ranked first because it needs only a
-   call to a **public bound API** — a lower bar than any other entry — and its
-   symptom is total absence of rendering, the same class as GPU-001. Found by
-   the tooling built to demonstrate #586's reload path.
-2. **#586** — **fixed on master** by #976 (`af178febda3`), #977 (`54d49894fa4`)
+   every subsequent frame; `visible_splats` dropped to 0 until the process
+   exited. The published instance contract kept copies of freed sort-buffer
+   RIDs, and on the resident route — the alpha's node route — nothing detected
+   the change, because the contract's own generation was computed from the stale
+   RIDs. Fixed by republishing at the single funnel, with a load-bearing
+   `stale_sort_buffer_handles` diagnostic so a future path outside the funnel
+   fails with a reason rather than a raw binding error.
+2. **#985** — **fixed on master** by the same PR. Deferred rebuild triggers
+   (`set_quality_preset`, the runtime sort-algorithm override) only armed a flag,
+   and the refresh site sat *below* the branches gated on it, so on the node
+   route a preset change was never serviced and the sort reported no visible
+   splats for the session — **silently**, with no binding error at all.
+3. **#586** — **fixed on master** by #976 (`af178febda3`), #977 (`54d49894fa4`)
    and #982 (`7dd6f9e6606`): an unsorted global composite is now rejected rather
    than presented, a missing tile sorter retries on the shared GPU-003 backoff
    instead of latching, and a failed grow keeps the working sorter. Retained
@@ -271,16 +286,16 @@ against this base. Ranked by user impact.
    That residual is pre-existing, narrower than what was fixed, and is a
    code-reading finding **not reproduced on NVIDIA** — unproven, not absent. It
    is disclosed under §8 rather than blocking.
-3. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
+4. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
    parameters change, so edits silently do not apply. Enters this set by the
    §10.1 envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-4. **#929** — splats swim under TAA/FSR2.
-5. **#851** — black contours and inert shadows with painterly enabled.
-6. **#930** — over-bright painterly splats.
-7. **#928** — opaque splat edges on transparent viewports.
-8. **#833** — starter-template overlay never updates.
-9. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
+5. **#929** — splats swim under TAA/FSR2.
+6. **#851** — black contours and inert shadows with painterly enabled.
+7. **#930** — over-bright painterly splats.
+8. **#928** — opaque splat edges on transparent viewports.
+9. **#833** — starter-template overlay never updates.
+10. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
 
 Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
