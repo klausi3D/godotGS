@@ -3016,17 +3016,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrendererrender_sorting_orchestratorcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/renderer/render_sorting_orchestrator.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorestreaming_eviction_controllercpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3203,17 +3192,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelinecpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcorestreaming_quantizationcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3251,6 +3229,17 @@
     <span class="md-ellipsis">
       
         tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_open_world_proof_lane.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelinecpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp
       
     </span>
   </a>
@@ -3427,6 +3416,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/logger/gs_logger.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingrendererrender_sorting_orchestratorcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/renderer/render_sorting_orchestrator.cpp
       
     </span>
   </a>
@@ -4061,17 +4061,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4241,6 +4230,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_phase1_integration.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h
       
     </span>
   </a>
@@ -6908,32 +6908,32 @@
 <li>line 210: static bool _is_finite(float p_value) {...</li>
 <li>line 244: static uint32_t _resolve_production_total_splats(const Gauss...</li>
 <li>line 268: static bool _has_gpu_pass_breakdown(const GaussianSplatRende...</li>
-<li>line 724: static Dictionary _validate_production_metrics(const Diction...</li>
-<li>line 942: static Dictionary _evaluate_perf_gate(const ProductionMetric...</li>
-<li>line 1088: void RenderDiagnosticsOrchestrator::record_rendering_error(c...</li>
-<li>line 1139: void RenderDiagnosticsOrchestrator::capture_frame_timing_sam...</li>
-<li>line 1158: void RenderDiagnosticsOrchestrator::increment_frame_counter(...</li>
-<li>line 1169: void RenderDiagnosticsOrchestrator::emit_runtime_diagnostics...</li>
-<li>line 1180: Array RenderDiagnosticsOrchestrator::serialize_texture_trace...</li>
-<li>line 1196: Array RenderDiagnosticsOrchestrator::serialize_cross_device_...</li>
-<li>line 1209: Array RenderDiagnosticsOrchestrator::serialize_frame_timing(...</li>
-<li>line 1225: Dictionary RenderDiagnosticsOrchestrator::serialize_error_st...</li>
-<li>line 1259: Dictionary RenderDiagnosticsOrchestrator::build_render_stats...</li>
-<li>line 1588: float RenderDiagnosticsOrchestrator::get_sort_time_ms_intern...</li>
-<li>line 1593: float RenderDiagnosticsOrchestrator::get_render_time_ms_inte...</li>
-<li>line 1598: Dictionary RenderDiagnosticsOrchestrator::get_last_sort_metr...</li>
-<li>line 1648: Array RenderDiagnosticsOrchestrator::get_sort_metrics_histor...</li>
-<li>line 1668: void RenderDiagnosticsOrchestrator::record_sort_sample(const...</li>
-<li>line 1691: void RenderDiagnosticsOrchestrator::finalize_frame_metrics(u...</li>
-<li>line 1781: Dictionary RenderDiagnosticsOrchestrator::get_runtime_diagno...</li>
-<li>line 1870: Dictionary GaussianSplatRenderer::get_render_stats() const {...</li>
-<li>line 1875: float GaussianSplatRenderer::get_sort_time_ms() const {...</li>
-<li>line 1880: float GaussianSplatRenderer::get_render_time_ms() const {...</li>
-<li>line 1885: Dictionary GaussianSplatRenderer::get_last_sort_metrics() co...</li>
-<li>line 1890: Array GaussianSplatRenderer::get_sort_metrics_history() cons...</li>
-<li>line 1895: void GaussianSplatRenderer::record_sort_sample(const SortFra...</li>
-<li>line 1900: Dictionary GaussianSplatRenderer::get_runtime_diagnostic_sna...</li>
-<li>line 1904: GaussianSplatRenderer::MonitorStreamingSnapshot GaussianSpla...</li>
+<li>line 725: static Dictionary _validate_production_metrics(const Diction...</li>
+<li>line 943: static Dictionary _evaluate_perf_gate(const ProductionMetric...</li>
+<li>line 1089: void RenderDiagnosticsOrchestrator::record_rendering_error(c...</li>
+<li>line 1140: void RenderDiagnosticsOrchestrator::capture_frame_timing_sam...</li>
+<li>line 1159: void RenderDiagnosticsOrchestrator::increment_frame_counter(...</li>
+<li>line 1170: void RenderDiagnosticsOrchestrator::emit_runtime_diagnostics...</li>
+<li>line 1181: Array RenderDiagnosticsOrchestrator::serialize_texture_trace...</li>
+<li>line 1197: Array RenderDiagnosticsOrchestrator::serialize_cross_device_...</li>
+<li>line 1210: Array RenderDiagnosticsOrchestrator::serialize_frame_timing(...</li>
+<li>line 1226: Dictionary RenderDiagnosticsOrchestrator::serialize_error_st...</li>
+<li>line 1260: Dictionary RenderDiagnosticsOrchestrator::build_render_stats...</li>
+<li>line 1589: float RenderDiagnosticsOrchestrator::get_sort_time_ms_intern...</li>
+<li>line 1594: float RenderDiagnosticsOrchestrator::get_render_time_ms_inte...</li>
+<li>line 1599: Dictionary RenderDiagnosticsOrchestrator::get_last_sort_metr...</li>
+<li>line 1649: Array RenderDiagnosticsOrchestrator::get_sort_metrics_histor...</li>
+<li>line 1669: void RenderDiagnosticsOrchestrator::record_sort_sample(const...</li>
+<li>line 1692: void RenderDiagnosticsOrchestrator::finalize_frame_metrics(u...</li>
+<li>line 1782: Dictionary RenderDiagnosticsOrchestrator::get_runtime_diagno...</li>
+<li>line 1871: Dictionary GaussianSplatRenderer::get_render_stats() const {...</li>
+<li>line 1876: float GaussianSplatRenderer::get_sort_time_ms() const {...</li>
+<li>line 1881: float GaussianSplatRenderer::get_render_time_ms() const {...</li>
+<li>line 1886: Dictionary GaussianSplatRenderer::get_last_sort_metrics() co...</li>
+<li>line 1891: Array GaussianSplatRenderer::get_sort_metrics_history() cons...</li>
+<li>line 1896: void GaussianSplatRenderer::record_sort_sample(const SortFra...</li>
+<li>line 1901: Dictionary GaussianSplatRenderer::get_runtime_diagnostic_sna...</li>
+<li>line 1905: GaussianSplatRenderer::MonitorStreamingSnapshot GaussianSpla...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorestreaming_diagnostics_surfacecpp">modules/gaussian_splatting/core/streaming_diagnostics_surface.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_diagnostics_surfacecpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -7806,32 +7806,6 @@
 <li>line 1478: void PainterlyRenderer::clear_painterly_gpu_resources(Gaussi...</li>
 <li>line 1491: void PainterlyRenderer::update_painterly_gpu_resources(Gauss...</li>
 </ul>
-<h2 id="modulesgaussian_splattingrendererrender_sorting_orchestratorcpp">modules/gaussian_splatting/renderer/render_sorting_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_sorting_orchestratorcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 35: static bool _is_sort_camera_move_significant(const Transform...</li>
-<li>line 46: static bool _get_sort_position(const GaussianSplatRenderer &amp;...</li>
-<li>line 121: static void _bind_sort_pipeline_host_context(GPUSortingPipel...</li>
-<li>line 189: static GPUSorterFactory::SortingAlgorithm _get_forced_sort_a...</li>
-<li>line 203: static String _algorithm_override_label(const SortingStrateg...</li>
-<li>line 224: static void _store_visible_splat_count(GaussianSplatRenderer...</li>
-<li>line 257: void RenderSortingOrchestrator::refresh_gpu_sorter(const cha...</li>
-<li>line 382: void RenderSortingOrchestrator::initialize_sorting() {...</li>
-<li>line 431: Array RenderSortingOrchestrator::run_sort_benchmark(const Pa...</li>
-<li>line 555: void RenderSortingOrchestrator::benchmark_sorting_performanc...</li>
-<li>line 1163: <em>FORCE_INLINE</em> bool operator()(const CpuSortEntry &amp;a, const ...</li>
-<li>line 1355: void RenderSortingOrchestrator::force_sort_for_view(const Tr...</li>
-<li>line 1414: void GaussianSplatRenderer::refresh_gpu_sorter(const char *p...</li>
-<li>line 1418: void GaussianSplatRenderer::initialize_sorting() {...</li>
-<li>line 1422: void GaussianSplatRenderer::reload_gpu_sorting_config_from_p...</li>
-<li>line 1447: Array GaussianSplatRenderer::run_sort_benchmark(const Packed...</li>
-<li>line 1451: void GaussianSplatRenderer::benchmark_sorting_performance() ...</li>
-<li>line 1455: void GaussianSplatRenderer::force_sort_for_view(const Transf...</li>
-<li>line 1472: void GaussianSplatRenderer::_force_sort_for_view_on_render_t...</li>
-<li>line 1479: void RenderSortingOrchestrator::set_static_sort_cache_enable...</li>
-<li>line 1486: void RenderSortingOrchestrator::invalidate_static_chunk_cach...</li>
-<li>line 1612: void GaussianSplatRenderer::set_static_sort_cache_enabled(bo...</li>
-<li>line 1616: void GaussianSplatRenderer::_invalidate_static_chunk_caches(...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcorestreaming_eviction_controllercpp">modules/gaussian_splatting/core/streaming_eviction_controller.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_eviction_controllercpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 10: void StreamingEvictionController::load_streaming_tuning_conf...</li>
@@ -8290,6 +8264,48 @@
 <li>line 604: void GaussianSplatRenderer::enable_outline_effect(const Colo...</li>
 <li>line 610: void GaussianSplatRenderer::remove_visual_effects() {...</li>
 </ul>
+<h2 id="modulesgaussian_splattingcorestreaming_quantizationcpp">modules/gaussian_splatting/core/streaming_quantization.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_quantizationcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 77: void ChunkQuantizationInfo::quantize_position(const Vector3 ...</li>
+<li>line 91: void ChunkQuantizationInfo::quantize_scale(const Vector3 &amp;sc...</li>
+<li>line 110: Vector3 ChunkQuantizationInfo::dequantize_position(uint32_t ...</li>
+<li>line 121: Vector3 ChunkQuantizationInfo::dequantize_scale(uint32_t x, ...</li>
+<li>line 136: void ChunkQuantizationInfo::clear() {...</li>
+<li>line 148: float ChunkQuantizationInfo::get_max_position_error() const ...</li>
+<li>line 159: float ChunkQuantizationInfo::get_max_scale_error() const {...</li>
+<li>line 177: void GaussianStreamingSystem::_load_quantization_config_from...</li>
+<li>line 184: void GaussianStreamingSystem::_compute_chunk_quantization(ui...</li>
+<li>line 188: void GaussianStreamingSystem::_compute_chunk_quantization(ui...</li>
+<li>line 252: bool GaussianStreamingSystem::_release_quantization_buffer(R...</li>
+<li>line 290: bool GaussianStreamingSystem::_upload_quantization_buffer(Re...</li>
+<li>line 399: Dictionary GaussianStreamingSystem::get_quantization_stats()...</li>
+</ul>
+<h2 id="modulesgaussian_splattinginterfacesrender_thread_dispatchercpp">modules/gaussian_splatting/interfaces/render_thread_dispatcher.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesrender_thread_dispatchercpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 109: bool RenderThreadDispatcher::is_render_thread_dispatch_path_...</li>
+<li>line 126: void RenderThreadDispatcher::notify_completed(uint64_t p_req...</li>
+<li>line 135: void RenderThreadDispatcher::set_timeout_usec(uint64_t p_tim...</li>
+<li>line 139: uint64_t RenderThreadDispatcher::get_timeout_usec() const {...</li>
+<li>line 143: uint64_t RenderThreadDispatcher::get_next_request_id() const...</li>
+<li>line 147: uint64_t RenderThreadDispatcher::get_completed_request_id() ...</li>
+<li>line 151: void RenderThreadDispatcher::promote_latest_data_request_id(...</li>
+<li>line 159: uint64_t RenderThreadDispatcher::get_latest_data_request_id(...</li>
+<li>line 163: void RenderThreadDispatcher::set_latest_data_result(Error p_...</li>
+<li>line 167: Error RenderThreadDispatcher::get_latest_data_result() const...</li>
+</ul>
+<h2 id="testsexamplesgodottest_projectscenessynthetic_mandelbulb_lightsgd">tests/examples/godot/test_project/scenes/synthetic_mandelbulb_lights.gd<a class="headerlink" href="#testsexamplesgodottest_projectscenessynthetic_mandelbulb_lightsgd" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 10: func _process(delta: float) -&gt; void:...</li>
+</ul>
+<h2 id="testsexamplesgodottest_projectscenesbenchmark_suitebenchmark_open_world_proof_lanegd">tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_open_world_proof_lane.gd<a class="headerlink" href="#testsexamplesgodottest_projectscenesbenchmark_suitebenchmark_open_world_proof_lanegd" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 14: func _resolved_asset_path() -&gt; String:...</li>
+<li>line 19: func _build_instances(config: Dictionary) -&gt; void:...</li>
+<li>line 78: func _resolve_focus_point() -&gt; Vector3:...</li>
+<li>line 98: func _sample_metrics(delta: float) -&gt; void:...</li>
+<li>line 122: func _apply_renderer_overrides_from_config() -&gt; void:...</li>
+<li>line 150: func _build_report() -&gt; Dictionary:...</li>
+</ul>
 <h2 id="modulesgaussian_splattinginterfacesgpu_sorting_pipelinecpp">modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesgpu_sorting_pipelinecpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 35: static String <em>inject_sort_pad_depth_define(const String &amp;p</em>...</li>
@@ -8343,54 +8359,12 @@
 <li>line 1816: void main() {...</li>
 <li>line 1867: void GPUSortingPipeline::queue_depth_submission(RenderingDev...</li>
 <li>line 2265: bool GPUSortingPipeline::_sort_instance_pipeline(const Trans...</li>
-<li>line 3001: bool GPUSortingPipeline::sort_gaussians_gpu(const Transform3...</li>
-<li>line 3018: SortOperationResult GPUSortingPipeline::sort(const SortOpera...</li>
-<li>line 3116: SortOperationResult GPUSortingPipeline::sort_async(const Sor...</li>
-<li>line 3188: void GPUSortingPipeline::wait_for_completion() {...</li>
-<li>line 3195: float GPUSortingPipeline::get_last_sort_time_ms() const {...</li>
-<li>line 3202: SortingMetrics GPUSortingPipeline::get_metrics() const {...</li>
-</ul>
-<h2 id="modulesgaussian_splattingcorestreaming_quantizationcpp">modules/gaussian_splatting/core/streaming_quantization.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_quantizationcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 77: void ChunkQuantizationInfo::quantize_position(const Vector3 ...</li>
-<li>line 91: void ChunkQuantizationInfo::quantize_scale(const Vector3 &amp;sc...</li>
-<li>line 110: Vector3 ChunkQuantizationInfo::dequantize_position(uint32_t ...</li>
-<li>line 121: Vector3 ChunkQuantizationInfo::dequantize_scale(uint32_t x, ...</li>
-<li>line 136: void ChunkQuantizationInfo::clear() {...</li>
-<li>line 148: float ChunkQuantizationInfo::get_max_position_error() const ...</li>
-<li>line 159: float ChunkQuantizationInfo::get_max_scale_error() const {...</li>
-<li>line 177: void GaussianStreamingSystem::_load_quantization_config_from...</li>
-<li>line 184: void GaussianStreamingSystem::_compute_chunk_quantization(ui...</li>
-<li>line 188: void GaussianStreamingSystem::_compute_chunk_quantization(ui...</li>
-<li>line 252: bool GaussianStreamingSystem::_release_quantization_buffer(R...</li>
-<li>line 290: bool GaussianStreamingSystem::_upload_quantization_buffer(Re...</li>
-<li>line 399: Dictionary GaussianStreamingSystem::get_quantization_stats()...</li>
-</ul>
-<h2 id="modulesgaussian_splattinginterfacesrender_thread_dispatchercpp">modules/gaussian_splatting/interfaces/render_thread_dispatcher.cpp<a class="headerlink" href="#modulesgaussian_splattinginterfacesrender_thread_dispatchercpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 109: bool RenderThreadDispatcher::is_render_thread_dispatch_path_...</li>
-<li>line 126: void RenderThreadDispatcher::notify_completed(uint64_t p_req...</li>
-<li>line 135: void RenderThreadDispatcher::set_timeout_usec(uint64_t p_tim...</li>
-<li>line 139: uint64_t RenderThreadDispatcher::get_timeout_usec() const {...</li>
-<li>line 143: uint64_t RenderThreadDispatcher::get_next_request_id() const...</li>
-<li>line 147: uint64_t RenderThreadDispatcher::get_completed_request_id() ...</li>
-<li>line 151: void RenderThreadDispatcher::promote_latest_data_request_id(...</li>
-<li>line 159: uint64_t RenderThreadDispatcher::get_latest_data_request_id(...</li>
-<li>line 163: void RenderThreadDispatcher::set_latest_data_result(Error p_...</li>
-<li>line 167: Error RenderThreadDispatcher::get_latest_data_result() const...</li>
-</ul>
-<h2 id="testsexamplesgodottest_projectscenessynthetic_mandelbulb_lightsgd">tests/examples/godot/test_project/scenes/synthetic_mandelbulb_lights.gd<a class="headerlink" href="#testsexamplesgodottest_projectscenessynthetic_mandelbulb_lightsgd" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 10: func _process(delta: float) -&gt; void:...</li>
-</ul>
-<h2 id="testsexamplesgodottest_projectscenesbenchmark_suitebenchmark_open_world_proof_lanegd">tests/examples/godot/test_project/scenes/benchmark_suite/benchmark_open_world_proof_lane.gd<a class="headerlink" href="#testsexamplesgodottest_projectscenesbenchmark_suitebenchmark_open_world_proof_lanegd" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 14: func _resolved_asset_path() -&gt; String:...</li>
-<li>line 19: func _build_instances(config: Dictionary) -&gt; void:...</li>
-<li>line 78: func _resolve_focus_point() -&gt; Vector3:...</li>
-<li>line 98: func _sample_metrics(delta: float) -&gt; void:...</li>
-<li>line 122: func _apply_renderer_overrides_from_config() -&gt; void:...</li>
-<li>line 150: func _build_report() -&gt; Dictionary:...</li>
+<li>line 3022: bool GPUSortingPipeline::sort_gaussians_gpu(const Transform3...</li>
+<li>line 3039: SortOperationResult GPUSortingPipeline::sort(const SortOpera...</li>
+<li>line 3137: SortOperationResult GPUSortingPipeline::sort_async(const Sor...</li>
+<li>line 3209: void GPUSortingPipeline::wait_for_completion() {...</li>
+<li>line 3216: float GPUSortingPipeline::get_last_sort_time_ms() const {...</li>
+<li>line 3223: SortingMetrics GPUSortingPipeline::get_metrics() const {...</li>
 </ul>
 <h2 id="modulesgaussian_splattingioi_gaussian_loadercpp">modules/gaussian_splatting/io/i_gaussian_loader.cpp<a class="headerlink" href="#modulesgaussian_splattingioi_gaussian_loadercpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -8828,6 +8802,33 @@
 <li>line 423: Level category_level_from_enum_index(int p_index) {...</li>
 <li>line 427: void reset_rate_limiter() {...</li>
 <li>line 433: bool check_rate_limit(Category p_category, Level p_level, co...</li>
+</ul>
+<h2 id="modulesgaussian_splattingrendererrender_sorting_orchestratorcpp">modules/gaussian_splatting/renderer/render_sorting_orchestrator.cpp<a class="headerlink" href="#modulesgaussian_splattingrendererrender_sorting_orchestratorcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 35: static bool _is_sort_camera_move_significant(const Transform...</li>
+<li>line 46: static bool _get_sort_position(const GaussianSplatRenderer &amp;...</li>
+<li>line 121: static void _bind_sort_pipeline_host_context(GPUSortingPipel...</li>
+<li>line 189: static GPUSorterFactory::SortingAlgorithm _get_forced_sort_a...</li>
+<li>line 203: static String _algorithm_override_label(const SortingStrateg...</li>
+<li>line 224: static void _store_visible_splat_count(GaussianSplatRenderer...</li>
+<li>line 257: static uint64_t _mix_sort_buffer_generation(uint64_t p_gener...</li>
+<li>line 340: void RenderSortingOrchestrator::refresh_gpu_sorter(const cha...</li>
+<li>line 504: void RenderSortingOrchestrator::initialize_sorting() {...</li>
+<li>line 553: Array RenderSortingOrchestrator::run_sort_benchmark(const Pa...</li>
+<li>line 677: void RenderSortingOrchestrator::benchmark_sorting_performanc...</li>
+<li>line 1296: <em>FORCE_INLINE</em> bool operator()(const CpuSortEntry &amp;a, const ...</li>
+<li>line 1488: void RenderSortingOrchestrator::force_sort_for_view(const Tr...</li>
+<li>line 1547: void GaussianSplatRenderer::refresh_gpu_sorter(const char *p...</li>
+<li>line 1551: void GaussianSplatRenderer::initialize_sorting() {...</li>
+<li>line 1555: void GaussianSplatRenderer::reload_gpu_sorting_config_from_p...</li>
+<li>line 1580: Array GaussianSplatRenderer::run_sort_benchmark(const Packed...</li>
+<li>line 1584: void GaussianSplatRenderer::benchmark_sorting_performance() ...</li>
+<li>line 1588: void GaussianSplatRenderer::force_sort_for_view(const Transf...</li>
+<li>line 1605: void GaussianSplatRenderer::_force_sort_for_view_on_render_t...</li>
+<li>line 1612: void RenderSortingOrchestrator::set_static_sort_cache_enable...</li>
+<li>line 1619: void RenderSortingOrchestrator::invalidate_static_chunk_cach...</li>
+<li>line 1745: void GaussianSplatRenderer::set_static_sort_cache_enabled(bo...</li>
+<li>line 1749: void GaussianSplatRenderer::_invalidate_static_chunk_caches(...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorestreaming_runtime_stateh">modules/gaussian_splatting/core/streaming_runtime_state.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_runtime_stateh" title="Permanent link">¶</a></h2>
 <ul>
@@ -9905,13 +9906,6 @@
 <li>line 1028: bool ResourceFormatSaverGaussianSplatWorld::recognize(const ...</li>
 <li>line 1032: bool ResourceFormatSaverGaussianSplatWorld::recognize_path(c...</li>
 </ul>
-<h2 id="modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh">modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h<a class="headerlink" href="#modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 22: Ref<gaussiandata> stage1a_make_submission_test_data(int p_co...</gaussiandata></li>
-<li>line 47: Ref<gaussiansplatasset> stage1a_make_submission_test_asset(f...</gaussiansplatasset></li>
-<li>line 100: StaticChunk stage1a_make_submission_test_chunk(uint32_t p_in...</li>
-<li>line 128: bool stage1a_repin_world_submission_as_resident(GaussianSpla...</li>
-</ul>
 <h2 id="modulesgaussian_splattingteststest_gaussian_splat_world_ioh">modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 21: Gaussian make_gaussian(const Vector3 &amp;p_position, const Colo...</li>
@@ -10096,6 +10090,13 @@
 <li>line 100: void print_elapsed() const {...</li>
 <li>line 118: float get_memory_usage_mb() const {...</li>
 <li>line 124: void print_usage() const {...</li>
+</ul>
+<h2 id="modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh">modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h<a class="headerlink" href="#modulesgaussian_splattingteststest_scene_director_submission_scaffoldingh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 23: Ref<gaussiandata> stage1a_make_submission_test_data(int p_co...</gaussiandata></li>
+<li>line 48: Ref<gaussiansplatasset> stage1a_make_submission_test_asset(f...</gaussiansplatasset></li>
+<li>line 101: StaticChunk stage1a_make_submission_test_chunk(uint32_t p_in...</li>
+<li>line 129: bool stage1a_repin_world_submission_as_resident(GaussianSpla...</li>
 </ul>
 <h2 id="modulesgaussian_splattingrenderertile_render_stagescpp">modules/gaussian_splatting/renderer/tile_render_stages.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_stagescpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -12015,7 +12016,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 6, 2026 06:43:13 UTC">September 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 6, 2026 15:41:35 UTC">September 6, 2026</span>
   </span>
 
     
