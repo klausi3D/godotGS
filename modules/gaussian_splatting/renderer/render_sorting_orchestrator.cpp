@@ -381,6 +381,17 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 
 	uint32_t capacity = MAX<uint32_t>(local_performance_settings.max_splats,
 			local_test_data_state.positions.size());
+	// #984 review: the instance route's capacity is the PUBLISHED requirement (instances x
+	// dispatch chunks x max chunk splats, resident_instance_contract_publisher.cpp), which the
+	// publishers size the sorter for and which may exceed the single-instance max_splats
+	// budget. A refresh must never rebuild below it: the republish at the end would clamp the
+	// contract to the smaller buffers, and the resident publisher's fast path (same source
+	// generation, valid RIDs) would keep it there -- a silent, permanent drop of splats.
+	uint32_t published_sort_requirement = 0;
+	if (renderer && renderer->has_instance_pipeline_buffers()) {
+		published_sort_requirement = renderer->get_instance_pipeline_buffers().max_visible_splats;
+		capacity = MAX<uint32_t>(capacity, published_sort_requirement);
+	}
 	if (capacity == 0) {
 		capacity = 1;
 	}
@@ -471,6 +482,14 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	if (sorting_pipeline) {
 		_bind_sort_pipeline_host_context(sorting_pipeline, renderer);
 		sorting_pipeline->ensure_sort_buffers(sorting_state.gpu_sorter->get_max_elements());
+	}
+	if (sorting_pipeline && published_sort_requirement > 0 &&
+			sorting_pipeline->get_buffer_handles().capacity < published_sort_requirement) {
+		// ensure_sort_buffers() adopts the GPU buffer manager's external buffers when it has
+		// them, which caps the capacity at the manager's (sized from max_splats). The
+		// publishers size OWNED buffers for the full requirement (ensure_buffers); do the same
+		// here so the republish below never has to clamp the contract (#984 review).
+		sorting_pipeline->ensure_buffers(published_sort_requirement);
 	}
 	// #980: the rebuild and/or ensure_sort_buffers() above reallocated the pipeline-owned
 	// sort buffers whenever the handles differ from the snapshot; the published contract

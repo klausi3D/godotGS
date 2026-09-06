@@ -1250,7 +1250,12 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 //      observable as the pipeline's sorter capacity reaching the preset's max_splats. Before this
 //      fix the flag was serviced only below the available_splats == 0 exit, which the resident
 //      route always takes, so the instance route stayed gated and the sort reported
-//      COMMON.SKIP.NO_VISIBLE for the rest of the session -- a second, pre-existing hole.
+//      COMMON.SKIP.NO_VISIBLE for the rest of the session -- a second, pre-existing hole;
+//   5. (#984 review round 1) the fixture publishes a requirement of 250,001, ONE above the
+//      performance preset's budget; after every trigger (and after set_max_splats(8)) the sorter,
+//      the buffers and the contract must still be sized for the PUBLISHED requirement and the
+//      frame must show the same splats as the control -- the refresh sizes from the requirement,
+//      not from the single-instance budget, so the republish never clamps the contract.
 // Pre-fix: phase 2 fails on the first post-reload frame (visible_splats=0,
 // sort_route_uid=COMMON.SKIP.NO_VISIBLE). With the republish deleted the same, plus the named
 // stale_sort_buffer_handles diagnostic in the log; with the generation move deleted, phase 3's
@@ -1289,12 +1294,26 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 	g_quantization_config.scale_bits = 12;
 	g_quantization_config.quantize_scales = false;
 
+	constexpr uint32_t FIXTURE_SPLATS = 250001u;
 	Ref<GaussianSplatWorld> world_resource;
 	world_resource.instantiate();
-	Ref<GaussianData> data = stage1a_make_submission_test_data(32, 0.0f);
+	Ref<GaussianData> data = stage1a_make_submission_test_data(int(FIXTURE_SPLATS), 0.0f);
 	world_resource->set_gaussian_data(data);
+	// One chunk indexing ALL splats (x = 0..FIXTURE_SPLATS-1): the published sort requirement
+	// becomes FIXTURE_SPLATS (1 instance x 1 chunk x that many chunk splats) -- ONE above the
+	// 250,000 budget set_quality_preset("performance") applies, which is exactly the review's
+	// scenario: the publisher records its generation first, the deferred refresh must not then
+	// rebuild the sorter below the requirement. Only the splats near the origin are in the
+	// frustum (camera at z=5, 70 degrees).
 	Vector<GaussianSplatRenderer::StaticChunk> chunks;
-	chunks.push_back(stage1a_make_submission_test_chunk(0));
+	GaussianSplatRenderer::StaticChunk full_chunk;
+	full_chunk.bounds = AABB(Vector3(-0.5f, -0.5f, -0.5f), Vector3(float(FIXTURE_SPLATS), 1.0f, 1.0f));
+	full_chunk.center = full_chunk.bounds.get_center();
+	full_chunk.radius = full_chunk.bounds.size.length() * 0.5f;
+	for (uint32_t i = 0; i < FIXTURE_SPLATS; i++) {
+		full_chunk.indices.push_back(i);
+	}
+	chunks.push_back(full_chunk);
 	world_resource->set_static_chunks(chunks);
 
 	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
@@ -1362,10 +1381,20 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 				" capacity=", handles.capacity, " | contract keys=", published.sort_key_buffer.get_id(), " values=",
 				published.sort_value_buffer.get_id(), " max_visible_splats=", published.max_visible_splats,
 				" | content_generation=", renderer->get_instance_pipeline_content_generation(), " republishes=", republish_count(),
+				" sorter_capacity=", sorting_pipeline->get_max_elements(), " manager_capacity=",
+				(renderer->get_resource_state().buffer_manager.is_valid() ? renderer->get_resource_state().buffer_manager->get_buffer_capacity() : 0u),
 				" buffer_manager_initialized=", renderer->get_resource_state().buffer_manager_initialized,
 				" visible=", renderer->get_visible_splat_count(), " max_splats=", renderer->get_max_splats());
 	};
 	dump_state("after the healthy control frame");
+	const uint32_t visible_control = renderer->get_visible_splat_count();
+	const uint32_t published_requirement = renderer->get_instance_pipeline_buffers().max_visible_splats;
+	if (published_requirement <= 250000u) {
+		FAIL("Premise failed: the fixture did not publish a sort requirement above the performance preset's budget of 250,000 (got ",
+				published_requirement, "); the review scenario could not be provoked");
+		teardown();
+		return;
+	}
 
 	// Drives p_frames frames after a trigger and checks every one of them, then the record.
 	// p_expect_reallocation: the trigger must leave the pipeline on DIFFERENT sort buffers (the
@@ -1375,6 +1404,23 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 	// because the resident publisher may itself republish within a frame and the buffer
 	// manager's external buffers are re-adopted after a rebuild, so end-state RIDs alone cannot
 	// tell a serviced rebuild from an unserviced one; the sorter capacity can.
+	// #984 review round 1: after ANY trigger the instance route must still be sized for the
+	// PUBLISHED requirement -- sorter, buffers and the contract itself -- and show the same
+	// splats as the control. The refresh used to size the sorter from the single-instance
+	// max_splats budget; when that is below the requirement the republish clamped the contract
+	// and the resident publisher's fast path kept it there.
+	auto check_requirement_held = [&](const String &p_trigger) {
+		const GaussianRenderPipeline::InstancePipelineBuffers &published = renderer->get_instance_pipeline_buffers();
+		const SortBufferHandles handles = sorting_pipeline->get_buffer_handles();
+		INFO("#984 REVIEW REGRESSION: after ", p_trigger, " the instance route dropped below its published requirement (sorter capacity ",
+				sorting_pipeline->get_max_elements(), ", buffers ", handles.capacity, ", contract max_visible_splats ",
+				published.max_visible_splats, ", requirement ", published_requirement, ", visible ", renderer->get_visible_splat_count(),
+				" vs control ", visible_control, "): the refresh sized the sorter from the single-instance budget and the republish clamped the contract");
+		CHECK(sorting_pipeline->get_max_elements() >= published_requirement);
+		CHECK(handles.capacity >= published_requirement);
+		CHECK(published.max_visible_splats == published_requirement);
+		CHECK(renderer->get_visible_splat_count() == visible_control);
+	};
 	auto drive_and_check = [&](const String &p_trigger, int p_frames, const RID &p_pipeline_keys_before, uint64_t p_generation_before,
 									int64_t p_republishes_before, bool p_expect_reallocation, uint32_t p_min_sorter_capacity_after) {
 		for (int frame = 1; frame <= p_frames; frame++) {
@@ -1425,7 +1471,11 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 			INFO("After ", p_trigger, " the instance-pipeline content generation did not follow the record (republishes ",
 					p_republishes_before, " -> ", republishes_after, ", generation ", p_generation_before, " -> ", generation_after,
 					"): the contract's sort buffers were republished but its change-detector says nothing changed, or the reverse");
-			CHECK((generation_after != p_generation_before) == (republishes_after > p_republishes_before));
+			// One direction only: the resident publisher writes the same generation on its own
+			// republishes, so "generation moved" does not imply "this fix republished".
+			if (republishes_after > p_republishes_before) {
+				CHECK(generation_after != p_generation_before);
+			}
 			if (p_expect_reallocation) {
 				INFO("The reload must republish the contract exactly once (republishes ", p_republishes_before, " -> ", republishes_after, ")");
 				CHECK(republishes_after == p_republishes_before + 1);
@@ -1442,6 +1492,7 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 	dump_state("right after reload (before any frame)");
 	drive_and_check(String("reload_gpu_sorting_config_from_project_settings()"), 5, keys_before_reload, generation_before_reload,
 			republishes_before_reload, true, 0u);
+	check_requirement_held(String("reload_gpu_sorting_config_from_project_settings()"));
 	dump_state("after 5 frames post-reload");
 
 	// ---- Phase 3: the DEFERRED trigger; its rebuild runs on the next sort. ----
@@ -1464,7 +1515,25 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-co
 	dump_state("right after set_quality_preset (before any frame)");
 	drive_and_check(String("set_quality_preset(\"performance\") (refresh deferred to the next sort)"), 5, keys_before_preset,
 			generation_before_preset, republishes_before_preset, false, 250000u);
+	check_requirement_held(String("set_quality_preset(\"performance\") (budget 250,000 below the published requirement)"));
 	dump_state("after 5 frames post-preset");
+
+	// ---- Phase 4 (#984 review round 1): a refresh must never rebuild below the PUBLISHED requirement. ----
+	// set_max_splats() refreshes immediately with the single-instance budget, here 8, while the
+	// published requirement is 32. The sorter and the buffers must stay at >= 32, the contract
+	// must not be clamped, and the frame must show the same splats as the control. Round-1
+	// head: the sorter was rebuilt at 8 and, once the GPU buffer manager followed the budget,
+	// the republish clamped the contract to the manager's capacity -- permanently, because the
+	// resident publisher's fast path sees an unchanged source generation and valid RIDs.
+	const RID keys_before_budget = sorting_pipeline->get_buffer_handles().keys_buffer;
+	const uint64_t generation_before_budget = renderer->get_instance_pipeline_content_generation();
+	const int64_t republishes_before_budget = republish_count();
+	renderer->set_max_splats(8);
+	dump_state("right after set_max_splats(8)");
+	drive_and_check(String("set_max_splats(8) (single-instance budget far below the published requirement)"), 5, keys_before_budget,
+			generation_before_budget, republishes_before_budget, false, 0u);
+	check_requirement_held(String("set_max_splats(8)"));
+	dump_state("after 5 frames post-budget");
 
 	teardown();
 }
