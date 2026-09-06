@@ -53,7 +53,12 @@ layout(push_constant, std430) uniform BlitParams {
     // LDR splat source must be decoded to linear before blending (GPU-001
     // Option B source-encoding contract).
     int source_decode_srgb;
-    float pad1;
+    // Occupies the former pad1 slot (same 4-byte size/alignment; all other
+    // offsets and the total push-constant size unchanged). Mirrors
+    // `int32_t destination_has_alpha` in the host ViewportBlitPushConstant
+    // (output_compositor.cpp). Non-zero when the composite destination carries
+    // a MEANINGFUL alpha channel that must survive the blend (#928).
+    int destination_has_alpha;
 } params;
 
 // Fast sRGB approximations using polynomial/sqrt instead of pow()
@@ -212,20 +217,34 @@ void main() {
 
     if (params.composite_with_destination != 0) {
         vec3 src_rgb = source_linear.rgb;
-        // Treat destination as fully opaque (alpha=1). Godot's post-tonemap
-        // framebuffer does not carry meaningful alpha — sky, meshes, and
-        // background are all opaque content with undefined alpha channel.
         vec3 dst_rgb = destination_linear.rgb;
 
         if (params.source_is_premultiplied == 0) {
             src_rgb *= source_linear.a;
         }
 
-        // Premultiplied source over opaque destination.
+        // Premultiplied source over destination.
         vec3 out_rgb = src_rgb + dst_rgb * (1.0 - source_linear.a);
 
         result_color.rgb = out_rgb;
-        result_color.a = 1.0;
+        // Destination-alpha contract (#928). The LEGACY destination is Godot's
+        // post-tonemap framebuffer, whose alpha channel is undefined — sky,
+        // meshes and background are all opaque content — so that path keeps
+        // writing a fully opaque result and is bit-identical to before.
+        //
+        // Under the Option B pre-upscale contract the destination is the
+        // INTERNAL scene buffer, whose alpha IS meaningful: a transparent_bg
+        // viewport clears it to 0, and Godot's tonemapper samples the buffer
+        // and passes alpha through unchanged (tonemap.glsl:846 -> :929). Writing
+        // 1.0 there destroys splat coverage — every splat-touched texel becomes
+        // fully opaque, so the silhouette turns hard-edged AND the premultiplied
+        // fringe reads dark, because the consumer un-premultiplies by 1.0
+        // instead of by the real coverage. Straight source-over on alpha is the
+        // matching operator for the premultiplied source-over already applied
+        // to rgb above.
+        result_color.a = params.destination_has_alpha != 0
+                ? source_linear.a + destination_linear.a * (1.0 - source_linear.a)
+                : 1.0;
     }
 
     if (params.destination_is_srgb != 0) {

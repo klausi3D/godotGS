@@ -750,6 +750,279 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][RequiresGPU] cached framebuffer
 	_scope.compositor.unref();
 }
 
+
+namespace CompositeAlphaRepro {
+
+// 64x64 RGBA8 PREMULTIPLIED source carrying a horizontal alpha RAMP: column x
+// has coverage alpha = x*4 (0, 4, 8 ... 252) over a straight mid-grey, stored
+// premultiplied (rgb = 0.5 * a). A Gaussian silhouette is exactly this: a band
+// of partially-covered texels between "nothing" and "solid". That band is what
+// #928 destroyed, so the fixture must contain it rather than a hard-edged mask.
+static Vector<uint8_t> _build_source_premultiplied_alpha_ramp_64() {
+	Vector<uint8_t> data;
+	data.resize(64 * 64 * 4);
+	uint8_t *w = data.ptrw();
+	for (int y = 0; y < 64; y++) {
+		for (int x = 0; x < 64; x++) {
+			const int i = (y * 64 + x) * 4;
+			const uint8_t a = uint8_t(x * 4);
+			const uint8_t premultiplied_grey = uint8_t((int(a) * 128) / 255);
+			w[i + 0] = premultiplied_grey;
+			w[i + 1] = premultiplied_grey;
+			w[i + 2] = premultiplied_grey;
+			w[i + 3] = a;
+		}
+	}
+	return data;
+}
+
+// 64x64 RGBA16F destination filled with a uniform alpha -- the pre-upscale
+// composite's real destination is the LINEAR pre-tonemap internal scene buffer,
+// which a transparent_bg viewport clears to alpha 0.
+static Vector<uint8_t> _build_destination_rgba16f_64(float p_alpha) {
+	Vector<uint8_t> data;
+	data.resize(64 * 64 * 4 * 2);
+	uint8_t *w = data.ptrw();
+	const uint16_t zero_h = Math::make_half_float(0.0f);
+	const uint16_t alpha_h = Math::make_half_float(p_alpha);
+	for (int px = 0; px < 64 * 64; px++) {
+		uint16_t *texel = reinterpret_cast<uint16_t *>(w + px * 8);
+		texel[0] = zero_h;
+		texel[1] = zero_h;
+		texel[2] = zero_h;
+		texel[3] = alpha_h;
+	}
+	return data;
+}
+
+static float _rgba16f_alpha_at(const Vector<uint8_t> &p_data, int p_x, int p_y) {
+	const uint16_t *texel = reinterpret_cast<const uint16_t *>(p_data.ptr() + (p_y * 64 + p_x) * 8);
+	return Math::half_to_float(texel[3]);
+}
+
+} // namespace CompositeAlphaRepro
+
+// #928: the pre-upscale compute composite forced `result_color.a = 1.0` for
+// every texel it touched. That assumption was written against the LEGACY
+// post-tonemap destination, whose alpha channel is undefined. Under the Option B
+// contract the destination is the internal scene buffer, whose alpha IS
+// meaningful, so the force flattened splat coverage: on a transparent_bg
+// viewport every splat-touched texel became fully opaque and its premultiplied
+// fringe read dark (the consumer un-premultiplies by 1.0 instead of by the real
+// coverage).
+//
+// WHY THIS CASE DISCRIMINATES. A pixel oracle that only ever reports "alpha is
+// what I expected" is worthless if the harness cannot represent any other
+// alpha. So the SAME source, destination and code path are run twice, and the
+// two runs must disagree:
+//
+//   * destination_has_alpha = true  -> straight source-over; the alpha ramp
+//                                      SURVIVES (63 distinct partial values).
+//   * destination_has_alpha = false -> legacy contract; every covered texel is
+//                                      exactly 1.0 (bit-identical to pre-fix).
+//
+// The legacy leg is load-bearing twice over: it proves the readback can observe
+// alpha other than the value leg 1 expects, and it pins that this fix did not
+// change the post-tonemap path that mobile/multiview/reflection probes use.
+TEST_CASE("[GaussianSplatting][OutputCompositor][RequiresGPU] Pre-upscale composite preserves destination alpha instead of forcing opaque") {
+	REQUIRE_GPU_DEVICE();
+	HazardTestScope _scope(rd);
+
+	RD::TextureFormat source_format;
+	source_format.width = 64;
+	source_format.height = 64;
+	source_format.depth = 1;
+	source_format.array_layers = 1;
+	source_format.mipmaps = 1;
+	source_format.texture_type = RD::TEXTURE_TYPE_2D;
+	source_format.format = RD::DATA_FORMAT_R8G8B8A8_UNORM;
+	source_format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT |
+			RD::TEXTURE_USAGE_CAN_UPDATE_BIT |
+			RD::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+			RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+
+	// RGBA16F: the real pre-upscale destination format, and the one that
+	// selects the shader's VIEWPORT_BLIT_FORMAT==1 permutation.
+	RD::TextureFormat destination_format;
+	destination_format.width = 64;
+	destination_format.height = 64;
+	destination_format.depth = 1;
+	destination_format.array_layers = 1;
+	destination_format.mipmaps = 1;
+	destination_format.texture_type = RD::TEXTURE_TYPE_2D;
+	destination_format.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT;
+	destination_format.usage_bits = RD::TEXTURE_USAGE_STORAGE_BIT |
+			RD::TEXTURE_USAGE_SAMPLING_BIT |
+			RD::TEXTURE_USAGE_CAN_UPDATE_BIT |
+			RD::TEXTURE_USAGE_CAN_COPY_TO_BIT |
+			RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
+
+	RID source_tex = rd->texture_create(source_format, RD::TextureView());
+	RID destination_tex = rd->texture_create(destination_format, RD::TextureView());
+	_scope.track(source_tex);
+	_scope.track(destination_tex);
+	REQUIRE(source_tex.is_valid());
+	REQUIRE(destination_tex.is_valid());
+	rd->set_resource_name(source_tex, "GS_AlphaRepro_Source");
+	rd->set_resource_name(destination_tex, "GS_AlphaRepro_Destination");
+
+	const Vector<uint8_t> source_data = CompositeAlphaRepro::_build_source_premultiplied_alpha_ramp_64();
+	REQUIRE(rd->texture_update(source_tex, 0, source_data) == OK);
+
+	// Depth textures exist here ONLY to keep the composite on the compute path,
+	// and both are filled with the far plane so the depth comparison never
+	// discards a texel. See the params block below for why depth_test must be
+	// requested at all in this harness.
+	RD::TextureFormat depth_format;
+	depth_format.width = 64;
+	depth_format.height = 64;
+	depth_format.depth = 1;
+	depth_format.array_layers = 1;
+	depth_format.mipmaps = 1;
+	depth_format.texture_type = RD::TEXTURE_TYPE_2D;
+	depth_format.format = RD::DATA_FORMAT_D32_SFLOAT;
+	depth_format.usage_bits = RD::TEXTURE_USAGE_SAMPLING_BIT |
+			RD::TEXTURE_USAGE_CAN_UPDATE_BIT |
+			RD::TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	RID source_depth = rd->texture_create(depth_format, RD::TextureView());
+	RID destination_depth = rd->texture_create(depth_format, RD::TextureView());
+	_scope.track(source_depth);
+	_scope.track(destination_depth);
+	REQUIRE(source_depth.is_valid());
+	REQUIRE(destination_depth.is_valid());
+
+	Vector<uint8_t> depth_far_bytes;
+	depth_far_bytes.resize(64 * 64 * sizeof(float));
+	{
+		const float far_depth = 1.0f;
+		uint8_t *dp = depth_far_bytes.ptrw();
+		for (int i = 0; i < 64 * 64; i++) {
+			memcpy(dp + i * sizeof(float), &far_depth, sizeof(float));
+		}
+	}
+	REQUIRE(rd->texture_update(source_depth, 0, depth_far_bytes) == OK);
+	REQUIRE(rd->texture_update(destination_depth, 0, depth_far_bytes) == OK);
+
+	Ref<OutputCompositor> compositor;
+	compositor.instantiate();
+	_scope.compositor = compositor;
+	REQUIRE(compositor->initialize(rd) == OK);
+
+	OutputCopyParams params;
+	params.source_texture = source_tex;
+	params.destination_texture = destination_tex;
+	params.viewport_size = Size2i(64, 64);
+	params.composite_with_destination = true;
+	params.source_is_premultiplied = true;
+	// source_decode_srgb marks this as the pre-upscale phase (output_compositor.cpp
+	// :1755 sets it from pre_upscale_phase), which is also what routes the
+	// configuration onto the compute path at :1460.
+	params.source_decode_srgb = true;
+	// WHY depth_test is requested even though #928's newly-exposed routing is the
+	// depth_test=FALSE one. With depth_test off, _copy_final_output_compute
+	// substitutes TextureStorage's default depth texture for bindings 2/3
+	// (output_compositor.cpp:1117-1127). That singleton does not exist under the
+	// `--gs-gpu-test` bootstrap, so uniform_set_create fails ("Texture (binding: 2)
+	// is not a valid texture"), the composite falls through to the graphics path,
+	// and the case would measure the wrong path — which is exactly how it failed
+	// first time round. Supplying real depth textures and requesting the test is
+	// the same workaround the HazardRepro case above uses, and it costs no
+	// coverage here: the composite branch under test (viewport_blit.glsl, the
+	// `composite_with_destination != 0` block) is identical for both depth_test
+	// values, and BOTH values are covered at runtime in the PR's real-scan A/B.
+	// Both depths are at the far plane, so the shader's `gs_depth < 0.999999`
+	// guard is false and no texel is discarded by the comparison.
+	params.depth_test_enabled = true;
+	params.source_depth = source_depth;
+	params.destination_depth = destination_depth;
+	params.z_near = 0.05f;
+	params.z_far = 4000.0f;
+	params.depth_linearize_mul = 1.0f;
+	params.depth_linearize_add = 1.0f;
+	params.depth_epsilon = 0.01f;
+
+	// ---- Leg 1: destination carries meaningful alpha, cleared transparent ----
+	REQUIRE(rd->texture_update(destination_tex, 0,
+				   CompositeAlphaRepro::_build_destination_rgba16f_64(0.0f)) == OK);
+	params.destination_has_alpha = true;
+	OutputCopyResult result_alpha = compositor->copy_to_render_target(params);
+	if (!result_alpha.success) {
+		print_line(vformat("[AlphaRepro] copy_to_render_target failed: %s", result_alpha.error));
+	}
+	REQUIRE(result_alpha.success);
+	CHECK(result_alpha.source_decode_honored);
+
+	Vector<uint8_t> out_alpha = rd->texture_get_data(destination_tex, 0);
+	REQUIRE(out_alpha.size() == 64 * 64 * 4 * 2);
+
+	// Over a fully transparent destination, straight source-over reduces to
+	// out.a == src.a, so the source's coverage ramp must survive intact.
+	int distinct_partial = 0;
+	int forced_opaque = 0;
+	for (int x = 1; x < 64; x++) {
+		const float expected = float(x * 4) / 255.0f;
+		const float actual = CompositeAlphaRepro::_rgba16f_alpha_at(out_alpha, x, 32);
+		CHECK(Math::abs(actual - expected) < 0.01f);
+		if (actual > 0.001f && actual < 0.999f) {
+			distinct_partial++;
+		}
+		if (actual > 0.999f) {
+			forced_opaque++;
+		}
+	}
+	// 63 sampled columns, coverage 4/255 .. 252/255 -- none of them reaches 1.0.
+	CHECK(distinct_partial == 63);
+	CHECK(forced_opaque == 0);
+
+	// Column 0 has source alpha 0: the shader early-returns without storing, so
+	// the destination keeps the value it was cleared to.
+	CHECK(CompositeAlphaRepro::_rgba16f_alpha_at(out_alpha, 0, 32) < 0.001f);
+
+	// ---- Leg 2: destination alpha is meaningful AND non-zero ----
+	REQUIRE(rd->texture_update(destination_tex, 0,
+				   CompositeAlphaRepro::_build_destination_rgba16f_64(0.5f)) == OK);
+	OutputCopyResult result_over = compositor->copy_to_render_target(params);
+	REQUIRE(result_over.success);
+	Vector<uint8_t> out_over = rd->texture_get_data(destination_tex, 0);
+	REQUIRE(out_over.size() == 64 * 64 * 4 * 2);
+	for (int x = 1; x < 64; x++) {
+		const float src_a = float(x * 4) / 255.0f;
+		const float expected = src_a + 0.5f * (1.0f - src_a);
+		const float actual = CompositeAlphaRepro::_rgba16f_alpha_at(out_over, x, 32);
+		CHECK(Math::abs(actual - expected) < 0.01f);
+	}
+
+	// ---- Leg 3 (discrimination + legacy pin): opaque-destination contract ----
+	// Same source, same destination clear, same code path, one flag flipped.
+	// If this leg reported the same alphas as leg 1, leg 1 would be measuring
+	// nothing; if it reported anything other than 1.0, this fix would have
+	// changed the post-tonemap path that multiview/mobile/probes still use.
+	REQUIRE(rd->texture_update(destination_tex, 0,
+				   CompositeAlphaRepro::_build_destination_rgba16f_64(0.0f)) == OK);
+	params.destination_has_alpha = false;
+	OutputCopyResult result_legacy = compositor->copy_to_render_target(params);
+	REQUIRE(result_legacy.success);
+	Vector<uint8_t> out_legacy = rd->texture_get_data(destination_tex, 0);
+	REQUIRE(out_legacy.size() == 64 * 64 * 4 * 2);
+
+	int legacy_opaque = 0;
+	int legacy_partial = 0;
+	for (int x = 1; x < 64; x++) {
+		const float actual = CompositeAlphaRepro::_rgba16f_alpha_at(out_legacy, x, 32);
+		if (actual > 0.999f) {
+			legacy_opaque++;
+		} else if (actual > 0.001f) {
+			legacy_partial++;
+		}
+	}
+	CHECK(legacy_opaque == 63);
+	CHECK(legacy_partial == 0);
+
+	// The two legs must actually disagree -- this is the assertion that makes
+	// leg 1's "no forced-opaque texels" result mean something.
+	CHECK(distinct_partial != legacy_partial);
+}
+
 } // namespace TestGaussianSplatting
 
 #endif // TESTS_ENABLED
