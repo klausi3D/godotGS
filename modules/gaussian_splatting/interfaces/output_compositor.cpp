@@ -1014,7 +1014,7 @@ bool OutputCompositor::validate_framebuffer_attachments(RenderingDevice *p_devic
 bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID p_source, RID p_destination,
         const Size2i &p_source_extent, const Size2i &p_copy_extent, const Vector3i &p_destination_offset,
         bool p_composite_with_destination, bool p_source_is_premultiplied, bool p_destination_is_srgb,
-        bool p_source_decode_srgb,
+        bool p_source_decode_srgb, bool p_destination_has_alpha,
         const RD::TextureFormat &p_destination_format, RID p_source_depth, RID p_destination_depth,
         bool p_depth_test_enabled, bool p_depth_is_orthogonal, float p_z_near, float p_z_far,
         float p_depth_linearize_mul, float p_depth_linearize_add, float p_depth_epsilon) {
@@ -1210,7 +1210,10 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
         // every other field offset and the total push-constant size are
         // unchanged. Mirrors `int source_decode_srgb` in viewport_blit.glsl.
         int32_t source_decode_srgb;
-        float pad1;
+        // Occupies the former pad1 slot: identical 4-byte size/alignment, so
+        // every other field offset and the total push-constant size are
+        // unchanged. Mirrors `int destination_has_alpha` in viewport_blit.glsl.
+        int32_t destination_has_alpha;
     } params = {};
 
     params.copy_size[0] = p_copy_extent.x;
@@ -1237,6 +1240,7 @@ bool OutputCompositor::_copy_final_output_compute(RenderingDevice *p_device, RID
     params.depth_linearize_mul = p_depth_linearize_mul;
     params.depth_linearize_add = p_depth_linearize_add;
     params.source_decode_srgb = p_source_decode_srgb ? 1 : 0;
+    params.destination_has_alpha = p_destination_has_alpha ? 1 : 0;
 
     p_device->compute_list_set_push_constant(compute_list, &params, sizeof(ViewportBlitPushConstant));
 
@@ -1469,7 +1473,7 @@ OutputCopyResult OutputCompositor::copy_to_render_target(const OutputCopyParams 
         bool ok = _copy_final_output_compute(copy_device, p_params.source_texture, p_params.destination_texture,
                 source_extent, copy_extent, dst_offset, p_params.composite_with_destination,
                 p_params.source_is_premultiplied, _is_srgb_format(destination_format.format),
-                p_params.source_decode_srgb,
+                p_params.source_decode_srgb, p_params.destination_has_alpha,
                 destination_format, p_params.source_depth, p_params.destination_depth, p_params.depth_test_enabled,
                 p_params.depth_is_orthogonal, p_params.z_near, p_params.z_far,
                 p_params.depth_linearize_mul, p_params.depth_linearize_add, p_params.depth_epsilon);
@@ -1753,6 +1757,12 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                 // the source encoding is premultiplied sRGB-encoded LDR (contract
                 // in output_compositor_interfaces.h), so request the decode.
                 params.source_decode_srgb = pre_upscale_phase;
+                // Same phase predicate, different contract: that internal scene
+                // buffer also carries a MEANINGFUL alpha channel (transparent_bg
+                // clears it to 0; tonemap passes sampled alpha through), so the
+                // composite must blend alpha instead of forcing it opaque (#928).
+                // The legacy post-tonemap destination keeps the opaque write.
+                params.destination_has_alpha = pre_upscale_phase;
                 params.depth_test_enabled = depth_test_enabled;
                 params.depth_linearize_mul = params.z_near;
                 params.depth_linearize_add = params.z_far;
