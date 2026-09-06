@@ -824,8 +824,45 @@ static float _rgba16f_alpha_at(const Vector<uint8_t> &p_data, int p_x, int p_y) 
 // The legacy leg is load-bearing twice over: it proves the readback can observe
 // alpha other than the value leg 1 expects, and it pins that this fix did not
 // change the post-tonemap path that mobile/multiview/reflection probes use.
-TEST_CASE("[GaussianSplatting][OutputCompositor][RequiresGPU] Pre-upscale composite preserves destination alpha instead of forcing opaque") {
-	REQUIRE_GPU_DEVICE();
+// Tagged [SceneTree] so the harness bootstraps a RenderingServer for this case.
+// Two reasons, both load-bearing:
+//   1. NO ENVIRONMENT SKIP. REQUIRE_GPU_DEVICE() would add a site to the
+//      shrink-only environment-skip inventory (#595), which by design has no
+//      add path. A [SceneTree][RequiresGPU] case instead ASSERTS that the
+//      harness supplied the environment, the same shape as the #980 case in
+//      test_scene_director_submission_scaffolding.h:1263-1274.
+//   2. It is the shape the #980 precedent uses for a GPU case that needs engine
+//      services rather than a bare local device.
+//
+// MEASURED LIMIT of this harness, stated rather than papered over: even with a
+// RenderingServer, `--gs-gpu-test` does not supply a usable
+// RendererRD::TextureStorage DEFAULT_RD_TEXTURE_DEPTH, which
+// _copy_final_output_compute substitutes for bindings 2/3 when depth_test is
+// off (output_compositor.cpp:1116-1127). With depth_test=false the uniform set
+// therefore fails to build ("Texture (binding: 2, index 0) is not a valid
+// texture") and the composite silently falls through to the graphics path --
+// i.e. the case would measure the wrong path. So this case supplies real depth
+// textures at the far plane and requests the depth test, exactly as the
+// HazardRepro case above does.
+//
+// That costs no coverage of the defect: the branch under test
+// (viewport_blit.glsl, the `composite_with_destination != 0` block) is reached
+// identically for both depth_test values and its alpha math does not read the
+// depth result. The depth_test=FALSE routing that #924 newly sent through this
+// shader is covered instead by the PR's real-scan runtime A/B, which was
+// captured at BOTH depth_test values, and by check_gs_pre_upscale_hook.py,
+// which pins the routing itself.
+TEST_CASE("[GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] Pre-upscale composite preserves destination alpha instead of forcing opaque") {
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case - the harness is required to provide one");
+		return;
+	}
+	RenderingDevice *rd = rs->get_rendering_device();
+	if (rd == nullptr) {
+		FAIL("RenderingDevice unavailable in a [SceneTree][RequiresGPU] case - the harness is required to provide one");
+		return;
+	}
 	HazardTestScope _scope(rd);
 
 	RD::TextureFormat source_format;
@@ -869,10 +906,6 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][RequiresGPU] Pre-upscale compos
 	const Vector<uint8_t> source_data = CompositeAlphaRepro::_build_source_premultiplied_alpha_ramp_64();
 	REQUIRE(rd->texture_update(source_tex, 0, source_data) == OK);
 
-	// Depth textures exist here ONLY to keep the composite on the compute path,
-	// and both are filled with the far plane so the depth comparison never
-	// discards a texel. See the params block below for why depth_test must be
-	// requested at all in this harness.
 	RD::TextureFormat depth_format;
 	depth_format.width = 64;
 	depth_format.height = 64;
@@ -918,20 +951,10 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][RequiresGPU] Pre-upscale compos
 	// :1755 sets it from pre_upscale_phase), which is also what routes the
 	// configuration onto the compute path at :1460.
 	params.source_decode_srgb = true;
-	// WHY depth_test is requested even though #928's newly-exposed routing is the
-	// depth_test=FALSE one. With depth_test off, _copy_final_output_compute
-	// substitutes TextureStorage's default depth texture for bindings 2/3
-	// (output_compositor.cpp:1117-1127). That singleton does not exist under the
-	// `--gs-gpu-test` bootstrap, so uniform_set_create fails ("Texture (binding: 2)
-	// is not a valid texture"), the composite falls through to the graphics path,
-	// and the case would measure the wrong path — which is exactly how it failed
-	// first time round. Supplying real depth textures and requesting the test is
-	// the same workaround the HazardRepro case above uses, and it costs no
-	// coverage here: the composite branch under test (viewport_blit.glsl, the
-	// `composite_with_destination != 0` block) is identical for both depth_test
-	// values, and BOTH values are covered at runtime in the PR's real-scan A/B.
-	// Both depths are at the far plane, so the shader's `gs_depth < 0.999999`
-	// guard is false and no texel is discarded by the comparison.
+	// Both depths sit at the far plane, so the shader's `gs_depth < 0.999999`
+	// guard is false and the comparison discards nothing -- the depth test is
+	// requested only to keep the composite on the compute path under this
+	// harness (see the MEASURED LIMIT note on the case above).
 	params.depth_test_enabled = true;
 	params.source_depth = source_depth;
 	params.destination_depth = destination_depth;
