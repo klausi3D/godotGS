@@ -251,25 +251,36 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-1. **#586** — every sort-failure mode is classified into a
-   `GlobalSortAttemptOutcome` and rendering continues to composite regardless,
-   with the unsorted output owned by a counter and a throttled warning rather
-   than by a stop (`renderer/tile_renderer.cpp:993-1048`). The reported
-   consequences — a latch that never retries and a failed grow that destroys a
-   working sorter (`renderer/tile_render_resources.cpp:1314-1332`) — were
-   reported by triage and are *not* independently re-read here; Phase B must
-   confirm them before fixing. Symptom: wrong alpha ordering for the rest of the
-   session, reached via non-default sort settings or VRAM pressure.
-2. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
+1. **#980** — calling the GDScript-bound
+   `GaussianSplatRenderer.reload_gpu_sorting_config_from_project_settings()` at
+   runtime, **with no configuration change at all**, leaves the instance
+   depth-sort pipeline unable to build its uniform set (binding 6 invalid) on
+   every subsequent frame. `visible_splats` drops to 0 and stays there until the
+   process exits; the `retry_next_frame` fallback never succeeds. Reproduced on
+   RTX 3090 / Vulkan at base `af178febda3`. Ranked first because it needs only a
+   call to a **public bound API** — a lower bar than any other entry — and its
+   symptom is total absence of rendering, the same class as GPU-001. Found by
+   the tooling built to demonstrate #586's reload path.
+2. **#586** — **fixed on master** by #976 (`af178febda3`), #977 (`54d49894fa4`)
+   and #982 (`7dd6f9e6606`): an unsorted global composite is now rejected rather
+   than presented, a missing tile sorter retries on the shared GPU-003 backoff
+   instead of latching, and a failed grow keeps the working sorter. Retained
+   here with its residual: the grow still retires the old sorter *before* the
+   enlarged buffers are allocated, so a buffer-allocation failure during a grow
+   still loses both, and the reduced-capacity fallback then churns per frame.
+   That residual is pre-existing, narrower than what was fixed, and is a
+   code-reading finding **not reproduced on NVIDIA** — unproven, not absent. It
+   is disclosed under §8 rather than blocking.
+3. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
    parameters change, so edits silently do not apply. Enters this set by the
    §10.1 envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-3. **#929** — splats swim under TAA/FSR2.
-4. **#851** — black contours and inert shadows with painterly enabled.
-5. **#930** — over-bright painterly splats.
-6. **#928** — opaque splat edges on transparent viewports.
-7. **#833** — starter-template overlay never updates.
-8. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
+4. **#929** — splats swim under TAA/FSR2.
+5. **#851** — black contours and inert shadows with painterly enabled.
+6. **#930** — over-bright painterly splats.
+7. **#928** — opaque splat edges on transparent viewports.
+8. **#833** — starter-template overlay never updates.
+9. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
 
 Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
