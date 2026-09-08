@@ -33,6 +33,12 @@ This checker asserts the source-level invariants that keep the fix alive:
      `depth_linearize_add`). The generic push-constant layout guard in
      check_gaussian_layout_sync.py defers viewport_blit's BlitParams (ivec2
      packing), so this positional anchor is the parity check for this field.
+  F. The `destination_has_alpha` push-constant field (#928) does the same, in
+     the former pad1 slot immediately after `source_decode_srgb`, is READ by the
+     shader, and is REQUESTED by the pre-upscale phase. Declaring it without
+     reading it, or dropping the request, silently restores the defect: every
+     composited texel forced to alpha=1.0, which flattens splat coverage on a
+     transparent_bg viewport and is invisible to every opaque-viewport oracle.
 
 Every anchor is fail-closed: a missing file or a missing/reordered anchor is a
 FAILURE, never a skip. If a refactor legitimately moves an anchor, update the
@@ -162,6 +168,13 @@ def check_output_compositor(failures: list[str]) -> None:
         OUTPUT_COMPOSITOR,
         failures,
     )
+    _find(
+        text,
+        "params.destination_has_alpha = pre_upscale_phase;",
+        "F: destination-alpha contract requested for the internal scene buffer (#928)",
+        OUTPUT_COMPOSITOR,
+        failures,
+    )
 
 
 # Adjacency matters, not mere ordering: `source_decode_srgb` must occupy the
@@ -177,11 +190,19 @@ def check_output_compositor(failures: list[str]) -> None:
 _LINE_COMMENT = re.compile(r"//[^\n]*")
 _HOST_BLOCK_HEADER = re.compile(r"struct\s+ViewportBlitPushConstant\s*\{")
 _SHADER_BLOCK_HEADER = re.compile(r"layout\s*\(\s*push_constant[^)]*\)\s*uniform\s+BlitParams\s*\{")
+#
+# `destination_has_alpha` (#928) took the former pad1 slot the same way
+# `source_decode_srgb` took pad0, so the sequence is now pinned as a THREE-field
+# run with no trailing pad. Both fields are pinned by the same adjacency rule
+# and for the same reason: a field that drifts by one 4-byte word makes the host
+# and the shader read different words, which no runtime assertion would catch.
 _HOST_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;\s*int32_t\s+source_decode_srgb\s*;\s*float\s+pad1\s*;"
+    r"float\s+depth_linearize_add\s*;\s*int32_t\s+source_decode_srgb\s*;"
+    r"\s*int32_t\s+destination_has_alpha\s*;"
 )
 _SHADER_FIELD_SEQ = re.compile(
-    r"float\s+depth_linearize_add\s*;\s*int\s+source_decode_srgb\s*;\s*float\s+pad1\s*;"
+    r"float\s+depth_linearize_add\s*;\s*int\s+source_decode_srgb\s*;"
+    r"\s*int\s+destination_has_alpha\s*;"
 )
 
 
@@ -209,18 +230,32 @@ def check_push_constant_mirror(failures: list[str]) -> None:
     if host_block is not None and not _HOST_FIELD_SEQ.search(host_block):
         failures.append(
             f"{_rel(OUTPUT_COMPOSITOR)}: ViewportBlitPushConstant must declare "
-            "`int32_t source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot)"
+            "`int32_t source_decode_srgb;` (former pad0 slot) IMMEDIATELY after "
+            "`float depth_linearize_add;`, followed IMMEDIATELY by "
+            "`int32_t destination_has_alpha;` (former pad1 slot)"
         )
     shader_block = _extract_stripped_block(shader, _SHADER_BLOCK_HEADER, "E: shader push-constant block", VIEWPORT_BLIT_GLSL, failures)
     if shader_block is not None and not _SHADER_FIELD_SEQ.search(shader_block):
         failures.append(
             f"{_rel(VIEWPORT_BLIT_GLSL)}: BlitParams must declare "
-            "`int source_decode_srgb;` IMMEDIATELY between `float depth_linearize_add;` and `float pad1;` (the former pad0 slot)"
+            "`int source_decode_srgb;` (former pad0 slot) IMMEDIATELY after "
+            "`float depth_linearize_add;`, followed IMMEDIATELY by "
+            "`int destination_has_alpha;` (former pad1 slot)"
         )
-    if "params.source_decode_srgb != 0" not in _LINE_COMMENT.sub("", shader):
+    shader_code = _LINE_COMMENT.sub("", shader)
+    if "params.source_decode_srgb != 0" not in shader_code:
         failures.append(
             f"{_rel(VIEWPORT_BLIT_GLSL)}: shader never reads params.source_decode_srgb — "
             "the sRGB->linear source decode contract is dead in the blit"
+        )
+    # A declared-but-unread destination_has_alpha would silently restore the
+    # #928 defect (every composited texel forced to alpha=1.0) while the mirror
+    # adjacency check above still passed.
+    if "params.destination_has_alpha != 0" not in shader_code:
+        failures.append(
+            f"{_rel(VIEWPORT_BLIT_GLSL)}: shader never reads params.destination_has_alpha — "
+            "the destination-alpha contract is dead in the blit, so a transparent "
+            "destination's splat coverage is flattened to fully opaque (#928)"
         )
 
 
@@ -312,27 +347,51 @@ def self_test() -> int:
         ("E1: shader mirror reverted", "VIEWPORT_BLIT_GLSL",
                 lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1),
                 check_push_constant_mirror),
-        # E2: shader field still declared and still read, but MOVED after pad1
-        # (host/shader now read different 4-byte words) — the adjacency
-        # requirement, not mere ordering, must flag this.
-        ("E2: shader field moved after pad1", "VIEWPORT_BLIT_GLSL",
+        # E2: shader field still declared and still read, but MOVED past the
+        # trailing slot (host/shader now read different 4-byte words) — the
+        # adjacency requirement, not mere ordering, must flag this.
+        ("E2: shader field moved past the trailing slot", "VIEWPORT_BLIT_GLSL",
                 lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1)
-                        .replace("float pad1;", "float pad1;\n    int source_decode_srgb;", 1),
+                        .replace("int destination_has_alpha;",
+                                "int destination_has_alpha;\n    int source_decode_srgb;", 1),
                 check_push_constant_mirror),
         # E3: same reorder on the HOST side of the mirror.
-        ("E3: host field moved after pad1", "OUTPUT_COMPOSITOR",
+        ("E3: host field moved past the trailing slot", "OUTPUT_COMPOSITOR",
                 lambda t: t.replace("int32_t source_decode_srgb;", "float pad0;", 1)
-                        .replace("float pad1;", "float pad1;\n        int32_t source_decode_srgb;", 1),
+                        .replace("int32_t destination_has_alpha;",
+                                "int32_t destination_has_alpha;\n        int32_t source_decode_srgb;", 1),
                 check_push_constant_mirror),
         # E4: field moved after pad1 AND a commented-out decoy of the correct
         # sequence left inside the block — comment stripping must see through
         # the decoy (a whole-file comment-tolerant regex did not).
         ("E4: shader reorder with commented decoy", "VIEWPORT_BLIT_GLSL",
                 lambda t: t.replace("int source_decode_srgb;", "float pad0;", 1)
-                        .replace("float pad1;",
-                                "float pad1;\n    int source_decode_srgb;\n"
-                                "    // float depth_linearize_add; int source_decode_srgb; float pad1;", 1),
+                        .replace("int destination_has_alpha;",
+                                "int destination_has_alpha;\n    int source_decode_srgb;\n"
+                                "    // float depth_linearize_add; int source_decode_srgb;"
+                                " int destination_has_alpha;", 1),
                 check_push_constant_mirror),
+        # F1: shader side of the #928 destination-alpha field reverted to the
+        # old pad — the mirror adjacency run must fail.
+        ("F1: shader destination_has_alpha reverted to pad", "VIEWPORT_BLIT_GLSL",
+                lambda t: t.replace("int destination_has_alpha;", "float pad1;", 1),
+                check_push_constant_mirror),
+        # F2: same revert on the HOST side of the mirror.
+        ("F2: host destination_has_alpha reverted to pad", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace("int32_t destination_has_alpha;", "float pad1;", 1),
+                check_push_constant_mirror),
+        # F3: field still declared on both sides and correctly placed, but the
+        # shader stops READING it — this is the #928 defect restored (every
+        # composited texel forced opaque) with the adjacency check still green.
+        ("F3: shader stops reading destination_has_alpha", "VIEWPORT_BLIT_GLSL",
+                lambda t: t.replace("params.destination_has_alpha != 0", "false", 1),
+                check_push_constant_mirror),
+        # F4: pre-upscale stops REQUESTING the destination-alpha contract, so
+        # the transparent-destination composite silently reverts to opaque.
+        ("F4: destination-alpha request dropped", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace("params.destination_has_alpha = pre_upscale_phase;",
+                        "params.destination_has_alpha = false;", 1),
+                check_output_compositor),
     )
 
     ok = True
