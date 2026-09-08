@@ -972,11 +972,25 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] Pre-ups
 	if (!result_alpha.success) {
 		print_line(vformat("[AlphaRepro] copy_to_render_target failed: %s", result_alpha.error));
 	}
-	REQUIRE(result_alpha.success);
+	// REQUIRE records a failure but does NOT abort under this build's
+	// DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS (#656). A short or empty
+	// readback would therefore fall through into _rgba16f_alpha_at(), whose
+	// Vector::ptr() is null on an empty buffer -- crashing the whole
+	// --gs-gpu-test process and taking the rest of the REQUIRED OutputCompositor
+	// batch down with it, reported as an infrastructure failure rather than as
+	// this case failing. Every precondition that gates an indexed read is
+	// therefore an explicit FAIL()+return (Codex #988 round 1).
+	if (!result_alpha.success) {
+		FAIL("leg 1 composite failed; refusing to read back a destination the composite did not write");
+		return;
+	}
 	CHECK(result_alpha.source_decode_honored);
 
 	Vector<uint8_t> out_alpha = rd->texture_get_data(destination_tex, 0);
-	REQUIRE(out_alpha.size() == 64 * 64 * 4 * 2);
+	if (out_alpha.size() != 64 * 64 * 4 * 2) {
+		FAIL(vformat("leg 1 readback returned %d bytes, expected %d", out_alpha.size(), 64 * 64 * 4 * 2));
+		return;
+	}
 
 	// Over a fully transparent destination, straight source-over reduces to
 	// out.a == src.a, so the source's coverage ramp must survive intact.
@@ -1005,9 +1019,15 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] Pre-ups
 	REQUIRE(rd->texture_update(destination_tex, 0,
 				   CompositeAlphaRepro::_build_destination_rgba16f_64(0.5f)) == OK);
 	OutputCopyResult result_over = compositor->copy_to_render_target(params);
-	REQUIRE(result_over.success);
+	if (!result_over.success) {
+		FAIL("leg 2 composite failed; refusing to read back a destination the composite did not write");
+		return;
+	}
 	Vector<uint8_t> out_over = rd->texture_get_data(destination_tex, 0);
-	REQUIRE(out_over.size() == 64 * 64 * 4 * 2);
+	if (out_over.size() != 64 * 64 * 4 * 2) {
+		FAIL(vformat("leg 2 readback returned %d bytes, expected %d", out_over.size(), 64 * 64 * 4 * 2));
+		return;
+	}
 	for (int x = 1; x < 64; x++) {
 		const float src_a = float(x * 4) / 255.0f;
 		const float expected = src_a + 0.5f * (1.0f - src_a);
@@ -1024,9 +1044,15 @@ TEST_CASE("[GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] Pre-ups
 				   CompositeAlphaRepro::_build_destination_rgba16f_64(0.0f)) == OK);
 	params.destination_has_alpha = false;
 	OutputCopyResult result_legacy = compositor->copy_to_render_target(params);
-	REQUIRE(result_legacy.success);
+	if (!result_legacy.success) {
+		FAIL("leg 3 composite failed; refusing to read back a destination the composite did not write");
+		return;
+	}
 	Vector<uint8_t> out_legacy = rd->texture_get_data(destination_tex, 0);
-	REQUIRE(out_legacy.size() == 64 * 64 * 4 * 2);
+	if (out_legacy.size() != 64 * 64 * 4 * 2) {
+		FAIL(vformat("leg 3 readback returned %d bytes, expected %d", out_legacy.size(), 64 * 64 * 4 * 2));
+		return;
+	}
 
 	int legacy_opaque = 0;
 	int legacy_partial = 0;
