@@ -83,6 +83,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -96,6 +97,15 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = ROOT / "tests" / "runtime"
 BUILD_DIR = RUNTIME_DIR / "build"
 SYNTHETIC_ASSET_PREP_SCRIPT = RUNTIME_DIR / "prepare_synthetic_assets.py"
+
+if str(RUNTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_DIR))
+
+from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS
+
+RUNTIME_FIXTURE_REFERENCE_RE = re.compile(
+    r"res://tests/fixtures/[A-Za-z0-9_\-]+\.ply"
+)
 
 SKIP_MARKER = "[RUNTIME_SKIP]"
 FAIL_MARKER = "[RUNTIME_FAIL]"
@@ -179,6 +189,12 @@ class CppBuildConfig:
     link_flags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ScenarioFixtureContract:
+    source: Path
+    fixtures: tuple[str, ...]
+
+
 CPP_TESTS: Dict[str, Path] = {
     "Runtime Modifications": RUNTIME_DIR / "test_runtime_modifications.cpp",
     "Animation Persistence": RUNTIME_DIR / "test_animation_persistence.cpp",
@@ -196,6 +212,58 @@ GDS_TESTS: Dict[str, Path] = {
     "Data Flow Recent Window": RUNTIME_DIR / "test_data_flow_recent_window.gd",
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
+}
+
+# Explicit dependency policy for every registered runtime scenario. Empty tuples
+# are deliberate fixture-free declarations, not an inferred absence. A scenario
+# that obtains a fixture through a helper or constructs its resource path still
+# declares that fixture here. Completeness and direct-reference drift are checked
+# by _validate_scenario_fixture_contracts().
+SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
+    "C++: Runtime Modifications": ScenarioFixtureContract(
+        CPP_TESTS["Runtime Modifications"], ()
+    ),
+    "C++: Animation Persistence": ScenarioFixtureContract(
+        CPP_TESTS["Animation Persistence"], ()
+    ),
+    "GDScript: Interactive State": ScenarioFixtureContract(
+        GDS_TESTS["Interactive State"], ()
+    ),
+    "GDScript: GPU Streaming Stress": ScenarioFixtureContract(
+        GDS_TESTS["GPU Streaming Stress"], ()
+    ),
+    "GDScript: Engine Capability Sanity": ScenarioFixtureContract(
+        GDS_TESTS["Engine Capability Sanity"], ()
+    ),
+    "GDScript: Scene Effector Runtime Controls": ScenarioFixtureContract(
+        GDS_TESTS["Scene Effector Runtime Controls"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: World Streaming Gate": ScenarioFixtureContract(
+        GDS_TESTS["World Streaming Gate"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Streaming Residency API": ScenarioFixtureContract(
+        GDS_TESTS["Streaming Residency API"], ()
+    ),
+    "GDScript: Streaming GPU Tier Budget Contract": ScenarioFixtureContract(
+        GDS_TESTS["Streaming GPU Tier Budget Contract"], ()
+    ),
+    "GDScript: Canonical Node Asset Render": ScenarioFixtureContract(
+        GDS_TESTS["Canonical Node Asset Render"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Data Flow Recent Window": ScenarioFixtureContract(
+        GDS_TESTS["Data Flow Recent Window"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Pipeline Trace Freshness": ScenarioFixtureContract(
+        GDS_TESTS["Pipeline Trace Freshness"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Monitor Lifecycle Hardening": ScenarioFixtureContract(
+        GDS_TESTS["Monitor Lifecycle Hardening"], ()
+    ),
 }
 
 
@@ -940,6 +1008,163 @@ def _resolve_named_test_map(
     return resolved
 
 
+def _resolve_selected_gd_test_map(
+    selected_scripts: Iterable[str],
+    selected_tests: Iterable[str],
+) -> Dict[str, Path]:
+    gd_scripts = [entry for entry in selected_scripts if entry and entry.strip()]
+    if gd_scripts:
+        return _resolve_gd_test_map(gd_scripts)
+    return _resolve_named_test_map(
+        GDS_TESTS,
+        selected_tests,
+        kind="GDScript runtime test",
+    )
+
+
+def _selected_fixture_consumer_sources(
+    *,
+    selected_cpp_tests: Iterable[str],
+    run_cpp: bool,
+    selected_gd_scripts: Iterable[str],
+    selected_gd_tests: Iterable[str],
+    run_gd: bool,
+) -> Dict[str, Path]:
+    """Resolve source files that the selected run will actually execute.
+
+    Selection errors remain owned by their harness and are therefore omitted
+    here; the harness will report them as a failed result. Both harness kinds
+    contribute sources so a future C++ fixture consumer cannot accidentally
+    inherit today's C++-only exemption.
+    """
+    selected: Dict[str, Path] = {}
+    if run_cpp:
+        try:
+            cpp_tests = _resolve_named_test_map(
+                CPP_TESTS,
+                selected_cpp_tests,
+                kind="C++ runtime test",
+            )
+        except ValueError:
+            cpp_tests = {}
+        selected.update({f"C++: {name}": path for name, path in cpp_tests.items()})
+
+    if run_gd:
+        try:
+            gd_tests = _resolve_selected_gd_test_map(
+                selected_gd_scripts,
+                selected_gd_tests,
+            )
+        except (FileNotFoundError, ValueError):
+            gd_tests = {}
+        selected.update({f"GDScript: {name}": path for name, path in gd_tests.items()})
+    return selected
+
+
+def _direct_floor_governed_fixture_references(
+    name: str,
+    source: Path,
+) -> set[str]:
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not inspect runtime scenario '{name}' for fixture use: {exc}"
+        ) from exc
+
+    direct_references = set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))
+    missing_direct_floors = sorted(
+        reference
+        for reference in direct_references
+        if int(ASSET_MIN_SPLAT_COUNTS.get(reference, 0)) <= 0
+    )
+    if missing_direct_floors:
+        raise RuntimeError(
+            "Runtime scenario '{name}' references fixture(s) without a positive "
+            "ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                name=name,
+                paths=", ".join(missing_direct_floors),
+            )
+        )
+    return direct_references
+
+
+def _validate_scenario_fixture_contracts() -> None:
+    expected_sources = {
+        **{f"C++: {name}": path for name, path in CPP_TESTS.items()},
+        **{f"GDScript: {name}": path for name, path in GDS_TESTS.items()},
+    }
+    contract_names = set(SCENARIO_FIXTURE_CONTRACTS)
+    expected_names = set(expected_sources)
+    if contract_names != expected_names:
+        missing = sorted(expected_names - contract_names)
+        extra = sorted(contract_names - expected_names)
+        raise RuntimeError(
+            "Runtime scenario fixture contract is incomplete or stale: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    for name, source in expected_sources.items():
+        contract = SCENARIO_FIXTURE_CONTRACTS[name]
+        if contract.source.resolve() != source.resolve():
+            raise RuntimeError(
+                f"Runtime scenario fixture contract source mismatch for '{name}': "
+                f"declared={contract.source}, registered={source}"
+            )
+        missing_floors = [
+            fixture
+            for fixture in contract.fixtures
+            if int(ASSET_MIN_SPLAT_COUNTS.get(fixture, 0)) <= 0
+        ]
+        if missing_floors:
+            raise RuntimeError(
+                "Runtime scenario fixture contract for '{name}' references fixture(s) "
+                "without a positive ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                    name=name,
+                    paths=", ".join(missing_floors),
+                )
+            )
+
+        # Scan the complete registry, not only this run's selected scenarios.
+        # Preparation remains selected-only below, while contract drift is a
+        # deterministic guard failure even for an unselected scenario.
+        direct_references = _direct_floor_governed_fixture_references(name, source)
+        undeclared_direct = sorted(direct_references - set(contract.fixtures))
+        if undeclared_direct:
+            raise RuntimeError(
+                "Registered runtime scenario '{name}' directly references fixture(s) "
+                "missing from SCENARIO_FIXTURE_CONTRACTS: {paths}".format(
+                    name=name,
+                    paths=", ".join(undeclared_direct),
+                )
+            )
+
+
+def _floor_governed_fixture_consumers(
+    selected_sources: Dict[str, Path],
+) -> Dict[str, tuple[str, ...]]:
+    """Return selected scenarios whose explicit contract requires fixture prep."""
+    _validate_scenario_fixture_contracts()
+    consumers: Dict[str, tuple[str, ...]] = {}
+    for name, source in selected_sources.items():
+        registered_contract = SCENARIO_FIXTURE_CONTRACTS.get(name)
+        if (
+            registered_contract is None
+            or registered_contract.source.resolve() != source.resolve()
+        ):
+            # An ad-hoc --gd-script has no reviewed dependency declaration. It
+            # may construct a path or load it through a helper, so conservatively
+            # preflight every governed fixture instead of inferring exemption
+            # from source text.
+            _direct_floor_governed_fixture_references(name, source)
+            consumers[name] = tuple(sorted(ASSET_MIN_SPLAT_COUNTS))
+            continue
+
+        if registered_contract.fixtures:
+            consumers[name] = registered_contract.fixtures
+    return consumers
+
+
 def _load_scenario_config(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -1291,39 +1516,21 @@ def run_gd_tests(
         selected_tests: Iterable[str],
         zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[TestResult]:
-    gd_scripts = [entry for entry in selected_scripts if entry and entry.strip()]
-    if gd_scripts:
-        try:
-            gd_tests = _resolve_gd_test_map(gd_scripts)
-        except FileNotFoundError as exc:
-            return [
-                TestResult(
-                    name="GDScript Runtime Selection",
-                    command=[],
-                    duration=0.0,
-                    exit_code=1,
-                    stdout="",
-                    stderr=str(exc),
-                    status="failed",
-                    reasons=[str(exc)],
-                )
-            ]
-    else:
-        try:
-            gd_tests = _resolve_named_test_map(GDS_TESTS, selected_tests, kind="GDScript runtime test")
-        except ValueError as exc:
-            return [
-                TestResult(
-                    name="GDScript Runtime Selection",
-                    command=[],
-                    duration=0.0,
-                    exit_code=1,
-                    stdout="",
-                    stderr=str(exc),
-                    status="failed",
-                    reasons=[str(exc)],
-                )
-            ]
+    try:
+        gd_tests = _resolve_selected_gd_test_map(selected_scripts, selected_tests)
+    except (FileNotFoundError, ValueError) as exc:
+        return [
+            TestResult(
+                name="GDScript Runtime Selection",
+                command=[],
+                duration=0.0,
+                exit_code=1,
+                stdout="",
+                stderr=str(exc),
+                status="failed",
+                reasons=[str(exc)],
+            )
+        ]
 
     availability_error = _godot_binary_is_available(config.binary)
     if availability_error:
@@ -1547,12 +1754,24 @@ def main() -> int:
     zero_assertion_allowlist = _load_zero_assertion_allowlist(scenario_config)
 
     try:
-        # T7a (#895): the runtime consumer owns the final floor decision and
-        # gives the producer this run's selected binary so a clean checkout can
-        # build the canonical 10000-splat fixture before validation. Keep this
-        # after config-only exits such as --list-profiles: introspection does
-        # not consume fixtures and must not require a built binary.
-        ensure_synthetic_assets(args.godot_binary)
+        # T7a (#895) + #935: the runtime consumer owns the final floor decision,
+        # but only selected registered scenarios whose explicit contract declares
+        # floor-governed fixtures need the producer. Resolve this after profile/CLI
+        # selection across both harness kinds. Unregistered ad-hoc scripts preflight
+        # conservatively because their indirect dependencies are unknown.
+        selected_fixture_consumers = _floor_governed_fixture_consumers(
+            _selected_fixture_consumer_sources(
+                selected_cpp_tests=selected_cpp_tests,
+                run_cpp=should_run_cpp_harnesses,
+                selected_gd_scripts=args.gd_script,
+                selected_gd_tests=selected_gd_tests,
+                run_gd=not args.skip_gd,
+            )
+        )
+        if selected_fixture_consumers:
+            consumer_names = ", ".join(sorted(selected_fixture_consumers))
+            print(f"[runtime] Fixture preflight required by: {consumer_names}")
+            ensure_synthetic_assets(args.godot_binary)
     except RuntimeError as exc:
         print(f"[runtime] [FAIL] {exc}")
         return 1
