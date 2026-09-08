@@ -153,6 +153,22 @@ behaviour the code no longer has sends a user to debug their own project for our
 bug — strictly worse than no doc. Known instances of this shape are listed in the
 work items.
 
+### 8.1 Disclosed, not blocking
+
+Defects that are real and reachable but do not block, each with the reason and a
+workaround. The generated list supersedes this one; these are recorded here
+because they were decided before the generator exists.
+
+| Issue | Symptom | Why it does not block | Workaround |
+| --- | --- | --- | --- |
+| **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
+| **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+
+Holding an issue open for a defect we do not own would put it in the §4 blocker
+query, which would block the release on someone else's repository. That is why
+#928 was closed by #988 with the boundary stated in both directions rather than
+left open for #989.
+
 ## 9. How the bar is verified
 
 **Fail-closed machine gate, plus a named human signer.**
@@ -251,11 +267,12 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 10 identified, 3 fixed on master, 7 open.** Two of the ten were found
+**Status: 12 identified, 4 fixed or closed, 7 open, 1 refuted.** Several were found
 not by triage but by **verification conditions attached to a fix in flight** —
-#980 by the tooling built to demonstrate #586's reload path, and #985 by the
-condition requiring #980's deferred triggers to be covered. Neither would have
-been found by reading issues. That is the argument for keeping such conditions
+#980 by the tooling built to demonstrate #586's reload path, #985 by the
+condition requiring #980's deferred triggers to be covered, and #986/#987 by the
+reproduce-before-fixing condition on the composite track. None would have been
+found by reading issues. That is the argument for keeping such conditions
 attached to the remaining tracks, and the reason this list is treated as a floor
 rather than a ceiling.
 
@@ -290,13 +307,46 @@ rather than a ceiling.
    parameters change, so edits silently do not apply. Enters this set by the
    §10.1 envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. **#929** — splats swim under TAA/FSR2.
-6. **#851** — black contours and inert shadows with painterly enabled.
-7. **#930** — over-bright painterly splats.
-8. **#928** — opaque splat edges on transparent viewports.
+5. **#929** — splats swim under TAA/FSR2. Blocked on the #921 disposition; both
+   concern the same composite/temporal seam, as does #989.
+6. **#986** — **the painterly root cause.** Painterly's own viewport composite
+   can never load (a malformed `#[vertex]` marker and a 36-vs-48 push-constant
+   mismatch), so painterly falls through to the standard composite.
+7. **#987** — painterly renders nothing at the shipped `composite/depth_test =
+   true` default. **Downstream of #986, not independent:** the standard
+   composite it falls through to demands `raster_output.depth`, which
+   `render_painterly_stage` never assigns. Fix #986 and this resolves; do not
+   fix it separately.
+8. **#851** — black contours and inert shadows with painterly enabled. Its
+   premise ("ships today on both painterly paths") held only because the QA pin
+   sets `depth_test=false`; re-test at the shipped default once #986 lands.
 9. **#833** — starter-template overlay never updates.
 10. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
+
+**#928 is closed** by #988. What remains of its symptom is upstream and
+disclosed as #989 (§8.1).
+
+**#930 is refuted only while #986 stands.** Painterly is decoded today by
+accident: the standard composite it falls through to performs the sRGB decode
+painterly's own shader lacks. **Repairing #986 makes #930 live.** Whoever fixes
+#986 must land the decode with it.
+
+**Painterly's defects are one class, not four.** `render_painterly_stage` does
+not populate fields `render_baseline_stage` does — `raster_output.depth` (#987)
+and `lighting_mode` (#851) are the two found so far, and there is no reason to
+believe they are the only two. The #986 repair must **enumerate every field the
+baseline stage assigns and verify painterly assigns it**, rather than
+discovering them one at a time. A secondary consequence already noted: invalid
+`raster_output.depth` makes the pipeline invalidate its cached render every
+frame, so painterly permanently defeats cached-render reuse — a silent cost, not
+a correctness defect, and it belongs with the same repair.
+
+**Do not "constrain painterly to `depth_test=false`".** It appears to work there
+only because two defects cancel: #986 removes painterly's composite, and at that
+setting the missing-scene-depth check collapses so the fallthrough proceeds.
+Enshrining it would bake in an accident that breaks the moment either defect is
+repaired.
 
 Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
 
