@@ -577,6 +577,12 @@
 				Returns the number of splats that passed culling and were rendered in the most recent frame.
 			</description>
 		</method>
+		<method name="has_rendered_content">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the output compositor has a valid render and the most recent frame contains at least one visible splat. This read-only predicate is used by fail-closed runtime rendering proofs.
+			</description>
+		</method>
 		<method name="was_last_viewport_copy_successful">
 			<return type="bool" />
 			<description>

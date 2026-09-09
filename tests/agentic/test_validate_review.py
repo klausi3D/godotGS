@@ -73,6 +73,21 @@ class ValidateReviewTest(unittest.TestCase):
         errors = vr.validate_review(review, SCHEMA)
         self.assertTrue(any("unexpected property" in e for e in errors))
 
+    def test_malformed_enum_schema_returns_error_instead_of_raising(self):
+        errors = vr.validate_instance("value", {"type": "string", "enum": None})
+        self.assertTrue(any("enum" in error and "must be an array" in error for error in errors))
+
+    def test_malformed_container_schema_keywords_return_errors(self):
+        cases = (
+            ({}, {"type": "object", "properties": None}, "properties"),
+            ({}, {"type": "object", "required": None}, "required"),
+            ([], {"type": "array", "items": None}, "items"),
+        )
+        for instance, schema, keyword in cases:
+            with self.subTest(keyword=keyword):
+                errors = vr.validate_instance(instance, schema)
+                self.assertTrue(any(keyword in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

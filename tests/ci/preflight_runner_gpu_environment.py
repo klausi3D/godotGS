@@ -199,6 +199,11 @@ PAGE_HEAP_VALUE_NAMES = ("GlobalFlag", "PageHeapFlags", "VerifierDlls")
 #: Override for the loader probe binary (mainly for the guard's own tests).
 PROBE_ENV_VAR = "GS_CI_VULKAN_PROBE"
 
+#: Any line the Vulkan loader's debug channel emits. It is also the provenance
+#: anchor for layer-chain parsing: layer-shaped text without this prefix is not
+#: a loader report and must not influence the gate (#923).
+_LOADER_DEBUG_MARKER = "[Vulkan Loader]"
+
 #: The loader's own debug messages, one per layer it inserts into a chain.
 #: `Insert instance layer "VK_LAYER_X" (C:\\path\\to.dll)` and the device-chain
 #: form `Inserted device layer "..."`. The module path is optional so a loader
@@ -209,6 +214,7 @@ PROBE_ENV_VAR = "GS_CI_VULKAN_PROBE"
 #: `C:\\Program Files (x86` under a non-greedy `[^)]*`, which would name the
 #: offending layer's module wrongly in the very message a maintainer acts on.
 _LAYER_LINE = re.compile(
+    rf'^{re.escape(_LOADER_DEBUG_MARKER)}[^\r\n]*?'
     r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
     r'(?:\s*\((?P<module>.*)\))?\s*$',
     re.MULTILINE,
@@ -230,10 +236,6 @@ _IGNORED_ENV_LINE = re.compile(
 #: `info` is what carries the elevated-permissions notices above, and without it
 #: the loader silently declines our variables with nothing in the log.
 _PROBE_LOADER_DEBUG = "layer,info"
-
-#: Any line the Vulkan loader's debug channel emits. Used only to tell
-#: "the loader said nothing" apart from "the loader said nothing about layers".
-_LOADER_DEBUG_MARKER = "[Vulkan Loader]"
 
 PROBE_TIMEOUT_SEC = 300
 

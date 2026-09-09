@@ -297,7 +297,7 @@ private:
     bool _copy_final_output_compute(RenderingDevice *p_device, RID p_source, RID p_destination,
             const Size2i &p_source_extent, const Size2i &p_copy_extent, const Vector3i &p_destination_offset,
             bool p_composite_with_destination, bool p_source_is_premultiplied, bool p_destination_is_srgb,
-            bool p_source_decode_srgb,
+            bool p_source_decode_srgb, bool p_destination_has_alpha,
             const RD::TextureFormat &p_destination_format, RID p_source_depth, RID p_destination_depth,
             bool p_depth_test_enabled, bool p_depth_is_orthogonal, float p_z_near, float p_z_far,
             float p_depth_linearize_mul, float p_depth_linearize_add, float p_depth_epsilon);
