@@ -361,6 +361,13 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
 
+#: The same floors, keyed by the filename a producer writes. Derived rather than
+#: transcribed: a floor added above must not be able to go unchecked here.
+FIXTURE_FLOORS_BY_FILENAME: dict[str, int] = {
+    Path(resource_path).name: required
+    for resource_path, required in ASSET_MIN_SPLAT_COUNTS.items()
+}
+
 # The same res:// path is consumed in two project roots: the repository-root
 # doctest/runtime context and the canonical Godot test project.  A consumer
 # gate must validate both copies or a direct res:// reference can select the
@@ -950,6 +957,38 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                 "[prepare_synthetic_assets] the selected binary ran no [GeneratePLY] case "
                 "(doctest exits 0 when zero cases match); any file already in "
                 f"{output_dir} came from a different run and is not this producer's output"
+            )
+            return False
+
+        # Validate the staged corpus BEFORE it replaces the canonical one.
+        #
+        # A producer regression that writes every expected file but writes it
+        # SMALL is exactly what the floors exist to catch, and publishing first
+        # meant `asset_floor_failures()` correctly failed the command in a
+        # workspace whose usable fixtures had already been overwritten with the
+        # bad ones -- broken until the next successful generation. Rejecting here
+        # needs no rollback to get right: the staging directory is discarded and
+        # the canonical files were never touched.
+        undersized: list[str] = []
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
+            if floor <= 0:
+                continue
+            staged_splats = read_ply_vertex_count(staging_dir / name)
+            if staged_splats is None:
+                undersized.append(f"{name}: no vertex count could be read from the header")
+            elif staged_splats < floor:
+                undersized.append(f"{name}: {staged_splats} splats, floor is {floor}")
+        if undersized:
+            print(
+                "[prepare_synthetic_assets] the producer ran but its output does not meet "
+                "the fixture floors:"
+            )
+            for line in undersized:
+                print(f"  - {line}")
+            print(
+                "  nothing was published; the fixtures already in the workspace are "
+                "untouched and still usable"
             )
             return False
 

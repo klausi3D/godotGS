@@ -42,6 +42,24 @@ sys.modules[spec.name] = runtime_validation
 spec.loader.exec_module(runtime_validation)
 
 
+def _write_fixture_header(path: Path, splats: int) -> bytes:
+    """A minimal PLY the floor reader can take a vertex count from.
+
+    Only the header matters here: `read_ply_vertex_count()` reads the declared
+    `element vertex` line and never the body, and these tests are about which
+    files get published, not about their contents.
+    """
+    header = (
+        "ply\n"
+        "format binary_little_endian 1.0\n"
+        f"element vertex {splats}\n"
+        "property float x\n"
+        "end_header\n"
+    ).encode("ascii")
+    path.write_bytes(header)
+    return header
+
+
 class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
     """#934 review: a leftover fixture must not launder a producer failure.
 
@@ -104,11 +122,14 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
         the fatal branch added above is never reached.
         """
         prep = self._prep_module()
-        stale = b"leftover from an unrelated run\n"
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
-            for name in prep.CPP_GENERATED_FILENAMES:
-                (output_dir / name).write_bytes(stale)
+            stale = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in prep.CPP_GENERATED_FILENAMES
+            }
 
             targets: list[Path] = []
 
@@ -133,9 +154,56 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
             for name in prep.CPP_GENERATED_FILENAMES:
                 self.assertEqual(
                     (output_dir / name).read_bytes(),
-                    stale,
+                    stale[name],
                     f"{name} was disturbed by a producer run that failed",
                 )
+
+    def test_undersized_producer_output_never_replaces_a_usable_corpus(self) -> None:
+        """#934 review round 4: fail without damaging the workspace.
+
+        A producer regression that writes every expected file but writes it small
+        is exactly what the floors exist to catch. Publishing the staged files
+        first and checking afterwards meant the command failed -- correctly -- in
+        a workspace whose usable fixtures had already been overwritten with the
+        bad ones, and every benchmark and runtime run stayed broken until the next
+        successful generation.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            good = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in prep.CPP_GENERATED_FILENAMES
+            }
+            starved = sorted(prep.CPP_GENERATED_FILENAMES)[0]
+            floor = prep.FIXTURE_FLOORS_BY_FILENAME.get(starved, 0)
+            self.assertGreater(floor, 1, f"{starved} has no floor; pick another fixture")
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    _write_fixture_header(
+                        staging / name,
+                        floor - 1 if name == starved else
+                        prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024),
+                    )
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertFalse(
+                accepted, "a corpus that misses its floor was accepted as this producer's output"
+            )
+            for name in sorted(prep.CPP_GENERATED_FILENAMES):
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (output_dir / name).read_bytes(),
+                        good[name],
+                        f"{name}: a usable fixture was replaced by output that fails the floor",
+                    )
 
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
         """Discrimination: a real producer run must still be accepted.
@@ -144,16 +212,18 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
         every producer, which would make --godot-binary unusable.
         """
         prep = self._prep_module()
-        fresh = b"written by this producer run\n"
+        fresh: dict[str, bytes] = {}
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)
             for name in prep.CPP_GENERATED_FILENAMES:
-                (output_dir / name).write_bytes(b"leftover from an unrelated run\n")
+                _write_fixture_header(output_dir / name, 1)
 
             def fake_run(cmd, **kwargs):
                 staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
                 for name in prep.CPP_GENERATED_FILENAMES:
-                    (staging / name).write_bytes(fresh)
+                    fresh[name] = _write_fixture_header(
+                        staging / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
                 return prep.subprocess.CompletedProcess(cmd, 0, "", "")
 
             with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
@@ -163,7 +233,7 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
             for name in prep.CPP_GENERATED_FILENAMES:
                 self.assertEqual(
                     (output_dir / name).read_bytes(),
-                    fresh,
+                    fresh[name],
                     f"{name} still holds the leftover bytes; the fresh output was not published",
                 )
             strays = sorted(entry.name for entry in output_dir.iterdir() if entry.is_dir())
