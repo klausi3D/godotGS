@@ -56,6 +56,7 @@ GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
@@ -1350,7 +1351,11 @@ def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
 def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     missing = [
         path.relative_to(ROOT)
-        for path in (RENDERER_RELEASE_GATE_SCRIPT, RENDERER_RELEASE_GATE_TEST_SCRIPT)
+        for path in (
+            RENDERER_RELEASE_GATE_SCRIPT,
+            RENDERER_RELEASE_GATE_TEST_SCRIPT,
+            RELEASE_ATTESTATION_TEST_SCRIPT,
+        )
         if not path.is_file()
     ]
     if missing:
@@ -1360,6 +1365,7 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     commands = (
         [sys.executable, str(RENDERER_RELEASE_GATE_SCRIPT), "--mode", "contract"],
         [sys.executable, str(RENDERER_RELEASE_GATE_TEST_SCRIPT)],
+        [sys.executable, str(RELEASE_ATTESTATION_TEST_SCRIPT)],
     )
     for args in commands:
         code, out, err = _run_command(args)
