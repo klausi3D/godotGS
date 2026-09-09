@@ -40,6 +40,7 @@ import io
 import json
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -76,7 +77,7 @@ _provenance = _load_module("_gs_fixture_provenance", RUNTIME_DIR / "fixture_prov
 
 @contextlib.contextmanager
 def _producer_record(produced):
-    """Record `produced` the way a generation run does, and point the reader at it.
+    """Record `{path: variant}` the way a generation run does, and point the reader at it.
 
     Uses the real writer and the real reader, so these tests exercise the
     record contract rather than a stand-in for it. Only the LOCATION is
@@ -86,7 +87,9 @@ def _producer_record(produced):
     """
     with tempfile.TemporaryDirectory() as tmp:
         fixtures_dir = Path(tmp)
-        _provenance.record_producer_output(fixtures_dir, [Path(p) for p in produced])
+        _provenance.record_producer_output(
+            fixtures_dir, {Path(path): variant for path, variant in dict(produced).items()}
+        )
         with mock.patch.object(_run_benchmark, "_fixtures_dir", return_value=fixtures_dir):
             yield
 
@@ -244,7 +247,9 @@ class RichVariantRequiresRichShTests(unittest.TestCase):
             _write_ply(ply, 50000, header_only=True)          # no f_rest_*
             self.assertFalse(_run_benchmark.ply_header_declares_rich_sh(ply))
             self.assertEqual(
-                _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, False),
+                _run_benchmark.classify_fixture_variant(
+                    50000, self.VARIANTS, False, recorded_variant="cpp_rich"
+                ),
                 _run_benchmark.VARIANT_UNRECOGNIZED,
                 "a fallback-shaped file wearing a rich count was labelled cpp_rich",
             )
@@ -338,13 +343,17 @@ class RichVariantRequiresRichShTests(unittest.TestCase):
             _write_ply_with_properties(ply, 50000, props)
             self.assertTrue(_run_benchmark.ply_header_declares_rich_sh(ply))
             self.assertEqual(
-                _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, True),
+                _run_benchmark.classify_fixture_variant(
+                    50000, self.VARIANTS, True, recorded_variant="cpp_rich"
+                ),
                 "cpp_rich",
             )
 
     def test_the_fallback_producer_is_unaffected(self):
         self.assertEqual(
-            _run_benchmark.classify_fixture_variant(2048, self.VARIANTS, False),
+            _run_benchmark.classify_fixture_variant(
+                2048, self.VARIANTS, False, recorded_variant="python_fallback"
+            ),
             "python_fallback",
         )
 
@@ -399,13 +408,13 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
     def test_a_shape_perfect_impostor_without_a_record_is_not_cpp_rich(self):
         with tempfile.TemporaryDirectory() as tmp:
             ply = self._impostor(Path(tmp))
-            with _producer_record([]):
+            with _producer_record({}):
                 failure = self._contract(ply)
                 variant = _run_benchmark.classify_fixture_variant(
                     self._variants()["cpp_rich"],
                     self._variants(),
                     True,
-                    producer_recorded=_run_benchmark.fixture_carries_producer_record(ply),
+                    recorded_variant=_run_benchmark.recorded_fixture_producer(ply),
                 )
         self.assertNotEqual(
             variant,
@@ -413,7 +422,7 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
             "a file no generation run wrote was labelled as the C++ producer's output",
         )
         self.assertIn("UNRECOGNIZED", failure)
-        self.assertIn("a generation run recorded these bytes: no", failure)
+        self.assertIn("a generation run recorded this file as: nothing", failure)
 
     def test_the_same_bytes_with_a_producer_record_are_accepted(self):
         """Discrimination: the real producer's output must still pass.
@@ -424,13 +433,13 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmp:
             ply = self._impostor(Path(tmp))
-            with _producer_record([ply]):
+            with _producer_record({ply: "cpp_rich"}):
                 self.assertEqual(
                     _run_benchmark.classify_fixture_variant(
                         self._variants()["cpp_rich"],
                         self._variants(),
                         True,
-                        producer_recorded=_run_benchmark.fixture_carries_producer_record(ply),
+                        recorded_variant=_run_benchmark.recorded_fixture_producer(ply),
                     ),
                     "cpp_rich",
                 )
@@ -451,9 +460,9 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
                 self._variants()["cpp_rich"],
                 "the swapped file no longer declares the producer count; the case is moot",
             )
-            with _producer_record([genuine]):
-                self.assertFalse(
-                    _run_benchmark.fixture_carries_producer_record(swapped),
+            with _producer_record({genuine: "cpp_rich"}):
+                self.assertIsNone(
+                    _run_benchmark.recorded_fixture_producer(swapped),
                     "a different file was authenticated by another file's record",
                 )
                 self.assertIn("UNRECOGNIZED", self._contract(swapped))
@@ -466,16 +475,131 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
         location would leave every lane's actual fixture unauthenticated.
         """
         with tempfile.TemporaryDirectory() as tmp:
-            primary = self._impostor(Path(tmp), "primary.ply")
+            # The same basename in two directories: that is what copy2 into the
+            # consumer project produces, and what the lanes resolve res:// to.
+            primary_dir = Path(tmp) / "primary"
+            primary_dir.mkdir()
+            primary = self._impostor(primary_dir)
             consumer = Path(tmp) / "consumer"
             consumer.mkdir()
             copy = consumer / "synthetic_sphere.ply"
             copy.write_bytes(primary.read_bytes())
-            with _producer_record([primary]):
-                self.assertTrue(
-                    _run_benchmark.fixture_carries_producer_record(copy),
+            with _producer_record({primary: "cpp_rich"}):
+                self.assertEqual(
+                    _run_benchmark.recorded_fixture_producer(copy),
+                    "cpp_rich",
                     "the consumer copy of recorded producer output was not authenticated",
                 )
+
+    def test_recorded_bytes_cannot_be_published_under_another_fixtures_name(self):
+        """#969 review round 4: the name is part of the claim.
+
+        sphere, cube, plane and torus are all declared as 50,000-splat `cpp_rich`
+        outputs, so the count cannot tell them apart and the header shape is
+        identical. A digest-only record therefore accepted recorded sphere bytes
+        copied over `synthetic_cube.ply`: the cube lane measured a sphere and
+        published it as the cube.
+        """
+        cube_path = "res://tests/fixtures/synthetic_cube.ply"
+        cube_variants = dict(_prepare.ASSET_EXPECTED_SPLAT_COUNTS[cube_path])
+        self.assertEqual(
+            cube_variants["cpp_rich"],
+            self._variants()["cpp_rich"],
+            "sphere and cube no longer share a producer count; this case is moot",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            sphere = self._impostor(Path(tmp))
+            cube = Path(tmp) / "synthetic_cube.ply"
+            cube.write_bytes(sphere.read_bytes())
+            with _producer_record({sphere: "cpp_rich"}):
+                self.assertIsNone(
+                    _run_benchmark.recorded_fixture_producer(cube),
+                    "one fixture's recorded bytes authenticated another fixture's name",
+                )
+                failure = evaluate_fixture_contract(
+                    lane_id="synthetic_cube",
+                    asset_path=cube_path,
+                    asset_file=cube,
+                    required_splats=_prepare.ASSET_MIN_SPLAT_COUNTS[cube_path],
+                    expected_variants=cube_variants,
+                )
+                self.assertIn("UNRECOGNIZED", failure)
+                # Discrimination: the file the record actually names still passes.
+                self.assertEqual(self._contract(sphere), "")
+
+    def test_an_unrecorded_fallback_fixture_is_not_the_fallback_producer(self):
+        """#969 review round 4: `python_fallback` is advertised as provenance too.
+
+        The record only removed variants in RICH_SH_VARIANTS, so a fallback label
+        rested on the vertex count alone -- and the counts are shared across
+        fixtures, so the 2,048-splat fallback cube placed at the sphere path was
+        reported as the sphere producer's output and satisfied
+        `--require-asset-variant python_fallback`.
+        """
+        variants = self._variants()
+        fallback_count = variants["python_fallback"]
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "synthetic_sphere.ply"
+            _write_ply(ply, fallback_count, header_only=True)
+            with _producer_record({}):
+                self.assertEqual(
+                    _run_benchmark.classify_fixture_variant(
+                        fallback_count,
+                        variants,
+                        False,
+                        recorded_variant=_run_benchmark.recorded_fixture_producer(ply),
+                    ),
+                    "unrecognized",
+                    "an unrecorded fixture was labelled as the Python producer's output",
+                )
+                self.assertIn("UNRECOGNIZED", self._contract(ply))
+
+            # Discrimination: the fallback producer's own recorded output passes,
+            # and is labelled as the fallback rather than as nothing.
+            with _producer_record({ply: "python_fallback"}):
+                self.assertEqual(
+                    _run_benchmark.classify_fixture_variant(
+                        fallback_count,
+                        variants,
+                        False,
+                        recorded_variant=_run_benchmark.recorded_fixture_producer(ply),
+                    ),
+                    "python_fallback",
+                )
+                self.assertEqual(self._contract(ply), "")
+
+    def test_a_record_that_disagrees_with_the_count_is_not_authentic(self):
+        """Non-vacuity for the record itself: it cannot outvote the evidence.
+
+        A recorded fixture that was later thinned still carries its entry only
+        until its bytes change -- but a record naming a producer whose count this
+        file does not have must not be accepted either, or the record would become
+        the single point of trust the count checks exist to back up.
+        """
+        variants = self._variants()
+        self.assertEqual(
+            _run_benchmark.classify_fixture_variant(
+                variants["cpp_rich"], variants, True, recorded_variant="python_fallback"
+            ),
+            "unrecognized",
+            "a record naming a producer that writes a different count was believed",
+        )
+
+    def test_prep_fails_when_the_provenance_record_cannot_be_written(self):
+        """#969 review round 4: unrecorded fixtures are fixtures nothing can use.
+
+        `--require-asset-variant` reads that record, so a prep that exits 0 having
+        failed to write it hands the next step a corpus it must reject, with the
+        cause a job and several minutes behind the failure.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                _prepare.fixture_provenance, "record_producer_output", return_value=False
+            ):
+                code = _prepare._generate(Path(tmp), quiet=True)
+        self.assertEqual(
+            code, 1, "prep reported success for a corpus whose provenance was not recorded"
+        )
 
     def test_the_record_keeps_entries_whose_files_are_still_on_disk(self):
         """A later run must not orphan a copy an earlier producer run wrote.
@@ -489,11 +613,11 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
             fixtures_dir.mkdir()
             kept = Path(tmp) / "kept.ply"
             kept.write_bytes(b"produced by an earlier run\n")
-            _provenance.record_producer_output(fixtures_dir, [kept])
+            _provenance.record_producer_output(fixtures_dir, {kept: "cpp_rich"})
             self.assertEqual(_provenance.recorded_variant(fixtures_dir, kept), "cpp_rich")
 
-            # A fallback run: nothing produced, but the file is still there.
-            _provenance.record_producer_output(fixtures_dir, [], retain=[kept])
+            # A later run that did not rewrite it, but the file is still there.
+            _provenance.record_producer_output(fixtures_dir, {}, retain=[kept])
             self.assertEqual(
                 _provenance.recorded_variant(fixtures_dir, kept),
                 "cpp_rich",
@@ -502,7 +626,7 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
 
             # And an entry whose file is gone is pruned rather than left to vouch
             # for bytes that no longer exist anywhere.
-            _provenance.record_producer_output(fixtures_dir, [], retain=[])
+            _provenance.record_producer_output(fixtures_dir, {}, retain=[])
             self.assertIsNone(
                 _provenance.recorded_variant(fixtures_dir, kept),
                 "the record kept an entry for a file no longer in the workspace",
@@ -515,13 +639,16 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
             fixtures_dir.mkdir()
             produced = Path(tmp) / "produced.ply"
             produced.write_bytes(b"produced\n")
-            _provenance.record_producer_output(fixtures_dir, [produced])
+            _provenance.record_producer_output(fixtures_dir, {produced: "cpp_rich"})
             record = _provenance.provenance_path(fixtures_dir)
 
             for label, body in (
                 ("not json", "{"),
                 ("wrong version", json.dumps({"version": 999, "entries": {}})),
-                ("entries not a mapping", json.dumps({"version": 1, "entries": []})),
+                (
+                    "entries not a mapping",
+                    json.dumps({"version": _provenance.PROVENANCE_VERSION, "entries": []}),
+                ),
             ):
                 with self.subTest(shape=label):
                     record.write_text(body, encoding="utf-8")
@@ -572,13 +699,23 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
                 "the copy the lanes actually measure was not authenticated by the record",
             )
 
+            # The Python producer is recorded too, or --require-asset-variant
+            # python_fallback would rest on the vertex count alone.
+            for name in ("synthetic_spiral.ply", "synthetic_flower_field.ply"):
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        _provenance.recorded_variant(fixtures_dir, fixtures_dir / name),
+                        "python_fallback",
+                        f"the fallback producer left {name} unrecorded",
+                    )
+
     def test_every_classification_in_the_runner_consults_the_record(self):
         """The check must be unreachable-proof: a call site that omits it re-opens the hole.
 
-        `producer_recorded` defaults to None ("not consulted") so unit tests over
-        the count/header logic stay readable. That default is only safe if no
-        production call site relies on it, which is a property of the source, so
-        it is asserted against the source.
+        `recorded_variant` is required, so a call site cannot omit it -- but it
+        could still pass a literal, which would hardcode provenance instead of
+        reading it. Both are properties of the source, so both are asserted
+        against the source.
         """
         tree = ast.parse((RUNTIME_DIR / "run_benchmark.py").read_text(encoding="utf-8"))
         calls = [
@@ -591,13 +728,148 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
         self.assertTrue(calls, "no call sites found; this guard would be vacuous")
         for call in calls:
             with self.subTest(line=call.lineno):
+                keywords = {keyword.arg: keyword.value for keyword in call.keywords}
                 self.assertIn(
-                    "producer_recorded",
-                    [keyword.arg for keyword in call.keywords],
+                    "recorded_variant",
+                    keywords,
                     f"run_benchmark.py:{call.lineno} classifies a fixture without "
                     "consulting the producer record",
                 )
+                self.assertNotIsInstance(
+                    keywords["recorded_variant"],
+                    ast.Constant,
+                    f"run_benchmark.py:{call.lineno} passes a literal provenance verdict "
+                    "instead of reading the record",
+                )
 
+
+
+def _producer_binary() -> "Path | None":
+    """A Godot build carrying the C++ `[GeneratePLY]` case, or None.
+
+    Resolved from `GODOT_BINARY` the way `run_module_tests.py` resolves it for
+    the StringName orphan guard -- a path, or a name on PATH. There is no
+    `--godot-binary` here because unittest owns the argv.
+    """
+    raw = os.environ.get("GODOT_BINARY", "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if candidate.is_file():
+        return candidate
+    resolved = shutil.which(raw)
+    return Path(resolved) if resolved else None
+
+
+def _header_property_names(path: Path) -> tuple[str, ...]:
+    """The `property` names a PLY header declares, in order."""
+    names: list[str] = []
+    with path.open("rb") as handle:
+        if handle.readline().strip() != b"ply":
+            return ()
+        for _ in range(512):
+            line = handle.readline()
+            if not line or line.strip() == b"end_header":
+                break
+            fields = line.strip().split()
+            if len(fields) >= 3 and fields[0] == b"property":
+                names.append(fields[-1].decode("ascii", "replace"))
+    return tuple(names)
+
+
+@unittest.skipUnless(
+    _producer_binary() is not None,
+    "GODOT_BINARY is not set to a build carrying the C++ [GeneratePLY] case",
+)
+class ProducerCapturedPositiveTests(unittest.TestCase):
+    """The positive case on bytes the C++ producer actually wrote (#969 review).
+
+    Every other positive in this file builds its input locally -- from properties
+    parsed out of `synthetic_ply_writer.cpp`, which couples the assertion to the
+    writer's source but not to its OUTPUT. If the real `[GeneratePLY]` route emits
+    something those assertions do not describe, or fails to produce a usable
+    provenance record, they stay green. This class removes that gap by running the
+    producer and asserting against what it wrote.
+
+    It is gated on `GODOT_BINARY`, so **say which mode a result came from**: with
+    the variable unset this class is SKIPPED and proves nothing. The derived-shape
+    tests above are what run unconditionally, and they are a coupling check, not a
+    capture.
+    """
+
+    SPHERE = "res://tests/fixtures/synthetic_sphere.ply"
+
+    def test_the_real_producer_run_is_accepted_end_to_end(self):
+        binary = _producer_binary()
+        with tempfile.TemporaryDirectory() as tmp:
+            fixtures_dir = Path(tmp) / "fixtures"
+            fixtures_dir.mkdir()
+
+            self.assertTrue(
+                _prepare._generate_via_godot(binary, fixtures_dir, True),
+                f"the producer at {binary} did not generate the fixture corpus",
+            )
+
+            for name in sorted(_prepare.CPP_GENERATED_FILENAMES):
+                path = fixtures_dir / name
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        _run_benchmark.read_ply_vertex_count(path),
+                        _prepare.CPP_GENERATOR_SPLAT_COUNTS[name],
+                        "the captured fixture's count is not the one derived from "
+                        "generate_synthetic_ply_fixtures.h",
+                    )
+                    self.assertTrue(
+                        _run_benchmark.ply_header_declares_rich_sh(path),
+                        "the producer's own output failed the rich-SH header check",
+                    )
+
+            # The derived shape the invented positives use must be the shape the
+            # producer emits. This is what makes those tests worth having: they
+            # describe a real file, not one the author imagined.
+            captured = _header_property_names(fixtures_dir / "synthetic_sphere.ply")
+            self.assertEqual(
+                captured,
+                tuple(_prepare.parse_cpp_writer_properties()),
+                "the properties parsed from synthetic_ply_writer.cpp are not the "
+                "properties the producer wrote",
+            )
+
+            # And the real writer's record authenticates the real output, through
+            # the real reader.
+            self.assertTrue(
+                _provenance.record_producer_output(
+                    fixtures_dir,
+                    {
+                        fixtures_dir / name: _provenance.VARIANT_CPP_RICH
+                        for name in _prepare.CPP_GENERATED_FILENAMES
+                    },
+                ),
+                "the producer record could not be written",
+            )
+            sphere = fixtures_dir / "synthetic_sphere.ply"
+            with mock.patch.object(
+                _run_benchmark, "_fixtures_dir", return_value=fixtures_dir
+            ):
+                self.assertEqual(
+                    _run_benchmark.recorded_fixture_producer(sphere),
+                    _provenance.VARIANT_CPP_RICH,
+                    "captured producer output was not authenticated by its own record",
+                )
+                self.assertEqual(
+                    evaluate_fixture_contract(
+                        lane_id="synthetic_sphere",
+                        asset_path=self.SPHERE,
+                        asset_file=sphere,
+                        required_splats=_prepare.ASSET_MIN_SPLAT_COUNTS[self.SPHERE],
+                        expected_variants=dict(
+                            _prepare.ASSET_EXPECTED_SPLAT_COUNTS[self.SPHERE]
+                        ),
+                        asset_source="captured",
+                    ),
+                    "",
+                    "the C++ producer's own fixture was rejected by the contract",
+                )
 
 
 class ReadPlyVertexCountTests(unittest.TestCase):
@@ -1314,25 +1586,36 @@ class FixtureVariantClassificationTests(unittest.TestCase):
     def test_classifies_each_producer(self):
         variants = self._sphere_variants()
         self.assertEqual(
-            _run_benchmark.classify_fixture_variant(variants["python_fallback"], variants),
+            _run_benchmark.classify_fixture_variant(
+                variants["python_fallback"], variants, recorded_variant="python_fallback"
+            ),
             "python_fallback",
         )
         self.assertEqual(
-            _run_benchmark.classify_fixture_variant(variants["cpp_rich"], variants),
+            _run_benchmark.classify_fixture_variant(
+                variants["cpp_rich"], variants, recorded_variant="cpp_rich"
+            ),
             "cpp_rich",
         )
 
     def test_a_count_no_producer_writes_is_unrecognized(self):
         variants = self._sphere_variants()
         self.assertEqual(
-            _run_benchmark.classify_fixture_variant(12000, variants),
+            # A recorded producer AND a count no producer writes: the count is
+            # the only thing wrong, so this stays a count test.
+            _run_benchmark.classify_fixture_variant(
+                12000, variants, recorded_variant="cpp_rich"
+            ),
             "unrecognized",
         )
 
     def test_no_declared_producers_is_undeclared_not_unrecognized(self):
         """A --benchmark-asset override or a chunked-ladder asset carries no
         contract; treating it as a violation would fail lanes that are correct."""
-        self.assertEqual(_run_benchmark.classify_fixture_variant(999, {}), "undeclared")
+        self.assertEqual(
+            _run_benchmark.classify_fixture_variant(999, {}, recorded_variant=None),
+            "undeclared",
+        )
 
     def test_the_fallback_fixture_passes_the_floor_but_is_labelled(self):
         """The headline #790 case: 2048 and 50000 both clear the sphere floor.
@@ -1345,8 +1628,12 @@ class FixtureVariantClassificationTests(unittest.TestCase):
         self.assertGreaterEqual(variants["python_fallback"], floor)
         self.assertGreaterEqual(variants["cpp_rich"], floor)
         self.assertNotEqual(
-            _run_benchmark.classify_fixture_variant(variants["python_fallback"], variants),
-            _run_benchmark.classify_fixture_variant(variants["cpp_rich"], variants),
+            _run_benchmark.classify_fixture_variant(
+                variants["python_fallback"], variants, recorded_variant="python_fallback"
+            ),
+            _run_benchmark.classify_fixture_variant(
+                variants["cpp_rich"], variants, recorded_variant="cpp_rich"
+            ),
         )
 
     def test_contract_rejects_an_oversized_fixture_no_producer_writes(self):
@@ -1384,8 +1671,7 @@ class FixtureVariantClassificationTests(unittest.TestCase):
                     # Shape is not provenance: a rich fixture is the producer's
                     # output only if a generation run recorded writing it, so the
                     # positive case has to carry that record too.
-                    recorded = [ply] if variant == "cpp_rich" else []
-                    with _producer_record(recorded):
+                    with _producer_record({ply: variant}):
                         self.assertEqual(
                             evaluate_fixture_contract(
                                 lane_id="synthetic_sphere",
@@ -1446,13 +1732,13 @@ class PreflightVariantWiringTests(unittest.TestCase):
         return project
 
     def _sphere_failures(
-        self, splats: int, *, rich_sh: bool = False, recorded: bool = False
+        self, splats: int, *, rich_sh: bool = False, recorded: "str | None" = None
     ) -> list[str]:
         manifest = self._manifest()
         with tempfile.TemporaryDirectory() as tmp:
             project = self._project_with_sphere(tmp, splats, rich_sh=rich_sh)
             ply = project / "tests" / "fixtures" / "synthetic_sphere.ply"
-            with _producer_record([ply] if recorded else []):
+            with _producer_record({ply: recorded} if recorded else {}):
                 failures = _run_benchmark._validate_suite_dependencies(
                     project_path=project,
                     lanes=[self._lane()],
@@ -1475,7 +1761,7 @@ class PreflightVariantWiringTests(unittest.TestCase):
             with self.subTest(variant=variant):
                 rich = variant == "cpp_rich"
                 self.assertEqual(
-                    self._sphere_failures(count, rich_sh=rich, recorded=rich), []
+                    self._sphere_failures(count, rich_sh=rich, recorded=variant), []
                 )
 
     def test_provenance_collection_labels_the_lane(self):
@@ -1487,7 +1773,7 @@ class PreflightVariantWiringTests(unittest.TestCase):
                     rich = variant == "cpp_rich"
                     project = self._project_with_sphere(tmp, count, rich_sh=rich)
                     ply = project / "tests" / "fixtures" / "synthetic_sphere.ply"
-                    with _producer_record([ply] if rich else []):
+                    with _producer_record({ply: variant}):
                         records = _run_benchmark.collect_fixture_provenance(
                             project_path=project,
                             lanes=[self._lane()],

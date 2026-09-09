@@ -24,6 +24,7 @@ from typing import Any
 
 from fixture_provenance import (
     VARIANT_CPP_RICH,
+    VARIANT_PYTHON_FALLBACK,
     recorded_variant as recorded_fixture_variant,
 )
 from benchmark_asset_manifest import (
@@ -755,7 +756,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-asset-variant",
         default="",
-        choices=["", "python_fallback", "cpp_rich"],
+        choices=["", VARIANT_PYTHON_FALLBACK, VARIANT_CPP_RICH],
         help="Refuse to benchmark unless every lane's fixture was written by this "
              "producer (see asset_expected_splat_counts in the asset manifest). "
              "Lanes whose asset has no such producer declared are exempt -- "
@@ -1051,24 +1052,29 @@ def _fixtures_dir() -> Path:
     return _repo_root() / "tests" / "fixtures"
 
 
-def fixture_carries_producer_record(asset_file: Path) -> bool:
-    """Whether a generation run recorded writing THESE bytes as rich producer output.
+def recorded_fixture_producer(asset_file: Path) -> "str | None":
+    """Which producer recorded writing THESE bytes under THIS name, or None.
 
     `ply_header_declares_rich_sh()` above authenticates a file SHAPE: the
     producer's encoding and its property block. A `binary_little_endian` PLY
     assembled outside the generator with a declared producer count and the full
     `f_rest_0..44` block satisfies all of it, so shape alone let a file the C++
     producer never wrote satisfy `--require-asset-variant cpp_rich` and publish
-    numbers under that producer.
+    numbers under that producer. The fallback side had no shape check at all: its
+    label rested on the vertex count alone, so the 2,048-splat fallback cube
+    placed at the sphere path passed as the sphere producer's output.
 
-    `prepare_synthetic_assets.py` therefore records what it wrote, beside the
-    primary corpus in `tests/fixtures/`. Entries are keyed by digest, so the
-    consumer project's byte-identical copy authenticates from the same entry.
-    Absent record, unreadable file, digest not listed: all False, which is the
-    fail-closed direction -- an unauthenticated file loses the rich label rather
-    than keeping it.
+    `prepare_synthetic_assets.py` therefore records what it wrote -- both
+    producers -- beside the primary corpus in `tests/fixtures/`. Entries are keyed
+    by digest and bound to the filename the producer wrote, so the consumer
+    project's byte-identical copy authenticates from the same entry while one
+    fixture's bytes cannot stand in for another's name.
+
+    None for an absent record, an unreadable file, a digest not listed, or a
+    digest listed under a different name: every one of those loses the label
+    rather than keeping it.
     """
-    return recorded_fixture_variant(_fixtures_dir(), asset_file) in RICH_SH_VARIANTS
+    return recorded_fixture_variant(_fixtures_dir(), asset_file)
 
 
 def _ply_header_declares_gaussian_properties(fh) -> bool:
@@ -1133,7 +1139,8 @@ def classify_fixture_variant(
     actual_splats: int,
     expected_variants: dict[str, int],
     has_rich_sh: bool | None = None,
-    producer_recorded: bool | None = None,
+    *,
+    recorded_variant: "str | None",
 ) -> str:
     """Return which declared producer wrote a fixture of this exact size.
 
@@ -1156,21 +1163,20 @@ def classify_fixture_variant(
         matches = [m for m in matches if m not in RICH_SH_VARIANTS]
         if not matches:
             return VARIANT_UNRECOGNIZED
-    # Neither is the header. Count, encoding and property block all describe a
-    # file SHAPE, and a shape can be assembled: a binary_little_endian PLY built
-    # outside the generator with a declared producer count and the full f_rest_*
-    # block satisfies every check above. A rich label therefore also requires the
-    # producer's own record of what it wrote to name these exact bytes
-    # (fixture_carries_producer_record). None means the record was not consulted;
-    # only unit tests over the count/header logic pass that, and a guard test
-    # asserts every call site in this module passes a real verdict.
-    if producer_recorded is False:
-        matches = [m for m in matches if m not in RICH_SH_VARIANTS]
-        if not matches:
-            return VARIANT_UNRECOGNIZED
-    # Two producers writing the same count is not an error, but the label must be
-    # deterministic rather than dict-order dependent.
-    return matches[0]
+    # And the label itself comes from the RECORD, not from the count.
+    #
+    # Count, encoding and property block all describe a file SHAPE, and a shape
+    # can be assembled or borrowed: a binary_little_endian PLY built outside the
+    # generator with a declared producer count and the full f_rest_* block
+    # satisfies every check above, and on the fallback side the count was the
+    # only check there was. So the producer's own record of what it wrote decides
+    # which producer wrote this -- `recorded_variant` is required rather than
+    # defaulted, because a call site that forgot it would silently restore
+    # exactly that hole -- and the count still has to agree with the record, so a
+    # thinned copy of a recorded fixture is unrecognized rather than authentic.
+    if recorded_variant is None or recorded_variant not in matches:
+        return VARIANT_UNRECOGNIZED
+    return recorded_variant
 
 
 def describe_fixture_variants(expected_variants: dict[str, int]) -> str:
@@ -1230,11 +1236,9 @@ def evaluate_fixture_contract(
         )
     if variants:
         has_rich_sh = ply_header_declares_rich_sh(asset_file)
-        producer_recorded = fixture_carries_producer_record(asset_file)
+        recorded = recorded_fixture_producer(asset_file)
         if (
-            classify_fixture_variant(
-                actual, variants, has_rich_sh, producer_recorded=producer_recorded
-            )
+            classify_fixture_variant(actual, variants, has_rich_sh, recorded_variant=recorded)
             == VARIANT_UNRECOGNIZED
         ):
             # This is the half a floor can never catch: a fixture the right side
@@ -1255,7 +1259,7 @@ def evaluate_fixture_contract(
                     f"producer's output\n"
                     f"      producer SH block in header: "
                     f"{'yes' if has_rich_sh else 'no'}; a generation run recorded "
-                    f"these bytes: {'yes' if producer_recorded else 'no'}\n"
+                    f"this file as: {recorded or 'nothing'}\n"
                 )
             return (
                 f"lane={lane_id}: UNRECOGNIZED benchmark fixture: {asset_path}{source_suffix}\n"
@@ -1358,7 +1362,7 @@ def collect_fixture_provenance(
                 actual,
                 expected_variants,
                 ply_header_declares_rich_sh(asset_file),
-                producer_recorded=fixture_carries_producer_record(asset_file),
+                recorded_variant=recorded_fixture_producer(asset_file),
             )
         )
         records.append(

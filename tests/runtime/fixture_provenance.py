@@ -37,17 +37,22 @@ import hashlib
 import json
 from pathlib import Path
 
-#: The producer label recorded for C++ `[GeneratePLY]` output. Defined here so
-#: the writer (`prepare_synthetic_assets.py`) and the reader (`run_benchmark.py`,
-#: which imports this name as its own `VARIANT_CPP_RICH`) cannot drift apart.
+#: The producer labels. Defined here so the writer
+#: (`prepare_synthetic_assets.py`) and the reader (`run_benchmark.py`) cannot
+#: drift apart: both import these names rather than spelling the strings again.
 VARIANT_CPP_RICH = "cpp_rich"
+VARIANT_PYTHON_FALLBACK = "python_fallback"
 
 PROVENANCE_FILENAME = ".fixture_provenance.json"
 
 #: Bumped whenever the record's meaning changes. A record written by a different
 #: version is ignored rather than reinterpreted, which fails CLOSED: an ignored
 #: record authenticates nothing.
-PROVENANCE_VERSION = 1
+#:
+#: 2: entries carry the filenames the producer wrote them as, and the Python
+#:    fallback records its output too -- a v1 record binds neither, so reading one
+#:    under these rules would authenticate more than it was ever asked to.
+PROVENANCE_VERSION = 2
 
 _DIGEST_CHUNK_BYTES = 1 << 20
 
@@ -88,53 +93,88 @@ def load_records(fixtures_dir: Path) -> dict[str, dict]:
     return {
         digest: entry
         for digest, entry in entries.items()
-        if isinstance(digest, str) and isinstance(entry, dict) and entry.get("variant")
+        if isinstance(digest, str)
+        and isinstance(entry, dict)
+        and entry.get("variant")
+        and isinstance(entry.get("filenames"), list)
     }
 
 
 def recorded_variant(fixtures_dir: Path, path: Path) -> str | None:
-    """The producer label recorded for this exact file, or None."""
+    """The producer label recorded for these exact bytes UNDER THIS NAME, or None.
+
+    The name is part of the claim, not decoration. Four fixtures are declared as
+    50,000-splat `cpp_rich` outputs (sphere, cube, plane, torus), so a digest-only
+    lookup accepted recorded sphere bytes copied over `synthetic_cube.ply`: the
+    cube lane then measured a sphere and published it as the cube (#969 review).
+    A producer writes each fixture under one name, and that pairing is what the
+    record attests.
+
+    Byte-identical copies keep working, which is the point of keying by digest:
+    `prepare_synthetic_assets.py` copies each primary into the consumer project
+    under the SAME basename, so both are covered by one entry. `filenames` is a
+    list for the case two names legitimately share content -- the record then
+    attests both, rather than the last write silently dropping the other.
+    """
     digest = file_digest(path)
     if digest is None:
         return None
     entry = load_records(fixtures_dir).get(digest)
-    return entry.get("variant") if entry else None
+    if not entry:
+        return None
+    if Path(path).name not in entry.get("filenames", []):
+        return None
+    return entry.get("variant")
 
 
 def record_producer_output(
     fixtures_dir: Path,
-    produced: "list[Path] | tuple[Path, ...]" = (),
+    produced: "dict[Path, str] | None" = None,
     *,
-    variant: str = VARIANT_CPP_RICH,
     retain: "list[Path] | tuple[Path, ...]" = (),
 ) -> bool:
-    """Record `produced` as `variant`, keeping prior entries still on disk.
+    """Record each written path under the producer that wrote it.
 
-    `retain` names the other copies of the corpus (the consumer project's
-    duplicates). A prior entry survives only when some file in `retain` still
-    hashes to it, which keeps the record self-pruning -- it cannot grow past the
-    number of fixture copies in the workspace -- while not evicting a copy that a
-    previous producer run wrote and this run deliberately left in place (the
-    `preserve_floor_valid` branch in `prepare_synthetic_assets.py` does exactly
-    that).
+    `produced` maps a path to its producer label. BOTH producers are recorded:
+    `--require-asset-variant python_fallback` is advertised as provenance too, and
+    while it was unrecorded a fixture satisfied it on its vertex count alone --
+    the 2,048-splat fallback cube placed at the sphere path passed as the sphere
+    producer's output (#969 review).
 
-    Called with no `produced` after a fallback run, this is pure pruning.
-    Returns False when the record could not be written.
+    `retain` names the corpus's other copies. A prior entry survives only when
+    some file in `retain` still hashes to it, which keeps the record self-pruning
+    -- it cannot grow past the number of fixture copies in the workspace -- while
+    not evicting a copy an earlier run wrote that this one deliberately left in
+    place.
+
+    Called with nothing produced, this is pure pruning. Returns False when the
+    record could not be written; the caller must not report success on a corpus
+    whose provenance was not recorded.
     """
     fixtures_dir = Path(fixtures_dir)
     previous = load_records(fixtures_dir)
     entries: dict[str, dict] = {}
 
-    for path in produced:
+    for path, variant in (produced or {}).items():
         path = Path(path)
         digest = file_digest(path)
         if digest is None:
             continue
-        entries[digest] = {
-            "variant": variant,
-            "filename": path.name,
-            "bytes": path.stat().st_size if path.is_file() else 0,
-        }
+        entry = entries.setdefault(
+            digest,
+            {"variant": variant, "filenames": [], "bytes": path.stat().st_size},
+        )
+        if entry["variant"] != variant:
+            # Identical bytes attributed to two producers is not a thing either
+            # producer can do; refusing to pick one is the only honest answer.
+            print(
+                "[fixture_provenance] refusing to record identical bytes as both "
+                f"{entry['variant']} and {variant} ({path.name})"
+            )
+            return False
+        if path.name not in entry["filenames"]:
+            entry["filenames"].append(path.name)
+            entry["filenames"].sort()
 
     for path in retain:
         digest = file_digest(Path(path))

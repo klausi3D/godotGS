@@ -119,9 +119,14 @@ SYNTHETIC_PLY_WRITER = (
     RUNTIME_DIR.parents[1] / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
 )
 
-_PLY_PROPERTY_RE = re.compile(r'header \+= "property float ([A-Za-z0-9_]+)')
-_PLY_PROPERTY_LOOP_RE = re.compile(
-    r'for \(int i = 0; i < (\d+); i\+\+\) \{\s*header \+= vformat\("property float ([a-z_]+)%d'
+#: One pattern over both ways the writer appends a property, so a single ordered
+#: scan can reproduce the ORDER it emits them in. Two separate passes cannot: the
+#: writer emits `f_rest_0..44` between `f_dc_2` and `opacity`, and collecting the
+#: literals first put that block at the end -- a property list that matches no
+#: file the producer writes, since PLY property order IS the binary layout.
+_PLY_PROPERTY_RE = re.compile(
+    r'header \+= "property float ([A-Za-z0-9_]+)'
+    r'|for \(int i = 0; i < (\d+); i\+\+\) \{\s*header \+= vformat\("property float ([a-z_]+)%d'
 )
 
 
@@ -133,19 +138,35 @@ def parse_cpp_writer_properties() -> tuple[str, ...]:
     believed: if `synthetic_ply_writer.cpp` changed its header, the positive test
     would stay green while describing a file the producer no longer writes.
 
+    Names come back in EMISSION order, including the `f_rest_*` loop at the point
+    the writer runs it. The first version collected the literals in one pass and
+    appended the loop afterwards, which put `f_rest_0..44` after `rot_3` -- an
+    order no file the producer writes has, and in PLY the property order IS the
+    binary layout. A captured fixture is what showed it (see
+    `ProducerCapturedPositiveTests`), which is the case for capture in one line:
+    derivation from source is only as good as the reading of the source.
+
+    Both optional blocks are included. `p_write_normals` and `p_write_sh1` are set
+    together by the surface generators (sphere, cube, plane, torus in
+    `generate_synthetic_ply_fixtures.h`), so this is the shape those fixtures
+    have; the uniform and volumetric generators pass `p_write_normals=false` and
+    their headers are the same list without `nx/ny/nz`.
+
     This is derivation from source, and NOT the same thing as a fixture captured
-    from a real producer run -- the reviewer asked for capture, which needs the
-    module build. It does establish the coupling: the writer changing its header
-    changes this list, so the shape a test asserts against cannot silently drift
-    away from the shape the producer emits.
+    from a real producer run. It establishes the coupling: the writer changing its
+    header changes this list, so the shape a test asserts against cannot silently
+    drift away from the shape the producer emits.
     """
     try:
         source = SYNTHETIC_PLY_WRITER.read_text(encoding="utf-8")
     except OSError:
         return ()
-    names: list[str] = list(_PLY_PROPERTY_RE.findall(source))
-    for count, prefix in _PLY_PROPERTY_LOOP_RE.findall(source):
-        names.extend(f"{prefix}{i}" for i in range(int(count)))
+    names: list[str] = []
+    for literal, loop_count, loop_prefix in _PLY_PROPERTY_RE.findall(source):
+        if literal:
+            names.append(literal)
+        else:
+            names.extend(f"{loop_prefix}{index}" for index in range(int(loop_count)))
     return tuple(names)
 
 
@@ -480,8 +501,11 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
 #
 # Note synthetic_spiral.ply and synthetic_flower_field.ply have no C++ generator
 # at all: 25000/30000 is their maximum available fidelity, not a reduced variant.
-VARIANT_PYTHON_FALLBACK = "python_fallback"
-VARIANT_CPP_RICH = "cpp_rich"
+# The two producer labels live in fixture_provenance: the record this script
+# writes and the classifier that reads it must mean the same strings, and a
+# second spelling here is how they would drift apart.
+VARIANT_PYTHON_FALLBACK = fixture_provenance.VARIANT_PYTHON_FALLBACK
+VARIANT_CPP_RICH = fixture_provenance.VARIANT_CPP_RICH
 
 
 def _python_fallback_counts() -> dict[str, int]:
@@ -1306,6 +1330,14 @@ def _generate(
         _print_fallback_notice("no --godot-binary was given")
 
     # Phase 2: Generate remaining files via Python.
+    #
+    # `produced` records who wrote each file as it is written, rather than being
+    # reconstructed afterwards from the same conditions -- a second copy of this
+    # branching is a second thing to keep in step with it.
+    produced: dict[Path, str] = {}
+    if cpp_generated:
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            produced[fixtures_dir / name] = VARIANT_CPP_RICH
     for spec in CANONICAL_SPECS:
         output = repo_root / spec.relative_path
         filename = Path(spec.relative_path).name
@@ -1320,6 +1352,7 @@ def _generate(
             src = fixtures_dir / filename
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, output)
+            produced[output] = VARIANT_CPP_RICH
             if not quiet:
                 print(f"[prepare_synthetic_assets] copied C++ {filename} -> {spec.relative_path}")
             continue
@@ -1327,29 +1360,38 @@ def _generate(
         # Python fallback generation.
         rows = _generate_rows(spec)
         _write_ply(output, rows)
+        produced[output] = VARIANT_PYTHON_FALLBACK
         if not quiet:
             print(
                 f"[prepare_synthetic_assets] wrote {spec.count:5d} splats ({spec.pattern}) -> {spec.relative_path}"
             )
 
-    # Record what the C++ producer wrote. `--require-asset-variant cpp_rich`
-    # authenticated fixtures from their header alone, and a header describes a
-    # file shape that can be assembled outside the generator; the record is what
-    # makes the label mean "this run wrote these bytes" (#790 review). Entries are
-    # keyed by digest, so the consumer copies made just above are covered by the
-    # same entries. Called after a fallback run too, with nothing produced: that
-    # prunes entries whose files are gone rather than leaving them to vouch for
-    # bytes that no longer exist.
-    cpp_fixture_copies = [
-        repo_root / spec.relative_path
-        for spec in CANONICAL_SPECS
-        if Path(spec.relative_path).name in CPP_GENERATED_FILENAMES
-    ]
-    fixture_provenance.record_producer_output(
+    # Record which producer wrote each file. `--require-asset-variant`
+    # authenticated fixtures from their header and their vertex count, and both
+    # describe a file shape that can be assembled outside the generator or copied
+    # from another fixture; the record is what makes a label mean "this producer
+    # wrote these bytes under this name" (#790 review). BOTH producers are
+    # recorded -- the fallback label is advertised as provenance too, and a
+    # fixture used to satisfy it on its count alone.
+    #
+    # `retain` carries forward entries for copies still on disk, so a run that
+    # leaves a fixture in place does not orphan its provenance, and prunes the
+    # rest rather than leaving them to vouch for bytes no longer in the workspace.
+    if not fixture_provenance.record_producer_output(
         fixtures_dir,
-        [fixtures_dir / name for name in sorted(CPP_GENERATED_FILENAMES)] if cpp_generated else [],
-        retain=cpp_fixture_copies,
-    )
+        produced,
+        retain=[repo_root / spec.relative_path for spec in CANONICAL_SPECS],
+    ):
+        # A corpus whose provenance was not recorded is a corpus every consumer
+        # will refuse: `--require-asset-variant` reads that record, so reporting
+        # success here would hand the next step fixtures it must reject, with the
+        # cause several minutes and one job behind it.
+        print(
+            "[prepare_synthetic_assets] ERROR: the fixtures were generated but their "
+            "producer record could not be written, so nothing downstream can "
+            "authenticate them."
+        )
+        return 1
 
     _write_manifest(repo_root)
     if not quiet:
