@@ -92,6 +92,84 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
         self.assertEqual(rc, 0, "the Python fallback was refused when no floors were required")
 
 
+    def test_a_zero_exit_producer_that_wrote_nothing_is_not_accepted(self) -> None:
+        """#934 review round 3: exit 0 is not proof the generators ran.
+
+        doctest returns EXIT_SUCCESS whenever no case *failed*, including when
+        zero cases matched the filter (thirdparty/doctest/doctest.h).  An older
+        module binary without the [GeneratePLY] case therefore exits 0 and
+        writes nothing.  Accepting the fixtures because the expected names
+        already exist in the output directory hands back an unrelated run's
+        leftovers as this producer's output -- and because that reports success,
+        the fatal branch added above is never reached.
+        """
+        prep = self._prep_module()
+        stale = b"leftover from an unrelated run\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            for name in prep.CPP_GENERATED_FILENAMES:
+                (output_dir / name).write_bytes(stale)
+
+            targets: list[Path] = []
+
+            def fake_run(cmd, **kwargs):
+                targets.append(Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"]))
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertFalse(
+                accepted,
+                "a producer that exited 0 without writing anything was accepted on the "
+                "strength of leftover files",
+            )
+            self.assertNotEqual(
+                targets[0].resolve(),
+                output_dir.resolve(),
+                "the producer wrote straight into the output directory, so existence "
+                "there can never distinguish fresh output from leftovers",
+            )
+            for name in prep.CPP_GENERATED_FILENAMES:
+                self.assertEqual(
+                    (output_dir / name).read_bytes(),
+                    stale,
+                    f"{name} was disturbed by a producer run that failed",
+                )
+
+    def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
+        """Discrimination: a real producer run must still be accepted.
+
+        Without this, the check above is satisfied by a function that rejects
+        every producer, which would make --godot-binary unusable.
+        """
+        prep = self._prep_module()
+        fresh = b"written by this producer run\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            for name in prep.CPP_GENERATED_FILENAMES:
+                (output_dir / name).write_bytes(b"leftover from an unrelated run\n")
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    (staging / name).write_bytes(fresh)
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertTrue(accepted, "a producer that generated every fixture was rejected")
+            for name in prep.CPP_GENERATED_FILENAMES:
+                self.assertEqual(
+                    (output_dir / name).read_bytes(),
+                    fresh,
+                    f"{name} still holds the leftover bytes; the fresh output was not published",
+                )
+            strays = sorted(entry.name for entry in output_dir.iterdir() if entry.is_dir())
+            self.assertEqual(strays, [], "the staging directory was left behind in tests/fixtures")
+
+
 class SyntheticAssetFloorWiringTests(unittest.TestCase):
     def test_prep_command_requires_floors_and_forwards_the_binary(self) -> None:
         completed = mock.Mock(returncode=0, stdout="", stderr="")

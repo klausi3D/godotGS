@@ -17,6 +17,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -898,35 +899,65 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
     Returns True on success, False on failure (caller should fall back to Python).
+
+    The producer writes into an empty staging directory, never straight into
+    ``output_dir``, and a file is only accepted once it has been moved out of
+    that staging directory.  Exit status alone does not prove the generators
+    ran: doctest returns ``EXIT_SUCCESS`` whenever no test case *failed*,
+    including when zero cases matched the filter
+    (``thirdparty/doctest/doctest.h``), so a binary that predates the
+    ``[GeneratePLY]`` case exits 0 and writes nothing.  Deciding success from
+    the mere existence of the expected names in ``output_dir`` would then hand
+    back whatever an unrelated earlier run left there and report it as this
+    producer's output.  Staging makes existence proof of writing.
     """
-    env = os.environ.copy()
-    env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(output_dir)
-    cmd = [
-        str(godot_binary),
-        "--headless",
-        "--test",
-        "--test-case=*GeneratePLY*",
-    ]
-    if not quiet:
-        print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
-        return False
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".gs_ply_staging_", dir=output_dir) as staging_name:
+        staging_dir = Path(staging_name)
+        env = os.environ.copy()
+        env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(staging_dir)
+        cmd = [
+            str(godot_binary),
+            "--headless",
+            "--test",
+            "--test-case=*GeneratePLY*",
+        ]
+        if not quiet:
+            print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
+            return False
 
-    if proc.returncode != 0:
-        print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
-        if proc.stderr:
-            for line in proc.stderr.strip().splitlines()[-5:]:
-                print(f"  {line}")
-        return False
+        if proc.returncode != 0:
+            print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
+            if proc.stderr:
+                for line in proc.stderr.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            return False
 
-    # Verify all expected files were written.
-    missing = [name for name in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / name).is_file()]
-    if missing:
-        print(f"[prepare_synthetic_assets] C++ generation missing files: {missing}")
-        return False
+        # Verify all expected files were written *by this run*.  They can only be
+        # here if the producer wrote them: the staging directory was created empty.
+        missing = [
+            name for name in sorted(CPP_GENERATED_FILENAMES) if not (staging_dir / name).is_file()
+        ]
+        if missing:
+            print(
+                f"[prepare_synthetic_assets] C++ generation exited 0 but did not write: {missing}"
+            )
+            print(
+                "[prepare_synthetic_assets] the selected binary ran no [GeneratePLY] case "
+                "(doctest exits 0 when zero cases match); any file already in "
+                f"{output_dir} came from a different run and is not this producer's output"
+            )
+            return False
+
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            destination = output_dir / name
+            if destination.exists():
+                destination.unlink()
+            shutil.move(str(staging_dir / name), str(destination))
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
