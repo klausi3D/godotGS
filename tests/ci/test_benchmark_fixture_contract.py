@@ -33,6 +33,7 @@ a different hat.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib.util
 import io
@@ -70,6 +71,24 @@ _manifest_mod = _load_module(
 _prepare = _load_module(
     "_gs_prepare_synthetic_assets", RUNTIME_DIR / "prepare_synthetic_assets.py"
 )
+_provenance = _load_module("_gs_fixture_provenance", RUNTIME_DIR / "fixture_provenance.py")
+
+
+@contextlib.contextmanager
+def _producer_record(produced):
+    """Record `produced` the way a generation run does, and point the reader at it.
+
+    Uses the real writer and the real reader, so these tests exercise the
+    record contract rather than a stand-in for it. Only the LOCATION is
+    redirected: a fixture built in a temp directory is not in the workspace
+    corpus, so without this the positive cases would assert against whatever
+    record the developer's own tree happens to hold.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        fixtures_dir = Path(tmp)
+        _provenance.record_producer_output(fixtures_dir, [Path(p) for p in produced])
+        with mock.patch.object(_run_benchmark, "_fixtures_dir", return_value=fixtures_dir):
+            yield
 
 read_ply_vertex_count = _run_benchmark.read_ply_vertex_count
 evaluate_fixture_contract = _run_benchmark.evaluate_fixture_contract
@@ -328,6 +347,257 @@ class RichVariantRequiresRichShTests(unittest.TestCase):
             _run_benchmark.classify_fixture_variant(2048, self.VARIANTS, False),
             "python_fallback",
         )
+
+
+class ProducerRecordIsProvenanceTests(unittest.TestCase):
+    """#790 review round 3: a header shape is not provenance.
+
+    `ply_header_declares_rich_sh()` authenticates the producer's encoding and its
+    property block, both derived from `synthetic_ply_writer.cpp`. Both describe a
+    FILE SHAPE, and a shape can be assembled: a `binary_little_endian` PLY built
+    outside the generator with a declared producer count and the full
+    `f_rest_0..44` block satisfies every one of those checks, is labelled
+    `cpp_rich`, and can therefore satisfy `--require-asset-variant cpp_rich` and
+    publish numbers under a producer that never wrote it.
+
+    So the producer records what it wrote and the label requires that record to
+    name these exact bytes. This is not a tamper-proof signature -- anyone who can
+    write the fixtures can write the record beside them, and human review remains
+    the control under an adversarial model. It closes the case the review named:
+    a file the producer never wrote being accepted as its output.
+    """
+
+    SPHERE = "res://tests/fixtures/synthetic_sphere.ply"
+
+    def _variants(self) -> dict[str, int]:
+        return dict(_prepare.ASSET_EXPECTED_SPLAT_COUNTS[self.SPHERE])
+
+    def _impostor(self, directory: Path, name: str = "synthetic_sphere.ply") -> Path:
+        """A PLY with the producer's exact header shape, written by nothing."""
+        props = _prepare.parse_cpp_writer_properties()
+        self.assertTrue(props, "writer properties could not be derived from source")
+        ply = directory / name
+        _write_ply_with_properties(ply, self._variants()["cpp_rich"], props)
+        # Premise check: it clears every SHAPE test, which is why the record is
+        # needed. If this ever fails, the impostor is being rejected for the wrong
+        # reason and the assertions below would pass vacuously.
+        self.assertTrue(
+            _run_benchmark.ply_header_declares_rich_sh(ply),
+            "the impostor no longer matches the producer's header shape",
+        )
+        return ply
+
+    def _contract(self, ply: Path) -> str:
+        return evaluate_fixture_contract(
+            lane_id="synthetic_sphere",
+            asset_path=self.SPHERE,
+            asset_file=ply,
+            required_splats=_prepare.ASSET_MIN_SPLAT_COUNTS[self.SPHERE],
+            expected_variants=self._variants(),
+        )
+
+    def test_a_shape_perfect_impostor_without_a_record_is_not_cpp_rich(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._impostor(Path(tmp))
+            with _producer_record([]):
+                failure = self._contract(ply)
+                variant = _run_benchmark.classify_fixture_variant(
+                    self._variants()["cpp_rich"],
+                    self._variants(),
+                    True,
+                    producer_recorded=_run_benchmark.fixture_carries_producer_record(ply),
+                )
+        self.assertNotEqual(
+            variant,
+            "cpp_rich",
+            "a file no generation run wrote was labelled as the C++ producer's output",
+        )
+        self.assertIn("UNRECOGNIZED", failure)
+        self.assertIn("a generation run recorded these bytes: no", failure)
+
+    def test_the_same_bytes_with_a_producer_record_are_accepted(self):
+        """Discrimination: the real producer's output must still pass.
+
+        Without this half, the assertion above is satisfied by refusing every
+        fixture -- which would make `--require-asset-variant cpp_rich` unusable
+        and is the same defect wearing a different hat.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._impostor(Path(tmp))
+            with _producer_record([ply]):
+                self.assertEqual(
+                    _run_benchmark.classify_fixture_variant(
+                        self._variants()["cpp_rich"],
+                        self._variants(),
+                        True,
+                        producer_recorded=_run_benchmark.fixture_carries_producer_record(ply),
+                    ),
+                    "cpp_rich",
+                )
+                self.assertEqual(self._contract(ply), "")
+
+    def test_a_record_authenticates_bytes_and_not_a_name(self):
+        """Digest-keyed, so substituting a file at a recorded name proves nothing.
+
+        A path-keyed record would still be satisfied by writing a different file
+        at a recorded path, which is the substitution this check exists to catch.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            genuine = self._impostor(Path(tmp), "genuine.ply")
+            swapped = Path(tmp) / "synthetic_sphere.ply"
+            swapped.write_bytes(genuine.read_bytes() + b"\x00" * 16)
+            self.assertEqual(
+                _run_benchmark.read_ply_vertex_count(swapped),
+                self._variants()["cpp_rich"],
+                "the swapped file no longer declares the producer count; the case is moot",
+            )
+            with _producer_record([genuine]):
+                self.assertFalse(
+                    _run_benchmark.fixture_carries_producer_record(swapped),
+                    "a different file was authenticated by another file's record",
+                )
+                self.assertIn("UNRECOGNIZED", self._contract(swapped))
+
+    def test_a_copy_of_recorded_output_authenticates_from_the_same_entry(self):
+        """The consumer project's copy is byte-identical, and must not need its own entry.
+
+        `prepare_synthetic_assets.py` copies each primary fixture into the test
+        project, and lanes resolve `res://` paths to that copy. A record keyed by
+        location would leave every lane's actual fixture unauthenticated.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            primary = self._impostor(Path(tmp), "primary.ply")
+            consumer = Path(tmp) / "consumer"
+            consumer.mkdir()
+            copy = consumer / "synthetic_sphere.ply"
+            copy.write_bytes(primary.read_bytes())
+            with _producer_record([primary]):
+                self.assertTrue(
+                    _run_benchmark.fixture_carries_producer_record(copy),
+                    "the consumer copy of recorded producer output was not authenticated",
+                )
+
+    def test_the_record_keeps_entries_whose_files_are_still_on_disk(self):
+        """A later run must not orphan a copy an earlier producer run wrote.
+
+        The writer is called on every generation, including fallback ones. If it
+        replaced the record wholesale, a consumer copy left in place by a run that
+        did not rewrite it would silently lose its provenance and start failing.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixtures_dir = Path(tmp) / "fixtures"
+            fixtures_dir.mkdir()
+            kept = Path(tmp) / "kept.ply"
+            kept.write_bytes(b"produced by an earlier run\n")
+            _provenance.record_producer_output(fixtures_dir, [kept])
+            self.assertEqual(_provenance.recorded_variant(fixtures_dir, kept), "cpp_rich")
+
+            # A fallback run: nothing produced, but the file is still there.
+            _provenance.record_producer_output(fixtures_dir, [], retain=[kept])
+            self.assertEqual(
+                _provenance.recorded_variant(fixtures_dir, kept),
+                "cpp_rich",
+                "a still-present producer output lost its record on a fallback run",
+            )
+
+            # And an entry whose file is gone is pruned rather than left to vouch
+            # for bytes that no longer exist anywhere.
+            _provenance.record_producer_output(fixtures_dir, [], retain=[])
+            self.assertIsNone(
+                _provenance.recorded_variant(fixtures_dir, kept),
+                "the record kept an entry for a file no longer in the workspace",
+            )
+
+    def test_a_damaged_record_authenticates_nothing(self):
+        """Fail closed: a corrupt record must not be read as provenance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fixtures_dir = Path(tmp) / "fixtures"
+            fixtures_dir.mkdir()
+            produced = Path(tmp) / "produced.ply"
+            produced.write_bytes(b"produced\n")
+            _provenance.record_producer_output(fixtures_dir, [produced])
+            record = _provenance.provenance_path(fixtures_dir)
+
+            for label, body in (
+                ("not json", "{"),
+                ("wrong version", json.dumps({"version": 999, "entries": {}})),
+                ("entries not a mapping", json.dumps({"version": 1, "entries": []})),
+            ):
+                with self.subTest(shape=label):
+                    record.write_text(body, encoding="utf-8")
+                    self.assertIsNone(
+                        _provenance.recorded_variant(fixtures_dir, produced),
+                        f"a {label} record was treated as provenance",
+                    )
+
+    def test_a_generation_run_writes_the_record(self):
+        """The writer must be REACHED from _generate(), not merely exist.
+
+        This is the other half of the wiring: with the reader in place and
+        nothing writing the record, every fixture is unauthenticated and
+        `--require-asset-variant cpp_rich` fails permanently -- a guard wired to
+        nothing, failing closed instead of open, but just as broken.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def fake_producer(binary, output_dir, quiet):
+                output_dir.mkdir(parents=True, exist_ok=True)
+                for name in _prepare.CPP_GENERATED_FILENAMES:
+                    (output_dir / name).write_bytes(b"produced " + name.encode())
+                return True
+
+            with mock.patch.object(_prepare, "_generate_via_godot", side_effect=fake_producer):
+                self.assertEqual(
+                    _prepare._generate(root, quiet=True, godot_binary=Path("godot")), 0
+                )
+
+            fixtures_dir = root / "tests" / "fixtures"
+            for name in sorted(_prepare.CPP_GENERATED_FILENAMES):
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        _provenance.recorded_variant(fixtures_dir, fixtures_dir / name),
+                        "cpp_rich",
+                        f"a generation run left {name} unrecorded",
+                    )
+
+            consumer = (
+                root / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+                / "synthetic_sphere.ply"
+            )
+            self.assertTrue(consumer.is_file(), "the consumer copy was not written")
+            self.assertEqual(
+                _provenance.recorded_variant(fixtures_dir, consumer),
+                "cpp_rich",
+                "the copy the lanes actually measure was not authenticated by the record",
+            )
+
+    def test_every_classification_in_the_runner_consults_the_record(self):
+        """The check must be unreachable-proof: a call site that omits it re-opens the hole.
+
+        `producer_recorded` defaults to None ("not consulted") so unit tests over
+        the count/header logic stay readable. That default is only safe if no
+        production call site relies on it, which is a property of the source, so
+        it is asserted against the source.
+        """
+        tree = ast.parse((RUNTIME_DIR / "run_benchmark.py").read_text(encoding="utf-8"))
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "classify_fixture_variant"
+        ]
+        self.assertTrue(calls, "no call sites found; this guard would be vacuous")
+        for call in calls:
+            with self.subTest(line=call.lineno):
+                self.assertIn(
+                    "producer_recorded",
+                    [keyword.arg for keyword in call.keywords],
+                    f"run_benchmark.py:{call.lineno} classifies a fixture without "
+                    "consulting the producer record",
+                )
+
 
 
 class ReadPlyVertexCountTests(unittest.TestCase):
@@ -1111,16 +1381,21 @@ class FixtureVariantClassificationTests(unittest.TestCase):
                     # could not have produced.
                     _write_ply(ply, count, header_only=True,
                                rich_sh=(variant == "cpp_rich"))
-                    self.assertEqual(
-                        evaluate_fixture_contract(
-                            lane_id="synthetic_sphere",
-                            asset_path=self.SPHERE,
-                            asset_file=ply,
-                            required_splats=floor,
-                            expected_variants=variants,
-                        ),
-                        "",
-                    )
+                    # Shape is not provenance: a rich fixture is the producer's
+                    # output only if a generation run recorded writing it, so the
+                    # positive case has to carry that record too.
+                    recorded = [ply] if variant == "cpp_rich" else []
+                    with _producer_record(recorded):
+                        self.assertEqual(
+                            evaluate_fixture_contract(
+                                lane_id="synthetic_sphere",
+                                asset_path=self.SPHERE,
+                                asset_file=ply,
+                                required_splats=floor,
+                                expected_variants=variants,
+                            ),
+                            "",
+                        )
 
     def test_undeclared_asset_is_not_failed_by_the_variant_check(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1170,16 +1445,20 @@ class PreflightVariantWiringTests(unittest.TestCase):
         )
         return project
 
-    def _sphere_failures(self, splats: int, *, rich_sh: bool = False) -> list[str]:
+    def _sphere_failures(
+        self, splats: int, *, rich_sh: bool = False, recorded: bool = False
+    ) -> list[str]:
         manifest = self._manifest()
         with tempfile.TemporaryDirectory() as tmp:
             project = self._project_with_sphere(tmp, splats, rich_sh=rich_sh)
-            failures = _run_benchmark._validate_suite_dependencies(
-                project_path=project,
-                lanes=[self._lane()],
-                asset_manifest=manifest,
-                generated_assets={},
-            )
+            ply = project / "tests" / "fixtures" / "synthetic_sphere.ply"
+            with _producer_record([ply] if recorded else []):
+                failures = _run_benchmark._validate_suite_dependencies(
+                    project_path=project,
+                    lanes=[self._lane()],
+                    asset_manifest=manifest,
+                    generated_assets={},
+                )
         return [failure for failure in failures if "benchmark fixture" in failure]
 
     def test_preflight_rejects_a_fixture_no_producer_wrote(self):
@@ -1194,8 +1473,9 @@ class PreflightVariantWiringTests(unittest.TestCase):
     def test_preflight_accepts_both_real_producers(self):
         for variant, count in self._manifest().expected_splat_counts_for(self.ASSET).items():
             with self.subTest(variant=variant):
+                rich = variant == "cpp_rich"
                 self.assertEqual(
-                    self._sphere_failures(count, rich_sh=(variant == "cpp_rich")), []
+                    self._sphere_failures(count, rich_sh=rich, recorded=rich), []
                 )
 
     def test_provenance_collection_labels_the_lane(self):
@@ -1204,15 +1484,16 @@ class PreflightVariantWiringTests(unittest.TestCase):
         for variant, count in variants.items():
             with self.subTest(variant=variant):
                 with tempfile.TemporaryDirectory() as tmp:
-                    project = self._project_with_sphere(
-                        tmp, count, rich_sh=(variant == "cpp_rich")
-                    )
-                    records = _run_benchmark.collect_fixture_provenance(
-                        project_path=project,
-                        lanes=[self._lane()],
-                        asset_manifest=manifest,
-                        generated_assets={},
-                    )
+                    rich = variant == "cpp_rich"
+                    project = self._project_with_sphere(tmp, count, rich_sh=rich)
+                    ply = project / "tests" / "fixtures" / "synthetic_sphere.ply"
+                    with _producer_record([ply] if rich else []):
+                        records = _run_benchmark.collect_fixture_provenance(
+                            project_path=project,
+                            lanes=[self._lane()],
+                            asset_manifest=manifest,
+                            generated_assets={},
+                        )
                 self.assertEqual(len(records), 1)
                 self.assertEqual(records[0]["asset_variant"], variant)
                 self.assertEqual(records[0]["asset_splat_count"], count)

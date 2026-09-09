@@ -22,6 +22,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fixture_provenance import (
+    VARIANT_CPP_RICH,
+    recorded_variant as recorded_fixture_variant,
+)
 from benchmark_asset_manifest import (
     BenchmarkAssetManifest,
     resolve_benchmark_asset_manifest_path,
@@ -1042,6 +1046,31 @@ def ply_header_declares_rich_sh(path: Path) -> bool:
     return _RICH_SH_PROPERTIES.issubset(seen)
 
 
+def _fixtures_dir() -> Path:
+    """Where a generation run leaves its provenance record: beside the primary corpus."""
+    return _repo_root() / "tests" / "fixtures"
+
+
+def fixture_carries_producer_record(asset_file: Path) -> bool:
+    """Whether a generation run recorded writing THESE bytes as rich producer output.
+
+    `ply_header_declares_rich_sh()` above authenticates a file SHAPE: the
+    producer's encoding and its property block. A `binary_little_endian` PLY
+    assembled outside the generator with a declared producer count and the full
+    `f_rest_0..44` block satisfies all of it, so shape alone let a file the C++
+    producer never wrote satisfy `--require-asset-variant cpp_rich` and publish
+    numbers under that producer.
+
+    `prepare_synthetic_assets.py` therefore records what it wrote, beside the
+    primary corpus in `tests/fixtures/`. Entries are keyed by digest, so the
+    consumer project's byte-identical copy authenticates from the same entry.
+    Absent record, unreadable file, digest not listed: all False, which is the
+    fail-closed direction -- an unauthenticated file loses the rich label rather
+    than keeping it.
+    """
+    return recorded_fixture_variant(_fixtures_dir(), asset_file) in RICH_SH_VARIANTS
+
+
 def _ply_header_declares_gaussian_properties(fh) -> bool:
     """Whether the remaining header declares the Gaussian property set.
 
@@ -1082,7 +1111,10 @@ VARIANT_UNDECLARED = "undeclared"
 #: than a PLY fixture. Such a lane has no producer counts and never can.
 CHUNKED_WORLD_CONTRACT_SOURCE = "chunked_world_contract"
 VARIANT_UNRECOGNIZED = "unrecognized"
-VARIANT_CPP_RICH = "cpp_rich"
+
+#: `VARIANT_CPP_RICH` is imported from `fixture_provenance` at the top of this
+#: file rather than spelled again here: the producer writes that label into its
+#: record and this module reads it back, so one definition serves both sides.
 
 
 #: The COMPLETE rich SH block. `synthetic_ply_writer.cpp:46-48` declares all 45
@@ -1101,6 +1133,7 @@ def classify_fixture_variant(
     actual_splats: int,
     expected_variants: dict[str, int],
     has_rich_sh: bool | None = None,
+    producer_recorded: bool | None = None,
 ) -> str:
     """Return which declared producer wrote a fixture of this exact size.
 
@@ -1120,6 +1153,18 @@ def classify_fixture_variant(
     # inspected, a rich label additionally requires the rich SH block; without it
     # the file is fallback-shaped wearing a rich count, which is `unrecognized`.
     if has_rich_sh is False:
+        matches = [m for m in matches if m not in RICH_SH_VARIANTS]
+        if not matches:
+            return VARIANT_UNRECOGNIZED
+    # Neither is the header. Count, encoding and property block all describe a
+    # file SHAPE, and a shape can be assembled: a binary_little_endian PLY built
+    # outside the generator with a declared producer count and the full f_rest_*
+    # block satisfies every check above. A rich label therefore also requires the
+    # producer's own record of what it wrote to name these exact bytes
+    # (fixture_carries_producer_record). None means the record was not consulted;
+    # only unit tests over the count/header logic pass that, and a guard test
+    # asserts every call site in this module passes a real verdict.
+    if producer_recorded is False:
         matches = [m for m in matches if m not in RICH_SH_VARIANTS]
         if not matches:
             return VARIANT_UNRECOGNIZED
@@ -1183,20 +1228,42 @@ def evaluate_fixture_contract(
             f"different workload and will not reproduce published numbers\n"
             f"      regenerate it WITH a binary: {PLY_PREP_COMMAND}"
         )
-    if variants and classify_fixture_variant(
-        actual, variants, ply_header_declares_rich_sh(asset_file)
-    ) == VARIANT_UNRECOGNIZED:
-        # This is the half a floor can never catch: a fixture the right side of
-        # the floor but produced by nothing. Import-time thinning, a truncated
-        # write and a hand-edited header all land here.
-        return (
-            f"lane={lane_id}: UNRECOGNIZED benchmark fixture: {asset_path}{source_suffix}\n"
-            f"      file: {asset_file}\n"
-            f"      has {actual} splats, which no declared producer writes "
-            f"({describe_fixture_variants(variants)})\n"
-            f"      a fixture no generator produced cannot be attributed to a workload\n"
-            f"      regenerate it with: {PLY_PREP_COMMAND}"
-        )
+    if variants:
+        has_rich_sh = ply_header_declares_rich_sh(asset_file)
+        producer_recorded = fixture_carries_producer_record(asset_file)
+        if (
+            classify_fixture_variant(
+                actual, variants, has_rich_sh, producer_recorded=producer_recorded
+            )
+            == VARIANT_UNRECOGNIZED
+        ):
+            # This is the half a floor can never catch: a fixture the right side
+            # of the floor but produced by nothing. Import-time thinning, a
+            # truncated write, a hand-edited header and a file assembled to the
+            # producer's shape all land here.
+            if actual not in variants.values():
+                detail = (
+                    f"      has {actual} splats, which no declared producer writes "
+                    f"({describe_fixture_variants(variants)})\n"
+                )
+            else:
+                # The count is a producer's, so saying "no producer writes this
+                # count" would be false. Report which evidence actually failed.
+                detail = (
+                    f"      has {actual} splats -- a declared producer count "
+                    f"({describe_fixture_variants(variants)}) -- but is not that "
+                    f"producer's output\n"
+                    f"      producer SH block in header: "
+                    f"{'yes' if has_rich_sh else 'no'}; a generation run recorded "
+                    f"these bytes: {'yes' if producer_recorded else 'no'}\n"
+                )
+            return (
+                f"lane={lane_id}: UNRECOGNIZED benchmark fixture: {asset_path}{source_suffix}\n"
+                f"      file: {asset_file}\n"
+                + detail
+                + f"      a fixture no generator produced cannot be attributed to a workload\n"
+                f"      regenerate it with: {PLY_PREP_COMMAND}"
+            )
     return ""
 
 
@@ -1288,7 +1355,10 @@ def collect_fixture_provenance(
             VARIANT_UNDECLARED
             if actual is None
             else classify_fixture_variant(
-                actual, expected_variants, ply_header_declares_rich_sh(asset_file)
+                actual,
+                expected_variants,
+                ply_header_declares_rich_sh(asset_file),
+                producer_recorded=fixture_carries_producer_record(asset_file),
             )
         )
         records.append(

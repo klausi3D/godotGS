@@ -27,6 +27,7 @@ RUNTIME_DIR = Path(__file__).resolve().parent
 if str(RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(RUNTIME_DIR))
 
+import fixture_provenance
 from open_world_chunked_asset_ladder import (
     MAIN_PROJECT_FIXTURE_ROOT,
     build_chunked_asset_reference,
@@ -1276,6 +1277,25 @@ def _generate(
             print(
                 f"[prepare_synthetic_assets] wrote {spec.count:5d} splats ({spec.pattern}) -> {spec.relative_path}"
             )
+
+    # Record what the C++ producer wrote. `--require-asset-variant cpp_rich`
+    # authenticated fixtures from their header alone, and a header describes a
+    # file shape that can be assembled outside the generator; the record is what
+    # makes the label mean "this run wrote these bytes" (#790 review). Entries are
+    # keyed by digest, so the consumer copies made just above are covered by the
+    # same entries. Called after a fallback run too, with nothing produced: that
+    # prunes entries whose files are gone rather than leaving them to vouch for
+    # bytes that no longer exist.
+    cpp_fixture_copies = [
+        repo_root / spec.relative_path
+        for spec in CANONICAL_SPECS
+        if Path(spec.relative_path).name in CPP_GENERATED_FILENAMES
+    ]
+    fixture_provenance.record_producer_output(
+        fixtures_dir,
+        [fixtures_dir / name for name in sorted(CPP_GENERATED_FILENAMES)] if cpp_generated else [],
+        retain=cpp_fixture_copies,
+    )
 
     _write_manifest(repo_root)
     if not quiet:
