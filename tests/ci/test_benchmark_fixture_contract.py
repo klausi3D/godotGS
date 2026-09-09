@@ -2008,6 +2008,120 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                     f"{name} was left as partial generator output instead of the original",
                 )
 
+    def test_a_truncated_fixture_is_refused_and_the_originals_come_back(self):
+        """#969 review round 5: a file that is there is not a file that is whole.
+
+        `synthetic_ply_writer.cpp` ignores the result of every `store_buffer` /
+        `store_float` call and returns true regardless, so a short write -- a full
+        disk on the persistent runner is the case that produces one -- reaches the
+        prep script as a producer that exited 0. The file exists, this run wrote
+        it, and its header declares the producer's count, so every earlier check
+        passes: it was accepted, recorded as `cpp_rich`, and the originals it
+        replaced were deleted.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_ply(out / name, 512)
+            originals = {name: (out / name).read_bytes() for name in names}
+            starved = names[0]
+
+            class _Proc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def short_write(*_args, **_kwargs):
+                for name in names:
+                    _write_ply(out / name, 2048)
+                whole = (out / starved).read_bytes()
+                (out / starved).write_bytes(whole[:-128])
+                return _Proc()
+
+            with mock.patch.object(_prepare.subprocess, "run", short_write):
+                accepted = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+
+            self.assertFalse(
+                accepted, "a truncated fixture was accepted as this producer's output"
+            )
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (out / name).read_bytes(),
+                        originals[name],
+                        f"{name}: the original was discarded for a truncated corpus",
+                    )
+
+    def test_a_complete_corpus_is_still_accepted(self):
+        """Discrimination: the size formula must accept what the producer writes.
+
+        A body-length check that is wrong by one property rejects every real run,
+        which is the same defect in the other direction. (The formula is also
+        checked against genuine producer output in ProducerCapturedPositiveTests.)
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+
+            class _Proc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def complete_write(*_args, **_kwargs):
+                for name in names:
+                    _write_ply(out / name, 2048, rich_sh=True)
+                return _Proc()
+
+            with mock.patch.object(_prepare.subprocess, "run", complete_write):
+                self.assertTrue(
+                    _prepare._generate_via_godot(Path("godot"), out, quiet=True),
+                    "a complete corpus was rejected by the payload check",
+                )
+
+    def test_the_payload_check_fails_closed_on_what_it_cannot_size(self):
+        """Sizing a body wrongly and calling it complete is the failure to avoid."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+
+            complete = out / "complete.ply"
+            _write_ply(complete, 32)
+            self.assertIsNone(
+                _prepare.ply_payload_failure(complete),
+                "a complete fixture was reported as truncated",
+            )
+
+            header_only = out / "header_only.ply"
+            _write_ply(header_only, 32, header_only=True)
+            self.assertIsNotNone(
+                _prepare.ply_payload_failure(header_only),
+                "a header with no body at all was accepted",
+            )
+
+            NL = chr(10)
+            unsizeable = out / "double.ply"
+            unsizeable.write_bytes(
+                (
+                    "ply" + NL
+                    + "format binary_little_endian 1.0" + NL
+                    + "element vertex 4" + NL
+                    + "property double x" + NL
+                    + "end_header" + NL
+                ).encode("ascii")
+                + b"\x00" * 32
+            )
+            self.assertIn(
+                "not a float",
+                _prepare.ply_payload_failure(unsizeable) or "",
+                "a property this reader cannot size was treated as sizeable",
+            )
+
+            missing = out / "absent.ply"
+            self.assertIsNotNone(
+                _prepare.ply_payload_failure(missing), "an absent file was reported complete"
+            )
+
     def test_a_quarantined_original_is_recovered_not_overwritten(self):
         """A failed restore must not become permanent loss on the next run (#969 review).
 

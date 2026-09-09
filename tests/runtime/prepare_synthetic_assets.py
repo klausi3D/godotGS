@@ -1043,6 +1043,71 @@ def _check_only(repo_root: Path) -> int:
 CPP_GENERATION_TIMEOUT_S = 900
 
 
+def ply_payload_failure(path: Path) -> str | None:
+    """Why `path` is not a COMPLETE PLY, or None when its body is all there.
+
+    A declared vertex count and a readable header do not mean the vertices were
+    written. `synthetic_ply_writer.cpp` ignores the result of every
+    `store_buffer`/`store_float` call and returns true regardless, so a short
+    write -- a full disk on the persistent runner is the case that produces one --
+    leaves a header-bearing, truncated file behind a doctest that exited 0. Every
+    check before this one passes on that file: it exists, it was written by this
+    run, its header declares the producer's count, and it would be recorded as
+    that producer's output while the originals were discarded (#969 review).
+
+    The body's size is derived from the header rather than assumed: vertex count
+    times the number of declared properties times four. Anything the reader cannot
+    size -- a non-float property, a second element block, a missing end_header --
+    is a reason, not a pass: sizing the body wrongly and calling it complete is
+    the failure this exists to prevent.
+    """
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return "does not begin with a PLY magic line"
+            vertex_count: int | None = None
+            properties = 0
+            elements = 0
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    return "the header never ends (no end_header line)"
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    break
+                fields = stripped.split()
+                if fields[:1] == [b"element"]:
+                    elements += 1
+                    if elements > 1:
+                        return "declares more than one element block; the body cannot be sized"
+                    if len(fields) != 3 or fields[1] != b"vertex":
+                        return f"unexpected element line {stripped!r}"
+                    try:
+                        vertex_count = int(fields[2])
+                    except ValueError:
+                        return f"unreadable vertex count in {stripped!r}"
+                elif fields[:1] == [b"property"]:
+                    if len(fields) != 3 or fields[1] != b"float":
+                        return f"property {stripped!r} is not a float; the body cannot be sized"
+                    properties += 1
+            else:
+                return "the header never ends (no end_header line)"
+            if vertex_count is None:
+                return "the header declares no vertex element"
+            if properties == 0:
+                return "the header declares no properties"
+            expected = stream.tell() + vertex_count * properties * 4
+        actual = path.stat().st_size
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if actual != expected:
+        return (
+            f"{actual:,} bytes on disk, {expected:,} expected for {vertex_count:,} "
+            f"vertices x {properties} float properties"
+        )
+    return None
+
+
 def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bool:
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
@@ -1233,6 +1298,29 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             "[prepare_synthetic_assets] C++ generation exited 0 but did not write: "
             f"{missing}; the producer ran without producing these, so the corpus is "
             "not C++-generated"
+        )
+        _restore_stashed()
+        return False
+
+    # ...and a file that is there is not yet a file that is whole. Checked
+    # BEFORE the stashed originals are discarded, so a truncated corpus costs the
+    # run rather than the workspace: _restore_stashed() puts the originals back
+    # exactly as it does for every other failure of this producer.
+    incomplete = []
+    for name in sorted(CPP_GENERATED_FILENAMES):
+        reason = ply_payload_failure(output_dir / name)
+        if reason is not None:
+            incomplete.append(f"{name}: {reason}")
+    if incomplete:
+        print(
+            "[prepare_synthetic_assets] C++ generation exited 0 but wrote incomplete "
+            "fixtures:"
+        )
+        for line in incomplete:
+            print(f"  - {line}")
+        print(
+            "  the writer does not check its own I/O results, so a short write reaches "
+            "here as a successful run; the previous fixtures are being restored"
         )
         _restore_stashed()
         return False
