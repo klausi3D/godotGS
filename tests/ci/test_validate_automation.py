@@ -24,6 +24,13 @@ SPEC.loader.exec_module(validate_automation)
 
 CURRENT_WORKFLOW_NAMES = tuple(sorted(validate_automation.REQUIRED_WORKFLOW_NAMES))
 
+# These fixtures exercise TRIGGER shapes, so the job body is a stub. It still has
+# to be an executable job: check_ci_workflow() now rejects a job with neither
+# `runs-on` nor `uses`, because a populated `jobs` mapping alone does not make a
+# workflow runnable. Previously the stub was `{}`, which relied on job bodies
+# never being inspected -- the exact gap that check closes.
+_EXECUTABLE_JOB = {"runs-on": "ubuntu-latest"}
+
 
 class _FakeYaml(types.SimpleNamespace):
     class BaseLoader:
@@ -51,54 +58,54 @@ class _FakeYaml(types.SimpleNamespace):
         if "LIST_FOR_TEST" in text:
             return ["workflow"]
         if "NO_TRIGGER_FOR_TEST" in text:
-            return {"name": "valid", "jobs": {"test": {}}}
+            return {"name": "valid", "jobs": {"test": _EXECUTABLE_JOB}}
         if "EMPTY_TRIGGER_FOR_TEST" in text:
-            return {"name": "valid", "on": {}, "jobs": {"test": {}}}
+            return {"name": "valid", "on": {}, "jobs": {"test": _EXECUTABLE_JOB}}
         if "NULL_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": None if typed_scalars else "null",
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "TILDE_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": None if typed_scalars else "~",
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "BOOL_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": False if typed_scalars else "false",
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "NUMBER_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": 0 if typed_scalars else "0",
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "NULL_LIST_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": [None] if typed_scalars else ["null"],
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "SCALAR_TRIGGER_FOR_TEST" in text:
-            return {"name": "valid", "on": "push", "jobs": {"test": {}}}
+            return {"name": "valid", "on": "push", "jobs": {"test": _EXECUTABLE_JOB}}
         if "LIST_TRIGGER_FOR_TEST" in text:
             return {
                 "name": "valid",
                 "on": ["push", "pull_request"],
-                "jobs": {"test": {}},
+                "jobs": {"test": _EXECUTABLE_JOB},
             }
         if "KEY_PRESERVATION_FOR_TEST" in text:
             key: object = "on" if preserves_on_key else True
-            return {"name": "valid", key: "push", "jobs": {"test": {}}}
+            return {"name": "valid", key: "push", "jobs": {"test": _EXECUTABLE_JOB}}
         return {
             "name": "valid",
             "on": {"pull_request": {}},
-            "jobs": {"test": {}},
+            "jobs": {"test": _EXECUTABLE_JOB},
         }
 
     @staticmethod
@@ -211,6 +218,57 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
                     validate_automation, "ROOT_DIR", Path(temp_dir.name)
                 ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
                     self.assertTrue(validate_automation.check_ci_workflow())
+
+    def test_hollow_job_bodies_are_rejected(self) -> None:
+        """A populated `jobs` mapping is not an executable workflow.
+
+        A job body truncated to `null`/`{}`, or one carrying only metadata, leaves
+        the OUTER mapping non-empty while GitHub Actions can run nothing, so a
+        workflow could lose its whole executable definition with this required
+        validator still green. Uses REAL yaml rather than _FakeYaml, so the shapes
+        parsed here are the ones GitHub would actually parse.
+        """
+        header = ["name: v", "on:", "  push:", "    branches: [master]", "jobs:"]
+
+        def wf(*job_lines: str) -> str:
+            return "\n".join(header + list(job_lines)) + "\n"
+
+        hollow = {
+            "null body": wf("  build:"),
+            "empty body": wf("  build: {}"),
+            "metadata only": wf("  build:", "    name: no runs-on", "    timeout-minutes: 5"),
+        }
+        executable = wf("  build:", "    runs-on: ubuntu-latest", "    steps:", "      - run: echo hi")
+        reusable = wf("  build:", "    uses: ./.github/workflows/other.yml")
+
+        for label, body in hollow.items():
+            with self.subTest(shape=label):
+                contents = {name: executable for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertFalse(
+                        validate_automation.check_ci_workflow(),
+                        f"a {label} job passed validation; that workflow cannot run",
+                    )
+
+        # Both executable shapes must still pass. Without this half the check
+        # above would be satisfied by a validator that rejects everything, and a
+        # `uses:` reusable-workflow caller has no `runs-on` by design.
+        for label, body in (("runs-on", executable), ("reusable uses", reusable)):
+            with self.subTest(shape=label):
+                contents = {name: executable for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertTrue(
+                        validate_automation.check_ci_workflow(),
+                        f"an executable job ({label}) was rejected",
+                    )
 
     def test_loader_preserves_literal_on_mapping_key(self) -> None:
         contents = {name: "name: valid\n" for name in CURRENT_WORKFLOW_NAMES}

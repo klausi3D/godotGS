@@ -400,6 +400,30 @@ def check_ci_workflow() -> bool:
             success = False
             continue
 
+        # A non-empty `jobs` mapping is not the same as an executable workflow.
+        # A job body truncated to `null` or `{}`, or one carrying only metadata
+        # (a name, a timeout) with neither `runs-on` nor a reusable-workflow
+        # `uses`, leaves the OUTER mapping populated while GitHub Actions can run
+        # nothing -- so a workflow could lose its entire executable definition
+        # while this required validator stayed green. Verified before fixing: two
+        # such workflows both reported "YAML workflow structure valid".
+        hollow_jobs = []
+        for job_name, job_body in jobs.items():
+            if not isinstance(job_body, dict):
+                hollow_jobs.append(f"{job_name} (body is {type(job_body).__name__})")
+                continue
+            if "runs-on" not in job_body and "uses" not in job_body:
+                hollow_jobs.append(f"{job_name} (neither runs-on nor uses)")
+        if hollow_jobs:
+            print(
+                f"❌ CI workflow job is not executable: {relative}: "
+                + ", ".join(sorted(hollow_jobs))
+                + " -- a job needs `runs-on` (or `uses` for a reusable workflow); "
+                "a populated jobs mapping alone does not make a workflow runnable"
+            )
+            success = False
+            continue
+
         if not _has_nonempty_workflow_trigger(document.get("on")):
             print(f"❌ CI workflow must define a non-empty top-level on trigger: {relative}")
             success = False
