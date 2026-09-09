@@ -219,6 +219,128 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
                 ), mock.patch.dict(sys.modules, {"yaml": _FakeYaml()}):
                     self.assertTrue(validate_automation.check_ci_workflow())
 
+    def test_duplicate_mapping_keys_are_rejected(self) -> None:
+        """PyYAML keeps the LAST duplicate; GitHub rejects the document.
+
+        A workflow with two `on:` or two `jobs:` blocks therefore parsed cleanly
+        and satisfied every structure check below, while Actions refused to run
+        it -- the workflow disappears and the required validator stays green.
+        """
+        header = ["name: v", "on:", "  push:", "    branches: [master]"]
+        executable = ["jobs:", "  build:", "    runs-on: ubuntu-latest",
+                      "    steps:", "      - run: echo hi"]
+        good = "\n".join(header + executable) + "\n"
+        dupes = {
+            "duplicate jobs": "\n".join(header + executable + executable) + "\n",
+            "duplicate on": "\n".join(header + ["on:", "  workflow_dispatch:"] + executable) + "\n",
+        }
+        for label, body in dupes.items():
+            with self.subTest(shape=label):
+                contents = {name: good for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertFalse(
+                        validate_automation.check_ci_workflow(),
+                        f"a workflow with {label} passed; Actions would refuse it",
+                    )
+
+    def test_a_launcher_key_with_no_usable_value_is_rejected(self) -> None:
+        """Key presence is not a launcher. `runs-on:` null or `[]` names no runner."""
+        header = ["name: v", "on:", "  push:", "    branches: [master]", "jobs:"]
+        good = "\n".join(header + ["  build:", "    runs-on: ubuntu-latest",
+                                   "    steps:", "      - run: echo hi"]) + "\n"
+        bad = {
+            "runs-on null": "\n".join(header + ["  build:", "    runs-on:"]) + "\n",
+            "runs-on empty list": "\n".join(header + ["  build:", "    runs-on: []"]) + "\n",
+            "runs-on empty string": "\n".join(header + ["  build:", '    runs-on: ""']) + "\n",
+            "uses null": "\n".join(header + ["  build:", "    uses:"]) + "\n",
+            "both launchers": "\n".join(
+                header + ["  build:", "    runs-on: ubuntu-latest",
+                          "    uses: ./.github/workflows/other.yml"]) + "\n",
+        }
+        for label, body in bad.items():
+            with self.subTest(shape=label):
+                contents = {name: good for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertFalse(
+                        validate_automation.check_ci_workflow(),
+                        f"a job with {label} was accepted; it launches nothing",
+                    )
+
+        # Every valid launcher shape must still pass, or this check is a false
+        # positive that would reject real workflows in this tree.
+        ok = {
+            "runs-on string": "    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi",
+            "runs-on label list": "    runs-on: [self-hosted, Windows, gpu]\n    steps:\n      - run: echo hi",
+            "runs-on group mapping": "    runs-on:\n      group: g\n      labels: [x]\n    steps:\n      - run: echo hi",
+            "reusable uses": "    uses: ./.github/workflows/other.yml",
+        }
+        for label, tail in ok.items():
+            with self.subTest(shape=label):
+                body = "\n".join(header + ["  build:"]) + "\n" + tail + "\n"
+                contents = {name: good for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertTrue(
+                        validate_automation.check_ci_workflow(),
+                        f"a valid launcher ({label}) was rejected",
+                    )
+
+    def test_an_unrecognised_trigger_event_is_rejected(self) -> None:
+        """`on: pus` parses as a fine string and fires for nothing."""
+        header = ["name: v"]
+        jobs = ["jobs:", "  build:", "    runs-on: ubuntu-latest",
+                "    steps:", "      - run: echo hi"]
+        good = "\n".join(header + ["on:", "  push:", "    branches: [master]"] + jobs) + "\n"
+        typos = {
+            "scalar typo": "\n".join(header + ["on: pus"] + jobs) + "\n",
+            "mapping typo": "\n".join(header + ["on:", "  pus:"] + jobs) + "\n",
+            "list typo": "\n".join(header + ["on: [push, pul_request]"] + jobs) + "\n",
+        }
+        for label, body in typos.items():
+            with self.subTest(shape=label):
+                contents = {name: good for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertFalse(
+                        validate_automation.check_ci_workflow(),
+                        f"an unrecognised event ({label}) was accepted",
+                    )
+
+        # Real event names must still pass. Without this the check above would be
+        # satisfied by a validator that rejects every trigger.
+        for event_body in (
+            "on: push",
+            "on: [push, pull_request]",
+            "on:\n  schedule:\n    - cron: '0 0 * * *'",
+            "on:\n  workflow_dispatch:",
+        ):
+            with self.subTest(shape=event_body.splitlines()[0]):
+                body = "\n".join(header) + "\n" + event_body + "\n" + "\n".join(jobs) + "\n"
+                contents = {name: good for name in CURRENT_WORKFLOW_NAMES}
+                contents["agentic_pr_gate.yml"] = body
+                temp_dir = self._root_with_workflows(contents)
+                with temp_dir, mock.patch.object(
+                    validate_automation, "ROOT_DIR", Path(temp_dir.name)
+                ):
+                    self.assertTrue(
+                        validate_automation.check_ci_workflow(),
+                        f"a real event was rejected: {event_body!r}",
+                    )
+
     def test_hollow_job_bodies_are_rejected(self) -> None:
         """A populated `jobs` mapping is not an executable workflow.
 

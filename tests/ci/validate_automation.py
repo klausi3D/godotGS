@@ -305,6 +305,79 @@ REQUIRED_WORKFLOW_NAMES = frozenset(
 )
 
 
+#: Workflow events GitHub Actions recognises. A typo such as `on: pus` parses as
+#: a perfectly good string, so treating arbitrary text as an execution signal
+#: means a workflow that can never run passes validation.
+#:
+#: This is a hand-maintained list, which this repository normally distrusts --
+#: but the event vocabulary belongs to GitHub, not to this tree, so there is
+#: nothing here to derive it from. The trade is made fail-CLOSED on purpose: an
+#: event GitHub adds later is rejected until someone adds it here, which is a
+#: loud, one-line fix. The alternative -- accepting anything unknown -- is the
+#: silent failure this check exists to prevent.
+GITHUB_WORKFLOW_EVENTS = frozenset(
+    {
+        "branch_protection_rule", "check_run", "check_suite", "create", "delete",
+        "deployment", "deployment_status", "discussion", "discussion_comment",
+        "fork", "gollum", "issue_comment", "issues", "label", "merge_group",
+        "milestone", "page_build", "project", "project_card", "project_column",
+        "public", "pull_request", "pull_request_comment", "pull_request_review",
+        "pull_request_review_comment", "pull_request_target", "push",
+        "registry_package", "release", "repository_dispatch", "schedule",
+        "status", "watch", "workflow_call", "workflow_dispatch", "workflow_run",
+    }
+)
+
+
+def _unknown_trigger_events(value: object) -> list[str]:
+    """Event names in an `on:` value that GitHub Actions does not recognise."""
+    if isinstance(value, str):
+        names = [value]
+    elif isinstance(value, list):
+        names = [event for event in value if isinstance(event, str)]
+    elif isinstance(value, dict):
+        names = [event for event in value if isinstance(event, str)]
+    else:
+        return []
+    return sorted({name.strip() for name in names if name.strip() not in GITHUB_WORKFLOW_EVENTS})
+
+
+def _job_launcher_problem(job_body: dict) -> "str | None":
+    """Why this job cannot launch, or None if it can.
+
+    Key PRESENCE is not enough, which is what the first version of this check
+    got wrong: `runs-on:` with a YAML null value, or `runs-on: []`, satisfies
+    `"runs-on" in job_body` while naming no runner at all, leaving a workflow
+    inert with the validator green.
+    """
+    has_runs_on = "runs-on" in job_body
+    has_uses = "uses" in job_body
+    if has_runs_on and has_uses:
+        return "declares both runs-on and uses; a job is one or the other"
+    if has_uses:
+        uses = job_body["uses"]
+        if not isinstance(uses, str) or not uses.strip():
+            return f"uses is {uses!r}, which names no reusable workflow"
+        return None
+    if has_runs_on:
+        runs_on = job_body["runs-on"]
+        if isinstance(runs_on, str):
+            return None if runs_on.strip() else "runs-on is an empty string"
+        if isinstance(runs_on, list):
+            if not runs_on:
+                return "runs-on is an empty list, which selects no runner"
+            if not all(isinstance(label, str) and label.strip() for label in runs_on):
+                return f"runs-on has a non-label entry: {runs_on!r}"
+            return None
+        if isinstance(runs_on, dict):
+            # The `group:` / `labels:` form.
+            if not runs_on:
+                return "runs-on is an empty mapping, which selects no runner"
+            return None
+        return f"runs-on is {runs_on!r}, which selects no runner"
+    return "neither runs-on nor uses"
+
+
 def _has_nonempty_workflow_trigger(value: object) -> bool:
     """Return whether a GitHub Actions `on` value declares at least one event."""
     if isinstance(value, str):
@@ -332,9 +405,18 @@ def _github_actions_loader(yaml_module: object) -> type:
             # while PyYAML resolves that YAML 1.1 spelling as boolean True.
             # Retag only mapping keys; scalar values keep SafeLoader's null,
             # boolean, numeric, sequence, and mapping types.
+            seen: set = set()
             for key_node, _value_node in node.value:  # type: ignore[attr-defined]
                 if key_node.tag == bool_tag and key_node.value.lower() == "on":
                     key_node.tag = string_tag
+                # PyYAML silently keeps the LAST of duplicate mapping keys, so a
+                # workflow with two `on:` or two `jobs:` blocks parses cleanly
+                # here while GitHub Actions rejects the document outright -- the
+                # workflow disappears and every check below still passes.
+                key = getattr(key_node, "value", None)
+                if key in seen:
+                    raise ValueError(f"duplicate mapping key {key!r}")
+                seen.add(key)
             return super().construct_mapping(node, deep=deep)
 
     return GitHubActionsLoader
@@ -412,8 +494,9 @@ def check_ci_workflow() -> bool:
             if not isinstance(job_body, dict):
                 hollow_jobs.append(f"{job_name} (body is {type(job_body).__name__})")
                 continue
-            if "runs-on" not in job_body and "uses" not in job_body:
-                hollow_jobs.append(f"{job_name} (neither runs-on nor uses)")
+            problem = _job_launcher_problem(job_body)
+            if problem is not None:
+                hollow_jobs.append(f"{job_name} ({problem})")
         if hollow_jobs:
             print(
                 f"❌ CI workflow job is not executable: {relative}: "
@@ -426,6 +509,17 @@ def check_ci_workflow() -> bool:
 
         if not _has_nonempty_workflow_trigger(document.get("on")):
             print(f"❌ CI workflow must define a non-empty top-level on trigger: {relative}")
+            success = False
+            continue
+
+        unknown_events = _unknown_trigger_events(document.get("on"))
+        if unknown_events:
+            print(
+                f"❌ CI workflow declares unrecognised trigger event(s): {relative}: "
+                + ", ".join(unknown_events)
+                + " -- GitHub Actions runs nothing for an event it does not know, so a "
+                "typo here is a workflow that silently never fires"
+            )
             success = False
             continue
 
