@@ -144,8 +144,18 @@ TIMEOUT_RETURNCODE = 124
 #     is the only reason this control is allowed to pass.
 EXPORT_REJECTION_MARKER = "Cannot export project with preset"
 EXPORT_REJECTION_REASON_MARKER = "due to configuration errors"
+# RELEASE-SPECIFIC on purpose. The bare directory substring "export_templates"
+# used to be in this list and was the whole bug: when the stock RELEASE template
+# resolves fine but the DEBUG template is absent and an unrelated preset
+# validation fails, EditorExportPlatformPC::has_valid_export_configuration()
+# appends the missing DEBUG template path -- which contains "export_templates" --
+# ahead of the unrelated error. The refusal prefix plus that shared substring
+# then classified a perfectly resolved release template as `export_rejected`,
+# and the negative control reported green without ever detecting the condition
+# it exists to detect. Every marker below names the RELEASE artefact or the
+# release-custom-template refusal specifically, so a debug-template diagnostic
+# can no longer stand in for one.
 MISSING_TEMPLATE_MARKERS: Sequence[str] = (
-    "export_templates",
     "windows_release_x86_64.exe",
     # Set when `custom_template/release` names a file that does not exist. Not
     # this control's own configuration (it writes ""), but it is still a

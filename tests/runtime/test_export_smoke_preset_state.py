@@ -242,6 +242,19 @@ ERROR: Project export for preset "Export Smoke" failed.
 # The same refusal on a runner whose editor language is not English: every TTR()
 # string is translated, the vformat() prefix and the interpolated path are not.
 # This is the case that rules out matching the English message text.
+# Codex #873: the RELEASE template resolved; only the DEBUG one is missing, and
+# an unrelated preset validation then failed. Godot appends the missing debug
+# path first, so this output carries the refusal prefix, the reason marker and a
+# path under `export_templates` -- none of which says anything about the release
+# template. Modelled here because the pre-existing unrelated-error fixture omits
+# the independently generated debug-template diagnostic.
+MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT = """ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
+No export template found at the expected path:
+C:/Users/runner/AppData/Roaming/Godot/export_templates/4.5.stable/windows_debug_x86_64.exe
+Invalid export option value for "application/icon": file not found.
+ERROR: Project export for preset "Export Smoke" failed.
+"""
+
 GENUINE_REJECTION_OUTPUT_TRANSLATED = """\
 ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
 Keine Exportvorlage unter dem erwarteten Pfad gefunden:
@@ -307,6 +320,45 @@ class NegativeControlOutcomeTests(unittest.TestCase):
         self.assertEqual(
             smoke._negative_control_verdict(1, self._absent, GENUINE_REJECTION_OUTPUT), 0
         )
+
+    def test_a_missing_debug_template_is_not_a_release_template_rejection(self) -> None:
+        """The release template resolved; only the DEBUG one is missing.
+
+        EditorExportPlatformPC::has_valid_export_configuration() appends the
+        missing debug-template path BEFORE later configuration errors, so this
+        output carries the refusal prefix, the reason marker, and a path under
+        `export_templates` -- while the release template was resolved and the
+        export failed for an unrelated reason.
+
+        The classifier used to accept the bare `export_templates` substring
+        anywhere in the combined diagnostic, so this passed as `export_rejected`
+        and the negative control reported green without ever detecting the
+        condition it exists to detect. It must be `unrelated_failure`.
+        """
+        outcome, detail = smoke.negative_control_outcome(
+            1, self._absent, MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT
+        )
+        self.assertEqual(
+            outcome,
+            "unrelated_failure",
+            f"a missing DEBUG template was misread as a release-template refusal: {detail}",
+        )
+        self.assertNotEqual(
+            smoke._negative_control_verdict(1, self._absent, MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT),
+            0,
+            "the control passed on a failure that says nothing about the release template",
+        )
+
+    def test_the_release_template_rejection_still_passes_alongside_a_debug_path(self) -> None:
+        """The discriminating half: the genuine case must still be recognised.
+
+        Godot lists the debug path AND the release path when both are absent, so
+        a fix that merely rejected any output mentioning a debug template would
+        break the real signal. GENUINE_REJECTION_OUTPUT contains both.
+        """
+        outcome, _ = smoke.negative_control_outcome(1, self._absent, GENUINE_REJECTION_OUTPUT)
+        self.assertEqual(outcome, "export_rejected")
+        self.assertIn("windows_debug_x86_64.exe", GENUINE_REJECTION_OUTPUT)
 
     def test_the_rejection_is_recognised_on_a_non_english_runner(self) -> None:
         # The reason line is TTR()-translated; the refusal prefix and the

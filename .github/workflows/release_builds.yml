@@ -960,7 +960,12 @@ jobs:
     # as build_windows and build_windows_export_template; see
     # .github/workflows/README.md.
     if: github.event_name != 'pull_request'
-    timeout-minutes: 90
+    # 120 like every other job in this workflow. The old 90 did not cover this
+    # job's own worst case: even with the negative control reusing the import
+    # (above), a slow-but-valid run is 30 min import + 30 min export + 5 min game
+    # run + 30 min control export = 95 minutes, and GitHub would have cancelled
+    # this blocking gate before the control emitted its verdict.
+    timeout-minutes: 120
     # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
     # processes. Rationale and the measured loader behaviour: the "Self-hosted
     # GPU runner environment" section of .github/workflows/README.md. Setting
@@ -1125,10 +1130,17 @@ jobs:
           # `stock_template_detected` means a stock upstream export template is
           # installed here and #825's exact condition is reproducible on this
           # machine.
+          # --skip-import: the positive invocation above just imported this exact
+          # project, and the import cache is unaffected by what this run changes
+          # (only the PRESET differs -- custom_template/release=""). Re-importing
+          # would repeat the job's single most expensive step for no signal, and
+          # it is what pushed the worst case past the job deadline: two runs at
+          # 30 min import + 30 min export, plus 5 min of game run, is 125 minutes.
           python tests/runtime/run_export_smoke.py `
             --editor-binary "${{ steps.unpack.outputs.editor }}" `
             --template "${{ steps.unpack.outputs.template }}" `
             --require-binaries `
+            --skip-import `
             --expect-stock-template-failure
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::Negative control failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] outcome field: 'undetected' = an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate; 'unrelated_failure' = the export did not succeed but nothing showed the empty custom_template/release was detected (timeout, crash, unrelated error, or a failed export that left a binary), so the control proved nothing either way."
