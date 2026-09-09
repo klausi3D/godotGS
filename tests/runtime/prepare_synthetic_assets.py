@@ -1011,6 +1011,7 @@ def _generate(
     godot_binary: Path | None = None,
     *,
     preserve_floor_valid: bool = False,
+    allow_fallback: bool = False,
 ) -> int:
     removed: list[str] = []
     fixtures_dir = repo_root / "tests" / "fixtures"
@@ -1020,23 +1021,45 @@ def _generate(
     if godot_binary is not None:
         cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
         if not cpp_generated:
-            if preserve_floor_valid:
-                # --require-asset-floors means a producer was SELECTED, not merely
-                # available. Falling back here reported success while the selected
-                # producer had failed: the Python fallback declares fewer splats
-                # than the floor, the preservation branch below then keeps an
-                # existing fixture from an unrelated earlier run, and module and
-                # runtime validation proceed against it. The floor check passes
-                # because the old file satisfies it -- so the failure of the thing
-                # under test is laundered into a pass by a leftover file.
+            # Passing --godot-binary SELECTS a producer; it does not merely offer
+            # one. Falling back reported success while the selected producer had
+            # failed: the Python fallback declares fewer splats than the floor,
+            # the preservation branch below then keeps an existing fixture from an
+            # unrelated earlier run, and module and runtime validation proceed
+            # against it. The floor check passes because the old file satisfies
+            # it -- so the failure of the thing under test is laundered into a
+            # pass by a leftover file.
+            #
+            # Round 2 made that fatal only under --require-asset-floors, which
+            # left the documented benchmark-prep commands -- neither of which
+            # passes that flag -- taking the silent fallback (#934 review). The
+            # rule is now the mode-independent one: a selected producer that fails
+            # fails the command. --allow-fallback is the explicit opt-in for a
+            # low-fidelity tree, and it cannot override the floor rule, because
+            # under floors a leftover fixture is exactly what would absorb the
+            # failure.
+            if preserve_floor_valid or not allow_fallback:
                 print(
-                    "[prepare_synthetic_assets] the selected --godot-binary failed to "
-                    "generate fixtures and --require-asset-floors is set: refusing to "
-                    "fall back. Any fixture already in the workspace came from a "
-                    "different run and cannot stand in for this producer's output."
+                    "[prepare_synthetic_assets] ERROR: the selected --godot-binary did "
+                    "not generate the fixtures."
                 )
+                if preserve_floor_valid:
+                    print(
+                        "  --require-asset-floors is set, so --allow-fallback does not "
+                        "apply: a fixture already in the workspace came from a different "
+                        "run and cannot stand in for this producer's output."
+                    )
+                else:
+                    print(
+                        "  refusing to substitute the lightweight Python corpus silently; "
+                        "re-run with --allow-fallback if a low-fidelity tree is genuinely "
+                        "acceptable here."
+                    )
                 return 1
-            print("[prepare_synthetic_assets] falling back to Python generators for all files")
+            print(
+                "[prepare_synthetic_assets] --allow-fallback was given: falling back to "
+                "Python generators for all files"
+            )
 
     # Phase 2: Generate remaining files via Python.
     for spec in CANONICAL_SPECS:
@@ -1157,6 +1180,14 @@ def main() -> int:
         action="store_true",
         help="Fail after generation unless every runtime consumer fixture meets ASSET_MIN_SPLAT_COUNTS.",
     )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Permit the lightweight Python corpus when a --godot-binary was given "
+             "but its generators failed. Without this, a selected producer that "
+             "fails fails the command; with --require-asset-floors it fails "
+             "regardless.",
+    )
     args = parser.parse_args()
 
     repo_root = _resolve_repo_root(args.repo_root)
@@ -1183,6 +1214,7 @@ def main() -> int:
         args.quiet,
         godot_binary,
         preserve_floor_valid=args.require_asset_floors,
+        allow_fallback=args.allow_fallback,
     )
     if result != 0 or not args.require_asset_floors:
         return result

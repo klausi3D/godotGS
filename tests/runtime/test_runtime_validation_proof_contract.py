@@ -94,11 +94,14 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
             rc, 0, "a failed selected producer was reported as success under --require-asset-floors"
         )
 
-    def test_without_floors_the_python_fallback_is_still_allowed(self) -> None:
-        """Discrimination: the fallback is legitimate when no producer was selected.
+    def test_a_failed_selected_producer_fails_without_floors_too(self) -> None:
+        """#934 review round 4: selection is the trigger, not the floor flag.
 
-        Without this, the assertion above would be satisfied by making every
-        producer failure fatal, which would break the documented no-binary path.
+        Round 2 made this fatal only under --require-asset-floors, and neither
+        documented benchmark-prep command passes that flag. So the normal route
+        still fell back silently, the preservation branch kept whatever
+        floor-valid fixture an unrelated run had left, and the command exited 0 --
+        presenting another producer's output as current benchmark evidence.
         """
         prep = self._prep_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,7 +110,76 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 rc = prep._generate(
                     root, quiet=True, godot_binary=Path("godot"), preserve_floor_valid=False
                 )
-        self.assertEqual(rc, 0, "the Python fallback was refused when no floors were required")
+        self.assertEqual(
+            rc, 1, "a selected producer failed and the command reported success anyway"
+        )
+
+    def test_the_no_binary_path_still_generates(self) -> None:
+        """Discrimination: nothing was selected, so the fallback is the answer.
+
+        Without this the rule above is satisfied by refusing to generate at all,
+        which would break the documented clean-checkout route.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            rc = prep._generate(Path(tmp), quiet=True)
+        self.assertEqual(rc, 0, "generation without a --godot-binary was refused")
+
+    def test_allow_fallback_is_the_explicit_opt_in(self) -> None:
+        """Discrimination: a low-fidelity tree stays reachable, but only on request."""
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(prep, "_generate_via_godot", return_value=False):
+                rc = prep._generate(
+                    Path(tmp), quiet=True, godot_binary=Path("godot"), allow_fallback=True
+                )
+        self.assertEqual(rc, 0, "--allow-fallback did not permit the Python corpus")
+
+    def test_allow_fallback_cannot_override_the_floor_rule(self) -> None:
+        """The opt-in must not reopen what round 2 closed.
+
+        Under --require-asset-floors a leftover fixture is precisely what absorbs
+        the failure, so the two flags together must still fail.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(prep, "_generate_via_godot", return_value=False):
+                rc = prep._generate(
+                    Path(tmp),
+                    quiet=True,
+                    godot_binary=Path("godot"),
+                    preserve_floor_valid=True,
+                    allow_fallback=True,
+                )
+        self.assertEqual(rc, 1, "--allow-fallback overrode --require-asset-floors")
+
+    def test_the_cli_carries_the_opt_in_through(self) -> None:
+        """A flag wired to nothing is a flag that lies about what it permits."""
+        prep = self._prep_module()
+        seen: dict = {}
+
+        def fake_generate(repo_root, quiet, godot_binary=None, **kwargs):
+            seen.update(kwargs)
+            return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = ["prepare_synthetic_assets.py", "--repo-root", tmp, "--allow-fallback"]
+            with mock.patch.object(prep, "_generate", side_effect=fake_generate):
+                with mock.patch.object(prep.sys, "argv", argv):
+                    prep.main()
+        self.assertTrue(
+            seen.get("allow_fallback"), "--allow-fallback did not reach _generate()"
+        )
+
+        seen.clear()
+        with tempfile.TemporaryDirectory() as tmp:
+            argv = ["prepare_synthetic_assets.py", "--repo-root", tmp]
+            with mock.patch.object(prep, "_generate", side_effect=fake_generate):
+                with mock.patch.object(prep.sys, "argv", argv):
+                    prep.main()
+        self.assertFalse(
+            seen.get("allow_fallback"), "the opt-in was on without being asked for"
+        )
 
 
     def test_a_zero_exit_producer_that_wrote_nothing_is_not_accepted(self) -> None:
