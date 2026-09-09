@@ -995,6 +995,23 @@ def await_sampler_ready(
 #: How long to wait for a terminated orphan sampler to actually disappear.
 ORPHAN_STOP_TIMEOUT_SEC = 15.0
 
+#: How long the postflight waits for THIS job's sampler to exit after the stop
+#: file appears, before terminating it.
+#:
+#: The stop file is a request, not a join: the sampler reads it between probes,
+#: so one already inside :func:`take_sample` -- ~8.5 s of PowerShell, see
+#: :data:`SAMPLER_INTERVAL_SEC` -- runs to completion first. 30 s covers that
+#: probe with room for a starved box (the GPU harness saturates this machine's
+#: CPU) without holding the postflight open for the 120 s a hung probe would
+#: take, which is what the terminate is for.
+SAMPLER_CLOSE_TIMEOUT_SEC = 30.0
+
+#: How often the sampler re-checks the stop file while idle between probes, and
+#: how often the postflight re-checks whether the sampler has gone. Small enough
+#: that the stop is acted on promptly, large enough that the check itself (a
+#: `Get-CimInstance` on Windows) is not a load of its own.
+SAMPLER_STOP_POLL_SEC = 1.0
+
 
 def probe_process(pid: int) -> Tuple[bool, Optional[str]]:
     """`(is running, command line)` for `pid`.
@@ -1218,6 +1235,90 @@ def stop_orphaned_sampler(
         sleep(0.5)
 
 
+def await_sampler_exit(
+    session_dir: Path,
+    sampler_pid: Optional[int],
+    timeout_sec: float = SAMPLER_CLOSE_TIMEOUT_SEC,
+    now=time.monotonic,
+    sleep=time.sleep,
+) -> Tuple[List[str], Optional[str]]:
+    """Wait for this job's sampler to be gone, terminating it if it overstays.
+
+    Writing the stop file neither stops nor joins the sampler: `phase_sample`
+    reads that file only between probes, so a sampler already inside
+    :func:`take_sample` keeps going for the rest of the probe. The postflight
+    used to take its closing sample immediately afterwards, CONCURRENTLY with
+    that probe -- and both processes then append near-identical readings of the
+    same instant. One brief foreign spike, seen twice, is two consecutive
+    contended samples, which is precisely what :data:`CONTENDED_SAMPLES_REQUIRED`
+    exists to distinguish from sustained load: a clean job reported
+    CONTENDED_MID_RUN and voided (#882 review).
+
+    So the closing sample waits for the sampler to be gone first. If it overstays
+    the bound it is terminated -- identity-checked exactly as an orphan is,
+    because pids are recycled and this runner is also the maintainer's
+    workstation, so terminating a stranger would be a worse defect than the race
+    it prevents.
+
+    Returns `(log lines, unresolved description or None)`. Unresolved means the
+    sampler may still be writing: the caller narrows the contention streak to one
+    writer rather than pretending the race is gone.
+    """
+    if sampler_pid is None:
+        return [], None
+
+    lines: List[str] = []
+    deadline = now() + timeout_sec
+    while True:
+        running, command_line = probe_process(sampler_pid)
+        if not running:
+            return lines + [
+                f"  the background sampler (pid {sampler_pid}) has exited; the closing "
+                "sample is not racing it"
+            ], None
+        if not is_this_guards_sampler(command_line, session_dir):
+            if command_line is None:
+                # Alive but unidentifiable. Refusing to kill is the same call the
+                # orphan path makes, and for the same reason; the caller is told
+                # the race is unresolved rather than being left to assume it is
+                # not happening.
+                return lines + [
+                    f"  WARNING: pid {sampler_pid} is running but its command line could "
+                    "not be read, so it cannot be confirmed as this job's sampler. NOT "
+                    "terminating it."
+                ], f"pid {sampler_pid} is running but could not be identified"
+            return lines + [
+                f"  pid {sampler_pid} now belongs to an unrelated process "
+                f"({_first_token(command_line)}), so this job's sampler has already exited"
+            ], None
+        if now() >= deadline:
+            break
+        sleep(SAMPLER_STOP_POLL_SEC)
+
+    lines.append(
+        f"  the background sampler (pid {sampler_pid}) is still running "
+        f"{timeout_sec:.0f}s after the stop file; terminating it so the closing sample "
+        "is not taken alongside one of its probes"
+    )
+    error = terminate_process(sampler_pid)
+    kill_deadline = now() + ORPHAN_STOP_TIMEOUT_SEC
+    while True:
+        running, command_line = probe_process(sampler_pid)
+        if not running or not is_this_guards_sampler(command_line, session_dir):
+            return lines + [f"  the background sampler (pid {sampler_pid}) is stopped"], None
+        if now() >= kill_deadline:
+            return lines + [
+                f"  WARNING: the background sampler (pid {sampler_pid}) is still running "
+                f"{ORPHAN_STOP_TIMEOUT_SEC:.0f}s after being terminated"
+                + (f" ({error})" if error else "")
+                + ". It can still append to this series, so the closing sample may be "
+                "concurrent with one of its probes."
+            ], f"this job's sampler pid {sampler_pid} could not be stopped" + (
+                f": {error}" if error else ""
+            )
+        sleep(0.5)
+
+
 def _first_token(command_line: str) -> str:
     text = command_line.strip()
     if text.startswith('"'):
@@ -1434,6 +1535,13 @@ def phase_sample(args: argparse.Namespace) -> int:
     stop_path = session_dir / STOP_FILE
     deadline = time.monotonic() + args.max_lifetime_sec
     while True:
+        # Checked BEFORE the probe as well as after it. A probe costs ~8.5s, and
+        # the postflight has to wait out whichever one is in flight before it can
+        # take a closing sample that is not racing it; starting another one after
+        # the stop has already been requested lengthens that wait and buys no
+        # coverage, because the closing sample measures the same instant.
+        if stop_path.exists():
+            return 0
         sample = take_sample(args.job_root_pid, args.busy_percent)
         try:
             append_sample(samples_path, sample, SOURCE_SAMPLER)
@@ -1441,7 +1549,18 @@ def phase_sample(args: argparse.Namespace) -> int:
             return 1
         if stop_path.exists() or time.monotonic() >= deadline:
             return 0
-        time.sleep(args.poll_interval_sec)
+        # Slept in slices, not in one SAMPLER_INTERVAL_SEC block: a stop that
+        # arrives just after a probe finished would otherwise go unnoticed for a
+        # full interval, and the postflight would wait out that whole interval
+        # plus the probe that follows it.
+        wake_at = time.monotonic() + args.poll_interval_sec
+        while True:
+            if stop_path.exists() or time.monotonic() >= deadline:
+                return 0
+            remaining = wake_at - time.monotonic()
+            if remaining <= 0.0:
+                break
+            time.sleep(min(SAMPLER_STOP_POLL_SEC, remaining))
 
 
 # --------------------------------------------------------------------------
@@ -1465,7 +1584,7 @@ def evaluate_series(
     max_gap_sec: float = MAX_SAMPLE_GAP_SEC,
     contended_samples_required: int = CONTENDED_SAMPLES_REQUIRED,
     sampler_pid: Optional[int] = None,
-    orphan_unresolved: bool = False,
+    concurrent_writer_unresolved: bool = False,
 ) -> SeriesVerdict:
     """Turn the sampled series into a verdict about the *whole* job window.
 
@@ -1487,17 +1606,18 @@ def evaluate_series(
       about a monitored interval, and it may rest only on evidence that an actual
       monitor produced.
 
-    `orphan_unresolved` is the one exception to the first rule, and it exists
-    because the rule's justification does not cover this case. The preflight
-    records `orphan_sampler_error` and deliberately continues, reasoning that an
-    unaccounted writer "cannot fabricate coverage" -- true, because coverage is
-    pid-filtered. But contention is not, so two samplers writing the same brief
-    spike a moment apart could satisfy the two-sample rule that is supposed to
-    require SUSTAINED load, voiding a clean run (#882 review). When, and only
-    when, the preflight could not account for the previous writer, contention is
-    therefore read from this job's own sampler as well. That is strictly narrower
-    than voiding the run on an unresolved orphan, which would be a false-void
-    generator; this job's sampler still observes real contention if there is any.
+    `concurrent_writer_unresolved` is the one exception to the first rule, and it
+    exists because the rule's justification does not cover this case. Two writers
+    appending to one series can record the same brief spike a moment apart, and
+    that pair satisfies the two-sample rule which is supposed to require
+    SUSTAINED load -- voiding a clean run (#882 review). Two situations produce
+    it: the preflight could not account for a previous job's sampler and
+    deliberately continued (`orphan_sampler_error`), or the postflight could not
+    confirm that this job's own sampler had exited before taking its closing
+    sample. In both, and only in those, contention is read from this job's own
+    sampler alone. That is strictly narrower than voiding the run on an
+    unaccounted writer, which would be a false-void generator; this job's sampler
+    still observes real contention if there is any.
     """
     reasons: List[str] = []
     if not entries:
@@ -1574,14 +1694,14 @@ def evaluate_series(
     # (two busy samples either side of one stay adjacent, correctly) and the
     # blind interval it leaves shows up where it belongs -- as a gap.
     usable = [entry for entry in ordered if not entry.get("error")]
-    if orphan_unresolved:
-        # See the note on `orphan_unresolved` above: with an unaccounted writer
-        # in the same file, "two busy samples" can be one spike seen twice.
+    if concurrent_writer_unresolved:
+        # See the note on `concurrent_writer_unresolved` above: with a second
+        # writer in the same file, "two busy samples" can be one spike seen twice.
         attributed = [entry for entry in usable if written_by_sampler(entry, sampler_pid)]
         dropped = len(usable) - len(attributed)
         if dropped:
             reasons.append(
-                f"the preflight could not account for a previous sampler, so {dropped} "
+                f"a second writer to this series could not be accounted for, so {dropped} "
                 "sample(s) not written by this job's sampler were excluded from the "
                 "contention streak; two writers recording one spike would otherwise "
                 "satisfy the sustained-load rule."
@@ -1747,12 +1867,26 @@ def phase_postflight(args: argparse.Namespace) -> int:
         except ValueError:
             pass
 
+    sampler_pid_raw = session.get("sampler_pid")
+    sampler_pid = (
+        int(sampler_pid_raw)
+        if isinstance(sampler_pid_raw, int) and not isinstance(sampler_pid_raw, bool)
+        else None
+    )
+
     # Stop the sampler first, so the final sample below is not racing it.
     try:
         stop_path.parent.mkdir(parents=True, exist_ok=True)
         stop_path.write_text("stop\n", encoding="utf-8")
     except OSError as exc:
         print(f"  WARNING: could not write the sampler stop file: {exc}")
+
+    # ...and then WAIT for it. The stop file is a request the sampler reads
+    # between probes; writing it does not join the process, and a closing sample
+    # taken alongside a probe of the sampler's records one spike twice.
+    close_lines, close_error = await_sampler_exit(session_dir, sampler_pid)
+    for line in close_lines:
+        print(line)
 
     job_root_pid = session.get("job_root_pid")
     end_sample = take_sample(
@@ -1786,19 +1920,17 @@ def phase_postflight(args: argparse.Namespace) -> int:
         if isinstance(started_at_raw, (int, float)) and not isinstance(started_at_raw, bool)
         else end_sample.at
     )
-    sampler_pid_raw = session.get("sampler_pid")
-    sampler_pid = (
-        int(sampler_pid_raw)
-        if isinstance(sampler_pid_raw, int) and not isinstance(sampler_pid_raw, bool)
-        else None
-    )
     entries = read_samples(samples_path)
     series = evaluate_series(
         entries,
         monitored_from,
         end_sample.at,
         sampler_pid=sampler_pid,
-        orphan_unresolved=bool(session.get("orphan_sampler_error")),
+        # Either unaccounted writer puts two readings of one spike in this file:
+        # a previous job's sampler the preflight could not stop, or this job's own
+        # sampler still probing while the closing sample was taken.
+        concurrent_writer_unresolved=bool(session.get("orphan_sampler_error"))
+        or close_error is not None,
     )
 
     if monitored_from > started_at + 1.0:

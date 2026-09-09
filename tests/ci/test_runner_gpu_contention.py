@@ -635,7 +635,7 @@ class UnresolvedOrphanCannotManufactureAStreak(unittest.TestCase):
 
     def test_one_spike_seen_by_two_writers_is_not_contention(self) -> None:
         monitored_from, ended_at, entries = self._spike_seen_twice()
-        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=True)
+        verdict = _series(entries, monitored_from, ended_at, concurrent_writer_unresolved=True)
         self.assertNotEqual(
             verdict.verdict,
             contention.VERDICT_CONTENDED_MID_RUN,
@@ -650,7 +650,7 @@ class UnresolvedOrphanCannotManufactureAStreak(unittest.TestCase):
         stopped reporting contention.
         """
         monitored_from, ended_at, entries = self._spike_seen_twice()
-        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=False)
+        verdict = _series(entries, monitored_from, ended_at, concurrent_writer_unresolved=False)
         self.assertEqual(
             verdict.verdict,
             contention.VERDICT_CONTENDED_MID_RUN,
@@ -668,7 +668,7 @@ class UnresolvedOrphanCannotManufactureAStreak(unittest.TestCase):
             _entry(monitored_from + 80.0),
             _entry(ended_at),
         ]
-        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=True)
+        verdict = _series(entries, monitored_from, ended_at, concurrent_writer_unresolved=True)
         self.assertEqual(
             verdict.verdict,
             contention.VERDICT_CONTENDED_MID_RUN,
@@ -854,8 +854,9 @@ class PostflightReadsTheMonitoredWindow(unittest.TestCase):
                 "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
             )
             clean = _sample(at=session["monitored_from"] + 400.0)
-            with mock.patch.object(contention, "take_sample", return_value=clean):
-                return contention.main(["postflight", "--record-dir", str(base)])
+            with _sampler_already_gone():
+                with mock.patch.object(contention, "take_sample", return_value=clean):
+                    return contention.main(["postflight", "--record-dir", str(base)])
 
     def test_a_job_that_waited_ten_minutes_and_then_ran_clean_passes(self) -> None:
         waited = contention.MAX_SAMPLE_GAP_SEC + 300.0
@@ -891,10 +892,11 @@ class PostflightReadsTheMonitoredWindow(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
-            with mock.patch.object(
-                contention, "take_sample", return_value=_sample(at=self.EPOCH + 900.0)
-            ):
-                code = contention.main(["postflight", "--record-dir", str(base)])
+            with _sampler_already_gone():
+                with mock.patch.object(
+                    contention, "take_sample", return_value=_sample(at=self.EPOCH + 900.0)
+                ):
+                    code = contention.main(["postflight", "--record-dir", str(base)])
         self.assertEqual(code, contention.EXIT_RUNNER_BUSY)
 
 
@@ -1150,10 +1152,11 @@ class MonitoringIsAPositiveFact(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
-            with mock.patch.object(
-                contention, "take_sample", return_value=_sample(at=self.T0 + 125.0)
-            ):
-                code = contention.main(["postflight", "--record-dir", str(base)])
+            with _sampler_already_gone():
+                with mock.patch.object(
+                    contention, "take_sample", return_value=_sample(at=self.T0 + 125.0)
+                ):
+                    code = contention.main(["postflight", "--record-dir", str(base)])
         self.assertEqual(code, contention.EXIT_RUNNER_BUSY)
 
 
@@ -1162,10 +1165,314 @@ class MonitoringIsAPositiveFact(unittest.TestCase):
 # --------------------------------------------------------------------------
 
 
+def _sampler_already_gone():
+    """The recorded sampler pid is not running.
+
+    The postflight waits for its sampler before taking the closing sample, and
+    SAMPLER_PID is a fixture value: on a machine where that pid happens to belong
+    to a live process, these tests would spend the real SAMPLER_CLOSE_TIMEOUT_SEC.
+    The wait itself is covered by ClosingSampleWaitsForTheSampler below.
+    """
+    return mock.patch.object(contention, "probe_process", return_value=(False, None))
+
+
 OUR_SAMPLER_COMMAND = (
     f'"C:\\Python\\python.exe" "{Path(contention.__file__).resolve()}" sample '
     "--record-dir {directory} --job-root-pid 4 --poll-interval-sec 60.0"
 )
+
+
+class ClosingSampleWaitsForTheSampler(unittest.TestCase):
+    """#882 review: the stop file is a request, not a join.
+
+    `phase_sample` reads the stop file only between probes, so a sampler already
+    inside `take_sample()` -- ~8.5 s of PowerShell -- keeps going after the
+    postflight writes it. The postflight then took its closing sample straight
+    away, CONCURRENTLY with that probe, and both processes appended near-identical
+    readings of the same instant. One brief foreign spike, recorded twice, is two
+    consecutive contended samples: exactly what the two-sample rule exists to
+    distinguish from sustained load, so a clean job was reported
+    CONTENDED_MID_RUN and voided.
+    """
+
+    def _await(self, directory: Path, probe, *, pid: int = SAMPLER_PID):
+        """Run the join against a fake clock, so a timeout costs no wall time."""
+        killed: List[int] = []
+
+        def terminate(target: int):
+            killed.append(target)
+            return None
+
+        clock = {"now": 0.0}
+
+        def advance(seconds: float) -> None:
+            clock["now"] += max(seconds, 1.0)
+
+        with mock.patch.object(contention, "probe_process", side_effect=probe):
+            with mock.patch.object(contention, "terminate_process", side_effect=terminate):
+                lines, unresolved = contention.await_sampler_exit(
+                    directory, pid, now=lambda: clock["now"], sleep=advance
+                )
+        return lines, unresolved, killed, clock["now"]
+
+    def test_a_sampler_still_inside_a_probe_is_waited_out(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            probes = iter([(True, ours), (True, ours), (False, None)])
+            lines, unresolved, killed, elapsed = self._await(base, lambda _pid: next(probes))
+        self.assertIsNone(unresolved)
+        self.assertEqual(killed, [], "a sampler that exited on its own was killed anyway")
+        self.assertGreater(elapsed, 0.0, "the join returned without waiting for anything")
+        self.assertIn("has exited", "\n".join(lines))
+
+    def test_a_sampler_that_overstays_the_bound_is_terminated(self) -> None:
+        """Bounded: a probe that hangs must not hold the postflight open for it."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            killed_yet: List[int] = []
+
+            def probe(_pid: int):
+                return (False, None) if killed_yet else (True, ours)
+
+            def terminate(target: int):
+                killed_yet.append(target)
+                return None
+
+            clock = {"now": 0.0}
+            with mock.patch.object(contention, "probe_process", side_effect=probe):
+                with mock.patch.object(contention, "terminate_process", side_effect=terminate):
+                    lines, unresolved = contention.await_sampler_exit(
+                        base,
+                        SAMPLER_PID,
+                        now=lambda: clock["now"],
+                        sleep=lambda seconds: clock.__setitem__(
+                            "now", clock["now"] + max(seconds, 1.0)
+                        ),
+                    )
+        self.assertEqual(killed_yet, [SAMPLER_PID])
+        self.assertIsNone(unresolved)
+        self.assertGreaterEqual(
+            clock["now"],
+            contention.SAMPLER_CLOSE_TIMEOUT_SEC,
+            "the sampler was terminated before it was given the bounded wait",
+        )
+        self.assertIn("terminating it", "\n".join(lines))
+
+    def test_a_sampler_that_cannot_be_stopped_is_reported_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            ours = OUR_SAMPLER_COMMAND.format(directory=base)
+            lines, unresolved, killed, _elapsed = self._await(base, lambda _pid: (True, ours))
+        self.assertEqual(killed, [SAMPLER_PID])
+        self.assertIn("could not be stopped", unresolved or "")
+        self.assertIn("WARNING", "\n".join(lines))
+
+    def test_a_recycled_pid_is_neither_waited_on_nor_killed(self) -> None:
+        """Never kill a stranger: this runner is also the maintainer's workstation."""
+        stranger = '"C:\\Windows\\explorer.exe"'
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            lines, unresolved, killed, elapsed = self._await(base, lambda _pid: (True, stranger))
+        self.assertEqual(killed, [])
+        self.assertIsNone(unresolved)
+        self.assertEqual(elapsed, 0.0, "the postflight waited on someone else's process")
+        self.assertIn("unrelated process", "\n".join(lines))
+
+    def test_an_unidentifiable_live_pid_is_left_alone_and_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            lines, unresolved, killed, _elapsed = self._await(base, lambda _pid: (True, None))
+        self.assertEqual(killed, [])
+        self.assertIsNotNone(unresolved)
+        self.assertIn("NOT terminating", "\n".join(lines))
+
+    def test_no_recorded_sampler_is_nothing_to_wait_for(self) -> None:
+        probed: List[int] = []
+
+        def probe(pid: int):
+            probed.append(pid)
+            return (False, None)
+
+        with tempfile.TemporaryDirectory() as directory:
+            lines, unresolved, killed, _elapsed = self._await(Path(directory), probe, pid=None)
+        self.assertEqual((lines, unresolved, killed, probed), ([], None, [], []))
+
+    def test_the_sampler_starts_no_probe_after_the_stop_file_exists(self) -> None:
+        """The other side of the join: don't start an 8.5s probe you were told to skip.
+
+        The stop file used to be read only AFTER a probe, so a sampler waking from
+        its idle interval took one more full probe -- and that is the probe the
+        postflight's closing sample used to race.
+        """
+        probes: List[int] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.STOP_FILE).write_text("stop\n", encoding="utf-8")
+            with mock.patch.object(
+                contention,
+                "take_sample",
+                side_effect=lambda *a, **k: probes.append(1) or _sample(),
+            ):
+                code = contention.main(
+                    ["sample", "--record-dir", str(base), "--poll-interval-sec", "60"]
+                )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            probes, [], "the sampler began a probe after it had already been told to stop"
+        )
+
+    def test_a_stop_during_the_idle_interval_is_noticed_within_a_poll(self) -> None:
+        """A stop arriving just after a probe must not wait out the whole interval.
+
+        Sleeping SAMPLER_INTERVAL_SEC in one block meant the postflight had to
+        wait out the rest of that interval AND the probe that followed it, so the
+        bounded wait would expire and the sampler be killed on nearly every run.
+        """
+        probes: List[int] = []
+        slices: List[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            stop_path = base / contention.STOP_FILE
+
+            def sleeping(seconds: float) -> None:
+                slices.append(seconds)
+                if len(slices) == 1:
+                    stop_path.write_text("stop\n", encoding="utf-8")
+
+            with mock.patch.object(
+                contention,
+                "take_sample",
+                side_effect=lambda *a, **k: probes.append(1) or _sample(),
+            ):
+                with mock.patch.object(contention.time, "sleep", side_effect=sleeping):
+                    code = contention.main(
+                        ["sample", "--record-dir", str(base), "--poll-interval-sec", "60"]
+                    )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            len(probes), 1, "the sampler took another probe after the stop had arrived"
+        )
+        self.assertLessEqual(
+            max(slices),
+            contention.SAMPLER_STOP_POLL_SEC,
+            "the sampler slept through the stop in one block instead of in slices",
+        )
+
+    def test_the_postflight_joins_before_it_samples(self) -> None:
+        """Wiring: the join must happen, and it must happen BEFORE the closing sample.
+
+        A join that runs after the sample has been taken prevents nothing, and
+        this is the ordering the whole fix consists of.
+        """
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": 1_700_000_000.0,
+            "monitored_from": 1_700_000_000.0,
+            "sampler_pid": SAMPLER_PID,
+            "job_root_pid": 200,
+        }
+        order: List[str] = []
+
+        def joined(directory, pid, *args, **kwargs):
+            order.append(f"join:{pid}")
+            return [], None
+
+        def sampled(*_args, **_kwargs):
+            order.append("sample")
+            return _sample(at=1_700_000_400.0)
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
+            (base / contention.SAMPLES_FILE).write_text(
+                "".join(
+                    json.dumps(_entry(1_700_000_000.0 + index * 60.0)) + "\n"
+                    for index in range(1, 7)
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(contention, "await_sampler_exit", side_effect=joined):
+                with mock.patch.object(contention, "take_sample", side_effect=sampled):
+                    contention.main(["postflight", "--record-dir", str(base)])
+
+        self.assertEqual(
+            order[:2],
+            [f"join:{SAMPLER_PID}", "sample"],
+            "the closing sample was taken without first waiting for the sampler",
+        )
+
+    def test_a_sampler_that_could_not_be_joined_cannot_manufacture_a_streak(self) -> None:
+        """The residue: if the join fails, the two writers are still in one file.
+
+        A sampler that survives termination keeps appending, so the closing sample
+        can still land alongside one of its probes. The contention streak is then
+        read from this job's sampler alone -- the same narrowing an unaccounted
+        orphan already triggers -- instead of counting one spike twice.
+        """
+        epoch = 1_700_000_000.0
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": epoch,
+            "monitored_from": epoch,
+            "sampler_pid": SAMPLER_PID,
+            "job_root_pid": 200,
+        }
+        # A single spike: one busy sampler sample, and the postflight's closing
+        # sample reading the same instant a moment later.
+        entries = [
+            _entry(epoch + 60.0),
+            _entry(epoch + 120.0),
+            _entry(epoch + 180.0, busy=True),
+            _entry(epoch + 240.0),
+        ]
+
+        def run(join_result):
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / contention.SESSION_FILE).write_text(
+                    json.dumps(session), encoding="utf-8"
+                )
+                (base / contention.SAMPLES_FILE).write_text(
+                    "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
+                )
+                # The closing sample catches the spike; the confirming sample
+                # the postflight takes a moment later does not, because the spike
+                # is brief -- which is the whole premise of the anti-blip rule.
+                readings = iter(
+                    [_sample(busy=True, at=epoch + 181.0), _sample(at=epoch + 186.0)]
+                )
+                with mock.patch.object(
+                    contention, "await_sampler_exit", return_value=join_result
+                ):
+                    with mock.patch.object(
+                        contention, "take_sample", side_effect=lambda *a, **k: next(readings)
+                    ):
+                        with mock.patch.object(contention.time, "sleep", lambda *_a: None):
+                            return contention.main(["postflight", "--record-dir", str(base)])
+
+        unresolved_code = run(([], "this job's sampler pid 4242 could not be stopped"))
+        self.assertEqual(
+            unresolved_code,
+            0,
+            "one spike, read by an unstoppable sampler and by the closing sample, "
+            "voided a clean run",
+        )
+
+        # Discrimination: with the sampler confirmed gone, a busy closing sample
+        # next to a busy sampler sample is still evidence and still voids the run.
+        # Without this half, the assertion above is satisfied by a postflight that
+        # never reports contention at all.
+        joined_code = run(([], None))
+        self.assertNotEqual(
+            joined_code,
+            0,
+            "with no unresolved writer, cross-writer contention must still count",
+        )
 
 
 class OrphanedSamplersAreStoppedNotInherited(unittest.TestCase):
