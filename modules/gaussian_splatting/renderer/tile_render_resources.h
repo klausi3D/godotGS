@@ -192,11 +192,53 @@ struct TileGlobalSortResources {
 	void release(RenderingDevice *p_default_device);
 	void reset_state(bool p_clear_sorter);
 	void ensure_resources(uint32_t p_visible_count);
+	// #586 PR 2: called by the frame executor once a frame whose translucent content was
+	// SORTED by this sorter has been PUBLISHED (valid output RID). Closes an open failure
+	// episode: failure count -> 0, sorter_recoveries + 1, one WARN. This is the only place
+	// the episode closes -- not sorter creation, not buffer allocation -- because every
+	// later stage of the frame (uniform sets, tile ranges, raster) can still fail after
+	// ensure_resources() returns, and a "recovered" that precedes presentation is a claim
+	// the telemetry cannot back (#977 review rounds 1-3).
+	void note_sorted_frame_published();
 
 	TileRenderer &owner;
 	Ref<IGPUSorter> sorter;
+	// false while no sorter exists. #586 PR 2: this is a RETRY state, not a latch --
+	// ensure_resources() re-attempts creation on the shared GPU-003 backoff
+	// (sort_fallback_policy.h) and flips it back on success.
 	bool sorter_available = true;
 	bool sorter_missing_logged = false;
+	// GPU-003 policy state for the tile sorter (mirrors SortingState's fields for the
+	// instance sorter). Consecutive creation failures; reset to 0 by a successful
+	// (re)creation and by reset_state().
+	uint32_t sorter_init_failure_count = 0;
+	// TileRenderer::frame_state.current_frame_serial at the last failure. The backoff
+	// delta is computed in uint32 modular arithmetic so a counter wrap cannot bypass
+	// the window (GPU-003, Codex R1 P3).
+	uint64_t last_sorter_init_failure_frame = 0;
+	// Persistent count of successful recreations that followed at least one failure --
+	// "the retry worked", surfaced via get_binning_debug_counters().
+	uint64_t sorter_recoveries = 0;
+	// #586 PR 3: a capacity GROW that cannot build its replacement keeps the WORKING
+	// sorter, its capacity and its buffers, and renders sorted at the old budget
+	// (records above it are clamped by the prefix pass and counted by the overflow-drop
+	// telemetry). The pending grow is re-attempted on the same GPU-003 backoff, tracked
+	// separately from the no-sorter episode above because frames keep publishing
+	// throughout: consecutive failed grow attempts, the frame of the last one, and the
+	// number of grow episodes that ended with the grow succeeding. A KEY-LAYOUT change
+	// is not a grow: the shaders already follow the new layout, so a failed one retires
+	// the sorter (no-sorter episode, #982 review) and abandons any pending grow episode.
+	uint32_t sorter_grow_failure_count = 0;
+	uint64_t last_sorter_grow_failure_frame = 0;
+	uint64_t sorter_grow_recoveries = 0;
+	// One-shot guard for the failed-grow root-cause line, per grow episode.
+	bool sorter_grow_failure_logged = false;
+	// Set when a grow's replacement sorter is built while a grow episode is open. The
+	// episode closes (a recovery) only in note_sorted_frame_published(), once a sorted
+	// frame has gone through the replacement AND its enlarged buffers -- the buffers are
+	// allocated after the build and can still fail (#982 review round 2; same rule as
+	// the no-sorter episode). Cleared by a later grow failure or an abandoned episode.
+	bool sorter_grow_awaiting_publish = false;
 	uint64_t sorter_device_id = 0;
 	uint32_t capacity = 0;
 	uint32_t shrink_candidate_frames = 0; // consecutive low-demand frames, for bounded shrink hysteresis

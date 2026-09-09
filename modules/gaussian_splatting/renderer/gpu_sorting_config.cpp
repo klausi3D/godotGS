@@ -350,8 +350,9 @@ String GPUSortingConfig::get_portability_warnings() const {
     // radix_bits and workgroup_size are each individually valid, but the RadixSort
     // scatter kernel's shared-memory footprint is a function of their PRODUCT. (8, 512)
     // needs 18432 bytes > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees, so the
-    // scatter pipeline is unbuildable on common Intel/AMD parts and the sorter falls
-    // back (compositing translucent splats unsorted) on those GPUs. Same single-source
+    // scatter pipeline is unbuildable on common Intel/AMD parts, so no GPU sorter can be
+    // built there: the instance sort route fails closed and the global composite rejects
+    // its translucent frames (#586) — splats are not drawn. Same single-source
     // helper RadixSort::is_supported() probes the real device limit with. An unsupported
     // radix_bits returns the fail-closed sentinel: that is a hard validation error
     // (reported by get_validation_errors + reset to defaults), not a portability issue,
@@ -363,9 +364,10 @@ String GPUSortingConfig::get_portability_warnings() const {
         warnings += vformat(
                 "radix_bits=%d x workgroup_size=%d needs %d bytes of compute shared memory, "
                 "exceeding the %d-byte (16 KB) minimum guaranteed by Vulkan 1.1 (common Intel/AMD "
-                "limit); the RadixSort scatter kernel will be unbuildable on such GPUs and the "
-                "sorter will fall back, compositing translucent splats unsorted. Lower radix_bits "
-                "or workgroup_size.\n",
+                "limit); the RadixSort scatter kernel will be unbuildable on such GPUs, so no GPU "
+                "sorter can be built there: the instance sort route fails closed and the global "
+                "composite rejects its translucent frames (nothing presented, #586). Lower "
+                "radix_bits or workgroup_size.\n",
                 radix_bits, workgroup_size, scatter_shared_bytes,
                 GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
     }

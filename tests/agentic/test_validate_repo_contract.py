@@ -7,11 +7,14 @@ tests do not depend on any single branch having the full AGENTS.md hierarchy.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
+import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "agentic" / "validate_repo_contract.py"
@@ -37,8 +40,11 @@ class ValidateRepoContractTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = _make_valid_root(Path(self._tmp.name))
+        self._commit_lookup = mock.patch.object(vrc, "_git_commit_exists", return_value=True)
+        self._commit_lookup.start()
 
     def tearDown(self):
+        self._commit_lookup.stop()
         self._tmp.cleanup()
 
     def test_valid_root_passes(self):
@@ -84,6 +90,362 @@ class ValidateRepoContractTest(unittest.TestCase):
         )
         errors = vrc.validate_repo_contract(self.root)
         self.assertTrue(any("task.json does not match" in e for e in errors))
+
+    def test_vacuous_task_schema_fails(self):
+        path = self.root / ".agentic" / "schemas" / "task.schema.json"
+        path.write_text("{}", encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any("task.schema.json contract" in error for error in errors),
+            "a vacuous task schema must not authorize dispatch",
+        )
+
+    def test_task_schema_defining_constraints_cannot_be_weakened(self):
+        path = self.root / ".agentic" / "schemas" / "task.schema.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+
+        mutations = []
+        missing_required = copy.deepcopy(original)
+        missing_required["required"].remove("risk_class")
+        mutations.append(("missing required field", missing_required))
+
+        non_string_required = copy.deepcopy(original)
+        non_string_required["required"].append({})
+        mutations.append(("non-string required entry", non_string_required))
+
+        duplicate_required = copy.deepcopy(original)
+        duplicate_required["required"].append(duplicate_required["required"][0])
+        mutations.append(("duplicate required entry", duplicate_required))
+
+        permissive_root = copy.deepcopy(original)
+        permissive_root["additionalProperties"] = True
+        mutations.append(("root additional properties", permissive_root))
+
+        expanded_risk_class = copy.deepcopy(original)
+        expanded_risk_class["properties"]["risk_class"]["enum"].append("R4")
+        mutations.append(("expanded risk class", expanded_risk_class))
+
+        narrowed_task_id = copy.deepcopy(original)
+        narrowed_task_id["properties"]["task_id"]["const"] = "GS-000"
+        mutations.append(("narrowed task id", narrowed_task_id))
+
+        narrowed_array_item = copy.deepcopy(original)
+        narrowed_array_item["properties"]["acceptance_criteria"]["items"]["const"] = "placeholder"
+        mutations.append(("narrowed task array item", narrowed_array_item))
+
+        missing_array_item_type = copy.deepcopy(original)
+        del missing_array_item_type["properties"]["acceptance_criteria"]["items"]
+        mutations.append(("missing array item type", missing_array_item_type))
+
+        malformed_array_property = copy.deepcopy(original)
+        malformed_array_property["properties"]["acceptance_criteria"] = []
+        mutations.append(("malformed array property", malformed_array_property))
+
+        malformed_stacked_on = copy.deepcopy(original)
+        malformed_stacked_on["properties"]["stacked_on"]["additionalProperties"] = True
+        mutations.append(("permissive stacked-on", malformed_stacked_on))
+
+        for label, mutated in mutations:
+            with self.subTest(label=label):
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("task.schema.json contract" in error for error in errors),
+                    f"task schema contract accepted mutation: {label}",
+                )
+
+    def test_program_template_semantic_mismatch_fails(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["milestones"][0]["objective"] = "   "
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("program.json is invalid" in error and "objective" in error for error in errors))
+
+    def test_program_template_repository_references_must_be_usable(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        cases = (
+            (".agentic/templates/missing.json", "does not exist"),
+            ("../outside.json", "must stay inside the repository"),
+            (".agentic/templates/review.json", "does not match task schema"),
+        )
+
+        for template_path, expected_error in cases:
+            with self.subTest(template_path=template_path):
+                program = copy.deepcopy(original)
+                program["dispatch"]["task_contract_template"] = template_path
+                path.write_text(json.dumps(program), encoding="utf-8")
+
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("program.json is invalid" in error and expected_error in error for error in errors)
+                )
+
+    def test_program_template_only_exempts_zero_snapshot_placeholder(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["planning_snapshot_sha"] = "f" * 40
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        with mock.patch.object(vrc, "_git_commit_exists", return_value=False):
+            errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any("program.json is invalid" in error and "planning_snapshot_sha" in error for error in errors)
+        )
+
+    def test_program_task_template_path_must_be_repository_relative(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = str(
+            (self.root / ".agentic" / "templates" / "task.json").resolve()
+        )
+        path.write_text(json.dumps(program), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in error and "relative" in error for error in errors))
+
+    def test_zero_template_snapshot_placeholder_does_not_resolve(self):
+        program = json.loads(
+            (self.root / ".agentic" / "templates" / "program.json").read_text(encoding="utf-8")
+        )
+        task_schema = json.loads(
+            (self.root / ".agentic" / "schemas" / "task.schema.json").read_text(encoding="utf-8")
+        )
+        errors = vrc.validate_repository_references(
+            program,
+            self.root,
+            task_schema,
+            commit_exists=lambda _sha: False,
+            allow_placeholder_snapshot=True,
+        )
+        self.assertFalse(any("planning_snapshot_sha" in error for error in errors))
+
+    def test_program_task_template_must_pass_semantic_contract_checks(self):
+        path = self.root / ".agentic" / "templates" / "task.json"
+        task = json.loads(path.read_text(encoding="utf-8"))
+        task["acceptance_criteria"] = []
+        path.write_text(json.dumps(task), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any(
+                "task_contract_template" in error and "acceptance_criteria" in error
+                for error in errors
+            )
+        )
+
+    def test_non_object_program_schema_fails(self):
+        path = self.root / ".agentic" / "schemas" / "program.schema.json"
+        path.write_text("[]", encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("program.schema.json" in error and "must be an object" in error for error in errors))
+
+    def test_non_object_program_template_fails(self):
+        path = self.root / ".agentic" / "templates" / "program.json"
+        path.write_text("null", encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("program.json is invalid" in error and "expected type object" in error for error in errors))
+
+    def test_program_schema_defining_constraints_cannot_be_removed(self):
+        path = self.root / ".agentic" / "schemas" / "program.schema.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+
+        mutations = []
+        mutations.append(("vacuous schema", {}))
+
+        missing_root_requirement = copy.deepcopy(original)
+        missing_root_requirement["required"].remove("schema_version")
+        mutations.append(("root requirement", missing_root_requirement))
+
+        missing_dispatch_requirement = copy.deepcopy(original)
+        missing_dispatch_requirement["properties"]["dispatch"]["required"].remove("heavy_process_limit")
+        mutations.append(("dispatch requirement", missing_dispatch_requirement))
+
+        missing_milestone_requirement = copy.deepcopy(original)
+        missing_milestone_requirement["properties"]["milestones"]["items"]["required"].remove("human_gates")
+        mutations.append(("milestone requirement", missing_milestone_requirement))
+
+        missing_work_item_requirement = copy.deepcopy(original)
+        work_item_schema = missing_work_item_requirement["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]
+        work_item_schema["required"].remove("purpose")
+        mutations.append(("work-item requirement", missing_work_item_requirement))
+
+        missing_version_const = copy.deepcopy(original)
+        del missing_version_const["properties"]["schema_version"]["const"]
+        mutations.append(("schema-version const", missing_version_const))
+
+        missing_dependency_items = copy.deepcopy(original)
+        del missing_dependency_items["properties"]["milestones"]["items"]["properties"][
+            "depends_on"
+        ]["items"]
+        mutations.append(("dependency item type", missing_dependency_items))
+
+        missing_work_item_ref_type = copy.deepcopy(original)
+        del missing_work_item_ref_type["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["ref"]["type"]
+        mutations.append(("work-item ref type", missing_work_item_ref_type))
+
+        permissive_root = copy.deepcopy(original)
+        permissive_root["additionalProperties"] = True
+        mutations.append(("root additional properties", permissive_root))
+
+        unexpected_root_property = copy.deepcopy(original)
+        unexpected_root_property["properties"]["untracked_status"] = {"type": "string"}
+        mutations.append(("unexpected root property", unexpected_root_property))
+
+        unexpected_dispatch_property = copy.deepcopy(original)
+        unexpected_dispatch_property["properties"]["dispatch"]["properties"]["untracked_status"] = {
+            "type": "string"
+        }
+        mutations.append(("unexpected dispatch property", unexpected_dispatch_property))
+
+        unexpected_milestone_property = copy.deepcopy(original)
+        unexpected_milestone_property["properties"]["milestones"]["items"]["properties"][
+            "untracked_status"
+        ] = {"type": "string"}
+        mutations.append(("unexpected milestone property", unexpected_milestone_property))
+
+        unexpected_work_item_property = copy.deepcopy(original)
+        unexpected_work_item_property["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["untracked_status"] = {"type": "string"}
+        mutations.append(("unexpected work-item property", unexpected_work_item_property))
+
+        missing_live_status_const = copy.deepcopy(original)
+        del missing_live_status_const["properties"]["dispatch"]["properties"][
+            "live_status_requery_required"
+        ]["const"]
+        mutations.append(("live-status const", missing_live_status_const))
+
+        expanded_work_item_kind = copy.deepcopy(original)
+        kind_schema = expanded_work_item_kind["properties"]["milestones"]["items"]["properties"][
+            "work_items"
+        ]["items"]["properties"]["kind"]
+        kind_schema["enum"].append("free_form")
+        mutations.append(("work-item kind enum", expanded_work_item_kind))
+
+        narrowed_title = copy.deepcopy(original)
+        narrowed_title["properties"]["title"]["const"] = "GodotGS Continuation Program"
+        mutations.append(("narrowed title", narrowed_title))
+
+        narrowed_dependency = copy.deepcopy(original)
+        narrowed_dependency["properties"]["milestones"]["items"]["properties"]["depends_on"][
+            "items"
+        ]["const"] = "M1"
+        mutations.append(("narrowed dependency item", narrowed_dependency))
+
+        malformed_required = copy.deepcopy(original)
+        malformed_required["required"] = None
+        mutations.append(("malformed required", malformed_required))
+
+        non_string_required = copy.deepcopy(original)
+        non_string_required["required"].append({})
+        mutations.append(("non-string required entry", non_string_required))
+
+        duplicate_required = copy.deepcopy(original)
+        duplicate_required["required"].append(duplicate_required["required"][0])
+        mutations.append(("duplicate required entry", duplicate_required))
+
+        malformed_kind_enum = copy.deepcopy(original)
+        malformed_kind_schema = malformed_kind_enum["properties"]["milestones"]["items"][
+            "properties"
+        ]["work_items"]["items"]["properties"]["kind"]
+        malformed_kind_schema["enum"] = None
+        mutations.append(("malformed work-item kind enum", malformed_kind_enum))
+
+        for label, mutated in mutations:
+            with self.subTest(label=label):
+                path.write_text(json.dumps(mutated), encoding="utf-8")
+                errors = vrc.validate_repo_contract(self.root)
+                self.assertTrue(
+                    any("program.schema.json contract" in error for error in errors),
+                    f"schema contract accepted mutation: {label}",
+                )
+
+    def test_malformed_extra_program_schema_constraint_fails_without_traceback(self):
+        path = self.root / ".agentic" / "schemas" / "program.schema.json"
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        schema["properties"]["title"]["enum"] = None
+        path.write_text(json.dumps(schema), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(
+            any("program.schema.json contract" in error and "enum" in error for error in errors)
+        )
+
+    def test_invalid_program_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["milestones"][1]["depends_on"] = ["MISSING"]
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("unknown milestone" in e for e in errors))
+
+    def test_non_object_program_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        path.write_text("[]", encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("must be an object" in e for e in errors))
+
+    def test_duplicate_program_id_fails(self):
+        source = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        duplicate = self.root / ".agentic" / "programs" / "duplicate.json"
+        duplicate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("duplicate program_id" in error for error in errors))
+
+    def test_at_least_one_concrete_program_manifest_is_required(self):
+        program_dir = self.root / ".agentic" / "programs"
+        (program_dir / "continuation-2026-08.json").unlink()
+
+        empty_errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("concrete program manifest" in error for error in empty_errors))
+
+        program_dir.rmdir()
+        missing_errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("concrete program manifest" in error for error in missing_errors))
+
+    def test_non_file_program_manifest_does_not_satisfy_requirement(self):
+        program_dir = self.root / ".agentic" / "programs"
+        (program_dir / "continuation-2026-08.json").unlink()
+        (program_dir / "fake.json").mkdir()
+
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("concrete program manifest" in error for error in errors))
+
+    def test_unresolvable_program_snapshot_fails(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["planning_snapshot_sha"] = "f" * 40
+        path.write_text(json.dumps(program), encoding="utf-8")
+        with mock.patch.object(vrc, "_git_commit_exists", return_value=False):
+            errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("planning_snapshot_sha" in e and "does not resolve" in e for e in errors))
+
+    def test_program_task_contract_template_must_exist(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = ".agentic/templates/missing.json"
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in e and "does not exist" in e for e in errors))
+
+    def test_program_task_contract_template_must_match_task_schema(self):
+        path = self.root / ".agentic" / "programs" / "continuation-2026-08.json"
+        program = json.loads(path.read_text(encoding="utf-8"))
+        program["dispatch"]["task_contract_template"] = ".agentic/templates/review.json"
+        path.write_text(json.dumps(program), encoding="utf-8")
+        errors = vrc.validate_repo_contract(self.root)
+        self.assertTrue(any("task_contract_template" in e and "task schema" in e for e in errors))
 
 
 if __name__ == "__main__":

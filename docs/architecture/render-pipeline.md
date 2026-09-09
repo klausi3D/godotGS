@@ -115,6 +115,23 @@ graphics fallback composites *without* the decode and reports
 `source_decode_honored=false`, which the compositor surfaces as a degraded copy
 (never a clean success).
 
+**Destination alpha.** The two phases have *different* destination-alpha
+contracts, and the compute blit is told which one applies via
+`destination_has_alpha` (`viewport_blit.glsl` and its host mirror). The legacy
+destination is Godot's post-tonemap framebuffer, whose alpha channel is
+undefined — sky, meshes and background are all opaque content — so that phase
+writes a fully opaque result, as it always has. The pre-upscale destination is
+the internal scene buffer, whose alpha *is* meaningful: a `transparent_bg`
+viewport clears it to 0 and the tonemapper passes sampled alpha through
+unchanged, so that phase blends alpha with straight source-over
+(`out.a = src.a + dst.a * (1 - src.a)`), matching the premultiplied source-over
+already applied to colour. Forcing 1.0 on the pre-upscale destination flattens
+splat coverage: every splat-touched texel becomes fully opaque, the silhouette
+turns hard-edged, and the premultiplied fringe reads dark because the consumer
+un-premultiplies by 1.0 instead of by the real coverage (#928). This is
+invisible to opaque-viewport oracles, so it is covered by a dedicated GPU case
+rather than by the six-config visual matrix.
+
 **Scoping (documented fallbacks).**
 
 - **Multiview/XR is excluded from this contract**: the compute blit's

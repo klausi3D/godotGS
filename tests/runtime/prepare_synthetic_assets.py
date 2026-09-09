@@ -151,8 +151,8 @@ LANE_DEFAULT_ASSETS: dict[str, str] = {
 LANE_METADATA: dict[str, dict[str, object]] = {
     "static_baseline": {
         "asset_classification": "lightweight_smoke",
-        "evidence_role": "published_baseline",
-        "notes": "Low-noise baseline lane backed by the lightweight canonical smoke asset.",
+        "evidence_role": "low_noise_smoke_reference",
+        "notes": "Low-noise regression reference lane backed by the lightweight canonical smoke asset (10k splats, single instance). Its frame rate is dominated by fixed per-frame overhead rather than splat workload, so it is a sensitive detector of overhead regressions and NOT a representative workload; it is deliberately no longer the published baseline (#790).",
         "require_explicit_lane_default": True,
     },
     "streaming_corridor": {
@@ -223,9 +223,9 @@ LANE_METADATA: dict[str, dict[str, object]] = {
         "require_explicit_lane_default": True,
     },
     "dense_resident_2m": {
-        "asset_classification": "lightweight_smoke",
-        "evidence_role": "suite_support",
-        "notes": "Resident-pipeline 2M-visible-splat lane (81 x synthetic_spiral) for sort/raster timing under load.",
+        "asset_classification": "deterministic_synthetic",
+        "evidence_role": "published_baseline",
+        "notes": "Published baseline lane (#790). Resident-pipeline dense workload: a 14x14 grid of 196 synthetic_spiral instances at 25,000 splats each, so ~4.9M splats resident and ~4.9M reported visible per frame. Distance/LOD/screen culling are disabled and the per-instance cap (max_splats=32000) is above the asset's 25,000, so nothing is thinned; 64-bit sort keys are forced. The lane id says '2m' because the preset was sized against the per-instance LOD floor (min_splats_per_frame=10000, 196 x 10k = 1.96M); that floor is a lower bound, not the cap, and the measured figure is ~4.9M visible. This is the lane whose number is published, because it is the only lane that exercises the resident sort/raster path under load; it measures ~12 FPS, and that is the honest figure for that workload.",
         "require_explicit_lane_default": True,
     },
     "sort32_coplanar_alpha": {

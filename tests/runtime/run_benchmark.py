@@ -79,9 +79,14 @@ LANES: list[LaneDefinition] = [
     LaneDefinition(
         lane_id="dense_resident_2m",
         scene="res://scenes/benchmark_suite/lane_dense_resident_2m.tscn",
-        description="Dense resident path (~2M visible splats) for sort/raster timing",
+        description="Published baseline: dense resident path (~4.9M visible splats) for sort/raster timing",
         durations={"performance": 25.0, "everything": 25.0},
-        weights={"performance": 0.0, "everything": 0.0},
+        # #790: this lane carries evidence_role=published_baseline in the asset
+        # manifest, so a zero weight would let the published headline be decided
+        # by lanes nobody ships. Weighted at parity with the other performance
+        # lanes; the aggregate drops because the workload is real, not because
+        # the weighting was tuned.
+        weights={"performance": 10.0, "everything": 10.0},
     ),
     LaneDefinition(
         lane_id="sort32_coplanar_alpha",
@@ -262,6 +267,7 @@ PROFILE_DEFAULT_LANE_IDS: dict[str, tuple[str, ...]] = {
         lane_id
         for lane_id in (
             "static_baseline",
+            "dense_resident_2m",
             "streaming_corridor",
             "city_flyover",
             "instance_storm",
@@ -292,7 +298,11 @@ PROFILE_DEFAULT_LANE_IDS: dict[str, tuple[str, ...]] = {
         "synthetic_sphere",
     ),
     "performance": (
+        # dense_resident_2m is the published baseline (#790). It must be a
+        # member of the profile that produces the published numbers, or the
+        # headline is decided by whatever lanes happen to be enrolled.
         "static_baseline",
+        "dense_resident_2m",
         "streaming_corridor",
         "city_flyover",
         "instance_storm",
