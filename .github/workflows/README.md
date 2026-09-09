@@ -13,7 +13,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
-| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
@@ -37,6 +37,12 @@ boundary.
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
 without touching the self-hosted lanes. It runs:
 
+- `python tests/ci/test_validate_automation.py -v` followed by
+  `python tests/ci/validate_automation.py --contracts-only` after installing the
+  version-and-hash-pinned PyYAML dependency; the validator derives and parses
+  every `*.yml` and `*.yaml` workflow, and fails closed if the parser or corpus
+  is absent, or if a document lacks a typed, non-empty top-level trigger or
+  `jobs` mapping
 - `python scripts/agentic/validate_repo_contract.py --strict-hierarchy` (the
   `--strict-hierarchy` flag also requires the AGENTS.md hierarchy and
   `docs/governance/*`; without it those could all be deleted with the gate green)
@@ -93,10 +99,14 @@ python tests/ci/check_renderer_release_gates.py --mode contract
 The same contract check is part of `tests/ci/run_module_tests.py --guard-only`,
 which is what the Gaussian Production Gates `guards` job runs. The contract check
 is deterministic and GPU-free. Public-alpha candidate mode
-requires the evidence bundle, a public-alpha channel/tag selector, and a live
-issue-label snapshot so P0, P1, and release-blocker issues cannot be bypassed by
-release notes or manual workflow choices. The workflow-policy
-portion of the checker validates required workflow files and job markers only;
+requires the evidence bundle, a public-alpha channel/tag selector, and a
+separate operator-supplied issue-label snapshot through `--issues-json` so P0,
+P1, and release-blocker rows cannot be replaced by a snapshot embedded in the
+bundle. The gate proves separate filesystem identity only; it does not
+machine-enforce the snapshot's GitHub provenance, completeness, capture time, or
+freshness. Live acquisition and those stronger guarantees remain owned by
+issue #360. The workflow-policy portion of the checker validates required
+workflow files and job markers only;
 the stronger no-downgrade workflow rules remain documented review policy until
 the checker grows a real GitHub Actions behavior parser.
 
@@ -152,8 +162,9 @@ that publish path (issue #593):
 - it fails the stable/candidate path unless **both** `build_linux` and
   `build_windows` succeeded (no Linux-only stable release);
 - it runs `check_renderer_release_gates.py --mode candidate` against a
-  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
-  a tag cannot publish without passing candidate validation;
+  public-alpha evidence bundle and a separate issue snapshot, and **fails closed**
+  when either file is absent, so a tag cannot publish without passing candidate
+  validation;
 - `publish_release` hard-depends on the gate and sets
   `fail_on_unmatched_files: true` for the stable channel;
 - it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
@@ -172,9 +183,10 @@ Windows runner outage cannot stall the nightly cadence.
 
 **Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
 #360), so the gate currently fails closed on every real `v*` tag. A maintainer
-cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
-`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
-`docs/reference/renderer-release-gates.md` for details.
+cutting a candidate must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. See `docs/reference/renderer-release-gates.md` for
+details.
 
 ## Runner Trust Boundary (fork PRs)
 
@@ -417,6 +429,8 @@ which brings it into the derived set automatically.
 ## Dependencies
 
 - Python 3.11
+- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
+  CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
 - SCons/build toolchain for compiled lanes
 - Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
 - Optional GPU evidence label `gpu` for the Windows evidence lane
