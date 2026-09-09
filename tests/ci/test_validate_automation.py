@@ -257,6 +257,10 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
             "runs-on empty list": "\n".join(header + ["  build:", "    runs-on: []"]) + "\n",
             "runs-on empty string": "\n".join(header + ["  build:", '    runs-on: ""']) + "\n",
             "uses null": "\n".join(header + ["  build:", "    uses:"]) + "\n",
+            "runs-on empty mapping": "\n".join(header + ["  build:", "    runs-on: {}"]) + "\n",
+            "runs-on mapping no fields": "\n".join(header + ["  build:", "    runs-on:", "      flavour: big"]) + "\n",
+            "runs-on labels empty": "\n".join(header + ["  build:", "    runs-on:", "      labels: []"]) + "\n",
+            "runs-on mapping with a stray field": "\n".join(header + ["  build:", "    runs-on:", "      group: g", "      flavour: big"]) + "\n",
             "both launchers": "\n".join(
                 header + ["  build:", "    runs-on: ubuntu-latest",
                           "    uses: ./.github/workflows/other.yml"]) + "\n",
@@ -280,6 +284,8 @@ class ValidateAutomationWorkflowTests(unittest.TestCase):
             "runs-on string": "    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi",
             "runs-on label list": "    runs-on: [self-hosted, Windows, gpu]\n    steps:\n      - run: echo hi",
             "runs-on group mapping": "    runs-on:\n      group: g\n      labels: [x]\n    steps:\n      - run: echo hi",
+            "runs-on group only": "    runs-on:\n      group: g\n    steps:\n      - run: echo hi",
+            "runs-on labels only": "    runs-on:\n      labels: [self-hosted]\n    steps:\n      - run: echo hi",
             "reusable uses": "    uses: ./.github/workflows/other.yml",
         }
         for label, tail in ok.items():

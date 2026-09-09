@@ -321,7 +321,7 @@ GITHUB_WORKFLOW_EVENTS = frozenset(
         "deployment", "deployment_status", "discussion", "discussion_comment",
         "fork", "gollum", "issue_comment", "issues", "label", "merge_group",
         "milestone", "page_build", "project", "project_card", "project_column",
-        "public", "pull_request", "pull_request_comment", "pull_request_review",
+        "public", "pull_request", "pull_request_review",
         "pull_request_review_comment", "pull_request_target", "push",
         "registry_package", "release", "repository_dispatch", "schedule",
         "status", "watch", "workflow_call", "workflow_dispatch", "workflow_run",
@@ -370,9 +370,29 @@ def _job_launcher_problem(job_body: dict) -> "str | None":
                 return f"runs-on has a non-label entry: {runs_on!r}"
             return None
         if isinstance(runs_on, dict):
-            # The `group:` / `labels:` form.
-            if not runs_on:
-                return "runs-on is an empty mapping, which selects no runner"
+            # The `group:` / `labels:` form. Non-emptiness is not enough: a
+            # mapping of unrelated keys, or `labels: []`, selects no runner while
+            # satisfying a bare truthiness test.
+            unknown = sorted(set(runs_on) - {"group", "labels"})
+            if unknown:
+                return f"runs-on mapping has unrecognised field(s): {', '.join(unknown)}"
+            group = runs_on.get("group")
+            labels = runs_on.get("labels")
+            if "group" in runs_on and not (isinstance(group, str) and group.strip()):
+                return f"runs-on group is {group!r}, which names no runner group"
+            if "labels" in runs_on:
+                if isinstance(labels, str):
+                    if not labels.strip():
+                        return "runs-on labels is an empty string"
+                elif isinstance(labels, list):
+                    if not labels or not all(
+                        isinstance(label, str) and label.strip() for label in labels
+                    ):
+                        return f"runs-on labels is {labels!r}, which selects no runner"
+                else:
+                    return f"runs-on labels is {labels!r}, which selects no runner"
+            if "group" not in runs_on and "labels" not in runs_on:
+                return "runs-on mapping declares neither group nor labels"
             return None
         return f"runs-on is {runs_on!r}, which selects no runner"
     return "neither runs-on nor uses"
