@@ -539,6 +539,143 @@ def _series(entries, monitored_from, ended_at, **kwargs):
     return contention.evaluate_series(entries, monitored_from, ended_at, **kwargs)
 
 
+class OutOfWindowSamplesAreNotEvidence(unittest.TestCase):
+    """#882 review: an orphan sampler writing outside this job's window.
+
+    The preflight deliberately leaves an unidentifiable orphan alive, clears the
+    series, and may then wait minutes before `monitored_from` is set. Those
+    pre-window readings say nothing about this job, but they used to feed the
+    contention streak and could void a run that was clean throughout.
+    """
+
+    EPOCH = 1_000_000.0
+
+    def test_busy_samples_before_the_window_do_not_contend(self) -> None:
+        monitored_from = self.EPOCH + 900.0
+        ended_at = monitored_from + 120.0
+        entries = [
+            # An orphan's two busy samples during the pre-monitoring wait.
+            _entry(self.EPOCH + 60.0, busy=True),
+            _entry(self.EPOCH + 120.0, busy=True),
+            # This job's own window: clean and continuous.
+            _entry(monitored_from + 20.0),
+            _entry(monitored_from + 40.0),
+            _entry(monitored_from + 60.0),
+            _entry(monitored_from + 80.0),
+            _entry(monitored_from + 100.0),
+            _entry(ended_at),
+        ]
+        verdict = _series(entries, monitored_from, ended_at)
+        self.assertNotEqual(
+            verdict.verdict,
+            contention.VERDICT_CONTENDED_MID_RUN,
+            "pre-window samples voided a run that was clean throughout its own "
+            f"monitored window: {verdict.reasons}",
+        )
+
+    def test_busy_samples_after_the_window_do_not_contend(self) -> None:
+        monitored_from = self.EPOCH
+        ended_at = monitored_from + 100.0
+        entries = [
+            _entry(monitored_from + 20.0),
+            _entry(monitored_from + 40.0),
+            _entry(monitored_from + 60.0),
+            _entry(monitored_from + 80.0),
+            _entry(ended_at),
+            # A sampler racing past the postflight.
+            _entry(ended_at + 20.0, busy=True),
+            _entry(ended_at + 40.0, busy=True),
+        ]
+        verdict = _series(entries, monitored_from, ended_at)
+        self.assertNotEqual(verdict.verdict, contention.VERDICT_CONTENDED_MID_RUN, verdict.reasons)
+
+    def test_real_in_window_contention_is_still_reported(self) -> None:
+        """Non-vacuity: the filter must not swallow contention that IS this job's."""
+        monitored_from = self.EPOCH
+        ended_at = monitored_from + 200.0
+        entries = [
+            _entry(monitored_from + 20.0),
+            _entry(monitored_from + 40.0, busy=True),
+            _entry(monitored_from + 60.0, busy=True),
+            _entry(monitored_from + 80.0),
+            _entry(ended_at),
+        ]
+        verdict = _series(entries, monitored_from, ended_at)
+        self.assertEqual(
+            verdict.verdict,
+            contention.VERDICT_CONTENDED_MID_RUN,
+            f"sustained in-window contention was not reported: {verdict.reasons}",
+        )
+
+
+class UnresolvedOrphanCannotManufactureAStreak(unittest.TestCase):
+    """#882 review: two writers recording one spike is not sustained load.
+
+    The preflight records `orphan_sampler_error` and continues, on the grounds
+    that an unaccounted writer cannot fabricate COVERAGE -- which is pid-filtered.
+    Contention is not, so the old and new samplers can record the same brief
+    spike a moment apart and satisfy the two-sample rule.
+    """
+
+    EPOCH = 2_000_000.0
+    ORPHAN_PID = SAMPLER_PID + 1
+
+    def _spike_seen_twice(self):
+        monitored_from = self.EPOCH
+        ended_at = monitored_from + 200.0
+        return monitored_from, ended_at, [
+            _entry(monitored_from + 20.0),
+            # One spike, recorded a second apart by two different writers.
+            _entry(monitored_from + 40.0, busy=True),
+            _entry(monitored_from + 41.0, busy=True, writer_pid=self.ORPHAN_PID),
+            _entry(monitored_from + 60.0),
+            _entry(monitored_from + 80.0),
+            _entry(ended_at),
+        ]
+
+    def test_one_spike_seen_by_two_writers_is_not_contention(self) -> None:
+        monitored_from, ended_at, entries = self._spike_seen_twice()
+        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=True)
+        self.assertNotEqual(
+            verdict.verdict,
+            contention.VERDICT_CONTENDED_MID_RUN,
+            "one spike recorded by two samplers satisfied the sustained-load rule "
+            f"and voided a clean run: {verdict.reasons}",
+        )
+
+    def test_the_same_series_still_contends_when_the_orphan_is_resolved(self) -> None:
+        """Discrimination: without the orphan flag the old behaviour is intact.
+
+        Without this the test above would be satisfied by a change that simply
+        stopped reporting contention.
+        """
+        monitored_from, ended_at, entries = self._spike_seen_twice()
+        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=False)
+        self.assertEqual(
+            verdict.verdict,
+            contention.VERDICT_CONTENDED_MID_RUN,
+            f"cross-writer contention is still evidence when no orphan is open: {verdict.reasons}",
+        )
+
+    def test_this_jobs_own_sustained_contention_still_voids_with_an_open_orphan(self) -> None:
+        """Non-vacuity: narrowing to this sampler must not hide real contention."""
+        monitored_from = self.EPOCH
+        ended_at = monitored_from + 200.0
+        entries = [
+            _entry(monitored_from + 20.0),
+            _entry(monitored_from + 40.0, busy=True),
+            _entry(monitored_from + 60.0, busy=True),
+            _entry(monitored_from + 80.0),
+            _entry(ended_at),
+        ]
+        verdict = _series(entries, monitored_from, ended_at, orphan_unresolved=True)
+        self.assertEqual(
+            verdict.verdict,
+            contention.VERDICT_CONTENDED_MID_RUN,
+            f"this job's own sustained contention was suppressed: {verdict.reasons}",
+        )
+
+
 class StartVersusEnd(unittest.TestCase):
     """#881's shape: clean at start, contended while running."""
 

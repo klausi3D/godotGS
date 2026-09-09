@@ -1465,6 +1465,7 @@ def evaluate_series(
     max_gap_sec: float = MAX_SAMPLE_GAP_SEC,
     contended_samples_required: int = CONTENDED_SAMPLES_REQUIRED,
     sampler_pid: Optional[int] = None,
+    orphan_unresolved: bool = False,
 ) -> SeriesVerdict:
     """Turn the sampled series into a verdict about the *whole* job window.
 
@@ -1485,6 +1486,18 @@ def evaluate_series(
       (:func:`written_by_sampler`). "The GPU was clean throughout" is a claim
       about a monitored interval, and it may rest only on evidence that an actual
       monitor produced.
+
+    `orphan_unresolved` is the one exception to the first rule, and it exists
+    because the rule's justification does not cover this case. The preflight
+    records `orphan_sampler_error` and deliberately continues, reasoning that an
+    unaccounted writer "cannot fabricate coverage" -- true, because coverage is
+    pid-filtered. But contention is not, so two samplers writing the same brief
+    spike a moment apart could satisfy the two-sample rule that is supposed to
+    require SUSTAINED load, voiding a clean run (#882 review). When, and only
+    when, the preflight could not account for the previous writer, contention is
+    therefore read from this job's own sampler as well. That is strictly narrower
+    than voiding the run on an unresolved orphan, which would be a false-void
+    generator; this job's sampler still observes real contention if there is any.
     """
     reasons: List[str] = []
     if not entries:
@@ -1502,6 +1515,49 @@ def evaluate_series(
 
     ordered = sorted(entries, key=lambda entry: float(entry.get("at") or 0.0))
 
+    # Restrict to THIS job's monitored window before anything is evaluated.
+    #
+    # The provenance asymmetry above is about WHO wrote a sample; this is about
+    # WHEN it was taken, and the two are independent. An unresolved orphan
+    # sampler is deliberately left alive by the preflight, which then clears the
+    # series and may wait minutes before `monitored_from` is set -- so that
+    # orphan can append busy samples from BEFORE this job was being monitored,
+    # and another can race in after `ended_at`. Neither is a reading of what the
+    # machine did during this job, yet both used to participate in the contention
+    # streak and could report CONTENDED_MID_RUN for a run that was clean
+    # throughout its own window.
+    #
+    # This cannot turn a void run green, which is the property the asymmetry
+    # above exists to protect: a genuinely contended job's samples are inside its
+    # own window by definition. Dropping everything is UNMEASURED, never CLEAN --
+    # handled by the existing empty-series branches below.
+    in_window = [
+        entry
+        for entry in ordered
+        if monitored_from <= float(entry.get("at") or 0.0) <= ended_at
+    ]
+    out_of_window = len(ordered) - len(in_window)
+    if out_of_window:
+        reasons.append(
+            f"{out_of_window} sample(s) fell outside the monitored window "
+            f"[{monitored_from:.0f}, {ended_at:.0f}] and were not evaluated: they were "
+            "taken when this job was not being monitored, so they are not evidence "
+            "about it (an unresolved orphan sampler is the usual writer)."
+        )
+    ordered = in_window
+    if not ordered:
+        return SeriesVerdict(
+            VERDICT_UNMEASURED,
+            reasons
+            + [
+                "No samples fall inside this job's monitored window, so nothing is "
+                "known about GPU contention during it."
+            ],
+            [],
+            max(ended_at - monitored_from, 0.0),
+            0,
+        )
+
     # A sample that failed to measure occupancy is NOT coverage.
     #
     # Two separate defects came from letting error entries stand in the series
@@ -1518,6 +1574,19 @@ def evaluate_series(
     # (two busy samples either side of one stay adjacent, correctly) and the
     # blind interval it leaves shows up where it belongs -- as a gap.
     usable = [entry for entry in ordered if not entry.get("error")]
+    if orphan_unresolved:
+        # See the note on `orphan_unresolved` above: with an unaccounted writer
+        # in the same file, "two busy samples" can be one spike seen twice.
+        attributed = [entry for entry in usable if written_by_sampler(entry, sampler_pid)]
+        dropped = len(usable) - len(attributed)
+        if dropped:
+            reasons.append(
+                f"the preflight could not account for a previous sampler, so {dropped} "
+                "sample(s) not written by this job's sampler were excluded from the "
+                "contention streak; two writers recording one spike would otherwise "
+                "satisfy the sustained-load rule."
+            )
+        usable = attributed
     unusable = [entry for entry in ordered if entry.get("error")]
     if not usable:
         return SeriesVerdict(
@@ -1725,7 +1794,11 @@ def phase_postflight(args: argparse.Namespace) -> int:
     )
     entries = read_samples(samples_path)
     series = evaluate_series(
-        entries, monitored_from, end_sample.at, sampler_pid=sampler_pid
+        entries,
+        monitored_from,
+        end_sample.at,
+        sampler_pid=sampler_pid,
+        orphan_unresolved=bool(session.get("orphan_sampler_error")),
     )
 
     if monitored_from > started_at + 1.0:
