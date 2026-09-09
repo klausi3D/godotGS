@@ -159,7 +159,16 @@ def record_producer_output(
         path = Path(path)
         digest = file_digest(path)
         if digest is None:
-            continue
+            # Skipping it wrote an incomplete record and still returned True, so
+            # the prep exited 0 with one fixture unauthenticated and the benchmark
+            # rejected the corpus a job later (#969 review). A produced file that
+            # cannot be hashed -- a transient sharing lock on the Windows runner is
+            # the case that produces one -- is a record this run cannot make.
+            print(
+                f"[fixture_provenance] could not hash {path}, so its provenance "
+                "cannot be recorded"
+            )
+            return False
         entry = entries.setdefault(
             digest,
             {"variant": variant, "filenames": [], "bytes": path.stat().st_size},

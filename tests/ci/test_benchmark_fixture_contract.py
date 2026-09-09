@@ -632,6 +632,45 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
                 "the record kept an entry for a file no longer in the workspace",
             )
 
+    def test_a_produced_file_that_cannot_be_hashed_fails_the_record(self):
+        """#969 review round 6: an incomplete record must not report success.
+
+        Skipping an unhashable path -- a transient sharing lock on the Windows
+        runner is the case that produces one -- wrote a record missing that
+        fixture and still returned True, so the prep exited 0 and the benchmark
+        rejected the corpus a job later, with the cause nowhere near the failure.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            fixtures_dir = Path(tmp) / "fixtures"
+            fixtures_dir.mkdir()
+            written = Path(tmp) / "written.ply"
+            written.write_bytes(b"produced\n")
+            vanished = Path(tmp) / "vanished.ply"  # never created: cannot be hashed
+
+            self.assertFalse(
+                _provenance.record_producer_output(
+                    fixtures_dir, {written: "cpp_rich", vanished: "cpp_rich"}
+                ),
+                "a record missing one of the files it was asked to attest reported success",
+            )
+            self.assertIsNone(
+                _provenance.recorded_variant(fixtures_dir, written),
+                "a partial record was published for a run that could not be recorded",
+            )
+
+        # Discrimination: every file hashable, record written, True returned.
+        with tempfile.TemporaryDirectory() as tmp:
+            fixtures_dir = Path(tmp) / "fixtures"
+            fixtures_dir.mkdir()
+            produced = Path(tmp) / "produced.ply"
+            produced.write_bytes(b"produced\n")
+            self.assertTrue(
+                _provenance.record_producer_output(fixtures_dir, {produced: "cpp_rich"})
+            )
+            self.assertEqual(
+                _provenance.recorded_variant(fixtures_dir, produced), "cpp_rich"
+            )
+
     def test_a_damaged_record_authenticates_nothing(self):
         """Fail closed: a corrupt record must not be read as provenance."""
         with tempfile.TemporaryDirectory() as tmp:
