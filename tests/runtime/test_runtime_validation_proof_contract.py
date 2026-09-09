@@ -378,16 +378,16 @@ class FixtureReferencesAreSeenWhereverTheyAreWritten(unittest.TestCase):
         sys.modules.setdefault(spec.name, guard)
         spec.loader.exec_module(guard)
 
+        # Compared between the two CONSUMERS, not against a freshly loaded
+        # module: `re.compile()` caches equal patterns, so an identity check
+        # against a second instance of the same source passes even when each side
+        # spells the pattern for itself.
         self.assertIs(
             guard.HARDCODED_PLY_RE,
-            prep.FIXTURE_REFERENCE_RE,
-            "the static benchmark guard reads references through its own matcher",
-        )
-        self.assertIs(
             runtime_validation.RUNTIME_FIXTURE_REFERENCE_RE,
-            prep.FIXTURE_REFERENCE_RE,
-            "the runtime contract reads references through its own matcher",
+            "the two guards read references through different matchers",
         )
+        self.assertEqual(guard.HARDCODED_PLY_RE.pattern, prep.FIXTURE_REFERENCE_RE.pattern)
 
     def test_an_ungoverned_nested_reference_now_fails_the_contract(self) -> None:
         """The consequence that matters: the scenario scan sees it and refuses it."""
@@ -414,6 +414,151 @@ class FixtureReferencesAreSeenWhereverTheyAreWritten(unittest.TestCase):
                 "GDScript: governed", scenario
             )
         self.assertEqual(found, {governed})
+
+
+    def test_a_quoted_path_containing_spaces_is_seen(self) -> None:
+        """#934 review round 6: a legal quoted path may contain spaces.
+
+        The whitespace-terminated pattern stopped before `.ply`, so
+        `res://tests/fixtures/cases/sample data.ply` matched nothing and the
+        reference was invisible to the floor contract -- the same bypass the
+        nested-path fix closed, one character further along.
+        """
+        prep = self._prep()
+        source = 'const ASSET := "res://tests/fixtures/cases/sample data.ply"'
+        self.assertEqual(
+            prep.fixture_references_in(source),
+            ["res://tests/fixtures/cases/sample data.ply"],
+            "a quoted fixture path containing a space was invisible",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = Path(tmp) / "scenario.gd"
+            scenario.write_text(f"func _ready():\n\tload({source})\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError) as caught:
+                runtime_validation._direct_floor_governed_fixture_references(
+                    "GDScript: spaced", scenario
+                )
+        self.assertIn("sample data.ply", str(caught.exception))
+
+    def test_the_reader_does_not_swallow_the_surrounding_line(self) -> None:
+        """Discrimination: reading whole quoted values must not read whole lines.
+
+        A reader that took everything up to `.ply` would turn prose into a
+        reference, and every scenario would then fail on the no-positive-floor
+        branch instead.
+        """
+        prep = self._prep()
+        governed = sorted(runtime_validation.ASSET_MIN_SPLAT_COUNTS)[0]
+        self.assertEqual(
+            prep.fixture_references_in(f'\tvar path = "{governed}"  # trailing note'),
+            [governed],
+        )
+        self.assertEqual(
+            prep.fixture_references_in(
+                f'load("{governed}")\n\tload("res://other/place/x.ply")'
+            ),
+            [governed],
+        )
+        self.assertEqual(
+            prep.fixture_references_in("# the fixtures live under res://tests/fixtures/"),
+            [],
+        )
+
+    def test_both_consumers_read_through_the_shared_reader(self) -> None:
+        """A second way of reading references is a second answer to govern by."""
+        import importlib.util
+
+        prep = self._prep()
+        spec = importlib.util.spec_from_file_location(
+            "_bench_path_guard_reader",
+            ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py",
+        )
+        guard = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault(spec.name, guard)
+        spec.loader.exec_module(guard)
+        self.assertIs(
+            guard.fixture_references_in,
+            runtime_validation.fixture_references_in,
+            "the two guards read references through different readers",
+        )
+        self.assertEqual(
+            guard.fixture_references_in.__code__.co_filename,
+            prep.fixture_references_in.__code__.co_filename,
+            "the shared reader is not the one prepare_synthetic_assets defines",
+        )
+
+        source = ROOT / "tests" / "runtime" / "run_runtime_validation.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertIn(
+            "fixture_references_in(text)",
+            text,
+            "the runtime contract stopped reading references through the shared reader",
+        )
+
+
+class PrepFailuresKeepTheirDiagnostics(unittest.TestCase):
+    """#934 review: the useful half of a prep failure is not its first line.
+
+    `ensure_synthetic_assets()` reduced everything the prep printed to one line.
+    The fixture-floor report names the offending fixture and its actual/required
+    counts on the lines AFTER its heading, and an uncaught exception puts
+    `Traceback (most recent call last):` first and the exception itself last, so
+    the single line that survived was the useless half of both.
+    """
+
+    def _fail_prep(self, stdout: str = "", stderr: str = "", code: int = 1):
+        buffer = io.StringIO()
+        completed = mock.Mock(returncode=code, stdout=stdout, stderr=stderr)
+        with mock.patch.object(runtime_validation.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stdout(buffer):
+                with self.assertRaises(RuntimeError) as caught:
+                    runtime_validation.ensure_synthetic_assets("godot")
+        return buffer.getvalue(), str(caught.exception)
+
+    def test_the_floor_report_survives_in_full(self) -> None:
+        stdout = "\n".join(
+            [
+                "[prepare_synthetic_assets] the producer ran but its output does not "
+                "meet the fixture floors:",
+                "  - synthetic_sphere.ply: 512 splats, floor is 2048",
+                "  nothing was published; the fixtures already in the workspace are "
+                "untouched and still usable",
+            ]
+        )
+        printed, detail = self._fail_prep(stdout=stdout)
+        self.assertIn("synthetic_sphere.ply", printed)
+        self.assertIn("512 splats, floor is 2048", printed)
+        self.assertIn("nothing was published", printed)
+        self.assertIn("does not meet the fixture floors", detail)
+
+    def test_a_traceback_reports_the_exception_not_the_banner(self) -> None:
+        stderr = "\n".join(
+            [
+                "Traceback (most recent call last):",
+                '  File "prepare_synthetic_assets.py", line 1, in <module>',
+                "    main()",
+                "PermissionError: [Errno 13] Permission denied: 'tests/fixtures'",
+            ]
+        )
+        printed, detail = self._fail_prep(stderr=stderr)
+        self.assertIn("PermissionError", detail)
+        self.assertNotIn("Traceback (most recent call last):", detail)
+        self.assertIn("main()", printed, "the traceback body was discarded")
+
+    def test_an_empty_failure_still_names_the_exit_code(self) -> None:
+        """Discrimination: with nothing said, the code is what there is to report."""
+        _printed, detail = self._fail_prep(code=3)
+        self.assertIn("exit code 3", detail)
+
+    def test_a_successful_prep_prints_no_diagnostics(self) -> None:
+        """Discrimination: the replay must not fire on success."""
+        buffer = io.StringIO()
+        completed = mock.Mock(returncode=0, stdout="all good\n", stderr="")
+        with mock.patch.object(runtime_validation.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stdout(buffer):
+                runtime_validation.ensure_synthetic_assets("godot")
+        self.assertNotIn("synthetic asset prep stdout", buffer.getvalue())
 
 
 class SyntheticAssetFloorWiringTests(unittest.TestCase):

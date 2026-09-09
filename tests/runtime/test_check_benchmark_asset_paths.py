@@ -58,7 +58,7 @@ class RuntimeAssetReferenceFloorTests(unittest.TestCase):
         violations: list[str] = []
         for path in candidates:
             text = path.read_text(encoding="utf-8")
-            referenced += len(guard.HARDCODED_PLY_RE.findall(text))
+            referenced += len(guard.fixture_references_in(text))
             violations.extend(
                 guard._runtime_reference_violations(path, guard.ASSET_MIN_SPLAT_COUNTS)
             )

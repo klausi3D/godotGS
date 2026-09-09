@@ -15,7 +15,11 @@ RUNTIME_ROOT = ROOT / "tests" / "runtime"
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS, FIXTURE_REFERENCE_RE
+from prepare_synthetic_assets import (
+    ASSET_MIN_SPLAT_COUNTS,
+    FIXTURE_REFERENCE_RE,
+    fixture_references_in,
+)
 
 SCAN_ROOTS = (
     PROJECT_ROOT / "scenes",
@@ -25,6 +29,9 @@ SCAN_ROOTS = (
 SCAN_SUFFIXES = {".gd", ".tscn"}
 TARGET_NAME_TOKENS = ("benchmark", "synthetic")
 # Shared with run_runtime_validation.py, from the module that owns the floors.
+# The bare pattern is kept for callers that want a match object; references are
+# read through fixture_references_in(), which also sees quoted paths containing
+# spaces.
 HARDCODED_PLY_RE = FIXTURE_REFERENCE_RE
 
 
@@ -64,8 +71,7 @@ def _runtime_reference_violations(
 
     violations: list[str] = []
     for idx, line in enumerate(lines, start=1):
-        for match in HARDCODED_PLY_RE.finditer(line):
-            asset_path = match.group(0)
+        for asset_path in fixture_references_in(line):
             if int(declared_floors.get(asset_path, 0)) <= 0:
                 violations.append(
                     f"{path}:{idx}: runtime fixture '{asset_path}' has no "
@@ -84,9 +90,11 @@ def main() -> int:
             violations.append(f"{rel_path}: could not read file ({exc})")
             continue
         for idx, line in enumerate(lines, start=1):
-            match = HARDCODED_PLY_RE.search(line)
-            if match:
-                violations.append(f"{rel_path}:{idx}: hardcoded asset path '{match.group(0)}'")
+            references = fixture_references_in(line)
+            if references:
+                violations.append(
+                    f"{rel_path}:{idx}: hardcoded asset path '{references[0]}'"
+                )
 
     runtime_references = 0
     for path in _iter_runtime_candidate_files():
@@ -95,7 +103,7 @@ def main() -> int:
         except OSError as exc:
             violations.append(f"{path}: could not read file ({exc})")
             continue
-        runtime_references += len(HARDCODED_PLY_RE.findall(text))
+        runtime_references += len(fixture_references_in(text))
         violations.extend(_runtime_reference_violations(path, ASSET_MIN_SPLAT_COUNTS))
 
     if runtime_references <= 0:

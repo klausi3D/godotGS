@@ -372,7 +372,39 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
 #: this reader cannot see is a reference the guard cannot govern: the scenario
 #: showed no direct reference, an empty fixture contract was accepted, and the run
 #: skipped floor preparation for a fixture it actually loads (#934 review).
+#: An UNQUOTED `res://tests/fixtures/...` PLY reference. Bare references cannot
+#: contain a space -- nothing would tell the path from the next word -- so this
+#: half stops at whitespace, and `fixture_references_in()` reads the quoted half
+#: from the quotes instead.
 FIXTURE_REFERENCE_RE = re.compile(r"res://tests/fixtures/[^\s\"'\\]+\.ply")
+
+#: A quoted string literal, as GDScript and `.tscn` write one. The value inside is
+#: taken whole, spaces included: `res://tests/fixtures/cases/sample data.ply` is a
+#: legal resource path, and a matcher that stops at the space sees no reference at
+#: all -- so the scenario shows none, an empty fixture contract is accepted, and
+#: the run skips floor preparation for a fixture it loads (#934 review).
+_QUOTED_STRING_RE = re.compile(r"""(["'])((?:(?!\1)[^\r\n])*)\1""")
+
+_FIXTURE_PREFIX = "res://tests/fixtures/"
+
+
+def fixture_references_in(text: str) -> list[str]:
+    """Every floor-governed fixture path `text` references, in order of appearance.
+
+    Quoted values are read from the quotes, so a path containing spaces is seen
+    whole. Bare occurrences -- comments, `.tscn` values that are not quoted -- fall
+    back to the whitespace-terminated form, which is the most that can be read
+    without a delimiter. Duplicates are collapsed; order is kept so a caller can
+    report the first one.
+    """
+    seen: dict[str, None] = {}
+    for _quote, value in _QUOTED_STRING_RE.findall(text):
+        if value.startswith(_FIXTURE_PREFIX) and value.endswith(".ply"):
+            seen.setdefault(value, None)
+    for match in FIXTURE_REFERENCE_RE.finditer(text):
+        seen.setdefault(match.group(0), None)
+    return list(seen)
+
 
 #: The same floors, keyed by the filename a producer writes. Derived rather than
 #: transcribed: a floor added above must not be able to go unchecked here.

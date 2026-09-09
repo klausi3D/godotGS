@@ -101,7 +101,11 @@ SYNTHETIC_ASSET_PREP_SCRIPT = RUNTIME_DIR / "prepare_synthetic_assets.py"
 if str(RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(RUNTIME_DIR))
 
-from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS, FIXTURE_REFERENCE_RE
+from prepare_synthetic_assets import (
+    ASSET_MIN_SPLAT_COUNTS,
+    FIXTURE_REFERENCE_RE,
+    fixture_references_in,
+)
 
 # One shared matcher (prepare_synthetic_assets.FIXTURE_REFERENCE_RE): the guard
 # that reads these references and the floors they are checked against have to
@@ -324,8 +328,18 @@ def ensure_synthetic_assets(godot_binary: str) -> None:
         raise RuntimeError(f"Synthetic asset prep failed to launch: {type(exc).__name__}: {exc}") from exc
 
     if completed.returncode != 0:
-        output = ((completed.stdout or "") + (completed.stderr or "")).strip()
-        detail = _first_non_empty_line(output) or f"exit code {completed.returncode}"
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        _replay_captured_output("synthetic asset prep", stdout, stderr)
+        # The one-line detail that reaches the summary is the LAST stderr line
+        # when there is stderr -- an uncaught exception is there, not in the
+        # banner -- and otherwise the prep's own first line of complaint. The
+        # replay above carries the rest either way.
+        detail = (
+            _last_non_empty_line(stderr)
+            or _first_non_empty_line(stdout)
+            or f"exit code {completed.returncode}"
+        )
         raise RuntimeError(f"Synthetic asset prep failed: {detail}")
 
 
@@ -495,6 +509,41 @@ def _first_non_empty_line(text: str) -> Optional[str]:
         if line:
             return line
     return None
+
+
+def _last_non_empty_line(text: str) -> Optional[str]:
+    """The last non-blank line, which is where a Python traceback keeps its point.
+
+    `Traceback (most recent call last):` is the FIRST line of an uncaught
+    exception and says nothing; the exception and its message are the last
+    (#934 review).
+    """
+    for raw_line in reversed(text.splitlines()):
+        line = raw_line.strip()
+        if line:
+            return line
+    return None
+
+
+def _replay_captured_output(label: str, stdout: str, stderr: str) -> None:
+    """Print what a failed child actually said, both streams, bounded.
+
+    A one-line summary is the wrong half of every failure this harness reports:
+    the fixture-floor report names the fixture and its actual/required counts on
+    the lines AFTER its heading, and a traceback puts its banner first. The
+    diagnosis is in the body, so the body is replayed.
+    """
+    for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+        if not stream.strip():
+            continue
+        lines = stream.strip().splitlines()
+        clipped = lines[-OUTPUT_TAIL_LINES:]
+        elided = len(lines) - len(clipped)
+        print(f"[runtime] {label} {stream_name}:")
+        if elided > 0:
+            print(f"    ... {elided} earlier line(s) omitted ...")
+        for line in clipped:
+            print(f"    {line}")
 
 
 def _extract_metrics_payload(output: str) -> Dict[str, object]:
@@ -1098,7 +1147,9 @@ def _direct_floor_governed_fixture_references(
             f"Could not inspect runtime scenario '{name}' for fixture use: {exc}"
         ) from exc
 
-    direct_references = set(RUNTIME_FIXTURE_REFERENCE_RE.findall(text))
+    # Read through the shared reader, not the bare pattern: a quoted path may
+    # contain spaces, and the pattern alone cannot see one.
+    direct_references = set(fixture_references_in(text))
     missing_direct_floors = sorted(
         reference
         for reference in direct_references
