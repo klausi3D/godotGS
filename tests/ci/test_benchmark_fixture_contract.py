@@ -2226,10 +2226,12 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             quarantine = out / ".pre_cpp_generation"
             quarantine.mkdir()
             # No marker: nothing failed to restore, these are leftovers a
-            # successful run could not remove.
+            # successful run could not remove. Both files are WHOLE -- that is
+            # what makes the marker the deciding evidence, and a header-only
+            # canonical file would be debris rather than a fixture.
             for name in names:
-                _write_ply(quarantine / name, 1024, header_only=True)
-                _write_ply(out / name, 50000, header_only=True)
+                _write_ply(quarantine / name, 32, rich_sh=True)
+                _write_ply(out / name, 64, rich_sh=True)
             current = {name: (out / name).read_bytes() for name in names}
 
             with mock.patch.object(
@@ -2244,6 +2246,72 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                         current[name],
                         f"{name}: a superseded quarantine copy replaced the valid fixture",
                     )
+
+    def test_debris_at_the_canonical_path_recovers_without_a_marker(self):
+        """#969 review round 8: evidence outranks the marker where there is any.
+
+        An original left by an older implementation, or by a marker write that
+        itself failed, has no marker entry. Classifying it as superseded and
+        unlinking it threw away the only copy while the canonical path held a
+        failed producer's debris. A canonical file that is not a whole PLY is not
+        a fixture, and that is enough to know which of the two the copy is.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            for name in names:
+                _write_ply(quarantine / name, 32, rich_sh=True)      # the original
+                _write_ply(out / name, 99999, header_only=True)      # debris
+            originals = {name: (quarantine / name).read_bytes() for name in names}
+            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
+
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (out / name).read_bytes(),
+                        originals[name],
+                        f"{name}: the only copy was deleted as superseded",
+                    )
+
+    def test_an_unreadable_marker_stops_the_run_instead_of_guessing(self):
+        """Two whole files and no readable record of which is which: touch neither.
+
+        This is the case evidence cannot settle. Deleting the wrong one is
+        unrecoverable, so the run refuses and says what to remove.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            for name in names:
+                _write_ply(quarantine / name, 32, rich_sh=True)
+                _write_ply(out / name, 64, rich_sh=True)
+            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_bytes(b"{not json")
+            quarantined = {name: (quarantine / name).read_bytes() for name in names}
+            canonical = {name: (out / name).read_bytes() for name in names}
+
+            buffer = io.StringIO()
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(
+                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+                    )
+
+            self.assertIn("cannot tell an unrestored original", buffer.getvalue())
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual((out / name).read_bytes(), canonical[name])
+                    self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
 
     def test_a_failed_cleanup_after_success_is_reported_and_disarmed(self):
         """The other half: say so, and make sure the next run cannot be misled.

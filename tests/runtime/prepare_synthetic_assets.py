@@ -1121,18 +1121,29 @@ def ply_payload_failure(path: Path) -> str | None:
 UNRESTORED_MARKER_FILENAME = ".unrestored.json"
 
 
-def _read_unrestored(quarantine: Path) -> set[str]:
-    """Names a previous run could not restore. Empty for anything unreadable.
+def _read_unrestored(quarantine: Path) -> "set[str] | None":
+    """Names a previous run could not restore, or None when the state is unknown.
 
-    Fails towards NOT adopting: an unreadable marker means the quarantine entries
-    are treated as superseded, which costs a stale copy rather than a live one.
+    The three cases are different and collapsing them is how the last copy of a
+    fixture gets deleted (#969 review):
+
+    * a marker listing names -- those originals are pending recovery;
+    * no marker at all -- nothing is pending, which is the normal state;
+    * a marker that exists and cannot be read (or was never written because the
+      write failed) -- UNKNOWN. Treating that as "nothing pending" turned an
+      unrestored original into a superseded copy and unlinked it.
+
+    Absent is `set()`; unknown is `None`, and the caller decides conservatively.
     """
+    marker = quarantine / UNRESTORED_MARKER_FILENAME
+    if not marker.exists():
+        return set()
     try:
-        raw = json.loads((quarantine / UNRESTORED_MARKER_FILENAME).read_text(encoding="utf-8"))
+        raw = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return set()
+        return None
     if not isinstance(raw, list):
-        return set()
+        return None
     return {name for name in raw if isinstance(name, str)}
 
 
@@ -1235,7 +1246,8 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         _report_restore_failures(failures)
         _write_unrestored(
             quarantine,
-            _read_unrestored(quarantine) | {line.split(":", 1)[0] for line in failures},
+            (_read_unrestored(quarantine) or set())
+            | {line.split(":", 1)[0] for line in failures},
         )
         stashed.clear()
         try:
@@ -1244,9 +1256,12 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         except OSError:
             pass
 
-    pending_recovery = _read_unrestored(quarantine)
+    marker_state = _read_unrestored(quarantine)
+    marker_unknown = marker_state is None
+    pending_recovery = marker_state or set()
     recovered: list[str] = []
     superseded: list[str] = []
+    undecidable: list[str] = []
     try:
         # The quarantine directory is itself a reason to run this loop: a restore
         # that failed can leave the originals there with nothing at the canonical
@@ -1259,7 +1274,19 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             for name in sorted(CPP_GENERATED_FILENAMES):
                 src = output_dir / name
                 dst = quarantine / name
-                if dst.is_file() and name in pending_recovery:
+                # Which of the two states this entry is in is decided from
+                # EVIDENCE where there is any, and from the marker only where
+                # there is not. A quarantine copy is the original whenever the
+                # canonical path holds no fixture -- absent, or present but not a
+                # complete PLY, which is what a failed producer's debris looks
+                # like. The marker settles the remaining case, where both files
+                # are whole.
+                canonical_is_a_fixture = (
+                    src.is_file() and ply_payload_failure(src) is None
+                )
+                if dst.is_file() and (
+                    name in pending_recovery or not canonical_is_a_fixture
+                ):
                     # An ORIGINAL a previous restore could not put back -- a
                     # fixture locked by another process on the persistent Windows
                     # runner is the case that produces this. Whatever sits at the
@@ -1273,13 +1300,21 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     stashed[name] = dst
                     recovered.append(name)
                     continue
+                if dst.is_file() and marker_unknown:
+                    # A whole fixture at the canonical path, a copy in the
+                    # quarantine, and no readable record of which is which.
+                    # Deleting either one could be the wrong one, so neither is
+                    # touched and the run stops instead.
+                    undecidable.append(name)
+                    continue
                 if dst.is_file():
                     # A copy a SUCCESSFUL run could not delete. It is SUPERSEDED,
-                    # not an original: the file at the canonical path is the newer,
-                    # valid fixture. Adopting this one would delete that fixture
-                    # and, if this run's producer then failed, restore the old
-                    # corpus over it -- a failed retry downgrading a workspace that
-                    # was valid when it started.
+                    # not an original: the file at the canonical path is a whole
+                    # fixture and this run's marker says nothing is pending
+                    # recovery. Adopting this one would delete that fixture and,
+                    # if this run's producer then failed, restore the old corpus
+                    # over it -- a failed retry downgrading a workspace that was
+                    # valid when it started.
                     superseded.append(name)
                     try:
                         dst.unlink()
@@ -1290,6 +1325,20 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     stashed[name] = dst
     except OSError as exc:
         print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
+        _rollback_isolation()
+        return False
+
+    if undecidable:
+        print(
+            "[prepare_synthetic_assets] cannot tell an unrestored original from a "
+            f"superseded copy for: {', '.join(undecidable)}"
+        )
+        print(
+            f"  {quarantine / UNRESTORED_MARKER_FILENAME} is present but unreadable, and "
+            "both the quarantined copy and the canonical fixture are whole files. "
+            "Nothing was moved or deleted; remove the marker (or the copy you know is "
+            "obsolete) and re-run."
+        )
         _rollback_isolation()
         return False
 
@@ -1341,7 +1390,8 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         _report_restore_failures(failures)
         _write_unrestored(
             quarantine,
-            _read_unrestored(quarantine) | {line.split(":", 1)[0] for line in failures},
+            (_read_unrestored(quarantine) or set())
+            | {line.split(":", 1)[0] for line in failures},
         )
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
