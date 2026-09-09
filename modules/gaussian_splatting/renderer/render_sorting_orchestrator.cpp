@@ -254,6 +254,89 @@ RenderSortingOrchestrator::RenderSortingOrchestrator(const Dependencies &p_depen
 	ERR_FAIL_COND_MSG(!ensure_rendering_device_fn, "RenderSortingOrchestrator requires a device bootstrap callback.");
 }
 
+static uint64_t _mix_sort_buffer_generation(uint64_t p_generation, uint64_t p_value) {
+	// Same mixer as the streaming contract fingerprint (render_streaming_orchestrator.cpp).
+	uint64_t x = p_generation + 0x9e3779b97f4a7c15ULL;
+	x ^= p_value + (x << 6) + (x >> 2);
+	return x;
+}
+
+// #980: the published instance contract carries COPIES of the sorting pipeline's sort
+// buffer RIDs (the resident publisher and the streaming orchestrator take them from
+// GPUSortingPipeline::get_buffer_handles() at publish time, and the per-frame sort stage
+// copies the contract into the pipeline's InstancePipelineInputs). refresh_gpu_sorter()
+// rebuilds the sorter, and GPUSortingPipeline::rebuild_sorter() then frees and
+// reallocates those buffers (manage_buffers) -- but nothing republished the copies. The
+// instance depth pass bound a freed buffer at binding 6 on every following frame and the
+// splat layer vanished for the rest of the session; the resident publisher never
+// republished because its skip condition sees an unchanged source generation and
+// freed-but-nonzero RIDs. Reload was merely the cheapest of the triggers that reach this
+// funnel (set_max_splats, set_quality_preset, the algorithm override, the benchmarks).
+//
+// This refreshes every copy from the pipeline's CURRENT handles and moves the contract's
+// content generation, so the record is truthful and every consumer keyed on that
+// generation (the instance sort cache, the raster input) sees the change. Returns true
+// when a republish happened. A reallocation that bypasses this funnel is caught, with a
+// named reason, by GPUSortingPipeline::_sort_instance_pipeline.
+static bool _republish_instance_sort_buffers_if_changed(GaussianSplatRenderer *p_renderer,
+		GPUSortingPipeline *p_sorting_pipeline, RenderingDevice *p_render_device,
+		GaussianSplatRenderer::IFrameMutationAccess &p_state_mut, const SortBufferHandles &p_before,
+		const char *p_context) {
+	if (!p_renderer || !p_sorting_pipeline) {
+		return false;
+	}
+	const SortBufferHandles after = p_sorting_pipeline->get_buffer_handles();
+	if (after.keys_buffer == p_before.keys_buffer && after.indices_buffer == p_before.indices_buffer &&
+			after.capacity == p_before.capacity) {
+		return false;
+	}
+	if (!p_renderer->has_instance_pipeline_buffers()) {
+		// No contract is published; the next publish reads the live handles itself.
+		return false;
+	}
+	GaussianSplatRenderer::InstancePipelineBuffers buffers = p_renderer->get_instance_pipeline_buffers();
+	if (buffers.sort_key_buffer == after.keys_buffer && buffers.sort_value_buffer == after.indices_buffer) {
+		// Already current (a publisher republished in between).
+		return false;
+	}
+	const RID previous_keys = buffers.sort_key_buffer;
+	buffers.sort_key_buffer = after.valid ? after.keys_buffer : RID();
+	buffers.sort_value_buffer = after.valid ? after.indices_buffer : RID();
+	if (after.valid && after.capacity > 0 && buffers.max_visible_splats > after.capacity) {
+		// Same clamp the publishers apply: never let the depth pass write past the sort buffers.
+		buffers.max_visible_splats = after.capacity;
+		buffers.max_visible_chunks = MIN<uint32_t>(buffers.max_visible_chunks, buffers.max_visible_splats);
+	}
+	// Republish under the contract's own remap / policy / source generation.
+	p_renderer->set_instance_pipeline_buffers(buffers);
+	// The record changed, so its change-detector must say so: fold the new handles into
+	// the content generation the instance sort cache and the raster input are keyed on.
+	GaussianSplatRenderer::ResourceState &resource_state = p_state_mut.get_resource_state_mut();
+	uint64_t generation = resource_state.instance_pipeline_content_generation;
+	generation = _mix_sort_buffer_generation(generation, after.keys_buffer.is_valid() ? after.keys_buffer.get_id() : 0ULL);
+	generation = _mix_sort_buffer_generation(generation, after.indices_buffer.is_valid() ? after.indices_buffer.get_id() : 0ULL);
+	generation = _mix_sort_buffer_generation(generation, uint64_t(after.capacity));
+	if (generation == resource_state.instance_pipeline_content_generation) {
+		generation ^= 1ULL; // a moved record must never read as unchanged
+	}
+	resource_state.instance_pipeline_content_generation = generation;
+	p_state_mut.get_sorting_state_mut().instance_sort_buffer_republishes++;
+	// The pipeline's cached inputs are refreshed here too, not only through the per-frame
+	// stage copy: the deferred triggers refresh from inside sort_gaussians_for_view(), after
+	// this frame's stage copy already ran.
+	if (GaussianSplatting::InstancePipelineContract::has_sort_buffers(buffers)) {
+		_set_instance_sort_inputs(buffers, p_render_device, p_sorting_pipeline, p_renderer, buffers.max_visible_chunks);
+	} else {
+		p_sorting_pipeline->clear_instance_pipeline_inputs();
+	}
+	GS_LOG_GPU_SORT_INFO(vformat("[GPU Sort] Instance contract sort buffers republished after sorter refresh (%s): keys %s -> %s, capacity %d, content generation %s (#980)",
+			p_context ? p_context : "unknown",
+			String::num_uint64(previous_keys.is_valid() ? previous_keys.get_id() : 0ULL),
+			String::num_uint64(after.keys_buffer.is_valid() ? after.keys_buffer.get_id() : 0ULL),
+			int(after.capacity), String::num_uint64(generation)));
+	return true;
+}
+
 void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	GaussianSplatRenderer::FrameStateProvider state_provider(renderer);
 	const GaussianSplatRenderer::IFrameStateView &state_view = state_provider;
@@ -271,25 +354,44 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	render_device = device_state->rd;
 	ERR_FAIL_NULL(render_device);
 
-	// Phase 4: Backoff on repeated sorter init failures to prevent OOM crash
+	// GPU-003 (refs #922): repeated sorter-init failures back off exponentially
+	// (capped), but NEVER latch GPU sorting off permanently -- past the
+	// degradation threshold the capped interval becomes a periodic recovery
+	// probe, so transient VRAM pressure at startup cannot disable GPU sorting
+	// for the rest of the session. Policy + rationale: sort_fallback_policy.h.
 	const uint64_t current_frame = frame_state.frame_counter;
-	if (sorting_state.sorter_init_failure_count > 0) {
-		// Check if we've exceeded max failures - disable GPU sorting entirely
-		if (sorting_state.sorter_init_failure_count >= sorting_state.kSorterInitMaxFailures) {
-			// GPU sorting permanently disabled for this session due to repeated OOM
-			sorting_state.sorter_needs_rebuild = false;
-			return;
-		}
-		// Check if we're still in backoff period
-		const uint64_t frames_since_failure = current_frame - sorting_state.last_sorter_init_failure_frame;
-		if (frames_since_failure < sorting_state.kSorterInitBackoffFrames) {
-			// Still in backoff, skip init attempt
-			return;
-		}
+	// frame_counter is 32-bit; compute the delta in uint32 modular arithmetic so
+	// a counter wrap cannot zero-extend into a huge uint64 difference that would
+	// bypass the backoff window (Codex R1, P3).
+	const uint32_t frames_since_last_failure =
+			frame_state.frame_counter - static_cast<uint32_t>(sorting_state.last_sorter_init_failure_frame);
+	if (!GaussianSplatting::should_attempt_sorter_init(sorting_state.sorter_init_failure_count,
+				frames_since_last_failure)) {
+		// Still in backoff: skip this attempt and leave sorter_needs_rebuild
+		// armed so the per-frame gate in sort_gaussians_for_view keeps routing
+		// through here until the next eligible attempt.
+		return;
 	}
+
+	// #980: snapshot the pipeline's sort buffer handles before the rebuild below can
+	// reallocate them; every exit after this point republishes the instance contract if
+	// they changed (see _republish_instance_sort_buffers_if_changed). This function is the
+	// single funnel every sorter_needs_rebuild trigger goes through.
+	const SortBufferHandles sort_handles_before = sorting_pipeline ? sorting_pipeline->get_buffer_handles() : SortBufferHandles();
 
 	uint32_t capacity = MAX<uint32_t>(local_performance_settings.max_splats,
 			local_test_data_state.positions.size());
+	// #984 review: the instance route's capacity is the PUBLISHED requirement (instances x
+	// dispatch chunks x max chunk splats, resident_instance_contract_publisher.cpp), which the
+	// publishers size the sorter for and which may exceed the single-instance max_splats
+	// budget. A refresh must never rebuild below it: the republish at the end would clamp the
+	// contract to the smaller buffers, and the resident publisher's fast path (same source
+	// generation, valid RIDs) would keep it there -- a silent, permanent drop of splats.
+	uint32_t published_sort_requirement = 0;
+	if (renderer && renderer->has_instance_pipeline_buffers()) {
+		published_sort_requirement = renderer->get_instance_pipeline_buffers().max_visible_splats;
+		capacity = MAX<uint32_t>(capacity, published_sort_requirement);
+	}
 	if (capacity == 0) {
 		capacity = 1;
 	}
@@ -314,17 +416,52 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	sorting_state.sorter_needs_rebuild = false;
 
 	if (!sorting_state.gpu_sorter.is_valid()) {
-		// Sorter creation failed - record failure for backoff
-		sorting_state.sorter_init_failure_count++;
+		// Sorter creation failed - record failure for backoff (GPU-003).
+		// The sorter still needs building, so the flag stays armed: the
+		// per-frame path (sort_gaussians_for_view) only calls
+		// refresh_gpu_sorter while sorter_needs_rebuild is true, so clearing
+		// it here would strand the recovery probes forever after the first
+		// failure (Codex R1, P1). The backoff gate above - not this flag -
+		// rate-limits the actual attempts.
+		sorting_state.sorter_needs_rebuild = true;
+		if (sorting_state.sorter_init_failure_count < UINT32_MAX) {
+			sorting_state.sorter_init_failure_count++;
+		}
 		sorting_state.last_sorter_init_failure_frame = current_frame;
-		if (sorting_state.sorter_init_failure_count >= sorting_state.kSorterInitMaxFailures) {
-			GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Sorter init failed %d times - disabling GPU sorting (use CPU fallback)",
-					sorting_state.sorter_init_failure_count));
-		} else {
-			GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] Sorter init failed (attempt %d/%d) - backing off for %d frames",
+		const uint64_t backoff_frames =
+				GaussianSplatting::sorter_init_backoff_frames(sorting_state.sorter_init_failure_count);
+		if (GaussianSplatting::sorter_init_degraded(sorting_state.sorter_init_failure_count)) {
+			// Persistent degradation keeps re-surfacing in the log (once per
+			// probe interval), mirroring should_warn_unsorted_composite's
+			// NOT-one-shot-forever contract.
+			GS_LOG_ERROR_DEFAULT(vformat("[GPU Sort] Sorter init failed %d consecutive times - GPU sorting degraded; probing for recovery every %d frames",
 					sorting_state.sorter_init_failure_count,
-					sorting_state.kSorterInitMaxFailures,
-					sorting_state.kSorterInitBackoffFrames));
+					backoff_frames));
+			if (!sorting_state.sorter_init_degraded_reported) {
+				// Surface the degraded state through diagnostics once per
+				// episode, not only as a log line (GPU-003 remediation).
+				sorting_state.sorter_init_degraded_reported = true;
+				RenderingError error(RenderingErrorCodes::gpu_sort_unavailable(),
+						RenderingError::Severity::RECOVERABLE,
+						vformat("GPU sorter initialization failed %d consecutive times; GPU sorting degraded, retrying every %d frames",
+								sorting_state.sorter_init_failure_count, backoff_frames));
+				error.add_context("failure_count", static_cast<int64_t>(sorting_state.sorter_init_failure_count));
+				error.add_context("retry_interval_frames", static_cast<int64_t>(backoff_frames));
+				error.add_context("frame", static_cast<int64_t>(current_frame));
+				error.add_recovery_step("Free GPU memory (close other GPU-heavy applications); the renderer retries automatically");
+				error.add_recovery_step("Enable force_cpu_sort to use CPU sorting on the global route");
+				record_rendering_error(error);
+			}
+		} else {
+			GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] Sorter init failed (attempt %d) - backing off for %d frames",
+					sorting_state.sorter_init_failure_count,
+					backoff_frames));
+		}
+		// #980: a failed build normally leaves the buffers untouched, but a device change
+		// re-initializes the pipeline first; republish if anything moved.
+		if (_republish_instance_sort_buffers_if_changed(renderer, sorting_pipeline, render_device, state_mut,
+					sort_handles_before, p_context)) {
+			instance_sort_cache.valid = false;
 		}
 		return;
 	}
@@ -333,6 +470,7 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	if (sorting_state.sorter_init_failure_count > 0) {
 		GS_LOG_INFO_DEFAULT("[GPU Sort] Sorter init succeeded after previous failures - resetting backoff");
 		sorting_state.sorter_init_failure_count = 0;
+		sorting_state.sorter_init_degraded_reported = false;
 	}
 
 	bool pipeline_manages_buffers = sorting_pipeline &&
@@ -344,6 +482,22 @@ void RenderSortingOrchestrator::refresh_gpu_sorter(const char *p_context) {
 	if (sorting_pipeline) {
 		_bind_sort_pipeline_host_context(sorting_pipeline, renderer);
 		sorting_pipeline->ensure_sort_buffers(sorting_state.gpu_sorter->get_max_elements());
+	}
+	if (sorting_pipeline && published_sort_requirement > 0 &&
+			sorting_pipeline->get_buffer_handles().capacity < published_sort_requirement) {
+		// ensure_sort_buffers() adopts the GPU buffer manager's external buffers when it has
+		// them, which caps the capacity at the manager's (sized from max_splats). The
+		// publishers size OWNED buffers for the full requirement (ensure_buffers); do the same
+		// here so the republish below never has to clamp the contract (#984 review).
+		sorting_pipeline->ensure_buffers(published_sort_requirement);
+	}
+	// #980: the rebuild and/or ensure_sort_buffers() above reallocated the pipeline-owned
+	// sort buffers whenever the handles differ from the snapshot; the published contract
+	// and the pipeline inputs are refreshed from the live handles, and the cached instance
+	// order (which lived in the freed buffers) is dropped.
+	if (_republish_instance_sort_buffers_if_changed(renderer, sorting_pipeline, render_device, state_mut,
+				sort_handles_before, p_context)) {
+		instance_sort_cache.valid = false;
 	}
 }
 
@@ -733,6 +887,17 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 	sorting_state.override_forced_algorithm = forced_algorithm_name;
 
 	performance_state.metrics.sort_input_build_time_ms = 0.0f;
+	// #980: a DEFERRED rebuild (set_quality_preset, the runtime algorithm override) only arms
+	// sorter_needs_rebuild; the refresh used to live below the instance branches, which are
+	// themselves gated on !sorter_needs_rebuild, and below the available_splats == 0 exit.
+	// On the resident route the global input count IS 0, so the flag was never serviced:
+	// the instance route stayed gated and the sort reported COMMON.SKIP.NO_VISIBLE for the
+	// rest of the session. Service it here, before anything reads the contract or gates on
+	// the flag; refresh_gpu_sorter() republishes the contract's sort buffers if the rebuild
+	// reallocated them, so the sync below sees the current handles.
+	if (!force_cpu_sort && sorting_state.sorter_needs_rebuild) {
+		refresh_gpu_sorter("sort_gaussians_for_view(deferred rebuild)");
+	}
 	const bool instance_pipeline_buffers_valid = renderer->has_instance_pipeline_buffers();
 	uint64_t instance_content_generation = 0;
 	uint32_t instance_max_visible_splats = 0;

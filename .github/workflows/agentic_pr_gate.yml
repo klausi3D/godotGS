@@ -44,20 +44,78 @@ jobs:
           python-version: "3.11"
 
       - name: Validate agentic control plane
-        run: python scripts/agentic/validate_repo_contract.py
+        # --strict-hierarchy: also require the AGENTS.md hierarchy and the
+        # docs/governance/* docs. Without it the whole hierarchy could be deleted
+        # with this required check still green (GS-AUDIT-TEST-001).
+        run: python scripts/agentic/validate_repo_contract.py --strict-hierarchy
 
-      - name: Exercise contract validators on shipped templates
+      - name: Self-test the contract validators against the shipped templates
+        # This step checks the VALIDATORS, not this PR. Its inputs are the shipped
+        # fixtures in .agentic/templates/*, and the --paths value is the fixture path
+        # the template declares as owned - deliberately not this PR's changed files,
+        # which are outside the fixture's owned_paths and would fail the step for
+        # every PR. There is no per-PR task contract in this repository yet, so scope
+        # (owned_paths / forbidden_paths) and evidence are NOT enforced against a PR
+        # anywhere in CI; see the Phase-2 contract-source ADR referenced in
+        # docs/governance/github-settings.md. Do not read this step as PR-scope
+        # enforcement - that misreading is what GS-AUDIT-TEST-001 recorded.
         run: |
           python scripts/agentic/validate_review.py --review .agentic/templates/review.json
           python scripts/agentic/check_pr_contract.py \
             --contract .agentic/templates/task.json \
             --paths modules/gaussian_splatting/logger/example.cpp
 
-      - name: Re-derive risk class from this PR's diff
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Derive and publish this PR's risk class
+        # Enforced, not print-only. classify_change.py fails closed (non-zero) when
+        # the base cannot be resolved and no longer degrades a bad base ref into a
+        # two-dot diff, so this PR can no longer be classified from a path set that
+        # is not its own diff. The derived CLASS is not itself a failure condition -
+        # R3 PRs are legitimate - but it is published to the step summary together
+        # with that class's evidence requirements and deterministic checks (read out
+        # of .agentic/policy.json), so a human merging an R2/R3 PR sees the
+        # obligations on the required check itself.
+        #
+        # The base expression covers BOTH events this workflow triggers on:
+        # merge_group carries base_sha, pull_request carries base.sha. Same shape as
+        # the guard step below - a merge-queue run must never be blocked by a missing
+        # pull_request payload.
+        #
+        # The classification POLICY is taken from the immutable base, not from this
+        # PR's checkout. A PR that edits .agentic/policy.json alongside higher-risk
+        # files would otherwise be graded by the rules it is itself changing -- flip
+        # the renderer rule R2->R0 and renderer files fall through to R1, while
+        # validate_repo_contract.py --strict-hierarchy still passes because the
+        # policy stays internally consistent. That is the "compared against itself"
+        # shape in docs/governance/evidence-integrity.md. Materialising the base copy
+        # fails CLOSED: if it cannot be read, the step exits non-zero rather than
+        # falling back to the PR's copy. classify_change.py independently forces any
+        # diff touching .agentic/policy.json to the top class, so neither half is
+        # load-bearing alone.
+        env:
+          GS_PR_BASE_SHA: >-
+            ${{ github.event_name == 'merge_group'
+                && github.event.merge_group.base_sha
+                || github.event.pull_request.base.sha }}
         run: |
-          echo "Risk class derived from the changed files in this PR:"
-          python scripts/agentic/classify_change.py --base-ref "${{ github.event.pull_request.base.sha }}"
+          set -euo pipefail
+          if [ -z "${GS_PR_BASE_SHA}" ]; then
+            echo "::error::No base SHA available for event '${GITHUB_EVENT_NAME}'; refusing to classify this PR against an unknown base."
+            exit 1
+          fi
+          base_policy="${RUNNER_TEMP}/base_policy.json"
+          if ! git show "${GS_PR_BASE_SHA}:.agentic/policy.json" > "${base_policy}"; then
+            echo "::error::Cannot read .agentic/policy.json at base ${GS_PR_BASE_SHA}; refusing to classify this PR against its own policy."
+            exit 1
+          fi
+          if [ ! -s "${base_policy}" ]; then
+            echo "::error::Base .agentic/policy.json at ${GS_PR_BASE_SHA} is empty; refusing to classify this PR against its own policy."
+            exit 1
+          fi
+          python scripts/agentic/classify_change.py \
+            --base-ref "${GS_PR_BASE_SHA}" \
+            --policy "${base_policy}" \
+            --format json \
+            --github-step-summary
 
       - name: Run agentic unit tests
         run: python -m unittest discover -s tests/agentic -v

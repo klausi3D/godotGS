@@ -52,11 +52,19 @@ RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_g
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
 EDITOR_NODE_POINTER_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_editor_node_pointer_lifetime.py"
+GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale_hook.py"
+DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
+DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+# T3 (#891): module-level constants (not inline paths) so the guard-wiring
+# contract in test_run_module_tests_lane_ledger.py can derive that a wired
+# runner actually reaches these contract-test files.
+RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -78,6 +86,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "SceneTree",
     "SortBenchmark",
     "Synthetic",
+    "TestPump",  # #881: the wall-clock pump helper's own contract (gs_test_pump.h).
     "VRAMBudgetRegulator",
     "ViewTransform",
     "WorldIO",
@@ -121,6 +130,14 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ),
     ("GaussianSplatting [SortBenchmark]", ("*GaussianSplatting*][SortBenchmark]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Synthetic]", ("*GaussianSplatting*][Synthetic]*",), ("*][RequiresGPU]*",), False),
+    # #881: `gs_test_pump.h` is the bound that every converted renderer warm-up
+    # now depends on, and its own review found the bound could be evaded (readiness
+    # was accepted before expiry was checked, so a frame that returned true past the
+    # deadline still passed). The cases in test_gs_pump.h are the only executable
+    # proof of that ordering, and they need no GPU and no SceneTree, so they run in
+    # a strict headless lane rather than in the advisory [untagged] safety net: a
+    # proof of a fail-closed bound that cannot fail CI is not a proof.
+    ("GaussianSplatting [TestPump]", ("*GaussianSplatting*][TestPump]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [ViewTransform]", ("*GaussianSplatting*][ViewTransform]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [WorldIO]", ("*GaussianSplatting*][WorldIO]*",), ("*][RequiresGPU]*",), True),
@@ -870,6 +887,33 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_gs_pre_upscale_hook_guard() -> tuple[bool, list[str]]:
+    """GPU-001 Option B contract guard (refs #921): the Gaussian pre-upscale
+    composite hook must precede every internal-buffer consumer (FSR2/MetalFX-
+    temporal/TAA/tonemap), the legacy post-scene hook must stay gated on the
+    phase flag, and
+    the source_decode_srgb push-constant mirror must exist on both sides. Runs
+    the script's --self-test first so a vacuous (never-failing) checker is
+    itself a failure."""
+    if not GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing GS pre-upscale hook guard script: {GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    for args in (
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT), "--self-test"],
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT)],
+    ):
+        code, out, err = _run_command(args)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"GS pre-upscale hook guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
 def _run_test_linkage_guard() -> tuple[bool, list[str]]:
     if not TEST_LINKAGE_GUARD_SCRIPT.is_file():
         return False, [
@@ -1235,6 +1279,39 @@ def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
         if code != 0:
             if not output_lines:
                 output_lines = [f"Cull-signature parity guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_download_build_flavor_guard() -> tuple[bool, list[str]]:
+    # Every binary this project publishes is dev_build=yes, i.e. -O0. The warning
+    # saying so already existed -- on docs/performance/index.md, a page a reader
+    # only reaches after concluding godotGS is slow. This guard derives the set of
+    # pages that hand out the download (any Markdown LINK to the Releases page) and
+    # requires each of them to carry the warning and to link the dashboard, so the
+    # invariant survives the next page somebody adds. Its own discrimination cases
+    # run first, in the same lane, for the usual reason: the guard passing proves
+    # the tree is clean today, not that the guard can still fail.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT, DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing download build-flavor guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT)],
+        [sys.executable, str(DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Download build-flavor guard failed with exit code {code}."]
             return False, output_lines
 
     return True, output_lines
@@ -1665,6 +1742,35 @@ def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds runner trust guard passed."]
 
 
+def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#875): every GPU-pool job disables the third-party Vulkan layers and proves it.
+
+    Static, headless, no GPU: it reads `.github/workflows/*.yml` and the
+    preflight's own constants, and unit-tests the preflight's parser and verdict
+    logic over synthetic loader output. The *runtime* half -- reading the layer
+    chain the loader actually built -- is `preflight_runner_gpu_environment.py`
+    itself, which runs inside each GPU job on the runner.
+
+    Both halves are needed because either alone is unfalsifiable. The runner's
+    seven third-party implicit Vulkan layers inject into every GPU process, so a
+    job without the disable measures the layers as much as the renderer; and a
+    job with the disable but no preflight cannot tell whether the loader honoured
+    it, since an unsupported value is ignored in silence.
+    """
+    script = ROOT / "tests" / "ci" / "test_preflight_runner_gpu_environment.py"
+    if not script.is_file():
+        return False, [f"Missing GPU runner environment contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU runner environment contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU runner environment contract guard passed."]
+
+
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     """Guard (#825): the export smoke test never destroys a preset it did not create.
 
@@ -1679,7 +1785,7 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     pins all three backup states (absent / present-with-preset /
     present-without-preset) and that a refusal rewrites nothing.
     """
-    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    script = EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
 
@@ -1706,7 +1812,7 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     reported as "Can't create an accessibility driver" and the message naming the real
     fault was captured and discarded.
     """
-    script = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+    script = RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 
@@ -3135,6 +3241,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_download_build_flavor_guard,
+            "Download build-flavor warning guard failed.",
+            "Download build-flavor warning guard passed.",
+        ),
+        (
+            True,
             _run_doc_classes_guard,
             "doc_classes completeness guard failed.",
             "doc_classes completeness guard passed.",
@@ -3174,6 +3286,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_contract_boundary_guard,
             "Renderer-contract boundary guard failed.",
             "Renderer-contract boundary guard passed.",
+        ),
+        (
+            True,
+            _run_gs_pre_upscale_hook_guard,
+            "GS pre-upscale composite hook guard failed.",
+            "GS pre-upscale composite hook guard passed.",
         ),
         (
             True,
@@ -3270,6 +3388,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_publication_gating_guard,
             "Release publication gating guard failed.",
             "Release publication gating guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_runner_environment_contract_guard,
+            "GPU runner environment contract guard failed.",
+            "GPU runner environment contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

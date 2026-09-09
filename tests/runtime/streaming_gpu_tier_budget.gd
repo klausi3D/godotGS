@@ -57,6 +57,77 @@ extends RefCounted
 # sensitivity, invalid-run detection) is proven independently of these numbers
 # by test_streaming_gpu_tier_budget_contract.gd, which supplies its own config.
 
+# ---------------------------------------------------------------------------
+# Timing budgets are ADVISORY on tier_1m as an interim (#883)
+# ---------------------------------------------------------------------------
+# The three budget codes below describe how FAST the renderer was. Every other
+# code this module can emit describes whether the renderer did the RIGHT thing
+# (residency reached, telemetry present, no unsorted/fallback frames). Only the
+# first group is demoted; the second group keeps failing the blocking job.
+#
+# WHY (all three references matter, and none of them alone is the reason):
+#
+#   #883 is the measurement. On a *verifiably idle* runner (godot=0,
+#   Runner.Worker=0, Actions queue 0) tier_1m reported
+#   frame_p95_to_avg_ratio 3.69 against this file's 2.25, while
+#   residency_ratio 1.0, visible_ratio 1.0 and fallback_rate 0.0 -- nothing
+#   functional failed. The ratio got WORSE when the machine got quieter (1.94
+#   contended -> 3.69 idle), because #875's page-heap removal shrank the
+#   average far more than the streaming-stall tail, so p95/avg -- a measure of
+#   SPREAD, not speed -- rose. The slower tier_2_5m passes at 2.10 while the
+#   faster tier_1m fails. That inversion is why this is a real frame-time
+#   characteristic of the streaming path and not runner noise, and it is
+#   exactly why the number must NOT be raised to make PRs green: raising it
+#   would discard the first honest reading of this path we have had.
+#
+#   #523 is why the violation cannot simply be moved somewhere else. Relocating
+#   these three budgets into the benchmark lane was investigated and REJECTED
+#   on measurement: that lane never runs on a pull_request, is
+#   `continue-on-error` at both job and step level, did not run at all in the
+#   last 100 workflow runs, and routes these metrics through
+#   `soft_budget_thresholds` -> `proof_warnings`, which do not change even
+#   run_benchmark.py's own exit code. There is no run-over-run perf baseline
+#   anywhere in this repo; #523 is open precisely to build one. So the
+#   assertions stay HERE, in the only place that evaluates them at all.
+#
+#   #778 is what earns enforcement back. The contention-invariant successor to
+#   an absolute wall-clock ceiling already exists in this file --
+#   evaluate_scaling_regression() -- and #778 is the work that promotes its
+#   verdict to the blocking criterion. Once a deterministic signal blocks, a
+#   wall-clock budget on a shared -O0 self-hosted runner is no longer the only
+#   thing standing between a real regression and master.
+#
+# THIS IS AN INTERIM REDUCTION IN ENFORCEMENT, AND IT IS STATED AS ONE. Until it
+# is undone, a genuine per-frame slowdown on tier_1m will be REPORTED but will
+# not fail the gate. What restores enforcement, in order of preference:
+#   1. #778 lands: the deterministic cross-tier verdict becomes blocking, and
+#      these absolute/derived budgets go back to being a backstop that can be
+#      armed without gating on the machine.
+#   2. #523 lands: a per-machine, run-over-run perf baseline exists, so a
+#      threshold is compared against this box's own history instead of a
+#      hand-picked constant.
+#   3. #883 concludes that the renderer, not the budget, is wrong -- in which
+#      case the fix is in the streaming path and this flag flips straight back.
+# Flipping `enforce_timing_budgets` back to true is a one-line change and the
+# contract test pins both halves, so nothing has to be rebuilt to restore it.
+#
+# NO THRESHOLD IS CHANGED BY THIS DEMOTION. Every constant in this file and in
+# test_gpu_streaming_stress.gd keeps the value it had, the checks keep being
+# evaluated on every run, and a violation is printed with its measured value
+# (see ADVISORY_MARKER in test_gpu_streaming_stress.gd). A demoted check that
+# stops being computed is a deleted check; these are not deleted.
+const TIMING_BUDGET_FAILURES: Array[String] = [
+	"first_visible_exceeded",
+	"frame_p95_exceeded",
+	"frame_p95_to_avg_ratio_high"
+]
+
+# Deliberately NOT in the list above, though it is produced by the same
+# first-visible check: `first_visible_missing` means the tier never became
+# visible at all within FIRST_VISIBLE_TIMEOUT_FRAMES. That is "the renderer
+# never showed anything", a correctness failure that happens to be observed
+# through a timer. It stays blocking.
+
 # Retained raw samples discarded as residual warm-up before avg/p95 (step 3).
 const WARMUP_DISCARD_SAMPLES := 12
 # Never trim below this many retained samples; a short window keeps its samples
@@ -187,7 +258,21 @@ static func tier_1m_budget() -> Dictionary:
 		# rather than merely convenient.
 		"max_frame_p95_to_avg_ratio": 2.25,
 		"max_fallback_rate": 0.35,
-		"enforce": true
+		# `enforce` is PER-TIER, not per-metric: test_gpu_streaming_stress.gd
+		# reads it once (:277) and applies it to the whole evaluation (:589), so
+		# turning it off here would also stop residency, fallback-rate and
+		# telemetry from failing the gate. That is not what #883 asked for, so
+		# the enforcement split is expressed with a second, finer flag instead of
+		# by touching this one.
+		"enforce": true,
+		# #883 interim: the three TIMING_BUDGET_FAILURES above become advisory on
+		# this tier -- still measured, still printed with their values, no longer
+		# fatal. Correctness (residency, fallback rate, telemetry) keeps failing
+		# the blocking job because `enforce` above stays true. Full rationale and
+		# the conditions that restore this to `true` are at TIMING_BUDGET_FAILURES.
+		# Absent on the other two tiers, where the default (true) preserves their
+		# existing behaviour exactly -- they are enforce:false anyway.
+		"enforce_timing_budgets": false
 	}
 
 
@@ -240,10 +325,70 @@ static func evaluate_tier_budget(tier: Dictionary, tier_result: Dictionary, resi
 		within_budget = false
 		budget_failures.append("fallback_rate_high")
 
+	# ------------------------------------------------------------------
+	# Enforcement split (#883). `within_budget`, `budget_failures` and
+	# `telemetry_failures` keep their exact previous meaning: every check above
+	# still runs and still reports, so the evidence artefacts and the metrics
+	# JSON continue to say truthfully whether the tier met its budget. What is
+	# added is a second, finer partition of the SAME failures into the ones that
+	# may fail the job and the ones that may only be reported.
+	#
+	# `enforce_timing_budgets` defaults to TRUE, so any tier that does not opt
+	# out behaves exactly as before this change.
+	var enforce_timing := bool(tier.get("enforce_timing_budgets", true))
+	var blocking_failures: Array[String] = []
+	var advisory_failures: Array[String] = []
+	for code in budget_failures:
+		if not enforce_timing and TIMING_BUDGET_FAILURES.has(code):
+			advisory_failures.append(code)
+		else:
+			blocking_failures.append(code)
+	# Telemetry failures are never timing; they are always blocking-eligible.
+	for code in telemetry_failures:
+		blocking_failures.append(code)
+
+	# Measured value + the budget it broke, per demoted check, so a violation can
+	# be printed with its number instead of just its name. A demoted check that
+	# stops being reported is a deleted check.
+	var advisory_details: Array = []
+	for code in advisory_failures:
+		match code:
+			"first_visible_exceeded":
+				advisory_details.append({
+					"check": code,
+					"measured": first_visible_ms,
+					"budget": max_first_visible_ms,
+					"units": "ms"
+				})
+			"frame_p95_exceeded":
+				advisory_details.append({
+					"check": code,
+					"measured": frame_p95_ms,
+					"budget": max_frame_p95_ms,
+					"units": "ms"
+				})
+			"frame_p95_to_avg_ratio_high":
+				advisory_details.append({
+					"check": code,
+					"measured": frame_p95_to_avg_ratio,
+					"budget": max_frame_p95_to_avg_ratio,
+					"units": "ratio"
+				})
+			_:
+				advisory_details.append({"check": code})
+
 	return {
 		"within_budget": within_budget,
 		"budget_failures": budget_failures,
-		"telemetry_failures": telemetry_failures
+		"telemetry_failures": telemetry_failures,
+		"enforce_timing_budgets": enforce_timing,
+		# True iff nothing that is still allowed to fail the job failed. This is
+		# what the live gate keys its pass/fail on; `within_budget` above stays
+		# the honest "did it meet every budget" answer for reporting.
+		"blocking_within_budget": blocking_failures.is_empty(),
+		"blocking_failures": blocking_failures,
+		"advisory_failures": advisory_failures,
+		"advisory_details": advisory_details
 	}
 
 

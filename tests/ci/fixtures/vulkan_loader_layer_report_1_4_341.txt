@@ -1,0 +1,25 @@
+[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_OBS_HOOK" (C:\ProgramData\obs-studio-hook\graphics-hook64.dll)
+[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_OW_OBS_HOOK" (C:\Program Files (x86)\Overwolf\0.305.0.9\ow-graphics-vulkan.dll)
+[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_OW_OVERLAY" (C:\Program Files (x86)\Overwolf\0.305.0.9\owclient.dll)
+[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_present" (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispig.inf_amd64_f4c7a2fd13e0f763\nvoglv64.dll)
+[Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_NV_optimus" (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispig.inf_amd64_f4c7a2fd13e0f763\nvoglv64.dll)
+[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_OBS_HOOK" (C:\ProgramData\obs-studio-hook\graphics-hook64.dll)
+[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_OW_OBS_HOOK" (C:\Program Files (x86)\Overwolf\0.305.0.9\ow-graphics-vulkan.dll)
+[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_OW_OVERLAY" (C:\Program Files (x86)\Overwolf\0.305.0.9\owclient.dll)
+[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_present" (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispig.inf_amd64_f4c7a2fd13e0f763\nvoglv64.dll)
+[Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_NV_optimus" (C:\WINDOWS\System32\DriverStore\FileRepository\nv_dispig.inf_amd64_f4c7a2fd13e0f763\nvoglv64.dll)
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_ADD_DRIVER_FILES will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_ADD_IMPLICIT_LAYER_PATH will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_ADD_LAYER_PATH will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_DRIVER_FILES will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_ICD_FILENAMES will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_IMPLICIT_LAYER_PATH will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LAYER_PATH will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_DEVICE_ID_FILTER will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_DRIVERS_DISABLE will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_DRIVERS_SELECT will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_DRIVER_ID_FILTER will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_LAYERS_ALLOW will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_LAYERS_DISABLE will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_LAYERS_ENABLE will be ignored
+[Vulkan Loader] INFO:           Loader is running with elevated permissions. Environment variable VK_LOADER_VENDOR_ID_FILTER will be ignored

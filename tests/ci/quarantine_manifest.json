@@ -84,10 +84,91 @@
       "expires_utc": "2026-10-15T00:00:00Z"
     },
     {
-      "test_case": "*][RequiresGPU]*",
-      "count": 59,
-      "reason": "Catch-all for [RequiresGPU] cases that no run_gpu_harness.py batch reaches. These were previously credited to REQUIRES_RD_TEST_FILTERS ('GaussianSplatting [requires-RD]'), but _build_module_test_runs() only appends that lane under --gpu / GS_RUN_GPU_TESTS=1 and the blocking workflow (.github/workflows/gaussian_production_gates.yml) invokes the runner without it. That lane's own comment calls itself 'a catalogue of renderer-dependent tests', and it is strict=False even when it does run - so crediting it reported coverage that does not exist (Codex, PR #658). Declared as ONE entry deliberately: the long-term home for GPU deferrals is renderer_release_gate_manifest.json:deferred_requires_gpu_waivers under #329, which is owned elsewhere and currently empty; this entry keeps the cases visible and counted until #329 populates it. The count means a NEW [RequiresGPU] case that no batch reaches still fails this guard. #622 lowered 62 -> 59: the three sort-ORDER oracles in test_gpu_sorting.h were retagged [GpuSort] and now reach the required GpuSorting batch, so they are no longer stranded. #329 is CLOSED (and renderer_release_gate_manifest.json still carries two live references to it, which this task does not own); re-pointed to its live successor #820.",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/820",
+      "test_case": "[GaussianSplatting][RequiresGPU] RenderDeviceManager*",
+      "count": 7,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR docs/architecture/adr-phase1-guard-hardening.md section 5.4; #820 superseded). The 7 device-ownership cases in test_render_device_manager_ownership.h are tagged [GaussianSplatting][RequiresGPU] with no subsystem token, so no run_gpu_harness.py batch filter selects them and they have never executed. Exit (#907): retag so a real batch selects them, with a proven-green GPU run showing non-zero cases AND assertions, or keep them declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] GPUBufferManager*",
+      "count": 2,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The 2 buffer-lifetime cases in test_gpu_buffer_manager_lifetime.h are bare-tagged, match no batch filter, and have never executed. Exit (#907): retag into a real batch with a proven-green GPU run, or keep them declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] GPU memory leak detection*",
+      "count": 2,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). 'GPU memory leak detection' and 'GPU memory leak detection with renderer lifecycle' in test_memory_leak_detection.h are bare-tagged, match no batch filter, and have never executed anywhere - the quarantine manifest itself has recorded that since #520. Exit (#907): retag into a real batch with a proven-green GPU run, or keep them declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state",
+      "count": 1,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Third case of test_memory_leak_detection.h; its name does not start with 'GPU memory leak detection', so it needs its own exact-name declaration rather than a widened sibling pattern. Bare-tagged, matches no batch filter, never executed. Exit (#907): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] OutputCompositor*",
+      "count": 2,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The scratch-resource baseline and untracked-cleanup cases in test_output_compositor_composite_hazard.h are bare-tagged, so the required OutputCompositor batch filter '*OutputCompositor*][RequiresGPU]*' cannot see them (the token sits after ][RequiresGPU]). Exit (#910): retag with a proven-green GPU run - NOT a straight move into the required batch without one (ADR section 5.5) - or keep them declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] GPU Sorting Performance",
+      "count": 1,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Timing benchmark deliberately left OUT of the required GpuSorting order batch by #622: wall-clock assertions on this shared runner measure the machine, not regressions (#615/#630). Exit (#910): an advisory batch with a proven-green run, or keep it declared here; do not make it required.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components",
+      "count": 1,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Single bare-tagged case in test_phase1_integration.h; the Integration batch filter '*Integration*][RequiresGPU]*' needs the token BEFORE ][RequiresGPU], and here it only appears in the descriptive tail. Exit (#910): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] Debug projection output matches golden gradient",
+      "count": 1,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Single bare-tagged render-validation case (test_render_validation.h), the case Codex cited on PR #658 as 'covered' only by the opt-in [requires-RD] catalogue that blocking CI never runs. Exit (#910): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails",
+      "count": 1,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The one non-bare-tagged member of the split: [Importer] cases cannot run under the harness's lightweight RD bootstrap (no ResourceLoader/Saver type registration; see the tag-level waiver in renderer_release_gate_manifest.json deferred_requires_gpu_waivers), and no batch selects the tag. Exit (#910): an [Importer]-capable harness bootstrap plus a batch, with a proven-green run; until then it stays declared here.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
+      "owner": "klausi3D",
+      "risk": "R1",
+      "expires_utc": "2026-10-15T00:00:00Z"
+    },
+    {
+      "test_case": "[GaussianSplatting][RequiresGPU] *",
+      "count": 38,
+      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). LAST declaration by design: attribution is first-match, so after the narrower #907/#910 declarations above claim their 17 cases, this anchored bare-tag-pair pattern attributes exactly the 38 bare-tagged cases of test_renderer_pipeline.h, enumerated one by one in #906 - the largest single-file share of the split (38 of its 56 cases). The pattern is anchored at position 0 (no leading '*'), so subsystem-tagged cases such as [Importer] or [Streaming] never fall into it. A NEW bare-tagged stranded case makes this declaration over-matched and fails the guard loudly. Exit (#906): retag into subsystem batches - a move into the required RendererPipeline batch needs the ADR section 5.5 proven-green evidence first - shrinking this count with each proven move.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/906",
       "owner": "klausi3D",
       "risk": "R1",
       "expires_utc": "2026-10-15T00:00:00Z"

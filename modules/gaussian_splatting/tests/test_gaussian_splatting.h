@@ -8,12 +8,42 @@
 
 #pragma once
 
-// Main test header that includes all Gaussian Splatting tests
-// This file is included by the generated modules_tests.gen.h
+// This file is included by the generated modules_tests.gen.h.
+//
+// IT IS NOT THE REGISTRATION MECHANISM FOR `.h` TESTS, and the `#include` list
+// below is NOT a complete index of the module's test headers (PR #881 review
+// filed a P1 on that reading, and it is worth stating once, here, where the
+// misreading starts).
+//
+// `modules/SCsub` globs EVERY `modules/gaussian_splatting/tests/*.h` straight
+// into `modules_tests.gen.h`:
+//
+//     module_tests = sorted(glob.glob(os.path.join(base_path, "tests", "*.h")))
+//
+// so a test header registers its TEST_CASEs by EXISTING in this directory,
+// whether or not it is listed below. Ten case-carrying headers are not listed
+// here today and all of them run: `test_ply_importer.h` is the whole of the
+// strict `[PLY]` lane (27 cases), `test_gaussian_splat_container.h` the whole of
+// `[Container]`, plus `[Animation]`, `[Config]`, `[Persistence]` and others.
+// Check the generated `modules/modules_tests.gen.h`, not this list, to answer
+// "is my header compiled?".
+//
+// What DOES require an entry here is a test `.cpp`: those are compiled into the
+// module static library and are linker-dropped unless the `force_link` anchor
+// block at the bottom of this file references them. `check_test_linkage.py`
+// guards exactly that, and only that.
+//
+// A header that is present but produces no registered case is caught at run
+// time, not here: a STRICT lane with no executed coverage FAILS
+// (`run_module_tests.py::_handle_no_executed_coverage`), and a
+// `STRICT_COVERAGE_CONTRACTS` corpus that contributes zero cases FAILS
+// (`check_test_lane_coverage.py`). Both were mutation-proved in PR #881.
 
 #include "tests/test_macros.h"
 
-// Include all test suites
+// Test suites included explicitly below. This list is redundant with the glob
+// above (`#pragma once` makes the double include a no-op); it is not a registry,
+// and omission from it is not a defect.
 #include "test_gaussian_data.h"
 #include "test_data_authority_hardening.h"
 #include "test_gpu_streaming.h"

@@ -1,12 +1,16 @@
 extends SceneTree
 
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
 const MAX_TEST_FRAMES := 220
 const REQUIRED_SAMPLES := 30
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Data Flow Recent Window")
 
 var scene_root: Node3D
 var splat_node: GaussianSplatNode3D
@@ -93,6 +97,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	ProjectSettings.set_setting("rendering/gaussian_splatting/debug/enable_pipeline_trace", true)
 	ProjectSettings.set_setting("rendering/gaussian_splatting/debug/enable_data_logging", true)
@@ -143,12 +148,14 @@ func _run() -> void:
 				_cleanup()
 				quit(1)
 				return
+			_report.ok()
 			if summed_pack_range != int(recent_window.get("pack_range_calls", -1)):
 				_record_failure("recent_window pack_range aggregate mismatch")
 				_emit_metrics("failed", "recent_window_pack_range_mismatch")
 				_cleanup()
 				quit(1)
 				return
+			_report.ok()
 
 		metrics["lifetime_pack_sh_samples"] = int(data_flow.get("pack_sh_samples", 0))
 		var pack_range_dict: Dictionary = data_flow.get("pack_range", {})
@@ -163,6 +170,7 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	var capacity_final := int(metrics.get("recent_capacity", 0))
 	var deltas_max := int(metrics.get("recent_frame_deltas_size_max", 0))
@@ -172,19 +180,23 @@ func _run() -> void:
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 	if deltas_max > capacity_final:
 		_record_failure("recent_window exceeded configured capacity")
 		_emit_metrics("failed", "recent_window_capacity_exceeded")
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 	if int(metrics.get("lifetime_pack_sh_samples", 0)) <= 0:
 		_record_failure("lifetime pack_sh_samples did not update")
 		_emit_metrics("failed", "lifetime_pack_sh_missing")
 		_cleanup()
 		quit(1)
 		return
+	_report.ok()
 
 	_emit_metrics("passed", "recent-window data-flow telemetry validated")
+	_report.emit_pass()
 	_cleanup()
 	quit(0)

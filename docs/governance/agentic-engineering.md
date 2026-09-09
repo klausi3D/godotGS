@@ -59,6 +59,31 @@ owned and forbidden paths, dependencies, non-goals, invariants, acceptance
 criteria, validation commands, evidence requirements, and a rollback plan. One
 contract → one branch → one worktree.
 
+## Milestone programs and Codex goals
+
+A milestone program (`.agentic/schemas/program.schema.json`) groups existing
+GitHub issues and pull requests into a dependency-ordered execution program. Each
+milestone has one concrete `objective`, agent-achievable completion criteria, and
+explicit human gates. Use that objective as the goal text for a dedicated Codex
+session. Do not set a token budget unless the human owner explicitly supplies one.
+
+The program manifest is not a status tracker and does not replace task contracts:
+
+- GitHub Issues and pull requests remain the live status authority.
+- The coordinator re-queries issue, PR, check, review, and base state before each
+  dispatch.
+- The implementer creates a fresh task contract with the immutable dispatch base.
+- A milestone goal ends at human-disposition readiness; it never authorizes an
+  agent to merge, waive a blocker, change product semantics, or publish a release.
+- Planner, implementer, verifier, and reviewer roles remain separate for every
+  child task, even when one coordinator owns the milestone goal.
+
+Validate a program with:
+
+```bash
+python scripts/agentic/validate_program.py --program .agentic/programs/<program>.json
+```
+
 ## Worktree isolation and parallel work
 
 - Each implementer works in its **own git worktree** so concurrent work never
@@ -85,8 +110,23 @@ from the changed paths and **fails closed to R3** for unrecognized sensitive pat
 | **R2** | Renderer, shaders, compute, GPU sort, streaming, performance, VRAM. | R1 + GPU/performance review + runtime/GPU evidence. |
 | **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat. | ADR before implementation + two reviews + CODEOWNER and human approval. |
 
-The PR author's self-declared risk class is **not** trusted on its own: CI
-re-derives it from the diff and uses the higher of the two.
+**What CI actually does with the risk class.** The required `agentic-pr-gate` check
+derives the class from the PR's own diff (`classify_change.py --base-ref <PR base>`)
+and publishes it, together with that class's `evidence_requirements` and
+`deterministic_checks`, to the job summary. The derivation fails closed: an
+unresolvable base ref fails the check, and an empty changed-path set is classified as
+`classification.default_unclassified` (R3), not R0.
+
+An author's **self-declared** class is *not consumed by CI today*. The
+higher-of-the-two rule is implemented in `check_pr_contract.py`, but that script only
+runs against the shipped fixture `.agentic/templates/task.json`, because the
+repository has no per-PR contract source (a task-contract instance is a local agent
+artifact and [`AGENTS.md`](../../AGENTS.md) forbids committing those). So a declared
+class is a review-time convention, not an enforced one, and per-PR scope
+(`owned_paths` / `forbidden_paths`) and evidence contracts are not enforced at all.
+Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
+[GitHub settings](github-settings.md) and in `.github/workflows/README.md`
+(`GS-AUDIT-TEST-001`).
 
 ## Legacy coordination data
 

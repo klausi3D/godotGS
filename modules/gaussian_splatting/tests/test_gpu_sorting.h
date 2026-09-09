@@ -28,6 +28,11 @@
 #include "../renderer/pipeline_io_contracts.h"
 #include <cstring>
 
+// GPU-003 (refs #922) sorter-init latch repro.
+#include "../interfaces/gpu_culler.h"
+#include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/render_sorting_orchestrator.h"
+
 namespace TestGaussianSplatting {
 
 // Helper to create storage buffer from typed data
@@ -1376,6 +1381,167 @@ TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance-count over
 	rd->free(counter_buffer);
 	rd->free(pipeline);
 	rd->free(shader);
+	if (owns_local_device) {
+		memdelete(rd);
+	}
+}
+
+// GPU-003 (refs #922): repeated GPU-sorter init failures must not latch GPU
+// sorting off for the rest of the session. The audited defect: after
+// kSorterInitMaxFailures (5) failed creation attempts, refresh_gpu_sorter()
+// early-returns forever, so ~5 seconds of transient VRAM pressure at startup
+// permanently disables GPU sorting -- and the instance route has no CPU
+// fallback (sort_fallback_policy.h: REUSE_PREVIOUS_SORT then FAIL), so splats
+// freeze at the last sorted order or stop rendering for the session.
+//
+// This case drives five REAL sorter-init failures through
+// RenderSortingOrchestrator::refresh_gpu_sorter (a null sorting_pipeline makes
+// every creation attempt fail deterministically -- the audit's OOM-injection
+// stand-in; the failing orchestrator shares the renderer's central
+// SortingState), then gives the renderer's own working pipeline a recovery
+// window far larger than any backoff interval. The sorter must be rebuilt, the
+// failure counter must reset, and the degraded state must have been surfaced
+// as a RenderingError (diagnostics), not only as a log line.
+//
+// Tag note: [GpuSort] before [RequiresGPU] places this case in the GPU
+// harness's required "GpuSorting" batch (filter "*Sort*][RequiresGPU]*").
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter init failure backoff recovers instead of permanently disabling GPU sorting") {
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	bool owns_local_device = false;
+	if (!rd) {
+		RenderingServer *rs = RenderingServer::get_singleton();
+		if (rs) {
+			rd = rs->create_local_rendering_device();
+			owns_local_device = rd != nullptr;
+		}
+	}
+	if (!rd) {
+		// #595: no silent environment skip in a required-batch case. The
+		// GpuSorting harness batch guarantees a device; a missing one is a
+		// harness defect, not a skippable precondition (same contract as the
+		// [SceneTree][RequiresGPU] cases).
+		FAIL("RenderingDevice unavailable in a [GpuSort][RequiresGPU] case - the GpuSorting batch guarantees a device");
+		return;
+	}
+
+	{
+		// Route the sorter's manager-acquired submission device at the test
+		// device (same contract as the sort-order oracles above, #754).
+		ScopedGpuSortManagerDevice manager_scope(rd);
+		REQUIRE(manager_scope.is_valid());
+
+		Ref<GaussianSplatRenderer> renderer;
+		renderer.instantiate(rd);
+		CHECK(renderer.is_valid());
+		if (renderer.is_valid()) {
+			renderer->initialize();
+
+			GaussianSplatRenderer::SortingState &sorting_state = renderer->get_sorting_state();
+			GaussianSplatRenderer::FrameState &frame_state = renderer->get_frame_state();
+
+			// Sanity: this environment can build a GPU sorter at all; otherwise
+			// the recovery assertion below could not discriminate
+			// latch-vs-environment.
+			sorting_state.sorter_needs_rebuild = true;
+			renderer->refresh_gpu_sorter("gpu003_sanity");
+			if (!sorting_state.gpu_sorter.is_valid()) {
+				// #595: the harness device must be able to build a sorter (the
+				// sort-order oracles in this batch already rely on that); a
+				// silent skip here would hollow out the recovery assertions.
+				FAIL("GpuSorting batch device could not build a GPU sorter - the recovery repro cannot discriminate");
+			} else {
+				// Failure injector: an orchestrator with a null sorting_pipeline
+				// fails every sorter creation attempt while mutating the
+				// renderer's shared SortingState.
+				Ref<GPUCuller> culler;
+				culler.instantiate();
+				REQUIRE(culler.is_valid());
+				Vector<RenderingError> recorded_errors;
+				RenderSortingOrchestrator::Dependencies failing_deps;
+				failing_deps.renderer = renderer.ptr();
+				failing_deps.gpu_culler = culler.ptr();
+				failing_deps.sorting_pipeline = nullptr; // forces every init attempt to fail
+				failing_deps.performance_settings = &renderer->get_performance_settings();
+				failing_deps.test_data_state = &renderer->get_test_data_state();
+				failing_deps.device_state = &renderer->get_device_state();
+				failing_deps.cull_for_view = [](const Transform3D &, const Projection &, const Size2i &) {
+					return GaussianRenderState::CullStageOutput();
+				};
+				failing_deps.record_rendering_error = [&recorded_errors](const RenderingError &p_error) {
+					recorded_errors.push_back(p_error);
+				};
+				failing_deps.ensure_rendering_device = [](const char *) { return true; };
+				ERR_PRINT_OFF; // the ctor rejects the null pipeline with an ERR_FAIL, deliberately
+				RenderSortingOrchestrator failing_orchestrator(failing_deps);
+				ERR_PRINT_ON;
+
+				// Five failed attempts, each with any plausible backoff window
+				// fully elapsed. (The failure cap is 5 on the audited head; keep
+				// the literal so this repro compiles unchanged on the pre-fix
+				// base.)
+				// No manual sorter_needs_rebuild re-arming below this point: the
+				// per-frame production path (sort_gaussians_for_view) only calls
+				// refresh_gpu_sorter while that flag is true, so the recovery
+				// contract under test INCLUDES the failure path leaving the flag
+				// armed. A test that re-armed it by hand would pass even if
+				// production probing were stranded (Codex R1, P2).
+				ERR_PRINT_OFF; // expected [GPU Sort] failure spam
+				for (uint32_t attempt = 0; attempt < 5; attempt++) {
+					frame_state.frame_counter += 100000;
+					failing_orchestrator.refresh_gpu_sorter("gpu003_forced_failure");
+					CHECK_FALSE(sorting_state.gpu_sorter.is_valid());
+				}
+				ERR_PRINT_ON;
+				CHECK_MESSAGE(sorting_state.sorter_init_failure_count == 5,
+						"five forced sorter-init failures must all be recorded");
+				CHECK_MESSAGE(sorting_state.sorter_needs_rebuild,
+						"a failed sorter build must leave sorter_needs_rebuild armed so the "
+						"per-frame sort path keeps routing into the recovery probe (GPU-003)");
+				CHECK_MESSAGE(!recorded_errors.is_empty(),
+						"reaching the sorter-init failure cap must surface a RenderingError "
+						"through diagnostics, not only a log line (GPU-003)");
+
+				// Recovery: the working pipeline was there all along, and far
+				// more frames elapse than ANY sane backoff interval. The
+				// renderer must retry and rebuild the sorter instead of staying
+				// latched off for the rest of the session.
+				frame_state.frame_counter += 1000000;
+				renderer->refresh_gpu_sorter("gpu003_recovery_probe");
+				CHECK_MESSAGE(sorting_state.gpu_sorter.is_valid(),
+						"sorter init must be retried after the backoff window instead of "
+						"being permanently disabled for the session (GPU-003)");
+				CHECK_MESSAGE(sorting_state.sorter_init_failure_count == 0,
+						"a successful sorter rebuild must reset the failure counter");
+
+				// Frame-counter wrap must not reopen the backoff window early
+				// (Codex R2 P2). frame_counter is 32-bit: record one failure
+				// just below UINT32_MAX, then cross the wrap while still inside
+				// the 60-frame base backoff. The modular delta (30) must keep
+				// the probe closed -- a zero-extended uint64 subtraction would
+				// compute a huge delta and retry immediately. Crossing the
+				// boundary afterwards must reopen it.
+				frame_state.frame_counter = 4294967286u; // UINT32_MAX - 9
+				ERR_PRINT_OFF; // expected [GPU Sort] failure warning
+				failing_orchestrator.refresh_gpu_sorter("gpu003_wrap_failure");
+				ERR_PRINT_ON;
+				CHECK_FALSE(sorting_state.gpu_sorter.is_valid());
+				CHECK(sorting_state.sorter_init_failure_count == 1);
+				frame_state.frame_counter += 30u; // wraps to 20; modular delta = 30 < 60
+				renderer->refresh_gpu_sorter("gpu003_wrap_backoff_probe");
+				CHECK_MESSAGE(!sorting_state.gpu_sorter.is_valid(),
+						"a frame-counter wrap inside the backoff window must not reopen "
+						"the recovery probe early (GPU-003 wrap safety)");
+				frame_state.frame_counter += 100u; // modular delta = 130 >= 60 -> eligible
+				renderer->refresh_gpu_sorter("gpu003_wrap_recovery");
+				CHECK_MESSAGE(sorting_state.gpu_sorter.is_valid(),
+						"once the modular backoff boundary passes, the probe must retry "
+						"and recover across the wrap");
+				CHECK(sorting_state.sorter_init_failure_count == 0);
+			}
+			renderer.unref();
+		}
+	}
+
 	if (owns_local_device) {
 		memdelete(rd);
 	}

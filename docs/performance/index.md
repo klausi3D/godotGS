@@ -2,6 +2,8 @@
 
 This page surfaces the current published benchmark snapshot and the suite lanes that are expected to grow it.
 
+The published baseline lane is `dense_resident_2m` (~4.9M visible splats, ~12 FPS). It was chosen because it is the only lane that exercises the resident sort/raster path under load; a headline taken from a lightweight smoke lane would describe a workload the project does not ship. See [#790](https://github.com/klausi3D/godotGS/issues/790).
+
 Charts use `assets/data/benchmark_latest.json` generated during docs build.
 The current public dataset contains five committed result rows, and the coverage table below shows the remaining user-relevant benchmark lanes already defined in the suite.
 
@@ -36,15 +38,18 @@ Every number on this page comes from one machine, one build, and one commit. Rea
 
 | Lane | Scene shape | Instances | Visible splats | Avg FPS | Avg frame (ms) | P99 frame (ms) | GPU frame (ms) | GPU mem delta (MiB) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `dense_resident_2m` **(published baseline)** | Dense resident path | 196 | 4,900,000 | **12.3** | 81.02 | 87.47 | 51.93 | ~2,388 |
 | `static_baseline` | Single asset, orbit camera | 1 | 10,000 | 455.1 | 2.20 | 3.05 | 1.69 | ~318 |
 | `city_flyover` | High-altitude visibility churn | 16 | 160,000 | 128.7 | 7.77 | 8.33 | 6.83 | ~1,079 |
 | `lighting_stress` | Animated light and shading | 9 | 90,000 | 72.6 | 13.78 | 15.15 | 13.90 | ~612 |
 | `instance_storm` | Many-instance submission pressure | 36 | 360,000 | 31.5 | 31.75 | 31.82 | 30.09 | ~1,128 |
-| `dense_resident_2m` | Dense resident path | 196 | 4,900,000 | 12.3 | 81.02 | 87.47 | 51.93 | ~2,388 |
 
-**Read `dense_resident_2m` as a negative result.** At 4.9M visible splats this configuration renders at ~12 FPS — far below interactive. It is published here because it is the honest ceiling of the current resident path on a high-end desktop GPU, not because it is a good number. It is a zero-weight support lane and is excluded from the aggregate suite score.
+**The published figure for this project is ~12 FPS**, from `dense_resident_2m` at 4.9M visible splats. That is far below interactive, and it is the number we publish: it is the only lane that drives the resident sort/raster path under load, so it is the only lane whose result describes a workload someone might actually ship. Read it as the honest ceiling of the current resident path on a high-end desktop GPU (RTX 3090), not as a good number.
 
-Note that the lane's name and its manifest metadata ("2M visible splats", "81 x synthetic_spiral") are stale: as configured today it instantiates 196 nodes and reports 4.9M visible splats. The measured column above is the ground truth; the lane name is not.
+`static_baseline` is retained as a low-noise regression reference, not as a headline. At a single 10,000-splat instance its frame time is dominated by fixed per-frame overhead rather than by splat workload, which makes it a sensitive detector of overhead regressions and a poor description of the renderer's capability. Until [#790](https://github.com/klausi3D/godotGS/issues/790) it carried `evidence_role: published_baseline`, and its 455 FPS was quoted as the project's top-line result — a number produced by a workload nobody ships. It no longer holds that role.
+
+!!! warning "The committed snapshot predates the baseline change"
+    The rows above were captured on 2026-07-19, when `dense_resident_2m` was a zero-weight lane in no default profile. The aggregate suite score in `assets/data/benchmark_latest.json` therefore still **excludes** it, and that file still records `weight: 0.0` for the lane. The lane is now a weighted member of the `performance` profile, so the next captured run will produce a materially lower aggregate. These numbers have not been re-measured and have not been adjusted; only the role assignment changed.
 
 `instance_storm` at ~31 FPS is likewise borderline rather than comfortable.
 
@@ -176,11 +181,11 @@ and should be read as order-of-magnitude only.
 
 | Lane | Purpose | Status |
 | --- | --- | --- |
-| `static_baseline` | Low-noise raster baseline | Published in `benchmark_latest.json` |
+| `dense_resident_2m` | Dense resident path, ~4.9M visible splats | **Published baseline** — the lane the headline figure comes from |
+| `static_baseline` | Low-noise regression reference (10k splats, overhead-dominated) | Published in `benchmark_latest.json` |
 | `city_flyover` | High-altitude visibility-change stress | Published in `benchmark_latest.json` |
 | `lighting_stress` | Animated light and shading stress | Published in `benchmark_latest.json` |
 | `instance_storm` | Many-instance submission pressure | Published in `benchmark_latest.json` |
-| `dense_resident_2m` | Dense resident path, ~4.9M visible splats | Published in `benchmark_latest.json` (zero-weight support lane) |
 | `streaming_corridor` | Camera sweep stressing chunk turnover | Defined in the benchmark suite, not yet published |
 | `unified_composite` | Integrated all-systems composite lane | Defined in the benchmark suite, not yet published |
 | `open_world_corridor_proof` | Chunked large-world proof lane | Defined in the benchmark suite, not yet published |

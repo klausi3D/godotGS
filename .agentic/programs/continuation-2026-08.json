@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "program_id": "GS-CONTINUATION-2026-08",
+  "title": "GodotGS evidence-first continuation program",
+  "planning_snapshot_sha": "873025f5783c765caec08a39a33909d1118b9d60",
+  "status_authority": "#458",
+  "dispatch": {
+    "task_contract_template": ".agentic/templates/task.json",
+    "implementation_wip_limit": 2,
+    "heavy_process_limit": 2,
+    "live_status_requery_required": true,
+    "invariants": [
+      "GitHub Issues and pull requests are the live status authority; this manifest is a dependency and dispatch contract, not a status snapshot.",
+      "Create a fresh task contract with the current immutable base SHA before every implementation.",
+      "Use one task, one branch, and one isolated worktree; never modify or clean another contributor's checkout.",
+      "Planner, implementer, verifier, correctness reviewer, and GPU reviewer roles remain separate as required by risk class.",
+      "Humans own merges, review-thread resolution, waivers, visual/product semantics, baseline changes, releases, and support declarations.",
+      "Never weaken a guard, threshold, baseline, or gate to make evidence green.",
+      "At most two heavy builds, GPU runs, full suites, or large transformations may run concurrently across the program."
+    ]
+  },
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "Restore a trustworthy master baseline",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/14",
+      "coordinator_issue": "#948",
+      "objective": "Restore GodotGS master to a trustworthy, explainable baseline by bringing every currently open pull request to an explicit human disposition, repairing the script-visible rendered-content proof, and resolving the tie-break and GPU-001 visual-baseline contracts without weakening a guard, threshold, or baseline. Work only in isolated task worktrees from freshly queried immutable bases. Stop at merge-ready evidence and queued human decisions; never merge, resolve review threads, waive failures, or re-pin a baseline without written owner approval.",
+      "depends_on": [],
+      "work_items": [
+        { "kind": "pull_request", "ref": "#939", "purpose": "Land the workflow-trigger scalar-type correction into its parent branch first." },
+        { "kind": "pull_request", "ref": "#933", "purpose": "Finish automation validation only after #939 is integrated and re-verified." },
+        { "kind": "pull_request", "ref": "#937", "purpose": "Land fixture-consumer gating into its parent branch first." },
+        { "kind": "pull_request", "ref": "#934", "purpose": "Finish runtime fixture-floor enforcement only after #937 is integrated." },
+        { "kind": "pull_request", "ref": "#932", "purpose": "Dispose unresolved structural-guard findings at the immutable head." },
+        { "kind": "pull_request", "ref": "#931", "purpose": "Bring the draft release-integrity work to an explicit ready, defer, or supersede state." },
+        { "kind": "pull_request", "ref": "#882", "purpose": "Decide revive-with-new-contract or close/supersede; do not blind-rebase." },
+        { "kind": "pull_request", "ref": "#873", "purpose": "Decide revive-with-new-contract or close/supersede; do not blind-rebase." },
+        { "kind": "pull_request", "ref": "#779", "purpose": "Decide revive-with-new-contract or close/supersede; do not blind-rebase." },
+        { "kind": "issue", "ref": "#941", "purpose": "Expose the existing fail-closed rendered-content predicate to GDScript with mutation proof." },
+        { "kind": "issue", "ref": "#792", "purpose": "Specify the correct equal-depth tie-break order before changing behavior or baseline." },
+        { "kind": "issue", "ref": "#921", "purpose": "Complete human visual and baseline disposition for the pre-upscale composite contract." }
+      ],
+      "agent_completion_criteria": [
+        "Every open PR has current SHA-bound checks, review/thread state, dependency ordering, and a concrete human disposition recommendation.",
+        "The canonical release runtime proof observes the script-visible predicate and is green at the immutable candidate head.",
+        "Tie-break and GPU-001 decision packets contain real-scan evidence and do not choose product semantics autonomously.",
+        "No red master lane remains unexplained."
+      ],
+      "human_gates": [
+        "All merges and review-thread resolution.",
+        "Tie-break semantics and any sanctioned baseline update.",
+        "GPU-001 appearance, temporal, and depth acceptance.",
+        "Revive-or-close decisions for stale pull requests."
+      ]
+    },
+    {
+      "id": "M1",
+      "title": "Make green mean tested",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/15",
+      "coordinator_issue": "#949",
+      "objective": "Make GodotGS green mean tested by closing the fail-open runtime, production-default visual, GPU-batch reachability, fixture-authority, and performance-baseline gaps with mutation-proven guards. Work from freshly queried immutable bases, keep deterministic and GPU lanes separate, and never weaken a gate or declare unavailable hardware passed. Prepare stable protection settings for human activation only after the candidate lanes have an evidenced soak.",
+      "depends_on": ["M0"],
+      "work_items": [
+        { "kind": "issue", "ref": "#891", "purpose": "Require positive runtime completion and renderer-proof semantics across required profiles." },
+        { "kind": "issue", "ref": "#903", "purpose": "Add a production-default, non-vacuous composite pixel oracle and explicit override waiver list." },
+        { "kind": "issue", "ref": "#906", "purpose": "Route the stranded renderer-pipeline GPU cases into a real non-empty batch." },
+        { "kind": "issue", "ref": "#936", "purpose": "Separate QA route-pair fixture authority from runtime fixture-floor authority." },
+        { "kind": "issue", "ref": "#523", "purpose": "Persist and compare optimized-build performance baselines with an approved enforcement transition." },
+        { "kind": "issue", "ref": "#889", "purpose": "Keep governance/protection claims derived from live state and prepare the human settings handoff." }
+      ],
+      "agent_completion_criteria": [
+        "Silence, missing probes, zero assertions, and empty required GPU batches cannot pass.",
+        "The production-default composite path has a mutation-proven visual oracle.",
+        "Fixture preparation cannot produce an identity-mismatched PLY/world comparison.",
+        "Performance comparisons use attributable optimized-build baselines and state advisory versus blocking status.",
+        "Proposed protection changes are derived from live API state and ready for human application."
+      ],
+      "human_gates": [
+        "Required-check and branch-protection changes.",
+        "Quarantine approval and expiry.",
+        "Performance threshold and baseline acceptance.",
+        "Hardware or platform evidence waivers."
+      ]
+    },
+    {
+      "id": "M2",
+      "title": "Eliminate data and runtime correctness hazards",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/16",
+      "coordinator_issue": "#950",
+      "objective": "Eliminate the investigated user-facing data and runtime correctness hazards in GodotGS: world-resource payload changes must resubmit, scene serialization must obey the established data lock, incremental deltas must verify baseline identity rather than count alone, and sorter failure must never silently render unsorted translucent output. Deliver each repair as a separate risk-classified task with failure-path and concurrency evidence, stopping at human disposition for format/API choices and merges.",
+      "depends_on": ["M1"],
+      "work_items": [
+        { "kind": "issue", "ref": "#862", "purpose": "Resubmit changed world-resource payloads without lifetime or resubmission storms." },
+        { "kind": "issue", "ref": "#774", "purpose": "Protect serializer reads with the established Gaussian data lock." },
+        { "kind": "issue", "ref": "#773", "purpose": "Version and verify incremental baseline content identity, not only splat count." },
+        { "kind": "issue", "ref": "#586", "purpose": "Remove silent unsorted translucent rendering on sort failure." }
+      ],
+      "agent_completion_criteria": [
+        "Every issue has a minimal reproducer that fails on its dispatch base.",
+        "Corrections pass targeted, guard, concurrency, persistence, and runtime/GPU evidence required by their risk class.",
+        "Failure and teardown paths remain bounded and leak-free.",
+        "Format or API changes have approved design records and backward-compatibility evidence."
+      ],
+      "human_gates": [
+        "Incremental format/version and migration decisions.",
+        "User-visible degraded/error behavior for unavailable sorting.",
+        "All R3 design approvals, waivers, and merges."
+      ]
+    },
+    {
+      "id": "M3",
+      "title": "Complete renderer parity and recovery",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/17",
+      "coordinator_issue": "#951",
+      "objective": "Complete renderer recovery and compositor parity without changing the settled pre-upscale contract: sorter initialization must recover from every supported transient exit, transparent backgrounds must preserve splat-edge alpha, temporal consumers must receive correctly aligned splat projection, painterly compositing must obey the color-space contract, and Forward Mobile must either gain evidenced parity or be explicitly unsupported. Use real-scan GPU evidence and independent GPU review for every visual or synchronization change; stop for human visual and architecture decisions.",
+      "depends_on": ["M0", "M1"],
+      "work_items": [
+        { "kind": "issue", "ref": "#926", "purpose": "Recover or explicitly terminate the remaining sorter-initialization exit paths." },
+        { "kind": "issue", "ref": "#928", "purpose": "Preserve transparent-background splat-edge alpha on the pre-upscale path." },
+        { "kind": "issue", "ref": "#929", "purpose": "Align splat projection with temporal jitter consumers." },
+        { "kind": "issue", "ref": "#930", "purpose": "Restore the painterly source color-space decode contract." },
+        { "kind": "design", "ref": "#942", "purpose": "Approve Forward Mobile parity or an explicit unsupported contract before implementation." }
+      ],
+      "agent_completion_criteria": [
+        "Every transient sorter-init exit recovers or reports a terminal observable unsupported state.",
+        "Transparent, temporal, painterly, scaled, and depth-tested paths have non-vacuous real-content evidence.",
+        "Forward+ remains regression-free and Forward Mobile support status is explicit.",
+        "GPU lifetime, synchronization, visual, and frame-time evidence is independently reviewed."
+      ],
+      "human_gates": [
+        "Visual acceptance and baseline changes.",
+        "Forward Mobile support and architecture decision.",
+        "New upstream engine hooks and all merges."
+      ]
+    },
+    {
+      "id": "M4",
+      "title": "Prepare a defensible public-alpha candidate",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/18",
+      "coordinator_issue": "#952",
+      "objective": "Prepare a defensible GodotGS public-alpha candidate whose claims match executed evidence: define the release bar and accepted limitations, verify supported-platform compatibility, produce real screenshots and workflow clips from the exact candidate, and assemble reproducible editor/export/runtime/GPU evidence. Do not publish a stable release or broaden support claims autonomously; stop with a hash-bound candidate and a complete human release-decision packet.",
+      "depends_on": ["M2", "M3"],
+      "work_items": [
+        { "kind": "issue", "ref": "#360", "purpose": "Define the public-alpha acceptance bar and blocking versus accepted-risk defects." },
+        { "kind": "issue", "ref": "#182", "purpose": "Expand compatibility evidence on the exact candidate." },
+        { "kind": "issue", "ref": "#184", "purpose": "Capture real screenshots and workflow clips from the exact candidate build." }
+      ],
+      "agent_completion_criteria": [
+        "Candidate SHA, source provenance, editor/export assets, checksums, and reports agree.",
+        "Every compatibility claim carries executed evidence or is marked NOT_RUN or unsupported.",
+        "Known P0/P1 defects are fixed or explicitly presented for human risk acceptance.",
+        "Media depicts supported workflows from the exact candidate.",
+        "Stable-release commands remain unexecuted."
+      ],
+      "human_gates": [
+        "Accepted limitations and supported-platform claims.",
+        "Candidate sign-off, release naming, publication, and announcements.",
+        "Any waiver of red or missing evidence."
+      ]
+    },
+    {
+      "id": "M5",
+      "title": "Re-baseline onto supported Godot versions",
+      "github_milestone": "https://github.com/klausi3D/godotGS/milestone/19",
+      "coordinator_issue": "#953",
+      "objective": "Prepare GodotGS on the latest approved supported Godot baseline through two controlled content re-baselines, current-to-4.6.3 and 4.6.3-to-4.7.2, with mechanical upstream adoption separated from GodotGS engine-hook ports. Freeze every base and upstream tag, account for every engine integration file, preserve asset/project compatibility, and qualify each hop with builds, guards, runtime, GPU, real-scan, import/open, and export evidence. Never merge a hop, target 4.8 development, or choose a compatibility break without human approval.",
+      "depends_on": ["M4"],
+      "work_items": [
+        { "kind": "design", "ref": "#943", "purpose": "Approve the content re-baseline architecture and refreshed engine-hook manifest." },
+        { "kind": "issue", "ref": "#944", "purpose": "Prepare the mechanical 4.6.3 content adoption." },
+        { "kind": "issue", "ref": "#945", "purpose": "Port and qualify GodotGS hooks on the exact 4.6.3 mechanical base." },
+        { "kind": "issue", "ref": "#946", "purpose": "Prepare the mechanical 4.7.2 content adoption from accepted 4.6.3." },
+        { "kind": "issue", "ref": "#947", "purpose": "Port and qualify GodotGS hooks on the exact 4.7.2 mechanical base." }
+      ],
+      "agent_completion_criteria": [
+        "Mechanical and GodotGS-specific diffs are independently reviewable for both hops.",
+        "Every old hook is ported, explicitly retired, or replaced by an evidenced upstream capability.",
+        "Compatibility and evidence matrices are complete at immutable candidate heads.",
+        "Both hop stacks are ready for separate human disposition with no unresolved blocker/high finding.",
+        "The currently supported branch remains intact until acceptance."
+      ],
+      "human_gates": [
+        "Upstream architecture approval.",
+        "Compatibility breaks, migrations, and supported-version declaration.",
+        "CODEOWNER review, all merges, and retirement of the old supported branch."
+      ]
+    }
+  ]
+}
