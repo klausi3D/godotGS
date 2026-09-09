@@ -216,6 +216,8 @@ void InteractiveStateManager::_update_uniform_buffer_data() {
     // Upload to GPU
     if (uniform_buffer.is_valid() && rd) {
         Vector<uint8_t> data;
+        // #798 exclusion rule 2: sizeof(InteractiveUniformData) is a compile-time constant
+        // that does not scale with scene, asset or file data.
         data.resize(sizeof(InteractiveUniformData));
         memcpy(data.ptrw(), &uniform_data, sizeof(InteractiveUniformData));
         rd->buffer_update(uniform_buffer, 0, sizeof(InteractiveUniformData), data.ptr());
@@ -501,6 +503,8 @@ RID InteractiveStateManager::ensure_state_uniform_buffer(GaussianSplatRenderer *
     if (!state_uniform_buffer.is_valid()) {
         auto &interactive_state = p_renderer->get_interactive_state_config();
         Vector<uint8_t> state_data;
+        // #798 exclusion rule 2: sizeof(uniform_data) is a compile-time constant that does
+        // not scale with scene, asset or file data.
         state_data.resize(sizeof(interactive_state.uniform_data));
         memcpy(state_data.ptrw(), &interactive_state.uniform_data, sizeof(interactive_state.uniform_data));
         state_uniform_buffer = p_device->uniform_buffer_create(state_data.size(), state_data);

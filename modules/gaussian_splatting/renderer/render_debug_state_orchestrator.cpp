@@ -1,5 +1,6 @@
 #include "render_debug_state_orchestrator.h"
 
+#include "../core/gaussian_splat_scene_director.h"
 #include "../core/gs_project_settings.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
@@ -533,6 +534,22 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+	// #586 FIX: frames the global-composite path REFUSED to publish (nothing presented)
+	// rather than composite translucent splats unsorted. Partition with the pair above:
+	// a degraded frame is counted in exactly one of them.
+	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
+	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
+	// #586 PR 2: the tile sorter's retry state (shared GPU-003 policy). A non-zero
+	// failure count with a rising rejected-frames counter is "retrying on backoff";
+	// recoveries counts episodes that ended with a SORTED FRAME PUBLISHED by the
+	// renderer's own retry -- not merely a sorter or buffers rebuilt.
+	out["global_sort_sorter_init_failures"] = (int64_t)tr->get_global_sort_sorter_init_failure_count();
+	out["global_sort_sorter_recoveries"] = (int64_t)tr->get_global_sort_sorter_recoveries();
+	// #586 PR 3: a pending grow that keeps failing while the working sorter renders at
+	// its old budget (frames publish, overflow-drop telemetry counts the clamped
+	// records), and how many such episodes ended with the grow succeeding.
+	out["global_sort_sorter_grow_failures"] = (int64_t)tr->get_global_sort_sorter_grow_failure_count();
+	out["global_sort_sorter_grow_recoveries"] = (int64_t)tr->get_global_sort_sorter_grow_recoveries();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.
@@ -1232,20 +1249,51 @@ void GaussianSplatRenderer::set_debug_show_density_heatmap(bool p_enabled) {
 	debug_state_orchestrator->set_debug_show_density_heatmap(p_enabled);
 }
 
+// #839 round 3, thread C: the four setters that can flip
+// is_debug_hud_source_active().
+//
+// All four are bound to script (gaussian_splat_renderer_bindings.cpp:139-141,
+// :251-252), so `node.get_renderer().set_debug_show_device_boundaries(true)` is a
+// supported way to turn a HUD line on. Before this, that write landed in the
+// renderer's DebugState and stopped there: the node -- which is the thing that
+// creates the GaussianSplatDebugHUDLayer -- was never told. Its per-frame apply
+// would have reconciled eventually, but UPDATE_MODE_MANUAL never runs one, so the
+// flag stayed on with nothing on screen.
+//
+// Gated on the PREDICATE flipping, not on the individual flag, so enabling a
+// second HUD source while one is already on costs nothing. See
+// GaussianSplatRenderer::is_debug_hud_source_active() for why the predicate is
+// shared with the node rather than restated here.
 void GaussianSplatRenderer::set_debug_show_performance_hud(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_performance_hud(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_residency_hud(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_residency_hud(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_device_boundaries(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_device_boundaries(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_show_texture_states(bool p_enabled) {
+	const bool hud_active_before = is_debug_hud_source_active();
 	debug_state_orchestrator->set_debug_show_texture_states(p_enabled);
+	if (is_debug_hud_source_active() != hud_active_before) {
+		GaussianSplatSceneDirector::notify_renderer_debug_hud_sources_changed(this);
+	}
 }
 
 void GaussianSplatRenderer::set_debug_compute_raster_policy(int p_policy) {

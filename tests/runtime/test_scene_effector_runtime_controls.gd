@@ -1,12 +1,16 @@
 extends SceneTree
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 const MAX_RENDERER_WAIT_FRAMES := 120
 
 var failures: Array[String] = []
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Scene Effector Runtime Controls")
 var metrics := {
 	"frames": 0,
 	"baseline_matched_count": 0,
@@ -47,6 +51,7 @@ func _is_headless_runtime() -> bool:
 
 func _record_check(condition: bool, label: String, context: Dictionary = {}) -> void:
 	if condition:
+		_report.ok()
 		print("PASS ", label)
 		return
 	_record_failure(label, context)
@@ -437,6 +442,8 @@ func _run() -> void:
 	_record_node_state(node_a, "Node A base opacity zero", 1, true, false)
 	_record_statistics_surface(node_a, "Node A after base opacity zero")
 
+	if failures.is_empty():
+		_report.emit_pass()
 	_emit_metrics("passed" if failures.is_empty() else "failed")
 	_cleanup()
 	quit(0 if failures.is_empty() else 1)

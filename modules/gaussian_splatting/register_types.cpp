@@ -122,6 +122,15 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             GDREGISTER_CLASS(GaussianSplatSceneDirector);
             GDREGISTER_CLASS(ColorGradingResource);
 
+            // #839 round 3, thread C: let the renderer layer reach the node layer
+            // for "a debug HUD source flag on this renderer changed". renderer/
+            // deliberately does not include nodes/, and the write that triggers
+            // this (GaussianSplatRenderer::set_debug_show_device_boundaries and
+            // siblings, all bound to script) has no node to route through, so the
+            // director carries the callback. Cleared in the uninitialize path.
+            GaussianSplatSceneDirector::set_renderer_debug_hud_sources_changed_callback(
+                    &GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer);
+
             if (!gaussian_splat_manager_singleton) {
                 gaussian_splat_manager_singleton = memnew(GaussianSplatManager);
                 gaussian_splat_manager_singleton->initialize_module();
@@ -232,6 +241,12 @@ void uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
     // Cleanup when module is unloaded
     switch (p_level) {
         case MODULE_INITIALIZATION_LEVEL_SCENE:
+            // #839 round 3, thread C: drop the renderer -> node HUD callback before
+            // anything else is torn down. It points at a static member function, so
+            // there is no object to outlive, but a renderer destroyed during the
+            // teardown below must not fan a notification out into nodes that are
+            // themselves being freed.
+            GaussianSplatSceneDirector::set_renderer_debug_hud_sources_changed_callback(nullptr);
             if (gaussian_format_loader.is_valid()) {
                 ResourceLoader::remove_resource_format_loader(gaussian_format_loader);
                 gaussian_format_loader.unref();

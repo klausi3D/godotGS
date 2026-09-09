@@ -1,5 +1,6 @@
 #include "gaussian_splat_renderer.h"
 #include "../core/gs_project_settings.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "servers/rendering/rendering_server_default.h"
 #include "gpu_debug_utils.h"
 #include "render_pipeline_stages.h"
@@ -1168,11 +1169,25 @@ bool GaussianSplatRenderer::resize_sort_state_byte_vectors(uint32_t p_cpu_capaci
     SortingState &sorting_state = get_sorting_state();
     const int key_bytes = int(key_bytes_u64);
     const int index_bytes = int(index_bytes_u64);
+    // #798: both are PERSISTENT scratch vectors, so a failed grow leaves them non-empty at
+    // their old, too-short size with a still-valid ptrw() -- later writes bounded by the
+    // requested capacity would be a silent heap overflow. Returning true with short buffers
+    // is just as bad: the callers immediately call set_sort_buffer_binding_state() with a
+    // nonzero capacity. Fail closed with this function's own contract -- return false, which
+    // both callers in GPUSortingPipeline::ensure_sort_buffers() already handle by logging and
+    // calling release_sort_buffers(). The byte counts were already range-checked against
+    // byte_limit above, so no overflow is possible here.
     if (sorting_state.sort_key_bytes.size() != key_bytes) {
-        sorting_state.sort_key_bytes.resize(key_bytes);
+        if (!gs_resize_or_fail(sorting_state.sort_key_bytes, key_bytes,
+                    "GaussianSplatRenderer::resize_sort_state_byte_vectors sort_key_bytes")) {
+            return false;
+        }
     }
     if (sorting_state.sort_index_bytes.size() != index_bytes) {
-        sorting_state.sort_index_bytes.resize(index_bytes);
+        if (!gs_resize_or_fail(sorting_state.sort_index_bytes, index_bytes,
+                    "GaussianSplatRenderer::resize_sort_state_byte_vectors sort_index_bytes")) {
+            return false;
+        }
     }
     return true;
 }
@@ -1205,13 +1220,29 @@ void GaussianSplatRenderer::publish_sorted_indices(const SortPublicationPayload 
         return;
     }
 
+    // #798: allocate the persistent CPU mirror FIRST and bail before mutating any cull
+    // state. sort_index_bytes is reused frame to frame, so a failed grow leaves it
+    // non-empty at its old, too-short size with a still-valid ptrw(); the write loop below
+    // is bounded by available_splats, so it would silently overflow a live heap block.
+    // Ordering the check first also avoids leaving culled_indices resized-but-unpopulated
+    // (LocalVector does not value-initialise trivial types, so those slots would be garbage
+    // splat indices). Fail closed with this method's existing contract: the invalid-culler
+    // branch above also returns without publishing, which leaves sorted_splat_count and
+    // visible_splat_count at the previous frame's values -- a stale but self-consistent
+    // order that the next sort replaces. The int64_t widening also removes the old
+    // int(available_splats * sizeof(uint32_t)) narrowing cast.
+    SortingState &sorting_state = get_sorting_state();
+    if (!gs_resize_or_fail(sorting_state.sort_index_bytes,
+                int64_t(available_splats) * int64_t(sizeof(uint32_t)),
+                "GaussianSplatRenderer::publish_sorted_indices sort_index_bytes")) {
+        return;
+    }
+
     GPUCuller::CullingState &cull_state = subsystem_state.gpu_culler->get_state();
     if (static_cast<uint32_t>(cull_state.culled_indices.size()) != available_splats) {
         cull_state.culled_indices.resize(available_splats);
     }
 
-    SortingState &sorting_state = get_sorting_state();
-    sorting_state.sort_index_bytes.resize(int(available_splats * sizeof(uint32_t)));
     uint32_t *final_indices = reinterpret_cast<uint32_t *>(sorting_state.sort_index_bytes.ptrw());
     for (uint32_t i = 0; i < available_splats; i++) {
         const uint32_t index = p_payload.sorted_indices[i];

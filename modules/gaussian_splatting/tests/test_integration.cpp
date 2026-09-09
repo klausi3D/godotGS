@@ -350,6 +350,27 @@ TEST_SUITE("[Gaussian Splatting Integration]") {
         }
         CHECK(has_residency_heading);
 
+        // #832: device boundaries and texture states are independent HUD flags.
+        // They used to be nested inside the show_performance_hud block AND wired
+        // to the overlay (not HUD) invalidation variant, so enabling either on
+        // its own produced no lines at all.
+        renderer->set_debug_show_residency_hud(false);
+        renderer->set_debug_show_device_boundaries(true);
+        stats = renderer->get_render_stats();
+        CHECK(!bool(stats["debug_show_performance_hud"]));
+        CHECK(!bool(stats["debug_show_residency_hud"]));
+        Array device_lines = stats["performance_hud_lines"];
+        CHECK(has_prefixed_line(device_lines, "Device Boundaries"));
+        CHECK(!has_prefixed_line(device_lines, "Route: "));
+
+        renderer->set_debug_show_device_boundaries(false);
+        renderer->set_debug_show_texture_states(true);
+        stats = renderer->get_render_stats();
+        Array texture_lines = stats["performance_hud_lines"];
+        CHECK(has_prefixed_line(texture_lines, "Texture States"));
+        CHECK(!has_prefixed_line(texture_lines, "Device Boundaries"));
+        renderer->set_debug_show_texture_states(false);
+
         renderer->set_debug_show_tile_grid(false);
         renderer->set_debug_show_density_heatmap(false);
         renderer->set_debug_show_performance_hud(false);

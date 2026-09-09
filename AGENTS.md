@@ -49,6 +49,14 @@ When docs conflict, the two canonical pages named in `CONTRIBUTING.md`
   notes, dirty-worktree dumps, local task instances. See
   [contribution standards](docs/governance/contribution-standards.md).
 - **Do not weaken a guard, baseline, threshold, or gate to make a check pass.**
+- **Absence of a signal is never a passing signal.** "Did not run", "could not
+  run", "found nothing to check" and "ran and passed" must be distinguishable.
+  Before reporting a check as green, ask: *what would a failure have to look like
+  for this check to see it?* If the answer is "it couldn't", it is not evidence
+  yet. This is the most common defect class in this repo's guards and CI — the
+  recurring shapes and the mandatory practices are catalogued in
+  [evidence integrity](docs/governance/evidence-integrity.md). Read it before
+  writing or reviewing a guard.
 - **Evidence by risk.** Higher-risk changes (renderer/shaders/persistence/engine)
   require runtime/GPU evidence and extra review — see the risk classes (R0–R3) in
   [agentic engineering](docs/governance/agentic-engineering.md), mirrored

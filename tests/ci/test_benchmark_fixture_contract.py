@@ -34,7 +34,10 @@ a different hat.
 from __future__ import annotations
 
 import importlib.util
+import json
+import re
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -296,6 +299,587 @@ class ManifestContractTests(unittest.TestCase):
             manifest = _manifest_mod.load_benchmark_asset_manifest(legacy)
             self.assertEqual(manifest.asset_min_splat_counts, {})
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
+
+
+FIXTURE_IMPORT_RELATIVE_DIR = (
+    Path("tests") / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+)
+FIXTURE_IMPORT_DIR = ROOT / FIXTURE_IMPORT_RELATIVE_DIR
+
+
+def _tracked_fixture_imports(
+    *,
+    root: Path = ROOT,
+    tracked_paths: list[str] | None = None,
+) -> list[Path]:
+    """Derive fixture imports from Git, excluding ignored editor sidecars."""
+    if tracked_paths is None:
+        pathspec = f"{FIXTURE_IMPORT_RELATIVE_DIR.as_posix()}/*.ply.import"
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", pathspec],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Could not derive committed benchmark fixture imports from Git: "
+                + (result.stderr.strip() or f"git ls-files exited {result.returncode}")
+            )
+        tracked_paths = [path for path in result.stdout.split("\0") if path]
+
+    fixtures = []
+    for raw_path in tracked_paths:
+        relative_path = Path(raw_path)
+        if (
+            relative_path.parent == FIXTURE_IMPORT_RELATIVE_DIR
+            and relative_path.name.endswith(".ply.import")
+        ):
+            fixtures.append(root / relative_path)
+    return sorted(fixtures)
+
+
+def _parse_import_file(path: Path) -> dict:
+    """Extract the [params] block and the count fields from a Godot .import file.
+
+    Deliberately a small hand parser: .import is Godot's own ConfigFile-ish
+    format with `&"key": value` metadata, and pulling in a real parser to read
+    five integers would be a worse trade than twelve lines of splitting.
+    """
+    text = path.read_text(encoding="utf-8", errors="replace")
+    params: dict[str, str] = {}
+    in_params = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_params = stripped == "[params]"
+            continue
+        if in_params and "=" in stripped:
+            key, _, value = stripped.partition("=")
+            params[key.strip()] = value.strip()
+
+    # The `&` prefix matters and is not decoration: Godot writes top-level
+    # metadata keys as StringNames (`&"splat_count"`), while the nested
+    # `loader_statistics` dictionary uses plain string keys. Both spell
+    # "splat_count", and they mean DIFFERENT things — loader_statistics carries
+    # the count parsed from the source PLY, the top-level key carries the count
+    # actually imported. Matching without the prefix finds the source count
+    # first and compares it against itself, which is how the first draft of
+    # this guard passed the very file it was written to reject.
+    counts: dict[str, int] = {}
+    for field in ("original_splat_count", "pre_prune_splat_count", "splat_count"):
+        match = re.search(rf'&"{field}"\s*:\s*(\d+)', text)
+        if match:
+            counts[field] = int(match.group(1))
+    compression = re.search(r'&"compression_flags"\s*:\s*(\d+)', text)
+    return {"params": params, "counts": counts,
+            "compression_flags": int(compression.group(1)) if compression else None}
+
+
+def _fixture_thinning_failure(path: Path) -> str | None:
+    """Describe why one imported fixture cannot prove full source fidelity."""
+    counts = _parse_import_file(path)["counts"]
+    required = ("original_splat_count", "splat_count")
+    missing = [f'&"{field}"' for field in required if field not in counts]
+    if missing:
+        return (
+            f"{path.name}: missing top-level fidelity metadata: "
+            + ", ".join(missing)
+        )
+
+    original = counts["original_splat_count"]
+    final = counts["splat_count"]
+    if original <= 0:
+        return (
+            f'{path.name}: &"original_splat_count" must be positive, '
+            f"got {original}"
+        )
+    if final != original:
+        return (
+            f"{path.name}: imports {final} of {original} splats "
+            f"({final / original:.0%}) - the benchmark measures less than it names"
+        )
+    return None
+
+
+class FixtureImportFidelityTests(unittest.TestCase):
+    """Committed benchmark fixtures must import at FULL fidelity (#790).
+
+    Every `synthetic_*.ply.import` on master carried `quality/preset="mobile"`,
+    `density_multiplier=0.4` and all four `compression/quantize_*=true`. The
+    consequence was recorded in the files' own metadata: synthetic_flower_field
+    declared `original_splat_count: 30000` and shipped `splat_count: 12000`,
+    with `compression_flags: 15`. Every benchmark backed by those fixtures was
+    publishing a number for 40% of the workload it named, through the quantized
+    (unlit) render path rather than the one being measured.
+
+    Nothing generates that state — `ultra` is preset index 0, i.e. the
+    importer's own default for a fresh import (gaussian_import_preset.cpp). The
+    files were stale editor artifacts (importer_version 6 against today's 11,
+    import_time three months old) that nobody re-checked.
+
+    The load-bearing assertion here is the COUNT EQUALITY, not the preset name:
+    it catches thinning no matter which option caused it, including options
+    that do not exist yet.
+    """
+
+    QUANTIZE_OPTIONS = (
+        "compression/quantize_positions",
+        "compression/quantize_colors",
+        "compression/quantize_scales",
+        "compression/quantize_rotations",
+    )
+
+    def _fixtures(
+        self,
+        *,
+        root: Path = ROOT,
+        tracked_paths: list[str] | None = None,
+    ) -> list[Path]:
+        # Derived from the Git index, never a hand-maintained list: a new
+        # committed fixture is covered immediately, while ignored editor
+        # sidecars cannot make identical revisions produce different results.
+        return _tracked_fixture_imports(root=root, tracked_paths=tracked_paths)
+
+    def test_there_are_fixtures_to_check(self):
+        """Guard against the guard silently covering nothing."""
+        self.assertTrue(
+            self._fixtures(),
+            f"No committed .ply.import fixtures found under {FIXTURE_IMPORT_DIR}. "
+            "If the fixtures moved, this guard is now inert - point it at the new path.",
+        )
+
+    def test_fixture_discovery_ignores_untracked_editor_sidecars(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            fixture_dir = root / FIXTURE_IMPORT_RELATIVE_DIR
+            fixture_dir.mkdir(parents=True)
+            tracked = fixture_dir / "synthetic_tracked.ply.import"
+            ignored = fixture_dir / "test_splats.ply.import"
+            tracked.write_text("", encoding="utf-8")
+            ignored.write_text("", encoding="utf-8")
+
+            fixtures = self._fixtures(
+                root=root,
+                tracked_paths=[tracked.relative_to(root).as_posix()],
+            )
+
+        self.assertEqual([path.name for path in fixtures], [tracked.name])
+        self.assertNotIn(ignored.name, [path.name for path in fixtures])
+
+    def test_no_fixture_is_thinned_at_import(self):
+        """The invariant that actually matters: what was imported == what exists."""
+        offenders = []
+        for path in self._fixtures():
+            failure = _fixture_thinning_failure(path)
+            if failure is not None:
+                offenders.append(failure)
+        self.assertEqual(offenders, [], "Thinned benchmark fixtures:\n  " + "\n  ".join(offenders))
+
+    def test_missing_top_level_fidelity_metadata_fails_closed(self):
+        """Removing either load-bearing count must not skip the fixture.
+
+        Keep the nested plain-string splat_count decoy in both probes: matching
+        it would recreate the parser bug that once compared the source count to
+        itself and passed the 40%-density fixture.
+        """
+        cases = {
+            "original_splat_count": '&"splat_count": 30000,\n',
+            "splat_count": '&"original_splat_count": 30000,\n',
+        }
+        with tempfile.TemporaryDirectory() as raw_td:
+            for missing_field, present_metadata in cases.items():
+                with self.subTest(missing_field=missing_field):
+                    probe = Path(raw_td) / f"missing_{missing_field}.ply.import"
+                    probe.write_text(
+                        '[remap]\n\nmetadata={\n'
+                        '&"loader_statistics": {\n'
+                        '"splat_count": 30000\n'
+                        '},\n'
+                        + present_metadata
+                        + '}\n\n[params]\n',
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(
+                        _fixture_thinning_failure(probe),
+                        f'{probe.name}: missing top-level fidelity metadata: &"{missing_field}"',
+                    )
+
+    def test_zero_source_count_cannot_make_the_fidelity_check_vacuous(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            probe = Path(raw_td) / "zero_counts.ply.import"
+            probe.write_text(
+                '[remap]\n\nmetadata={\n'
+                '&"original_splat_count": 0,\n'
+                '&"splat_count": 0\n'
+                '}\n\n[params]\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _fixture_thinning_failure(probe),
+                'zero_counts.ply.import: &"original_splat_count" must be positive, got 0',
+            )
+
+    def test_no_fixture_is_quantized(self):
+        """Quantized assets render through a different (unlit) path, so a
+        quantized fixture does not merely measure fewer splats - it measures a
+        different renderer."""
+        offenders = []
+        for path in self._fixtures():
+            parsed = _parse_import_file(path)
+            enabled = [opt for opt in self.QUANTIZE_OPTIONS if parsed["params"].get(opt) == "true"]
+            flags = parsed["compression_flags"]
+            if enabled or (flags is not None and flags != 0):
+                offenders.append(f"{path.name}: quantize={enabled or '-'} compression_flags={flags}")
+        self.assertEqual(offenders, [], "Quantized benchmark fixtures:\n  " + "\n  ".join(offenders))
+
+    def test_no_fixture_declares_a_reducing_import_option(self):
+        """Belt and braces on the two options that can thin a fixture, so the
+        cause is named in the failure rather than only the symptom."""
+        offenders = []
+        for path in self._fixtures():
+            params = _parse_import_file(path)["params"]
+            density = params.get("quality/density_multiplier")
+            max_splats = params.get("quality/max_splats")
+            if density is not None and float(density) < 1.0:
+                offenders.append(f"{path.name}: quality/density_multiplier={density} < 1.0")
+            if max_splats is not None and int(max_splats) != 0:
+                offenders.append(f"{path.name}: quality/max_splats={max_splats} (0 means unlimited)")
+        self.assertEqual(offenders, [], "Reducing import options:\n  " + "\n  ".join(offenders))
+
+    def test_the_thinning_check_still_discriminates(self):
+        """A guard that cannot fail is worse than no guard. Feed it the exact
+        shape master shipped and require a rejection."""
+        with tempfile.TemporaryDirectory() as raw_td:
+            probe = Path(raw_td) / "thinned.ply.import"
+            # Shaped exactly like the real file, INCLUDING the decoy
+            # `loader_statistics.splat_count` that carries the source count with
+            # no `&` prefix. The first draft of this parser matched that one and
+            # compared 30000 against 30000, so the probe must contain it or the
+            # guard's own regression cannot be caught.
+            probe.write_text(
+                '[remap]\n\nmetadata={\n'
+                '&"compression_flags": 15,\n'
+                '&"loader_statistics": {\n'
+                '"splat_count": 30000\n'
+                '},\n'
+                '&"original_splat_count": 30000,\n'
+                '&"splat_count": 12000\n'
+                '}\n\n[params]\n\nquality/preset="mobile"\n'
+                'quality/density_multiplier=0.4\nquality/max_splats=250000\n'
+                'compression/quantize_positions=true\n',
+                encoding="utf-8",
+            )
+            parsed = _parse_import_file(probe)
+            self.assertEqual(parsed["counts"]["original_splat_count"], 30000)
+            self.assertEqual(
+                parsed["counts"]["splat_count"],
+                12000,
+                "Must read the top-level &\"splat_count\" (imported), not "
+                "loader_statistics.splat_count (source).",
+            )
+            self.assertEqual(parsed["compression_flags"], 15)
+            self.assertEqual(parsed["params"]["quality/preset"], '"mobile"')
+            self.assertEqual(parsed["params"]["quality/density_multiplier"], "0.4")
+            self.assertEqual(parsed["params"]["compression/quantize_positions"], "true")
+            self.assertEqual(
+                _fixture_thinning_failure(probe),
+                "thinned.ply.import: imports 12000 of 30000 splats (40%) - "
+                "the benchmark measures less than it names",
+                "The discrimination probe must exercise the guard decision, not only its parser.",
+            )
+
+
+CANONICAL_MANIFEST_PATHS = (
+    ROOT / "tests" / "fixtures" / "benchmark_asset_manifest.json",
+    ROOT
+    / "tests"
+    / "examples"
+    / "godot"
+    / "test_project"
+    / "tests"
+    / "fixtures"
+    / "benchmark_asset_manifest.json",
+)
+PUBLISHED_BASELINE_LANE_ID = "dense_resident_2m"
+
+
+class PublishedBaselineContractTests(unittest.TestCase):
+    """#790: the published figure must describe a workload the project ships.
+
+    The defect this pins: `evidence_role: published_baseline` sat on
+    `static_baseline`, a single 10,000-splat instance of the lightweight
+    canonical smoke fixture, published at ~455 FPS. The lane that actually
+    exercises the resident sort/raster path, `dense_resident_2m`, measured
+    ~12.3 FPS -- and carried `weight: 0.0` in every profile, so it could not
+    influence the aggregate even on the runs where it executed, and was a
+    member of no default profile, so it did not execute on a default run at
+    all. The published headline therefore described a scene nobody ships,
+    and nothing in the suite could notice.
+
+    These cases pin the parts of the repair that can silently rot:
+
+    * the role moved, and did not merely get added alongside the old one;
+    * the lane carrying the role is not a smoke lane by classification or by
+      resolved asset;
+    * the lane is enrolled in the profile that produces published numbers and
+      carries a non-zero weight there -- a role with no enrollment publishes
+      nothing, which is the same defect wearing the opposite hat;
+    * the committed manifests still match their generator, because the
+      manifests are generated artifacts and the guard lane regenerates them.
+
+    The list of published-baseline lanes is deliberately explicit rather than
+    derived: which lane defines the published figure is a *decision*, and
+    deriving it would let the corpus redefine what is published.
+    """
+
+    def _load(self, path: Path):
+        return _manifest_mod.load_benchmark_asset_manifest(path)
+
+    def _baseline_lane_ids(self, manifest) -> list[str]:
+        return sorted(
+            lane_id
+            for lane_id, metadata in manifest.lane_metadata.items()
+            if isinstance(metadata, dict)
+            and str(metadata.get("evidence_role", "")).strip()
+            == _manifest_mod.PUBLISHED_BASELINE_EVIDENCE_ROLE
+        )
+
+    def test_canonical_manifests_declare_exactly_one_published_baseline(self):
+        checked = 0
+        for path in CANONICAL_MANIFEST_PATHS:
+            self.assertTrue(path.is_file(), f"canonical manifest missing: {path}")
+            manifest = self._load(path)
+            self.assertEqual(
+                self._baseline_lane_ids(manifest),
+                [PUBLISHED_BASELINE_LANE_ID],
+                f"{path.name} must declare exactly one published_baseline lane, and it "
+                f"must be {PUBLISHED_BASELINE_LANE_ID} (#790)",
+            )
+            checked += 1
+        self.assertEqual(
+            checked, len(CANONICAL_MANIFEST_PATHS), "not every canonical manifest was checked"
+        )
+
+    def test_static_baseline_is_no_longer_the_published_baseline(self):
+        """The demotion, pinned directly.
+
+        Asserting only "dense_resident_2m is published_baseline" would still
+        pass if static_baseline kept the role too and the multi-role check
+        were ever relaxed.
+        """
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            metadata = manifest.lane_metadata.get("static_baseline")
+            self.assertIsNotNone(metadata, f"{path.name}: static_baseline lane was deleted")
+            self.assertNotEqual(
+                str(metadata.get("evidence_role", "")).strip(),
+                _manifest_mod.PUBLISHED_BASELINE_EVIDENCE_ROLE,
+                f"{path.name}: static_baseline is a 10k-splat smoke lane and must not "
+                "publish the headline figure (#790)",
+            )
+            self.assertTrue(
+                str(metadata.get("evidence_role", "")).strip(),
+                f"{path.name}: static_baseline must keep an explicit evidence_role",
+            )
+
+    def test_published_baseline_is_not_a_lightweight_smoke_lane(self):
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            metadata = manifest.lane_metadata[PUBLISHED_BASELINE_LANE_ID]
+            self.assertNotIn(
+                str(metadata.get("asset_classification", "")).strip(),
+                _manifest_mod.LIGHTWEIGHT_SMOKE_CLASSIFICATIONS,
+                f"{path.name}: the published baseline may not be classified as a smoke lane",
+            )
+            policy = _manifest_mod.resolve_lane_asset_policy(
+                manifest, lane_id=PUBLISHED_BASELINE_LANE_ID, scene_path=""
+            )
+            self.assertFalse(
+                _manifest_mod._is_lightweight_smoke_asset(policy.asset_path),
+                f"{path.name}: the published baseline resolves to the smoke fixture "
+                f"{policy.asset_path}",
+            )
+
+    def test_committed_manifests_satisfy_the_published_baseline_policy(self):
+        for path in CANONICAL_MANIFEST_PATHS:
+            manifest = self._load(path)
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(manifest),
+                [],
+                f"{path.name} violates the published-baseline policy",
+            )
+
+    def test_published_baseline_lane_is_enrolled_in_the_performance_profile(self):
+        """A role with no enrollment publishes nothing.
+
+        Membership and weight are read out of run_benchmark.py rather than
+        restated here, so this fails if the lane is dropped from the profile
+        or re-zeroed.
+        """
+        performance_lanes = _run_benchmark.PROFILE_DEFAULT_LANE_IDS["performance"]
+        self.assertIn(
+            PUBLISHED_BASELINE_LANE_ID,
+            performance_lanes,
+            "the published baseline must run in the profile that produces published numbers",
+        )
+        lane = next(
+            l for l in _run_benchmark.LANES if l.lane_id == PUBLISHED_BASELINE_LANE_ID
+        )
+        self.assertIn(
+            "performance",
+            lane.durations,
+            "the published baseline must define a performance-profile duration",
+        )
+        self.assertGreater(
+            lane.weights.get("performance", 0.0),
+            0.0,
+            "a zero-weight published baseline cannot influence the aggregate score (#790)",
+        )
+
+    def test_committed_manifests_match_their_generator(self):
+        """The manifests are generated; a hand-edit is reverted by the guard lane.
+
+        `run_module_tests.py` runs `prepare_synthetic_assets.py` before the
+        guards, which rewrites both canonical manifests from `LANE_METADATA`.
+        Without this check, a taxonomy change made only in the JSON looks
+        committed and is erased on the next guard run.
+        """
+        expected = json.dumps(
+            _prepare._benchmark_asset_manifest(), indent=2, sort_keys=True
+        ) + "\n"
+        for path in CANONICAL_MANIFEST_PATHS:
+            actual = path.read_text(encoding="utf-8")
+            self.assertEqual(
+                json.loads(actual),
+                json.loads(expected),
+                f"{path.name} has drifted from prepare_synthetic_assets.py; regenerate it "
+                "instead of hand-editing the JSON",
+            )
+
+    def _manifest_from(self, tmp: str, lane_metadata: dict, lane_defaults: dict):
+        path = Path(tmp) / "manifest.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "default_asset": "res://tests/fixtures/test_splats.ply",
+                    "lane_defaults": lane_defaults,
+                    "scene_defaults": {},
+                    "lane_metadata": lane_metadata,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return self._load(path)
+
+    def test_policy_rejects_a_lightweight_smoke_published_baseline(self):
+        """Discrimination proof: the exact pre-#790 shape must fail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "smoke_lane": {
+                        "asset_classification": "lightweight_smoke",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"smoke_lane": TEST_SPLATS_ASSET},
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(failures, "a smoke-asset published baseline must be rejected")
+            self.assertTrue(
+                any("asset_classification=lightweight_smoke" in f for f in failures),
+                f"the classification violation must be named: {failures}",
+            )
+            self.assertTrue(
+                any("lightweight smoke asset" in f for f in failures),
+                f"the resolved-asset violation must be named: {failures}",
+            )
+
+    def test_policy_rejects_a_smoke_asset_behind_an_honest_looking_classification(self):
+        """Relabelling the classification must not launder the workload."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "mislabelled": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"mislabelled": TEST_SPLATS_ASSET},
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(
+                any("lightweight smoke asset" in f for f in failures),
+                f"a smoke asset must be caught by path even when relabelled: {failures}",
+            )
+
+    def test_policy_rejects_more_than_one_published_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = self._manifest_from(
+                tmp,
+                {
+                    "lane_a": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    },
+                    "lane_b": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    },
+                },
+                {
+                    "lane_a": "res://tests/fixtures/synthetic_spiral.ply",
+                    "lane_b": "res://tests/fixtures/synthetic_sphere.ply",
+                },
+            )
+            failures = _manifest_mod.validate_published_baseline_policy(manifest)
+            self.assertTrue(
+                any("more than one" in f for f in failures),
+                f"two published baselines must be rejected: {failures}",
+            )
+
+    def test_policy_still_discriminates_and_does_not_reject_everything(self):
+        """A guard that rejects every input is the same bug wearing a hat.
+
+        Satellite manifests publish nothing (the Steam Deck project carries
+        only handheld smoke lanes), and an honest published baseline on a
+        non-smoke asset must pass.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            no_baseline = self._manifest_from(
+                tmp,
+                {
+                    "handheld": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "handheld_smoke",
+                    }
+                },
+                {"handheld": "res://tests/fixtures/synthetic_sphere.ply"},
+            )
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(no_baseline),
+                [],
+                "a manifest that publishes nothing must pass",
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            honest = self._manifest_from(
+                tmp,
+                {
+                    "dense": {
+                        "asset_classification": "deterministic_synthetic",
+                        "evidence_role": "published_baseline",
+                    }
+                },
+                {"dense": "res://tests/fixtures/synthetic_spiral.ply"},
+            )
+            self.assertEqual(
+                _manifest_mod.validate_published_baseline_policy(honest),
+                [],
+                "an honest published baseline must pass",
+            )
 
 
 if __name__ == "__main__":

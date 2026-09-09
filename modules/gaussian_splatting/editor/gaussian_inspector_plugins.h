@@ -6,12 +6,15 @@
 #include "editor/inspector/editor_inspector.h"
 #include "core/math/color.h"
 #include "core/math/vector3.h"
+#include "core/templates/hash_set.h"
+#include "core/variant/callable.h"
 #include "../core/gaussian_splat_asset.h"
 
 class GaussianEditorPlugin;
 class GaussianSplatNode3D;
 class Label;
 class Container;
+class CheckButton;
 class SpinBox;
 class ColorPickerButton;
 class OptionButton;
@@ -48,6 +51,12 @@ public:
     virtual void parse_begin(Object *p_object) override;
 };
 
+// #839 round 3: metadata key stamped on every control the Debug Visualization
+// block builds, holding the debug/* property path that control replaces. It is
+// the externally observable form of "parse_begin() built a replacement for this
+// property" — see GaussianSplatNodeInspectorPlugin::_add_debug_toggle.
+#define GS_DEBUG_REPLACEMENT_META "_gs_debug_replaces_property"
+
 // Custom property editor for GaussianSplatNode3D
 class GaussianSplatNodeInspectorPlugin : public EditorInspectorPlugin {
     GDCLASS(GaussianSplatNodeInspectorPlugin, EditorInspectorPlugin);
@@ -63,6 +72,24 @@ class GaussianSplatNodeInspectorPlugin : public EditorInspectorPlugin {
 
     GaussianEditorPlugin *editor_plugin = nullptr;
     BrushSessionState brush_session_state;
+
+    // #839 round 3: the set of debug/* property paths for which parse_begin()
+    // ACTUALLY built a replacement control, recorded while it builds them.
+    // parse_property() suppresses exactly this set and nothing else, so the
+    // suppression cannot name a property whose replacement does not exist.
+    // `built_debug_replacements_for` pins the set to the object parse_begin()
+    // last ran for: EditorInspector::instantiate_property_editor() calls
+    // parse_property() with no preceding parse_begin() (editor_inspector.cpp:3435),
+    // and a leftover set from another node must not suppress anything there.
+    HashSet<String> built_debug_replacements;
+    ObjectID built_debug_replacements_for;
+
+    // Every debug replacement control is created through one of these two
+    // helpers, which take the debug/* property they replace as a REQUIRED
+    // argument and record it. There is deliberately no way to add a control to
+    // the Debug Visualization block without naming its property.
+    CheckButton *_add_debug_toggle(Container *p_row, const String &p_text, const String &p_property_path, bool p_pressed, const Callable &p_on_toggled);
+    OptionButton *_add_debug_option_button(Container *p_row, const String &p_property_path);
 
     void _add_quality_button(Container *p_container, const String &p_label, ObjectID p_node_id, int p_preset);
     void _update_stats_label(Label *p_label, GaussianSplatNode3D *p_node);

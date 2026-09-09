@@ -6,6 +6,7 @@
 class Dictionary;
 
 class GaussianSplatNode3D;
+class GaussianSplatRenderer;
 class Viewport;
 
 class GaussianSplatNodeAssetHelper {
@@ -53,6 +54,58 @@ public:
     void set_debug_draw_mode(int p_mode);
     void set_runtime_preview_enabled(bool p_enabled);
     void set_show_residency_hud(bool p_show);
+
+    // #831: push the renderer-wide screen-space overlay flags as the union over
+    // every node bound to this node's renderer. Edge-triggered against the last
+    // union any node pushed to that renderer, so an unchanged node does NOT
+    // re-assert the flags every frame -- that re-assertion is what silently
+    // reverted every GaussianSplatRenderer::set_debug_show_*() call one frame
+    // after it was made.
+    //
+    // When the union actually CHANGES, this also fans HUD-control reconciliation
+    // out to the renderer's peers: the flags are renderer-wide but the control is
+    // drawn by exactly one node (the HUD owner elected by can_own_debug_hud), so a
+    // peer flipping show_performance_hud / show_residency_hud has to reach that
+    // owner or the flag is enabled with no HUD on screen (#839 round 2,
+    // finding 1). Unchanged pushes stay free.
+    void push_debug_overlay_union();
+    // #839 round 4, thread 1: is this node the ONE node that draws its renderer's
+    // debug HUD? Weaker than GaussianSplatNodeRendererHelper::can_apply_renderer_settings()
+    // on purpose -- hosting a CanvasLayer of renderer-wide stats does not require
+    // owning the renderer's scene data, and requiring it left a world-backed
+    // shared renderer with NO eligible node at all.
+    bool can_own_debug_hud() const;
+    // #839 round 3, thread B: recompute and push the union from the renderer's
+    // CURRENT registered node set, with no "self" seed. push_debug_overlay_union()
+    // cannot do this job when the observing node is the one that just left: it
+    // early-returns on the out-of-tree owner, and even if it did not it would
+    // contribute the departed node's own flags. Needed for the 1 -> 0 transition,
+    // where the peer walk in _notify_renderer_peers_shared_state_changed() has
+    // nobody left to delegate to but the renderer is still alive on a
+    // GaussianSplatWorld3D submission, so the departed node's tile-grid or
+    // heatmap request would stay enabled forever.
+    static void reconcile_debug_overlay_union_for_renderer(GaussianSplatRenderer *p_renderer);
+    // #839 round 7: the overlay union's peer set is "every node BOUND to the
+    // renderer", which is strictly larger than "every node the scene director has
+    // an instance record for": GaussianSplatNode3D::_register_shared_renderer()
+    // returns before registering when the node has no splat asset, no
+    // renderer_data and no runtime asset, yet such a node still resolves and
+    // holds the world's shared renderer and still owns the four overlay
+    // properties. Two of them therefore each saw an empty peer list and the last
+    // one to push retracted the other's request -- last-writer-wins, the very
+    // defect #831 removes.
+    //
+    // #839 round 8: the record's lifetime tracks the node's `renderer` Ref and is
+    // INDEPENDENT of whether the node has content -- register from
+    // GaussianSplatNodeRendererHelper::ensure_renderer() (bind), unregister ONLY
+    // from GaussianSplatNode3D::_unbind_renderer_binding_record() (unbind: Ref
+    // dropped / left the tree / left the world). Do NOT call unregister from a
+    // content path; `set_splat_asset(null)` on an in-tree node is not an unbind.
+    // The full invariant, and why the unbind must be explicit rather than derived
+    // from is_inside_tree(), is stated at `g_renderer_bound_nodes` in
+    // gaussian_splat_node_helpers.cpp.
+    static void register_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
+    static void unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
 
 private:
     GaussianSplatNode3D &owner;

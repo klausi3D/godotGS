@@ -1,6 +1,7 @@
 #include "gaussian_streaming.h"
 #include "../io/streaming_chunk_bake.h"
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h"
 #include "residency_budget_controller.h"
 #include "streaming_chunk_invariants.h"
 #include "streaming_layout_hint.h"
@@ -532,17 +533,22 @@ void GaussianStreamingSystem::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_effective_splat_count"), &GaussianStreamingSystem::get_effective_splat_count);
 }
 
-void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
+// Zero all per-(re)initialize runtime state shared by both init entry
+// points (issue #222). initialize() and initialize_empty() call this first,
+// then diverge on data-dependent vs. empty-state setup. Centralizing the
+// reset removes the "must-zero-a-new-field-in-both-sites" hazard.
+void GaussianStreamingSystem::_reset_runtime_state() {
     _connect_project_settings();
     _layout_hint_reset_state(this);
     // Re-init must quiesce the async upload path BEFORE touching any state. A
-    // prior initialize() may have left pack/upload worker threads running and
+    // prior init may have left pack/upload worker threads running and
     // uploads pending; tearing down chunks/atlas and freeing persistent_buffer
-    // below while a worker is mid-flight is a use-after-free. Mirror the
+    // in the caller while a worker is mid-flight is a use-after-free. Mirror the
     // destructor ordering (_stop_pack_threads -> _clear_pending_uploads). Both
     // are idempotent and device-independent, so this is a no-op on first init.
     // _clear_pending_uploads() rolls back against the still-valid prior
-    // chunk/atlas state, so it must run before the chunks/pending resets below.
+    // chunk/atlas state, so it must run before the chunks/pending resets the
+    // caller performs after this method returns.
     _stop_pack_threads();
     _clear_pending_uploads();
     streaming_initialized = false;
@@ -558,7 +564,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     runtime_capacity_guard_initialized = true;
     // PR #352: clear the warned-once latch on every (re-)initialize so a
     // subsequent failure can re-arm the one-shot ERR. Successful init naturally
-    // leaves the flag false; failed init below will set it to true.
+    // leaves the flag false; a failed init in the caller will set it to true.
     failed_init_warning_emitted = false;
     invalid_camera_input_events = 0;
     last_invalid_camera_log_frame = UINT64_MAX;
@@ -610,6 +616,10 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
     scheduler.last_sync_fallback_cpu_ms = 0.0;
     scheduler.last_cpu_total_attributed_ms = 0.0;
     scheduler.last_cpu_unattributed_ms = 0.0;
+}
+
+void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
+    _reset_runtime_state();
     source_data = p_data;
     if (source_data.is_null()) {
         per_chunk_quantization_dc_compatible = true;
@@ -782,81 +792,7 @@ void GaussianStreamingSystem::initialize_with_device(Ref<::GaussianData> p_data,
 }
 
 void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
-    _connect_project_settings();
-    _layout_hint_reset_state(this);
-    // Re-init must quiesce the async upload path BEFORE touching any state.
-    // See initialize() for the full rationale: a mid-flight pack/upload worker
-    // racing the chunks/atlas/persistent_buffer teardown below is a
-    // use-after-free. Mirror the destructor ordering; both calls are idempotent
-    // and device-independent (no-op on first init), and _clear_pending_uploads()
-    // must run before the chunks/pending resets so its rollback sees valid state.
-    _stop_pack_threads();
-    _clear_pending_uploads();
-    streaming_initialized = false;
-    last_streaming_update_usec = 0;
-    last_streaming_frame_delta_seconds = ESTIMATED_FRAME_DELTA_60FPS;
-    effective_max_guard_warning_emitted = false;
-    effective_max_guard_warning_regulated = 0;
-    effective_max_guard_warning_capacity = 0;
-    runtime_capacity_guard_logged = false;
-    runtime_capacity_guard_effective_max = UINT32_MAX;
-    runtime_capacity_guard_runtime_capacity = UINT32_MAX;
-    runtime_capacity_guard_buffer_valid = true;
-    runtime_capacity_guard_initialized = true;
-    // PR #352: clear the warned-once latch on every (re-)initialize so a
-    // subsequent failure can re-arm the one-shot ERR. See initialize() for
-    // the rationale.
-    failed_init_warning_emitted = false;
-    invalid_camera_input_events = 0;
-    last_invalid_camera_log_frame = UINT64_MAX;
-    visibility.reset_runtime_state();
-    diagnostics = DiagnosticsState();
-    budget.pending_upload_bytes = 0;
-    budget.pending_upload_slots = 0;
-    budget.retired_upload_bytes_this_frame = 0;
-    budget.retired_upload_slots_this_frame = 0;
-    budget.failed_upload_retirements = 0;
-    budget.stride_flip_dropped_upload_retirements = 0;
-    budget.stride_flip_dropped_prewrite_uploads = 0;
-    pending_upload_retirements.clear();
-    next_upload_ticket_id = 1;
-    last_completed_upload_ticket_id = 0;
-    last_upload_completion_mode = "none";
-    analytics_snapshot.clear();
-    scheduler.visible_scan_cursor = 0;
-    scheduler.prefetch_scan_cursor = 0;
-    scheduler.last_visible_scan_count = 0;
-    scheduler.last_visible_scan_budget_effective = 0;
-    scheduler.last_load_candidate_count = 0;
-    scheduler.last_primary_eviction_scan_count = 0;
-    scheduler.last_primary_eviction_candidate_count = 0;
-    scheduler.last_non_primary_scan_count = 0;
-    scheduler.last_non_primary_eviction_candidate_count = 0;
-    scheduler.last_prefetch_scan_count = 0;
-    scheduler.last_prefetch_scan_budget_effective = 0;
-    scheduler.last_prefetch_candidate_count = 0;
-    scheduler.last_prefetch_upload_pending_skip_count = 0;
-    scheduler.last_prefetch_enqueued_count = 0;
-    scheduler.last_prefetch_enqueue_headroom_stall_count = 0;
-    scheduler.last_sync_fallback_queue_depth = 0;
-    scheduler.last_sync_fallback_enqueued_count = 0;
-    scheduler.last_sync_fallback_drained_count = 0;
-    scheduler.last_sync_fallback_dropped_count = 0;
-    scheduler.last_sync_fallback_stalled_count = 0;
-    scheduler.queue_pressure_candidate_scan_throttle_active = false;
-    scheduler.queue_pressure_candidate_scan_throttle_queue_depth = 0;
-    scheduler.force_sync_fallback_due_to_async_stall = false;
-    scheduler.sync_fallback_chunk_load_queue.clear();
-    scheduler.sync_fallback_chunk_load_set.clear();
-    scheduler.sync_fallback_chunk_load_queue_read_idx = 0;
-    scheduler.last_update_cpu_ms = 0.0;
-    scheduler.last_visibility_cpu_ms = 0.0;
-    scheduler.last_load_cpu_ms = 0.0;
-    scheduler.last_build_visible_cpu_ms = 0.0;
-    scheduler.last_prefetch_cpu_ms = 0.0;
-    scheduler.last_sync_fallback_cpu_ms = 0.0;
-    scheduler.last_cpu_total_attributed_ms = 0.0;
-    scheduler.last_cpu_unattributed_ms = 0.0;
+    _reset_runtime_state();
     source_data.unref();
     per_chunk_quantization_dc_compatible = true;
     total_splat_count = 0;
@@ -1790,7 +1726,18 @@ bool GaussianStreamingSystem::_build_primary_chunks_from_layout_hints(const Ref<
     }
 
     Vector<uint8_t> seen;
-    seen.resize(splat_count);
+    // #794: the zero-fill below is bounded by seen.size() and so is safe on its own,
+    // but the duplicate-detection loop that follows indexes `seen` by source_idx,
+    // checked only against splat_count. On a failed resize seen.size() is 0 while
+    // splat_count is not, so BOTH the read (seen[source_idx], which traps via
+    // CowData::get -> CRASH_BAD_INDEX exactly like the write proxy) and the write
+    // (seen.write[source_idx]) go out of bounds. splat_count is asset-sized, so this
+    // is a real allocation, not a token one.
+    if (!gs_resize_or_fail(seen, (int64_t)splat_count, "GaussianStreamingSystem::validate remap source indices")) {
+        _layout_hint_set_last_failure(this, LayoutHintUsage::PRIMARY, LayoutHintValidationFailure{
+                LayoutHintFailureReason::VALIDATION_ALLOCATION_FAILED, -1, splat_count, 0 });
+        return false;
+    }
     for (int i = 0; i < seen.size(); i++) {
         seen.write[i] = 0;
     }

@@ -26,6 +26,11 @@ protected:
     static void _bind_methods() {}
 
 public:
+    // Surfaces the deprecation in the scene tree (yellow warning triangle) for scenes
+    // that already contain this node. The ctor's WARN_DEPRECATED_MSG only reaches the
+    // Output log, which users routinely never open.
+    PackedStringArray get_configuration_warnings() const override;
+
     GaussianSplatDynamicInstance3D();
 };
 

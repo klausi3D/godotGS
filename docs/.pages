@@ -37,5 +37,6 @@ nav:
       - testing/benchmark-suite.md
       - architecture/overview.md
       - governance/contribution-standards.md
+      - development/export-templates.md
       - development/docs-site.md
       - style/documentation-style-guide.md

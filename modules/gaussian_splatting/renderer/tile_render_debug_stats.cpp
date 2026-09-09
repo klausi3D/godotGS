@@ -370,6 +370,10 @@ void TileRenderer::TileRendererDebugStats::update_splat_audit_buffer(RenderingDe
 	}
 
 	Vector<uint8_t> data;
+	// #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
+	// sizeof(DebugSplatAuditBuffer) is fixed by DEBUG_SPLAT_AUDIT_MAX_SAMPLES and never
+	// scales with scene or asset data, so the memcpy length cannot exceed a successful
+	// resize.
 	data.resize(sizeof(DebugSplatAuditBuffer));
 	std::memcpy(data.ptrw(), &buffer, sizeof(DebugSplatAuditBuffer));
 	p_device->buffer_update(debug_splat_audit_buffer, 0, data.size(), data.ptr());

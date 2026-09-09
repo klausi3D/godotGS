@@ -150,6 +150,21 @@ vec3 gs_apply_tile_grid(vec2 frag_coord, vec3 color, float opacity) {
     return mix(color, color * 0.5, mix_factor);
 }
 
+// #832: projection-issue diagnostic color. Shared by the fragment raster path
+// (gs_rasterize_pixel below) and the compute raster path
+// (tile_rasterizer_compute.glsl), which is the DEFAULT path and previously read
+// only debug_flags.x/.z — so show_projection_issues reached the UBO and then
+// rendered nothing. Keep this the single definition so the two paths cannot
+// drift apart again.
+vec3 gs_projection_debug_color(vec2 frag_coord, vec2 viewport_size) {
+    vec2 normalized = frag_coord / max(viewport_size, vec2(1.0));
+    vec3 diag_color = vec3(normalized, 0.25 + 0.5 * normalized.y);
+    vec2 tile_uv = fract(frag_coord / float(TILE_SIZE));
+    bool on_edge = (tile_uv.x < 0.02) || (tile_uv.x > 0.98) || (tile_uv.y < 0.02) || (tile_uv.y > 0.98);
+    float edge = on_edge ? 1.0 : 0.0;
+    return mix(diag_color, vec3(1.0, 0.35, 0.15), edge);
+}
+
 // Read a sorted splat index from shared memory or the backing buffer.
 uint gs_read_sorted_value(uint local_index, uint range_start) {
 #ifdef GS_TILE_RASTER_USE_SHARED
@@ -502,13 +517,7 @@ void gs_rasterize_pixel(vec2 frag_coord, uint range_start, uint splat_count, uin
 
     // Keep the tile debug overlay usable even if projection debug is also enabled.
     if (!debug_tiles && debug_projection) {
-        vec2 normalized = frag_coord / viewport_size;
-        vec3 diag_color = vec3(normalized, 0.25 + 0.5 * normalized.y);
-        vec2 tile_uv = fract(frag_coord / float(TILE_SIZE));
-        bool on_edge = (tile_uv.x < 0.02) || (tile_uv.x > 0.98) || (tile_uv.y < 0.02) || (tile_uv.y > 0.98);
-        float edge = on_edge ? 1.0 : 0.0;
-        diag_color = mix(diag_color, vec3(1.0, 0.35, 0.15), edge);
-        out_color = vec4(diag_color, 1.0);
+        out_color = vec4(gs_projection_debug_color(frag_coord, viewport_size), 1.0);
         out_depth = 0.0;
         out_normal = vec4(0.0);
         return;

@@ -367,4 +367,138 @@ TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] a re-populated DYNAMIC 
 	}
 }
 
+#ifdef TESTS_ENABLED
+// #798 review round 4: a FAILED refresh must EVICT the record's cached GaussianData,
+// not preserve it.
+//
+// refresh_asset() returned false straight out of the failed rebuild, before the
+// `record->data = refreshed_data` assignment -- so the record kept the PREVIOUS,
+// still-valid payload. register_instance() only early-returns on that false; it does
+// not retry and does not unregister. Net effect after an allocation-failure reset:
+// the asset reports splat_count == 0 while every render-path builder still finds a
+// non-null record->data and keeps drawing the OLD geometry.
+//
+// This is specifically the gap the round-3 `payload_version++; emit_changed();` on
+// populate_from_gaussian_data()'s failure branch did NOT close. That bump makes the
+// stale cache reachable for rebuild -- but the rebuild then fails (a zero-splat
+// DYNAMIC asset makes populate_gaussian_data() return false), and the old data
+// survived the failure. The bump created the appearance of correctness; the eviction
+// is what makes the failure actually observable on the renderer side.
+//
+// The assertion below therefore reads the RENDERER-SIDE cache
+// (test_asset_record_splat_count_for_scenario -> AssetRecord::data), not the asset.
+// Asserting asset->get_splat_count() == 0 would pass with and without the fix, since
+// the asset-side reset landed in round 2.
+//
+// MUTATION-PROVEN: dropping the _evict_asset_data() call from refresh_asset() reddens
+// the eviction assertion (cached count stays at the stale 5 instead of -1).
+TEST_CASE("[GaussianSplatting][SceneDirector][SceneTree] a FAILED asset refresh evicts the cached record data (#798)") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	Ref<World3D> world = root->get_world_3d();
+	if (!world.is_valid()) {
+		FAIL("SceneTree root must have a valid World3D");
+		return;
+	}
+	const RID scenario = world->get_scenario();
+	if (!scenario.is_valid()) {
+		FAIL("the SceneTree root world must have a valid scenario");
+		return;
+	}
+
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	const bool owns_director = (director == nullptr);
+	if (!director) {
+		director = memnew(GaussianSplatSceneDirector);
+	}
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector must be available");
+		return;
+	}
+
+	Node3D *node = memnew(Node3D);
+	root->add_child(node);
+	tree->process(0.0);
+
+	Ref<GaussianSplatAsset> asset = _make_dynamic_repopulate_asset(5);
+	// REQUIRE does not abort under DOCTEST_CONFIG_NO_EXCEPTIONS (#656).
+	if (!asset.is_valid()) {
+		FAIL("the seed DYNAMIC payload asset must be valid");
+		return;
+	}
+	const ObjectID asset_id = asset->get_instance_id();
+
+	director->register_instance(node->get_instance_id(), asset, Transform3D(), 1.0f, 0.0f, 0u);
+	if (director->test_asset_record_splat_count_for_scenario(scenario, asset_id) != 5) {
+		// Guard the premise: without a cached payload to go stale there is nothing to
+		// evict, and the assertion below would pass vacuously.
+		FAIL("the initial register must cache the seed payload's 5 splats");
+		director->unregister_instance(node->get_instance_id());
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		if (owns_director) {
+			memdelete(director);
+		}
+		return;
+	}
+	const uint64_t asset_generation_before = director->test_instance_asset_generation_for_scenario(scenario);
+
+	// Force the allocation-failure branch of populate_from_gaussian_data(). It resets
+	// the asset to a coherent EMPTY state and bumps payload_version, so the next
+	// refresh_asset() is version-gated INTO a rebuild -- which then fails, because
+	// populate_gaussian_data() returns false at splat_count == 0.
+	asset->_test_force_next_populate_lane_failure(GaussianSplatAsset::TEST_LANE_FAILURE_EMPTY);
+	Error populate_err;
+	{
+		ERR_PRINT_OFF;
+		populate_err = asset->populate_from_gaussian_data(_make_repopulate_data(8));
+		ERR_PRINT_ON;
+	}
+	// Proves the forced failure actually took the branch under test. Without this the
+	// eviction assertion could be satisfied by some unrelated path.
+	CHECK_MESSAGE(populate_err == ERR_OUT_OF_MEMORY,
+			"the forced lane failure must reach populate_from_gaussian_data()'s failure branch");
+	CHECK_MESSAGE(asset->get_splat_count() == 0u,
+			"the failure branch must leave the asset coherently empty (round-2 contract)");
+
+	// Re-register the same node -> refresh_asset() attempts the rebuild and fails.
+	{
+		ERR_PRINT_OFF;
+		director->register_instance(node->get_instance_id(), asset, Transform3D(), 1.0f, 0.0f, 0u);
+		ERR_PRINT_ON;
+	}
+
+	// THE discriminating assertion. -1 == "record present but data is null" (see
+	// test_asset_record_splat_count_for_scenario). Before the fix this reads 5: the
+	// renderer would keep drawing the seed geometry for an asset that has none.
+	CHECK_MESSAGE(director->test_asset_record_splat_count_for_scenario(scenario, asset_id) == -1,
+			"a failed refresh must EVICT the cached GaussianData, not keep serving the stale payload");
+	// Eviction, not record removal: the record itself stays (refcount is still held by
+	// the live instance), so this pins WHICH of the two -1 causes we are observing.
+	CHECK_MESSAGE(director->test_has_asset_record_for_scenario(scenario, asset_id),
+			"the asset record itself must survive the failed refresh; only its payload is dropped");
+	// The eviction is a cache-invalidating change and must be announced like one, or a
+	// renderer that already uploaded the stale buffers never re-uploads without it.
+	CHECK_MESSAGE(director->test_instance_asset_generation_for_scenario(scenario) > asset_generation_before,
+			"evicting a stale payload must advance the asset generation");
+
+	director->unregister_instance(node->get_instance_id());
+	root->remove_child(node);
+	memdelete(node);
+	tree->process(0.0);
+	if (owns_director) {
+		memdelete(director);
+	}
+}
+#endif // TESTS_ENABLED
+
 #endif // TESTS_ENABLED || TOOLS_ENABLED

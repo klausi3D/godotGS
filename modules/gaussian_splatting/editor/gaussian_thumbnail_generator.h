@@ -54,8 +54,13 @@ private:
     Ref<Image> _generate_normals_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const;
     Ref<Image> _generate_heatmap_thumbnail(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size) const;
 
-    Dictionary _project_to_canvas(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size, Vector<int> &r_hits,
-            Vector<Color> &r_accum) const;
+    // #798 round 3: returns a STATUS, with the projection stats moved to an out-param.
+    // Returning only the Dictionary let all four generators mistake an allocation failure
+    // for an empty scene and hand back a flat image, which generate_thumbnail_image() then
+    // cached in memory and on disk against the asset fingerprint -- pinning a blank preview
+    // across editor sessions. [[nodiscard]] so no future caller can drop the status again.
+    [[nodiscard]] bool _project_to_canvas(const GaussianSplatAsset::PayloadSnapshot &p_snapshot, int p_size,
+            Vector<int> &r_hits, Vector<Color> &r_accum, Dictionary &r_projection) const;
 
 public:
     Ref<Image> generate_thumbnail_image(const Ref<GaussianSplatAsset> &p_asset, int p_size, ThumbnailStyle p_style) const;

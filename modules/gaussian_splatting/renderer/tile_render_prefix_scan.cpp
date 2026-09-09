@@ -11,6 +11,7 @@
  */
 
 #include "tile_renderer.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
 #include "core/math/vector3.h"
@@ -235,7 +236,19 @@ bool TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback(RenderingDevice 
     }
 
     Vector<uint32_t> tile_ranges_words;
-    tile_ranges_words.resize(p_params.total_tiles * 2u);
+    // #798: compute_tile_prefix_cpu() writes p_out_ranges_words[i*2+1] bounded by
+    // total_tiles -- the REQUESTED count, not this vector's own size(). It does null-check
+    // the pointer, and because this is a FRESH local a failed grow leaves size() at 0 so
+    // ptrw() really is null, so the null path is already caught today. Checking the resize
+    // anyway keeps that from depending on the vector staying a fresh local (hoisting it to a
+    // persistent scratch would silently turn it into a heap overflow, since a failed grow on
+    // a populated vector keeps a valid short pointer) and reports the actual byte count
+    // instead of the generic "failed while building ranges" below. Same contract either way.
+    // total_tiles is uint32_t, so the *2 is widened to int64_t to avoid wrapping.
+    if (!gs_resize_or_fail(tile_ranges_words, int64_t(p_params.total_tiles) * 2,
+                "TileRenderer::TilePrefixScanStage::run_cpu_prefix_fallback tile_ranges_words")) {
+        return false;
+    }
 
     GaussianSplatting::TilePrefixCpuScanResult cpu_result;
     const uint32_t *tile_counts_words = reinterpret_cast<const uint32_t *>(counts_data.ptr());

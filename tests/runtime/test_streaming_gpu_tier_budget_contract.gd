@@ -1,10 +1,16 @@
 extends SceneTree
 
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 const StreamingGpuTierBudget = preload("streaming_gpu_tier_budget.gd")
 
 var failures: Array[String] = []
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py. This
+# scenario accumulates failures instead of quitting, so verified checks are
+# counted where a section/case completes without growing `failures`.
+var _report := GsRuntimeReport.new("Streaming GPU Tier Budget Contract")
 
 
 func _init() -> void:
@@ -22,7 +28,20 @@ func _record_failure(reason: String, context: Dictionary = {}) -> void:
 func _base_tier_result() -> Dictionary:
 	return {
 		"first_visible_ms": 240.0,
-		"frame_p95_ms": 292.4,
+		# #796/#797: 292.4 -> 162.0, using the CORRECTED measured factor 1.805 for this
+		# tier (the first revision used 1.92, which had summed percentiles -- see
+		# streaming_gpu_tier_budget.gd). This value only has to be a clean in-budget
+		# recording; it is rescaled alongside the ceiling so the two stay comparable.
+		# 292.4 was a recorded run of the OLD frame metric, which spanned the
+		# harness's force_sort_for_view() and get_render_stats() as well as the
+		# engine frame. Against the corrected engine-frame-only ceiling the
+		# old figure reads as a failure, so every case built on this base -- all of
+		# which expect a clean frame budget and vary one other field -- began
+		# reporting a spurious frame_p95_exceeded. This test correctly caught the
+		# metric's change of meaning; the fixture had to follow it.
+		#
+		# Against the ceiling (180.0) this must stay comfortably in budget.
+		"frame_p95_ms": 162.0,
 		"frame_p95_to_avg_ratio": 1.24,
 		"source_data_available": true,
 		"fallback_rate_available": true,
@@ -56,6 +75,12 @@ func _array_equals(actual: Array, expected: Array) -> bool:
 func _run_case(test_case: Dictionary) -> void:
 	var tier := StreamingGpuTierBudget.tier_1m_budget()
 	tier = _merge(tier, test_case.get("tier_overrides", {}))
+	# Removing a key is not the same as setting it to null -- `fallback_rate: null`
+	# is a real fixture value elsewhere in this file, so absence needs its own
+	# channel. Used to prove the enforce_timing_budgets DEFAULT, which only
+	# applies when the key is genuinely missing.
+	for key_to_erase in test_case.get("tier_erase", []):
+		tier.erase(key_to_erase)
 	var tier_result := _merge(_base_tier_result(), test_case.get("result_overrides", {}))
 	var residency := _merge(_base_residency(), test_case.get("residency_overrides", {}))
 
@@ -89,6 +114,61 @@ func _run_case(test_case: Dictionary) -> void:
 			"actual": actual_telemetry_failures,
 			"evaluation": evaluation
 		})
+
+	# #883: the enforcement split is pinned on EVERY case, in both directions.
+	# `blocking_failures` is what may fail the gate; `advisory_failures` is what
+	# was measured, breached, and deliberately not enforced. Asserting both means
+	# a future edit cannot quietly move a correctness check into the advisory
+	# bucket (the gate would keep passing but this test goes red) and cannot
+	# quietly delete a demoted check either (it would vanish from advisory).
+	var expected_blocking: Array = test_case.get("blocking_failures", [])
+	var actual_blocking: Array = evaluation.get("blocking_failures", [])
+	if not _array_equals(actual_blocking, expected_blocking):
+		_record_failure("Budget contract blocking_failures mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"expected": expected_blocking,
+			"actual": actual_blocking,
+			"evaluation": evaluation
+		})
+
+	var expected_advisory: Array = test_case.get("advisory_failures", [])
+	var actual_advisory: Array = evaluation.get("advisory_failures", [])
+	if not _array_equals(actual_advisory, expected_advisory):
+		_record_failure("Budget contract advisory_failures mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"expected": expected_advisory,
+			"actual": actual_advisory,
+			"evaluation": evaluation
+		})
+
+	# The gate's actual verdict, stated separately from `within_budget` so the
+	# two cannot drift into meaning the same thing again.
+	var expected_blocking_within := expected_blocking.is_empty()
+	var actual_blocking_within := bool(evaluation.get("blocking_within_budget", false))
+	if actual_blocking_within != expected_blocking_within:
+		_record_failure("Budget contract blocking_within_budget mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"expected": expected_blocking_within,
+			"actual": actual_blocking_within,
+			"evaluation": evaluation
+		})
+
+	# Every demoted check must carry its measured value and the budget it broke,
+	# so the live gate can print a number rather than a name. A demoted check
+	# reported without its value is halfway to deleted.
+	var details: Array = evaluation.get("advisory_details", [])
+	if details.size() != actual_advisory.size():
+		_record_failure("Budget contract advisory_details cardinality mismatch", {
+			"case": test_case.get("name", "<unnamed>"),
+			"advisory_failures": actual_advisory,
+			"advisory_details": details
+		})
+	for detail in details:
+		if not (detail is Dictionary) or not detail.has("measured") or not detail.has("budget"):
+			_record_failure("Budget contract advisory_details missing measured/budget", {
+				"case": test_case.get("name", "<unnamed>"),
+				"detail": detail
+			})
 
 
 ## Explicit, self-contained config so the scaling cases pin an exact boundary
@@ -285,80 +365,252 @@ func _run_scaling_cases() -> Array:
 		}
 	]
 	for scaling_case in scaling_cases:
+		var failures_before := failures.size()
 		_run_scaling_case(scaling_case)
+		if failures.size() == failures_before:
+			_report.ok()
+	var failures_before_offset := failures.size()
 	_run_offset_invariance_check()
+	if failures.size() == failures_before_offset:
+		_report.ok()
+	var failures_before_trim := failures.size()
 	_run_trim_warmup_checks()
+	if failures.size() == failures_before_trim:
+		_report.ok()
 	return scaling_cases
 
 
 func _run() -> void:
+	# #797: DERIVE the exceed-boundary from the enforced ceiling instead of hardcoding it.
+	# This case used to pass 325.001 -- a literal matching the pre-#796 ceiling. Once the
+	# ceiling was rescaled for the engine-only metric that value was still far above it, so
+	# the case passed no matter
+	# what: restoring or accidentally raising the ceiling anywhere up to 325 would have left
+	# this test green while it claimed to verify the boundary. A test whose fixture is a
+	# copy of the value under test stops testing it the moment the value moves, which is
+	# why the number is now read from the budget rather than repeated here.
+	var enforced_p95_ceiling := float(StreamingGpuTierBudget.tier_1m_budget().get("max_frame_p95_ms", 0.0))
+
+	# #797: deriving the fixture above makes the boundary cases robust, but it also makes
+	# them indifferent to the ceiling's VALUE -- so on its own it would let a silent
+	# recalibration through. Pin the calibrated number too. tests/AGENTS.md forbids
+	# unjustified threshold changes; this turns "someone moved the ceiling" from an
+	# invisible edit into a failing test that has to be answered in review.
+	# Updating this constant is legitimate -- it just has to be deliberate, and land with
+	# the evidence for the new value.
+	const CALIBRATED_TIER_1M_P95_CEILING_MS := 180.0
+	if not is_equal_approx(enforced_p95_ceiling, CALIBRATED_TIER_1M_P95_CEILING_MS):
+		_record_failure("tier_1m max_frame_p95_ms moved away from its calibrated value", {
+			"expected": CALIBRATED_TIER_1M_P95_CEILING_MS,
+			"actual": enforced_p95_ceiling,
+			"why": "the ceiling is metric-specific (#796 engine-frame-only); changing it needs its own measured justification"
+		})
+	else:
+		_report.ok()
+	# #883: the shipped tier_1m posture, pinned. `enforce` (per-tier, covering
+	# correctness) must stay ON; `enforce_timing_budgets` (per-metric-class) is
+	# the interim OFF. Both are asserted so that neither half can move without a
+	# deliberate edit here: turning `enforce` off would gut the gate, and turning
+	# `enforce_timing_budgets` back on is the intended restoration and must be an
+	# explicit, reviewed change rather than a silent one.
+	var shipped_tier := StreamingGpuTierBudget.tier_1m_budget()
+	if not bool(shipped_tier.get("enforce", false)):
+		_record_failure("tier_1m stopped enforcing correctness budgets", {
+			"why": "#883 demoted the TIMING budgets only; `enforce` covers residency, "
+				+ "fallback rate and telemetry and must stay true"
+		})
+	else:
+		_report.ok()
+	if bool(shipped_tier.get("enforce_timing_budgets", true)):
+		_record_failure("tier_1m timing budgets are enforced again", {
+			"why": "this is the intended end state (#778/#523), but it must land with the "
+				+ "evidence that the measurement is stable -- update this test alongside it"
+		})
+	else:
+		_report.ok()
+
+	# The demotion list itself, pinned exactly. Adding a correctness code here
+	# would demote it invisibly at every call site at once; removing a timing
+	# code would silently re-arm it. Neither may happen by accident.
+	var expected_timing_codes := ["first_visible_exceeded", "frame_p95_exceeded", "frame_p95_to_avg_ratio_high"]
+	if not _array_equals(StreamingGpuTierBudget.TIMING_BUDGET_FAILURES, expected_timing_codes):
+		_record_failure("TIMING_BUDGET_FAILURES membership changed", {
+			"expected": expected_timing_codes,
+			"actual": StreamingGpuTierBudget.TIMING_BUDGET_FAILURES,
+			"why": "only wall-clock/dispersion budgets may be demoted; `first_visible_missing` "
+				+ "is a correctness failure observed through a timer and must not join this list"
+		})
+	else:
+		_report.ok()
+
 	var cases := [
 		{
 			"name": "clean_current_result",
 			"within_budget": true,
 			"budget_failures": [],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": []
 		},
 		{
+			# Just above the ceiling, so it fails for the right reason and would stop
+			# failing if the check were removed.
+			# #883: still detected and still reported -- just not blocking.
 			"name": "frame_p95_exceeded",
-			"result_overrides": {"frame_p95_ms": 325.001},
+			"result_overrides": {"frame_p95_ms": enforced_p95_ceiling + 0.001},
 			"within_budget": false,
 			"budget_failures": ["frame_p95_exceeded"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": ["frame_p95_exceeded"]
 		},
 		{
+			# The paired NEGATIVE boundary: exactly AT the ceiling must pass. Without this,
+			# a check mutated to `>=` (or a ceiling driven to 0) would still satisfy the
+			# case above, so the boundary would be asserted from one side only.
+			"name": "frame_p95_at_ceiling_is_within_budget",
+			"result_overrides": {"frame_p95_ms": enforced_p95_ceiling},
+			"within_budget": true,
+			"budget_failures": [],
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": []
+		},
+		{
+			# The #883 metric itself. 3.69 was measured on an idle runner against
+			# this 2.25 budget; the budget is unchanged and the breach is still
+			# recorded, it just no longer fails the job.
 			"name": "frame_p95_to_avg_ratio_high",
 			"result_overrides": {"frame_p95_to_avg_ratio": 2.251},
 			"within_budget": false,
 			"budget_failures": ["frame_p95_to_avg_ratio_high"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": ["frame_p95_to_avg_ratio_high"]
 		},
 		{
+			# NOT demoted, and this case is the reason the distinction exists:
+			# "never became visible at all" is a correctness failure that happens
+			# to be observed through a timer. It stays blocking.
 			"name": "first_visible_missing",
 			"result_overrides": {"first_visible_ms": -1.0},
 			"within_budget": false,
 			"budget_failures": ["first_visible_missing"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": ["first_visible_missing"],
+			"advisory_failures": []
 		},
 		{
 			"name": "first_visible_exceeded",
 			"result_overrides": {"first_visible_ms": 3500.001},
 			"within_budget": false,
 			"budget_failures": ["first_visible_exceeded"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": ["first_visible_exceeded"]
 		},
 		{
 			"name": "fallback_source_data_missing",
 			"result_overrides": {"source_data_available": false},
 			"within_budget": false,
 			"budget_failures": [],
-			"telemetry_failures": ["fallback_source_data_missing"]
+			"telemetry_failures": ["fallback_source_data_missing"],
+			"blocking_failures": ["fallback_source_data_missing"],
+			"advisory_failures": []
 		},
 		{
 			"name": "fallback_rate_missing_flag",
 			"result_overrides": {"fallback_rate_available": false, "fallback_rate": null},
 			"within_budget": false,
 			"budget_failures": [],
-			"telemetry_failures": ["fallback_rate_missing"]
+			"telemetry_failures": ["fallback_rate_missing"],
+			"blocking_failures": ["fallback_rate_missing"],
+			"advisory_failures": []
 		},
 		{
 			"name": "fallback_rate_high",
 			"result_overrides": {"fallback_rate": 0.3501},
 			"within_budget": false,
 			"budget_failures": ["fallback_rate_high"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": ["fallback_rate_high"],
+			"advisory_failures": []
 		},
 		{
 			"name": "residency_ratio_low",
 			"residency_overrides": {"residency_ratio": 0.749},
 			"within_budget": false,
 			"budget_failures": ["residency_ratio_low"],
-			"telemetry_failures": []
+			"telemetry_failures": [],
+			"blocking_failures": ["residency_ratio_low"],
+			"advisory_failures": []
+		},
+		{
+			# The case that proves the demotion cannot mask a real failure: a
+			# timing breach and a correctness breach in the SAME run. The timing
+			# one goes advisory, the correctness one still blocks. If the split
+			# were implemented as "any advisory failure makes the tier advisory",
+			# this case would come back blocking-clean and go red here.
+			"name": "timing_advisory_does_not_mask_correctness",
+			"result_overrides": {"frame_p95_to_avg_ratio": 2.251, "fallback_rate": 0.3501},
+			"within_budget": false,
+			"budget_failures": ["frame_p95_to_avg_ratio_high", "fallback_rate_high"],
+			"telemetry_failures": [],
+			"blocking_failures": ["fallback_rate_high"],
+			"advisory_failures": ["frame_p95_to_avg_ratio_high"]
+		},
+		{
+			# All three demoted checks at once, so the list is asserted whole
+			# rather than one member at a time.
+			"name": "all_three_timing_budgets_advisory_together",
+			"result_overrides": {
+				"first_visible_ms": 3500.001,
+				"frame_p95_ms": enforced_p95_ceiling + 0.001,
+				"frame_p95_to_avg_ratio": 2.251
+			},
+			"within_budget": false,
+			"budget_failures": ["first_visible_exceeded", "frame_p95_exceeded", "frame_p95_to_avg_ratio_high"],
+			"telemetry_failures": [],
+			"blocking_failures": [],
+			"advisory_failures": ["first_visible_exceeded", "frame_p95_exceeded", "frame_p95_to_avg_ratio_high"]
+		},
+		{
+			# The restoration path, proven rather than promised: flipping the one
+			# flag back to true re-arms all three budgets with no other edit. This
+			# is what #778/#523 landing looks like, and it is exercised today.
+			"name": "restoring_enforcement_rearms_all_three",
+			"tier_overrides": {"enforce_timing_budgets": true},
+			"result_overrides": {
+				"first_visible_ms": 3500.001,
+				"frame_p95_ms": enforced_p95_ceiling + 0.001,
+				"frame_p95_to_avg_ratio": 2.251
+			},
+			"within_budget": false,
+			"budget_failures": ["first_visible_exceeded", "frame_p95_exceeded", "frame_p95_to_avg_ratio_high"],
+			"telemetry_failures": [],
+			"blocking_failures": ["first_visible_exceeded", "frame_p95_exceeded", "frame_p95_to_avg_ratio_high"],
+			"advisory_failures": []
+		},
+		{
+			# A tier that never opts out keeps its old behaviour exactly: the
+			# default is ENFORCED, so this change is inert for tier_250k and
+			# tier_2_5m and for any tier added later that forgets the flag.
+			"name": "default_when_flag_absent_is_enforced",
+			"tier_erase": ["enforce_timing_budgets"],
+			"result_overrides": {"frame_p95_to_avg_ratio": 2.251},
+			"within_budget": false,
+			"budget_failures": ["frame_p95_to_avg_ratio_high"],
+			"telemetry_failures": [],
+			"blocking_failures": ["frame_p95_to_avg_ratio_high"],
+			"advisory_failures": []
 		}
 	]
 
 	for test_case in cases:
+		var failures_before := failures.size()
 		_run_case(test_case)
+		if failures.size() == failures_before:
+			_report.ok()
 
 	var scaling_cases := _run_scaling_cases()
 
@@ -368,6 +620,13 @@ func _run() -> void:
 		"scaling_cases": scaling_cases.size(),
 		"failures": failures,
 		"tier_1m_max_frame_p95_ms": float(StreamingGpuTierBudget.tier_1m_budget().get("max_frame_p95_ms", 0.0)),
+		# #883 posture, emitted so the demotion is visible in the evidence
+		# artefacts and not only in the source.
+		"tier_1m_enforce": bool(StreamingGpuTierBudget.tier_1m_budget().get("enforce", false)),
+		"tier_1m_enforce_timing_budgets": bool(
+			StreamingGpuTierBudget.tier_1m_budget().get("enforce_timing_budgets", true)
+		),
+		"timing_budget_failures": StreamingGpuTierBudget.TIMING_BUDGET_FAILURES,
 		"scale_sanity_min_ratio": float(StreamingGpuTierBudget.SCALE_SANITY_MIN_RATIO),
 		"marginal_backstop_ms_per_msplat": float(StreamingGpuTierBudget.MARGINAL_COST_BASELINE_MS_PER_MSPLAT),
 		"warmup_discard_samples": int(StreamingGpuTierBudget.WARMUP_DISCARD_SAMPLES),
@@ -377,6 +636,7 @@ func _run() -> void:
 
 	if failures.is_empty():
 		print("GPU streaming tier budget contract checks passed.")
+		_report.emit_pass()
 		quit(0)
 	else:
 		quit(1)

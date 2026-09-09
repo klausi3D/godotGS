@@ -1,5 +1,6 @@
 #include "gaussian_splat_debug_hud.h"
 #include "gaussian_splat_node_3d.h"
+#include "../core/gs_vector_alloc.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "core/object/object.h"
 #include "scene/scene_string_names.h"
@@ -99,7 +100,17 @@ void GaussianSplatDebugHUD::_update_cached_stats() {
 		return;
 	}
 
-	cached_hud_lines.resize(hud_lines.size());
+	// #798: the fill loop is bounded by hud_lines.size() -- ANOTHER container's size -- so
+	// exclusion rule 1 does not apply, and the writes go through a raw ptrw() pointer.
+	// cached_hud_lines is a reused member, but clear() above means this is always a grow from
+	// empty, so a failure leaves ptrw() null rather than a short live buffer. Fail closed to
+	// the empty cache: _draw_hud() already early-returns on cached_hud_lines.is_empty(), so
+	// the HUD simply skips a frame and the next _update_cached_stats() retries.
+	if (!gs_resize_or_fail(cached_hud_lines, hud_lines.size(),
+				"GaussianSplatDebugHUD::_update_cached_stats")) {
+		cached_hud_lines.clear();
+		return;
+	}
 	String *lines_write = cached_hud_lines.ptrw();
 	for (int i = 0; i < hud_lines.size(); i++) {
 		const Variant &line = hud_lines[i];

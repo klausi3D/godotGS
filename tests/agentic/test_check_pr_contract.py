@@ -89,11 +89,26 @@ class CheckPrContractTest(unittest.TestCase):
         errors = cpc.check_contract(contract, POLICY, TASK_SCHEMA, ["modules/gaussian_splatting/logger/x.cpp"])
         self.assertTrue(any("validation_commands" in e for e in _hard(errors)))
 
+    def test_whitespace_only_non_empty_array_entries_fail(self):
+        for field in cpc.NON_EMPTY_ARRAY_FIELDS:
+            with self.subTest(field=field):
+                contract = copy.deepcopy(TEMPLATE)
+                contract[field] = ["   "]
+                errors = cpc.check_contract_document(contract, TASK_SCHEMA)
+                self.assertTrue(
+                    any(field in error and "blank" in error for error in errors),
+                    f"{field} accepted a whitespace-only entry",
+                )
+
     def test_unknown_risk_class_value_fails_schema(self):
         contract = copy.deepcopy(TEMPLATE)
         contract["risk_class"] = "R9"
         errors = cpc.check_contract(contract, POLICY, TASK_SCHEMA, None)
         self.assertTrue(any("risk_class" in e for e in _hard(errors)))
+
+    def test_vacuous_task_schema_fails_closed(self):
+        errors = cpc.check_contract_document(copy.deepcopy(TEMPLATE), {})
+        self.assertTrue(any("$schema contract" in error for error in errors))
 
     def test_stacked_pr_requires_base_fields(self):
         contract = copy.deepcopy(TEMPLATE)
@@ -101,6 +116,13 @@ class CheckPrContractTest(unittest.TestCase):
         errors = cpc.check_contract(contract, POLICY, TASK_SCHEMA, ["modules/gaussian_splatting/logger/x.cpp"])
         self.assertTrue(any("stacked_on.base_pr" in e for e in _hard(errors)))
         self.assertTrue(any("stacked_on.base_sha" in e for e in _hard(errors)))
+
+    def test_document_validation_rejects_incomplete_stacked_contract(self):
+        contract = copy.deepcopy(TEMPLATE)
+        contract["stacked_on"] = {}
+        errors = cpc.check_contract_document(contract, TASK_SCHEMA)
+        self.assertTrue(any("stacked_on.base_pr" in error for error in errors))
+        self.assertTrue(any("stacked_on.base_sha" in error for error in errors))
 
     def test_r3_without_design_record_fails(self):
         contract = copy.deepcopy(TEMPLATE)
@@ -166,6 +188,26 @@ class CheckPrContractTest(unittest.TestCase):
         # A full PR-gate check must not silently skip the cross-check when no diff is given.
         rc = cpc.main(["--contract", str(TEMPLATE_PATH)])
         self.assertEqual(rc, 2)
+
+    def test_empty_paths_fails_closed_instead_of_reporting_compliant(self):
+        """`--paths` with no values is a diff source that resolved to nothing.
+
+        It used to inherit classify_change's empty-set fail-open: the computed
+        class was R0, so nothing could ever "understate" it and the full gate
+        reported compliant with zero risk and zero scope enforcement
+        (GS-AUDIT-TEST-002, fourth evidence line). The empty set now classifies as
+        the policy default, so an R1 contract is flagged as understating it.
+        """
+        errors = _hard(cpc.check_contract(copy.deepcopy(TEMPLATE), POLICY, TASK_SCHEMA, []))
+        self.assertTrue(
+            any("understates" in e for e in errors),
+            f"empty --paths must not pass the gate silently; got {errors}",
+        )
+
+    def test_main_with_empty_paths_returns_non_zero(self):
+        """The same fail-closed behaviour through the real CLI entry point."""
+        rc = cpc.main(["--contract", str(TEMPLATE_PATH), "--paths"])
+        self.assertEqual(1, rc)
 
     def test_main_schema_only_opt_out(self):
         # The schema-only escape hatch must be explicit and pass on the valid template.

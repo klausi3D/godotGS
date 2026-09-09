@@ -8,11 +8,24 @@ const BASELINE_TIER_NAME := "tier_1m"
 const SORT_METHOD_NAME := "GPU_RADIX"
 const TARGET_SORT_MS := 2.5
 const MAX_VISIBLE_RATIO_DROP := 0.35
-const METRICS_MARKER := "[RUNTIME_METRICS]"
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+# #883: marker for a budget that was evaluated and BREACHED but is currently not
+# allowed to fail the job. Deliberately NOT a substring of FAIL_MARKER -- the
+# harness classifies a run as failed if FAIL_MARKER appears anywhere in the
+# output, even on exit code 0 (run_runtime_validation.py _classify_result), so
+# an advisory line must not carry it. It must still be greppable and loud: this
+# is the only thing standing between "demoted" and "deleted".
+const ADVISORY_MARKER := "[RUNTIME_ADVISORY]"
 const SAMPLE_FRAMES := 120
 const FIRST_VISIBLE_TIMEOUT_FRAMES := 240
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py. This
+# scenario accumulates failures; verified units are counted where a tier (or
+# the baseline-presence check) completes without growing `failures`.
+var _report := GsRuntimeReport.new("GPU Streaming Stress")
 
 var renderer: GaussianSplatRenderer
 var scene_root: Node3D
@@ -21,12 +34,28 @@ var world_node: GaussianSplatWorld3D
 var manager = null
 var exit_code = 0
 var failures: Array[String] = []
+# #883: budgets that were evaluated and breached but are currently not allowed
+# to fail the run. Collected so the end-of-run summary repeats them even on a
+# green run -- a demotion that only shows up 500 lines earlier is a demotion
+# nobody reads.
+var advisories: Array[String] = []
 var benchmark_summary: Dictionary = {
     "status": "failed",
     "baseline_tier": BASELINE_TIER_NAME,
+    # Unchanged meaning: did the baseline tier meet EVERY budget, timing
+    # included. #883 does not soften this -- an advisory timing breach still
+    # reads as `baseline_passed: false` in the metrics JSON and in the evidence
+    # artefacts, it just no longer fails the job.
     "baseline_passed": false,
+    # #883: the same question restricted to the checks still allowed to fail the
+    # job. `baseline_passed` stays the honest budget answer; this is the one that
+    # matches the gate's verdict, so the two cannot silently diverge unnoticed.
+    "baseline_blocking_passed": false,
     "tiers": [],
-    "failures": []
+    "failures": [],
+    # #883: unenforced budget breaches, so they survive into the metrics JSON and
+    # the uploaded evidence artefact rather than only into the console log.
+    "advisories": []
 }
 
 ## Defers execution until the SceneTree loop is initialized.
@@ -44,7 +73,20 @@ func _stream_tiers() -> Array:
             "size": 250000,
             "max_first_visible_ms": 2500.0,
             "min_residency_ratio": 0.70,
-            "max_frame_p95_ms": 90.0,
+            # #796/#797: 90.0 -> 50.5. Uses THIS TIER'S measured factor, not tier_1m's:
+            # p95(E+H)/p95(E) from identical samples over 5 runs was 1.77, 1.81, 1.77,
+            # 1.74, 1.81 -> mean 1.781, so 90/1.781 = 50.5. The first revision divided by
+            # tier_1m's 1.92 and got 47.0, which was ~7% stricter than neutral while
+            # claiming strictness was unchanged -- and 1.92 was itself wrong (it summed
+            # percentiles; see streaming_gpu_tier_budget.gd).
+            # Note this ceiling was ALREADY breached before
+            # the rescale (observed engine-frame p95 130-248 ms) and still is; it is
+            # advisory (enforce=false) so it has been failing invisibly. Arming it is
+            # a separate decision and needs the measurement instability fixed first.
+            "max_frame_p95_ms": 50.5,
+            # #797: not rescaled. Measured ratio shift on this tier was 1.011-1.053
+            # (mean 1.030) against 2.25 with a worst observed engine-only ratio of
+            # 1.340 -- see the derivation on tier_1m in streaming_gpu_tier_budget.gd.
             "max_frame_p95_to_avg_ratio": 2.25,
             "max_fallback_rate": 0.40,
             "enforce": false
@@ -55,7 +97,17 @@ func _stream_tiers() -> Array:
             "size": 2500000,
             "max_first_visible_ms": 5000.0,
             "min_residency_ratio": 0.75,
-            "max_frame_p95_ms": 160.0,
+            # #796/#797: 160.0 -> 89.3, using this tier's measured factor: 1.84, 1.80,
+            # 1.81, 1.82, 1.69 -> mean 1.792, so 160/1.792 = 89.3. The first revision's
+            # 83.0 came from the wrong 1.92. Also already breached
+            # and advisory: observed engine-frame p95 [153.1, 156.2, 157.9, 520.9,
+            # 548.3] ms -- a 3.6x run-to-run spread on an IDLE machine, which is the
+            # widest of the three tiers and the clearest sign that this measurement
+            # is not yet repeatable enough to gate on.
+            "max_frame_p95_ms": 89.3,
+            # #797: not rescaled. Measured ratio shift here was 0.985-1.029 (mean
+            # 1.002, the flattest of the three tiers) against 2.50 with a worst
+            # observed engine-only ratio of 1.794. Same derivation as tier_1m.
             "max_frame_p95_to_avg_ratio": 2.50,
             "max_fallback_rate": 0.35,
             "enforce": false
@@ -78,6 +130,7 @@ func _run() -> void:
         _print_summary()
         quit(1)
         return
+    _report.ok()
     renderer.initialize()
 
     manager = Engine.get_singleton("GaussianSplatManager")
@@ -87,26 +140,50 @@ func _run() -> void:
     var tier_results: Array = []
     var baseline_found := false
     for tier in _stream_tiers():
+        var failures_before := failures.size()
         var tier_result := await _exercise_tier(tier)
+        if failures.size() == failures_before:
+            _report.ok()
         tier_results.append(tier_result)
         if String(tier_result.get("name", "")) == BASELINE_TIER_NAME:
             baseline_found = true
             benchmark_summary["baseline_passed"] = bool(tier_result.get("within_budget", false))
+            benchmark_summary["baseline_blocking_passed"] = bool(
+                tier_result.get("blocking_within_budget", false)
+            )
 
     benchmark_summary["tiers"] = tier_results
     _evaluate_frame_scaling(tier_results)
     if not baseline_found:
         benchmark_summary["baseline_passed"] = false
+        benchmark_summary["baseline_blocking_passed"] = false
         _record_failure("Missing baseline streaming tier result", {"baseline_tier": BASELINE_TIER_NAME})
+    else:
+        _report.ok()
     benchmark_summary["failures"] = failures.duplicate()
+    benchmark_summary["advisories"] = advisories.duplicate()
     benchmark_summary["status"] = "passed" if exit_code == 0 else "failed"
     print("%s %s" % [METRICS_MARKER, JSON.stringify(benchmark_summary)])
 
     _print_summary()
     if exit_code == 0:
-        print("\n✅ GPU streaming stress test completed without regressions")
+        if advisories.is_empty():
+            print("\n✅ GPU streaming stress test completed without regressions")
+        else:
+            # Do not claim "without regressions" when a budget was breached and
+            # merely not enforced. The run passed; it was not clean.
+            # Deliberately ASCII. The harness decodes the child's streams with the
+            # host locale (cp1252 on this runner), so a character whose UTF-8
+            # encoding contains an unmapped byte can throw in the reader thread
+            # and take the WHOLE captured output with it -- including this line.
+            print(
+                "\n[!] GPU streaming stress test passed its ENFORCED checks with %d unenforced budget breach(es) (#883)"
+                % advisories.size()
+            )
     else:
         push_error("%s GPU streaming stress test detected failures" % FAIL_MARKER)
+    if exit_code == 0:
+        _report.emit_pass()
     quit(exit_code)
 
 ## Applies the deterministic cross-tier frame-scaling verdict (#630).
@@ -209,6 +286,14 @@ func _extract_streaming_diagnostics(stream_state: Dictionary) -> Dictionary:
 
 ## Prints an explicit failure list for CI log triage.
 func _print_summary() -> void:
+    if not advisories.is_empty():
+        print("\nUnenforced budget breaches (#883 interim; NOT failing this run):")
+        for advisory in advisories:
+            print(" - ", advisory)
+        print(
+            "   Enforcement is restored by #778 (deterministic cross-tier verdict becomes"
+            + " blocking) or #523 (a real per-machine perf baseline to compare against)."
+        )
     if failures.is_empty():
         return
     print("\nFailure details:")
@@ -256,8 +341,15 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
         "name": tier_name,
         "dataset_size": size,
         "enforce": enforce,
+        # #883: `enforce` above is per-TIER and covers correctness; this second
+        # flag is per-metric-class and covers only the timing budgets.
+        "enforce_timing_budgets": bool(tier.get("enforce_timing_budgets", true)),
         "within_budget": false,
+        "blocking_within_budget": false,
         "budget_failures": [],
+        "blocking_failures": [],
+        "advisory_failures": [],
+        "advisory_details": [],
         "first_visible_ms": -1.0,
         "frame_avg_ms": 0.0,
         "frame_p95_ms": 0.0,
@@ -333,6 +425,9 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
 
     var benchmark_start_usec := Time.get_ticks_usec()
     var frame_times_ms: Array = []
+    # #796: harness-side costs, kept OUT of the frame sample but still reported.
+    var harness_forced_sort_ms: Array = []
+    var harness_stats_gather_ms: Array = []
     var scheduler_update_cpu_ms_values: Array = []
     var scheduler_cpu_total_attributed_ms_values: Array = []
     var fallback_frames := 0
@@ -351,12 +446,47 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     var first_visible_ms := -1.0
     var stats: Dictionary = {}
     for frame_index in range(SAMPLE_FRAMES):
+        # #796: the frame sample no longer spans the two harness calls below, which are
+        # not free: force_sort_for_view() dispatches to the render thread (it is on
+        # run_module_tests.py's DISPATCHING_METHODS list) and get_render_stats()
+        # aggregates. Measured, they were ~38% and ~7% of the old sample, so every frame
+        # budget calibrated against it was ~1.8x inflated by the harness timing itself.
+        #
+        # They are still timed, as their own diagnostics, because a per-sample sort is a
+        # real cost worth watching -- just not a frame time.
+        #
+        # #797 -- THIS IS A PARTIAL EXCLUSION, NOT AN ENGINE-ONLY SAMPLE. An earlier
+        # revision of this comment claimed "the frame sample is the ENGINE FRAME ONLY";
+        # that is withdrawn. On the GPU_RADIX path force_sort_for_view() submits via
+        # gs_device_utils::safe_submit() WITHOUT synchronising -- gpu_sorter.cpp says so
+        # explicitly ("Use safe_submit without sync"). The call therefore returns before
+        # its GPU work completes, and that work is paid during the NEXT iteration's
+        # `await process_frame`, landing inside the following frame_times_ms entry.
+        #
+        # So moving the call out of the timed region removes its CPU dispatch cost but
+        # merely SHIFTS its GPU cost one sample forward. Independent evidence that this
+        # is material, not theoretical: a controlled A/B on this harness measured the
+        # forced sort perturbing the frame that FOLLOWS it by ~27 ms (~23%).
+        #
+        # Fixing it means either draining the submission before the next sample begins
+        # (no drain is currently exposed to GDScript) or dropping the forced sort from
+        # this loop entirely and letting the engine frame path sort on its own -- sort
+        # evidence would survive, since it only needs total_sorts > 0 or a non-empty
+        # history, and the natural path already contributes ~1 sort per frame. Both are
+        # harness redesigns with their own measurement burden, tracked separately rather
+        # than bolted on here.
         var frame_start_usec := Time.get_ticks_usec()
         await process_frame
+        var engine_frame_end_usec := Time.get_ticks_usec()
         renderer.force_sort_for_view(Transform3D.IDENTITY)
+        var forced_sort_end_usec := Time.get_ticks_usec()
         stats = renderer.get_render_stats()
-        var frame_ms := float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
+        var stats_end_usec := Time.get_ticks_usec()
+
+        var frame_ms := float(engine_frame_end_usec - frame_start_usec) / 1000.0
         frame_times_ms.append(frame_ms)
+        harness_forced_sort_ms.append(float(forced_sort_end_usec - engine_frame_end_usec) / 1000.0)
+        harness_stats_gather_ms.append(float(stats_end_usec - forced_sort_end_usec) / 1000.0)
 
         var visible := _read_stat_int_max(stats, ["visible_after_culling", "visible_splats", "cull_cpu_visible_count"])
         if first_visible_ms < 0.0 and visible > 0:
@@ -510,32 +640,83 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
     var within_budget := bool(budget_eval.get("within_budget", false))
     var budget_failures: Array = budget_eval.get("budget_failures", [])
     var telemetry_failures: Array = budget_eval.get("telemetry_failures", [])
+    # #883: the enforcement split. `budget_failures`/`telemetry_failures` above
+    # are unchanged and still record everything that breached; these two arrays
+    # only say which of them may fail the job on this tier.
+    var blocking_failures: Array = budget_eval.get("blocking_failures", [])
+    var advisory_failures: Array = budget_eval.get("advisory_failures", [])
+    var advisory_details: Array = budget_eval.get("advisory_details", [])
 
-    if not within_budget:
-        var budget_context := {
-            "tier": tier_name,
-            "size": size,
-            "first_visible_ms": first_visible_ms,
-            "residency_ratio": float(residency.get("residency_ratio", 0.0)),
-            "frame_p95_ms": frame_p95_ms,
-            "frame_p95_to_avg_ratio": frame_p95_to_avg_ratio,
-            "source_data_status": source_data_status,
-            "fallback_rate_status": fallback_rate_status,
-            "fallback_rate": fallback_rate,
-            "budget_failures": budget_failures,
-            "telemetry_failures": telemetry_failures
-        }
+    var budget_context := {
+        "tier": tier_name,
+        "size": size,
+        "first_visible_ms": first_visible_ms,
+        "residency_ratio": float(residency.get("residency_ratio", 0.0)),
+        "frame_p95_ms": frame_p95_ms,
+        "frame_p95_to_avg_ratio": frame_p95_to_avg_ratio,
+        "source_data_status": source_data_status,
+        "fallback_rate_status": fallback_rate_status,
+        "fallback_rate": fallback_rate,
+        "budget_failures": budget_failures,
+        "telemetry_failures": telemetry_failures,
+        "blocking_failures": blocking_failures,
+        "advisory_failures": advisory_failures
+    }
+
+    # Report the demoted breaches FIRST and unconditionally, before any verdict,
+    # so they are in the job log with their measured values whether or not the
+    # tier goes on to fail for a correctness reason. Printed to stdout (not only
+    # push_warning) because that is what CI captures and greps.
+    if not advisory_failures.is_empty():
+        for detail in advisory_details:
+            var check_name := String(detail.get("check", "unknown"))
+            var advisory_line := ""
+            if detail.has("measured") and detail.has("budget"):
+                advisory_line = "%s %s: measured %.3f vs budget %.3f (%s) -- UNENFORCED (#883 interim; #778/#523 restore it)" % [
+                    tier_name,
+                    check_name,
+                    float(detail.get("measured", 0.0)),
+                    float(detail.get("budget", 0.0)),
+                    String(detail.get("units", ""))
+                ]
+            else:
+                advisory_line = "%s %s -- UNENFORCED (#883 interim)" % [tier_name, check_name]
+            advisories.append(advisory_line)
+            print("%s [Streaming] %s" % [ADVISORY_MARKER, advisory_line])
+        push_warning(
+            "%s [Streaming] %s timing budget breached but not enforced (#883): %s" % [
+                ADVISORY_MARKER, tier_name, str(advisory_details)
+            ]
+        )
+
+    if not blocking_failures.is_empty():
         if enforce:
             _record_failure("[Streaming] Tier budget check failed", budget_context)
         else:
             push_warning("[Streaming] Non-blocking tier budget failed: %s" % str(budget_context))
+    elif not within_budget:
+        # Nothing blocking failed, but the tier still did not meet every budget.
+        # Say so rather than printing a clean bill of health.
+        push_warning("[Streaming] Tier %s met every ENFORCED budget but breached %s" % [
+            tier_name, str(advisory_failures)
+        ])
 
     tier_result["within_budget"] = within_budget
     tier_result["budget_failures"] = budget_failures
     tier_result["telemetry_failures"] = telemetry_failures
+    tier_result["enforce_timing_budgets"] = bool(budget_eval.get("enforce_timing_budgets", true))
+    tier_result["blocking_within_budget"] = bool(budget_eval.get("blocking_within_budget", false))
+    tier_result["blocking_failures"] = blocking_failures
+    tier_result["advisory_failures"] = advisory_failures
+    tier_result["advisory_details"] = advisory_details
     tier_result["first_visible_ms"] = first_visible_ms
     tier_result["frame_avg_ms"] = frame_avg_ms
     tier_result["frame_p95_ms"] = frame_p95_ms
+    # #796: reported, deliberately NOT part of frame_* above. Kept visible so the
+    # harness's own per-sample cost stays observable instead of silently dropped --
+    # if it grows, the numbers above are still honest but the run got slower.
+    tier_result["harness_forced_sort_p95_ms"] = _percentile(harness_forced_sort_ms, 0.95)
+    tier_result["harness_stats_gather_p95_ms"] = _percentile(harness_stats_gather_ms, 0.95)
     tier_result["frame_max_ms"] = frame_max_ms
     tier_result["frame_p95_to_avg_ratio"] = frame_p95_to_avg_ratio
     # Raw-vs-retained sample counts document the warm-up discard for calibration

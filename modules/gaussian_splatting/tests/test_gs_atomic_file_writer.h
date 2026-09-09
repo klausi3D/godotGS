@@ -2,6 +2,7 @@
 
 #include "test_macros.h"
 
+#include "../core/streaming_chunk_payload_source.h"
 #include "../io/gs_atomic_file_writer.h"
 
 #include "core/io/dir_access.h"
@@ -156,6 +157,137 @@ TEST_CASE("[GaussianSplatting][AtomicWrite] write to a non-existent path creates
     CHECK(_atomic_read_raw(path) == content);
 
     DirAccess::remove_absolute(path);
+}
+
+// --------------------------------------------------------------------------
+// #714: the pre-rename guard's drain outcome is part of the contract.
+//
+// A guard exists to establish exclusivity the rename needs. On Windows an open
+// FileAccess denies delete access, so if the guard could NOT establish it, the
+// rename cannot succeed. The helper must refuse rather than attempt it: an
+// attempted rename fails with whatever the filesystem says about a rename that
+// never had a chance, which buries the real cause (an active streaming reader).
+//
+// These fakes pin both branches without needing a real streaming source, so the
+// contract is proven deterministically rather than by racing a live reader.
+namespace {
+
+struct _AtomicTestGuard {
+    bool is_drained = true;
+    bool drained() const { return is_drained; }
+};
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] a guard that could not drain refuses the replace and preserves the original") {
+    const String path = _atomic_test_path("guard_not_drained");
+    const PackedByteArray original = _atomic_bytes({ 'K', 'E', 'E', 'P' });
+    if (!_atomic_write_raw(path, original)) {
+        FAIL("could not create the pre-existing file the case replaces");
+        return;
+    }
+
+    bool writer_ran = false;
+    const Error err = gs_atomic_file_write(
+            path,
+            [&](const Ref<FileAccess> &file) -> Error {
+                // The copy still runs and succeeds; only the replace is refused.
+                writer_ran = true;
+                const uint8_t replacement[3] = { 'N', 'E', 'W' };
+                file->store_buffer(replacement, 3);
+                return OK;
+            },
+            []() {
+                _AtomicTestGuard guard;
+                guard.is_drained = false;
+                return guard;
+            });
+
+    CHECK(writer_ran);
+    // The specific, actionable cause -- not a generic rename/IO error.
+    CHECK(err == ERR_BUSY);
+    // The destination must be byte-identical: nothing was renamed over it.
+    CHECK(_atomic_read_raw(path) == original);
+    // And the discarded copy must not be left behind as litter.
+    CHECK(_atomic_count_siblings(path, ".tmp.") == 0);
+    CHECK(_atomic_count_siblings(path, ".bak.") == 0);
+
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] a guard that drained lets the replace proceed") {
+    // The other branch, so the case above cannot pass by refusing every write.
+    const String path = _atomic_test_path("guard_drained");
+    if (!_atomic_write_raw(path, _atomic_bytes({ 'O', 'L', 'D' }))) {
+        FAIL("could not create the pre-existing file the case replaces");
+        return;
+    }
+
+    const PackedByteArray updated = _atomic_bytes({ 'N', 'E', 'W', '!' });
+    const Error err = gs_atomic_file_write(
+            path,
+            [&](const Ref<FileAccess> &file) -> Error {
+                file->store_buffer(updated.ptr(), updated.size());
+                return OK;
+            },
+            []() { return _AtomicTestGuard(); });
+
+    CHECK(err == OK);
+    CHECK(_atomic_read_raw(path) == updated);
+
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] the real reader-suspend guard reports drained when nothing streams the path") {
+    // The overwhelmingly common case: no live source holds the destination, so
+    // there is nothing to drain and the replace must proceed. Pins that the real
+    // guard's default is "drained", not "busy" -- the opposite default would make
+    // every reimport fail.
+    const String path = _atomic_test_path("no_live_source");
+    StagedFileChunkPayloadSource::ScopedReaderSuspend guard(path);
+    CHECK(guard.suspended_count() == 0);
+    CHECK(guard.drained());
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] the reader-suspend guard only engages on Windows") {
+    // #714 review: the constraint this guard works around is Windows-specific
+    // (FileAccessWindows opens via _wfsopen with _SH_DENY*, none of which share delete).
+    // POSIX rename() replaces a destination that readers still hold open, so draining
+    // there costs up to the drain budget per reimport and, on timeout, would refuse a
+    // replace that would have succeeded -- a regression on Linux/macOS.
+    //
+    // Asserted per platform rather than skipped, so neither half can silently flip: on
+    // POSIX the guard must suspend nothing at all, and on Windows it must still be the
+    // real thing rather than accidentally compiled out.
+    const String path = _atomic_test_path("platform_scope");
+    StagedFileChunkPayloadSource::ScopedReaderSuspend guard(path);
+    CHECK(guard.drained()); // both platforms: nothing is streaming this path
+#ifdef WINDOWS_ENABLED
+    // Live-source registry is empty here, so 0 is expected -- what matters is that the
+    // Windows build still runs the real constructor. Covered behaviourally by the
+    // drained()/not-drained cases above.
+    CHECK(guard.suspended_count() == 0);
+#else
+    CHECK_MESSAGE(guard.suspended_count() == 0,
+            "POSIX must not suspend readers: rename() replaces an open destination");
+#endif
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] the reader-suspend guard is a no-op for an empty path") {
+    // Braces, not parens: `guard(String())` is the most vexing parse -- it declares a
+    // FUNCTION taking a String(*)() and returning the guard, and then
+    // `guard.suspended_count()` fails to compile.
+    const String empty_path;
+    StagedFileChunkPayloadSource::ScopedReaderSuspend guard{ empty_path };
+    CHECK(guard.suspended_count() == 0);
+    CHECK(guard.drained());
+}
+
+TEST_CASE("[GaussianSplatting][AtomicWrite] the default no-op guard reports drained so existing savers are unchanged") {
+    // The three existing savers use the two-argument form. It must never take the
+    // refusal branch -- a guard that establishes nothing has nothing to fail at.
+    _GSAtomicNoRenameGuard guard;
+    CHECK(guard.drained());
 }
 
 #ifdef WINDOWS_ENABLED

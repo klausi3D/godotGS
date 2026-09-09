@@ -5,6 +5,9 @@
 #include "core/math/math_funcs.h"
 
 PainterlyPassGraph::PainterlyPassGraph() {
+    // #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
+    // TEXTURE_COUNT is an enum constant (4) and never scales with scene or asset data;
+    // every textures.ptrw() write below is indexed by a TextureSlot < TEXTURE_COUNT.
     textures.resize(TEXTURE_COUNT);
 }
 
@@ -26,6 +29,7 @@ void PainterlyPassGraph::set_color_format(RD::DataFormat p_format) {
 void PainterlyPassGraph::setup(RenderingDevice *p_rd) {
     rd = p_rd;
     if (textures.size() != TEXTURE_COUNT) {
+        // #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
         textures.resize(TEXTURE_COUNT);
     }
 }
@@ -46,6 +50,7 @@ void PainterlyPassGraph::configure(const Size2i &p_render_size, float p_scale, b
     ERR_FAIL_NULL_MSG(rd, "PainterlyPassGraph::configure requires a valid RenderingDevice");
 
     if (textures.size() != TEXTURE_COUNT) {
+        // #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
         textures.resize(TEXTURE_COUNT);
     }
 
@@ -136,6 +141,9 @@ void PainterlyPassGraph::_ensure_texture(TextureSlot p_slot, RD::DataFormat p_fo
     ERR_FAIL_NULL_MSG(rd, "PainterlyPassGraph requires a valid RenderingDevice to allocate textures");
 
     if (p_slot >= textures.size()) {
+        // #798: unchecked by the compile-time-constant-count rule (gs_vector_alloc.h).
+        // p_slot < TEXTURE_COUNT, so the w[p_slot] write below cannot exceed what a
+        // successful resize produced.
         textures.resize(TEXTURE_COUNT);
     }
 

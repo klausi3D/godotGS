@@ -2,8 +2,12 @@ extends SceneTree
 
 const LARGE_SPLAT_COUNT := 10000
 const ANIMATION_PROPERTY_POSITION := 0
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("Engine Capability Sanity")
 
 var summary: Array = []
 var failures: Array = []
@@ -53,6 +57,8 @@ func _run() -> void:
     var exit_code = 0
     if not failures.is_empty():
         exit_code = 1
+    else:
+        _report.emit_pass()
     quit(exit_code)
 
 ## Records a check result and prints status to stdout.
@@ -64,6 +70,7 @@ func _record(name: String, result: Dictionary) -> void:
     summary.append({"name": name, "success": success, "details": details})
 
     if success:
+        _report.ok()
         print("  ✅ ", name)
     else:
         failures.append(name)

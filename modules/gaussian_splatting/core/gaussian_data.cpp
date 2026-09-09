@@ -16,6 +16,7 @@
 #include "gaussian_data.h"
 #include "gaussian_importance.h" // ResidentAtlasBudget::gaussian_importance(), select_top_k_indices()
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/config/project_settings.h"
 #include "core/io/file_access.h"
 #include "core/templates/hash_set.h"
@@ -886,7 +887,15 @@ PackedInt32Array GaussianData::get_brush_override_ids() const {
     RWLockRead lock(data_rwlock);
 
     PackedInt32Array result;
-    result.resize(gaussians.size());
+    // #798: the loop is bounded by gaussians.size() (unbounded scene data), NOT by
+    // result.size(), so an ignored resize failure leaves ptrw() null and writes every
+    // splat through address 0 with no CRASH_BAD_INDEX to name it. Returning the empty
+    // array is this class's own contract for "no data" (get_spherical_harmonics() below
+    // returns PackedFloat32Array() on its own failure) and matches how consumers already
+    // treat these getters -- they index defensively against the returned size().
+    if (!gs_resize_or_fail(result, gaussians.size(), "GaussianData::get_brush_override_ids")) {
+        return result;
+    }
     int32_t *write = result.ptrw();
     for (uint32_t i = 0; i < gaussians.size(); i++) {
         write[i] = gaussian_get_brush_override_id(gaussians[i].painterly_meta);
@@ -909,7 +918,13 @@ PackedFloat32Array GaussianData::get_spherical_harmonics(int p_index) const {
         return result;
     }
 
-    result.resize(vector_count * 3);
+    // #798: `offset` runs to vector_count * 3, derived from the asset's SH band counts,
+    // not from result.size() -- an ignored resize failure would splay those floats
+    // through a null ptrw(). Same empty-array failure result as the ERR_FAIL_INDEX_V
+    // above, which is this getter's existing contract for "cannot produce a row".
+    if (!gs_resize_or_fail(result, int64_t(vector_count) * 3, "GaussianData::get_spherical_harmonics")) {
+        return result;
+    }
     float *write = result.ptrw();
     int offset = 0;
 

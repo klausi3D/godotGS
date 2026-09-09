@@ -1,6 +1,7 @@
 #include "streaming_upload_pipeline.h"
 #include "gaussian_streaming.h"
 #include "gs_project_settings.h"
+#include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "streaming_queue_pressure_controller.h"
 #include "streaming_tier_cap_policy.h"
 #include "core/config/project_settings.h"
@@ -964,7 +965,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
 
         // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
-        // 144 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
+        // 128 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
         // the write by sizeof(PackedGaussian) (slot_capacity_bytes / slot_offset below) --
         // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
         // If the effective atlas stride flipped 144->80 while this job was in flight (a
@@ -1053,7 +1054,31 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                     if (batched_job_count > 1) {
                         const uint32_t batched_gaussian_count =
                                 uint32_t((uint64_t(batched_job_count) * slot_capacity_bytes) / sizeof(PackedGaussian));
-                        upload_coalescing_scratch.resize(batched_gaussian_count);
+                        // #798: scratch_ptr is a memcpy DESTINATION whose write offsets are
+                        // bounded by the batched payload sizes, not by the scratch's own size().
+                        // Vector::resize() reports OOM only through its return value and leaves
+                        // the vector EMPTY, so an ignored failure hands memcpy a null destination
+                        // and splices every batched chunk through address 0.
+                        //
+                        // consume_upload_jobs() has ALREADY removed the additional jobs from the
+                        // upload queue and coalesced_upload_jobs is now their only owner, so we
+                        // must not just fall through to the per-job path below: those jobs would
+                        // leak and their chunks would stay PENDING forever. Apply this loop's own
+                        // established failure contract instead -- the same rollback + memdelete +
+                        // continue it already uses for a bad chunk count, a payload/chunk size
+                        // mismatch, a checksum mismatch and a pre-write stride flip -- once per
+                        // batched job (index 0 is `job`/`chunk`). The scheduler re-packs and
+                        // re-queues these chunks on a later frame.
+                        if (!gs_resize_or_fail(upload_coalescing_scratch, batched_gaussian_count,
+                                    "StreamingUploadPipeline::process_upload_queue coalescing scratch")) {
+                            for (uint32_t i = 0; i < batched_job_count; i++) {
+                                PendingChunkUpload *batched_job = coalesced_upload_jobs[i];
+                                system._rollback_pending_chunk(batched_job->asset_id, batched_job->chunk_idx,
+                                        *coalesced_upload_chunks[i], true);
+                                memdelete(batched_job);
+                            }
+                            continue;
+                        }
                         PackedGaussian *scratch_ptr = upload_coalescing_scratch.ptrw();
                         uint32_t scratch_offset = 0;
                         for (uint32_t i = 0; i < batched_job_count; i++) {
@@ -1202,7 +1227,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     upload->buffer_slot = p_job.buffer_slot;
     upload->asset_generation = p_job.asset_generation;
     // #766: stamp the true pack-time stride. This function is the sole producer of async upload
-    // jobs and always packs the 144 B PackedGaussian layout (pack_gaussians_range writes
+    // jobs and always packs the 128 B PackedGaussian layout (pack_gaussians_range writes
     // Vector<PackedGaussian>; upload_job_slices()/coalescing size and offset by sizeof(PackedGaussian)).
     // Capturing sizeof(PackedGaussian) as a compile-time constant here -- rather than reading the
     // effective stride at stage time in finalize_upload_job -- pins the value to the layout the
@@ -1259,14 +1284,24 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     if (telemetry_on) {
         pack_start_usec = _ticks_usec_now();
     }
-    pack_gaussians_range(r_scratch.gaussian_snapshot,
-            0,
-            p_job.chunk_count,
-            upload->packed_data,
-            upload->metrics,
-            sh_coeffs,
-            sh_first_order,
-            sh_high_order);
+    // #787: on allocation failure leave packed_data empty and return the upload unpopulated,
+    // which is the same "no payload" state this function already produces when the snapshot
+    // fails above. An empty payload is retired harmlessly; a short one would stage a chunk
+    // that claims more splats than were written.
+    if (!pack_gaussians_range(r_scratch.gaussian_snapshot,
+                0,
+                p_job.chunk_count,
+                upload->packed_data,
+                upload->metrics,
+                sh_coeffs,
+                sh_first_order,
+                sh_high_order) ||
+            (uint32_t)upload->packed_data.size() != p_job.chunk_count) {
+        upload->packed_data.clear();
+        ERR_FAIL_V_MSG(upload,
+                vformat("Failed to pack chunk %d (%d splats) for streaming upload; dropping payload.",
+                        p_job.chunk_idx, p_job.chunk_count));
+    }
     if (telemetry_on) {
         const uint64_t pack_end_usec = _ticks_usec_now();
         const uint64_t duration = pack_end_usec >= pack_start_usec ? (pack_end_usec - pack_start_usec) : 0;

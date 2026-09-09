@@ -1,0 +1,32 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="GaussianSplatWorld" path="res://tests/fixtures/test_splats.gsplatworld" id="world_fixture"]
+[ext_resource type="Script" path="res://scripts/qa_route_capture_base.gd" id="route_script"]
+
+[sub_resource type="Environment" id="Environment_qa_route"]
+background_mode = 1
+background_color = Color(0, 0, 0, 1)
+
+[node name="QAVisualDiffWorld" type="Node3D"]
+script = ExtResource("route_script")
+test_name = "Visual Diff (A): world-route reference capture"
+test_duration = 60.0
+route_role = "reference"
+capture_slot = "visual_diff"
+route_label = "world"
+capture_delay_frames = 10
+orbit_target = Vector3(0, 0, -4)
+rotation_angles = [0.0]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_qa_route")
+
+[node name="Content" type="GaussianSplatWorld3D" parent="."]
+world = ExtResource("world_fixture")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.94, 0.342, 0, -0.342, 0.94, 0, 3, 8)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.25, 0.433, 0, 0.866, 0.5, -0.5, -0.433, 0.75, 0, 10, 0)

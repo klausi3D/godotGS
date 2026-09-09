@@ -20,6 +20,7 @@
 #include "core/object/callable_method_pointer.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/local_vector.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 #include "../lod/lod_config.h"
@@ -34,6 +35,276 @@ namespace {
 
 Mutex g_renderer_settings_owner_mutex;
 HashMap<ObjectID, ObjectID> g_renderer_settings_owner_lookup;
+
+// #831: the four renderer-wide screen-space debug overlay flags, as requested by
+// one node. See GaussianSplatNodeDebugHelper::push_debug_overlay_union.
+struct GSDebugOverlayRequest {
+    bool show_tile_grid = false;
+    bool show_density_heatmap = false;
+    bool show_performance_hud = false;
+    bool show_residency_hud = false;
+
+    bool operator==(const GSDebugOverlayRequest &p_other) const {
+        return show_tile_grid == p_other.show_tile_grid &&
+                show_density_heatmap == p_other.show_density_heatmap &&
+                show_performance_hud == p_other.show_performance_hud &&
+                show_residency_hud == p_other.show_residency_hud;
+    }
+};
+
+// Last overlay union pushed to a given renderer, by ANY of its nodes. Keyed by
+// renderer ObjectID because the state it memoizes is per-renderer: a per-node
+// memo goes stale as soon as a peer writes a different union.
+Mutex g_debug_overlay_push_mutex;
+HashMap<ObjectID, GSDebugOverlayRequest> g_debug_overlay_last_push;
+
+// Called with g_debug_overlay_push_mutex held, only when a renderer is seen for
+// the first time (i.e. once per renderer), so the walk is not a hot path.
+// ObjectIDs are never reused, so an entry whose ObjectID no longer resolves
+// belongs to a freed renderer and can never be matched again.
+static void _prune_dead_debug_overlay_push_records() {
+    if (g_debug_overlay_last_push.size() < 8) {
+        return;
+    }
+    LocalVector<ObjectID> dead;
+    for (const KeyValue<ObjectID, GSDebugOverlayRequest> &entry : g_debug_overlay_last_push) {
+        if (!ObjectDB::get_instance(entry.key)) {
+            dead.push_back(entry.key);
+        }
+    }
+    for (uint32_t i = 0; i < dead.size(); i++) {
+        g_debug_overlay_last_push.erase(dead[i]);
+    }
+}
+
+// #839 round 5: commit a computed union to the renderer PER COMPONENT.
+//
+// The memo is the record of what the union machinery last AUTHORED on this
+// renderer (rounds 3/4), and it is authored one flag at a time: these four are
+// independent renderer-wide diagnostics, not one value. Rounds 2-4 compared the
+// whole GSDebugOverlayRequest but wrote all four flags, so ANY component moving
+// re-asserted the node union over the other three. A
+// GaussianSplatRenderer::set_debug_show_density_heatmap(true) taken through the
+// bound API -- while every node's heatmap request is false -- was therefore
+// reverted as collateral the moment some node toggled its tile grid: #831 part 2's
+// clobber, one component over. Compare and write each component against its own
+// last authored value instead, so a component the union never moved is left
+// exactly as its last writer set it.
+//
+// An ABSENT record is an all-false authored record, not "unknown": the renderer's
+// own defaults for all four are false (RenderDebugState), so a renderer nobody has
+// pushed to has been authored all-false by construction. That makes the very first
+// push write only the components it actually turns on, which closes the same hole
+// at the memo-establishment boundary -- a renderer-side write made before any node
+// ever pushed is no longer clobbered by that first push either.
+//
+// This does not make the flags uncontrollable from a node: a component the nodes
+// DID author is still written on both edges, including the retraction to false
+// when the last requesting node leaves (round 3's 1 -> 0 convergence).
+//
+// Returns true when at least one component was actually written, which is also the
+// condition for the HUD fan-out: an unchanged union has nothing to tell peers.
+static bool _commit_debug_overlay_union(GaussianSplatRenderer *p_renderer, const GSDebugOverlayRequest &p_request) {
+    if (!p_renderer) {
+        return false;
+    }
+
+    const ObjectID renderer_id = p_renderer->get_instance_id();
+    GSDebugOverlayRequest authored;
+    {
+        MutexLock lock(g_debug_overlay_push_mutex);
+        const GSDebugOverlayRequest *last = g_debug_overlay_last_push.getptr(renderer_id);
+        if (last) {
+            authored = *last;
+        } else {
+            _prune_dead_debug_overlay_push_records();
+        }
+        g_debug_overlay_last_push[renderer_id] = p_request;
+    }
+
+    if (authored == p_request) {
+        return false;
+    }
+
+    bool wrote_any = false;
+    if (p_request.show_tile_grid != authored.show_tile_grid) {
+        p_renderer->set_debug_show_tile_grid(p_request.show_tile_grid);
+        wrote_any = true;
+    }
+    if (p_request.show_density_heatmap != authored.show_density_heatmap) {
+        p_renderer->set_debug_show_density_heatmap(p_request.show_density_heatmap);
+        wrote_any = true;
+    }
+    if (p_request.show_performance_hud != authored.show_performance_hud) {
+        p_renderer->set_debug_show_performance_hud(p_request.show_performance_hud);
+        wrote_any = true;
+    }
+    if (p_request.show_residency_hud != authored.show_residency_hud) {
+        p_renderer->set_debug_show_residency_hud(p_request.show_residency_hud);
+        wrote_any = true;
+    }
+    return wrote_any;
+}
+
+// #839 round 7: the nodes BOUND to a renderer -- a strictly larger set than the
+// nodes the scene director holds an instance record for.
+//
+// GaussianSplatNode3D::_register_shared_renderer() returns BEFORE
+// _register_instance_in_director() when the node has no splat asset, no
+// renderer_data and no runtime asset. Such a node is still bound to the world's
+// shared renderer -- GaussianSplatNodeRendererHelper::ensure_renderer() only
+// requires is_inside_world(), and GaussianSplatSceneDirector::get_shared_renderer()
+// creates that renderer lazily with no data -- and it still exposes the four
+// renderer-wide overlay properties. Sourcing the overlay union from
+// collect_instance_node_ids_for_renderer() alone therefore handed every data-less
+// node an EMPTY peer list: each one seeded the union from its own four flags
+// alone, so whichever pushed last retracted the other's request. That is
+// last-writer-wins -- the exact defect #831 exists to remove -- surviving in the
+// one node shape the director cannot see.
+//
+// This is a node-layer map rather than a director registration on purpose. A
+// director instance record is RENDER content: it feeds culling, LOD, transforms,
+// the instance store and get_instance_count_for_renderer() (which in turn gates
+// the shared-content painterly path). A node with no data is none of those
+// things, and promoting it to one in order to fix a diagnostic flag would change
+// behaviour far outside this contract. The binding such a node DOES have is its
+// `renderer` Ref, and that -- nothing more -- is what this records.
+//
+// ===========================================================================
+// INVARIANT (#839 round 8) -- read this before adding or moving any write.
+//
+//   A node has a record in g_renderer_bound_nodes for exactly as long as it is
+//   BOUND to that renderer. The record's lifetime tracks the node's `renderer`
+//   Ref and NOTHING ELSE. It is created when the node binds a renderer, and
+//   removed ONLY when the node unbinds: it drops the Ref, leaves the tree,
+//   leaves the world, or rebinds to a different renderer.
+//
+//   It is entirely INDEPENDENT of whether the node currently has content. A
+//   node with no splat asset, no renderer_data and no runtime asset is bound
+//   just as much as a loaded one -- that is the whole reason this map exists --
+//   so gaining, losing or swapping content must never add or remove a record.
+//
+// The writes that satisfy it, and the complete set of them:
+//
+//   BIND   GaussianSplatNodeRendererHelper::ensure_renderer() -- the only place
+//          `owner.renderer` is ever assigned. Idempotent, and re-reached on
+//          every enter-tree / enter-world, so a node that detached and came
+//          back re-registers itself.
+//   UNBIND GaussianSplatNode3D::_unbind_renderer_binding_record(), called from
+//          NOTIFICATION_EXIT_TREE, NOTIFICATION_EXIT_WORLD and
+//          NOTIFICATION_PREDELETE (before `renderer.unref()`, the only place
+//          the Ref is ever released) -- and from nowhere else.
+//
+// Round 7 hung the UNBIND off GaussianSplatNode3D::_unregister_shared_renderer()
+// instead. That was wrong, and the reviewer caught it: that function removes the
+// DIRECTOR'S CONTENT RECORD, and content-lifecycle paths call it on a node that
+// is still bound and still in the tree -- GaussianSplatNodeAssetHelper::clear_asset()
+// and GaussianSplatNodeRendererHelper::upload_asset_to_renderer() with nothing
+// to upload, i.e. `set_splat_asset(null)`. Coupling the two erased the node from
+// BOTH halves of the union (the director dropped its instance record, this map
+// dropped its binding record) while it was still a legitimate overlay
+// requester, and ensure_renderer() does not re-run on that path -- so the next
+// peer's completed walk reported the vanished node's component false and the
+// per-component authored memo legitimately cleared it on the renderer.
+//
+// The UNBIND has to be an explicit call and cannot be derived from node state:
+// during NOTIFICATION_EXIT_TREE the departing node still reports
+// is_inside_tree() == true (Node::_propagate_exit_tree clears the flag only
+// after the notification returns), so the eligibility filter below cannot
+// recognise it on its own -- exactly the reason the director's own walk removes
+// the instance record explicitly too. The filter below is therefore a safety
+// net for stale entries, not the mechanism.
+// ===========================================================================
+Mutex g_renderer_bound_nodes_mutex;
+HashMap<ObjectID, LocalVector<ObjectID>> g_renderer_bound_nodes;
+
+static void _note_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
+    if (p_renderer_id == ObjectID() || p_node_id == ObjectID()) {
+        return;
+    }
+    MutexLock lock(g_renderer_bound_nodes_mutex);
+    LocalVector<ObjectID> &nodes = g_renderer_bound_nodes[p_renderer_id];
+    for (uint32_t i = 0; i < nodes.size(); i++) {
+        if (nodes[i] == p_node_id) {
+            return;
+        }
+    }
+    nodes.push_back(p_node_id);
+}
+
+static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
+    if (p_renderer_id == ObjectID() || p_node_id == ObjectID()) {
+        return;
+    }
+    MutexLock lock(g_renderer_bound_nodes_mutex);
+    LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer_id);
+    if (!nodes) {
+        return;
+    }
+    for (uint32_t i = 0; i < nodes->size(); i++) {
+        if ((*nodes)[i] == p_node_id) {
+            nodes->remove_at_unordered(i);
+            break;
+        }
+    }
+    if (nodes->is_empty()) {
+        // ObjectIDs are never reused, so a renderer whose last bound node left
+        // can be dropped outright rather than accumulating an empty bucket.
+        g_renderer_bound_nodes.erase(p_renderer_id);
+    }
+}
+
+// The peer set the overlay union is computed over: the director's instance
+// records PLUS the renderer-bound nodes it has no record for. Every added node is
+// re-validated against the same eligibility the director's registration enforces
+// -- alive, in the tree, in a world, and still bound to THIS renderer -- so a
+// stale entry can contribute nothing even if it were to outlive its node.
+static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_renderer,
+        LocalVector<ObjectID> &r_peer_ids) {
+    r_peer_ids.clear();
+    if (!p_renderer) {
+        return;
+    }
+
+    if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
+        // collect_instance_node_ids_for_renderer takes world_mutex and returns
+        // ObjectIDs, so the resolve below cannot act on a freed node. Every
+        // caller reaches this holding no director lock -- the same contract
+        // GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed
+        // documents for the identical walk.
+        director->collect_instance_node_ids_for_renderer(p_renderer, r_peer_ids);
+    }
+
+    LocalVector<ObjectID> bound_ids;
+    {
+        MutexLock lock(g_renderer_bound_nodes_mutex);
+        if (const LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer->get_instance_id())) {
+            bound_ids = *nodes;
+        }
+    }
+
+    for (uint32_t i = 0; i < bound_ids.size(); i++) {
+        const ObjectID bound_id = bound_ids[i];
+        bool already_listed = false;
+        for (uint32_t j = 0; j < r_peer_ids.size(); j++) {
+            if (r_peer_ids[j] == bound_id) {
+                already_listed = true;
+                break;
+            }
+        }
+        if (already_listed) {
+            continue;
+        }
+        GaussianSplatNode3D *node = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(bound_id));
+        if (!node || !node->is_inside_tree() || !node->is_inside_world()) {
+            continue;
+        }
+        if (node->get_renderer().ptr() != p_renderer) {
+            continue;
+        }
+        r_peer_ids.push_back(bound_id);
+    }
+}
 
 static bool _settings_owner_is_live(ObjectID p_owner_id) {
     if (p_owner_id == ObjectID()) {
@@ -77,6 +348,121 @@ static void _release_renderer_settings_owner(ObjectID p_renderer_id, ObjectID p_
     if (*existing_owner == p_owner_id || !_settings_owner_is_live(*existing_owner)) {
         g_renderer_settings_owner_lookup.erase(p_renderer_id);
     }
+}
+
+// Read the settings-owner lease WITHOUT claiming it. _claim_renderer_settings_owner
+// takes the lease when it is free, which is exactly what a read-only observer must
+// not do; the HUD election below only wants to know whether a settings owner
+// already exists so it can prefer that node.
+static ObjectID _peek_renderer_settings_owner(ObjectID p_renderer_id) {
+    if (p_renderer_id == ObjectID()) {
+        return ObjectID();
+    }
+
+    MutexLock lock(g_renderer_settings_owner_mutex);
+    const ObjectID *existing_owner = g_renderer_settings_owner_lookup.getptr(p_renderer_id);
+    if (!existing_owner || !_settings_owner_is_live(*existing_owner)) {
+        return ObjectID();
+    }
+    return *existing_owner;
+}
+
+// #839 round 4, thread 1: can this node host the renderer's debug HUD control?
+//
+// Deliberately weaker than GaussianSplatNodeRendererHelper::can_apply_renderer_settings():
+// drawing a CanvasLayer of renderer-wide statistics needs a node that is in the
+// tree and bound to the renderer, and nothing else. It does NOT need the node to
+// own the renderer's scene data, and it does NOT need the node to have local
+// source data of its own.
+//
+// #839 round 6: ...and it must be in p_viewport. The HUD control is a CanvasLayer
+// parented to the node, and CanvasLayer::_notification(NOTIFICATION_ENTER_TREE)
+// attaches itself to Node::get_viewport() (scene/main/canvas_layer.cpp), so the
+// control is only ever visible in the hosting node's own viewport. A peer in a
+// different viewport therefore cannot host "the" HUD on that viewport's behalf.
+static bool _node_can_host_debug_hud(GaussianSplatNode3D *p_node, const GaussianSplatRenderer *p_renderer,
+        const Viewport *p_viewport) {
+    if (!p_node || !p_renderer || !p_viewport) {
+        return false;
+    }
+    if (!p_node->is_inside_tree() || !p_node->is_inside_world()) {
+        return false;
+    }
+    if (p_node->get_viewport() != p_viewport) {
+        return false;
+    }
+    return p_node->get_renderer().ptr() == p_renderer;
+}
+
+// #839 round 4, thread 1 / round 6: elect the ONE node that draws p_renderer's
+// debug HUD IN p_viewport.
+//
+// The election is keyed by (renderer, viewport), not by renderer alone. A
+// GaussianSplatRenderer is shared per World3D
+// (director->get_shared_renderer(node->get_world_3d())), and a World3D is shared
+// by every viewport that does not opt into use_own_world_3d -- two SubViewports
+// under the same parent inherit it by default (Viewport::find_world_3d() walks to
+// the parent). Those viewports' nodes therefore resolve the SAME renderer. Under a
+// renderer-only election exactly one of them wins, and because the HUD control is
+// a CanvasLayer bound to its host node's viewport, the HUD then appears in that
+// one viewport and is missing from every other viewport rendering the same world,
+// with no way to ask for it. Keying by viewport as well gives each viewport its
+// own owner; keying by viewport *and* renderer keeps the uniqueness that stops N
+// peers in ONE viewport from stacking N identical overlays in the same corner.
+//
+// The four renderer-wide HUD flags are unioned over the renderer's peers (#831),
+// so without a unique owner N peers would stack N identical overlays in the same
+// corner. Round 2 used the settings-owner lease for that uniqueness, because it
+// is already unique per renderer. That predicate is wrong for a renderer that a
+// GaussianSplatWorld3D submission also feeds: apply_world_submission_contract()
+// installs the WORLD's GaussianData as the renderer's scene data, so
+// can_apply_renderer_settings() rejects every node whose data does not match it
+// (render_data_orchestrator.cpp::apply_world_submission_contract ->
+// gaussian_splat_node_helpers.cpp::can_apply_renderer_settings). There is then no
+// eligible node at all: the flags go true on the renderer and every node refuses
+// or destroys the control, so enabling a HUD renders nothing, permanently.
+//
+// This is a HUD-specific election, not a second lease, so there is no lifetime to
+// manage and no claim to release: it is a pure function of (settings owner,
+// director registration order, eligibility, viewport), evaluated identically by
+// every node that asks about the same viewport. Whoever evaluates first therefore
+// gets the same answer as whoever evaluates last, which is what makes "exactly one
+// HUD per viewport" hold.
+//
+// The settings owner is PREFERRED rather than required, so on a renderer that has
+// one the HUD stays on the same node it was on before this change; the first
+// eligible registered node is the fallback for the world-backed case where the
+// lease is unowned, and also for every viewport the (renderer-wide, hence single)
+// settings owner does not live in.
+static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, const Viewport *p_viewport) {
+    if (!p_renderer || !p_viewport) {
+        return ObjectID();
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        return ObjectID();
+    }
+
+    // Same locking contract as push_debug_overlay_union(): every caller reaches
+    // this holding no director lock.
+    LocalVector<ObjectID> peer_ids;
+    director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
+
+    const ObjectID settings_owner = _peek_renderer_settings_owner(p_renderer->get_instance_id());
+    ObjectID first_eligible;
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!_node_can_host_debug_hud(peer, p_renderer, p_viewport)) {
+            continue;
+        }
+        if (peer_ids[i] == settings_owner) {
+            return settings_owner;
+        }
+        if (first_eligible == ObjectID()) {
+            first_eligible = peer_ids[i];
+        }
+    }
+    return first_eligible;
 }
 
 static GaussianSplatRenderer::DebugPreviewMode _node_debug_draw_to_renderer_preview_mode(GaussianSplatNode3D::DebugDrawMode p_mode) {
@@ -596,19 +982,209 @@ void GaussianSplatNodeViewportHelper::on_observed_viewport_exited() {
     disconnect_viewport_observers();
 }
 
+// #839 round 4, thread 1. See _elect_debug_hud_owner() for why this is a
+// HUD-specific election rather than the settings-owner lease.
+//
+// #839 round 6: the question this answers is "does THIS node draw the HUD for the
+// viewport it lives in", not "does this node draw the renderer's only HUD". The
+// control is viewport-bound (CanvasLayer), so the renderer's other viewports run
+// their own election and get their own owner.
+bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const {
+    if (!owner.renderer.is_valid()) {
+        return false;
+    }
+    if (!owner.is_inside_tree() || !owner.is_inside_world()) {
+        return false;
+    }
+    const Viewport *viewport = owner.get_viewport();
+    if (!viewport) {
+        return false;
+    }
+    return _elect_debug_hud_owner(owner.renderer.ptr(), viewport) == owner.get_instance_id();
+}
+
+// #831: push the four renderer-wide screen-space overlay flags (tile grid,
+// density heatmap, performance HUD, residency HUD) as the UNION over every node
+// bound to this node's renderer.
+//
+// Before #831 a shared renderer forced all four to false. That made them
+// unreachable in every scene with more than one splat node -- i.e. every real
+// scene -- while the node property still read back true and nothing warned.
+// The suppression existed because the pre-#667 push was last-writer-wins across
+// peers, but these four are whole-frame diagnostics owned by the renderer, not
+// per-node appearance: their node-local default is read from, and written back
+// to, one project setting, so they were never per-node values. The union is
+// order-independent and idempotent -- every peer computes the same answer --
+// so there is no writer to arbitrate and the settings-owner lease is not needed
+// here (unlike painterly, which IS per-node appearance and stays gated).
+//
+// The push is edge-triggered against the last union ANY node pushed to this
+// renderer (g_debug_overlay_last_push), not against a per-node memo. Without the
+// edge trigger, apply_renderer_debug_settings() re-asserted the flags from
+// update_splats on EVERY frame, which silently reverted any
+// GaussianSplatRenderer::set_debug_show_*() call one frame after it was made.
+// The memo has to be per-RENDERER because the state is per-renderer: a per-node
+// memo goes stale the moment a peer (or this node's own re-entry after a detach)
+// writes a different union, and would then suppress a push that is genuinely
+// needed. Round 5 made the compare-and-write per COMPONENT -- see
+// _commit_debug_overlay_union().
+// #839 round 7: see _collect_overlay_union_peer_ids() for why the node layer has
+// to track this at all. These two are the only writers.
+void GaussianSplatNodeDebugHelper::register_renderer_bound_node(GaussianSplatRenderer *p_renderer,
+        GaussianSplatNode3D *p_node) {
+    if (!p_renderer || !p_node) {
+        return;
+    }
+    _note_renderer_bound_node(p_renderer->get_instance_id(), p_node->get_instance_id());
+}
+
+void GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer,
+        GaussianSplatNode3D *p_node) {
+    if (!p_renderer || !p_node) {
+        return;
+    }
+    _forget_renderer_bound_node(p_renderer->get_instance_id(), p_node->get_instance_id());
+}
+
+void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
+    if (!owner.renderer.is_valid()) {
+        return;
+    }
+    // A node outside the tree/world is not registered with the director and must
+    // not drive a renderer it is no longer part of.
+    if (!owner.is_inside_tree() || !owner.is_inside_world()) {
+        return;
+    }
+
+    GSDebugOverlayRequest request;
+    request.show_tile_grid = owner.show_tile_grid;
+    request.show_density_heatmap = owner.show_density_heatmap;
+    request.show_performance_hud = owner.show_performance_hud;
+    request.show_residency_hud = owner.show_residency_hud;
+
+    // #839 round 7: the director's instance records are NOT the whole peer set --
+    // a node with no asset/renderer_data/runtime_asset binds the renderer without
+    // ever being registered. See _collect_overlay_union_peer_ids().
+    LocalVector<ObjectID> peer_ids;
+    _collect_overlay_union_peer_ids(owner.renderer.ptr(), peer_ids);
+    const ObjectID self_id = owner.get_instance_id();
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        if (peer_ids[i] == self_id) {
+            continue;
+        }
+        const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        request.show_tile_grid = request.show_tile_grid || peer->is_showing_tile_grid();
+        request.show_density_heatmap = request.show_density_heatmap || peer->is_showing_density_heatmap();
+        request.show_performance_hud = request.show_performance_hud || peer->is_showing_performance_hud();
+        request.show_residency_hud = request.show_residency_hud || peer->is_showing_residency_hud();
+    }
+
+    if (!_commit_debug_overlay_union(owner.renderer.ptr(), request)) {
+        return;
+    }
+
+    // #839 round 2, finding 1: the flags are renderer-wide, but the HUD control
+    // is drawn by exactly ONE node -- the elected HUD owner (see
+    // can_own_debug_hud; round 2 used the settings-owner lease here, which
+    // round 4 replaced because it has no holder on a world-backed renderer). A
+    // non-owner peer that
+    // enables show_performance_hud / show_residency_hud therefore sets the
+    // renderer flag and is then refused the control by the ownership check,
+    // while the owner is never told anything changed. If the owner runs with
+    // UPDATE_MODE_MANUAL (or is skipped by a visibility-based update mode) its
+    // per-frame apply never runs either, so the flag stays enabled with no HUD
+    // on screen indefinitely. Route the reconciliation to every peer -- the
+    // holder among them creates the control, the rest are a no-op. Only on an
+    // actual change, so the per-frame memoized path stays free.
+    owner._notify_renderer_peers_debug_hud_dirty();
+}
+
+// #839 round 3, thread B: the 1 -> 0 node transition.
+//
+// push_debug_overlay_union() is node-relative -- it seeds the union with its
+// owner's own four flags and requires that owner to be in the tree and in a
+// world. Neither holds for the node that is leaving, and after it leaves there
+// may be NO node left to delegate to, while the renderer itself is still alive
+// because a GaussianSplatWorld3D submission holds it. In that state
+// _on_renderer_peer_set_changed() previously only dropped the memo: the memo is
+// consulted by the next push, and there was no next push, so the departed node's
+// tile grid / heatmap / HUD request stayed enabled on the world submission until
+// some unrelated node happened to register.
+//
+// This variant is addressed by RENDERER and seeded from nothing, so the union is
+// exactly "what the nodes currently registered for this renderer ask for" -- the
+// empty set gives all-false, which is the correct answer for 1 -> 0. It is
+// idempotent with the per-peer route: when peers do remain they have already
+// pushed the same union, and the memo compare below turns this into a no-op.
+void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(GaussianSplatRenderer *p_renderer) {
+    if (!p_renderer) {
+        return;
+    }
+
+    // Seeded all-false on purpose: there is no "self" here.
+    GSDebugOverlayRequest request;
+
+    // Same locking contract as push_debug_overlay_union(): every caller reaches
+    // this holding no director lock. #839 round 7: same completed peer set, too --
+    // a renderer whose only remaining nodes are data-less still has nodes, and
+    // seeding the retraction from the director alone would drop their requests.
+    LocalVector<ObjectID> peer_ids;
+    _collect_overlay_union_peer_ids(p_renderer, peer_ids);
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        request.show_tile_grid = request.show_tile_grid || peer->is_showing_tile_grid();
+        request.show_density_heatmap = request.show_density_heatmap || peer->is_showing_density_heatmap();
+        request.show_performance_hud = request.show_performance_hud || peer->is_showing_performance_hud();
+        request.show_residency_hud = request.show_residency_hud || peer->is_showing_residency_hud();
+    }
+
+    // Per-component, exactly as on the push path: the empty node set retracts what
+    // the nodes authored and only what they authored, so a renderer-side write on
+    // a component no node ever requested outlives the last node (round 5).
+    if (!_commit_debug_overlay_union(p_renderer, request)) {
+        return;
+    }
+
+    // Whatever nodes remain must reconcile their HUD control against the union
+    // that was just written -- same reason as the fan-out in
+    // push_debug_overlay_union(). With zero remaining nodes this loop is empty,
+    // which is the whole point: nobody is left to be told, so the write above had
+    // to happen here rather than being delegated.
+    for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
+        if (!peer) {
+            continue;
+        }
+        peer->_update_debug_hud_visibility();
+    }
+}
+
 void GaussianSplatNodeDebugHelper::apply_renderer_debug_settings() {
     if (!owner.renderer.is_valid()) {
         return;
     }
+
+    // The overlay union is lease-free (see push_debug_overlay_union): it runs
+    // before the settings-owner check, so a non-owner peer reaching this
+    // directly from GaussianSplatNode3D::_notification_enter_world still
+    // contributes its request. (The per-frame route through
+    // GaussianSplatNodeRendererHelper::apply_renderer_settings is lease-gated
+    // upstream; non-owner peers otherwise push from their own setters.)
+    push_debug_overlay_union();
+
     if (!owner.renderer_helper.can_apply_renderer_settings()) {
+        // A non-owner peer still has to reconcile its own HUD control against
+        // the renderer's (possibly just-unioned) state.
+        owner._update_debug_hud_visibility();
         return;
     }
 
-    const bool shared_renderer = _is_renderer_shared_with_other_content(owner);
-    owner.renderer->set_debug_show_tile_grid(shared_renderer ? false : owner.show_tile_grid);
-    owner.renderer->set_debug_show_density_heatmap(shared_renderer ? false : owner.show_density_heatmap);
-    owner.renderer->set_debug_show_performance_hud(shared_renderer ? false : owner.show_performance_hud);
-    owner.renderer->set_debug_show_residency_hud(shared_renderer ? false : owner.show_residency_hud);
     owner.renderer->set_debug_overlay_opacity(owner.debug_overlay_opacity);
     owner.renderer->set_debug_preview_mode(_node_debug_draw_to_renderer_preview_mode(owner.debug_draw_mode));
     if (owner.runtime_preview_enabled) {
@@ -628,10 +1204,7 @@ void GaussianSplatNodeDebugHelper::set_show_tile_grid(bool p_show) {
 
     GaussianSplatSettingsManager::set_debug_show_tile_grid(owner.show_tile_grid);
 
-    if (owner.renderer.is_valid() && owner.renderer_helper.can_apply_renderer_settings() &&
-            !_is_renderer_shared_with_other_content(owner)) {
-        owner.renderer->set_debug_show_tile_grid(owner.show_tile_grid);
-    }
+    push_debug_overlay_union();
 }
 
 void GaussianSplatNodeDebugHelper::set_show_density_heatmap(bool p_show) {
@@ -643,10 +1216,7 @@ void GaussianSplatNodeDebugHelper::set_show_density_heatmap(bool p_show) {
 
     GaussianSplatSettingsManager::set_debug_show_density_heatmap(owner.show_density_heatmap);
 
-    if (owner.renderer.is_valid() && owner.renderer_helper.can_apply_renderer_settings() &&
-            !_is_renderer_shared_with_other_content(owner)) {
-        owner.renderer->set_debug_show_density_heatmap(owner.show_density_heatmap);
-    }
+    push_debug_overlay_union();
 }
 
 void GaussianSplatNodeDebugHelper::set_show_performance_hud(bool p_show) {
@@ -658,10 +1228,7 @@ void GaussianSplatNodeDebugHelper::set_show_performance_hud(bool p_show) {
 
     GaussianSplatSettingsManager::set_debug_show_performance_hud(owner.show_performance_hud);
 
-    if (owner.renderer.is_valid() && owner.renderer_helper.can_apply_renderer_settings() &&
-            !_is_renderer_shared_with_other_content(owner)) {
-        owner.renderer->set_debug_show_performance_hud(owner.show_performance_hud);
-    }
+    push_debug_overlay_union();
 
     if (owner.show_performance_overlay) {
         owner.update_gizmos();
@@ -749,10 +1316,7 @@ void GaussianSplatNodeDebugHelper::set_show_residency_hud(bool p_show) {
 
     GaussianSplatSettingsManager::set_debug_show_residency_hud(owner.show_residency_hud);
 
-    if (owner.renderer.is_valid() && owner.renderer_helper.can_apply_renderer_settings() &&
-            !_is_renderer_shared_with_other_content(owner)) {
-        owner.renderer->set_debug_show_residency_hud(owner.show_residency_hud);
-    }
+    push_debug_overlay_union();
 
     owner._update_debug_hud_visibility();
 }
@@ -1356,6 +1920,16 @@ void GaussianSplatNodeRendererHelper::ensure_renderer() {
                 owner._replay_color_grading_if_pending();
             }
         }
+    }
+
+    // #839 round 7: this -- not _register_instance_in_director() -- is where a
+    // node becomes bound to a renderer, and it is the ONLY binding a node with no
+    // asset / renderer_data / runtime_asset ever gets: _register_shared_renderer()
+    // returns before the director sees it. Record the binding so the overlay union
+    // can walk a complete peer set. Idempotent, and reached on every enter-tree /
+    // enter-world, so a node that detached and came back re-registers itself.
+    if (owner.renderer.is_valid()) {
+        GaussianSplatNodeDebugHelper::register_renderer_bound_node(owner.renderer.ptr(), &owner);
     }
 
     owner._sync_gaussian_storage();

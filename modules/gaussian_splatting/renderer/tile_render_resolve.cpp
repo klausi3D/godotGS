@@ -13,6 +13,7 @@
  */
 
 #include "tile_renderer.h"
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
 #include "core/math/vector3.h"
@@ -725,7 +726,20 @@ bool TileRenderer::TileResolveStage::ensure_fallback_lighting_buffers(RenderingD
     }
     p_device->set_resource_name(fallback_reflection_buffer, "GS_TileResolve_FallbackReflectionSSBO");
 
-    zero_data.resize(uint32_t(required_cluster_storage_bytes));
+    // #798: unlike the fixed-size buffers above, this one scales with the caller-supplied
+    // p_min_cluster_storage_bytes, and zero_data is already populated by this point -- so a
+    // failed grow leaves it at the previous (reflection) size rather than empty. The buffer
+    // would then be created SHORT from zero_data.size() while fallback_cluster_buffer_bytes
+    // below records the full required_cluster_storage_bytes; the reuse gate at the top of this
+    // function only tests `fallback_cluster_buffer_bytes >= required_cluster_storage_bytes`, so
+    // every later frame would accept and bind a cluster SSBO smaller than the shader's declared
+    // range. Fail closed with this function's own contract, used at every buffer-create failure
+    // above: free the partial set and return false.
+    if (!gs_resize_or_fail(zero_data, (int64_t)required_cluster_storage_bytes,
+                "TileRenderer::TileResolveStage::ensure_fallback_lighting_buffers cluster")) {
+        free_fallback_lighting_buffers(p_device);
+        return false;
+    }
     zero_data.fill(0);
     fallback_cluster_buffer = p_device->storage_buffer_create(zero_data.size(), zero_data);
     if (!fallback_cluster_buffer.is_valid()) {

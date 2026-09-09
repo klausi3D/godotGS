@@ -73,7 +73,7 @@ In addition to the classic `--test` lane, the module ships a second doctest entr
 
 ### Supervisor
 
-`tests/ci/run_gpu_harness.py` drives `--gs-gpu-test` in **per-batch subprocesses** so a driver hang or OOM in one batch cannot corrupt the next. Today only the `CompositorHazard` batch has tests; the other six (`OutputCompositor`, `ComputeInfrastructure`, `TileRenderer`, `GpuSorting`, `MemoryStream`, `Streaming`) are catalogued and will populate as tests migrate in. `REQUIRED_BATCHES = {"CompositorHazard"}` and an empty filter on a required batch fails the gate (asserted at import).
+`tests/ci/run_gpu_harness.py` drives `--gs-gpu-test` in **per-batch subprocesses** so a driver hang or OOM in one batch cannot corrupt the next. The batch catalogue and the `REQUIRED_BATCHES` set live in that file's `BATCHES`/`REQUIRED_BATCHES` definitions — ask the source (`python tests/ci/run_gpu_harness.py --list-batches`) or see the per-batch table in [`tests/README.md`](../tests/README.md#gpu-test-harness) rather than a list transcribed here; an earlier version of this paragraph hand-listed the batches and had drifted badly by the time T4 (#909) deleted the structurally-empty `ComputeInfrastructure` batch it still advertised. An empty filter on a required batch fails the gate (asserted at import), and a `--batch` name matching no catalogued batch is rejected by the supervisor.
 
 ```powershell
 python tests\ci\run_gpu_harness.py --batch CompositorHazard --godot bin\godot.windows.editor.dev.x86_64.console.exe

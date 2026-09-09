@@ -11,6 +11,7 @@ Find build, test, architecture, and contributor workflow references.
 | Build command and platform prerequisites | [Build from Source](../BUILDING.md) |
 | Build failure diagnosis | [Recurring issues](../troubleshooting/recurring-issues.md) |
 | Test environment setup | [Testing setup guide](../testing/setup-guide.md) |
+| Exporting a playable game (export templates) | [Export templates](export-templates.md) |
 | Versioned docs site build and deploy | [Docs site maintenance guide](docs-site.md) |
 | Screenshot capture process | [Screenshot capture spec](screenshot-capture-spec.md) |
 | Public alpha accepted limitations | [Known public alpha limitations](known-public-alpha-limitations.md) |

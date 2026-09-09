@@ -1,5 +1,7 @@
 #include "gaussian_splat_world_io.h"
 
+#include "../core/gs_vector_alloc.h"
+
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/io/json.h"
@@ -135,14 +137,32 @@ static PackedByteArray _compress_data(const uint8_t *p_data, uint64_t p_size) {
 	if (p_size == 0) return result;
 	
 	int64_t max_compressed = Compression::get_max_compressed_buffer_size(p_size, Compression::MODE_GZIP);
-	result.resize(max_compressed);
-	
+	// #798: Compression::compress() does not null-check p_dst; it passes it to the codec.
+	// A failed resize leaves ptrw() null, so this would write through it. Fail closed to
+	// the empty array this function already returns for a failed compression.
+	if (!gs_resize_or_fail(result, max_compressed, "GaussianSplatWorldIO::_compress_data")) {
+		return PackedByteArray();
+	}
+
 	int64_t compressed_size = Compression::compress(result.ptrw(), p_data, p_size, Compression::MODE_GZIP);
 	if (compressed_size <= 0 || compressed_size > max_compressed) {
 		return PackedByteArray(); // Compression failed
 	}
 	
-	result.resize(compressed_size);
+	// #798 review (post-merge review of #802): the SHRINK needs checking too -- a class the
+	// original sweep predicate missed, since it only looked for "resize then write past the
+	// end". CowData::_fork_allocate() keeps the old size when a realloc fails, so a failed
+	// shrink leaves `result` at max_compressed: compressed_size valid bytes followed by an
+	// UNINITIALIZED heap tail (sized with resize(), not resize_initialized()). The caller
+	// stores result.size(), so that tail would be written into the .gsplatworld file -- and
+	// gzip stops at the stream end, so the file still LOADS while carrying leaked process
+	// memory. Fail closed to the empty array this function already uses for a failed compress.
+	if (result.resize(compressed_size) != OK) {
+		ERR_PRINT(vformat("[GaussianSplatWorldIO] Failed to trim the compression buffer from %d to %d "
+						  "bytes; discarding it rather than writing the uninitialized tail.",
+				int64_t(max_compressed), int64_t(compressed_size)));
+		return PackedByteArray();
+	}
 	return result;
 }
 
@@ -766,7 +786,19 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 	Vector<ChunkRecord> chunk_records;
 	if ((flags & kFlagHasChunks) != 0 && chunk_count > 0) {
-		chunk_records.resize(chunk_count);
+		// #794: the read loop is bounded by chunk_count, not chunk_records.size(), so
+		// an ignored resize failure would write past the end and hard-trap. chunk_count
+		// comes straight off disk, so this allocation is attacker/corruption-influenced.
+		// Fail closed exactly like the other header/payload read failures in this
+		// function: ERR_FILE_CORRUPT is wrong here (the file may be fine), so report
+		// the allocation failure itself.
+		if (!gs_resize_or_fail(chunk_records, (int64_t)chunk_count,
+					"GaussianSplatWorldIO::load chunk table")) {
+			if (r_error) {
+				*r_error = ERR_OUT_OF_MEMORY;
+			}
+			return Ref<Resource>();
+		}
 		file->seek(chunk_table_offset);
 		for (uint32_t i = 0; i < chunk_count; i++) {
 			chunk_records.write[i] = _read_chunk_record(file);
@@ -829,7 +861,24 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 			chunk.center = record.center;
 			chunk.radius = record.radius;
 			if (record.index_count > 0 && !all_indices.is_empty()) {
-				chunk.indices.resize(record.index_count);
+				// #798: record.index_count is read straight out of the on-disk chunk
+				// record -- FILE-SUPPLIED, so this allocation is attacker/corruption-
+				// influenced and reachable with no memory pressure at all. The memcpy
+				// below writes record.index_count * 4 bytes through ptrw(), which a
+				// failed resize leaves null (CowData::_fork_allocate(0) unrefs and
+				// leaves _ptr null); memcpy to null is UB and there is no
+				// CRASH_BAD_INDEX here to turn it into a named trap. Fail closed the
+				// same way this function reports every other load failure -- via
+				// *r_error plus an empty Ref -- but with ERR_OUT_OF_MEMORY rather than
+				// ERR_FILE_CORRUPT, since the file may be perfectly valid (this
+				// matches the chunk-table allocation above and the payload probe).
+				if (!gs_resize_or_fail(chunk.indices, (int64_t)record.index_count,
+							"GaussianSplatWorldIO::load chunk indices")) {
+					if (r_error) {
+						*r_error = ERR_OUT_OF_MEMORY;
+					}
+					return Ref<Resource>();
+				}
 				const uint64_t src_offset = record.indices_offset;
 				const uint64_t src_size = uint64_t(record.index_count);
 				if (src_offset <= uint64_t(all_indices.size()) && src_size <= uint64_t(all_indices.size()) - src_offset) {

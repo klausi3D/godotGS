@@ -1,0 +1,38 @@
+WARNING: [GaussianSplatManager] RenderingServer unavailable; local devices will be lazily created
+   at: GaussianSplatManager::GaussianSplatManager (modules\gaussian_splatting\core\gaussian_splat_manager.cpp:275)
+WARNING: [GaussianSplatManager] Failed to create primary local RenderingDevice
+   at: GaussianSplatManager::_create_local_device_on_render_thread (modules\gaussian_splatting\core\gaussian_splat_manager.cpp:580)
+ERROR: [RENDERER][ERROR] [GaussianSplatSceneDirector] Unable to acquire primary RenderingDevice for shared renderer (scenario=85899345920). Gaussian splat instances in this world will be collected but skipped because no renderer can be attached.
+   at: gs_logger::log_message (modules\gaussian_splatting\logger\gs_logger.cpp:395)
+WARNING: [RENDERER][WARN] [GaussianSplatNode3D] Viewport render target unavailable for node '@GaussianSplatNode3D@2'. Waiting for first frame.
+   at: gs_logger::log_message (modules\gaussian_splatting\logger\gs_logger.cpp:398)
+WARNING: [RENDERER][WARN] [GaussianSplatNode3D] Viewport render target unavailable for node '@GaussianSplatNode3D@3'. Waiting for first frame.
+   at: gs_logger::log_message (modules\gaussian_splatting\logger\gs_logger.cpp:398)
+WARNING: RenderingDevice unavailable - skipping painterly shader compilation test
+   at: TestGaussianSplatting::DOCTEST_ANON_SUITE_11356::DOCTEST_ANON_FUNC_11357 (C:\Projects\wt-595\modules\gaussian_splatting\tests\test_painterly_pipeline.h:473)
+WARNING: RenderingDevice unavailable - skipping painterly animation validation
+   at: TestGaussianSplatting::DOCTEST_ANON_SUITE_11356::DOCTEST_ANON_FUNC_11371 (C:\Projects\wt-595\modules\gaussian_splatting\tests\test_painterly_pipeline.h:510)
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+C:\Projects\wt-595\modules/gaussian_splatting/tests/test_gaussian_splat_node.h(1707):
+TEST CASE:  [GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer preserves local painterly and color grading state
+
+C:\Projects\wt-595\modules/gaussian_splatting/tests/test_gaussian_splat_node.h(1725): MESSAGE: Skipping test - renderer unavailable (headless mode)
+
+===============================================================================
+C:\Projects\wt-595\modules\gaussian_splatting\tests\test_renderer_pipeline.h(3838):
+TEST CASE:  [GaussianSplatting][RequiresGPU] Stage results report streaming not-ready instead of painterly fallback
+
+C:\Projects\wt-595\modules\gaussian_splatting\tests\test_renderer_pipeline.h(3841): MESSAGE: Skipping test - Rendering server unavailable
+
+===============================================================================
+modules\gaussian_splatting\tests\test_painterly_material.cpp(208):
+TEST CASE:  [GaussianSplatting] Painterly shader permutations compile
+
+modules\gaussian_splatting\tests\test_painterly_material.cpp(209): MESSAGE: GS_ENV_SKIP: RenderingDevice unavailable
+
+===============================================================================
+[doctest] test cases:  9 |  9 passed | 0 failed | 2063 skipped
+[doctest] assertions: 69 | 69 passed | 0 failed |
+[doctest] Status: SUCCESS!

@@ -3619,10 +3619,12 @@ bool RadixSort::is_supported(RenderingDevice *p_rd) {
     // + bin_masks[radix_size * mask_words], where radix_size = 1<<radix_bits and mask_words = ceil(wg/32).
     // The old probe checked only the OneSweep RADIX_SIZE (256) words and ignored bin_masks entirely, so an
     // 8-bit radix with a large workgroup (e.g. 512 → ~18 KB) could pass the probe and then fail pipeline
-    // creation on GPUs with a 16 KB shared-memory limit. Size it from the ACTUAL radix config.
-    // Fail closed on a radix width we cannot build. `1u << radix_bits` below is UB
-    // for radix_bits >= 32, and this probe reads the global config directly, which
-    // is not guaranteed validated at this point. Answering "supported" for a config
+    // creation on GPUs with a 16 KB shared-memory limit. Size it from the ACTUAL radix config via the
+    // SINGLE SOURCE OF TRUTH helper (#634) — GPUSortingConfig::get_validation_errors() flags the same
+    // derived quantity at config time, so the two must never re-derive the formula independently.
+    // Fail closed on a radix width we cannot build. `1u << radix_bits` is UB for
+    // radix_bits >= 32, and this probe reads the global config directly, which is
+    // not guaranteed validated at this point. Answering "supported" for a config
     // that create_variant() will reject anyway would also be wrong on its own terms.
     const uint32_t actual_radix_bits = config.radix_bits;
     if (!GPUSortingConstants::is_supported_radix_bits(actual_radix_bits)) {
@@ -3631,10 +3633,8 @@ bool RadixSort::is_supported(RenderingDevice *p_rd) {
                 actual_radix_bits));
         return false;
     }
-    const uint32_t actual_radix_size = 1u << actual_radix_bits;
-    const uint32_t mask_words = (required_workgroup_size + 31u) / 32u;
-    const uint32_t scatter_shared_uints = actual_radix_size * (2u + mask_words);
-    const uint32_t required_shared_memory = scatter_shared_uints * uint32_t(sizeof(uint32_t));
+    const uint32_t required_shared_memory =
+            GPUSortingConstants::radix_scatter_shared_memory_bytes(actual_radix_bits, required_workgroup_size);
     const ComputeCapabilityProbe probe = _probe_compute_capabilities(p_rd);
     return _supports_compute_profile(probe, required_workgroup_size, MIN_STORAGE_BUFFERS_PER_SET, required_shared_memory);
 }

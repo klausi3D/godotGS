@@ -506,11 +506,14 @@ if ($null -ne $painterlyRecord) {
     $painterlyMarkerFound = Select-String -Path $painterlyRecord.log_path -Pattern "PAINTERLY_TEST_PASSED" -SimpleMatch -Quiet
 }
 
-$qaRunnerScript = Join-Path $Root "tests\examples\godot\test_project\scripts\qa_test_runner.gd"
 $qaStreamingSceneCount = 0
-if (Test-Path -LiteralPath $qaRunnerScript) {
-    $qaStreamingSceneMatches = @(Select-String -Path $qaRunnerScript -Pattern '^\s*"res://scenes/qa/qa_stream' -ErrorAction SilentlyContinue)
-    $qaStreamingSceneCount = $qaStreamingSceneMatches.Count
+if ($null -ne $qaSummary -and $null -ne $qaSummary.results) {
+    # Count what the runner actually executed, not path-shaped strings in its
+    # source. QUARANTINED_SCENES deliberately contains streaming paths too;
+    # source regexes therefore certify disabled scenes as enabled.
+    $qaStreamingSceneCount = @($qaSummary.results | Where-Object {
+        [string]$_.scene -like "res://scenes/qa/qa_stream*"
+    }).Count
 }
 
 $issue897Ready = (
@@ -819,7 +822,7 @@ $issue871Lines = @(
     "- QA results JSON: " + (Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir "qa_results.json")),
     "- QA summary (passed/failed): $qaPassedCount / $qaFailedCount",
     "- QA non-streaming failed scene count: $qaFailuresExcludingStreamingVisualCount",
-    "- Enabled streaming QA scenes in runner: $qaStreamingSceneCount",
+    "- Executed streaming QA scenes in runner: $qaStreamingSceneCount",
     "- Streaming visual smoke scene: $qaStreamingVisualScene",
     "- Streaming visual smoke present in results: $qaStreamingVisualPresent",
     "- Streaming visual smoke passed: $qaStreamingVisualPassed",
@@ -834,7 +837,7 @@ $issue871Lines = @(
     "- " + (Mark-Check $qaRunnerPassed) + " QA runner command passed.",
     "- " + (Mark-Check $qaRunnerEffectivePass) + " QA runner effective pass.",
     "- " + (Mark-Check ($qaFailuresExcludingStreamingVisualCount -eq 0)) + " QA result set contains zero non-streaming failures.",
-    "- " + (Mark-Check ($qaStreamingSceneCount -gt 0)) + " Streaming QA scenes are enabled in qa_test_runner.gd.",
+    "- " + (Mark-Check ($qaStreamingSceneCount -gt 0)) + " Streaming QA scenes were executed by qa_test_runner.gd.",
     "- " + (Mark-Check $qaStreamingVisualPresent) + " qa_stream_visual_smoke.tscn appears in QA results.",
     "- " + (Mark-Check ($qaStreamingVisualPassed -or (-not $qaStreamingVisualGateRequired))) + " qa_stream_visual_smoke.tscn pass is " + ($(if ($qaStreamingVisualGateRequired) { "required" } else { "waived temporarily" })) + ".",
     "- " + (Mark-Check (-not $qaStreamingVisualSkipped)) + " qa_stream_visual_smoke.tscn was not skipped.",

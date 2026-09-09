@@ -120,17 +120,18 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 139,
-    "sha256": "bf5d1284e3842cdebc1235bcfe966c8e1f587a39f31a8dbb836b210ce2142884",
-    "sha256_last_changed_by": "#764/#771 REWORK (+1 case): the split-device fix was reworked (Option b -- pin the sorter to the buffer-owner device p_rd instead of the submission device; the prior init-time resource==command guard was a vacuous self-comparison, and a non-vacuous coherence guard now runs at sort time). A second [GaussianSplatting][GpuSort][RequiresGPU] TEST_CASE was added in modules/gaussian_splatting/tests/test_gpu_sorting.h: 'Sorter stays on the buffer-owner device under a two-device split (#764)', a two-device mutation-proof for the cross-device uniform-set binding hazard (the existing 'Sorter resource/command device identity (#764)' case is retained, its comments updated for the reworked guard). test_count 138 -> 139 (exactly one case added, zero renamed/removed). Both cases carry the [GpuSort] tag, so both MATCH the required GpuSorting harness batch (filter '*Sort*][RequiresGPU]*'); neither is deferred, so deferred_count stays 2 and unbatched_backlog stays 66. running_in_a_named_batch 70 -> 71. The sha256 was RECOMPUTED via tests/ci/check_renderer_release_gates.py _requires_gpu_snapshot().",
+    "test_count": 162,
+    "sha256": "924594d23c926a4e5e48ac7844640770eb387df4c0ca59a250099334d9536499",
+    "sha256_last_changed_by": "#928 (pre-upscale compute composite forced alpha=1.0, flattening splat coverage on transparent_bg viewports): INCREASE 161 -> 162 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h, tagged [GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] (\"Pre-upscale composite preserves destination alpha instead of forcing opaque\"), selected by the OutputCompositor batch (a REQUIRED batch; minimum_test_cases RAISED 3 -> 4 so a filter drift that stops selecting this case turns the gate red). [SceneTree] is deliberate: it lets the case assert its environment with FAIL() instead of adding a site to the shrink-only environment-skip inventory (#595), and it supplies the TextureStorage singleton the depth_test=false compute route needs. running_in_a_named_batch 95 -> 96, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 42055b719cd82c5968d7b56a6243f098d11c9563dacf9879a3b7657ecf88608e (count 161, #980 / #984).",
     "deferred_tags_any": [
       "Importer"
     ],
-    "deferred_count": 2,
+    "deferred_count": 3,
     "new_or_missing_test_policy": "fail-contract-check",
     "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
     "deferred_test_names_any": [
-      "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults"
+      "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults",
+      "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance"
     ],
     "deferral_model": "Deferred = (RequiresGPU tests tagged with any deferred_tags_any) UNION (RequiresGPU tests named in deferred_test_names_any). #329: [SceneTree] is no longer a deferred TAG -- that corpus runs in the NodeSceneTree/WorldSceneTree/SceneDirectorSceneTree batches; only the individually-broken cases listed above are still deferred."
   },
@@ -162,6 +163,20 @@
       "mitigation": "TileRenderer is not a REQUIRED_BATCH, so no release-gate coverage claim depends on this case. The other 6 cases in the batch (including the sibling shader-compilation case on a real device) still run and still gate. #643 tracks deciding the contract (coerce SRGB->UNORM, or fail initialize()) and then removing this waiver.",
       "docs_path": "docs/reference/renderer-release-gates.md",
       "base_sha_proven_failing": "b15c6ddda46bf6f140b65a444c33fa6025ec7bf0"
+    },
+    {
+      "test_name": "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance",
+      "batch": "Streaming",
+      "exclude_pattern": "*GPU Memory Streaming Performance*",
+      "source_path": "modules/gaussian_splatting/tests/test_gpu_streaming.h",
+      "reason": "REPRODUCED at COMMITTED revision 10198c6141cf3ade8881be767c0bba37b355bd77 (the T4 branch's merge of master 116b45af34e; contains the #908 retag, so the Streaming filter selects the case), RTX 3090, Vulkan, dev binary built from exactly that tree; invocation: bin/godot.windows.editor.dev.x86_64.console.exe --gs-gpu-test --test-case=\"*GPU Memory Streaming Performance*\" -> 1 case, 12 assertions, 2 FAILED at test_gpu_streaming.h:367 (CHECK(ms < 10.0f): 44.72 ms for 10000 splats) and :370 (CHECK(ms < 50.0f): 227.20 ms for 50000 splats). First measured 2026-08-15 on the same case body pre-commit (28.9/33.2 ms vs 10 ms and 144.3/143.7 ms vs 50 ms across two consecutive runs) -- the spread between sessions is itself the point: the budgets were written before the case ever ran anywhere (it was stranded behind the tag-order defect #908 fixed) and were never calibrated against any machine, and wall-clock assertions on this shared self-hosted runner measure the machine, not regressions (#615 measured a 2x swing on a printf-only diff; #630 tracks the contention variance). #910 records the same disposition for the sibling 'GPU Sorting Performance' benchmark: timing cases stay out of gating batches. || The budgets must NOT simply be raised to make the case pass -- that is a threshold edit needing its own justification. Excluding it keeps the Streaming batch's two functional cases running honestly; this case rejoins automatically the moment the waiver is removed.",
+      "risk": "low",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/917",
+      "owner": "klausi3D",
+      "expires_utc": "2026-10-31T00:00:00Z",
+      "mitigation": "Streaming is not a REQUIRED_BATCH, so no release-gate coverage claim depends on this case. The functional 'GPU Memory Streaming' case (uploads, triple buffering, overflow, invalid parameters) runs and passes in the same batch, so upload CORRECTNESS is exercised; only the wall-clock budget assertions are deferred. #917 is this case's dedicated tracker (deliberately not #892, which closes with T4 -- a waiver blessed by a closed issue is the #520/#329 silent-expiry shape this manifest has already paid for twice); it owns the budget disposition: re-derive calibrated budgets from measured baselines on the CI runner, convert to a relative/telemetry assertion, or retire the case.",
+      "docs_path": "docs/reference/renderer-release-gates.md",
+      "base_sha_proven_failing": "10198c6141cf3ade8881be767c0bba37b355bd77"
     }
   ],
   "gpu_harness_policy": {
@@ -196,7 +211,7 @@
       },
       {
         "name": "OutputCompositor",
-        "minimum_test_cases": 3,
+        "minimum_test_cases": 4,
         "allow_skips": false,
         "allow_timeout": false,
         "allow_rid_leaks": false,
@@ -432,16 +447,15 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 139,
-      "running_in_a_named_batch": 71,
-      "deferred_with_waiver": 2,
-      "unbatched_backlog": 66
+      "requires_gpu_total": 162,
+      "running_in_a_named_batch": 96,
+      "deferred_with_waiver": 3,
+      "unbatched_backlog": 63
     },
     "by_source_file": {
       "modules/gaussian_splatting/tests/test_gpu_buffer_manager_lifetime.h": 2,
       "modules/gaussian_splatting/tests/test_gpu_sorting.cpp": 8,
       "modules/gaussian_splatting/tests/test_gpu_sorting.h": 1,
-      "modules/gaussian_splatting/tests/test_gpu_streaming.h": 3,
       "modules/gaussian_splatting/tests/test_memory_leak_detection.h": 3,
       "modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h": 2,
       "modules/gaussian_splatting/tests/test_phase1_integration.h": 1,
@@ -464,8 +478,6 @@
       "[GaussianSplatting][RequiresGPU] Dynamic handle warmup publishes explicit streaming-not-ready skips",
       "[GaussianSplatting][RequiresGPU] Fallback reason telemetry",
       "[GaussianSplatting][RequiresGPU] Final output copies between targets",
-      "[GaussianSplatting][RequiresGPU] GPU Memory Streaming",
-      "[GaussianSplatting][RequiresGPU] GPU Memory Streaming Performance",
       "[GaussianSplatting][RequiresGPU] GPU Sorting Performance",
       "[GaussianSplatting][RequiresGPU] GPU memory leak detection",
       "[GaussianSplatting][RequiresGPU] GPU memory leak detection with renderer lifecycle",
@@ -507,7 +519,6 @@
       "[GaussianSplatting][RequiresGPU] Scene composite depth-test targets the presented viewport texture when scaling is disabled",
       "[GaussianSplatting][RequiresGPU] Scene composite keeps strict depth policy when cached depth is missing",
       "[GaussianSplatting][RequiresGPU] Stage results report streaming not-ready instead of painterly fallback",
-      "[GaussianSplatting][RequiresGPU] Stage-B instance depth culling toggles",
       "[GaussianSplatting][RequiresGPU] Static layout fallback publishes typed validator-aligned diagnostics",
       "[GaussianSplatting][RequiresGPU] Streaming indices validate against buffer capacity",
       "[GaussianSplatting][RequiresGPU] Strict global sort forces a real CPU sort when the camera-stable fallback buffer is missing",

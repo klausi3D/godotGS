@@ -339,12 +339,17 @@ void DebugOverlaySystem::clear_tile_density_cache() {
 // Renderer-syncing setters - overlay invalidation variants
 GS_DEBUG_OVERLAY_RENDERER_SETTER_OVERLAY_IMPL(show_tile_grid)
 GS_DEBUG_OVERLAY_RENDERER_SETTER_OVERLAY_IMPL(show_density_heatmap)
-GS_DEBUG_OVERLAY_RENDERER_SETTER_OVERLAY_IMPL(show_device_boundaries)
-GS_DEBUG_OVERLAY_RENDERER_SETTER_OVERLAY_IMPL(show_texture_states)
 
 // Renderer-syncing setters - HUD invalidation variants
 GS_DEBUG_OVERLAY_RENDERER_SETTER_HUD_IMPL(show_performance_hud)
 GS_DEBUG_OVERLAY_RENDERER_SETTER_HUD_IMPL(show_residency_hud)
+// #832: these two write HUD text lines, not overlay pixels, but were wired to
+// the OVERLAY invalidation variant — so toggling them never set hud_dirty and
+// rebuild_renderer_performance_hud_lines() was never re-run for them. Together
+// with the perf-HUD nesting fixed in that function, this was the second reason
+// they could never produce output.
+GS_DEBUG_OVERLAY_RENDERER_SETTER_HUD_IMPL(show_device_boundaries)
+GS_DEBUG_OVERLAY_RENDERER_SETTER_HUD_IMPL(show_texture_states)
 
 void DebugOverlaySystem::set_renderer_show_tile_grid(GaussianSplatRenderer *p_renderer, bool p_enabled) {
     set_renderer_show_tile_grid(build_command_sink(p_renderer), p_enabled);
@@ -425,7 +430,11 @@ void DebugOverlaySystem::invalidate_renderer_hud(const DebugOverlayCommandSink &
         debug_state.hud_version++;
     }
 
-    if (!debug_state.show_performance_hud && !debug_state.show_residency_hud) {
+    // #832: device boundaries / texture states now emit their own HUD sections,
+    // so they count as HUD sources here too — otherwise enabling one of them
+    // alone would have its lines dropped by the next invalidation.
+    if (!debug_state.show_performance_hud && !debug_state.show_residency_hud &&
+            !debug_state.show_device_boundaries && !debug_state.show_texture_states) {
         debug_state.hud_lines.clear();
     }
 
@@ -638,44 +647,54 @@ void DebugOverlaySystem::rebuild_renderer_performance_hud_lines(const DebugOverl
         }
 
 
-        if (debug_state_view.show_device_boundaries) {
+    }
+
+    // #832: these two sections used to be nested inside the show_performance_hud
+    // block above, which made show_device_boundaries and show_texture_states
+    // unreachable on their own — enabling either alone produced no lines at all.
+    // They are independent flags and are emitted at the same level as the
+    // residency section below, using the same leading-blank-line convention.
+    if (debug_state_view.show_device_boundaries) {
+        if (!debug_state.hud_lines.is_empty()) {
             debug_state.hud_lines.push_back(String());
-            debug_state.hud_lines.push_back(String("Device Boundaries"));
-            auto append_device = [&](const char *p_label, RenderingDevice *p_device) {
-                if (!p_device) {
-                    return;
-                }
-                debug_state.hud_lines.push_back(vformat("%s: %s", p_label, p_device->get_device_name()));
-            };
-            RenderingDevice *tile_device = nullptr;
-            if (subsystem_state.rasterizer.is_valid()) {
-                tile_device = subsystem_state.rasterizer->get_output_texture_owner();
-                if (!tile_device && subsystem_state.rasterizer->has_depth_output()) {
-                    tile_device = subsystem_state.rasterizer->get_depth_texture_owner();
-                }
+        }
+        debug_state.hud_lines.push_back(String("Device Boundaries"));
+        auto append_device = [&](const char *p_label, RenderingDevice *p_device) {
+            if (!p_device) {
+                return;
             }
-
-            RenderingDevice *sort_device = nullptr;
-            if (subsystem_state.sorting_pipeline.is_valid()) {
-                sort_device = subsystem_state.sorting_pipeline->get_sort_resource_device();
+            debug_state.hud_lines.push_back(vformat("%s: %s", p_label, p_device->get_device_name()));
+        };
+        RenderingDevice *tile_device = nullptr;
+        if (subsystem_state.rasterizer.is_valid()) {
+            tile_device = subsystem_state.rasterizer->get_output_texture_owner();
+            if (!tile_device && subsystem_state.rasterizer->has_depth_output()) {
+                tile_device = subsystem_state.rasterizer->get_depth_texture_owner();
             }
-
-            append_device("Primary", device_state.rd);
-            append_device("Local", p_query_view.submission_device);
-            append_device("Viewport", p_query_view.main_rendering_device);
-            append_device("Tile", tile_device);
-            append_device("Sorter", sort_device);
         }
 
-        if (debug_state_view.show_texture_states) {
+        RenderingDevice *sort_device = nullptr;
+        if (subsystem_state.sorting_pipeline.is_valid()) {
+            sort_device = subsystem_state.sorting_pipeline->get_sort_resource_device();
+        }
+
+        append_device("Primary", device_state.rd);
+        append_device("Local", p_query_view.submission_device);
+        append_device("Viewport", p_query_view.main_rendering_device);
+        append_device("Tile", tile_device);
+        append_device("Sorter", sort_device);
+    }
+
+    if (debug_state_view.show_texture_states) {
+        if (!debug_state.hud_lines.is_empty()) {
             debug_state.hud_lines.push_back(String());
-            debug_state.hud_lines.push_back(String("Texture States"));
-            if (subsystem_state.device_manager.is_valid()) {
-                uint32_t tracked_count = subsystem_state.device_manager->get_tracked_resource_count();
-                debug_state.hud_lines.push_back(vformat("Total tracked resources: %d", tracked_count));
-            } else {
-                debug_state.hud_lines.push_back(String("RenderDeviceManager not initialized"));
-            }
+        }
+        debug_state.hud_lines.push_back(String("Texture States"));
+        if (subsystem_state.device_manager.is_valid()) {
+            uint32_t tracked_count = subsystem_state.device_manager->get_tracked_resource_count();
+            debug_state.hud_lines.push_back(vformat("Total tracked resources: %d", tracked_count));
+        } else {
+            debug_state.hud_lines.push_back(String("RenderDeviceManager not initialized"));
         }
     }
 

@@ -21,6 +21,13 @@ var _test_result: bool = false
 var _test_message: String = ""
 var result_metrics: Dictionary = {}
 
+## Prefix a scene puts on its result message when it decided not to run at all
+## (e.g. no non-headless viewport). Single-sourced here because both the scene
+## that emits it and qa_test_runner.gd, which has to record the skip in the
+## results JSON, must agree on the exact token — a second copy would drift and
+## silently turn skips back into passes.
+const SKIP_MARKER := "[QA_SKIP]"
+
 const SSIM_WINDOW_SIZE := 11
 const SSIM_SIGMA := 1.5
 const SSIM_K1 := 0.01
@@ -172,21 +179,157 @@ func get_custom_monitor_value(monitor_id: String):
 		return null
 	return Performance.get_custom_monitor(monitor_id)
 
+## Thresholds for "did this capture contain a rendered image at all".
+##
+## Deliberately mirrored from tests/runtime/test_canonical_node_asset_render.gd
+## (MIN_VISUAL_LUMA_VARIANCE / MIN_VISUAL_LUMA_RANGE / MIN_NON_BACKGROUND_SAMPLES
+## / VISUAL_SAMPLE_STRIDE / BACKGROUND_LUMA_THRESHOLD), which has been proving
+## non-blank render evidence on the self-hosted GPU runner. Same definition of
+## "blank" in both harnesses, so a scene cannot be honest in one and vacuous in
+## the other.
+const MIN_CAPTURE_LUMA_VARIANCE := 0.00005
+const MIN_CAPTURE_LUMA_RANGE := 0.05
+const MIN_CAPTURE_NON_BACKGROUND_SAMPLES := 16
+const CAPTURE_SAMPLE_STRIDE := 4
+const CAPTURE_BACKGROUND_LUMA_THRESHOLD := 0.02
+
+## Helper: measure whether a capture actually contains rendered content.
+##
+## Returns a Dictionary with luma_variance / luma_range / non_background_samples
+## / sample_count, or an all-zero record for a null or empty image.
+func measure_capture_content(img: Image) -> Dictionary:
+	var empty := {
+		"luma_variance": 0.0,
+		"luma_range": 0.0,
+		"non_background_samples": 0,
+		"sample_count": 0,
+	}
+	if img == null:
+		return empty
+	var prepared := _prepare_ssim_image(img)
+	if prepared == null:
+		return empty
+	var width := prepared.get_width()
+	var height := prepared.get_height()
+	if width <= 0 or height <= 0:
+		return empty
+
+	var stride: int = int(max(1, CAPTURE_SAMPLE_STRIDE))
+	var luma_sum := 0.0
+	var luma_sq_sum := 0.0
+	var sample_count := 0
+	var non_background_samples := 0
+	var min_luma := 1.0
+	var max_luma := 0.0
+	for y in range(0, height, stride):
+		for x in range(0, width, stride):
+			var c := prepared.get_pixel(x, y)
+			var luma := 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+			luma_sum += luma
+			luma_sq_sum += luma * luma
+			sample_count += 1
+			min_luma = min(min_luma, luma)
+			max_luma = max(max_luma, luma)
+			if luma > CAPTURE_BACKGROUND_LUMA_THRESHOLD:
+				non_background_samples += 1
+
+	if sample_count <= 0:
+		return empty
+	var mean_luma := luma_sum / float(sample_count)
+	return {
+		"luma_variance": max(0.0, (luma_sq_sum / float(sample_count)) - (mean_luma * mean_luma)),
+		"luma_range": max(0.0, max_luma - min_luma),
+		"non_background_samples": non_background_samples,
+		"sample_count": sample_count,
+	}
+
+## Helper: why a capture holds no rendered content, or "" when it does.
+##
+## THE POINT OF THIS FUNCTION: an image comparison between two BLANK frames
+## scores a perfect 1.0, so a scene whose renderer drew nothing reports the
+## strongest possible pass. That is not a hypothetical — qa_visual_diff was
+## measured comparing two uniform clear-colour frames, scoring SSIM 1.0000,
+## and stayed green when one of its two nodes was displaced by 3 world units.
+## Every capture-based scene must therefore prove its frames are non-blank
+## BEFORE it is allowed to report a similarity score.
+func describe_blank_capture(img: Image, label: String = "capture") -> String:
+	if img == null:
+		return "%s produced no image" % label
+	var m := measure_capture_content(img)
+	if int(m["sample_count"]) <= 0:
+		return "%s produced an empty image" % label
+	var variance := float(m["luma_variance"])
+	var luma_range := float(m["luma_range"])
+	var non_background := int(m["non_background_samples"])
+	if variance < MIN_CAPTURE_LUMA_VARIANCE or luma_range < MIN_CAPTURE_LUMA_RANGE:
+		return "%s is blank (luma_variance=%.6f < %.6f or luma_range=%.4f < %.4f): the renderer drew nothing" % [
+			label, variance, MIN_CAPTURE_LUMA_VARIANCE, luma_range, MIN_CAPTURE_LUMA_RANGE
+		]
+	if non_background < MIN_CAPTURE_NON_BACKGROUND_SAMPLES:
+		return "%s has only %d non-background sample(s) < %d: the renderer drew nothing" % [
+			label, non_background, MIN_CAPTURE_NON_BACKGROUND_SAMPLES
+		]
+	return ""
+
+## Helper: why a pair of captures must not be scored, or "" when it may be.
+##
+## Combines the two ways a similarity score can be meaningless: the images are
+## not comparable (null / mismatched size), or either one is blank so the score
+## measures nothing. Call this before calculate_ssim() and fail the scene on a
+## non-empty result — never turn it into a number.
+func describe_unscorable_pair(img_a: Image, img_b: Image, label_a: String = "A", label_b: String = "B") -> String:
+	var blank_a := describe_blank_capture(img_a, label_a)
+	if not blank_a.is_empty():
+		return blank_a
+	var blank_b := describe_blank_capture(img_b, label_b)
+	if not blank_b.is_empty():
+		return blank_b
+	if img_a.get_size() != img_b.get_size():
+		return describe_capture_failure(img_a, img_b, label_a, label_b)
+	return ""
+
+## Helper: why two captures cannot be compared at all, or "" when they can.
+##
+## Scenes call this when calculate_ssim() returns NAN so the failure message
+## names the actual fault (no RenderingDevice, a blank frame, a resized
+## viewport) instead of reporting a bogus similarity score.
+func describe_capture_failure(img_a: Image, img_b: Image, label_a: String = "A", label_b: String = "B") -> String:
+	if img_a == null and img_b == null:
+		return "both captures failed (%s and %s produced no image)" % [label_a, label_b]
+	if img_a == null:
+		return "%s capture failed (produced no image)" % label_a
+	if img_b == null:
+		return "%s capture failed (produced no image)" % label_b
+	if img_a.get_size() != img_b.get_size():
+		return "capture size mismatch (%s=%v vs %s=%v)" % [label_a, img_a.get_size(), label_b, img_b.get_size()]
+	return "captures were too small for the %dx%d SSIM window" % [SSIM_WINDOW_SIZE, SSIM_WINDOW_SIZE]
+
 ## Helper: Calculate SSIM between two images (real SSIM with gaussian window)
+##
+## Returns NAN — never a number — when the inputs are not comparable at all
+## (a capture returned null, the two images disagree on size, or they are
+## smaller than the SSIM window). This used to return 0.0, which made "the
+## capture failed" indistinguishable from "the two renders share nothing".
+## That conflation is dangerous in both directions: it reports a rendering
+## regression when the real fault is a missing RenderingDevice, and — worse —
+## a 0.0 recorded into a committed baseline can never fail the
+## `current >= baseline - 0.02` comparison again, silently disarming the gate
+## forever. Callers must test with is_nan() and report a capture failure
+## rather than a score; see ssim_or_capture_failure().
 func calculate_ssim(img_a: Image, img_b: Image) -> float:
 	if img_a == null or img_b == null:
-		return 0.0
+		return NAN
 	var a = _prepare_ssim_image(img_a)
 	var b = _prepare_ssim_image(img_b)
 	if a == null or b == null:
-		return 0.0
+		return NAN
 	if a.get_size() != b.get_size():
-		return 0.0
+		return NAN
 
 	var width = a.get_width()
 	var height = a.get_height()
 	if width < SSIM_WINDOW_SIZE or height < SSIM_WINDOW_SIZE:
-		return 0.0
+		return NAN
 
 	var luma_a = _compute_luma_buffer(a)
 	var luma_b = _compute_luma_buffer(b)

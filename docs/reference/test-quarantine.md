@@ -37,6 +37,131 @@ below).
 
 `unlaned_tests` is **not** empty - see its own section below.
 
+### The retired prose baseline (#650, measured 2026-08)
+
+Until #650 the module's known-failure baseline existed only as prose in PR
+descriptions and issue bodies: "3 known failures". That number was never
+checked by anything, and it had already drifted. Measured on a headless
+`*GaussianSplatting*` run excluding `[RequiresGPU]`:
+
+| claimed | measured | disposition |
+| --- | --- | --- |
+| 3 known failures | **1** | 2 were fixed before anyone re-read the prose |
+
+- one was fixed by **#652** (retagged `[Thumbnail][Editor]` / `[Thumbnail][SceneTree]`
+  into real lanes),
+- one was fixed by **#653 / #655** (the test itself was wrong),
+- one **survives**: `[GaussianSplatting][Thumbnail] Generator caches deterministic
+  asset+settings keys` fails at
+  `modules/gaussian_splatting/tests/test_gaussian_importer.h:1181`, where
+  `CHECK(misses >= 2)` reports `CHECK( 0 >= 2 )`. Tracked in **#814**.
+
+**The survivor cannot be enrolled in `entries`.** An entry names a lane in
+`MODULE_TEST_FILTERS`, and the harness fails a quarantined lane that does not
+actually run and fail (`QUARANTINE-STALE` / `coverage_lost`). No `[Thumbnail]`
+lane exists, so the failure runs nowhere and there is no lane to quarantine. The
+repo has **no mechanism that makes a known-failing test both RUN and be
+tolerated while it is unlaned** - until `[Thumbnail]` gets a lane (#819), its
+`unlaned_tests` declaration documents *non-execution*, not
+*disposition-of-failure*. That gap is stated here rather than papered over.
+
+## Ratchet: the manifest cannot grow silently
+
+The baseline lives in the **guard**, `tests/ci/test_quarantine_manifest.py`,
+never in the manifest the guard checks. A manifest that is its own baseline is
+not a ratchet: before #650 a PR could append a quarantine entry, or an 11th
+`unlaned_tests` declaration, in a single hunk and go green. (This is the same
+hole `tests/ci/test_gpu_harness_deferred_contract.py` closed for
+`unbatched_requires_gpu_backlog`; its own comment records why the first attempt,
+which read the allowed backlog out of the manifest, was not a ratchet either.)
+
+Both arrays are pinned three ways, because each catches something the others
+miss:
+
+| pin | catches |
+| --- | --- |
+| `QUARANTINE_ENTRIES_MAX`, `UNLANED_MAX_DECLARATIONS`, `UNLANED_MAX_TOTAL_COUNT` | growth in size, including raising an existing `count` by one |
+| `QUARANTINE_ENTRIES_BASELINE`, `UNLANED_BASELINE` | additions by **set inclusion** - a same-size swap or a fix-one/add-one trade nets zero and still fails |
+| `QUARANTINE_ENTRIES_FINGERPRINT`, `UNLANED_FINGERPRINT` | any edit at all, so a re-pin is a deliberate two-file diff instead of a one-liner |
+
+Both fingerprints hash the **complete objects** - every field of every element,
+in the order committed - and both arrays get identical treatment. Two properties
+follow deliberately:
+
+- **Totality.** Nothing enumerates field names, so a field added by a future
+  schema change is hashed the day it appears. A hash over a hand-listed subset
+  of fields is the same class of defect as an invariant guarded by a
+  hand-written list. (Round 2 of #650 found the `unlaned_tests` hash covering
+  only `test_case` and `count`, so a rewritten `owner`, `reason`, `risk` or
+  `expires_utc` - and an `issue_url` swapped between two allowlisted open issues
+  - were all invisible. That is the closed-issue orphaning failure in reverse,
+  in the guard built to catch it.)
+- **Order.** `check_test_lane_coverage.py` attributes stranded cases
+  **first-match-wins** (#664), so moving a catch-all above a narrow family
+  silently re-attributes cases while every count stays put. Declaration order is
+  therefore pinned content, not cosmetics.
+
+Two further pins close the ways a declaration can become permanent without ever
+growing the count:
+
+- `MAX_EXPIRY_UTC` - an absolute ceiling on `expires_utc`, on top of the
+  relative `EXPIRY_HORIZON_DAYS = 180` rule. The relative horizon alone never
+  stops **serial** renewal: a PR could push every expiry out by 179 days
+  forever. The ceiling makes each renewal a guard edit.
+- `MANIFEST_TOP_LEVEL_KEYS` - the manifest's legitimate homes are pinned, so a
+  new top-level array cannot be introduced as a fresh unratcheted place to park
+  declarations.
+
+**The ratchet turns one way.** Counts may go DOWN, never UP. Raising any
+constant is a review red flag: it means a test was newly stranded, or a new
+failure was quarantined, instead of being given a lane.
+
+### Re-pin procedure (SHRINK only)
+
+1. Give the case a lane in `tests/ci/run_module_tests.py` (or a batch in
+   `run_gpu_harness.py`) so it actually runs.
+2. Delete or lower its declaration in `tests/ci/quarantine_manifest.json`.
+3. Re-pin the constants with
+   `python tests/ci/test_quarantine_manifest.py --print-fingerprint`.
+
+That tool **prints; it never writes**. It refuses to emit anything when the
+current manifest contains a declaration that is not in the pinned baseline, or a
+count above its pinned value - decided by set inclusion, not by net totals.
+There is no path in this repo that regenerates the pinned block from the current
+tree, and deleting the manifest does not bootstrap a fresh one: the guard fails
+closed on a missing, unreadable or unparseable manifest.
+
+### Tracking-issue liveness, checked offline
+
+Every `issue_url` in either array must reference an issue that a human has
+verified **OPEN**, listed in `ISSUES_VERIFIED_OPEN` in the guard. A declaration
+whose tracking issue has been closed is a **silent expiry**: the work stops
+being tracked while the declaration still looks blessed.
+
+This is not hypothetical. #650 found that **9 of the 10** `unlaned_tests`
+declarations pointed at closed issues - eight at **#520** and the 59-case
+`[RequiresGPU]` catch-all at **#329** - and nothing had noticed, because nothing
+had ever checked. They were re-pointed at live successors (#819, #820, #814).
+
+The check is deliberately **offline**. A guard that needs the GitHub API is a
+guard that fails when the API does, and CI would then block on rate limits or
+fail open. The allowlist is fail-closed in the useful direction: an issue nobody
+has verified is rejected, so pointing a declaration at a new tracking issue is a
+deliberate two-file diff. `ISSUES_VERIFIED_OPEN_UTC` plus
+`ISSUE_VERIFICATION_MAX_AGE_DAYS` bound how stale that human verification may
+get; the horizon sits later than `MAX_EXPIRY_UTC`, so re-checking issue state
+falls due as part of the renewal every declaration already needs.
+
+### Per-declaration content rules
+
+Field *presence* was already checked; presence is not hygiene. Both arrays are
+additionally checked for: a `reason` under 40 characters or consisting of a
+placeholder token (`TODO` / `TBD` / `FIXME` / `N/A` / `unknown` / `none` / ...);
+an `issue_url` outside `https://github.com/klausi3D/godotGS/issues/<number>`; an
+`expires_utc` in the past, beyond the 180-day horizon, or beyond
+`MAX_EXPIRY_UTC`; a `risk` outside `{R0, R1, R2, R3}`; and, for `entries` only,
+a `base_sha_proven_failing` that is not exactly 40 lowercase hex characters.
+
 ## Schema
 
 Each object in `entries` describes one quarantined lane.
@@ -96,14 +221,42 @@ declares fails, naming the newcomer; an entry matching **fewer** fails with an
 instruction to lower the count so the slack cannot be reoccupied. The list can
 neither rot into a permanent amnesty nor quietly widen.
 
+### Strict-coverage contracts - a promotion cannot quietly unwind (#846)
+
+Reaching *a* lane is not the same as reaching a lane that can fail CI. Promoting
+a corpus out of the advisory `[untagged]` safety net takes **two** coupled edits
+in `run_module_tests.py` - the tag joins `HEADLESS_GAUSSIAN_SCOPED_TAGS`, and a
+`strict=True` lane joins `MODULE_TEST_FILTERS`. Undo **both** and every case
+falls back to the advisory net; retag **some** of the cases and those fall back
+while the strict lane stays green and non-empty. Neither shape strands anything,
+so neither is caught by the check above.
+
+`STRICT_COVERAGE_CONTRACTS` in `check_test_lane_coverage.py` gates the property
+directly: for each declared corpus - named by its source file(s) **and** by a tag
+pattern - every case must be executed by at least one lane whose `strict` flag is
+true. The cases are derived from the sources and the lanes from
+`MODULE_TEST_FILTERS`, so no case list or lane list is maintained by hand; the
+only thing written down is which corpora are load-bearing, which is exactly the
+fact a tree that has already lost the lane can no longer tell you.
+
+Both keys must match at least one case **on their own**. That is deliberate: a
+contract whose file was renamed, or whose tag was misspelled, would otherwise
+enumerate nothing, find nothing uncovered, and pass. An empty
+`STRICT_COVERAGE_CONTRACTS` fails for the same reason. Measured on PR #850, all
+four undo shapes are red - deleting both halves (11 uncovered), retagging four
+cases (4 uncovered, in either the new-tag or dropped-tag form), and flipping the
+lane's `strict` flag to `False` (11 uncovered) - while all four are green without
+the contract.
+
 ### What the guard does not check
 
-It does not fail on cases that reach only a **non-strict** lane. 416 of 756
-registered cases reach no strict module lane and no GPU batch, most of them
-legitimately (GPU harness, advisory safety nets). Gating that today would demand
-hundreds of declarations, turning this manifest into the rubber stamp it exists
-to prevent. The number is printed on every run so it stays visible and can be
-ratcheted deliberately.
+It does not fail on cases outside a strict-coverage contract that reach only a
+**non-strict** lane. 381 of 856 registered cases reach no strict module lane and
+no GPU batch, most of them legitimately (GPU harness, advisory safety nets).
+Gating that globally would demand hundreds of declarations, turning this manifest
+into the rubber stamp it exists to prevent. The number is printed on every run so
+it stays visible, and the contracts above are how it is ratcheted deliberately,
+one corpus at a time.
 
 It also does not detect a case that matches a lane and then early-returns past
 every assertion. That is vacuity, not stranding - a different defect that no lane

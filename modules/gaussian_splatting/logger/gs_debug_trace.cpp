@@ -112,6 +112,9 @@ static void _push_recent_delta_locked(const DataFlowFrameDelta &p_delta) {
 	if (!_delta_has_activity(p_delta)) {
 		return;
 	}
+	// #794: unchecked by the compile-time-constant-count rule (see gs_vector_alloc.h).
+	// The cursor is taken modulo the same constant, so the index cannot exceed what a
+	// successful resize produced, and 120 fixed-size entries do not scale with data.
 	if (recent_data_flow_deltas.size() < static_cast<int>(DATA_FLOW_RECENT_WINDOW_CAPACITY)) {
 		recent_data_flow_deltas.resize(DATA_FLOW_RECENT_WINDOW_CAPACITY);
 	}
@@ -142,6 +145,8 @@ static bool _is_enabled() {
 
 static void _push_event(const String &p_category, const String &p_message, bool p_is_error) {
 	MutexLock lock(debug_mutex);
+	// #794: unchecked by the compile-time-constant-count rule (see gs_vector_alloc.h).
+	// 64 fixed entries, cursor taken modulo the same constant.
 	if (debug_events.size() < static_cast<int>(DEBUG_EVENT_CAPACITY)) {
 		debug_events.resize(DEBUG_EVENT_CAPACITY);
 	}

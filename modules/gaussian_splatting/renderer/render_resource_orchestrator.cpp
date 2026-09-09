@@ -1,5 +1,6 @@
 #include "render_resource_orchestrator.h"
 
+#include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
 #include "core/math/math_defs.h"
@@ -261,11 +262,34 @@ void RenderResourceOrchestrator::create_gpu_resources_safe() {
 		const bool buffers_up_to_date = buffers_valid &&
 				test_state.uploaded_generation == test_state.content_generation &&
 				test_state.uploaded_count == static_cast<uint32_t>(splat_count);
-		if (!buffers_up_to_date) {
-		// Create vertex data (position, color, scale per splat)
+		// #798: size every CPU staging vector up front and treat allocation failure as a
+		// unit. All five population loops below are bounded by splat_count, not by the
+		// vector's own size(), and a failed Vector::resize() leaves the vector empty so
+		// ptrw() returns nullptr — the writes would be wild writes with no bounds check.
+		// Skipping the whole upload (rather than uploading a short buffer) also leaves
+		// uploaded_generation / uploaded_count untouched, so the next
+		// create_gpu_resources_safe() retries instead of caching this frame as clean.
+		// gs_resize_or_fail() names the failing count/size; the pre-existing
+		// "Failed to allocate splat attribute buffers" check below still reports the
+		// resulting invalid buffers.
 		Vector<uint8_t> vertex_data;
-		vertex_data.resize(splat_count * (sizeof(float) * 10)); // 3 pos + 4 color + 3 scale
-
+		Vector<float> position_data;
+		Vector<float> scale_data;
+		Vector<float> rotation_data;
+		Vector<float> sh_data;
+		const bool staging_ready = !buffers_up_to_date &&
+				gs_resize_or_fail(vertex_data, int64_t(splat_count) * int64_t(sizeof(float) * 10),
+						"RenderResourceOrchestrator::create_gpu_resources_safe vertex_data") && // 3 pos + 4 color + 3 scale
+				gs_resize_or_fail(position_data, int64_t(splat_count) * 4,
+						"RenderResourceOrchestrator::create_gpu_resources_safe position_data") &&
+				gs_resize_or_fail(scale_data, int64_t(splat_count) * 4,
+						"RenderResourceOrchestrator::create_gpu_resources_safe scale_data") &&
+				gs_resize_or_fail(rotation_data, int64_t(splat_count) * 4,
+						"RenderResourceOrchestrator::create_gpu_resources_safe rotation_data") &&
+				gs_resize_or_fail(sh_data, int64_t(splat_count) * 16,
+						"RenderResourceOrchestrator::create_gpu_resources_safe sh_data");
+		if (staging_ready) {
+		// Populate vertex data (position, color, scale per splat)
 		uint8_t *w = vertex_data.ptrw();
 		for (int i = 0; i < splat_count; i++) {
 			float *vertex = (float *)(w + i * sizeof(float) * 10);
@@ -296,16 +320,8 @@ void RenderResourceOrchestrator::create_gpu_resources_safe() {
 			GS_LOG_RENDERER_WARN("[Hello Splat] Failed to create vertex buffer");
 		}
 
-		// Populate structured buffers for the splat shader path.
-		Vector<float> position_data;
-		position_data.resize(splat_count * 4);
-		Vector<float> scale_data;
-		scale_data.resize(splat_count * 4);
-		Vector<float> rotation_data;
-		rotation_data.resize(splat_count * 4);
-		Vector<float> sh_data;
-		sh_data.resize(splat_count * 16);
-
+		// Populate structured buffers for the splat shader path. (Allocated with the
+		// vertex staging above, so ptrw() is known non-null here — #798.)
 		float *position_ptr = position_data.ptrw();
 		float *scale_ptr = scale_data.ptrw();
 		float *rotation_ptr = rotation_data.ptrw();

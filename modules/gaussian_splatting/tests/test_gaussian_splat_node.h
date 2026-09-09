@@ -1,6 +1,7 @@
 #pragma once
 
 #include "test_macros.h"
+#include "../nodes/gaussian_splat_debug_hud.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 #include "../nodes/sphere_effector_3d.h"
 #include "../nodes/gaussian_splat_world_3d.h"
@@ -11,19 +12,29 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+// #798 round 3: the TESTS_ENABLED failure-injection seam used by the failed-set_splat_data
+// case below (gs_vector_alloc_force_failure_at / _is_armed / _clear).
+#include "../core/gs_vector_alloc.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/sh_config.h"
 #include "../resources/color_grading_resource.h"
 #ifdef TOOLS_ENABLED
 #include "../editor/gaussian_editor_services.h"
+#include "../editor/gaussian_inspector_plugins.h"
 #endif
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_list.h"
+// #839 round 10 (finding 1): ErrorHandlerList / add_error_handler, used by
+// ScopedEngineErrorCapture below to observe a refused Node::remove_child().
+#include "core/error/error_macros.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
+#include "scene/main/canvas_layer.h"
 #include "scene/main/scene_tree.h"
+#include "scene/main/viewport.h"
 #include "scene/main/window.h"
 
 #include <cstring>
@@ -167,6 +178,156 @@ bool is_property_editor_exposed(Object *p_object, const StringName &p_property_n
     return false;
 }
 
+// #839 round 2: observe whether a node is actually DRAWING the debug HUD.
+// GaussianSplatNode3D::_ensure_debug_hud_control adds a CanvasLayer child named
+// "GaussianSplatDebugHUDLayer" and _destroy_debug_hud_control removes it, so the
+// child's presence is exactly "this node owns the on-screen HUD control".
+bool node_has_debug_hud_control(GaussianSplatNode3D *p_node) {
+    if (p_node == nullptr) {
+        return false;
+    }
+    return p_node->get_node_or_null(NodePath("GaussianSplatDebugHUDLayer")) != nullptr;
+}
+
+// #839 round 6: how many debug HUDs are actually attached to p_viewport, counted
+// from the VIEWPORT's side rather than from any node's.
+//
+// node_has_debug_hud_control() above answers "does this node host its own
+// viewport-local HUD" by NAME, which cannot tell one node's HUD from a duplicate
+// the engine silently renamed, and says nothing about which viewport the layer
+// actually bound. This walks the whole tree and asks each CanvasLayer which
+// viewport it is attached to --
+// CanvasLayer::get_viewport() returns the RID it bound on ENTER_TREE, which is
+// the ground truth for "this overlay draws in that viewport" and is independent
+// of how the module chose to parent it. It is also side-effect free: no renderer
+// is resolved and no node state is touched.
+int count_debug_hud_controls_in_viewport(Node *p_search_root, const Viewport *p_viewport) {
+    if (p_search_root == nullptr || p_viewport == nullptr) {
+        return 0;
+    }
+    const RID viewport_rid = p_viewport->get_viewport_rid();
+    if (!viewport_rid.is_valid()) {
+        return 0;
+    }
+    int count = 0;
+    List<Node *> pending;
+    pending.push_back(p_search_root);
+    while (!pending.is_empty()) {
+        Node *node = pending.front()->get();
+        pending.pop_front();
+        if (node == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        CanvasLayer *layer = Object::cast_to<CanvasLayer>(node);
+        if (layer == nullptr || layer->get_viewport() != viewport_rid) {
+            continue;
+        }
+        for (int i = 0; i < layer->get_child_count(); i++) {
+            if (Object::cast_to<GaussianSplatDebugHUD>(layer->get_child(i)) != nullptr) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+// #839 round 11: every CanvasLayer p_node has parented into p_viewport, EMPTY
+// ONES INCLUDED.
+//
+// count_debug_hud_controls_in_viewport() above only counts a layer that still
+// carries a GaussianSplatDebugHUD child, and node_has_debug_hud_control() only
+// asks whether SOME child answers to the name "GaussianSplatDebugHUDLayer" --
+// neither can see a layer that was emptied out and abandoned, and an abandoned
+// layer is precisely the residue this round is about. Worse, both would report
+// the leak as healthy: Node::_validate_child_name() renames the duplicate that
+// the next enable adds to "@GaussianSplatDebugHUDLayer@N", so the original stays
+// findable under its own name while a second one draws the HUD.
+//
+// Read from the VIEWPORT's side like its neighbours: CanvasLayer::get_viewport()
+// is the RID the layer bound on ENTER_TREE, which is what "this overlay occupies
+// that viewport" actually means. The parent filter is what makes it specific to
+// the node's OWN, viewport-local HUD rather than any other node's.
+int count_node_canvas_layers_in_viewport(Node *p_search_root, const Node *p_node, const Viewport *p_viewport) {
+    if (p_search_root == nullptr || p_node == nullptr || p_viewport == nullptr) {
+        return 0;
+    }
+    const RID viewport_rid = p_viewport->get_viewport_rid();
+    if (!viewport_rid.is_valid()) {
+        return 0;
+    }
+    int count = 0;
+    List<Node *> pending;
+    pending.push_back(p_search_root);
+    while (!pending.is_empty()) {
+        Node *node = pending.front()->get();
+        pending.pop_front();
+        if (node == nullptr) {
+            continue;
+        }
+        for (int i = 0; i < node->get_child_count(); i++) {
+            pending.push_back(node->get_child(i));
+        }
+        CanvasLayer *layer = Object::cast_to<CanvasLayer>(node);
+        if (layer == nullptr || layer->get_parent() != p_node) {
+            continue;
+        }
+        if (layer->get_viewport() == viewport_rid) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// #839 round 10 (finding 1): counts engine ERRORS emitted while it is in scope.
+//
+// The defect it discriminates is a refused Node::remove_child() -- an
+// ERR_FAIL_COND_MSG, which reports through Godot's ErrorHandlerList and returns
+// rather than crashing at the call site. So the emission itself is the
+// observable, and it is one that can be read without touching the freed memory
+// the refusal leaves behind. Warnings are excluded: only ERR_HANDLER_ERROR.
+struct ScopedEngineErrorCapture : public ErrorHandlerList {
+    Vector<String> messages;
+
+    static void _handler(void *p_userdata, const char *, const char *, int, const char *p_error,
+            const char *p_message, bool, ErrorHandlerType p_type) {
+        if (p_type != ERR_HANDLER_ERROR) {
+            return;
+        }
+        ScopedEngineErrorCapture *self = static_cast<ScopedEngineErrorCapture *>(p_userdata);
+        String message;
+        if (p_error && p_error[0]) {
+            message = String::utf8(p_error);
+        }
+        if (p_message && p_message[0]) {
+            message += String(" | ") + String::utf8(p_message);
+        }
+        self->messages.push_back(message);
+    }
+
+    ScopedEngineErrorCapture() {
+        errfunc = _handler;
+        userdata = this;
+        add_error_handler(this);
+    }
+    ~ScopedEngineErrorCapture() {
+        remove_error_handler(this);
+    }
+
+    String joined() const {
+        String out;
+        for (int i = 0; i < messages.size(); i++) {
+            if (i > 0) {
+                out += " // ";
+            }
+            out += messages[i];
+        }
+        return out;
+    }
+};
+
 Ref<ColorGradingResource> make_color_grading_resource() {
     Ref<ColorGradingResource> grading;
     grading.instantiate();
@@ -227,6 +388,125 @@ void set_single_splat_rotation(const Ref<GaussianSplatAsset> &p_asset, const Qua
         ptr[3] = p_rotation.z;
     }
     p_asset->set_rotations(rotations);
+}
+
+// ── Return-safe teardown for test nodes attached to the shared SceneTree ────────
+//
+// #806 review: this file's [SceneTree] cases build nodes with memnew(), parent them
+// to the ONE root Window that every case in a doctest batch shares, and tear them
+// down with a hand-written `remove_child(); memdelete();` pair repeated before every
+// exit. That teardown is correct only for as long as every exit remembers it.
+//
+// It stopped being correct once #656/#843 replaced bare `REQUIRE` with
+// `if (!x) { FAIL(); return; }`. That idiom is REQUIRED here -- doctest is built with
+// disable_exceptions=True, so a failed REQUIRE does not abort and the following
+// dereference crashes the whole run -- but its `return` skips whatever teardown
+// followed. Three exits in "A failed set_splat_data must not republish the previous
+// payload" did exactly that: they returned with the node still parented to the root
+// window and, in two of the three, still registered with the SceneDirector. The
+// NodeSceneTree GPU-harness batch runs as ONE doctest process
+// (tests/ci/run_gpu_harness.py: BatchSpec("NodeSceneTree",
+// ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300)), so the survivor is
+// visible to every later case in that batch -- as an extra root child, an extra
+// director instance row, and retained renderer state.
+//
+// Repeating the teardown before each new `FAIL` would fix the three known exits and
+// leave the shape intact: the next exit added is one forgotten line away from the same
+// bug. So the teardown is made structural instead. The destructor runs on EVERY exit
+// from the scope -- fallthrough, early `return`, or a `return` added later by someone
+// who never reads this comment -- which is the property the hand-written version cannot
+// have.
+//
+// Deliberately parent-agnostic: it detaches from whatever parent the node has AT
+// DESTRUCTION time, not the one it was added to, so a case that re-parents (the
+// remove_child/add_child tree re-entry the set_splat_data case performs) still tears
+// down correctly. A node that is already detached is simply freed.
+template <typename T>
+class ScopedTestNode {
+public:
+    explicit ScopedTestNode(T *p_node) :
+            node(p_node) {}
+    ~ScopedTestNode() { reset(); }
+
+    ScopedTestNode(const ScopedTestNode &) = delete;
+    ScopedTestNode &operator=(const ScopedTestNode &) = delete;
+
+    T *get() const { return node; }
+    T *operator->() const { return node; }
+    explicit operator bool() const { return node != nullptr; }
+
+    // Hand the node back to the caller; the guard stops owning it.
+    T *release() {
+        T *released = node;
+        node = nullptr;
+        return released;
+    }
+
+    void reset() {
+        if (node == nullptr) {
+            return;
+        }
+        Node *parent = node->get_parent();
+        if (parent != nullptr) {
+            parent->remove_child(node);
+        }
+        memdelete(node);
+        node = nullptr;
+        // Matches the hand-written teardown this replaces: let the tree settle so the
+        // director observes the exit before the next case runs.
+        SceneTree *tree = SceneTree::get_singleton();
+        if (tree != nullptr) {
+            tree->process(0.0);
+        }
+    }
+
+private:
+    T *node = nullptr;
+};
+
+// What the helper below observed from INSIDE the scope, i.e. before the guard ran.
+//
+// These are the non-vacuity witnesses. Once ~ScopedTestNode() has done its job there is
+// nothing left in the tree to look at, so "the tree is back to baseline" afterwards is
+// indistinguishable from "the helper never attached anything" unless the helper itself
+// reports what it saw while the node was still alive.
+struct ScopedTestNodeExitObservation {
+    bool took_early_exit = false;
+    ObjectID instance_id;
+    int child_count_while_attached = -1;
+    bool registered_while_attached = false;
+};
+
+// The exact exit shape the guard exists for, factored out so a test case can OBSERVE
+// it. Attaches a node to `p_root`, records the observation above, and then -- when
+// `p_take_setup_failure_exit` is set -- returns early from the middle of the scope with
+// no teardown statement of any kind after it, exactly as the
+// `if (!x) { FAIL(); return; }` branches in the set_splat_data case do.
+ScopedTestNodeExitObservation take_scoped_test_node_setup_failure_exit(Window *p_root, bool p_take_setup_failure_exit) {
+    ScopedTestNodeExitObservation observation;
+
+    ScopedTestNode<GaussianSplatNode3D> node(memnew(GaussianSplatNode3D));
+    node->set_splat_asset(make_single_splat_asset(3.0f));
+    p_root->add_child(node.get());
+    observation.instance_id = node->get_instance_id();
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree != nullptr) {
+        tree->process(0.0);
+    }
+
+    observation.child_count_while_attached = p_root->get_child_count();
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (director != nullptr) {
+        GaussianSplatSceneDirector::InstanceSubmission submission;
+        observation.registered_while_attached = director->get_instance_submission(observation.instance_id, &submission);
+    }
+
+    if (p_take_setup_failure_exit) {
+        observation.took_early_exit = true;
+        return observation;
+    }
+
+    return observation;
 }
 
 } // namespace
@@ -970,7 +1250,13 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Shared renderer ow
     memdelete(node_a);
 }
 
-TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hides node-local debug settings and restores them when the settings owner exits") {
+// #831: this case previously pinned the opposite contract -- "shared renderer
+// hides node-local debug settings" -- which forced all four screen-space debug
+// overlays off in any scene with more than one splat node while the node
+// property still read back true. That suppression is replaced by a union over
+// the renderer's peers, so the assertions below pin the new contract: the
+// request reaches the renderer, and the control stays editable.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer unions node-local debug overlay requests and keeps the property editable") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
 
@@ -992,8 +1278,12 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
 
     Ref<GaussianSplatRenderer> renderer_a = node_a->get_renderer();
     Ref<GaussianSplatRenderer> renderer_b = node_b->get_renderer();
+    // #595: this case only runs in the [RequiresGPU] harness, where a shared
+    // renderer is always reachable. An environment skip here would be scored as
+    // a PASS and silently drop the whole #831 contract, so the precondition
+    // fails instead.
     if (!renderer_a.is_valid() || !renderer_b.is_valid() || renderer_a != renderer_b) {
-        MESSAGE("Skipping test - renderer unavailable (headless mode)");
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
         root->remove_child(node_b);
         root->remove_child(node_a);
         memdelete(node_b);
@@ -1003,13 +1293,31 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
 
     CHECK(node_a->is_showing_density_heatmap());
     CHECK_FALSE(node_b->is_showing_density_heatmap());
-    CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
-    CHECK_FALSE(is_property_editor_exposed(node_a, StringName("debug/show_density_heatmap")));
-    CHECK_FALSE(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
+    // The union carries node_a's request through to the shared renderer.
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+    // ...and neither node hides the control, so the user can still turn it off.
+    CHECK(is_property_editor_exposed(node_a, StringName("debug/show_density_heatmap")));
+    CHECK(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
 
+    // A second requester is idempotent.
     node_b->set_show_density_heatmap(true);
     CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+
+    // Clearing one peer does NOT clear the renderer-wide overlay while another
+    // peer still requests it -- that is what makes the union order-independent.
+    node_a->set_show_density_heatmap(false);
+    CHECK_FALSE(node_a->is_showing_density_heatmap());
+    CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer_a->is_debug_show_density_heatmap());
+
+    // Clearing the last requester clears the renderer.
+    node_b->set_show_density_heatmap(false);
     CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
+
+    // Re-arm on node_a, then remove it: the union shrinks to node_b's false.
+    node_a->set_show_density_heatmap(true);
+    CHECK(renderer_a->is_debug_show_density_heatmap());
 
     root->remove_child(node_a);
     memdelete(node_a);
@@ -1017,11 +1325,1667 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer hid
     tree->process(0.0);
 
     CHECK(is_property_editor_exposed(node_b, StringName("debug/show_density_heatmap")));
-    CHECK(node_b->is_showing_density_heatmap());
-    CHECK(renderer_a->is_debug_show_density_heatmap());
+    CHECK_FALSE(node_b->is_showing_density_heatmap());
+    CHECK_FALSE(renderer_a->is_debug_show_density_heatmap());
 
     root->remove_child(node_b);
     memdelete(node_b);
+}
+
+// #839 round 7: the overlay union has to cover every node BOUND to the renderer,
+// not only the ones the SCENE DIRECTOR knows about.
+//
+// GaussianSplatNode3D::_register_shared_renderer() returns BEFORE
+// _register_instance_in_director() when the node has no splat asset, no
+// renderer_data and no runtime asset. Such a node still binds the world's shared
+// renderer -- GaussianSplatNodeRendererHelper::ensure_renderer() only needs
+// is_inside_world(), and director->get_shared_renderer() creates the renderer
+// lazily with no data -- and it still exposes the four renderer-wide overlay
+// properties. Sourcing the union solely from
+// collect_instance_node_ids_for_renderer() therefore handed every data-less node
+// an EMPTY peer list: each one seeded the union from its own four flags alone,
+// and whichever pushed last retracted the other's request. That is
+// last-writer-wins, i.e. exactly the defect #831 exists to remove, surviving in
+// the one node shape the director cannot see.
+//
+// The discriminator is the pair of assertions after node_b's push: asserting only
+// node_b's own flag would pass with or without the fix.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Overlay union covers data-less peers the director never registered") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        return;
+    }
+
+    // Deliberately NO splat asset, NO renderer data, NO runtime asset on either
+    // node: that is the whole point of the case.
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+
+    root->add_child(node_a);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: this case only runs in the [RequiresGPU] harness, where the shared
+    // renderer is always reachable. An environment skip would be scored as a PASS
+    // and would silently drop the contract, so the precondition FAILS instead.
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both data-less nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    // PREMISE, not the contract: this is the UNREGISTERED shape. If the director
+    // ever starts registering data-less nodes, this case stops discriminating and
+    // must fail loudly rather than pass vacuously.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+
+    // The node setters write their value back into the project setting the node
+    // defaults are read from, so a leaked `true` would change the DEFAULT every
+    // later-constructed node in this batch starts from.
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    ProjectSettingGuard tile_grid_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+
+    // PREMISE: the flags start clear on both nodes and on the renderer, so the
+    // writes below are the only source of a true.
+    CHECK_FALSE(node_a->is_showing_tile_grid());
+    CHECK_FALSE(node_b->is_showing_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    node_a->set_show_tile_grid(true);
+    // PREMISE: a data-less node CAN drive the renderer at all -- it seeds the
+    // union from its own flags. Without this the scenario would never reach the
+    // union and the discriminator below would be meaningless.
+    CHECK(node_a->is_showing_tile_grid());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    node_b->set_show_density_heatmap(true);
+    CHECK(node_b->is_showing_density_heatmap());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // THE DISCRIMINATOR: node_a never withdrew its request, so node_b's push must
+    // have unioned it in. Pre-fix node_b saw an empty peer list and wrote
+    // tile_grid=false as collateral.
+    CHECK(node_a->is_showing_tile_grid());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // ...and the union stays a union in the other direction: node_a pushing again
+    // must not retract node_b's heatmap.
+    node_a->set_show_tile_grid(false);
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Retraction is still per-requester, so the completed peer set does not turn
+    // into a latch: dropping node_a's request clears only the tile grid.
+    node_a->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // A data-less peer that LEAVES the tree stops contributing, exactly as a
+    // registered one does. node_a is still is_inside_tree() while
+    // NOTIFICATION_EXIT_TREE runs, so an in-tree filter alone would not do this.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    root->remove_child(node_a);
+    tree->process(0.0);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Leave the renderer -- and the project settings the guards restore -- clean
+    // for the rest of the batch.
+    node_a->set_show_tile_grid(false);
+    node_b->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    memdelete(node_a);
+}
+
+// #839 round 8: the binding record's lifetime tracks the node's `renderer` Ref,
+// NOT its content.
+//
+// Round 7 removed the record from GaussianSplatNode3D::_unregister_shared_renderer().
+// That function removes the DIRECTOR'S CONTENT record, and content-lifecycle
+// paths call it on a node that is still bound and still in the tree:
+// `set_splat_asset(null)` -> _clear_asset() -> GaussianSplatNodeAssetHelper::clear_asset()
+// -> _unregister_shared_renderer(). The node keeps the same valid `renderer` Ref
+// and stays in the tree and the world, yet it was erased from BOTH halves of the
+// overlay union -- the director dropped the instance record, round 7's hook
+// dropped the binding record -- and ensure_renderer() does not re-run on that
+// path. A peer's next completed walk therefore reported the vanished node's
+// tile-grid request as false, and the per-component authored memo (round 5)
+// legitimately cleared that component on the renderer.
+//
+// THE DISCRIMINATOR is the pair of assertions after node_b enables the heatmap:
+// node_a never withdrew its tile-grid request, so both flags must be set. This is
+// the third shape of one defect -- "renderer-bound but missing from the overlay
+// union" -- so the case is written against the INVARIANT (a content change adds
+// and removes nothing) rather than against `set_splat_asset(null)` alone: it also
+// walks the reverse transition (data-less -> data) and re-checks the union.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Clearing a node's asset keeps its renderer binding in the overlay union") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        return;
+    }
+
+    // node_a starts WITH content, so it is registered with the director -- the
+    // opposite starting shape from the round-7 case, and the one that makes
+    // clearing the asset a state TRANSITION rather than a steady state.
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_b->set_splat_asset(make_single_splat_asset(20.0f));
+
+    root->add_child(node_a);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: this case only runs in the [RequiresGPU] harness, where the shared
+    // renderer is always reachable. An environment skip would be scored as a PASS
+    // and would silently drop the contract, so the precondition FAILS instead.
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    // The node setters write their value back into the project setting the node
+    // defaults are read from, so a leaked `true` would change the DEFAULT every
+    // later-constructed node in this batch starts from.
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    ProjectSettingGuard tile_grid_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+
+    // PREMISE: both nodes start REGISTERED with the director. The clear below is
+    // what takes node_a out of that half of the union; without this the drop from
+    // 2 to 1 asserted afterwards would prove nothing.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 2u);
+
+    // PREMISE: the flags start clear everywhere, so the writes below are the only
+    // source of a true.
+    CHECK_FALSE(node_a->is_showing_tile_grid());
+    CHECK_FALSE(node_b->is_showing_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    node_a->set_show_tile_grid(true);
+    // PREMISE: node_a can drive the renderer at all before the clear.
+    CHECK(node_a->is_showing_tile_grid());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // The content-only clear. `set_splat_asset(null)` -> _clear_asset() ->
+    // _unregister_shared_renderer(). Deliberately NO tree->process() between the
+    // clear and the peer's push below: node_a's own next frame re-runs
+    // ensure_renderer(), which re-adds the binding record and papers the eviction
+    // over, so a frame tick here would make the discriminator pass either way.
+    // The renderer-side damage is done in the window before that tick -- and it
+    // is not transient, because the peer's push writes tile_grid=false into the
+    // renderer and nothing re-pushes merely because the record came back.
+    node_a->set_splat_asset(Ref<GaussianSplatAsset>());
+
+    // PREMISE 1 -- the branch under test is actually reached: the clear really
+    // did remove node_a's DIRECTOR record, so the director half of the union no
+    // longer covers it. Only node_b's instance is left. If this ever stops
+    // holding, the case has stopped discriminating and must fail loudly rather
+    // than pass vacuously.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 1u);
+    // PREMISE 2 -- node_a is still in the tree and still asking for the tile
+    // grid, which is what makes its disappearance from the union a bug rather
+    // than a departure. Both of these are NON-MUTATING reads; see the deferred
+    // renderer-identity check below for why that matters here.
+    CHECK(node_a->is_inside_tree());
+    CHECK(node_a->is_showing_tile_grid());
+    // PROBE, and the earliest observable symptom: the clear's own reconcile walk
+    // must not already have retracted the request of the node that is still
+    // asking for it. Round 7 evicted the record before that walk ran, so the walk
+    // saw only node_b and wrote tile_grid=false here.
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // THE DISCRIMINATOR (the reviewer's scenario): a peer now enables the
+    // heatmap, and BOTH flags must be set. node_b's push walks the completed peer
+    // set; node_a is in it only if the binding record survived a content-only
+    // clear.
+    node_b->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // Deferred ON PURPOSE, and it must stay after the discriminator:
+    // GaussianSplatNode3D::get_renderer() calls _ensure_renderer(), which
+    // re-registers the binding record. Reading it earlier would REPAIR the
+    // eviction before the discriminator could observe it and make this case pass
+    // with or without the fix -- the first draft of this test did exactly that.
+    CHECK(node_a->get_renderer() == renderer);
+
+    // ...and in the other direction: node_a, now data-less, still pushes a union
+    // that keeps node_b's heatmap.
+    node_a->set_show_tile_grid(false);
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The invariant is about CONTENT in general, not about null in particular:
+    // giving node_a data back must not add a second record or otherwise disturb
+    // the union either.
+    node_a->set_splat_asset(make_single_splat_asset(40.0f));
+    tree->process(0.0);
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 2u);
+    node_b->set_show_density_heatmap(false);
+    node_b->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Retraction is still per-requester: the retained record must not become a
+    // latch that keeps tile grid on after node_a genuinely drops the request.
+    node_a->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // SECOND DISCRIMINATOR, and the proof the damage is not transient: clear the
+    // asset while node_a is the only tile-grid requester, then let a WHOLE FRAME
+    // pass. Round 7's eviction made _unregister_shared_renderer()'s own
+    // reconcile walk retract tile_grid immediately; ensure_renderer() re-adds the
+    // record on the next tick, but nothing re-pushes the union just because the
+    // record is back, so the renderer stays wrong.
+    node_a->set_show_tile_grid(true);
+    node_a->set_splat_asset(Ref<GaussianSplatAsset>());
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // And leaving the tree IS an unbind, for a data-less node just as much as a
+    // loaded one -- node_a is in exactly that shape now.
+    root->remove_child(node_a);
+    tree->process(0.0);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Leave the renderer -- and the project settings the guards restore -- clean
+    // for the rest of the batch.
+    node_a->set_show_tile_grid(false);
+    node_b->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    memdelete(node_a);
+}
+
+// #831 part 2: the node re-asserted its own four debug overlay flags from
+// update_splats() on every frame, so a GaussianSplatRenderer::set_debug_show_*()
+// call taken through the bound GDScript API was silently reverted one frame
+// later (measured: the flag reads back true in the same frame and false in the
+// next). The push is now edge-triggered against the last request the node
+// pushed, so an unchanged node leaves a renderer-side write alone.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Node debug apply does not revert a renderer-side debug flag write") {
+    // #656: REQUIRE does not abort in this build, so guard-then-return rather
+    // than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(4242.0f));
+
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS, and this case
+    // exists precisely to prove the renderer-side write survives.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node);
+        memdelete(node);
+        return;
+    }
+
+    CHECK_FALSE(node->is_showing_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The node's per-frame apply must not clobber this.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+    // The node's own request is untouched by the renderer-side write.
+    CHECK_FALSE(node->is_showing_density_heatmap());
+
+    // A node-local change is still authoritative when it actually changes.
+    node->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node);
+    memdelete(node);
+}
+
+// #839 round 2, finding 1: the HUD flags are unioned across the renderer's
+// peers, but the HUD CONTROL is drawn by exactly one node -- the settings-owner
+// lease holder -- so that N peers do not stack N identical overlays. A NON-owner
+// peer that enables show_performance_hud therefore set the renderer flag, was
+// refused the control by its own ownership check, and the actual owner was never
+// told anything had changed: flag enabled, nothing on screen.
+//
+// UPDATE_MODE_MANUAL is the case that does not self-heal. The owner's per-frame
+// apply (update_splats -> apply_renderer_settings -> apply_renderer_debug_settings
+// -> _update_debug_hud_visibility) is the only thing that would have reconciled
+// it, and MANUAL never runs update_splats -- see
+// GaussianSplatNode3D::process_gaussian_render's UPDATE_MODE_MANUAL arm. The
+// frame loop below is the proof that this is permanent, not deferred.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode HUD owner is notified when a peer toggles a HUD flag") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    // set_show_performance_hud writes the project setting in an editor build,
+    // and every later-constructed node seeds its node-local default from it.
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_a->set_show_performance_hud(false);
+    node_b->set_show_performance_hud(false);
+    // Neither node's own per-frame apply may rescue this.
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    // node_a enters first, so node_a claims the settings-owner lease for the
+    // shared renderer (_claim_renderer_settings_owner: first claimant wins and a
+    // live holder is never displaced).
+    root->add_child(node_a);
+    tree->process(0.0);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_show_performance_hud());
+    CHECK_FALSE(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // The NON-owner peer turns the HUD on.
+    node_b->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+
+    // ...and the owner must be drawing it. Pre-fix this was false here and
+    // stayed false forever, because node_b was refused the control and node_a
+    // was never notified.
+    CHECK(node_has_debug_hud_control(node_a));
+    // Exactly one control, on the lease holder -- not one per peer.
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // MANUAL: no amount of frames reconciles this on its own, so the assertion
+    // above is not merely early.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    // Clearing it from the non-owner tears the owner's control down again.
+    node_b->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_show_performance_hud());
+    CHECK_FALSE(node_has_debug_hud_control(node_a));
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    root->remove_child(node_b);
+    root->remove_child(node_a);
+    memdelete(node_b);
+    memdelete(node_a);
+}
+
+// #839 round 2, finding 2: the overlay union is a function of the SET of nodes
+// bound to the renderer, but the only thing that recomputed it on a peer change
+// was _converge_shared_renderer_state, which is edge-triggered on the
+// shared/not-shared BOOLEAN. A set that shrinks 3 -> 2 leaves that boolean at
+// true, so every remaining peer returned early and nobody dropped the departed
+// node's request: the renderer kept rendering an overlay no live node asks for.
+//
+// Again UPDATE_MODE_MANUAL is the non-self-healing case: the per-frame
+// update_splats -> apply_renderer_settings -> push_debug_overlay_union route,
+// which is the only other thing that recomputes the union, never runs.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode peers recompute the overlay union when a third peer leaves") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_c = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_c->set_splat_asset(make_single_splat_asset(20.0f));
+    node_a->set_show_tile_grid(false);
+    node_b->set_show_tile_grid(false);
+    node_c->set_show_tile_grid(false);
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_c->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_a);
+    root->add_child(node_b);
+    root->add_child(node_c);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    if (!renderer.is_valid() || node_b->get_renderer() != renderer || node_c->get_renderer() != renderer) {
+        FAIL("shared renderer required: all three nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_c);
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_c);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+
+    // node_a is the SOLE requester.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK_FALSE(node_b->is_showing_tile_grid());
+    CHECK_FALSE(node_c->is_showing_tile_grid());
+
+    // 3 -> 2: still "shared", so the shared/not-shared boolean does NOT move on
+    // node_b or node_c and the pre-fix convergence hook returned early on both.
+    root->remove_child(node_a);
+    memdelete(node_a);
+    node_a = nullptr;
+
+    // The sole requester is gone, so the renderer-wide overlay must be gone too.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // ...and it must not merely be deferred to a frame that MANUAL never runs.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // The union still works in the shrunken set: node_c can turn it back on and
+    // node_b can no longer hold it on by itself.
+    node_c->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    node_c->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    root->remove_child(node_c);
+    root->remove_child(node_b);
+    memdelete(node_c);
+    memdelete(node_b);
+}
+
+// #839 round 3, thread B: the 1 -> 0 node transition.
+//
+// Distinct from the 3 -> 2 case above. There, at least one peer remained, so
+// _notify_renderer_peers_shared_state_changed() had somebody to delegate the
+// recompute to. Here the LAST GaussianSplatNode3D leaves while a
+// GaussianSplatWorld3D submission keeps the shared renderer alive: the peer walk
+// iterates nothing, p_include_self is false so the departing node may not push,
+// and _on_renderer_peer_set_changed() only dropped the memo. A memo is consulted
+// by the next push -- and there is no next push -- so the departed node's tile
+// grid stayed rendered on the world submission until some unrelated node
+// happened to register.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Overlay union clears when the last node leaves a world-held renderer") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+
+    // The non-node content that keeps the renderer alive after the node leaves.
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_tile_grid(false);
+    // The per-frame apply must not be what rescues this.
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    // Hold the renderer locally so the assertions below survive the node's
+    // departure -- the world submission is what keeps it alive in production.
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    // Precondition for the whole case: exactly one node, plus a world submission
+    // that will outlive it. Without the submission the renderer would simply be
+    // released and there would be nothing to leave stale.
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 1u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+
+    // The lone node is the sole requester.
+    node->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+
+    // 1 -> 0 nodes. The renderer stays alive on the world submission.
+    root->remove_child(node);
+    memdelete(node);
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+
+    // The requester is gone, so the renderer-wide overlay must be gone with it.
+    // Pre-fix this stayed true.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // ...and it is not merely deferred: no node is left to run a per-frame apply
+    // at all, so if it were not written above nothing would ever write it.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
+// #839 round 3, thread C: a renderer-side HUD write has to reach the node.
+//
+// GaussianSplatRenderer::set_debug_show_device_boundaries() and
+// set_debug_show_texture_states() are bound to script
+// (gaussian_splat_renderer_bindings.cpp:139-141), so
+// `node.get_renderer().set_debug_show_device_boundaries(true)` is a supported way
+// to turn those HUD sections on. The flag landed in the renderer's DebugState and
+// stopped there: no node callback exists on those setters, and the node is what
+// creates the GaussianSplatDebugHUDLayer. Distinct from the round-2 peer fan-out,
+// which only runs through the four node-local union setters.
+//
+// UPDATE_MODE_MANUAL is again the non-self-healing case: the node's per-frame
+// apply is the only other thing that would have reconciled the control, and
+// MANUAL never runs update_splats().
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode node draws the HUD for a renderer-side debug flag write") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node);
+        memdelete(node);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The renderer-side write, exactly as script reaches it.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_show_device_boundaries());
+    CHECK(renderer->is_debug_hud_source_active());
+    // Pre-fix this was false here and stayed false forever: the HUD lines existed
+    // in renderer stats with no layer to draw them.
+    CHECK(node_has_debug_hud_control(node));
+
+    // MANUAL: no amount of frames reconciles this on its own, so the assertion
+    // above is not merely early.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node));
+
+    // Turning it back off tears the control down again.
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The sibling flag behaves the same way -- this is not a one-flag patch.
+    renderer->set_debug_show_texture_states(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node));
+
+    // Two sources on: dropping one must NOT tear the control down, because the
+    // notification is gated on is_debug_hud_source_active() flipping, not on the
+    // individual flag.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(node_has_debug_hud_control(node));
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK(renderer->is_debug_show_texture_states());
+    CHECK(node_has_debug_hud_control(node));
+
+    renderer->set_debug_show_texture_states(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    root->remove_child(node);
+    memdelete(node);
+}
+
+// #839 round 4, thread 1: a world-backed shared renderer had NO eligible HUD owner.
+//
+// Rounds 2 and 3 made the HUD control unique per renderer by giving it to the
+// settings-owner lease holder. That predicate
+// (GaussianSplatNodeRendererHelper::can_apply_renderer_settings) refuses any node
+// whose data is not the renderer's scene data -- and
+// GaussianSplatRenderer::apply_world_submission_contract() installs the WORLD's
+// GaussianData as exactly that. So on a renderer that a GaussianSplatWorld3D
+// submission feeds, every node was refused: enabling performance / residency /
+// device-boundary / texture-state HUD flags succeeded on the renderer and every
+// node then refused or destroyed the control. Flag on, screen empty, forever.
+//
+// UPDATE_MODE_MANUAL is the non-self-healing case, as in rounds 2 and 3: the
+// node's per-frame apply is the only other thing that re-evaluates the control.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] World-backed shared renderer still has a node that draws the HUD") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    // Deliberately NOT the world's data: that mismatch is the whole point.
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_performance_hud(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    // The precondition that makes this case different from every round-2/3 case:
+    // a world submission is live on the same renderer, so the renderer's scene
+    // data belongs to the world and not to any node.
+    if (!director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("world submission required on the shared renderer: without it the settings-owner lease is claimable and the case is vacuous");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // Node-driven HUD request.
+    node->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+    // Pre-fix this was false here and stayed false forever.
+    CHECK(node_has_debug_hud_control(node));
+
+    // MANUAL: no amount of frames reconciles this on its own.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(node_has_debug_hud_control(node));
+
+    node->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node));
+
+    // The renderer-side write route (round 3, thread C) has the same problem on a
+    // world-backed renderer: the notification reached the node, and the node then
+    // refused the control.
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node));
+
+    // A SECOND node must not add a second HUD: the election has to stay unique
+    // even though neither node owns the renderer's scene data.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node_b);
+    tree->process(0.0);
+    if (node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: the second node must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node_b);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    const int hud_controls = (node_has_debug_hud_control(node) ? 1 : 0) +
+            (node_has_debug_hud_control(node_b) ? 1 : 0);
+    CHECK(hud_controls == 1);
+
+    // ...and it stays exactly one when the current owner leaves: the election
+    // re-runs and the remaining node picks the HUD up rather than nobody doing it.
+    root->remove_child(node);
+    memdelete(node);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(node_has_debug_hud_control(node_b));
+
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(node_has_debug_hud_control(node_b));
+
+    root->remove_child(node_b);
+    root->remove_child(world_node);
+    memdelete(node_b);
+    memdelete(world_node);
+}
+
+// #839 round 4, thread 2: a renderer-side overlay write must survive peer
+// reconciliation. Introduced by round 3's own fix.
+//
+// The per-renderer memo is the record of what the node-union machinery last
+// AUTHORED. _on_renderer_peer_set_changed() dropped it up front, which turned the
+// following recompute into an unconditional write of the node-only union. A
+// GaussianSplatRenderer::set_debug_show_density_heatmap(true) taken through the
+// bound script API -- while every node's own request is false -- was therefore
+// overwritten by the next join or leave, even though the renderer and the world
+// submission stayed alive and nobody disabled the flag. #831 part 2 removed this
+// exact clobber from the per-frame path; the peer-set hook re-entered it.
+//
+// The 1 -> 0 leave below is the round-3 path (reconcile_debug_overlay_union_for_renderer);
+// the join afterwards is the round-2 path (the peer walk). Both had to be fixed,
+// so both are asserted. UPDATE_MODE_MANUAL again removes the per-frame apply as an
+// alternative explanation.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Renderer-side overlay write survives peer-set changes on a world-held renderer") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    // The node union stays false throughout: nobody but the renderer API asks
+    // for this overlay, which is the configuration the clobber lived in.
+    node->set_show_density_heatmap(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    if (director->get_instance_count_for_renderer(renderer.ptr()) != 1u ||
+            !director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("precondition: exactly one node plus a world submission that outlives it");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    // The renderer-side write, exactly as script reaches it.
+    CHECK_FALSE(node->is_showing_density_heatmap());
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 1 -> 0 nodes. The renderer and the world submission both stay alive, and
+    // nobody disabled anything, so the overlay must still be there.
+    // Pre-fix: the memo was dropped and the empty node union was written over it.
+    root->remove_child(node);
+    memdelete(node);
+    node = nullptr;
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 0 -> 1 -> 2 nodes: a JOIN is a peer-set change too, and it went through the
+    // round-2 peer walk rather than the round-3 renderer-addressed reconcile.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_c = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_c->set_splat_asset(make_single_splat_asset(20.0f));
+    node_b->set_show_density_heatmap(false);
+    node_c->set_show_density_heatmap(false);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_c->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_b);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    root->add_child(node_c);
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // 2 -> 1 with a peer still present exercises the round-2 walk on the way down.
+    root->remove_child(node_c);
+    memdelete(node_c);
+    node_c = nullptr;
+    tree->process(0.0);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The node union is still authoritative when it ACTUALLY moves -- this fix
+    // must not turn the overlay into something no node can control. Turning it on
+    // and off again from a node writes both edges.
+    node_b->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node_b->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
+// #839 round 5: the authored record is per-COMPONENT, not per-request.
+//
+// Rounds 2-4 converged on "the memo is the record of what the union machinery
+// last AUTHORED on this renderer, so only write when it moves". The compare was
+// still made on the whole GSDebugOverlayRequest while the write block rewrote all
+// four flags, so ANY component moving re-asserted the node union over the other
+// three -- including components whose authored value had not changed at all.
+//
+// Concretely: renderer->set_debug_show_density_heatmap(true) while every node's
+// heatmap request is false, then a node toggles show_tile_grid. The request
+// differs from the memo (tile grid moved), so the aggregate compare fell through
+// and set_debug_show_density_heatmap(false) ran as collateral. That is the #831
+// part 2 clobber again, one component over.
+//
+// UPDATE_MODE_MANUAL removes the per-frame apply as an alternative explanation,
+// and the frame loops prove the state is settled rather than merely early.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Renderer-side overlay flag survives a node toggling a different overlay flag") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    // The node setters write these in an editor build and every later node seeds
+    // its node-local default from them.
+    ProjectSettingGuard heatmap_guard(project_settings, "rendering/gaussian_splatting/debug/show_density_heatmap");
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard residency_guard(project_settings, "rendering/gaussian_splatting/debug/show_residency_hud");
+
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(0.0f));
+    node_a->set_show_density_heatmap(false);
+    node_a->set_show_tile_grid(false);
+    node_a->set_show_residency_hud(false);
+    node_a->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    root->add_child(node_a);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS, and this case
+    // exists precisely to prove the untouched component survives.
+    if (!renderer.is_valid()) {
+        FAIL("renderer required: this case runs only in the [RequiresGPU] harness");
+        root->remove_child(node_a);
+        memdelete(node_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+
+    // A renderer-side write on a component NO node asks for.
+    renderer->set_debug_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The discriminating move: a node toggles a DIFFERENT component. The union
+    // for tile grid genuinely moves false -> true and must be written; the union
+    // for the heatmap did not move, so it must not be written.
+    node_a->set_show_tile_grid(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // The other edge of the same toggle: true -> false on tile grid is also a
+    // move of one component only.
+    node_a->set_show_tile_grid(false);
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // A second peer joining and toggling its own component must not clobber it
+    // either -- the join runs the round-2 peer walk with a different seed node.
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_b->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b->set_show_density_heatmap(false);
+    node_b->set_show_residency_hud(false);
+    node_b->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    if (node_b->get_renderer() != renderer) {
+        FAIL("shared renderer required: both nodes must resolve the same GaussianSplatRenderer");
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        return;
+    }
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    node_b->set_show_residency_hud(true);
+    CHECK(renderer->is_debug_show_residency_hud());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    node_b->set_show_residency_hud(false);
+    CHECK_FALSE(renderer->is_debug_show_residency_hud());
+    CHECK(renderer->is_debug_show_density_heatmap());
+
+    // Preserving an unauthored component must not make it uncontrollable: once a
+    // node actually authors the heatmap, both of its edges still land.
+    node_a->set_show_density_heatmap(true);
+    CHECK(renderer->is_debug_show_density_heatmap());
+    node_a->set_show_density_heatmap(false);
+    CHECK_FALSE(renderer->is_debug_show_density_heatmap());
+
+    root->remove_child(node_b);
+    memdelete(node_b);
+    root->remove_child(node_a);
+    memdelete(node_a);
+}
+
+// #839 round 5, the same per-component contract on the renderer-addressed
+// reconcile path (round 3's 1 -> 0 transition).
+//
+// This one is a two-sided assertion on a single event, which is why it is worth
+// its own case: at the moment the last node leaves, the union machinery has
+// authored tile_grid = true and has authored nothing about the residency HUD.
+// The single reconcile that follows must retract the tile grid (round 3's fix,
+// which must not regress) and leave the renderer-side residency HUD alone
+// (round 5's fix). A whole-request write can only do one of the two.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Union reconcile at the last node retracts only what the nodes authored") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard tile_guard(project_settings, "rendering/gaussian_splatting/debug/show_tile_grid");
+    ProjectSettingGuard residency_guard(project_settings, "rendering/gaussian_splatting/debug/show_residency_hud");
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(make_test_gaussian_data(2, 50.0f));
+
+    GaussianSplatWorld3D *world_node = memnew(GaussianSplatWorld3D);
+    world_node->set_world(world);
+    root->add_child(world_node);
+    tree->process(0.0);
+    world_node->apply_world();
+
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    node->set_splat_asset(make_single_splat_asset(0.0f));
+    node->set_show_tile_grid(false);
+    node->set_show_residency_hud(false);
+    node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(node);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    if (!renderer.is_valid() || world_node->get_renderer() != renderer) {
+        FAIL("shared renderer required: the node and the world submission must resolve the same GaussianSplatRenderer");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+    if (director->get_instance_count_for_renderer(renderer.ptr()) != 1u ||
+            !director->has_world_submission_for_renderer(renderer.ptr())) {
+        FAIL("precondition: exactly one node plus a world submission that outlives it");
+        root->remove_child(node);
+        root->remove_child(world_node);
+        memdelete(node);
+        memdelete(world_node);
+        return;
+    }
+
+    // The node authors the tile grid; the renderer API authors the residency HUD.
+    node->set_show_tile_grid(true);
+    renderer->set_debug_show_residency_hud(true);
+    CHECK(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    // 1 -> 0 nodes, with the world submission keeping the renderer alive.
+    root->remove_child(node);
+    memdelete(node);
+    node = nullptr;
+    tree->process(0.0);
+
+    CHECK(director->get_instance_count_for_renderer(renderer.ptr()) == 0u);
+    CHECK(director->has_world_submission_for_renderer(renderer.ptr()));
+    // Round 3 must not regress: the departed node's request is dropped.
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    // Round 5: the component the nodes never authored is not collateral.
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    CHECK_FALSE(renderer->is_debug_show_tile_grid());
+    CHECK(renderer->is_debug_show_residency_hud());
+
+    root->remove_child(world_node);
+    memdelete(world_node);
+}
+
+// #839 round 6: one HUD owner per VIEWPORT, not one per renderer.
+//
+// A GaussianSplatRenderer is shared per World3D
+// (gaussian_splat_node_helpers.cpp: director->get_shared_renderer(get_world_3d())),
+// and a SubViewport inherits its parent's World3D unless it opts into
+// use_own_world_3d (scene/main/viewport.cpp: Viewport::find_world_3d() walks to
+// the parent). So the two SubViewports below, both default-configured, resolve the
+// SAME renderer -- and rounds 2-5 elected exactly ONE HUD owner across it.
+//
+// The HUD control is a CanvasLayer parented to the elected node, and
+// CanvasLayer::_notification(NOTIFICATION_ENTER_TREE) attaches it to
+// Node::get_viewport() (scene/main/canvas_layer.cpp). A renderer-wide election
+// therefore put the only HUD in the winner's viewport and left every other
+// viewport on the same world with no HUD and no way to ask for one.
+//
+// Both halves are asserted, because a fix that only widened the election would
+// regress the round-2..5 invariant just as badly as the bug:
+//   - each viewport has a HUD  (the round-6 fix; RED before it)
+//   - each viewport has exactly ONE  (rounds 2-5; the two nodes in viewport A
+//     must not stack two overlays in the same corner)
+// UPDATE_MODE_MANUAL again removes the per-frame apply as an alternative
+// explanation, and the frame loop proves the state is settled rather than early.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Each viewport sharing one world renderer gets exactly one debug HUD") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    SubViewport *viewport_a = memnew(SubViewport);
+    SubViewport *viewport_b = memnew(SubViewport);
+    viewport_a->set_size(Size2i(64, 64));
+    viewport_b->set_size(Size2i(64, 64));
+    root->add_child(viewport_a);
+    root->add_child(viewport_b);
+    tree->process(0.0);
+
+    // Two nodes in viewport A (so "exactly one per viewport" is a real constraint
+    // there and not trivially satisfied by there being a single candidate), one in
+    // viewport B.
+    GaussianSplatNode3D *node_a1 = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_a2 = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b1 = memnew(GaussianSplatNode3D);
+    node_a1->set_splat_asset(make_single_splat_asset(0.0f));
+    node_a2->set_splat_asset(make_single_splat_asset(10.0f));
+    node_b1->set_splat_asset(make_single_splat_asset(20.0f));
+    node_a1->set_show_performance_hud(false);
+    node_a2->set_show_performance_hud(false);
+    node_b1->set_show_performance_hud(false);
+    node_a1->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_a2->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    node_b1->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+
+    viewport_a->add_child(node_a1);
+    viewport_a->add_child(node_a2);
+    viewport_b->add_child(node_b1);
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node_a1->get_renderer();
+    // #595: no environment skip -- a skip is scored as a PASS. If the viewports do
+    // not in fact share a renderer the case proves nothing, so it must FAIL rather
+    // than pass quietly.
+    const bool shared = renderer.is_valid() &&
+            node_a2->get_renderer() == renderer &&
+            node_b1->get_renderer() == renderer;
+    if (!shared) {
+        FAIL("shared renderer required: all three nodes across both SubViewports must resolve the same GaussianSplatRenderer");
+        viewport_b->remove_child(node_b1);
+        viewport_a->remove_child(node_a2);
+        viewport_a->remove_child(node_a1);
+        root->remove_child(viewport_b);
+        root->remove_child(viewport_a);
+        memdelete(node_b1);
+        memdelete(node_a2);
+        memdelete(node_a1);
+        memdelete(viewport_b);
+        memdelete(viewport_a);
+        return;
+    }
+    // ...and the nodes really are in DIFFERENT viewports, which is the whole
+    // premise. Without this the case degenerates into the round-4 one.
+    if (node_a1->get_viewport() != viewport_a || node_a2->get_viewport() != viewport_a ||
+            node_b1->get_viewport() != viewport_b) {
+        FAIL("precondition: node_a1/node_a2 must live in viewport_a and node_b1 in viewport_b");
+        viewport_b->remove_child(node_b1);
+        viewport_a->remove_child(node_a2);
+        viewport_a->remove_child(node_a1);
+        root->remove_child(viewport_b);
+        root->remove_child(viewport_a);
+        memdelete(node_b1);
+        memdelete(node_a2);
+        memdelete(node_a1);
+        memdelete(viewport_b);
+        memdelete(viewport_a);
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node_a1));
+    CHECK_FALSE(node_has_debug_hud_control(node_a2));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    // One node asks; the flag is renderer-wide (the #831 union), so BOTH viewports
+    // are now rendering a world whose renderer wants a HUD.
+    node_a1->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_show_performance_hud());
+
+    const int hud_in_a = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    const int hud_in_b = node_has_debug_hud_control(node_b1) ? 1 : 0;
+    // Rounds 2-5: no stacking within a viewport.
+    CHECK(hud_in_a == 1);
+    // Round 6: pre-fix this was 0 and stayed 0 forever -- the renderer-wide
+    // election had already been won by a node in viewport_a.
+    CHECK(hud_in_b == 1);
+
+    // MANUAL: nothing reconciles this on its own, so the assertions above are
+    // settled state, not a transient.
+    for (int i = 0; i < 5; i++) {
+        tree->process(0.0);
+    }
+    const int hud_in_a_settled = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    CHECK(hud_in_a_settled == 1);
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    // The renderer-side write route (round 3, thread C) must reach both viewports
+    // too: it notifies every peer of the renderer, and each peer now answers the
+    // per-viewport question.
+    node_a1->set_show_performance_hud(false);
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK_FALSE(node_has_debug_hud_control(node_a1));
+    CHECK_FALSE(node_has_debug_hud_control(node_a2));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    renderer->set_debug_show_device_boundaries(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    const int hud_in_a_renderer_side = (node_has_debug_hud_control(node_a1) ? 1 : 0) +
+            (node_has_debug_hud_control(node_a2) ? 1 : 0);
+    CHECK(hud_in_a_renderer_side == 1);
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    // When viewport A's owner leaves, viewport A re-elects its OTHER node and
+    // viewport B is undisturbed -- the elections are independent.
+    GaussianSplatNode3D *departing = node_has_debug_hud_control(node_a1) ? node_a1 : node_a2;
+    GaussianSplatNode3D *remaining = (departing == node_a1) ? node_a2 : node_a1;
+    viewport_a->remove_child(departing);
+    memdelete(departing);
+    if (departing == node_a1) {
+        node_a1 = nullptr;
+    } else {
+        node_a2 = nullptr;
+    }
+    tree->process(0.0);
+    CHECK(node_has_debug_hud_control(remaining));
+    CHECK(node_has_debug_hud_control(node_b1));
+
+    renderer->set_debug_show_device_boundaries(false);
+    CHECK_FALSE(node_has_debug_hud_control(remaining));
+    CHECK_FALSE(node_has_debug_hud_control(node_b1));
+
+    viewport_b->remove_child(node_b1);
+    viewport_a->remove_child(remaining);
+    root->remove_child(viewport_b);
+    root->remove_child(viewport_a);
+    memdelete(node_b1);
+    memdelete(remaining);
+    memdelete(viewport_b);
+    memdelete(viewport_a);
+}
+
+// #839 round 11: the CALLER side of round 10's fail-safe.
+//
+// _detach_and_free_debug_hud_node() refuses to free a node whose parent refused
+// to unparent it, which is what turns a use-after-free into a leak. But
+// _destroy_debug_hud_control() then assigned `debug_hud_layer = nullptr`
+// unconditionally, discarding the only pointer to a node that is still parented
+// and still bound to the viewport's canvas. The next enable therefore built a
+// SECOND GaussianSplatDebugHUDLayer, and every blocked teardown added one more.
+//
+// The blocked window, exactly: Node::remove_child() (scene/main/node.cpp) does
+// `data.blocked++; p_child->_set_tree(nullptr); ... data.blocked--`, so the
+// PARENT is blocked for the whole of the child's _propagate_exit_tree() --
+// including the NOTIFICATION_EXIT_TREE in which the departing node runs
+// _unregister_shared_renderer() ->
+// GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer() ->
+// _update_debug_hud_visibility() on every remaining peer. When the remaining peer
+// is the departing node's own PARENT and the departing node was the only thing
+// holding the HUD on, that reconcile destroys the parent's HUD while the parent
+// cannot unparent anything. The layer's parent is that node, so the unparent is
+// refused; the control's parent is the layer, which is not blocked, so the
+// control goes down normally and the layer is left EMPTY.
+//
+// Which is why the counting helper matters: an emptied-out layer is invisible to
+// count_debug_hud_controls_in_viewport() (no HUD child left) and, because
+// Node::_validate_child_name() renames the duplicate to
+// "@GaussianSplatDebugHUDLayer@N", it is also invisible to
+// node_has_debug_hud_control() -- the abandoned one keeps the readable name. The
+// leak is only observable by counting the node's CanvasLayers on that viewport.
+//
+// The peer is deliberately DATA-LESS. The director never registers such a node
+// (round 7), and _elect_debug_hud_owner() enumerates the director's instances, so
+// the peer can never win the HUD election while it still counts in the overlay
+// union -- which pins "the peer requests, the parent draws" without depending on
+// the director's iteration order.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A refused native HUD teardown reuses its layer instead of accumulating abandoned ones") {
+    // #656: REQUIRE does not abort in this build (disable_exceptions=True), so
+    // guard-then-return rather than dereferencing after a REQUIRE.
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!director) {
+        FAIL("GaussianSplatSceneDirector singleton required");
+        return;
+    }
+    ProjectSettingGuard hud_guard(project_settings, "rendering/gaussian_splatting/debug/show_performance_hud");
+
+    GaussianSplatNode3D *owner_node = memnew(GaussianSplatNode3D);
+    owner_node->set_splat_asset(make_single_splat_asset(0.0f));
+    owner_node->set_show_performance_hud(false);
+    owner_node->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    root->add_child(owner_node);
+    tree->process(0.0);
+
+    GaussianSplatNode3D *peer = memnew(GaussianSplatNode3D);
+    peer->set_show_performance_hud(false);
+    peer->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    owner_node->add_child(peer);
+    tree->process(0.0);
+
+    GaussianSplatNode3D *second_peer = nullptr;
+
+    auto teardown = [&]() {
+        if (peer) {
+            owner_node->remove_child(peer);
+            memdelete(peer);
+            peer = nullptr;
+        }
+        if (second_peer) {
+            owner_node->remove_child(second_peer);
+            memdelete(second_peer);
+            second_peer = nullptr;
+        }
+        root->remove_child(owner_node);
+        memdelete(owner_node);
+    };
+
+    // Round-8 vacuity trap: get_renderer() runs _ensure_renderer(), which can
+    // repair the very state the discriminators observe, so every resolve happens
+    // HERE, before the HUD is asked for.
+    Ref<GaussianSplatRenderer> renderer = owner_node->get_renderer();
+    Viewport *viewport = owner_node->get_viewport();
+    // #595: no environment skip -- a skip is scored as a PASS.
+    const bool renderer_ok = renderer.is_valid();
+    const bool peer_shares = renderer_ok && peer->get_renderer() == renderer;
+    const bool peer_nested = owner_node->is_ancestor_of(peer);
+    const bool same_viewport = viewport != nullptr && peer->get_viewport() == viewport;
+    // PREMISE, not the contract: only owner_node is registered, so it is the only
+    // node the HUD election can pick.
+    const uint32_t registered = renderer_ok ? director->get_instance_count_for_renderer(renderer.ptr()) : 0u;
+
+    if (!renderer_ok || !peer_shares || !peer_nested || !same_viewport || registered != 1u) {
+        FAIL("premise: both nodes must share one renderer and one viewport, the peer must be a CHILD of the owner, and the data-less peer must be the unregistered one");
+        teardown();
+        return;
+    }
+
+    CHECK_FALSE(renderer->is_debug_hud_source_active());
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 0);
+
+    // ---- cycle 1: the refusal ------------------------------------------------
+    peer->set_show_performance_hud(true);
+    // Premises, taken where the counts are taken so the RED run demonstrably
+    // reaches the branch: the renderer wants a HUD, the PARENT is the one drawing
+    // it, and round 6's "exactly one HUD per viewport" still holds.
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+    CHECK(count_node_canvas_layers_in_viewport(root, peer, viewport) == 0);
+
+    int refusals = 0;
+    String refusal_text;
+    {
+        ScopedEngineErrorCapture errors;
+        owner_node->remove_child(peer);
+        refusal_text = errors.joined();
+        for (int i = 0; i < errors.messages.size(); i++) {
+            if (errors.messages[i].find("could not be unparented") >= 0) {
+                refusals++;
+            }
+        }
+    }
+    memdelete(peer);
+    peer = nullptr;
+
+    // PREMISE that must also pass in the RED run: without a refused unparent the
+    // branch under test is never entered and everything below is vacuous. Counted
+    // as ">= 1" on purpose -- how many times the exit fan-out reconciles the owner
+    // is not part of this contract.
+    CHECK_MESSAGE(refusals >= 1,
+            "the departing child's exit must refuse at least one HUD unparent, got: ", refusal_text);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 0);
+
+    // ---- cycle 2: does the refusal ACCUMULATE? -------------------------------
+    second_peer = memnew(GaussianSplatNode3D);
+    second_peer->set_show_performance_hud(false);
+    second_peer->set_update_mode(GaussianSplatNode3D::UPDATE_MODE_MANUAL);
+    owner_node->add_child(second_peer);
+    tree->process(0.0);
+    if (second_peer->get_renderer() != renderer) {
+        FAIL("premise: the second data-less peer must bind the same shared renderer");
+        teardown();
+        return;
+    }
+
+    second_peer->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+
+    // DISCRIMINATOR 1: the HUD is back, on ONE layer. Pre-fix the refused teardown
+    // abandoned the first layer -- still parented, still bound to this viewport --
+    // and _ensure_debug_hud_control() built a second one beside it.
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+
+    {
+        ScopedEngineErrorCapture errors;
+        owner_node->remove_child(second_peer);
+    }
+    memdelete(second_peer);
+    second_peer = nullptr;
+
+    // ---- and once more, driven by the owner's own flag -----------------------
+    owner_node->set_show_performance_hud(true);
+    CHECK(renderer->is_debug_hud_source_active());
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 1);
+    // DISCRIMINATOR 2: two refused teardowns later, still one layer. Pre-fix: three.
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 1);
+
+    // DISCRIMINATOR 3: the retained layer is not immortal either. This disable runs
+    // OUTSIDE any blocked window, so the retry that keeping the pointer makes
+    // possible at all actually completes. Pre-fix the abandoned layers stayed for
+    // the lifetime of the node.
+    owner_node->set_show_performance_hud(false);
+    CHECK(count_debug_hud_controls_in_viewport(root, viewport) == 0);
+    CHECK(count_node_canvas_layers_in_viewport(root, owner_node, viewport) == 0);
+
+    teardown();
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Detached node reclaims retained renderer debug settings on re-entry") {
@@ -1284,7 +3248,17 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
 
     LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> payload;
     director->build_sphere_effector_payload_for_renderer(renderer.ptr(), payload);
-    REQUIRE(payload.size() == 2);
+    // #708/#656: REQUIRE does not abort in this build, so a bare REQUIRE on the
+    // payload size followed by payload[0] reads out of bounds and takes down the
+    // entire batch process. Guard explicitly, like the instance-row lookup below.
+    if (payload.size() != 2) {
+        FAIL("expected 2 sphere effector payload entries, got ", payload.size());
+        root->remove_child(group_b);
+        root->remove_child(group_a);
+        memdelete(group_b);
+        memdelete(group_a);
+        return;
+    }
     CHECK(payload[0].target_opacity == doctest::Approx(0.35f));
 
     LocalVector<InstanceDataGPU> instance_buffer;
@@ -1319,7 +3293,15 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
         CHECK(bool(debug_state_a.get(StringName("position_active"), false)));
         CHECK(bool(debug_state_a.get(StringName("opacity_active"), false)));
         const PackedStringArray selected_names = debug_state_a.get(StringName("selected_effector_names"), PackedStringArray());
-        CHECK(selected_names.size() == 1);
+        // #708/#656: a CHECK never aborts either, so guard before indexing.
+        if (selected_names.size() != 1) {
+            FAIL("expected 1 selected effector name, got ", selected_names.size());
+            root->remove_child(group_b);
+            root->remove_child(group_a);
+            memdelete(group_b);
+            memdelete(group_a);
+            return;
+        }
         CHECK(selected_names[0] == String("EffectorA"));
     }
     {
@@ -1411,7 +3393,15 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
 
     LocalVector<GaussianSplatSceneDirector::SphereEffectorSelection> payload;
     director->build_sphere_effector_payload_for_renderer(renderer.ptr(), payload);
-    REQUIRE(payload.size() == 4);
+    // #708/#656: REQUIRE does not abort in this build; payload[0..3] is read at
+    // the end of this case, so an unexpected payload size would crash the whole
+    // batch instead of failing this one test. Guard explicitly.
+    if (payload.size() != 4) {
+        FAIL("expected 4 truncated sphere effector payload entries, got ", payload.size());
+        root->remove_child(group);
+        memdelete(group);
+        return;
+    }
     CHECK(director->get_sphere_effector_count_for_renderer(renderer.ptr()) == 5u);
     CHECK(node->get_last_matched_scene_effector_count() == 5u);
     {
@@ -1420,7 +3410,13 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effect
         CHECK(int64_t(debug_state.get(StringName("bound_count"), -1)) == 4);
         CHECK(bool(debug_state.get(StringName("truncated"), false)));
         const PackedStringArray selected_names = debug_state.get(StringName("selected_effector_names"), PackedStringArray());
-        REQUIRE(selected_names.size() == 4);
+        // #708/#656: same guard before indexing the selected-name list.
+        if (selected_names.size() != 4) {
+            FAIL("expected 4 selected effector names, got ", selected_names.size());
+            root->remove_child(group);
+            memdelete(group);
+            return;
+        }
         CHECK(selected_names[0] == String("EffectorB"));
         CHECK(selected_names[1] == String("EffectorC"));
         CHECK(selected_names[2] == String("EffectorE"));
@@ -2906,6 +4902,554 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] Two nodes with separate asset Re
 	root->remove_child(node_b);
 	memdelete(node_a);
 	memdelete(node_b);
+}
+
+// --- Inspector surface contracts (#836 / #834) -------------------------------
+//
+// These lock in the two property-declaration fixes that shrink the Gaussian
+// inspector. They are pure ClassDB/PropertyInfo checks, so they need no GPU and
+// no editor.
+
+namespace {
+
+bool find_property_info(Object *p_object, const StringName &p_name, PropertyInfo &r_info) {
+	if (p_object == nullptr) {
+		return false;
+	}
+	List<PropertyInfo> property_list;
+	p_object->get_property_list(&property_list);
+	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+		if (E->get().name == p_name) {
+			r_info = E->get();
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Effector layer masks use the compact 3D-render layer grid") {
+	// PROPERTY_HINT_FLAGS with an explicit "Layer 1,...,Layer 16" list renders as a
+	// 16-row vertical checkbox column (~700 px in the inspector). Godot's
+	// PROPERTY_HINT_LAYERS_3D_RENDER renders the same bitmask as a 4x5 grid, which is
+	// what VisualInstance3D::layers uses (scene/3d/visual_instance_3d.cpp:188).
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (!node) {
+		FAIL("could not allocate GaussianSplatNode3D");
+		return;
+	}
+	// The mask is only editor-visible while scene effectors are enabled.
+	node->set_scene_effectors_enabled(true);
+
+	PropertyInfo node_mask;
+	CHECK(find_property_info(node, StringName("rendering/scene_effector_layer_mask"), node_mask));
+	CHECK(node_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(node_mask.hint_string.is_empty());
+	memdelete(node);
+
+	SphereEffector3D *effector = memnew(SphereEffector3D);
+	if (!effector) {
+		FAIL("could not allocate SphereEffector3D");
+		return;
+	}
+	PropertyInfo effector_mask;
+	CHECK(find_property_info(effector, StringName("layer_mask"), effector_mask));
+	CHECK(effector_mask.hint == PROPERTY_HINT_LAYERS_3D_RENDER);
+	CHECK(effector_mask.hint_string.is_empty());
+	memdelete(effector);
+}
+
+TEST_CASE("[GaussianSplatting][Editor] GaussianSplatAsset bulk arrays are storage-only, not removed") {
+	// #834: the editor enumerates the property list and calls every getter, so having
+	// these multi-million-element arrays carry PROPERTY_USAGE_EDITOR is what produced
+	// the "get_*() called on unloaded asset" warning stack. They must stay STORAGE
+	// (serialization + script access preserved) and lose only editor display - #712 is
+	// this repo's precedent for a removed ClassDB property breaking saved scenes.
+	const char *bulk_arrays[] = {
+		"data/positions",
+		"data/colors",
+		"data/scales",
+		"data/rotations",
+		"data/sh_dc",
+		"data/sh_first_order",
+		"data/sh_high_order",
+		"data/opacity_logits",
+		"data/palette_ids",
+		"data/painterly_flags",
+		"data/normals",
+		"data/brush_axes",
+		"data/stroke_ages",
+	};
+
+	Ref<GaussianSplatAsset> asset;
+	asset.instantiate();
+	if (asset.is_null()) {
+		FAIL("could not instantiate GaussianSplatAsset");
+		return;
+	}
+
+	for (const char *name : bulk_arrays) {
+		// doctest prints a bare `const char *` as a pointer; String has a StringMaker.
+		const String label(name);
+		const StringName property_name(name);
+		PropertyInfo info;
+		const bool present = find_property_info(asset.ptr(), property_name, info);
+		CHECK_MESSAGE(present, "property still declared: ", label);
+		if (!present) {
+			continue;
+		}
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_STORAGE) != 0, "still serialized: ", label);
+		CHECK_MESSAGE((info.usage & PROPERTY_USAGE_EDITOR) == 0, "no longer editor-visible: ", label);
+		// Still reachable from script through ClassDB (Object::get / Object::set).
+		bool valid = false;
+		asset->get(property_name, &valid);
+		CHECK_MESSAGE(valid, "still readable via Object::get(): ", label);
+	}
+}
+
+#ifdef TOOLS_ENABLED
+
+namespace {
+
+// Collect every debug/* property path that has a real replacement control in the
+// tree parse_begin() just built, by reading GS_DEBUG_REPLACEMENT_META off the
+// controls themselves. This is deliberately an observation of the CONSTRUCTED UI,
+// not of the plugin's suppression registry: the point of the case below is to
+// cross-check the two against each other, which a test that read the registry
+// (or restated the code's name predicate) could not do.
+void collect_debug_replacement_controls(Node *p_control, HashSet<String> &r_paths) {
+	if (p_control == nullptr) {
+		return;
+	}
+	if (p_control->has_meta(GS_DEBUG_REPLACEMENT_META)) {
+		r_paths.insert(String(p_control->get_meta(GS_DEBUG_REPLACEMENT_META)));
+	}
+	for (int i = 0; i < p_control->get_child_count(true); i++) {
+		collect_debug_replacement_controls(p_control->get_child(i, true), r_paths);
+	}
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses a debug/ property only when it built a replacement control") {
+	// GaussianSplatNodeInspectorPlugin::parse_property() suppresses the default editor
+	// for a debug/* property because parse_begin() already draws a custom control for
+	// it. That relationship is the whole contract, and it has now been broken twice by
+	// guards that asserted it from the property's NAME instead of from the control:
+	//
+	//   - the original hand-written list of 11 names drifted and missed
+	//     debug/overlay_opacity, orphaning it in the "Debug" group (#836);
+	//   - #838 round 1 replaced it with a bare `begins_with("debug/")` prefix check,
+	//     which ATE debug/overlay_opacity -- it has no replacement control, so
+	//     suppressing it deleted the only way to tune the overlay blend;
+	//   - #838 round 2 special-cased that one name. The instance was fixed; the shape
+	//     was not. A 13th debug/* property would silently lose its inspector UI, and
+	//     #838's test would still have passed, because that test encoded the same name
+	//     predicate the code did.
+	//
+	// So this case does not name any property. It derives BOTH sides independently --
+	// the property set from the node's own property list, the control set from the
+	// metadata on the controls parse_begin() actually constructed -- and asserts they
+	// agree. Mutation-proof: with a 13th debug/* property declared and no control for
+	// it, this is RED under the #838 predicate and GREEN under the registry.
+	Ref<GaussianSplatNodeInspectorPlugin> plugin;
+	plugin.instantiate();
+	if (plugin.is_null()) {
+		FAIL("could not instantiate GaussianSplatNodeInspectorPlugin");
+		return;
+	}
+
+	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+	if (!node) {
+		FAIL("could not allocate GaussianSplatNode3D");
+		return;
+	}
+
+	// Real ordering: EditorInspector calls parse_begin() (editor_inspector.cpp:3754)
+	// before any parse_property() (:4350) for the same object.
+	plugin->parse_begin(node);
+
+	HashSet<String> controls_built;
+	for (const EditorInspectorPlugin::AddedEditor &added : plugin->added_editors) {
+		collect_debug_replacement_controls(added.property_editor, controls_built);
+	}
+
+	List<PropertyInfo> property_list;
+	node->get_property_list(&property_list);
+
+	int debug_properties = 0;
+	int suppressed = 0;
+	int kept_visible = 0;
+	bool saw_non_debug_property = false;
+
+	for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+		const PropertyInfo &info = E->get();
+		if ((info.usage & PROPERTY_USAGE_EDITOR) == 0) {
+			continue; // Category/group separators and storage-only entries.
+		}
+		const String path(info.name);
+		const bool handled = plugin->parse_property(node, info.type, path, info.hint, info.hint_string, info.usage, false);
+
+		if (!path.begins_with("debug/")) {
+			// Nothing outside the group may be consumed by the plugin.
+			CHECK_MESSAGE(!handled, "non-debug property keeps its default editor: ", path);
+			saw_non_debug_property = true;
+			continue;
+		}
+
+		debug_properties++;
+		const bool has_control = controls_built.has(path);
+		if (has_control) {
+			// A replacement exists, so the default editor would be a duplicate.
+			CHECK_MESSAGE(handled, "suppressed in favour of its custom control: ", path);
+			suppressed++;
+		} else {
+			// THE fail-safe assertion. Suppressing a property that parse_begin()
+			// built nothing for deletes a user-facing control with no replacement.
+			CHECK_MESSAGE(!handled, "no replacement control was built, so it must keep its default editor: ", path);
+			kept_visible++;
+		}
+	}
+
+	// Every control that was built must correspond to a live debug/* property --
+	// otherwise the block draws a control for something the node no longer exposes.
+	for (const String &built : controls_built) {
+		bool found = false;
+		for (const List<PropertyInfo>::Element *E = property_list.front(); E; E = E->next()) {
+			if (String(E->get().name) == built) {
+				found = true;
+				break;
+			}
+		}
+		CHECK_MESSAGE(found, "replacement control targets a property the node declares: ", built);
+	}
+
+	// Guard against a vacuous pass: the loop must actually have seen properties, and
+	// both arms of the contract must have been exercised at least once.
+	CHECK(saw_non_debug_property);
+	CHECK(debug_properties >= 2);
+	CHECK(suppressed + kept_visible == debug_properties);
+#ifdef DEBUG_ENABLED
+	// The Debug Visualization block is compiled under DEBUG_ENABLED only. When it is
+	// present, both arms must be non-empty -- controls exist, and at least
+	// debug/overlay_opacity has none -- so neither CHECK above can pass vacuously.
+	CHECK(suppressed > 0);
+	CHECK(kept_visible > 0);
+	CHECK(controls_built.size() == (uint32_t)suppressed);
+#endif
+
+	// parse_begin() hands ownership of its controls to EditorInspector, which is not
+	// running here.
+	for (const EditorInspectorPlugin::AddedEditor &added : plugin->added_editors) {
+		if (added.property_editor) {
+			memdelete(added.property_editor);
+		}
+	}
+	plugin->added_editors.clear();
+
+	memdelete(node);
+}
+
+#endif // TOOLS_ENABLED
+
+// ── #806 review: the setup-failure exit must not strand a node in the tree ──────
+//
+// This is the regression test for the ScopedTestNode guard, and it measures the
+// property the finding is actually about: not that a failed setup REPORTS failure, but
+// that after taking a setup-failure early exit the shared SceneTree is back to the
+// state it was in before the case ran.
+//
+// The failing shape it pins is `if (!x) { FAIL(); return; }` returning from the middle
+// of a case that has already parented a node to the root window. That idiom is not
+// optional here -- doctest is built with disable_exceptions=True, so a bare REQUIRE
+// does not abort -- so the leak cannot be fixed by removing the early return; the
+// teardown has to survive it. take_scoped_test_node_setup_failure_exit() reproduces
+// exactly that shape (see the anonymous namespace above) with NO teardown statement
+// after the early `return`.
+//
+// Mutation proof (run, not asserted): change the `ScopedTestNode<GaussianSplatNode3D>
+// node` in that helper back to a raw `GaussianSplatNode3D *node =
+// memnew(GaussianSplatNode3D)` -- the code as it stood before this change -- rebuild,
+// and this case goes 5 of 10 assertions RED: `root->get_child_count() == baseline`
+// reports 1 == 0 after the early exit, the director still returns an instance
+// submission for the supposedly-gone node, and the SECOND leg then sees 2 children,
+// which is the cross-case accumulation the finding is about. Restoring the guard puts
+// all 10 back to green. Both arms were run.
+//
+// Deliberately NOT [RequiresGPU]: the leak is a SceneTree/lifetime property with no
+// device dependency, and the exit it measures is reached in the headless lane too.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] A setup-failure early exit must leave no node attached to the shared tree") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector singleton must exist");
+		return;
+	}
+
+	tree->process(0.0);
+	const int baseline_children = root->get_child_count();
+
+	// ---- the exit under test: early `return` from the middle of the scope ----
+	const ScopedTestNodeExitObservation failed_setup = take_scoped_test_node_setup_failure_exit(root, true);
+	// Assert the branch being measured actually ran. Without this the case would pass
+	// just as happily while measuring the fallthrough path.
+	CHECK_MESSAGE(failed_setup.took_early_exit,
+			"the helper must have taken the setup-failure early exit, otherwise this case measures the wrong path");
+	CHECK_MESSAGE(failed_setup.instance_id.is_valid(),
+			"the helper must have reported the node's ObjectID, otherwise the director assertion below is vacuous");
+	// Non-vacuity: there was something to strand. Measured from inside the scope, because
+	// by the time control returns here the guard has already removed it.
+	CHECK_MESSAGE(failed_setup.child_count_while_attached == baseline_children + 1,
+			"the helper must actually have attached its node to the shared root before exiting; saw ",
+			failed_setup.child_count_while_attached, " children vs baseline ", baseline_children);
+	// Same non-vacuity question for the director leg: "no stranded record afterwards" only
+	// means something if a record existed while the node was attached.
+	CHECK_MESSAGE(failed_setup.registered_while_attached,
+			"the helper's node must have been registered with the SceneDirector while attached, otherwise the stranded-record assertion below proves nothing");
+	tree->process(0.0);
+
+	CHECK_MESSAGE(root->get_child_count() == baseline_children,
+			"After a setup-failure early exit the shared SceneTree must be back to its pre-case child count; got ",
+			root->get_child_count(), " vs baseline ", baseline_children);
+	GaussianSplatSceneDirector::InstanceSubmission stranded;
+	CHECK_MESSAGE(!director->get_instance_submission(failed_setup.instance_id, &stranded),
+			"After a setup-failure early exit the node must no longer be registered with the SceneDirector.");
+
+	// ---- and the ordinary fallthrough exit, so the guard is not proven on one arm only ----
+	const ScopedTestNodeExitObservation normal_exit = take_scoped_test_node_setup_failure_exit(root, false);
+	CHECK_MESSAGE(!normal_exit.took_early_exit,
+			"the helper must have taken the fallthrough exit on this leg");
+	CHECK_MESSAGE(normal_exit.child_count_while_attached == baseline_children + 1,
+			"the fallthrough leg must also have attached its node; saw ",
+			normal_exit.child_count_while_attached, " children vs baseline ", baseline_children);
+	tree->process(0.0);
+	CHECK_MESSAGE(root->get_child_count() == baseline_children,
+			"After the ordinary fallthrough exit the shared SceneTree must also be back to its pre-case child count; got ",
+			root->get_child_count(), " vs baseline ", baseline_children);
+	GaussianSplatSceneDirector::InstanceSubmission stranded_normal;
+	CHECK_MESSAGE(!director->get_instance_submission(normal_exit.instance_id, &stranded_normal),
+			"After the ordinary fallthrough exit the node must no longer be registered with the SceneDirector.");
+}
+
+// ── #798 review round 2: a failed set_splat_data() must fail CLOSED ──────
+//
+// set_splat_data() returns void, so the only honest observable is what the node
+// ends up publishing. _register_instance_in_director() (~:2457-2470) rebuilds
+// `asset` from renderer_data on every tree/world re-entry, CONTINUES past the
+// populate error, and assigns `asset = runtime_asset` regardless. Before the
+// round-2 fix, runtime_asset still held the PREVIOUS payload and
+// populate_from_gaussian_data() bailed at its `count <= 0` check BEFORE
+// overwriting splat_count -- so the old splats were republished on a node whose
+// set_splat_data() had failed.
+//
+// Written as a contract: the node must publish either the NEW payload or
+// nothing, and in neither case the stale previous payload.
+//
+// ── #798 review round 3: the case now FORCES the failure ────────────────
+//
+// Two things were wrong with the round-2 version of this case, and the second was
+// only visible once the first was fixed:
+//
+//  1. It never failed. It submitted seven ordinary elements and no injection, so both
+//     derived allocations succeeded, the node published 7, and both assertions passed
+//     with the whole rollback branch deleted. Payload size cannot fix that: any count
+//     large enough to exhaust the allocator is rejected by _validate_splat_data_inputs()
+//     first. It now arms the TESTS_ENABLED seam in core/gs_vector_alloc.h at the exact
+//     `p_where` label of the sh_dc resize, and asserts the seam actually fired.
+//
+//  2. Reaching the branch showed the ROLLBACK was still incomplete. published == 0 was
+//     never the fail-closed state it looked like: with renderer_data left valid-but-empty
+//     the node re-registers with a fresh, zero-splat runtime_asset and keeps reporting
+//     "has data" to the editor. The count-only assertions could not see that, which is
+//     why the fix needed renderer_data.unref() and why the assertions below now cover
+//     the registration itself and the configuration warning, not just the count.
+//
+// Two legs remain. Headless the SceneDirector returns no shared renderer, so
+// set_splat_data() bails at _ensure_renderer_for_manual_data() (:742) before any payload
+// is published; that leg asserts exactly that and is honest about proving nothing else.
+// Under the GPU harness (NodeSceneTree batch) a renderer exists and the full contract
+// above runs.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_data must not republish the previous payload") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr) {
+		FAIL("SceneTree must exist (provided by [SceneTree] tag)");
+		return;
+	}
+	Window *root = tree->get_root();
+	if (root == nullptr) {
+		FAIL("SceneTree root window must exist");
+		return;
+	}
+	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+	if (director == nullptr) {
+		FAIL("GaussianSplatSceneDirector singleton must exist");
+		return;
+	}
+
+	// #806 review: scoped, not hand-repeated. Several exits below are
+	// `if (!x) { FAIL(); return; }` -- the idiom this build requires (#656/#843) -- and
+	// three of them used to return with this node still parented to the shared root
+	// window and still registered with the director, leaking it into every later case
+	// in the single-process NodeSceneTree batch. See ScopedTestNode above.
+	ScopedTestNode<GaussianSplatNode3D> node(memnew(GaussianSplatNode3D));
+	root->add_child(node.get());
+	tree->process(0.0);
+
+	// ---- first payload: 5 splats ----
+	PackedVector3Array positions;
+	PackedColorArray colors;
+	PackedVector3Array scales;
+	PackedFloat32Array opacities;
+	TypedArray<Quaternion> rotations;
+	for (int i = 0; i < 5; i++) {
+		positions.push_back(Vector3(float(i), 0.0f, 0.0f));
+		colors.push_back(Color(1, 1, 1, 1));
+		scales.push_back(Vector3(1, 1, 1));
+		opacities.push_back(1.0f);
+		rotations.push_back(Quaternion());
+	}
+	PackedFloat32Array sh;
+	PackedInt32Array palette_ids;
+	PackedInt32Array painterly_flags;
+	PackedVector3Array normals;
+	PackedVector2Array brush_axes;
+	PackedFloat32Array stroke_ages;
+
+	node->set_splat_data(positions, colors, scales, opacities, rotations,
+			sh, palette_ids, painterly_flags, normals, brush_axes, stroke_ages, false);
+	tree->process(0.0);
+
+	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+	if (!renderer.is_valid()) {
+		// Headless with no renderer: set_splat_data() bails at
+		// _ensure_renderer_for_manual_data() before any payload is published, so
+		// there is no stale-republish path to exercise. Assert that explicitly
+		// rather than returning with zero assertions (a silent skip in a required
+		// batch is indistinguishable from a passing test).
+		GaussianSplatSceneDirector::InstanceSubmission headless_sub;
+		const bool headless_published =
+				director->get_instance_submission(node->get_instance_id(), &headless_sub) &&
+				headless_sub.asset.is_valid() && headless_sub.asset->get_splat_count() > 0;
+		CHECK_MESSAGE(!headless_published,
+				"With no renderer, set_splat_data() must publish no payload at all.");
+		return;
+	}
+
+	GaussianSplatSceneDirector::InstanceSubmission first;
+	if (!director->get_instance_submission(node->get_instance_id(), &first)) {
+		FAIL("the node must be registered with the director after set_splat_data()");
+		return;
+	}
+	if (!first.asset.is_valid()) {
+		FAIL("the first set_splat_data() must publish an asset");
+		return;
+	}
+	if (first.asset->get_splat_count() != 5u) {
+		FAIL("the first set_splat_data() must publish 5 splats");
+		return;
+	}
+
+	// ---- second payload: a DIFFERENT count, so a stale republish is unambiguous ----
+	PackedVector3Array positions_b;
+	PackedColorArray colors_b;
+	PackedVector3Array scales_b;
+	PackedFloat32Array opacities_b;
+	TypedArray<Quaternion> rotations_b;
+	for (int i = 0; i < 7; i++) {
+		positions_b.push_back(Vector3(0.0f, float(i), 0.0f));
+		colors_b.push_back(Color(1, 1, 1, 1));
+		scales_b.push_back(Vector3(1, 1, 1));
+		opacities_b.push_back(1.0f);
+		rotations_b.push_back(Quaternion());
+	}
+	// #798 review round 3: the second call MUST actually fail, and nothing about the payload
+	// can make it. `opacities_b` is non-empty, so the opacity_from_color allocation is skipped;
+	// `sh` is empty and `colors_b` is not, so _apply_optional_splat_arrays() takes the sh_dc
+	// branch (gaussian_splat_node_3d.cpp:912-929) -- and that resize succeeds for 7 splats, as
+	// it would for any count _validate_splat_data_inputs() lets through. The previous revision
+	// of this case submitted exactly these arrays with no injection: both derived resizes
+	// succeeded, the node published 7, and both CHECKs below passed with the entire rollback
+	// branch deleted. Arm the sh_dc site so the real gs_resize_or_fail() takes its real
+	// failure branch.
+	gs_vector_alloc_force_failure_at("GaussianSplatNode3D::set_splat_data sh_dc");
+	{
+		// The failure arm emits the expected allocation ERR_PRINT; keep the log clean.
+		ERR_PRINT_OFF;
+		node->set_splat_data(positions_b, colors_b, scales_b, opacities_b, rotations_b,
+				sh, palette_ids, painterly_flags, normals, brush_axes, stroke_ages, false);
+		ERR_PRINT_ON;
+	}
+	// Assert the injection FIRED before asserting anything about its consequences. The arm is
+	// cleared by the firing, so a still-armed seam means set_splat_data() never reached that
+	// allocation -- the case would otherwise silently go back to measuring the success path,
+	// which is precisely the vacuity being fixed here. Disarm either way so a failure here
+	// cannot leak into a later case.
+	//
+	// This guard covers a RENAMED or unreached site, not a deleted arm: measured by deleting
+	// the arm above, the seam is simply never armed and this reads "fired". That case is
+	// covered instead by the assertions themselves, which then see the SUCCESS path and go
+	// red 4-of-5 (published==7, has_after, no warning, count==7) rather than passing. Both
+	// arms were run.
+	const bool injection_fired = !gs_vector_alloc_forced_failure_is_armed();
+	gs_vector_alloc_clear_forced_failure();
+	if (!injection_fired) {
+		FAIL("the injected sh_dc allocation failure never fired -- set_splat_data() did not reach _apply_optional_splat_arrays()'s sh_dc resize, so this case proves nothing");
+		return;
+	}
+	tree->process(0.0);
+
+	// Force the tree/world re-entry that rebuilds `asset` from renderer_data / runtime_asset.
+	// ScopedTestNode detaches from whatever parent the node has at destruction time, so
+	// re-parenting here does not disturb the teardown.
+	root->remove_child(node.get());
+	root->add_child(node.get());
+	tree->process(0.0);
+
+	GaussianSplatSceneDirector::InstanceSubmission after;
+	const bool has_after = director->get_instance_submission(node->get_instance_id(), &after);
+	const int published = (has_after && after.asset.is_valid())
+			? int(after.asset->get_splat_count())
+			: 0;
+
+	CHECK_MESSAGE(published != 5,
+			"After set_splat_data() fails, a tree re-entry must NOT republish the previous 5-splat payload.");
+	CHECK_MESSAGE(published != 7,
+			"After set_splat_data() fails, the node must NOT publish the payload whose derived allocation failed.");
+	// The registration itself, not just its splat count. runtime_asset.unref() alone leaves
+	// renderer_data a valid-but-empty Ref, and _register_instance_in_director() then builds a
+	// FRESH runtime_asset out of it and registers that zero-splat asset -- published == 0 while
+	// the node is still permanently in the director. This is the assertion that the round-3
+	// renderer_data.unref() is needed for; the count-only assertions above cannot see it.
+	CHECK_MESSAGE(!has_after,
+			"After a failed set_splat_data(), a tree re-entry must not re-register the node at all -- not even with an empty asset.");
+	// Same failure seen from the editor side: a node with no renderable payload must say so.
+	const PackedStringArray warnings = node->get_configuration_warnings();
+	bool warns_no_data = false;
+	for (int i = 0; i < warnings.size(); i++) {
+		if (warnings[i].contains("No Gaussian splat asset or runtime data assigned")) {
+			warns_no_data = true;
+			break;
+		}
+	}
+	CHECK_MESSAGE(warns_no_data,
+			"After a failed set_splat_data(), the node must report the no-data configuration warning.");
+	// The counters are maintained by _finalize_manual_splat_setup(), which this branch skips,
+	// so without an explicit reset they keep describing the previous 5-splat payload.
+	CHECK_MESSAGE(node->get_total_splat_count() == 0u,
+			"After a failed set_splat_data(), the node must not still report the previous payload's splat count.");
+
+	// No teardown statement here: ~ScopedTestNode() detaches and frees the node on this
+	// exit and on every early one above.
 }
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

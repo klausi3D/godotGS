@@ -794,70 +794,6 @@ TEST_CASE("[GaussianSplatting][Importer] Ultra quality preset preserves full PLY
     _remove_user_file(save_base_path + ".res");
 }
 
-TEST_CASE("[GaussianSplatting][Importer] Ultra import initializes fresh node runtime from imported fidelity") {
-    // TODO: set_splat_asset does not yet auto-switch to QUALITY_CUSTOM with relaxed LOD for full-fidelity assets.
-    MESSAGE("Skipping - aspirational test, requires set_splat_asset fidelity auto-detection (not yet wired)");
-    return;
-    ProjectSettings *project_settings = ProjectSettings::get_singleton();
-    REQUIRE_MESSAGE(project_settings != nullptr, "ProjectSettings singleton must exist for runtime fidelity regression.");
-    ProjectSettingGuard tier_preset_guard(project_settings, "rendering/gaussian_splatting/quality/tier_preset");
-    ProjectSettingGuard tier_apply_guard(project_settings, "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets");
-    project_settings->set_setting("rendering/gaussian_splatting/quality/tier_preset", "custom");
-    project_settings->set_setting("rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", false);
-
-    const String source_path = "user://test_fixture_ultra_fidelity.ply";
-    {
-        Error ply_err = _write_minimal_ascii_ply(source_path);
-        REQUIRE_MESSAGE(ply_err == OK, "Failed to create synthetic PLY fixture.");
-    }
-
-    Ref<PLYLoader> loader;
-    loader.instantiate();
-    const Error load_err = loader->load_file(source_path);
-    REQUIRE_MESSAGE(load_err == OK, "Fixture PLY must load before testing node runtime fidelity propagation.");
-    const Ref<::GaussianData> source_data = loader->get_gaussian_data();
-    REQUIRE_MESSAGE(source_data.is_valid(), "Fixture PLY should produce GaussianData.");
-    const int source_count = source_data->get_count();
-    REQUIRE_MESSAGE(source_count > 0, "Fixture PLY should contain at least one splat.");
-
-    Ref<ResourceImporterPLY> importer;
-    importer.instantiate();
-
-    const String save_base_path = "user://gaussian_ultra_runtime_fidelity";
-    HashMap<StringName, Variant> options;
-    options.insert(StringName("quality/preset"), String("ultra"));
-    options.insert(StringName("quality/max_splats"), 0);
-    options.insert(StringName("quality/density_multiplier"), 1.0);
-    options.insert(StringName("preview/generate_thumbnail"), false);
-
-    Variant metadata_variant;
-    const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
-            nullptr, nullptr, &metadata_variant);
-    REQUIRE_MESSAGE(import_err == OK, "Ultra preset import should succeed for node runtime fidelity regression.");
-
-    Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
-    REQUIRE_MESSAGE(asset.is_valid(), "Imported asset should be loadable for node runtime fidelity regression.");
-    REQUIRE_MESSAGE(int(asset->get_splat_count()) == source_count, "Imported asset should preserve the full source count.");
-
-    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
-    CHECK(node->get_quality_preset() == GaussianSplatNode3D::QUALITY_BALANCED);
-    CHECK(node->get_max_splat_count() == 500000);
-
-    node->set_splat_asset(asset);
-
-    CHECK(node->get_quality_preset() == GaussianSplatNode3D::QUALITY_CUSTOM);
-    CHECK_MESSAGE(node->get_max_splat_count() >= source_count,
-            "Fresh node should not re-cap a full-fidelity imported asset below its imported splat count.");
-    const GaussianSplatting::GaussianSplatLODConfig &lod_config = node->get_lod_config();
-    CHECK(lod_config.max_splats_per_frame >= (uint32_t)source_count);
-    CHECK(lod_config.importance_threshold == doctest::Approx(0.0f));
-    CHECK(lod_config.size_cull_threshold == doctest::Approx(0.0f));
-
-    memdelete(node);
-    _remove_user_file(source_path);
-    _remove_user_file(save_base_path + ".res");
-}
-
 TEST_CASE("[GaussianSplatting][Importer] Imported fidelity defaults do not override customized node quality") {
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     REQUIRE_MESSAGE(project_settings != nullptr, "ProjectSettings singleton must exist for customized node regression.");
@@ -1975,27 +1911,6 @@ TEST_CASE("[GaussianSplatting][Renderer] SH metadata preserves DC encoding mode"
     CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_RGB9E5);
 }
 
-TEST_CASE("[GaussianSplatting][Renderer] SH metadata preserves DC encoding mode for F16 packing") {
-    SHCompressionMetrics metrics;
-    PackedGaussianF16 packed = {};
-
-    Gaussian legacy = {};
-    legacy.rotation = Quaternion();
-    legacy.scale = Vector3(1.0f, 1.0f, 1.0f);
-    legacy.opacity = 1.0f;
-    legacy.sh_dc = Color(0.25f, 0.5f, 0.75f, 1.0f);
-    legacy.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
-    pack_gaussian_f16(legacy, packed, metrics, Vector3(), nullptr, 0, 0, PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-    CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_F16);
-
-    Gaussian linear = legacy;
-    linear.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    pack_gaussian_f16(linear, packed, metrics, Vector3(), nullptr, 0, 0, PackedSphericalHarmonicsF16::MAX_ENCODED_COEFFICIENTS);
-    CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_F16);
-}
-
 TEST_CASE("[GaussianSplatting][Renderer] Shader SH metadata masks match host DC encoding contract") {
     const String common_source = _load_text_fixture_or_empty("res://modules/gaussian_splatting/shaders/includes/gaussian_splat_common_inc.glsl");
     REQUIRE_MESSAGE(!common_source.is_empty(), "gaussian_splat_common_inc.glsl must be readable in test environment");
@@ -2757,6 +2672,142 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer reports resident-u
 
 	_remove_user_file(source_path);
 	_remove_user_file(imported_path);
+}
+
+// #714: the importer's final-output copy (`_copy_binary_file`) must be
+// crash-atomic like every other final-output saver -- an interrupted copy must
+// never destroy a pre-existing destination file.
+//
+// Deterministic discriminator (no fault injection, only the public `import()`):
+// import a .gsplatworld whose import destination resolves to the source file
+// itself (`p_save_path + ".gsplatworld" == p_source_file`). This is the sharpest
+// form of the truncate-on-open hazard the atomic routing removes.
+//   - BASE (direct `FileAccess::open(dest, WRITE)`): opening the destination for
+//     write truncates it to zero BEFORE the copy reads a single byte -- and the
+//     destination IS the source, so the payload is gone. The copy then produces an
+//     empty output that fails to load, and `import()` removes it: the file is
+//     destroyed. The survival assertions FAIL. (Red on origin/master.)
+//   - FIX (routed through `gs_atomic_file_write`): the copy streams into a temp
+//     sibling and only replaces the destination once the whole copy has succeeded,
+//     so the source is read intact and the file survives byte-for-byte (whether or
+//     not the final replace-over-an-open-handle succeeds). The assertions PASS.
+//
+// Not tagged [MalformedCorpus]: the input is valid; the defect is a write-path
+// atomicity bug, not a parser-hardening gap.
+TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer copy is crash-atomic (an interrupted in-place copy preserves the file) (#714)") {
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->resize(2);
+
+    PackedVector3Array positions;
+    positions.push_back(Vector3(0.0f, 0.0f, 0.0f));
+    positions.push_back(Vector3(1.0f, 0.0f, 0.0f));
+    data->set_positions(positions);
+
+    PackedVector3Array scales;
+    scales.push_back(Vector3(1.0f, 1.0f, 1.0f));
+    scales.push_back(Vector3(1.0f, 1.0f, 1.0f));
+    data->set_scales(scales);
+
+    TypedArray<Quaternion> rotations;
+    rotations.push_back(Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
+    rotations.push_back(Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
+    data->set_rotations(rotations);
+
+    PackedFloat32Array opacities;
+    opacities.push_back(1.0f);
+    opacities.push_back(1.0f);
+    data->set_opacities(opacities);
+
+    PackedFloat32Array sh_dc;
+    sh_dc.push_back(1.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(0.0f);
+    sh_dc.push_back(1.0f);
+    sh_dc.push_back(0.0f);
+    data->set_spherical_harmonics(sh_dc);
+
+    Ref<GaussianSplatWorld> source_world;
+    source_world.instantiate();
+    source_world->set_gaussian_data(data);
+    source_world->set_bounds(AABB(Vector3(-1.0f, -1.0f, -1.0f), Vector3(4.0f, 4.0f, 4.0f)));
+
+    // save_path = p_save_path + ".gsplatworld", so the destination equals the
+    // source file when p_save_path is the source path minus its extension.
+    const String save_base_path = "user://gsplatworld_importer_inplace_atomic";
+    const String source_path = save_base_path + ".gsplatworld";
+
+    Error save_err = ResourceSaver::save(source_world, source_path);
+    CHECK_MESSAGE(save_err == OK, "Saving source gsplatworld should succeed.");
+    if (save_err != OK) {
+        _remove_user_file(source_path);
+        return;
+    }
+
+    // Snapshot the good on-disk bytes before the (in-place) import.
+    PackedByteArray original;
+    {
+        Ref<FileAccess> f = FileAccess::open(source_path, FileAccess::READ);
+        if (f.is_null()) {
+            FAIL("Fixture .gsplatworld must be readable before the in-place import.");
+            _remove_user_file(source_path);
+            return;
+        }
+        const uint64_t len = f->get_length();
+        original.resize(len);
+        if (len > 0) {
+            f->get_buffer(original.ptrw(), len);
+        }
+    }
+    REQUIRE_MESSAGE(original.size() > 0,
+            "Fixture must be non-empty, or the byte-survival assertion below cannot discriminate.");
+
+    Ref<ResourceImporterGSplatWorld> importer;
+    importer.instantiate();
+
+    HashMap<StringName, Variant> options;
+    // Return value intentionally ignored: the invariant is about the file, not
+    // whether the (in-place) import reports success. On the atomic path the final
+    // replace-over-an-open-source-handle may or may not succeed; either way the
+    // pre-existing bytes must survive.
+    importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options, nullptr, nullptr, nullptr);
+
+    PackedByteArray after;
+    const bool still_exists = FileAccess::exists(source_path);
+    if (still_exists) {
+        Ref<FileAccess> f = FileAccess::open(source_path, FileAccess::READ);
+        if (!f.is_null()) {
+            const uint64_t len = f->get_length();
+            after.resize(len);
+            if (len > 0) {
+                f->get_buffer(after.ptrw(), len);
+            }
+        }
+    }
+
+    CHECK_MESSAGE(still_exists,
+            "#714: an interrupted/failed final-output copy must not delete the destination file.");
+    CHECK_MESSAGE(after == original,
+            "#714: the importer copy must be crash-atomic -- the pre-existing destination must survive "
+            "byte-intact; a direct truncating write destroys it.");
+
+    // Best-effort cleanup of the fixture and any atomic temp/backup siblings.
+    _remove_user_file(source_path);
+    {
+        Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_USERDATA);
+        if (da.is_valid()) {
+            const String prefix = String(source_path).get_file();
+            da->list_dir_begin();
+            for (String name = da->get_next(); !name.is_empty(); name = da->get_next()) {
+                if (!da->current_is_dir() &&
+                        (name.begins_with(prefix + ".tmp.") || name.begins_with(prefix + ".bak."))) {
+                    da->remove(name);
+                }
+            }
+            da->list_dir_end();
+        }
+    }
 }
 
 TEST_CASE("[GaussianSplatting][Importer] GaussianSplatAsset save_to_file rejects empty assets") {

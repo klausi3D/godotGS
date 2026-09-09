@@ -1,5 +1,7 @@
 #include "compute_infrastructure.h"
 
+#include "../core/gs_vector_alloc.h"
+
 #include "core/templates/hash_set.h"
 
 namespace GaussianSplatting {
@@ -205,7 +207,12 @@ StageResult create_uniform_set_checked(RenderingDevice *p_device, RID p_shader, 
 	}
 
 	Vector<RD::Uniform> uniforms;
-	uniforms.resize(p_bindings.size());
+	// #794: the loop below is bounded by p_bindings.size(), not by uniforms.size(),
+	// so an ignored resize failure would write past the end and hard-trap.
+	if (!gs_resize_or_fail(uniforms, p_bindings.size(), "ComputeInfrastructure::create_uniform_set")) {
+		return _stage_fail(StageErrorCode::UNIFORM_SET_CREATE_FAILED, p_stage_name,
+				vformat("could not allocate %d uniform binding(s)", p_bindings.size()));
+	}
 	for (int i = 0; i < p_bindings.size(); i++) {
 		const UniformBindingContract &binding = p_bindings[i];
 		RD::Uniform uniform;

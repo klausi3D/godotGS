@@ -10,6 +10,31 @@
 - **Program ledger:** #458. **Related:** #329 (26–29 GPU `[SceneTree]`/`[Importer]` tests
   deferred), #395 (missing `history_artifact_audit.py`).
 
+## Status note 2026-08-03 (#650): the failing set has been measured
+
+The claim below that **"the real failing set is currently unknown"** is superseded.
+It has been measured on a headless `*GaussianSplatting*` run excluding `[RequiresGPU]`:
+the prose baseline said "3 known failures", the measured number is **1**. Two were
+fixed before anyone re-read the prose (#652; #653/#655). The survivor is
+`[GaussianSplatting][Thumbnail] Generator caches deterministic asset+settings keys`,
+failing at `modules/gaussian_splatting/tests/test_gaussian_importer.h:1181`
+(`CHECK(misses >= 2)` reports `CHECK( 0 >= 2 )`), tracked in **#814**.
+
+**Slice 2 remains open and unchanged.** `entries` still ships empty, and populating it
+still requires a base-SHA-proven reproduction plus explicit human approval per §6. The
+survivor above is *not* eligible: an entry names a `MODULE_TEST_FILTERS` lane and the
+harness fails a quarantined lane that does not actually run and fail, and no `[Thumbnail]`
+lane exists. Nothing in the repo can make a known-failing test both **run** and be
+**tolerated** while it is unlaned, so the failure stays in `unlaned_tests` (documenting
+non-execution) until #819 gives it a lane.
+
+#650 additionally added a shrink-only **ratchet** in `tests/ci/test_quarantine_manifest.py`
+over both arrays, and an offline tracking-issue-liveness check. The latter found that 9 of
+the 10 `unlaned_tests` declarations pointed at **closed** issues (#520, #329); they were
+re-pointed at live successors (#819, #820, #814). See
+[`docs/reference/test-quarantine.md`](../reference/test-quarantine.md) for the constants
+and the re-pin procedure.
+
 ## Context / problem
 
 G5 ("testing enforced, not just present") requires: *no excluded test category without an

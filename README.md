@@ -12,12 +12,15 @@ Nightly editor builds are published as prereleases on GitHub. Pick the latest:
 
 No named stable (`v*`) release is published yet, so nightly is the only public install path today. See [Release Channels](docs/development/release-channels.md) for the full publishing model.
 
+> [!WARNING]
+> **Nightly binaries are unoptimized `-O0` builds.** They are compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude — the `.dev` segment in the filename is that flag. Use a nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
+
 ## Current Status
 
 | Area | State |
 | --- | --- |
 | Maturity | Alpha |
-| Public binaries | Linux nightly editor; Windows nightly editor when the Windows lane succeeds |
+| Public binaries | Linux nightly editor; Windows nightly editor when the Windows lane succeeds. All published binaries are `dev_build=yes` / `-O0` — not performance-representative. |
 | macOS | Source build first |
 | Stable release | Not yet published |
 | Compatibility truth | [Compatibility Matrix](docs/reference/compatibility-matrix.md) |
@@ -39,7 +42,7 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 ## Current Public Evidence
 
 - Compatibility snapshot: Windows is `editor-tested` on the self-hosted Vulkan Forward+ lane with `NVIDIA GeForce RTX 3090` and now ships a nightly editor zip. Linux is `smoke-tested` on `ubuntu-24.04` with `xvfb` and `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.1` and ships a nightly editor tarball (the Linux CI lane runs a headless import + runtime smoke check, not a QA-scene lane — see the [Compatibility Matrix](docs/reference/compatibility-matrix.md)). macOS is currently `build-supported`.
-- Benchmark snapshot: five committed lanes captured 2026-07-19 at commit `9161d92f349` on an **optimized** build (RTX 3090, Ryzen 7 5800X, Windows 11, Vulkan Forward+). That commit was 8 behind `master` at publication; see [Currency](docs/performance/index.md#currency). Top-line steady-state results — `static_baseline` (10K splats) 455 FPS, `city_flyover` (160K) 129 FPS, `lighting_stress` (90K) 73 FPS, `instance_storm` (360K) 32 FPS, `dense_resident_2m` (4.9M) 12 FPS. The dense lane is published as a **negative** result: the resident path does not reach interactive frame rates at ~5M visible splats. Depth sorting is 64–87% of GPU frame time across all five lanes. Assets are synthetic fixtures, not real captures. Full hardware context, per-pass GPU breakdown, variance, and caveats: [Performance Dashboard](docs/performance/index.md).
+- Benchmark snapshot: five committed lanes captured 2026-07-19 at commit `9161d92f349` on an **optimized** build (RTX 3090, Ryzen 7 5800X, Windows 11, Vulkan Forward+). That commit was 8 behind `master` at publication; see [Currency](docs/performance/index.md#currency). **The published baseline is `dense_resident_2m` (4.9M visible splats): 12 FPS.** The resident path does not reach interactive frame rates at ~5M visible splats, and that is the project's headline number. Supporting lanes, steady-state — `static_baseline` (10K splats) 455 FPS, `city_flyover` (160K) 129 FPS, `lighting_stress` (90K) 73 FPS, `instance_storm` (360K) 32 FPS. `static_baseline` is a low-noise regression reference on a single 10K-splat instance; it was previously quoted as the top-line figure, which described a workload nobody ships ([#790](https://github.com/klausi3D/godotGS/issues/790)). Depth sorting is 64–87% of GPU frame time across all five lanes. Assets are synthetic fixtures, not real captures. Full hardware context, per-pass GPU breakdown, variance, and caveats: [Performance Dashboard](docs/performance/index.md).
 - Visual proof: real editor screenshots and short workflow clips are still pending. The current figures are technical diagrams, not product captures. A doctest-driven visual-compare lane now runs in `baseline_qa.yml` against seeded baselines in `tests/visual_baselines/`.
 
 ## For Reviewers

@@ -148,7 +148,7 @@ void GaussianDataInspectorPlugin::parse_begin(Object *p_object) {
 
     // For now, just add a simple label
     Label *info_label = memnew(Label);
-    info_label->set_text("Gaussian Data: " + itos(data->get_count()) + " splats");
+    info_label->set_text(vformat(TTR("Gaussian Data: %d splats"), data->get_count()));
     add_custom_control(info_label);
 }
 
@@ -177,19 +177,19 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     preset_container->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Button *performance_preset = memnew(Button);
-    performance_preset->set_text("Performance");
+    performance_preset->set_text(TTR("Performance"));
     performance_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     performance_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("performance"));
     preset_container->add_child(performance_preset);
 
     Button *balanced_preset = memnew(Button);
-    balanced_preset->set_text("Balanced");
+    balanced_preset->set_text(TTR("Balanced"));
     balanced_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     balanced_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("balanced"));
     preset_container->add_child(balanced_preset);
 
     Button *quality_preset = memnew(Button);
-    quality_preset->set_text("Quality");
+    quality_preset->set_text(TTR("Quality"));
     quality_preset->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     quality_preset->connect("pressed", callable_mp(renderer, &GaussianSplatRenderer::set_quality_preset).bind("quality"));
     preset_container->add_child(quality_preset);
@@ -199,12 +199,63 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     // Add performance stats
     Dictionary stats = renderer->get_render_stats();
     Label *stats_label = memnew(Label);
-    String stats_text = "Performance:\n";
-    stats_text += "Visible: " + itos(stats["visible_splats"]) + "/" + itos(stats["total_splats"]) + " splats\n";
-    stats_text += "Sort: " + String::num(stats["sort_time_ms"], 1) + " ms | ";
-    stats_text += "Render: " + String::num(stats["render_time_ms"], 1) + " ms";
+    String stats_text = TTR("Performance:") + "\n";
+    stats_text += vformat(TTR("Visible: %d/%d splats"), (int64_t)stats["visible_splats"], (int64_t)stats["total_splats"]) + "\n";
+    stats_text += vformat(TTR("Sort: %s ms"), String::num(stats["sort_time_ms"], 1)) + " | ";
+    stats_text += vformat(TTR("Render: %s ms"), String::num(stats["render_time_ms"], 1));
     stats_label->set_text(stats_text);
     add_custom_control(stats_label);
+}
+
+// #839 round 3: the two constructors for the Debug Visualization block.
+//
+// Each control also carries the property it replaces as metadata under
+// GS_DEBUG_REPLACEMENT_META (declared in the header). That is what lets a test
+// observe "a replacement control exists for X" from the CONSTRUCTED control
+// tree, independently of the suppression registry — so the strengthened #838
+// case can cross-check parse_property()'s answers against the real UI instead
+// of restating the same name predicate the code uses.
+//
+// Every replacement control in that block is built through one of these, and
+// both take the debug/* property the control replaces as a REQUIRED argument
+// and record it in `built_debug_replacements`. parse_property() suppresses that
+// recorded set and nothing else, which makes the suppression FAIL-SAFE: a
+// debug/* property that gains no control here keeps its default editor, instead
+// of being silently deleted from the inspector by a predicate that only looks
+// at the property's name. (#838 fixed the one property the hand-written
+// predicate had eaten — debug/overlay_opacity — but left the shape intact, so
+// the 13th debug/* property would have hit the same trap.)
+CheckButton *GaussianSplatNodeInspectorPlugin::_add_debug_toggle(Container *p_row, const String &p_text, const String &p_property_path, bool p_pressed, const Callable &p_on_toggled) {
+    if (!p_row) {
+        return nullptr;
+    }
+
+    CheckButton *toggle = memnew(CheckButton);
+    toggle->set_text(p_text);
+    toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    toggle->set_pressed(p_pressed);
+    toggle->connect("toggled", p_on_toggled);
+    p_row->add_child(toggle);
+
+    // Recorded only after the control is actually in the tree, so an early
+    // return above cannot register a replacement that does not exist.
+    toggle->set_meta(GS_DEBUG_REPLACEMENT_META, p_property_path);
+    built_debug_replacements.insert(p_property_path);
+    return toggle;
+}
+
+OptionButton *GaussianSplatNodeInspectorPlugin::_add_debug_option_button(Container *p_row, const String &p_property_path) {
+    if (!p_row) {
+        return nullptr;
+    }
+
+    OptionButton *option = memnew(OptionButton);
+    option->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    p_row->add_child(option);
+
+    option->set_meta(GS_DEBUG_REPLACEMENT_META, p_property_path);
+    built_debug_replacements.insert(p_property_path);
+    return option;
 }
 
 void GaussianSplatNodeInspectorPlugin::_add_quality_button(Container *p_container, const String &p_label, ObjectID p_node_id, int p_preset) {
@@ -473,17 +524,32 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         return;
     }
 
-    VBoxContainer *root = memnew(VBoxContainer);
+    // #839 round 3: start the replacement registry empty for this object. Whatever
+    // the Debug Visualization block below actually builds gets recorded here, and
+    // parse_property() suppresses exactly that. Under DEBUG_ENABLED=off the block
+    // is not compiled at all, so the set stays empty and every debug/* property
+    // correctly keeps its default editor rather than vanishing with no replacement.
+    built_debug_replacements.clear();
+    built_debug_replacements_for = node->get_instance_id();
+
+    // This block used to be a bare VBoxContainer, which the inspector renders with no
+    // fold arrow at all - roughly 1700 px of telemetry permanently pinned above the
+    // first real property (#836). EditorInspectorSection gives it the same header and
+    // fold arrow as a native property group. setup() reads the per-object fold state,
+    // which defaults to folded, so the block starts collapsed and the user's choice
+    // persists in the scene's folding cfg like any other section. The bg color passed
+    // here is a placeholder: the section recomputes it from the editor theme on
+    // NOTIFICATION_THEME_CHANGED (editor/inspector/editor_inspector.cpp:1891).
+    EditorInspectorSection *section = memnew(EditorInspectorSection);
+    section->setup("gaussian_splat_overview", TTR("Gaussian Splat Overview"), node, Color(0, 0, 0, 0), true);
+
+    VBoxContainer *root = section->get_vbox();
     root->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     root->add_theme_constant_override("separation", int(Math::round(4.0f * EDSCALE)));
 
-    Label *header = memnew(Label);
-    header->set_text("Gaussian Splat Overview");
-    root->add_child(header);
-
     Label *origin = memnew(Label);
     origin->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-    origin->set_text("Asset Origin: " + node->get_asset_origin_label());
+    origin->set_text(vformat(TTR("Asset Origin: %s"), node->get_asset_origin_label()));
     root->add_child(origin);
 
     Label *stats = memnew(Label);
@@ -499,13 +565,13 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     actions->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Button *reload = memnew(Button);
-    reload->set_text("Reload");
+    reload->set_text(TTR("Reload"));
     reload->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     reload->connect("pressed", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_reload_pressed).bind(node->get_instance_id()));
     actions->add_child(reload);
 
     Button *force_update = memnew(Button);
-    force_update->set_text("Force Update");
+    force_update->set_text(TTR("Force Update"));
     force_update->set_h_size_flags(Control::SIZE_EXPAND_FILL);
     force_update->connect("pressed", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_force_update_pressed).bind(node->get_instance_id()));
     actions->add_child(force_update);
@@ -513,98 +579,79 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     root->add_child(actions);
 
     Label *quality_label = memnew(Label);
-    quality_label->set_text("Quality Presets");
+    quality_label->set_text(TTR("Quality Presets"));
     root->add_child(quality_label);
 
     HFlowContainer *quality_row = memnew(HFlowContainer);
     quality_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    _add_quality_button(quality_row, "Performance", node->get_instance_id(), GaussianSplatNode3D::QUALITY_PERFORMANCE);
-    _add_quality_button(quality_row, "Balanced", node->get_instance_id(), GaussianSplatNode3D::QUALITY_BALANCED);
-    _add_quality_button(quality_row, "Quality", node->get_instance_id(), GaussianSplatNode3D::QUALITY_QUALITY);
+    _add_quality_button(quality_row, TTR("Performance"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_PERFORMANCE);
+    _add_quality_button(quality_row, TTR("Balanced"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_BALANCED);
+    _add_quality_button(quality_row, TTR("Quality"), node->get_instance_id(), GaussianSplatNode3D::QUALITY_QUALITY);
     root->add_child(quality_row);
 
 #ifdef DEBUG_ENABLED
     const bool shared_renderer_debug_controls = is_renderer_shared_with_other_content(node);
 
     Label *debug_label = memnew(Label);
-    debug_label->set_text("Debug Visualization");
+    debug_label->set_text(TTR("Debug Visualization"));
     root->add_child(debug_label);
 
     HFlowContainer *toggle_row = memnew(HFlowContainer);
     toggle_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
-    CheckButton *preview_toggle = memnew(CheckButton);
-    preview_toggle->set_text("Preview");
-    preview_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    preview_toggle->set_pressed(node->is_preview_enabled());
-    preview_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_preview_toggled).bind(node->get_instance_id()));
-    toggle_row->add_child(preview_toggle);
+    _add_debug_toggle(toggle_row, TTR("Preview"), "debug/preview_enabled",
+            node->is_preview_enabled(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_preview_toggled).bind(node->get_instance_id()));
 
-    CheckButton *bounds_toggle = memnew(CheckButton);
-    bounds_toggle->set_text("Bounds");
-    bounds_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    bounds_toggle->set_pressed(node->is_showing_bounds());
-    bounds_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_bounds_toggled).bind(node->get_instance_id()));
-    toggle_row->add_child(bounds_toggle);
+    _add_debug_toggle(toggle_row, TTR("Bounds"), "debug/show_bounds",
+            node->is_showing_bounds(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_bounds_toggled).bind(node->get_instance_id()));
 
-    CheckButton *stats_toggle = memnew(CheckButton);
-    stats_toggle->set_text("Statistics");
-    stats_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    stats_toggle->set_pressed(node->is_showing_statistics());
-    stats_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_stats_toggled).bind(node->get_instance_id()));
-    toggle_row->add_child(stats_toggle);
+    _add_debug_toggle(toggle_row, TTR("Statistics"), "debug/show_statistics",
+            node->is_showing_statistics(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_stats_toggled).bind(node->get_instance_id()));
 
     root->add_child(toggle_row);
 
-    if (!shared_renderer_debug_controls) {
-        HFlowContainer *overlay_row = memnew(HFlowContainer);
-        overlay_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+    // #831: these overlays used to be hidden whenever the renderer was shared,
+    // because the underlying push forced them false. They are now the union
+    // over every node bound to the renderer, so they work while shared and the
+    // controls stay available. The hint states what "shared" means for them
+    // instead of claiming they are unavailable.
+    HFlowContainer *overlay_row = memnew(HFlowContainer);
+    overlay_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
-        CheckButton *grid_toggle = memnew(CheckButton);
-        grid_toggle->set_text("Tile Grid");
-        grid_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        grid_toggle->set_pressed(node->is_showing_tile_grid());
-        grid_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_tile_grid_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(grid_toggle);
+    _add_debug_toggle(overlay_row, TTR("Tile Grid"), "debug/show_tile_grid",
+            node->is_showing_tile_grid(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_tile_grid_toggled).bind(node->get_instance_id()));
 
-        CheckButton *heatmap_toggle = memnew(CheckButton);
-        heatmap_toggle->set_text("Heatmap");
-        heatmap_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        heatmap_toggle->set_pressed(node->is_showing_density_heatmap());
-        heatmap_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(heatmap_toggle);
+    _add_debug_toggle(overlay_row, TTR("Heatmap"), "debug/show_density_heatmap",
+            node->is_showing_density_heatmap(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
 
-        CheckButton *hud_toggle = memnew(CheckButton);
-        hud_toggle->set_text("HUD");
-        hud_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        hud_toggle->set_pressed(node->is_showing_performance_hud());
-        hud_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
-        overlay_row->add_child(hud_toggle);
+    _add_debug_toggle(overlay_row, TTR("HUD"), "debug/show_performance_hud",
+            node->is_showing_performance_hud(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
 
-        root->add_child(overlay_row);
-    } else {
+    root->add_child(overlay_row);
+
+    if (shared_renderer_debug_controls) {
         Label *shared_debug_hint = memnew(Label);
         shared_debug_hint->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
-        shared_debug_hint->set_text(TTR("Per-node tile grid, heatmap, and HUD toggles are unavailable while this renderer is shared with other content."));
+        shared_debug_hint->set_text(TTR("This renderer is shared with other content. Tile grid, heatmap and HUD are renderer-wide: enabling one here enables it for every splat node on this renderer, and it stays on until every node has it off."));
         root->add_child(shared_debug_hint);
     }
 
     HFlowContainer *lod_row = memnew(HFlowContainer);
     lod_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
-    CheckButton *lod_toggle = memnew(CheckButton);
-    lod_toggle->set_text("LOD Spheres");
-    lod_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    lod_toggle->set_pressed(node->is_showing_lod_spheres());
-    lod_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled).bind(node->get_instance_id()));
-    lod_row->add_child(lod_toggle);
+    _add_debug_toggle(lod_row, TTR("LOD Spheres"), "debug/show_lod_spheres",
+            node->is_showing_lod_spheres(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled).bind(node->get_instance_id()));
 
-    CheckButton *performance_overlay_toggle = memnew(CheckButton);
-    performance_overlay_toggle->set_text("Performance Overlay");
-    performance_overlay_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    performance_overlay_toggle->set_pressed(node->is_showing_performance_overlay());
-    performance_overlay_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled).bind(node->get_instance_id()));
-    lod_row->add_child(performance_overlay_toggle);
+    _add_debug_toggle(lod_row, TTR("Performance Overlay"), "debug/show_performance_overlay",
+            node->is_showing_performance_overlay(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled).bind(node->get_instance_id()));
 
     root->add_child(lod_row);
 
@@ -613,46 +660,43 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
     preview_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
     Label *preview_label = memnew(Label);
-    preview_label->set_text("Preview Mode");
+    preview_label->set_text(TTR("Preview Mode"));
     preview_row->add_child(preview_label);
 
-    OptionButton *preview_mode = memnew(OptionButton);
-    preview_mode->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    preview_mode->add_item("Off", GaussianSplatNode3D::DEBUG_DRAW_OFF);
-    preview_mode->add_item("Wireframe", GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME);
-    preview_mode->add_item("Points", GaussianSplatNode3D::DEBUG_DRAW_POINTS);
-    preview_mode->add_item("Heatmap", GaussianSplatNode3D::DEBUG_DRAW_HEATMAP);
-    int selected_index = preview_mode->get_item_index(node->get_debug_draw_mode());
-    if (selected_index >= 0) {
-        preview_mode->select(selected_index);
+    // _add_debug_option_button() creates the control, parents it to preview_row
+    // and records debug/debug_draw_mode as replaced, in that order -- so the
+    // registry entry exists only if the control does.
+    OptionButton *preview_mode = _add_debug_option_button(preview_row, "debug/debug_draw_mode");
+    if (preview_mode) {
+        preview_mode->add_item(TTR("Off"), GaussianSplatNode3D::DEBUG_DRAW_OFF);
+        preview_mode->add_item(TTR("Wireframe"), GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME);
+        preview_mode->add_item(TTR("Points"), GaussianSplatNode3D::DEBUG_DRAW_POINTS);
+        preview_mode->add_item(TTR("Heatmap"), GaussianSplatNode3D::DEBUG_DRAW_HEATMAP);
+        int selected_index = preview_mode->get_item_index(node->get_debug_draw_mode());
+        if (selected_index >= 0) {
+            preview_mode->select(selected_index);
+        }
+        if (node->is_runtime_preview_enabled()) {
+            preview_mode->set_disabled(true);
+            preview_mode->set_tooltip_text(TTR("Preview mode is locked while Runtime Preview is enabled."));
+        }
+        preview_mode->connect("item_selected", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_debug_draw_mode_selected).bind(node->get_instance_id(), preview_mode));
     }
-    if (node->is_runtime_preview_enabled()) {
-        preview_mode->set_disabled(true);
-        preview_mode->set_tooltip_text(TTR("Preview mode is locked while Runtime Preview is enabled."));
-    }
-    preview_mode->connect("item_selected", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_debug_draw_mode_selected).bind(node->get_instance_id(), preview_mode));
-    preview_row->add_child(preview_mode);
 
     root->add_child(preview_row);
 
     HFlowContainer *runtime_row = memnew(HFlowContainer);
     runtime_row->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 
-    CheckButton *runtime_preview_toggle = memnew(CheckButton);
-    runtime_preview_toggle->set_text(TTR("Runtime Preview"));
-    runtime_preview_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-    runtime_preview_toggle->set_pressed(node->is_runtime_preview_enabled());
-    runtime_preview_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_runtime_preview_toggled).bind(node->get_instance_id(), preview_mode));
-    runtime_row->add_child(runtime_preview_toggle);
+    // _on_runtime_preview_toggled() null-checks the bound OptionButton.
+    _add_debug_toggle(runtime_row, TTR("Runtime Preview"), "debug/runtime_preview",
+            node->is_runtime_preview_enabled(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_runtime_preview_toggled).bind(node->get_instance_id(), preview_mode));
 
-    if (!shared_renderer_debug_controls) {
-        CheckButton *residency_toggle = memnew(CheckButton);
-        residency_toggle->set_text(TTR("Residency HUD"));
-        residency_toggle->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-        residency_toggle->set_pressed(node->is_showing_residency_hud());
-        residency_toggle->connect("toggled", callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_residency_hud_toggled).bind(node->get_instance_id()));
-        runtime_row->add_child(residency_toggle);
-    }
+    // #831: renderer-wide but reachable while shared (union over peers).
+    _add_debug_toggle(runtime_row, TTR("Residency HUD"), "debug/show_residency_hud",
+            node->is_showing_residency_hud(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_residency_hud_toggled).bind(node->get_instance_id()));
 
     root->add_child(runtime_row);
 #endif
@@ -843,7 +887,7 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         }
     }
 
-    add_custom_control(root);
+    add_custom_control(section);
 }
 
 void GaussianSplatNodeInspectorPlugin::parse_category(Object *p_object, const String &p_category) {
@@ -852,12 +896,47 @@ void GaussianSplatNodeInspectorPlugin::parse_category(Object *p_object, const St
 }
 
 bool GaussianSplatNodeInspectorPlugin::parse_property(Object *p_object, const Variant::Type p_type, const String &p_path, const PropertyHint p_hint, const String &p_hint_text, const BitField<PropertyUsageFlags> p_usage, const bool p_wide) {
-    // Skip default debug toggles since we provide custom controls.
-    if (p_path == "debug/preview_enabled" || p_path == "debug/show_bounds" || p_path == "debug/show_statistics" ||
-            p_path == "debug/show_tile_grid" || p_path == "debug/show_density_heatmap" ||
-            p_path == "debug/show_performance_hud" || p_path == "debug/show_lod_spheres" ||
-            p_path == "debug/show_performance_overlay" || p_path == "debug/debug_draw_mode" ||
-            p_path == "debug/runtime_preview" || p_path == "debug/show_residency_hud") {
+    // Suppress the default editor for every debug/* property that the custom Debug
+    // Visualization controls in parse_begin() already present, so it does not get a
+    // second, duplicate editor.
+    //
+    // History of this guard, because it has now been wrong twice in the same way:
+    //
+    //   - It was a hand-written list of 11 names that had drifted, missing
+    //     debug/overlay_opacity and leaving the "Debug" group holding exactly one
+    //     orphan property ~1700 px from its siblings (#836).
+    //   - #838 round 1 replaced it with a bare `begins_with("debug/")` prefix check.
+    //     That ATE debug/overlay_opacity: the property has no replacement control,
+    //     so suppressing it removed the only inspector-side way to tune the
+    //     performance/LOD overlay blend.
+    //   - #838 round 2 patched that by special-casing debug/overlay_opacity. That
+    //     fixed the instance and left the SHAPE: the predicate still asserted
+    //     "suppressed" from the property's NAME, with no connection to whether a
+    //     replacement exists, so a 13th debug/* property added later would lose its
+    //     inspector UI silently -- and the accompanying test, which encoded the same
+    //     name predicate, would still have passed.
+    //
+    // So the predicate is no longer about names at all. `built_debug_replacements`
+    // is written by parse_begin() as it CONSTRUCTS each replacement control (see
+    // _add_debug_toggle / _add_debug_option_button, which take the replaced property
+    // as a required argument), and this suppresses exactly that set. The default is
+    // therefore VISIBLE: a debug/* property with no control keeps its own editor.
+    // debug/overlay_opacity is no longer a special case -- it simply has no entry,
+    // for the same reason as any future property that has not grown a control yet.
+    //
+    // Whoever does give overlay_opacity a slider gets the suppression for free, and
+    // must then also hide the possibly-memberless "Debug" group: EditorInspector only
+    // prunes empty sections inside `if (!current_favorites.is_empty())`
+    // (editor/inspector/editor_inspector.cpp:4500, :4623), so with no favorites set the
+    // group header survives with nothing under it. Measured: suppressing all 12 left a
+    // Debug section with zero EditorProperty children in the inspector tree.
+    //
+    // The object check matters: EditorInspector::instantiate_property_editor()
+    // (editor_inspector.cpp:3435) calls parse_property() with NO preceding
+    // parse_begin(), so without it a set left over from a previously inspected node
+    // would suppress editors on a node whose block was never built.
+    if (p_object && built_debug_replacements_for == p_object->get_instance_id() &&
+            built_debug_replacements.has(p_path)) {
         return true;
     }
 

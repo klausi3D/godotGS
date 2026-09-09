@@ -23,7 +23,21 @@ on:
         default: false
         type: boolean
       baseline_mode:
-        description: 'QA baseline mode (compare against stored baseline or refresh it)'
+        # Governs the GPU HARNESS visual baselines only. It deliberately does
+        # NOT refresh the QA scene baseline (tests/ci/baselines/qa_results.json).
+        # That is not an oversight: the qa lane must never rewrite its own
+        # expectations, and
+        # test_baseline_qa_require_flag.py::test_the_qa_lane_demands_capture_and_a_baseline
+        # fails the build if it ever gains --update-qa-baseline, because "a job
+        # that updates its expectations absorbs regressions instead of detecting
+        # them".
+        #
+        # The previous description read "QA baseline mode ... or refresh it",
+        # which sent a maintainer here expecting a QA scene recapture and
+        # produced a red job with no explanation of why. QA scene baselines are
+        # captured deliberately, by a human, from a run whose differences have
+        # been read.
+        description: 'GPU harness visual-baseline mode (does NOT refresh the QA scene baseline)'
         required: false
         default: compare
         type: choice
@@ -71,6 +85,30 @@ jobs:
     runs-on: [self-hosted, Windows, X64, godotgs, gpu]
     timeout-minutes: 120
 
+    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
+    # processes. Rationale and the measured loader behaviour: the "Self-hosted
+    # GPU runner environment" section of .github/workflows/README.md. Setting
+    # these proves nothing on its own, which is why the preflight step below
+    # reads back the chain the loader actually built.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process: this
+      # runner's service is registered as LocalSystem, and the loader discards
+      # its own filter variables when elevated (measured -- run 31603970211).
+      # Kept because they are the only mechanism covering a layer nobody has
+      # enumerated, and because they do work on a non-elevated runner.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # What actually strips the layers here: each layer's own opt-out, declared
+      # in its own manifest under `disable_environment`. The loader reads these
+      # unprivileged, so they survive the elevated job. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
+
     defaults:
       run:
         working-directory: repo
@@ -93,6 +131,11 @@ jobs:
     - name: Verify Python
       run: |
         python --version
+
+    # Must precede the build and every GPU step: it decides whether anything
+    # measured afterwards is a measurement of the renderer (#875).
+    - name: Preflight - runner GPU environment (#875)
+      run: python tests/ci/preflight_runner_gpu_environment.py
 
     - name: Set up MSVC
       uses: ilammy/msvc-dev-cmd@v1
@@ -166,9 +209,64 @@ jobs:
       env:
         GS_CI_GPU_REQUIRED: "1"
         GS_CI_VALIDATION_MODE: "strict"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
       run: |
         $args = @(
           "--categories", "sorting,renderer",
+          "--godot", $env:GODOT_BINARY
+        )
+        python tests/ci/run_baseline_qa.py @args
+
+    - name: Run QA scene suite (blocking visual/SSIM gate)
+      # THE reason this step exists on a GPU job: the QA scene suite renders and
+      # reads back viewports. Under --headless there is no RenderingDevice, every
+      # capture returns null, and run_baseline_qa.py launders the failing run into
+      # a skip — which is why this category ran in no lane at all before #522 and
+      # its scenes had never once executed for real.
+      #
+      # --qa-require-capture launches the suite on the real display AND makes a
+      # no-results run a hard failure: on a lane that promises a GPU, a skip means
+      # the promise broke. --require-qa-baseline makes a missing baseline fail
+      # instead of warning. Both are passed in argv rather than left to
+      # GS_CI_GPU_REQUIRED so the intent is legible at the call site.
+      #
+      # Deliberately COMPARE-ONLY, unlike the gpu-harness visual baselines: this
+      # step never honours steps.baseline_mode. A nightly job that rewrites its
+      # own expectations cannot detect a regression — it absorbs one. Refreshing
+      # tests/ci/baselines/qa_results.json is a deliberate act: run
+      # `--categories qa --qa-require-capture --update-qa-baseline` locally and
+      # commit the result for review.
+      env:
+        GS_CI_GPU_REQUIRED: "1"
+        GS_CI_VALIDATION_MODE: "strict"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
+      run: |
+        # `--update-qa-baseline` is intentionally absent here and must stay
+        # absent, including via `baseline_mode`. A lane that rewrites the
+        # expectations it is checking absorbs regressions instead of detecting
+        # them; the guard named above fails the build if this changes.
+        $args = @(
+          "--categories", "qa",
+          "--qa-require-capture",
+          "--require-qa-baseline",
           "--godot", $env:GODOT_BINARY
         )
         python tests/ci/run_baseline_qa.py @args
@@ -181,6 +279,8 @@ jobs:
         path: |
           repo/baseline_qa_results.json
           repo/tests/ci/qa_results.json
+          repo/baseline_qa_regression_report.json
+          repo/baseline_qa_regression_summary.md
           repo/*test_results.json
           repo/*.log
         if-no-files-found: warn
@@ -242,6 +342,27 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+
+    # #875 -- see the gpu-tests job above and the "Self-hosted GPU runner
+    # environment" section of .github/workflows/README.md.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process: this
+      # runner's service is registered as LocalSystem, and the loader discards
+      # its own filter variables when elevated (measured -- run 31603970211).
+      # Kept because they are the only mechanism covering a layer nobody has
+      # enumerated, and because they do work on a non-elevated runner.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # What actually strips the layers here: each layer's own opt-out, declared
+      # in its own manifest under `disable_environment`. The loader reads these
+      # unprivileged, so they survive the elevated job. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
 
     defaults:
       run:
@@ -444,6 +565,13 @@ jobs:
       - name: Verify Python
         if: steps.path_filter.outputs.run_harness == 'true'
         run: python --version
+
+      # Must precede the build and every GPU step (#875). Carries the same
+      # path-filter condition as the rest of the job: when the harness does not
+      # run there is no GPU measurement for it to protect.
+      - name: Preflight - runner GPU environment (#875)
+        if: steps.path_filter.outputs.run_harness == 'true'
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC
         if: steps.path_filter.outputs.run_harness == 'true'
@@ -805,6 +933,16 @@ jobs:
       env:
         DISPLAY: :99
         GS_CI_GPU_REQUIRED: "0"
+        # GS_CI_BASE_REF is the review base for the shrink-only ratchets in
+        # tests/ci/check_environment_skip_marker.py (#595). This step reaches
+        # tests/ci/run_module_tests.py INDIRECTLY, via run_baseline_qa.py's
+        # `module` category, and the wrapper fails closed on a base-bearing
+        # event without a base -- which would block the merge queue only after
+        # the long job had already run.
+        GS_CI_BASE_REF: >-
+          ${{ github.event_name == 'merge_group'
+              && github.event.merge_group.base_sha
+              || github.event.pull_request.base.sha }}
       run: |
         python3 tests/ci/run_baseline_qa.py --categories ply,pipeline,runtime,module
       continue-on-error: false
