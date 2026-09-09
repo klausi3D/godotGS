@@ -446,6 +446,71 @@ def read_ply_vertex_count(path: Path) -> int | None:
     return None
 
 
+def ply_payload_failure(path: Path) -> str | None:
+    """Why `path` is not a COMPLETE PLY, or None when its body is all there.
+
+    `read_ply_vertex_count()` returns as soon as it reads the `element vertex`
+    line: it never sees `end_header` and never looks at a single vertex. A
+    declared count is therefore a CLAIM, and a producer that exits 0 after a short
+    write -- `synthetic_ply_writer.cpp` ignores the result of every
+    `store_buffer`/`store_float` call -- leaves a file whose claim satisfies every
+    floor while its body is missing (#934 review).
+
+    The body's size is derived from the header: vertex count times the number of
+    declared properties times four. Anything the reader cannot size -- a non-float
+    property, a second element block, a missing `end_header` -- is a reason, not a
+    pass: sizing the body wrongly and calling it complete is the failure this
+    exists to prevent.
+    """
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return "does not begin with a PLY magic line"
+            vertex_count: int | None = None
+            properties = 0
+            elements = 0
+            saw_end_header = False
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    saw_end_header = True
+                    break
+                fields = stripped.split()
+                if fields[:1] == [b"element"]:
+                    elements += 1
+                    if elements > 1:
+                        return "declares more than one element block; the body cannot be sized"
+                    if len(fields) != 3 or fields[1] != b"vertex":
+                        return f"unexpected element line {stripped!r}"
+                    try:
+                        vertex_count = int(fields[2])
+                    except ValueError:
+                        return f"unreadable vertex count in {stripped!r}"
+                elif fields[:1] == [b"property"]:
+                    if len(fields) != 3 or fields[1] != b"float":
+                        return f"property {stripped!r} is not a float; the body cannot be sized"
+                    properties += 1
+            if not saw_end_header:
+                return "the header never ends (no end_header line)"
+            if vertex_count is None:
+                return "the header declares no vertex element"
+            if properties == 0:
+                return "the header declares no properties"
+            expected = stream.tell() + vertex_count * properties * 4
+        actual = path.stat().st_size
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if actual != expected:
+        return (
+            f"{actual:,} bytes on disk, {expected:,} expected for {vertex_count:,} "
+            f"vertices x {properties} float properties"
+        )
+    return None
+
+
 def _resource_path_for_spec(spec: PLYSpec) -> str | None:
     spec_path = Path(spec.relative_path)
     for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
@@ -1014,22 +1079,30 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         # bad ones -- broken until the next successful generation. Rejecting here
         # needs no rollback to get right: the staging directory is discarded and
         # the canonical files were never touched.
-        undersized: list[str] = []
+        rejected: list[str] = []
         for name in sorted(CPP_GENERATED_FILENAMES):
+            staged = staging_dir / name
+            # Structure first: a declared count is a claim, and the floor check
+            # below believes it. A truncated file whose header claims 50,000
+            # splats clears every floor there is.
+            payload_problem = ply_payload_failure(staged)
+            if payload_problem is not None:
+                rejected.append(f"{name}: {payload_problem}")
+                continue
             floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
             if floor <= 0:
                 continue
-            staged_splats = read_ply_vertex_count(staging_dir / name)
+            staged_splats = read_ply_vertex_count(staged)
             if staged_splats is None:
-                undersized.append(f"{name}: no vertex count could be read from the header")
+                rejected.append(f"{name}: no vertex count could be read from the header")
             elif staged_splats < floor:
-                undersized.append(f"{name}: {staged_splats} splats, floor is {floor}")
-        if undersized:
+                rejected.append(f"{name}: {staged_splats} splats, floor is {floor}")
+        if rejected:
             print(
-                "[prepare_synthetic_assets] the producer ran but its output does not meet "
-                "the fixture floors:"
+                "[prepare_synthetic_assets] the producer ran but its output is not usable "
+                "as the fixture corpus:"
             )
-            for line in undersized:
+            for line in rejected:
                 print(f"  - {line}")
             print(
                 "  nothing was published; the fixtures already in the workspace are "

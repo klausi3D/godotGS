@@ -43,11 +43,12 @@ spec.loader.exec_module(runtime_validation)
 
 
 def _write_fixture_header(path: Path, splats: int) -> bytes:
-    """A minimal PLY the floor reader can take a vertex count from.
+    """A minimal COMPLETE PLY: one float property, and the body to match.
 
-    Only the header matters here: `read_ply_vertex_count()` reads the declared
-    `element vertex` line and never the body, and these tests are about which
-    files get published, not about their contents.
+    The body is written because the producer's staged output is now checked
+    structurally as well as against its floor -- a declared count is a claim, and
+    a header-only file is exactly the truncation that check exists to catch. One
+    property keeps these fixtures small: four bytes per vertex.
     """
     header = (
         "ply\n"
@@ -56,8 +57,9 @@ def _write_fixture_header(path: Path, splats: int) -> bytes:
         "property float x\n"
         "end_header\n"
     ).encode("ascii")
-    path.write_bytes(header)
-    return header
+    contents = header + b"\x00" * (splats * 4)
+    path.write_bytes(contents)
+    return contents
 
 
 class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
@@ -276,6 +278,93 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                         good[name],
                         f"{name}: a usable fixture was replaced by output that fails the floor",
                     )
+
+    def test_a_truncated_fixture_never_reaches_the_canonical_paths(self) -> None:
+        """#934 review round 7: a declared count is a claim, and the floor believed it.
+
+        `read_ply_vertex_count()` returns at the `element vertex` line: it never
+        reads `end_header`, let alone a vertex. A producer that exits 0 after a
+        short write therefore staged a file whose claim cleared every floor while
+        its body was missing, and the publish loop replaced the usable corpus with
+        it.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            good = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in prep.CPP_GENERATED_FILENAMES
+            }
+            starved = sorted(prep.CPP_GENERATED_FILENAMES)[0]
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    written = _write_fixture_header(
+                        staging / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
+                    if name == starved:
+                        # The header still claims the full count; the body stops
+                        # short, exactly as an interrupted write leaves it.
+                        (staging / name).write_bytes(written[:-64])
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertFalse(
+                accepted, "a truncated fixture was published because its header claimed enough"
+            )
+            for name in sorted(prep.CPP_GENERATED_FILENAMES):
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (output_dir / name).read_bytes(),
+                        good[name],
+                        f"{name}: a usable fixture was replaced by truncated output",
+                    )
+
+    def test_the_structural_check_fails_closed_on_what_it_cannot_size(self) -> None:
+        """Sizing a body wrongly and calling it complete is the failure to avoid."""
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            complete = root / "complete.ply"
+            _write_fixture_header(complete, 32)
+            self.assertIsNone(prep.ply_payload_failure(complete))
+
+            header_only = root / "header_only.ply"
+            header_only.write_bytes(_write_fixture_header(root / "seed.ply", 32)[: -32 * 4])
+            self.assertIsNotNone(
+                prep.ply_payload_failure(header_only), "a body-less header was accepted"
+            )
+
+            NL = chr(10)
+            unsizeable = root / "double.ply"
+            unsizeable.write_bytes(
+                (
+                    "ply" + NL
+                    + "format binary_little_endian 1.0" + NL
+                    + "element vertex 4" + NL
+                    + "property double x" + NL
+                    + "end_header" + NL
+                ).encode("ascii")
+                + b"\x00" * 32
+            )
+            self.assertIn("not a float", prep.ply_payload_failure(unsizeable) or "")
+
+            truncated_header = root / "no_end.ply"
+            truncated_header.write_bytes(b"ply\nformat binary_little_endian 1.0\n")
+            self.assertIn(
+                "header never ends", prep.ply_payload_failure(truncated_header) or ""
+            )
+
+            self.assertIsNotNone(
+                prep.ply_payload_failure(root / "absent.ply"),
+                "an absent file was reported complete",
+            )
 
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
         """Discrimination: a real producer run must still be accepted.
