@@ -1804,8 +1804,10 @@ advisory report, or a path-filtered subset of renderer checks. Candidate mode
 machine-enforces that a candidate declares <code>release_channel=public-alpha</code> or
 matches a <code>v*-alpha*</code> release tag, then passes the manifest predicate:</p>
 <ul>
-<li>an issue snapshot is required, either through <code>--issues-json</code> or an embedded
-  candidate evidence <code>issue_snapshot</code>;</li>
+<li>a separate operator-supplied issue snapshot is required through
+  <code>--issues-json</code>; an
+  <code>issue_snapshot</code> embedded in the candidate evidence bundle is not accepted as
+  the candidate issue rows;</li>
 <li>open <code>priority:P0</code>, <code>priority:P1</code>, and <code>release blocker</code> issues in that
   snapshot must be classified as <code>blocking</code>, <code>accepted_alpha_limitation</code>, or
   <code>deferred</code>;</li>
@@ -1888,7 +1890,7 @@ review policy in the manifest until a workflow-behavior parser is added.</p>
 <p><code>release_builds.yml</code> maps a <code>v*</code> tag push (and a manual stable dispatch) to
 <code>channel=stable, publish=true</code>. That publish path is gated by the
 <code>release_candidate_gate</code> job, which the manifest tracks as a required job marker
-for <code>release_builds.yml</code> (issue #593):</p>
+for <code>release_builds.yml</code> (historically implemented under closed issue #593):</p>
 <ul>
 <li><strong>No Linux-only stable release.</strong> For the stable/candidate channel the gate
   fails unless both <code>build_linux</code> and <code>build_windows</code> succeeded, so a Windows
@@ -1906,12 +1908,14 @@ for <code>release_builds.yml</code> (issue #593):</p>
 </ul>
 <p><strong>Remaining scoped gap (issue #360).</strong> No CI lane yet produces the public-alpha
 candidate evidence bundle (candidate GPU-harness report, benchmark-lane report,
-artifact SHA/commit-parity, and issue snapshot). Until that pipeline is wired,
+and artifact SHA/commit-parity) and its separate issue snapshot. Until that
+pipeline is wired,
 the gate fails closed on every real <code>v*</code> tag; a maintainer cutting a candidate
-supplies the bundle out-of-band by pointing the <code>RELEASE_CANDIDATE_EVIDENCE</code>
-(and optional <code>RELEASE_CANDIDATE_ISSUES</code>) repo/environment variable at a
-produced bundle. Generating the bundle in-workflow so a green stable tag is
-self-proving is tracked as follow-up under #360/#593.</p>
+must place both files in the runner workspace and point the
+<code>RELEASE_CANDIDATE_EVIDENCE</code> and <code>RELEASE_CANDIDATE_ISSUES</code> repo/environment
+variables at different files. Generating the bundle in-workflow so a green
+stable tag is self-proving, including live issue acquisition and freshness and
+provenance guarantees, is owned by #360.</p>
 <h3 id="evidence-is-bound-to-the-commit-and-to-the-shipped-bytes">Evidence is bound to the commit and to the shipped bytes<a class="headerlink" href="#evidence-is-bound-to-the-commit-and-to-the-shipped-bytes" title="Permanent link">¶</a></h3>
 <p>Candidate validation on its own only proves the evidence bundle is <em>internally</em>
 consistent: <code>--mode candidate</code> re-hashes the files the bundle points at and
@@ -2237,18 +2241,23 @@ scenario-by-scenario check:</p>
 <p>CI enforces the same contract through the existing module guard entry point:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>tests/ci/run_module_tests.py<span class="w"> </span>--guard-only
 </code></pre></div>
-<p>Candidate release validation requires an evidence bundle and an issue snapshot
-unless the evidence bundle embeds <code>issue_snapshot</code>:</p>
+<p>Candidate release validation requires an evidence bundle and a separate issue
+snapshot. The issue snapshot must be supplied through <code>--issues-json</code>; the
+bundle under audit cannot certify its own blocker set by embedding one:</p>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>tests/ci/check_renderer_release_gates.py<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--mode<span class="w"> </span>candidate<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--candidate-evidence<span class="w"> </span>artifacts/public-alpha/evidence_bundle.json<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>--issues-json<span class="w"> </span>artifacts/public-alpha/open_issues.json
 </code></pre></div>
-<p>The issue JSON is intended to come from <code>gh issue list</code> or the GitHub API with
-labels included. When that snapshot is open-only, any manifest-tracked
-<code>blocking</code> issue omitted from it needs explicit closure proof in
-<code>resolved_manifest_issues</code> inside the evidence bundle. This PR does not require
-live network access for the deterministic contract check.</p>
+<p>The operator-supplied issue JSON is intended to come from <code>gh issue list</code> or the
+GitHub API with labels included. The current gate verifies that it is a separate
+file from the evidence bundle, but does not machine-enforce its GitHub
+provenance, query completeness, capture time, or freshness; live acquisition
+and those stronger guarantees are owned by #360. When the supplied snapshot is
+open-only, any manifest-tracked <code>blocking</code> issue omitted from it needs explicit
+closure proof in <code>resolved_manifest_issues</code> inside the evidence bundle. Neither
+the deterministic contract check nor candidate mode requires live network
+access today.</p>
 
 
 
@@ -2269,7 +2278,7 @@ live network access for the deterministic contract check.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 8, 2026 21:16:56 UTC">September 8, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 9, 2026 12:50:38 UTC">September 9, 2026</span>
   </span>
 
     
