@@ -1049,6 +1049,29 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     quarantine = output_dir / ".pre_cpp_generation"
     stashed: dict[str, pathlib.Path] = {}
 
+    def _report_restore_failures(failures: list[str]) -> None:
+        """Say what could not be put back, and where the originals now live.
+
+        Swallowing these left the canonical path holding a failed run's partial
+        output and the original sitting in the quarantine, with nothing said. The
+        state is recoverable -- the next invocation adopts the quarantined
+        original -- but only if someone reading the log knows the corpus is
+        currently debris rather than fixtures. Printed unconditionally: --quiet is
+        what every CI invocation passes.
+        """
+        if not failures:
+            return
+        print(
+            "[prepare_synthetic_assets] WARNING: could not restore the pre-run fixtures "
+            "after a failed generation:"
+        )
+        for line in failures:
+            print(f"  - {line}")
+        print(
+            f"  the originals are preserved in {quarantine} and the next run recovers "
+            "them; until then the canonical paths may hold partial producer output"
+        )
+
     def _rollback_isolation() -> None:
         """Undo a PARTIAL isolation, so a failure to isolate cannot itself lose
         fixtures.
@@ -1066,13 +1089,15 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         destroy the very thing this rollback exists to preserve. This restores
         what was stashed and removes nothing.
         """
+        failures: list[str] = []
         for name, src in sorted(stashed.items()):
             target = output_dir / name
             try:
                 if not target.exists():
                     src.replace(target)
-            except OSError:
-                pass
+            except OSError as exc:
+                failures.append(f"{name}: {exc}")
+        _report_restore_failures(failures)
         stashed.clear()
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
@@ -1080,21 +1105,48 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         except OSError:
             pass
 
+    recovered: list[str] = []
     try:
-        if any((output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES):
+        # The quarantine directory is itself a reason to run this loop: a restore
+        # that failed can leave the originals there with nothing at the canonical
+        # paths, and those originals have to be picked back up rather than
+        # stranded beside a corpus the producer rewrites.
+        if quarantine.is_dir() or any(
+            (output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES
+        ):
             quarantine.mkdir(parents=True, exist_ok=True)
             for name in sorted(CPP_GENERATED_FILENAMES):
                 src = output_dir / name
+                dst = quarantine / name
+                if dst.is_file():
+                    # An entry already in the quarantine is an ORIGINAL that a
+                    # previous restore could not put back -- a fixture locked by
+                    # another process on the persistent Windows runner is the case
+                    # that produces this. Whatever sits at the canonical path is
+                    # then that failed run's partial output. Deleting the
+                    # quarantine entry to make room for it, as this loop used to,
+                    # destroyed the last copy of the fixture and kept the debris.
+                    # The original is already isolated, so adopt it and discard
+                    # the debris instead.
+                    if src.is_file():
+                        src.unlink()
+                    stashed[name] = dst
+                    recovered.append(name)
+                    continue
                 if src.is_file():
-                    dst = quarantine / name
-                    if dst.exists():
-                        dst.unlink()
                     src.replace(dst)
                     stashed[name] = dst
     except OSError as exc:
         print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
         _rollback_isolation()
         return False
+
+    if recovered:
+        print(
+            "[prepare_synthetic_assets] recovered "
+            f"{len(recovered)} original fixture(s) a previous run could not restore: "
+            f"{', '.join(recovered)}"
+        )
 
     def _restore_stashed() -> None:
         """Undo the isolation after a FAILED attempt, partial output included.
@@ -1111,6 +1163,7 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         producer created that had no original is removed outright, since keeping
         it would present a half-written fixture as a real one.
         """
+        failures: list[str] = []
         for name in sorted(CPP_GENERATED_FILENAMES):
             target = output_dir / name
             src = stashed.get(name)
@@ -1121,8 +1174,9 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     src.replace(target)          # put the original back
                 elif target.exists():
                     target.unlink()              # partial, and nothing to restore
-            except OSError:
-                pass
+            except OSError as exc:
+                failures.append(f"{name}: {exc}")
+        _report_restore_failures(failures)
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
                 quarantine.rmdir()

@@ -1722,6 +1722,132 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                     f"{name} was left as partial generator output instead of the original",
                 )
 
+    def test_a_quarantined_original_is_recovered_not_overwritten(self):
+        """A failed restore must not become permanent loss on the next run (#969 review).
+
+        When restoring an original raises -- a fixture locked by another process
+        on the persistent Windows runner is the case that produces it -- the
+        canonical path keeps that run's partial output and the original stays in
+        `.pre_cpp_generation`. The isolation loop then deleted the existing
+        quarantine entry to make room for the file at the canonical path, so the
+        LAST COPY of the fixture was destroyed and the debris kept in its place.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            # Exactly the state a failed restore leaves behind.
+            for name in names:
+                _write_ply(quarantine / name, 1024, header_only=True)
+                _write_ply(out / name, 99999, header_only=True)
+            originals = {name: (quarantine / name).read_bytes() for name in names}
+            debris = {name: (out / name).read_bytes() for name in names}
+            self.assertNotEqual(
+                originals[names[0]], debris[names[0]], "the case needs distinguishable bytes"
+            )
+
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+
+            self.assertFalse(ok, "a producer that created no files was accepted")
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertTrue((out / name).is_file(), f"{name} is missing entirely")
+                    self.assertEqual(
+                        (out / name).read_bytes(),
+                        originals[name],
+                        f"{name}: the quarantined original was destroyed and the failed "
+                        "run's partial output kept in its place",
+                    )
+
+    def test_a_restore_that_cannot_write_says_so_and_keeps_the_original(self):
+        """Silence is the other half: the state is recoverable only if it is known.
+
+        The original survives in the quarantine, so nothing is lost -- but a log
+        that says nothing leaves a corpus of partial output looking like fixtures
+        until someone happens to regenerate.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_ply(out / name, 1024, header_only=True)
+            originals = {name: (out / name).read_bytes() for name in names}
+            locked = names[0]
+            quarantine = out / ".pre_cpp_generation"
+
+            real_replace = Path.replace
+
+            def flaky_replace(self, target):
+                target = Path(target)
+                if target.name == locked and target.parent == out:
+                    raise OSError(13, "the file is locked by another process")
+                return real_replace(self, target)
+
+            buffer = io.StringIO()
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with mock.patch.object(Path, "replace", flaky_replace):
+                    with contextlib.redirect_stdout(buffer):
+                        self.assertFalse(
+                            _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+                        )
+
+            output = buffer.getvalue()
+            self.assertIn("could not restore the pre-run fixtures", output)
+            self.assertIn(locked, output)
+            self.assertTrue(
+                (quarantine / locked).is_file(),
+                "the original was neither restored nor preserved",
+            )
+
+            # And the next run picks it back up, so the failure is a delay rather
+            # than a loss. This is the sequence the review described end to end.
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+            self.assertEqual(
+                (out / locked).read_bytes(),
+                originals[locked],
+                "the original was not recovered by the following run",
+            )
+
+    def test_originals_stranded_in_the_quarantine_are_picked_back_up(self):
+        """A restore that unlinked the target and then failed leaves NOTHING canonical.
+
+        The isolation loop only ran when a canonical file existed, so in that
+        state it did not run at all: the originals sat in `.pre_cpp_generation`
+        while the producer wrote a fresh corpus over the top of nothing, and they
+        were never seen again.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            for name in names:
+                _write_ply(quarantine / name, 1024, header_only=True)
+            originals = {name: (quarantine / name).read_bytes() for name in names}
+
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (out / name).read_bytes() if (out / name).is_file() else None,
+                        originals[name],
+                        f"{name} was left stranded in the quarantine",
+                    )
+
     def test_a_producer_that_writes_nothing_fails_even_with_fresh_leftovers(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
