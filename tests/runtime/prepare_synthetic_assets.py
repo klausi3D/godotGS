@@ -1047,6 +1047,38 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     # failed attempt does not leave the workspace worse than it found it.
     quarantine = output_dir / ".pre_cpp_generation"
     stashed: dict[str, pathlib.Path] = {}
+
+    def _rollback_isolation() -> None:
+        """Undo a PARTIAL isolation, so a failure to isolate cannot itself lose
+        fixtures.
+
+        Isolating several files is not atomic: on the persistent Windows runner a
+        later file can be locked while earlier ones have already been moved into
+        the quarantine. Returning at that point left those originals missing from
+        their canonical paths -- the isolation failure corrupting the workspace it
+        was protecting.
+
+        Deliberately NOT _restore_stashed(). That one also deletes any file
+        sitting at a canonical path with no stash entry, on the grounds that it
+        must be partial producer output. Here the producer has not run yet, so
+        such a file is an ORIGINAL that failed to move, and deleting it would
+        destroy the very thing this rollback exists to preserve. This restores
+        what was stashed and removes nothing.
+        """
+        for name, src in sorted(stashed.items()):
+            target = output_dir / name
+            try:
+                if not target.exists():
+                    src.replace(target)
+            except OSError:
+                pass
+        stashed.clear()
+        try:
+            if quarantine.is_dir() and not any(quarantine.iterdir()):
+                quarantine.rmdir()
+        except OSError:
+            pass
+
     try:
         if any((output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES):
             quarantine.mkdir(parents=True, exist_ok=True)
@@ -1060,6 +1092,7 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     stashed[name] = dst
     except OSError as exc:
         print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
+        _rollback_isolation()
         return False
 
     def _restore_stashed() -> None:

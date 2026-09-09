@@ -973,6 +973,37 @@ _REQUIRED_PLY_PROPERTIES = frozenset(
 )
 
 
+#: The `format` line the C++ writer emits, DERIVED from the writer rather than
+#: transcribed here. `synthetic_ply_writer.cpp:29` appends the format line to the
+#: header, and this regex reads that literal back out.
+#:
+#: Why the encoding is provenance and not cosmetics: ply_header_declares_rich_sh()
+#: used to inspect only the property block, so a `format ascii 1.0` PLY carrying
+#: the generic Gaussian fields and `f_rest_0..44` satisfied `cpp_rich` -- while
+#: the C++ writer never emits ascii at all. An unrelated standard 3DGS asset of
+#: that shape could therefore be published under the wrong producer, which is
+#: exactly what `--require-asset-variant cpp_rich` exists to prevent. Deriving the
+#: expected value rather than hard-coding it keeps the check correct if the writer
+#: ever changes encoding.
+_PLY_WRITER_FORMAT_RE = re.compile(rb'header \+= "format ([^"\\]+)')
+
+
+def cpp_writer_ply_format() -> "bytes | None":
+    """The producer's declared `format` value, read from the writer source.
+
+    None when the source cannot be read, in which case the format check is
+    skipped rather than failing every fixture -- the property-block evidence
+    still applies, so this degrades to the previous behaviour instead of
+    inventing a verdict from a missing file.
+    """
+    writer = _repo_root() / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
+    try:
+        match = _PLY_WRITER_FORMAT_RE.search(writer.read_bytes())
+    except OSError:
+        return None
+    return match.group(1).strip() if match else None
+
+
 def ply_header_declares_rich_sh(path: Path) -> bool:
     """Whether a PLY header carries the `f_rest_*` block only the C++ generator writes.
 
@@ -988,6 +1019,14 @@ def ply_header_declares_rich_sh(path: Path) -> bool:
         with path.open("rb") as fh:
             if fh.readline().strip() != b"ply":
                 return False
+            expected_format = cpp_writer_ply_format()
+            format_line = fh.readline().strip()
+            if expected_format is not None:
+                if not format_line.startswith(b"format "):
+                    return False
+                if format_line[len(b"format "):].strip() != expected_format:
+                    # Right properties, wrong encoding: not this producer's output.
+                    return False
             for _ in range(256):
                 line = fh.readline()
                 if not line:

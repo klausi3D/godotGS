@@ -248,11 +248,75 @@ class RichVariantRequiresRichShTests(unittest.TestCase):
                 "a single f_rest property was accepted as the complete rich block",
             )
 
+    def test_an_ascii_ply_with_the_rich_block_is_not_the_cpp_producer(self):
+        """Encoding is provenance: the C++ writer never emits ascii.
+
+        A `format ascii 1.0` PLY carrying the generic Gaussian fields and the
+        full `f_rest_0..44` block used to satisfy `cpp_rich`, so an unrelated
+        standard 3DGS asset of that shape could be published under the wrong
+        producer -- which is precisely what `--require-asset-variant cpp_rich`
+        exists to prevent.
+        """
+        props = _prepare.parse_cpp_writer_properties()
+        self.assertTrue(props, "writer properties could not be derived from source")
+        expected = _run_benchmark.cpp_writer_ply_format()
+        self.assertEqual(
+            expected,
+            b"binary_little_endian 1.0",
+            "the derived producer format changed; this test's premise needs revisiting",
+        )
+
+        NL = chr(10)
+        header = (
+            "ply" + NL
+            + "format ascii 1.0" + NL
+            + "element vertex 50000" + NL
+            + "".join("property float " + name + NL for name in props)
+            + "end_header" + NL
+        ).encode("ascii")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "impostor.ply"
+            ply.write_bytes(header)
+            self.assertFalse(
+                _run_benchmark.ply_header_declares_rich_sh(ply),
+                "an ascii PLY with the producer's exact property block was accepted "
+                "as cpp_rich; the property block alone is not provenance",
+            )
+
+        # Discrimination: the same property block in the producer's OWN encoding
+        # must still be accepted, or the check above would be satisfied by a
+        # classifier that rejects everything.
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / "genuine.ply"
+            _write_ply_with_properties(ply, 50000, props)
+            self.assertTrue(
+                _run_benchmark.ply_header_declares_rich_sh(ply),
+                "the producer's own header shape was rejected",
+            )
+
     def test_a_real_rich_fixture_is_still_labelled_cpp_rich(self):
-        """Non-vacuity: rejecting the real producer too would be the same defect."""
+        """Non-vacuity: rejecting the real producer too would be the same defect.
+
+        The header is DERIVED from the writer via parse_cpp_writer_properties()
+        rather than hand-authored. A locally invented shape can only confirm what
+        the author already believed: if synthetic_ply_writer.cpp changed its
+        header, an invented positive would stay green while describing a file the
+        producer no longer writes. (Derivation from source is still not the same
+        as a fixture CAPTURED from a real producer run -- that needs the module
+        build -- but it establishes the coupling, so the asserted shape cannot
+        drift away from the emitted one.)
+        """
         with tempfile.TemporaryDirectory() as tmp:
             ply = Path(tmp) / "synthetic_sphere.ply"
-            _write_ply(ply, 50000, header_only=True, rich_sh=True)
+            props = _prepare.parse_cpp_writer_properties()
+            self.assertTrue(props, "writer properties could not be derived from source")
+            self.assertTrue(
+                any(name.startswith("f_rest_") for name in props),
+                "derived producer header carries no f_rest_* block; the positive "
+                "case below would be vacuous",
+            )
+            _write_ply_with_properties(ply, 50000, props)
             self.assertTrue(_run_benchmark.ply_header_declares_rich_sh(ply))
             self.assertEqual(
                 _run_benchmark.classify_fixture_variant(50000, self.VARIANTS, True),
