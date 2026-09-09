@@ -43,6 +43,28 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install pinned automation validator dependencies
+        # This required lane is GitHub-hosted. Keep parser installation off the
+        # persistent self-hosted runner and fail closed if the pinned artifact
+        # cannot be installed.
+        run: python -m pip install --require-hashes -r tests/ci/requirements-automation.txt
+
+      - name: Test automation validator and CI wiring
+        env:
+          GS_CI_BASE_REF: >-
+            ${{ github.event_name == 'merge_group'
+                && github.event.merge_group.base_sha
+                || github.event.pull_request.base.sha }}
+        run: python tests/ci/test_validate_automation.py -v
+
+      - name: Validate all GitHub Actions workflows
+        env:
+          GS_CI_BASE_REF: >-
+            ${{ github.event_name == 'merge_group'
+                && github.event.merge_group.base_sha
+                || github.event.pull_request.base.sha }}
+        run: python tests/ci/validate_automation.py --contracts-only
+
       - name: Validate agentic control plane
         # --strict-hierarchy: also require the AGENTS.md hierarchy and the
         # docs/governance/* docs. Without it the whole hierarchy could be deleted

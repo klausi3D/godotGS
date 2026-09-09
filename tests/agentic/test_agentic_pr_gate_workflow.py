@@ -29,15 +29,11 @@ correct long-term fix: it closes the job-vs-step scope gap structurally (a
 job-level `if:` is a different key, not a different indent) and retires most of
 the regex-evasion category at once.
 
-It is not done here for one concrete reason. **No workflow in this repository
-pip-installs PyYAML**, and `actions/setup-python@v5` provisions a bare tool-cache
-interpreter, so `import yaml` at module scope in `tests/agentic/` would raise
-`ImportError` during unittest DISCOVERY -- failing the only required status check
-on `master`, on every PR, with `enforce_admins: true`. (The guarded
-`try: import yaml / except ImportError` in `tests/ci/validate_automation.py` is
-suggestive but is NOT the evidence, because no workflow invokes that file.)
-Making PyYAML a mandatory gate dependency, and then porting this file to a real
-parse, is tracked as a follow-up on T6 / #894.
+T6 / #894 now installs a pinned, hash-checked PyYAML wheel in the GitHub-hosted
+required gate and runs `validate_automation.py` fail-closed there. This suite
+intentionally remains a text-level mutation ratchet: porting its many invocation
+and event-shape assertions to a shared structural workflow model is separate
+follow-up work, not a reason to describe the parser dependency as optional.
 """
 
 from __future__ import annotations
