@@ -27,6 +27,9 @@ on:
       - "tests/ci/resolve_export_template.py"
       - "tests/ci/check_renderer_release_gates.py"
       - "tests/ci/release_attestation.py"
+      # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
+      # change to it must not skip the workflow whose GPU job runs it.
+      - "tests/ci/preflight_runner_gpu_environment.py"
       # export_smoke_windows runs run_export_smoke.py, which imports
       # run_runtime_validation.py at module scope for its mode arguments. Only
       # the first is an *execution*, so only the first is in
@@ -85,6 +88,9 @@ on:
       - "tests/ci/resolve_export_template.py"
       - "tests/ci/check_renderer_release_gates.py"
       - "tests/ci/release_attestation.py"
+      # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
+      # change to it must not skip the workflow whose GPU job runs it.
+      - "tests/ci/preflight_runner_gpu_environment.py"
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
       - "tests/runtime/export_smoke_preset.cfg.in"
@@ -955,6 +961,29 @@ jobs:
     # .github/workflows/README.md.
     if: github.event_name != 'pull_request'
     timeout-minutes: 90
+    # #875 -- keep third-party Vulkan implicit layers out of this job's GPU
+    # processes. Rationale and the measured loader behaviour: the "Self-hosted
+    # GPU runner environment" section of .github/workflows/README.md. Setting
+    # these proves nothing on its own, which is why the preflight step below
+    # reads back the chain the loader actually built.
+    env:
+      # Loader-side filter. Honoured only in a NON-elevated process: this
+      # runner's service is registered as LocalSystem, and the loader discards
+      # its own filter variables when elevated (measured -- run 31603970211).
+      # Kept because they are the only mechanism covering a layer nobody has
+      # enumerated, and because they do work on a non-elevated runner.
+      VK_LOADER_LAYERS_DISABLE: '~implicit~'
+      VK_LOADER_LAYERS_ENABLE: 'VK_LAYER_NV_optimus,VK_LAYER_NV_present'
+      # What actually strips the layers here: each layer's own opt-out, declared
+      # in its own manifest under `disable_environment`. The loader reads these
+      # unprivileged, so they survive the elevated job. Mirrored in
+      # tests/ci/preflight_runner_gpu_environment.py LAYER_DISABLE_ENV.
+      # VK_LAYER_OBS_HOOK
+      DISABLE_VULKAN_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OBS_HOOK
+      DISABLE_VULKAN_OW_OBS_CAPTURE: '1'
+      # VK_LAYER_OW_OVERLAY
+      DISABLE_VULKAN_OW_OVERLAY_LAYER: '1'
     defaults:
       run:
         working-directory: repo
@@ -988,6 +1017,13 @@ jobs:
           fetch-depth: 0
           submodules: recursive
           set-safe-directory: false
+
+      # Must precede every GPU step: it decides whether anything measured
+      # afterwards is a measurement of the renderer (#875). Required of every
+      # job on the self-hosted GPU pool by tests/ci/test_preflight_runner_gpu_environment.py.
+      - name: Preflight - runner GPU environment (#875)
+        shell: pwsh
+        run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Download Windows editor built by this run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

@@ -103,6 +103,10 @@ RELEASE_HELPER_SCRIPTS = (
     "tests/ci/check_renderer_release_gates.py",
     "tests/ci/release_attestation.py",
     "tests/runtime/run_export_smoke.py",
+    # Executed by export_smoke_windows' preflight step, which every job on the
+    # self-hosted GPU pool must run (#875/#918). A change to the preflight must
+    # not skip the workflow whose GPU job depends on it.
+    "tests/ci/preflight_runner_gpu_environment.py",
 )
 
 # --- The smoke test's DATA dependencies --------------------------------------
