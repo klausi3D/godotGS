@@ -950,6 +950,22 @@ def _generate(
     if godot_binary is not None:
         cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
         if not cpp_generated:
+            if preserve_floor_valid:
+                # --require-asset-floors means a producer was SELECTED, not merely
+                # available. Falling back here reported success while the selected
+                # producer had failed: the Python fallback declares fewer splats
+                # than the floor, the preservation branch below then keeps an
+                # existing fixture from an unrelated earlier run, and module and
+                # runtime validation proceed against it. The floor check passes
+                # because the old file satisfies it -- so the failure of the thing
+                # under test is laundered into a pass by a leftover file.
+                print(
+                    "[prepare_synthetic_assets] the selected --godot-binary failed to "
+                    "generate fixtures and --require-asset-floors is set: refusing to "
+                    "fall back. Any fixture already in the workspace came from a "
+                    "different run and cannot stand in for this producer's output."
+                )
+                return 1
             print("[prepare_synthetic_assets] falling back to Python generators for all files")
 
     # Phase 2: Generate remaining files via Python.

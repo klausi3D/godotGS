@@ -271,6 +271,31 @@ def ensure_build_dir() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _asset_consumer_project_roots() -> "tuple[Path, ...]":
+    """The project roots the fixture floor check actually validates.
+
+    Read from prepare_synthetic_assets rather than restated here: a second copy
+    of that tuple would drift the moment one side gained a root, and a stale
+    copy in a guard is worse than no guard. Imported lazily, because this module
+    otherwise talks to that script only as a subprocess.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_prepare_synthetic_assets", SYNTHETIC_ASSET_PREP_SCRIPT
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"cannot read the fixture floor roots from {SYNTHETIC_ASSET_PREP_SCRIPT}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec: the target module defines dataclasses, and
+    # @dataclass resolves its own __module__ through sys.modules.
+    sys.modules.setdefault(spec.name, module)
+    spec.loader.exec_module(module)
+    return tuple(module.ASSET_CONSUMER_PROJECT_ROOTS)
+
+
 def ensure_synthetic_assets(godot_binary: str) -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
@@ -1771,6 +1796,31 @@ def main() -> int:
         if selected_fixture_consumers:
             consumer_names = ", ".join(sorted(selected_fixture_consumers))
             print(f"[runtime] Fixture preflight required by: {consumer_names}")
+            # The floor check validates the fixtures under
+            # prepare_synthetic_assets.ASSET_CONSUMER_PROJECT_ROOTS -- the repo
+            # root and the canonical test project. With --project-path pointing
+            # somewhere else, Godot resolves res://tests/fixtures/... beneath
+            # THAT project, so an undersized fixture there reaches the scenario
+            # while the floor check reports green about two copies nobody loaded.
+            #
+            # Rejected rather than validated: preparing and floor-checking an
+            # arbitrary project root is a real feature, and guessing at it here
+            # would be the fail-open half of the trade. Refusing names the
+            # limitation instead of quietly not enforcing what it advertises.
+            if project_path is not None:
+                known_roots = {
+                    (ROOT / candidate).resolve()
+                    for candidate in _asset_consumer_project_roots()
+                }
+                if project_path not in known_roots:
+                    print(
+                        f"[runtime] [FAIL] --project-path {project_path} is outside the "
+                        "project roots the fixture floor check validates "
+                        + ", ".join(sorted(str(r) for r in known_roots))
+                        + "; a fixture consumer selected under it would run against "
+                        "fixtures no floor was enforced on."
+                    )
+                    return 1
             ensure_synthetic_assets(args.godot_binary)
     except RuntimeError as exc:
         print(f"[runtime] [FAIL] {exc}")

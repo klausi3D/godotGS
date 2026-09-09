@@ -42,6 +42,56 @@ sys.modules[spec.name] = runtime_validation
 spec.loader.exec_module(runtime_validation)
 
 
+class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
+    """#934 review: a leftover fixture must not launder a producer failure.
+
+    With --require-asset-floors a producer was SELECTED, not merely available.
+    When its [GeneratePLY] run failed, _generate() fell back to Python, the
+    fallback declares fewer splats than the floor, the preservation branch kept
+    an existing fixture from an unrelated earlier run, and the floor check then
+    passed against that leftover -- so the failure of the thing under test was
+    reported as success.
+    """
+
+    def _prep_module(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_prep_under_test", ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault(spec.name, module)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_failed_selected_producer_fails_under_floors(self) -> None:
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(prep, "_generate_via_godot", return_value=False):
+                rc = prep._generate(
+                    root, quiet=True, godot_binary=Path("godot"), preserve_floor_valid=True
+                )
+        self.assertNotEqual(
+            rc, 0, "a failed selected producer was reported as success under --require-asset-floors"
+        )
+
+    def test_without_floors_the_python_fallback_is_still_allowed(self) -> None:
+        """Discrimination: the fallback is legitimate when no producer was selected.
+
+        Without this, the assertion above would be satisfied by making every
+        producer failure fatal, which would break the documented no-binary path.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(prep, "_generate_via_godot", return_value=False):
+                rc = prep._generate(
+                    root, quiet=True, godot_binary=Path("godot"), preserve_floor_valid=False
+                )
+        self.assertEqual(rc, 0, "the Python fallback was refused when no floors were required")
+
+
 class SyntheticAssetFloorWiringTests(unittest.TestCase):
     def test_prep_command_requires_floors_and_forwards_the_binary(self) -> None:
         completed = mock.Mock(returncode=0, stdout="", stderr="")
