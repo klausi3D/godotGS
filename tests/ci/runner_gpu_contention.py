@@ -1979,11 +1979,53 @@ def phase_postflight(args: argparse.Namespace) -> int:
                 series.largest_gap_sec,
                 series.sample_count + 1,
             )
+        elif not confirm.usable:
+            # `busy` is false for a clean reading and for a probe that FAILED, so
+            # a timed-out confirmation used to be reported as "a single-sample
+            # spike" and the run passed -- with foreign load observed at job end
+            # and nothing able to disprove it. This confirmation is evaluated
+            # outside evaluate_series(), so its error never reaches the
+            # fail-closed handling there and has to be handled here (#882 review).
+            series = SeriesVerdict(
+                VERDICT_UNMEASURED,
+                [
+                    "The closing sample observed foreign GPU load and the confirming "
+                    f"sample failed to measure it ({confirm.error}). The observation "
+                    "therefore stands unresolved: a run that saw contention at its end "
+                    "and could not check it again is void, not clean."
+                ],
+                [],
+                series.largest_gap_sec,
+                series.sample_count + 1,
+            )
         else:
             print(
                 "  the confirming sample was clean, so the closing reading was a single-sample "
                 "spike rather than sustained contention; not treated as a contended run"
             )
+
+    # A: and the closing sample itself has to have measured something.
+    #
+    # An unusable sample is not busy, so it reached neither the confirmation above
+    # nor any endpoint handling, and evaluate_series() drops it from the series as
+    # a failed probe -- correctly, but that leaves the last reading of the job
+    # covered only by the general gap tolerance. The step printed
+    # "end sample: UNMEASURED" and exited 0 claiming the GPU was free at job end.
+    # It is the one sample taken after the job's own work finished, and "we could
+    # not look" is not "nothing was there" (#882 review).
+    if series.verdict == VERDICT_CLEAN and not end_sample.usable:
+        series = SeriesVerdict(
+            VERDICT_UNMEASURED,
+            [
+                "The closing sample failed to measure GPU occupancy "
+                f"({end_sample.error}), so the state of the machine at the end of this "
+                "job is unknown. No earlier sample can stand in for it: it is the only "
+                "reading taken after the job's own GPU work finished."
+            ],
+            [],
+            series.largest_gap_sec,
+            series.sample_count,
+        )
 
     if not session:
         series = SeriesVerdict(

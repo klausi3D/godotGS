@@ -1475,6 +1475,86 @@ class ClosingSampleWaitsForTheSampler(unittest.TestCase):
         )
 
 
+class EndOfJobEvidenceMustBeMeasured(unittest.TestCase):
+    """#882 review: the last reading of a job cannot be allowed to go missing.
+
+    An unusable sample is not busy, so both endpoint rules -- the closing sample's
+    own verdict and the confirmation of a busy one -- read a FAILED probe exactly
+    as they read a clean one. `evaluate_series()` drops failed probes from the
+    series, correctly, but that leaves the terminal reading covered only by the
+    general gap tolerance, and the confirmation is evaluated outside
+    `evaluate_series()` altogether, so its error never reaches that fail-closed
+    logic at all. Both routes printed UNMEASURED and exited 0.
+    """
+
+    EPOCH = 1_700_000_000.0
+
+    def _postflight(self, readings: List[contention.Sample]) -> int:
+        """Run the real CLI over a clean, well-covered series."""
+        session = {
+            "start_verdict": contention.VERDICT_CLEAN,
+            "started_at": self.EPOCH,
+            "monitored_from": self.EPOCH,
+            "sampler_pid": SAMPLER_PID,
+            "job_root_pid": 200,
+        }
+        entries = [_entry(self.EPOCH + index * 60.0) for index in range(1, 7)]
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / contention.SESSION_FILE).write_text(json.dumps(session), encoding="utf-8")
+            (base / contention.SAMPLES_FILE).write_text(
+                "".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8"
+            )
+            taken = iter(readings)
+            with _sampler_already_gone():
+                with mock.patch.object(
+                    contention, "take_sample", side_effect=lambda *a, **k: next(taken)
+                ):
+                    with mock.patch.object(contention.time, "sleep", lambda *_a: None):
+                        return contention.main(["postflight", "--record-dir", str(base)])
+
+    def test_a_clean_and_measured_ending_still_passes(self) -> None:
+        """Discrimination first: without it the two cases below are satisfied by
+        a postflight that never passes at all."""
+        self.assertEqual(self._postflight([_sample(at=self.EPOCH + 400.0)]), 0)
+
+    def test_an_unmeasurable_closing_sample_voids_the_run(self) -> None:
+        code = self._postflight(
+            [_sample(error="per-process GPU counters unavailable", at=self.EPOCH + 400.0)]
+        )
+        self.assertEqual(
+            code,
+            contention.EXIT_RUNNER_BUSY,
+            "the closing sample failed to measure and the job was still reported clean",
+        )
+
+    def test_a_failed_confirmation_of_a_busy_ending_voids_the_run(self) -> None:
+        """Observed contention that could not be re-checked is unresolved, not absent."""
+        code = self._postflight(
+            [
+                _sample(busy=True, at=self.EPOCH + 400.0),
+                _sample(error="the GPU occupancy probe did not finish", at=self.EPOCH + 405.0),
+            ]
+        )
+        self.assertEqual(
+            code,
+            contention.EXIT_RUNNER_BUSY,
+            "foreign load was seen at job end, the confirmation failed, and the run "
+            "was reported clean anyway",
+        )
+
+    def test_a_clean_confirmation_still_dismisses_a_single_spike(self) -> None:
+        """The anti-blip rule must survive: a *measured* clean confirmation still
+        means the closing reading was a blip, not a contended run."""
+        code = self._postflight(
+            [
+                _sample(busy=True, at=self.EPOCH + 400.0),
+                _sample(at=self.EPOCH + 405.0),
+            ]
+        )
+        self.assertEqual(code, 0, "a confirmed blip was treated as contention")
+
+
 class OrphanedSamplersAreStoppedNotInherited(unittest.TestCase):
     """A killed job's sampler must not outlive it into the next job's series.
 
