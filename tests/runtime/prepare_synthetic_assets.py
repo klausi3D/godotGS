@@ -1108,6 +1108,52 @@ def ply_payload_failure(path: Path) -> str | None:
     return None
 
 
+#: Names whose ORIGINAL is still sitting in the quarantine because a restore
+#: could not put it back. Written by the restore paths, read by the isolation loop
+#: on the next run, cleared when the entry is adopted or superseded.
+#:
+#: Without it, "there is a file in the quarantine" had two meanings and the code
+#: assumed the safe one. An original a failed restore left behind must be adopted;
+#: a copy a SUCCESSFUL run could not delete must not be -- adopting that one
+#: deletes the current, valid fixture and restores a superseded corpus if the new
+#: run then fails, downgrading a workspace that was fine when it started
+#: (#969 review).
+UNRESTORED_MARKER_FILENAME = ".unrestored.json"
+
+
+def _read_unrestored(quarantine: Path) -> set[str]:
+    """Names a previous run could not restore. Empty for anything unreadable.
+
+    Fails towards NOT adopting: an unreadable marker means the quarantine entries
+    are treated as superseded, which costs a stale copy rather than a live one.
+    """
+    try:
+        raw = json.loads((quarantine / UNRESTORED_MARKER_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return set()
+    if not isinstance(raw, list):
+        return set()
+    return {name for name in raw if isinstance(name, str)}
+
+
+def _write_unrestored(quarantine: Path, names: "set[str]") -> None:
+    """Record (or clear) the names whose original is still quarantined."""
+    marker = quarantine / UNRESTORED_MARKER_FILENAME
+    try:
+        if not names:
+            if marker.exists():
+                marker.unlink()
+            return
+        quarantine.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(sorted(names), indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(
+            f"[prepare_synthetic_assets] WARNING: could not update {marker}: {exc}; the "
+            "next run cannot tell a quarantined original from a superseded copy and "
+            "will treat it as superseded"
+        )
+
+
 def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bool:
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
@@ -1187,6 +1233,10 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             except OSError as exc:
                 failures.append(f"{name}: {exc}")
         _report_restore_failures(failures)
+        _write_unrestored(
+            quarantine,
+            _read_unrestored(quarantine) | {line.split(":", 1)[0] for line in failures},
+        )
         stashed.clear()
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
@@ -1194,7 +1244,9 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         except OSError:
             pass
 
+    pending_recovery = _read_unrestored(quarantine)
     recovered: list[str] = []
+    superseded: list[str] = []
     try:
         # The quarantine directory is itself a reason to run this loop: a restore
         # that failed can leave the originals there with nothing at the canonical
@@ -1207,21 +1259,32 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             for name in sorted(CPP_GENERATED_FILENAMES):
                 src = output_dir / name
                 dst = quarantine / name
-                if dst.is_file():
-                    # An entry already in the quarantine is an ORIGINAL that a
-                    # previous restore could not put back -- a fixture locked by
-                    # another process on the persistent Windows runner is the case
-                    # that produces this. Whatever sits at the canonical path is
-                    # then that failed run's partial output. Deleting the
-                    # quarantine entry to make room for it, as this loop used to,
-                    # destroyed the last copy of the fixture and kept the debris.
-                    # The original is already isolated, so adopt it and discard
-                    # the debris instead.
+                if dst.is_file() and name in pending_recovery:
+                    # An ORIGINAL a previous restore could not put back -- a
+                    # fixture locked by another process on the persistent Windows
+                    # runner is the case that produces this. Whatever sits at the
+                    # canonical path is then that failed run's partial output.
+                    # Deleting the quarantine entry to make room for it, as this
+                    # loop used to, destroyed the last copy of the fixture and
+                    # kept the debris. The original is already isolated, so adopt
+                    # it and discard the debris instead.
                     if src.is_file():
                         src.unlink()
                     stashed[name] = dst
                     recovered.append(name)
                     continue
+                if dst.is_file():
+                    # A copy a SUCCESSFUL run could not delete. It is SUPERSEDED,
+                    # not an original: the file at the canonical path is the newer,
+                    # valid fixture. Adopting this one would delete that fixture
+                    # and, if this run's producer then failed, restore the old
+                    # corpus over it -- a failed retry downgrading a workspace that
+                    # was valid when it started.
+                    superseded.append(name)
+                    try:
+                        dst.unlink()
+                    except OSError:
+                        pass
                 if src.is_file():
                     src.replace(dst)
                     stashed[name] = dst
@@ -1230,11 +1293,21 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         _rollback_isolation()
         return False
 
+    # Adopted entries are no longer pending; anything still pending has no
+    # quarantine copy left to recover, so the marker is rewritten either way.
+    _write_unrestored(quarantine, pending_recovery - set(recovered) - set(superseded))
+
     if recovered:
         print(
             "[prepare_synthetic_assets] recovered "
             f"{len(recovered)} original fixture(s) a previous run could not restore: "
             f"{', '.join(recovered)}"
+        )
+    if superseded:
+        print(
+            "[prepare_synthetic_assets] discarded "
+            f"{len(superseded)} superseded quarantine cop(y/ies) a previous run could "
+            f"not remove: {', '.join(superseded)}"
         )
 
     def _restore_stashed() -> None:
@@ -1266,6 +1339,10 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             except OSError as exc:
                 failures.append(f"{name}: {exc}")
         _report_restore_failures(failures)
+        _write_unrestored(
+            quarantine,
+            _read_unrestored(quarantine) | {line.split(":", 1)[0] for line in failures},
+        )
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
                 quarantine.rmdir()
@@ -1326,11 +1403,28 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         return False
 
     # The producer succeeded, so the stashed copies are superseded.
-    for src in stashed.values():
+    cleanup_failures: list[str] = []
+    for name, src in sorted(stashed.items()):
         try:
             src.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            cleanup_failures.append(f"{name}: {exc}")
+    # Nothing is pending recovery after a successful run: whatever survives in the
+    # quarantine is superseded by what was just generated, and the marker saying so
+    # is what stops the next run adopting it.
+    _write_unrestored(quarantine, set())
+    if cleanup_failures:
+        print(
+            "[prepare_synthetic_assets] WARNING: could not remove superseded quarantine "
+            "cop(y/ies) after a successful generation:"
+        )
+        for line in cleanup_failures:
+            print(f"  - {line}")
+        print(
+            f"  they are NOT the current fixtures; {quarantine} is recorded as holding "
+            "no unrestored originals, so the next run discards them instead of adopting "
+            "them"
+        )
     try:
         if quarantine.is_dir() and not any(quarantine.iterdir()):
             quarantine.rmdir()

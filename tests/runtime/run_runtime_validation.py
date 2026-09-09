@@ -260,10 +260,16 @@ def ensure_synthetic_assets() -> None:
         # stderr is where the real failure lands, so it wins. Falling back to the
         # LAST stdout line rather than the first keeps the diagnostic close to
         # the point of death when a child writes its error to stdout instead.
-        stderr_detail = _first_non_empty_line(completed.stderr or "")
+        # ...and the LAST stderr line, not the first: an uncaught exception --
+        # PermissionError on a read-only checkout, say -- puts
+        # "Traceback (most recent call last):" first and the actionable cause
+        # last, so taking line one reported the banner and dropped the error
+        # (#969 review). The whole of both streams is replayed either way, so the
+        # single line only has to be the best summary, not the only evidence.
+        _replay_captured_output("synthetic asset prep", completed.stdout or "", completed.stderr or "")
         stdout_lines = [ln.strip() for ln in (completed.stdout or "").splitlines() if ln.strip()]
         detail = (
-            stderr_detail
+            _last_non_empty_line(completed.stderr or "")
             or (stdout_lines[-1] if stdout_lines else None)
             or f"exit code {completed.returncode}"
         )
@@ -436,6 +442,41 @@ def _first_non_empty_line(text: str) -> Optional[str]:
         if line:
             return line
     return None
+
+
+def _last_non_empty_line(text: str) -> Optional[str]:
+    """The last non-blank line, which is where a Python traceback keeps its point.
+
+    `Traceback (most recent call last):` is the FIRST line of an uncaught
+    exception and says nothing; the exception and its message are the last
+    (#969 review).
+    """
+    for raw_line in reversed(text.splitlines()):
+        line = raw_line.strip()
+        if line:
+            return line
+    return None
+
+
+def _replay_captured_output(label: str, stdout: str, stderr: str) -> None:
+    """Print what a failed child actually said, both streams, bounded.
+
+    A one-line summary is the wrong half of most failures this harness reports:
+    a traceback puts its banner first, and the prep's own diagnostics put the
+    fixture, the counts and the regeneration command on the lines after their
+    heading. The diagnosis is in the body, so the body is replayed.
+    """
+    for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+        if not stream.strip():
+            continue
+        lines = stream.strip().splitlines()
+        clipped = lines[-OUTPUT_TAIL_LINES:]
+        elided = len(lines) - len(clipped)
+        print(f"[runtime] {label} {stream_name}:")
+        if elided > 0:
+            print(f"    ... {elided} earlier line(s) omitted ...")
+        for line in clipped:
+            print(f"    {line}")
 
 
 def _extract_metrics_payload(output: str) -> Dict[str, object]:

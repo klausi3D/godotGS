@@ -2176,10 +2176,17 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             names = sorted(_prepare.CPP_GENERATED_FILENAMES)
             quarantine = out / ".pre_cpp_generation"
             quarantine.mkdir()
-            # Exactly the state a failed restore leaves behind.
+            # Exactly the state a failed restore leaves behind: the originals in
+            # the quarantine, this run's debris at the canonical paths, and the
+            # marker naming what could not be put back. The marker is part of that
+            # state -- see test_a_restore_that_cannot_write_says_so_and_keeps_the_original,
+            # which produces it through the real restore path.
             for name in names:
                 _write_ply(quarantine / name, 1024, header_only=True)
                 _write_ply(out / name, 99999, header_only=True)
+            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text(
+                json.dumps(names), encoding="utf-8"
+            )
             originals = {name: (quarantine / name).read_bytes() for name in names}
             debris = {name: (out / name).read_bytes() for name in names}
             self.assertNotEqual(
@@ -2201,6 +2208,95 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                         f"{name}: the quarantined original was destroyed and the failed "
                         "run's partial output kept in its place",
                     )
+
+    def test_a_superseded_quarantine_copy_is_never_adopted(self):
+        """#969 review round 7: two states, one look, and the wrong one assumed.
+
+        When a SUCCESSFUL run cannot delete a stashed copy -- Windows denying the
+        unlink is the case that produces it -- the quarantine keeps a file that
+        looks exactly like an original a failed restore left behind. The recovery
+        path adopted it: the current, valid fixture was deleted as "debris", and
+        when this run's producer then failed, the superseded corpus was restored
+        over it. A failed retry downgraded a workspace that was valid when it
+        started.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            # No marker: nothing failed to restore, these are leftovers a
+            # successful run could not remove.
+            for name in names:
+                _write_ply(quarantine / name, 1024, header_only=True)
+                _write_ply(out / name, 50000, header_only=True)
+            current = {name: (out / name).read_bytes() for name in names}
+
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (out / name).read_bytes(),
+                        current[name],
+                        f"{name}: a superseded quarantine copy replaced the valid fixture",
+                    )
+
+    def test_a_failed_cleanup_after_success_is_reported_and_disarmed(self):
+        """The other half: say so, and make sure the next run cannot be misled.
+
+        The copy stays on disk because the delete failed, so what has to change is
+        the record of what it MEANS -- the marker says nothing is pending recovery,
+        which is what stops the next run adopting it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_ply(out / name, 1024, header_only=True)
+            quarantine = out / ".pre_cpp_generation"
+            real_unlink = Path.unlink
+
+            def stubborn_unlink(self, *args, **kwargs):
+                if self.parent == quarantine and self.suffix == ".ply":
+                    raise OSError(13, "the file is locked by another process")
+                return real_unlink(self, *args, **kwargs)
+
+            class _Proc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def producer(*_args, **_kwargs):
+                # A COMPLETE body: the payload check refuses a header-only file,
+                # and this case is about the cleanup that follows a success.
+                for name in names:
+                    _write_ply(out / name, 64, rich_sh=True)
+                return _Proc()
+
+            buffer = io.StringIO()
+            with mock.patch.object(_prepare.subprocess, "run", producer):
+                with mock.patch.object(Path, "unlink", stubborn_unlink):
+                    with contextlib.redirect_stdout(buffer):
+                        self.assertTrue(
+                            _prepare._generate_via_godot(Path("godot"), out, quiet=True),
+                            "a successful generation was failed by a cleanup problem",
+                        )
+
+            output = buffer.getvalue()
+            self.assertIn("could not remove superseded quarantine", output)
+            self.assertEqual(
+                _prepare._read_unrestored(quarantine),
+                set(),
+                "the leftovers were left looking like originals pending recovery",
+            )
+            self.assertTrue(
+                any((quarantine / name).is_file() for name in names),
+                "the case did not reproduce: the copies were removed after all",
+            )
 
     def test_a_restore_that_cannot_write_says_so_and_keeps_the_original(self):
         """Silence is the other half: the state is recoverable only if it is known.
@@ -2272,6 +2368,9 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             quarantine.mkdir()
             for name in names:
                 _write_ply(quarantine / name, 1024, header_only=True)
+            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text(
+                json.dumps(names), encoding="utf-8"
+            )
             originals = {name: (quarantine / name).read_bytes() for name in names}
 
             with mock.patch.object(
