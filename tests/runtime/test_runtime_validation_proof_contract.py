@@ -312,6 +312,110 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
             self.assertEqual(strays, [], "the staging directory was left behind in tests/fixtures")
 
 
+class FixtureReferencesAreSeenWhereverTheyAreWritten(unittest.TestCase):
+    """#934 review round 5: a reference the matcher cannot see cannot be governed.
+
+    `res://tests/fixtures/[A-Za-z0-9_-]+\\.ply` matched only a flat, dot-free
+    basename. A legal path such as `res://tests/fixtures/cases/sample.v2.ply`
+    therefore matched nothing: `_validate_scenario_fixture_contracts()` saw no
+    direct reference, accepted an empty fixture contract, and the selected run
+    skipped floor preparation for a fixture the scenario actually loads. The
+    static benchmark guard read the same references through its own copy of the
+    same pattern.
+    """
+
+    def _prep(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_prep_matcher", ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault(spec.name, module)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_nested_and_dotted_paths_are_matched(self) -> None:
+        pattern = self._prep().FIXTURE_REFERENCE_RE
+        for source in (
+            'load("res://tests/fixtures/cases/sample.v2.ply")',
+            'preload("res://tests/fixtures/nested/deeper/name.with.dots.ply")',
+        ):
+            with self.subTest(source=source):
+                self.assertTrue(
+                    pattern.findall(source),
+                    "a legal fixture path was invisible to the floor contract",
+                )
+
+    def test_the_matcher_still_discriminates(self) -> None:
+        """It must not start matching things that are not governed fixtures.
+
+        A matcher that matches everything would fail every scenario on the
+        "no positive floor" branch, which is the same defect facing the other way.
+        """
+        pattern = self._prep().FIXTURE_REFERENCE_RE
+        self.assertEqual(pattern.findall("res://other/place/x.ply"), [])
+        self.assertEqual(pattern.findall("res://tests/fixtures/x.gsplatcache"), [])
+        self.assertEqual(
+            pattern.findall('"res://tests/fixtures/test_splats.ply"'),
+            ["res://tests/fixtures/test_splats.ply"],
+        )
+        # A sidecar reference resolves to the fixture it belongs to, not past it.
+        self.assertEqual(
+            pattern.findall('"res://tests/fixtures/test_splats.ply.import"'),
+            ["res://tests/fixtures/test_splats.ply"],
+        )
+
+    def test_one_definition_serves_both_guards(self) -> None:
+        """Two copies of "what a reference looks like" is how the two drift apart."""
+        import importlib.util
+
+        prep = self._prep()
+        spec = importlib.util.spec_from_file_location(
+            "_bench_path_guard", ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+        )
+        guard = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault(spec.name, guard)
+        spec.loader.exec_module(guard)
+
+        self.assertIs(
+            guard.HARDCODED_PLY_RE,
+            prep.FIXTURE_REFERENCE_RE,
+            "the static benchmark guard reads references through its own matcher",
+        )
+        self.assertIs(
+            runtime_validation.RUNTIME_FIXTURE_REFERENCE_RE,
+            prep.FIXTURE_REFERENCE_RE,
+            "the runtime contract reads references through its own matcher",
+        )
+
+    def test_an_ungoverned_nested_reference_now_fails_the_contract(self) -> None:
+        """The consequence that matters: the scenario scan sees it and refuses it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = Path(tmp) / "scenario.gd"
+            scenario.write_text(
+                'func _ready():\n\tload("res://tests/fixtures/cases/sample.v2.ply")\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                runtime_validation._direct_floor_governed_fixture_references(
+                    "GDScript: nested", scenario
+                )
+        self.assertIn("without a positive ASSET_MIN_SPLAT_COUNTS floor", str(caught.exception))
+        self.assertIn("sample.v2.ply", str(caught.exception))
+
+    def test_a_governed_reference_is_still_accepted(self) -> None:
+        """Discrimination: the declared corpus must keep passing."""
+        governed = sorted(runtime_validation.ASSET_MIN_SPLAT_COUNTS)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            scenario = Path(tmp) / "scenario.gd"
+            scenario.write_text(f'func _ready():\n\tload("{governed}")\n', encoding="utf-8")
+            found = runtime_validation._direct_floor_governed_fixture_references(
+                "GDScript: governed", scenario
+            )
+        self.assertEqual(found, {governed})
+
+
 class SyntheticAssetFloorWiringTests(unittest.TestCase):
     def test_prep_command_requires_floors_and_forwards_the_binary(self) -> None:
         completed = mock.Mock(returncode=0, stdout="", stderr="")

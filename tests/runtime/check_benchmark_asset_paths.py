@@ -15,7 +15,7 @@ RUNTIME_ROOT = ROOT / "tests" / "runtime"
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS
+from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS, FIXTURE_REFERENCE_RE
 
 SCAN_ROOTS = (
     PROJECT_ROOT / "scenes",
@@ -24,7 +24,8 @@ SCAN_ROOTS = (
 
 SCAN_SUFFIXES = {".gd", ".tscn"}
 TARGET_NAME_TOKENS = ("benchmark", "synthetic")
-HARDCODED_PLY_RE = re.compile(r"res://tests/fixtures/[A-Za-z0-9_\-]+\.ply")
+# Shared with run_runtime_validation.py, from the module that owns the floors.
+HARDCODED_PLY_RE = FIXTURE_REFERENCE_RE
 
 
 def _iter_candidate_files() -> list[Path]:

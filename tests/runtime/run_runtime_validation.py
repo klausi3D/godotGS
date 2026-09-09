@@ -101,11 +101,12 @@ SYNTHETIC_ASSET_PREP_SCRIPT = RUNTIME_DIR / "prepare_synthetic_assets.py"
 if str(RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(RUNTIME_DIR))
 
-from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS
+from prepare_synthetic_assets import ASSET_MIN_SPLAT_COUNTS, FIXTURE_REFERENCE_RE
 
-RUNTIME_FIXTURE_REFERENCE_RE = re.compile(
-    r"res://tests/fixtures/[A-Za-z0-9_\-]+\.ply"
-)
+# One shared matcher (prepare_synthetic_assets.FIXTURE_REFERENCE_RE): the guard
+# that reads these references and the floors they are checked against have to
+# agree on what a reference looks like.
+RUNTIME_FIXTURE_REFERENCE_RE = FIXTURE_REFERENCE_RE
 
 SKIP_MARKER = "[RUNTIME_SKIP]"
 FAIL_MARKER = "[RUNTIME_FAIL]"

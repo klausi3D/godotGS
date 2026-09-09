@@ -13,6 +13,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import struct
 import subprocess
@@ -360,6 +361,18 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_spiral.ply": 25000,
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
+
+#: A `res://tests/fixtures/...` PLY reference, as written in scenario, scene and
+#: benchmark source. ONE definition, imported by every consumer: it decides which
+#: references the floor contract can see, and two copies of that decision drift.
+#:
+#: Deliberately permissive after the prefix. `[A-Za-z0-9_-]+\.ply` matched only a
+#: flat, dot-free basename, so a legal path such as
+#: `res://tests/fixtures/cases/sample.v2.ply` matched NOTHING -- and a reference
+#: this reader cannot see is a reference the guard cannot govern: the scenario
+#: showed no direct reference, an empty fixture contract was accepted, and the run
+#: skipped floor preparation for a fixture it actually loads (#934 review).
+FIXTURE_REFERENCE_RE = re.compile(r"res://tests/fixtures/[^\s\"'\\]+\.ply")
 
 #: The same floors, keyed by the filename a producer writes. Derived rather than
 #: transcribed: a floor added above must not be able to go unchecked here.
