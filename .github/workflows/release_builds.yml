@@ -1104,7 +1104,7 @@ jobs:
             --template "${{ steps.unpack.outputs.template }}" `
             --require-binaries
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Export smoke test failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] line above before treating this as a wiring problem: probe exit 2 = the gaussian_splatting module is missing from the exported binary, 3 = no RenderingDevice on this runner, 4 = the window read back blank, 1 = a pipeline stage failed."
+            Write-Host "::error::Export smoke test failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] line above before treating this as a wiring problem: probe exit 2 = the gaussian_splatting module is missing from the exported binary, 3 = no RenderingDevice on this runner, 4 = the window read back blank, 1 = a pipeline stage failed, or the render evidence was complete but arrived only after the proof deadline (the metrics line carries deadline_exceeded and proof_seconds)."
             exit 1
           }
 
