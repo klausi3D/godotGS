@@ -94,11 +94,29 @@ def _one_step(lines, command, marker):
     return steps[0]
 
 
-def _build_step(lines):
-    steps = gpu_guard.command_steps(
-        gpu_guard.workflow_steps(lines), gpu_guard._BUILD_COMMAND, gpu_guard.BUILD_MARKER
-    )
-    return steps[0] if steps else None
+def _gpu_work_step(lines, workflow=None, job=None):
+    """The step whose GPU work the contention steps must bracket.
+
+    For most of the pool that is the SCons build. It is not for every job: #873
+    added `export_smoke_windows`, which builds nothing -- it downloads the
+    artifacts, exports the project and launches the exported game, and that launch
+    is the GPU work. Anchoring only on the build made this guard fail on a job that
+    was correct, which is a guard describing the pool it used to have.
+
+    The anchor comes from GPU_WORK_ANCHORS in the sibling environment guard, which
+    already carries exactly this mapping for exactly this job. Imported rather than
+    restated: two lists of "where the GPU work is" would disagree the first time
+    the pool changed.
+    """
+    steps = gpu_guard.workflow_steps(lines)
+    build = gpu_guard.command_steps(steps, gpu_guard._BUILD_COMMAND, gpu_guard.BUILD_MARKER)
+    if build:
+        return build[0]
+    anchor = gpu_guard.GPU_WORK_ANCHORS.get((workflow, job))
+    if anchor is None:
+        return None
+    matches = gpu_guard.anchor_steps(steps, anchor)
+    return min(matches, key=lambda step: step.index) if matches else None
 
 README_SECTION_HEADING = "### GPU contention"
 
@@ -151,7 +169,7 @@ class GpuJobContentionContract(unittest.TestCase):
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
                 wait_step = _one_step(lines, _CONTENTION_PREFLIGHT_COMMAND, PREFLIGHT_INVOCATION)
-                build = _build_step(lines)
+                build = _gpu_work_step(lines, workflow, job)
                 wait_at = None if wait_step is None else wait_step.index
                 build_at = None if build is None else build.index
                 self.assertIsNotNone(
@@ -203,7 +221,7 @@ class GpuJobContentionContract(unittest.TestCase):
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
                 post = _one_step(lines, _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION)
-                build = _build_step(lines)
+                build = _gpu_work_step(lines, workflow, job)
                 post_at = None if post is None else post.index
                 build_at = None if build is None else build.index
                 self.assertIsNotNone(build_at)

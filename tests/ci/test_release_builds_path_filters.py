@@ -103,6 +103,10 @@ RELEASE_HELPER_SCRIPTS = (
     "tests/ci/check_renderer_release_gates.py",
     "tests/ci/release_attestation.py",
     "tests/runtime/run_export_smoke.py",
+    # Executed by export_smoke_windows' contention preflight and postflight:
+    # the job runs GPU work on the shared pool, so a change to the contention
+    # script changes whether that job waits and whether its result is void.
+    "tests/ci/runner_gpu_contention.py",
     # Executed by export_smoke_windows' preflight step, which every job on the
     # self-hosted GPU pool must run (#875/#918). A change to the preflight must
     # not skip the workflow whose GPU job depends on it.

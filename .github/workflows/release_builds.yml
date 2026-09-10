@@ -30,6 +30,7 @@ on:
       # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
+      - "tests/ci/runner_gpu_contention.py"
       # export_smoke_windows runs run_export_smoke.py, which imports
       # run_runtime_validation.py at module scope for its mode arguments. Only
       # the first is an *execution*, so only the first is in
@@ -91,6 +92,7 @@ on:
       # Executed by export_smoke_windows' GPU preflight step (#875/#918); a
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
+      - "tests/ci/runner_gpu_contention.py"
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
       - "tests/runtime/export_smoke_preset.cfg.in"
@@ -1023,6 +1025,15 @@ jobs:
           submodules: recursive
           set-safe-directory: false
 
+      # #875 -- this job runs a real GPU workload (it launches the exported game and
+      # reads its window back) on the runner that is also the maintainer's
+      # workstation. Without this wait it can start while unrelated GPU work holds
+      # the device, and the export smoke test is now BLOCKING for every publish, so
+      # a contended run would read as a broken export template. It never relaxes a
+      # result: a contended run is void, not passed.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        run: python tests/ci/runner_gpu_contention.py preflight
+
       # Must precede every GPU step: it decides whether anything measured
       # afterwards is a measurement of the renderer (#875). Required of every
       # job on the self-hosted GPU pool by tests/ci/test_preflight_runner_gpu_environment.py.
@@ -1146,6 +1157,13 @@ jobs:
             Write-Host "::error::Negative control failed (exit $LASTEXITCODE). Read the [EXPORT_SMOKE_METRICS] outcome field: 'undetected' = an export whose preset named no custom template still produced a GS-enabled binary, so the smoke test above cannot discriminate; 'unrelated_failure' = the export did not succeed but nothing showed the empty custom_template/release was detected (timeout, crash, unrelated error, or a failed export that left a binary), so the control proved nothing either way."
             exit 1
           }
+
+      # #875 -- must run even when the job failed: an export smoke failure is exactly
+      # the result whose attribution this decides. Exits 75 (not 1) when the run is
+      # void, so it cannot be read as a test failure.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        run: python tests/ci/runner_gpu_contention.py postflight
 
   release_candidate_gate:
     name: Release candidate gate
