@@ -1708,6 +1708,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Verifying an export">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1894,6 +1911,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Verifying an export">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2076,11 +2110,81 @@ the window reads back blank; that is reported as its own status
 <code>--allow-blank-viewport</code>. That flag downgrades <strong>only</strong> that one case: the
 module check, the <code>RenderingDevice</code> check and the "a GPU raster pass actually
 ran over the fixture" check all still have to pass.</p>
+<h3 id="in-ci">In CI<a class="headerlink" href="#in-ci" title="Permanent link">¶</a></h3>
+<p>The <code>export_smoke_windows</code> job in <code>release_builds.yml</code> runs this against the
+Windows template built by the same run, on the self-hosted GPU runner, on
+<code>push</code>/tag/schedule/dispatch. It downloads the two published archives rather
+than reading a local <code>bin/</code>, so what it exercises is the bytes a user gets.</p>
+<p>Two flags matter there and are worth repeating, because getting either wrong
+turns the lane into a check that cannot fail:</p>
+<ul>
+<li><strong><code>--require-binaries</code> is always passed.</strong> Without it <code>_skip()</code> returns exit 0,
+  so a missing binary, a failed artifact download or a non-Windows host reports
+  the lane green. That is the "skip encoded as pass" shape this lane exists to
+  retire.</li>
+<li><strong><code>--allow-blank-viewport</code> is never passed.</strong> The GPU pool reads back real
+  pixels. If it stops, that is a finding to file, not a flag to add.</li>
+</ul>
+<p>The job then runs the same script a second time with
+<code>--expect-stock-template-failure</code>. That is the negative control: it writes the
+preset with an <strong>empty</strong> <code>custom_template/release</code> and requires the run <em>not</em> to
+end in a working GS export. It reports one of four outcomes on its
+<code>[EXPORT_SMOKE_METRICS]</code> line:</p>
+<table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th>Meaning</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>export_rejected</code></td>
+<td>The editor refused the export <strong>because it could not resolve a template</strong> (its own diagnostics say so), and no binary exists at the export path — checked on disk. There was no stock template to fall back to.</td>
+<td>pass</td>
+</tr>
+<tr>
+<td><code>stock_template_detected</code></td>
+<td>The export succeeded and produced a binary with no GS symbols. A stock upstream template is installed on that machine — this is #825 reproduced, and only the byte-scan caught it.</td>
+<td>pass, but report it</td>
+</tr>
+<tr>
+<td><code>undetected</code></td>
+<td>A GS-enabled binary came out of a preset that named no template. Then the positive run is not discriminating.</td>
+<td>fail</td>
+</tr>
+<tr>
+<td><code>unrelated_failure</code></td>
+<td>The export did not succeed, but nothing established that the empty <code>custom_template/release</code> is why: a timeout, a crash, a disk error, an unrelated resource error, an export that exited 0 and produced nothing, or a failed export that left a binary behind.</td>
+<td>fail</td>
+</tr>
+</tbody>
+</table>
+<p>The last row is the point. "The export did not succeed" is a much weaker claim
+than "the export was refused because no template could be resolved", and a
+control that accepts the first has stopped being a control — it would report
+green on a runner where the editor simply hung. Only the expected rejection
+passes, recognised from the untranslated <code>Cannot export project with preset …
+due to configuration errors</code> prefix plus the (also untranslated) export-template
+path interpolated into the reason, so the check does not depend on the runner's
+editor language.</p>
+<p>Because this lane is the only thing that ever executes the shipped template, it
+is part of the publication dependency graph: <code>release_candidate_gate</code> and
+<code>publish_release</code> both wait for it via <code>needs:</code> and both require
+<code>result == 'success'</code>. See <code>.github/workflows/README.md</code> for the channel policy
+(always required for stable; required for nightly whenever a Windows payload is
+published).</p>
+<p><strong>What CI does not check:</strong> whether the exported game <em>looks right</em>. The probe
+asserts visible splats, four pipeline stage statuses and a count of
+non-background pixel samples; it does not compare against a reference image.
+That still needs one human look — run the script with <code>--keep</code>, launch the
+exported binary, and look at it.</p>
 <h2 id="related">Related<a class="headerlink" href="#related" title="Permanent link">¶</a></h2>
 <ul>
 <li><a href="../release-channels/">Release channels</a></li>
 <li><a href="../../BUILDING/">Build from source</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/cf38487e3a798c861af53b25526486f6ecdf8288/.github/workflows/README.md">Workflow overview</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/d0848fa4bcdf22abd1559a82bd38ac9ac2486d73/.github/workflows/README.md">Workflow overview</a></li>
 </ul>
 
 
@@ -2102,7 +2206,7 @@ ran over the fixture" check all still have to pass.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 9, 2026 12:50:31 UTC">September 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 10, 2026 13:42:18 UTC">September 10, 2026</span>
   </span>
 
     
