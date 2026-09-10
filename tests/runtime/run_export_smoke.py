@@ -444,6 +444,24 @@ NEGATIVE_CONTROL_OUTCOMES = (
 # nothing -- passed by default. An unrecognised outcome must be red.
 NEGATIVE_CONTROL_PASSING_OUTCOMES = ("export_rejected", "stock_template_detected")
 
+#: What `EditorExportPlatformPC::export_project()` prints when the template copy
+#: fails, rendered by `add_message(EXPORT_MESSAGE_ERROR, ...)` as
+#: "<category>: <text>" (editor/export/editor_export_platform.h:254).
+#:
+#: Reached, among other ways, by the runner state this control cannot otherwise
+#: name: a stock DEBUG template installed with the RELEASE template absent.
+#: `has_valid_export_configuration()` accepts `dvalid || rvalid`
+#: (editor_export_platform_pc.cpp:114), so `can_export()` passes and no refusal
+#: prefix is emitted; `template_path` then resolves EMPTY, which also skips the
+#: `Template file not found: "<path>"` message because that branch is guarded by
+#: `!template_path.is_empty()`; and the copy of an empty source fails here.
+#:
+#: NOT a passing marker, and deliberately not added to MISSING_TEMPLATE_MARKERS.
+#: A genuine copy I/O failure -- a full disk, a locked file -- prints the same
+#: sentence, and this message carries no path to tell them apart. It is used only
+#: to say WHICH failure the operator is looking at (#873 review).
+TEMPLATE_COPY_FAILURE_MARKER = "Failed to copy export template."
+
 
 def missing_template_rejection_evidence(export_output: str) -> List[str]:
     """The markers proving the editor refused because it could not resolve a template.
@@ -558,6 +576,27 @@ def negative_control_outcome(
         )
 
     evidence = missing_template_rejection_evidence(export_output)
+    if not evidence and TEMPLATE_COPY_FAILURE_MARKER in (export_output or ""):
+        # The export died preparing the template, with no path named and no
+        # refusal prefix. On this control's preset that is the signature of an
+        # incomplete stock template set -- see TEMPLATE_COPY_FAILURE_MARKER.
+        #
+        # Still a failure: the same sentence is printed for a copy that failed on
+        # I/O, and nothing in the output separates the two. What changes is that
+        # the operator is told the runner state to check first instead of being
+        # handed "a timeout, a crash or an unrelated resource error looks like
+        # this too".
+        return (
+            "incomplete_template_set",
+            f"the export failed (exit {export_returncode}) at the template-preparation stage "
+            f"({TEMPLATE_COPY_FAILURE_MARKER!r}) with no refusal prefix, no template path named "
+            f"and {binary_state}. The likely cause is an INCOMPLETE stock export-template set on "
+            "this machine -- a debug template installed without its matching release template. "
+            "can_export() accepts either one, so the export starts and then finds nothing to "
+            "copy for --export-release. Install the matching release template (or remove the "
+            "debug one) and re-run; a copy that failed on I/O prints the same line, so check the "
+            "disk if the template set is already complete",
+        )
     if not evidence:
         return (
             "unrelated_failure",

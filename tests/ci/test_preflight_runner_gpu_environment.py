@@ -652,6 +652,72 @@ def _job_lines(step_text: str) -> List[str]:
     return ("  gpu-job:\n    steps:\n" + step_text).splitlines()
 
 
+class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
+    """The IFEO gate must name every image the GPU lanes launch (#873 review).
+
+    `CI_IMAGE_NAME_MARKERS` was `("godot",)`, which is the engine's own name --
+    but `export_smoke_windows` launches the EXPORTED GAME, and an exported binary
+    is named after its preset: `gs_export_smoke.exe`. IFEO binds by image NAME, so
+    page heap or Application Verifier configured for that name was recorded by the
+    sweep and passed the gate, and the blocking GPU measurement would then have
+    run under the debugger -- measuring the debugger, or crashing without a
+    symbolised backtrace.
+
+    The exported name is DERIVED from the exporter here rather than transcribed:
+    the two must stay in step, and a hand-copied name is how they would not.
+    """
+
+    #: The line in run_export_smoke.py that names the exported binary.
+    EXPORTED_BINARY_RE = re.compile(r'exported\s*=\s*output_dir\s*/\s*"([^"]+)"')
+
+    def _exported_binary_name(self) -> str:
+        source = (ROOT / "tests" / "runtime" / "run_export_smoke.py").read_text(encoding="utf-8")
+        matches = self.EXPORTED_BINARY_RE.findall(source)
+        self.assertEqual(
+            len(matches),
+            1,
+            "could not read a single exported-binary name out of run_export_smoke.py; "
+            f"found {matches}. This guard cannot check what it cannot find.",
+        )
+        return matches[0]
+
+    def test_the_exported_game_is_a_gated_image(self) -> None:
+        name = self._exported_binary_name()
+        self.assertTrue(
+            preflight._is_ci_image(name),
+            f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
+            "gate does not treat it as an image CI executes: page heap on that name "
+            "would be recorded and passed",
+        )
+
+    def test_the_engine_is_still_a_gated_image(self) -> None:
+        """Discrimination: widening the set must not have replaced what it covered."""
+        for name in (
+            "godot.windows.editor.x86_64.exe",
+            "godot.windows.template_release.x86_64.exe",
+        ):
+            with self.subTest(image=name):
+                self.assertTrue(preflight._is_ci_image(name))
+
+    def test_unrelated_images_still_do_not_gate(self) -> None:
+        """The other half: this is a dual-use workstation, not a CI-only box.
+
+        Page heap on someone's unrelated tool is recorded, not fatal. A gate that
+        fired on every IFEO entry on this machine would be turned off within a
+        week.
+        """
+        for name in ("chrome.exe", "devenv.exe", "python.exe", "notepad++.exe"):
+            with self.subTest(image=name):
+                self.assertFalse(preflight._is_ci_image(name))
+
+    def test_the_gate_matches_the_name_as_ifeo_writes_it(self) -> None:
+        """IFEO subkeys carry the bare image name, in whatever case it was written."""
+        name = self._exported_binary_name()
+        for spelling in (name, name.upper(), name.replace(".exe", ".EXE")):
+            with self.subTest(spelling=spelling):
+                self.assertTrue(preflight._is_ci_image(spelling))
+
+
 class WorkflowStepExecutionParsing(unittest.TestCase):
     """Textual mentions cannot impersonate execution, and conditions stay aligned (#918)."""
 

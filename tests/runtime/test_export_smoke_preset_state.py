@@ -41,6 +41,98 @@ GENERATED_MARKER = "custom_template/release="
 PROBE_FILE = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "export_smoke_probe.gd"
 
 
+class IncompleteTemplateSetIsNamedTests(unittest.TestCase):
+    """A debug-only stock template set must be named, not filed under "unrelated".
+
+    `EditorExportPlatformPC::has_valid_export_configuration()` accepts
+    `dvalid || rvalid` (editor/export/editor_export_platform_pc.cpp:114), so a
+    stock DEBUG template installed with the RELEASE template absent lets
+    `--export-release` pass `can_export()`. No refusal prefix is emitted;
+    `template_path` then resolves EMPTY, which also skips the
+    `Template file not found: "<path>"` message because that branch is guarded by
+    `!template_path.is_empty()`; and the copy of an empty source fails with
+    `Prepare Template: Failed to copy export template.`
+
+    The control classified that as `unrelated_failure`, whose message tells the
+    operator a timeout or a crash looks identical -- true in general, and useless
+    for the one state that actually produced it.
+
+    It remains a FAILURE. The same sentence is printed by a copy that failed on
+    I/O and carries no path to separate them, so passing on it would trade a
+    bounded false failure for a bounded false pass (#873 review).
+    """
+
+    #: What the editor prints on that route: add_message() renders an error as
+    #: "<category>: <text>" (editor/export/editor_export_platform.h:254).
+    DEBUG_ONLY_OUTPUT = (
+        "Godot Engine v4.5.rc.custom_build - https://godotengine.org\n"
+        "ERROR: Prepare Template: Failed to copy export template.\n"
+        "   at: add_message (editor/export/editor_export_platform.h:254)\n"
+    )
+
+    def _classify(self, output: str, *, returncode: int = 1):
+        return smoke.negative_control_outcome(returncode, None, output)
+
+    def test_the_debug_only_route_is_named(self) -> None:
+        outcome, detail = self._classify(self.DEBUG_ONLY_OUTPUT)
+        self.assertEqual(
+            outcome,
+            "incomplete_template_set",
+            "the debug-only template set is still reported as an unrelated failure",
+        )
+        self.assertIn("release template", detail)
+
+    def test_it_still_fails_the_control(self) -> None:
+        """Fail-closed: naming the state must not have turned it into a pass.
+
+        A copy that failed on I/O prints the same sentence, so this outcome is
+        not evidence that the empty custom_template/release was detected.
+        """
+        outcome, _detail = self._classify(self.DEBUG_ONLY_OUTPUT)
+        self.assertNotIn(
+            outcome,
+            smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES,
+            "an ambiguous template-copy failure became a passing outcome",
+        )
+
+    def test_a_genuine_refusal_is_still_export_rejected(self) -> None:
+        """Discrimination: the real rejection path must be untouched."""
+        refusal = (
+            "ERROR: Cannot export project with preset \"Windows Desktop\" "
+            "due to configuration errors:\n"
+            "No export template found at the expected path:\n"
+            "  .../export_templates/4.5.rc/windows_release_x86_64.exe\n"
+        )
+        outcome, _detail = self._classify(refusal)
+        self.assertEqual(outcome, "export_rejected")
+        self.assertIn(outcome, smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES)
+
+    def test_an_unrelated_failure_is_still_unrelated(self) -> None:
+        """The other half: this must not have become a catch-all for red exports."""
+        outcome, detail = self._classify(
+            "ERROR: Save PCK: Can't open file to read from path \"res://foo\".\n"
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertIn("carries no missing-template rejection", detail)
+
+    def test_a_timeout_is_still_a_timeout(self) -> None:
+        """A hang that happened to print the copy failure is still a hang."""
+        outcome, _detail = smoke.negative_control_outcome(
+            124, None, self.DEBUG_ONLY_OUTPUT, timed_out=True
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_a_produced_binary_still_outranks_the_message(self) -> None:
+        """`undetected` is the worst case and must not be masked by this branch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "gs_export_smoke.exe"
+            binary.write_bytes(b"GaussianSplat gaussian_splatting")
+            outcome, _detail = smoke.negative_control_outcome(
+                1, binary, self.DEBUG_ONLY_OUTPUT
+            )
+        self.assertEqual(outcome, "undetected")
+
+
 class DeadlineOverrunIsNotABlankWindowTests(unittest.TestCase):
     """A timeout must not be reported -- or tolerated -- as a blank viewport (#873).
 
