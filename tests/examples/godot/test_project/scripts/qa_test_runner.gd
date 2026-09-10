@@ -23,13 +23,19 @@ var test_scenes: Array[String] = [
 	"res://scenes/qa/qa_visual_diff_instance.tscn",
 	"res://scenes/qa/qa_sh_rotation_world.tscn",
 	"res://scenes/qa/qa_sh_rotation_instance.tscn",
-	# LAST ON PURPOSE (#903). This is the only scene that changes
-	# process-global render configuration -- composite/depth_test and the
-	# viewport's 3D scaling -- rather than reading whatever the project pins.
-	# ProjectSettings is process-global, so a restore that failed would leak
-	# into whichever scene ran next. Running it after every other scene means
-	# a leak cannot silently change another scene's result.
+	# AFTER THE ROUTE-COMPARISON PAIRS ON PURPOSE. These scenes change
+	# process-global render configuration -- composite/depth_test, the viewport's
+	# 3D scaling, the gaussian_splatting/lighting scales -- rather than reading
+	# whatever the project pins. ProjectSettings is process-global, so a restore
+	# that failed would leak into whichever scene ran next; running them after the
+	# scenes that only READ configuration means a leak cannot silently change
+	# another scene's result.
+	#
+	# There are now two of them, so neither is 'the' last scene. Order between
+	# them does not matter -- each restores what it changed -- but any further
+	# config-mutating scene belongs in this trailing block too.
 	"res://scenes/qa/qa_composite_production_defaults.tscn",
+	"res://scenes/qa/qa_composite_depth_occlusion.tscn",
 ]
 
 ## Scenes deliberately not run, and why.

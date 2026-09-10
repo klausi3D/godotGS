@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scenes/qa/qa_composite_depth_occlusion.gd" id="depth_occlusion_script"]
+
+[sub_resource type="StandardMaterial3D" id="OccluderMaterial"]
+shading_mode = 0
+albedo_color = Color(0, 0.06, 0.9, 1)
+
+[sub_resource type="QuadMesh" id="OccluderQuad"]
+material = SubResource("OccluderMaterial")
+size = Vector2(3.273, 3.868)
+
+[node name="QACompositeDepthOcclusion" type="Node3D"]
+script = ExtResource("depth_occlusion_script")
+
+[node name="SplatNode" type="GaussianSplatNode3D" parent="."]
+quality/max_splat_count = 1024
+
+[node name="Occluder" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.046, 0, -3)
+mesh = SubResource("OccluderQuad")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+near = 0.1
+far = 50.0
+current = true

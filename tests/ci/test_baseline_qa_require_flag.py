@@ -656,6 +656,124 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
         self.assertTrue(any("$qaSummary.results" in failure for failure in failures), failures)
 
 
+DEPTH_OCCLUSION_SCENE = "res://scenes/qa/qa_composite_depth_occlusion.tscn"
+
+#: JSON keeps 15 significant digits, so a value that round-tripped through the
+#: baseline file can differ from the recomputed one by an ULP. This is a
+#: serialization allowance, NOT a drift tolerance: the identities below are exact
+#: in the producer, and anything looser would start hiding real staleness.
+_ROUND_TRIP_EPSILON = 1e-12
+
+
+def _depth_occlusion_identity_failures(metrics: dict) -> list:
+    """Ways the depth-occlusion entry contradicts its own recorded inputs.
+
+    `mesh_contrast` is a DERIVED value: the scene computes each configuration's
+    contrast as background_warmth - mesh_only_warmth and reports the weaker of
+    the two. Those are arithmetic identities over numbers the same entry already
+    records, so a violation needs no tolerance judgement to detect -- the entry
+    is simply inconsistent with itself.
+
+    That is what makes this checkable at all. `mesh_contrast` carries no
+    comparison rule in `_metric_rule()`, so the comparator can never fail on its
+    value; the committed entry was 0.9456 (the depth_true contrast alone) for a
+    scene that had reported min() since 46cf0209cf2, and nothing noticed. An
+    identity is falsifiable without anyone having to decide what drift counts as
+    a regression.
+    """
+    failures = []
+    required = (
+        "mesh_contrast",
+        "mesh_contrast_depth_true",
+        "mesh_contrast_depth_false",
+        "depth_true_background_warmth",
+        "depth_true_mesh_only_warmth",
+        "depth_false_background_warmth",
+        "depth_false_mesh_only_warmth",
+    )
+    missing = [name for name in required if name not in metrics]
+    if missing:
+        # The two per-configuration metrics were absent from the committed entry,
+        # which is precisely why the stale aggregate had nothing to contradict.
+        return [f"metrics absent from the entry: {', '.join(missing)}"]
+
+    for config in ("true", "false"):
+        recomputed = (
+            metrics[f"depth_{config}_background_warmth"]
+            - metrics[f"depth_{config}_mesh_only_warmth"]
+        )
+        recorded = metrics[f"mesh_contrast_depth_{config}"]
+        if abs(recorded - recomputed) > _ROUND_TRIP_EPSILON:
+            failures.append(
+                f"mesh_contrast_depth_{config}={recorded!r} but "
+                f"background - mesh_only = {recomputed!r}"
+            )
+
+    weaker = min(metrics["mesh_contrast_depth_true"], metrics["mesh_contrast_depth_false"])
+    if abs(metrics["mesh_contrast"] - weaker) > _ROUND_TRIP_EPSILON:
+        failures.append(
+            f"mesh_contrast={metrics['mesh_contrast']!r} but the weaker configuration "
+            f"is {weaker!r}"
+        )
+    return failures
+
+
+class DepthOcclusionBaselineIsSelfConsistentTest(unittest.TestCase):
+    """A derived baseline value must agree with the inputs recorded beside it."""
+
+    def _entry(self) -> dict:
+        baseline = json.loads(
+            (ROOT / "tests" / "ci" / "baselines" / "qa_results.json").read_text(encoding="utf-8")
+        )
+        entries = [r for r in baseline["results"] if r["scene"] == DEPTH_OCCLUSION_SCENE]
+        self.assertEqual(len(entries), 1, "the depth-occlusion entry is not in the baseline once")
+        return entries[0]["metrics"]
+
+    def test_the_committed_entry_agrees_with_its_own_recorded_warmths(self):
+        self.assertEqual(_depth_occlusion_identity_failures(self._entry()), [])
+
+    def test_the_producer_still_defines_the_metric_this_way(self):
+        """The identity is only the right one while the scene computes it this way.
+
+        Derived rather than transcribed: if the scene stops reporting the weaker
+        configuration, this fails and says so, instead of the guard quietly
+        checking an identity the producer no longer honours.
+        """
+        source = (
+            ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
+            / "qa_composite_depth_occlusion.gd"
+        ).read_text(encoding="utf-8")
+        self.assertIn("min(mesh_contrast_true, mesh_contrast_false)", source)
+        for config in ("true", "false"):
+            self.assertIn(f'result_metrics["mesh_contrast_depth_{config}"]', source)
+
+    def test_the_stale_entry_this_replaced_is_rejected(self):
+        """Mutation: the exact metrics committed before ee1e09b3606 must fail.
+
+        Without this the guard could be vacuously true -- and this is the shape it
+        has to catch, because the comparator passed that entry every time.
+        """
+        stale = {
+            "depth_false_background_warmth": 0.0475291196320556,
+            "depth_false_mesh_only_warmth": -0.755912930350325,
+            "depth_true_background_warmth": 0.0475291196320556,
+            "depth_true_mesh_only_warmth": -0.898039221763611,
+            "mesh_contrast": 0.945568341395666,
+        }
+        failures = _depth_occlusion_identity_failures(stale)
+        self.assertTrue(failures, "the stale entry was accepted as self-consistent")
+        self.assertIn("mesh_contrast_depth_true", failures[0])
+
+        # And with the per-configuration metrics present but the aggregate stale,
+        # the arithmetic itself is what rejects it.
+        stale_with_configs = dict(stale)
+        stale_with_configs["mesh_contrast_depth_true"] = 0.9455683413956666
+        stale_with_configs["mesh_contrast_depth_false"] = 0.8034420499823807
+        failures = _depth_occlusion_identity_failures(stale_with_configs)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("the weaker configuration", failures[0])
+
+
 class QaRequireCaptureTest(unittest.TestCase):
     """The third laundering path (#522): a lane that promised a GPU, skipped.
 
