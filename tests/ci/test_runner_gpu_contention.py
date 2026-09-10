@@ -213,6 +213,52 @@ class GpuJobContentionContract(unittest.TestCase):
                     "build, so the window it reports on excludes the job's own GPU work.",
                 )
 
+    def test_the_contention_steps_cannot_swallow_their_exit_status(self) -> None:
+        """Exit 75 has to reach the job, or the whole mechanism is decoration.
+
+        The preflight exits 75 when the runner never came free and the postflight
+        exits 75 when the run was contended or unmeasured. Both only fail the job
+        if the step does not opt out of failing and the shell passes the status
+        on. The environment-preflight guard checks both for its own step; this
+        one checked neither, so `continue-on-error: true` on the contention
+        preflight -- or a custom shell template that ends `exit 0` -- would void
+        nothing while this guard stayed green.
+        """
+        for (workflow, job), lines in sorted(self.jobs.items()):
+            default_shell = gpu_guard.job_default_shell(lines)
+            for role, command, marker in (
+                ("preflight", _CONTENTION_PREFLIGHT_COMMAND, PREFLIGHT_INVOCATION),
+                ("postflight", _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION),
+            ):
+                with self.subTest(workflow=workflow, job=job, role=role):
+                    step = _one_step(lines, command, marker)
+                    self.assertIsNotNone(
+                        step,
+                        f"{workflow}: job {job!r} has no executed {role} step, so this "
+                        "assertion would pass for the wrong reason.",
+                    )
+
+                    if step.continue_on_error is not None:
+                        value = step.continue_on_error.strip()
+                        if value.startswith("${{") and value.endswith("}}"):
+                            value = value[3:-2].strip()
+                        self.assertEqual(
+                            value.lower(),
+                            "false",
+                            f"{workflow}: job {job!r} runs the contention {role} with "
+                            f"continue-on-error={step.continue_on_error!r}. The "
+                            "preflight exits 75 to say the runner was never free and "
+                            "the postflight exits 75 to void a contended run; a step "
+                            "that opts out of failing turns both into log noise.",
+                        )
+
+                    # Reuses the environment guard's shell model rather than
+                    # restating it: a custom template can discard the exit status
+                    # outside the `run:` scalar, where command modelling cannot
+                    # see it.
+                    gpu_guard._assert_modelled_shell(step, default_shell, f"contention {role}")
+
+
     def test_readme_documents_the_contention_handling(self) -> None:
         text = README.read_text(encoding="utf-8")
         self.assertIn(
