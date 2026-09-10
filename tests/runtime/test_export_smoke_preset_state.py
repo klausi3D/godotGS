@@ -38,6 +38,100 @@ ORIGINAL_PRESET_BYTES = "[preset.0]\nname=\"My Own Preset\"\n"
 GENERATED_MARKER = "custom_template/release="
 
 
+PROBE_FILE = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "export_smoke_probe.gd"
+
+
+class ProbeDeadlineOrderingTests(unittest.TestCase):
+    """The blocking probe may not pass on evidence observed after its bound (#873).
+
+    Both loops used to test the clock only at the top, before their awaits. A
+    frame that begins inside the bound can finish outside it, and the evidence it
+    produced was accepted -- so a release-blocking probe with a 120-second
+    deadline could pass at any time after it. The proof loop had the same shape of
+    hole around `MIN_PROOF_FRAMES`: the floor was consulted only when deciding
+    whether to STOP, never before accepting, so a first-frame coincidence passed
+    the gate on transient output.
+
+    **Mode:** this is a source-ORDERING guard, not an execution test. The probe
+    runs inside an exported binary on a GPU runner and cannot be executed here, so
+    what is asserted is that the guard sits between the await and the acceptance
+    in the source -- the property the review asked for. A green result here says
+    nothing about a real export run.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+
+    def _index(self, needle: str, start: int = 0, what: str = "") -> int:
+        for offset, line in enumerate(self.lines[start:], start=start):
+            if needle in line:
+                return offset
+        self.fail(f"anchor not found in the probe: {what or needle!r}")
+
+    def test_the_anchors_this_guard_reads_still_exist(self) -> None:
+        """Non-vacuity: every assertion below is an ordering over these lines."""
+        for anchor in (
+            "func _deadline_exceeded(",
+            "while not _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):",
+            'metrics["renderer_available"] = true',
+            "await RenderingServer.frame_post_draw",
+            "_pass(",
+        ):
+            with self.subTest(anchor=anchor):
+                self._index(anchor, what=anchor)
+
+    def test_the_renderer_is_not_accepted_after_the_bound(self) -> None:
+        loop = self._index("while not _deadline_exceeded(wait_started_ms")
+        awaited = self._index("await process_frame", loop)
+        accept = self._index('metrics["renderer_available"] = true', awaited)
+        guard = self._index("_deadline_exceeded(wait_started_ms", awaited)
+        self.assertLess(
+            guard,
+            accept,
+            "the renderer-wait loop accepts a renderer without re-checking the "
+            "deadline after its await",
+        )
+
+    def test_proof_evidence_is_not_accepted_after_the_bound(self) -> None:
+        drawn = self._index("await RenderingServer.frame_post_draw")
+        passed = self._index("_pass(", drawn)
+        guard = self._index("_deadline_exceeded(proof_started_ms", drawn)
+        self.assertLess(
+            guard,
+            passed,
+            "the proof loop passes on evidence gathered after frame_post_draw "
+            "without re-checking the deadline",
+        )
+
+    def test_the_success_path_enforces_the_settling_floor(self) -> None:
+        drawn = self._index("await RenderingServer.frame_post_draw")
+        passed = self._index("_pass(", drawn)
+        conditions = [
+            line for line in self.lines[drawn:passed]
+            if line.strip().startswith("if ") and "MIN_PROOF_FRAMES" in line
+        ]
+        self.assertTrue(
+            conditions,
+            "nothing between frame_post_draw and the success call mentions "
+            "MIN_PROOF_FRAMES; the floor still gates only the stop condition",
+        )
+        self.assertIn("_visual_evidence_ok()", conditions[-1])
+        self.assertIn("_pipeline_evidence_ok()", conditions[-1])
+
+    def test_the_frame_counter_means_frames_observed(self) -> None:
+        """The floor is only a floor if the number it compares is the right one.
+
+        `frame` was incremented before the await and read after it, so it was one
+        behind at the accept and level at the stop -- the same constant meaning two
+        different counts.
+        """
+        source = "\n".join(self.lines)
+        self.assertIn("var proof_frames := 0", source)
+        self.assertIn("proof_frames += 1", source)
+        self.assertNotIn("var frame := -1", source)
+
+
 class PresetStateTestCase(unittest.TestCase):
     """Repoints the module at a temp project dir so no real config is touched."""
 

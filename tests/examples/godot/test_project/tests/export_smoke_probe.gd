@@ -142,6 +142,14 @@ func _fail_visual(reason: String) -> void:
 	quit(EXIT_NO_VISUAL_EVIDENCE)
 
 
+func _deadline_exceeded(started_ms: int, budget_sec: float) -> bool:
+	# Asked AFTER every await as well as before it. A frame that begins inside the
+	# bound can finish outside it, and evidence observed by that frame used to be
+	# accepted: the loop only tested the clock at its top, so this blocking release
+	# probe could pass after its own deadline (#873 review).
+	return Time.get_ticks_msec() - started_ms >= int(budget_sec * 1000.0)
+
+
 func _pass(reason: String) -> void:
 	_emit("passed", reason)
 	_cleanup()
@@ -195,7 +203,7 @@ func _run() -> void:
 
 	var wait_started_ms := Time.get_ticks_msec()
 	var wait_frames := 0
-	while Time.get_ticks_msec() - wait_started_ms < int(RENDERER_WAIT_DEADLINE_SEC * 1000.0):
+	while not _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):
 		await process_frame
 		wait_frames += 1
 		metrics["frames"] = wait_frames
@@ -203,7 +211,14 @@ func _run() -> void:
 		if splat_node.has_method("get_renderer"):
 			renderer = splat_node.get_renderer()
 		if renderer != null:
-			metrics["renderer_available"] = true
+			if _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):
+				# The renderer came up, but the frame that showed us finished
+				# after the bound. Accepting it would let an overlong frame buy
+				# time the deadline exists to refuse, so it is dropped and the
+				# timeout below reports it.
+				renderer = null
+			else:
+				metrics["renderer_available"] = true
 			break
 	metrics["renderer_wait_seconds"] = float(Time.get_ticks_msec() - wait_started_ms) / 1000.0
 
@@ -217,16 +232,19 @@ func _run() -> void:
 		return
 
 	var proof_started_ms := Time.get_ticks_msec()
-	var frame := -1
+	# Counts frames this loop has actually observed, so the floor and the stop
+	# condition read the same number. The previous `frame` counter was one behind
+	# at the accept and level with it at the top, which is why the floor never
+	# reached the success path.
+	var proof_frames := 0
 	while true:
-		frame += 1
-		var proof_elapsed_ms := Time.get_ticks_msec() - proof_started_ms
-		if frame >= MIN_PROOF_FRAMES and proof_elapsed_ms >= int(PROOF_DEADLINE_SEC * 1000.0):
+		if proof_frames >= MIN_PROOF_FRAMES and _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC):
 			break
 		await process_frame
+		proof_frames += 1
 		metrics["frames"] = int(metrics.get("frames", 0)) + 1
 		metrics["proof_seconds"] = float(Time.get_ticks_msec() - proof_started_ms) / 1000.0
-		_advance_camera(frame)
+		_advance_camera(proof_frames - 1)
 		if splat_node.has_method("force_update"):
 			splat_node.force_update()
 
@@ -247,10 +265,20 @@ func _run() -> void:
 
 		await RenderingServer.frame_post_draw
 		_sample_viewport()
-		if _visual_evidence_ok() and _pipeline_evidence_ok():
+		if _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC):
+			# Both awaits above can return past the bound. Evidence gathered by
+			# such a frame is real, but it is not evidence this probe is allowed
+			# to pass on, so the loop ends and the reporting below says why.
+			break
+		if proof_frames >= MIN_PROOF_FRAMES and _visual_evidence_ok() and _pipeline_evidence_ok():
+			# MIN_PROOF_FRAMES is a settling floor, and it used to be consulted
+			# only when deciding whether to STOP -- so a first-frame coincidence
+			# passed the gate on transient output. It gates the success path now.
 			metrics["visual_evidence_ok"] = true
 			metrics["pipeline_evidence_ok"] = true
-			_pass("Exported binary rendered %d splats with non-background viewport evidence." % int(metrics["visible_splats_max"]))
+			_pass("Exported binary rendered %d splats with non-background viewport evidence over %d frames." % [
+				int(metrics["visible_splats_max"]), proof_frames
+			])
 			return
 
 	metrics["visual_evidence_ok"] = _visual_evidence_ok()
