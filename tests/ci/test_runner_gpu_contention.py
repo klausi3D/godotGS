@@ -36,6 +36,7 @@ import contextlib
 import json
 import os
 import posixpath
+import re
 import sys
 import tempfile
 import time
@@ -57,6 +58,45 @@ import test_preflight_runner_gpu_environment as gpu_guard  # noqa: E402
 SCRIPT = "tests/ci/runner_gpu_contention.py"
 PREFLIGHT_INVOCATION = f"{SCRIPT} preflight"
 POSTFLIGHT_INVOCATION = f"{SCRIPT} postflight"
+
+#: The two invocations as EXECUTED commands, in the shapes the preflight guard
+#: already models (`python`, `python3`, `py -3`, `.exe`, an optional `&`). Reused
+#: rather than restated so the two guards cannot come to disagree about what
+#: counts as running a script.
+_CONTENTION_PREFLIGHT_COMMAND = re.compile(
+    rf"^(?:&\s*)?{gpu_guard._PYTHON_COMMAND}\s+"
+    rf"[\"']?{re.escape(SCRIPT)}[\"']?\s+preflight[ \t]*$",
+    re.IGNORECASE,
+)
+_CONTENTION_POSTFLIGHT_COMMAND = re.compile(
+    rf"^(?:&\s*)?{gpu_guard._PYTHON_COMMAND}\s+"
+    rf"[\"']?{re.escape(SCRIPT)}[\"']?\s+postflight[ \t]*$",
+    re.IGNORECASE,
+)
+
+
+def _one_step(lines, command, marker):
+    """The single executed step running `marker`, or None.
+
+    Fails closed through `command_steps`: a wrapper this parser does not model
+    raises rather than being read as "the step is absent", so a job that hides
+    its preflight inside a scriptblock cannot pass as a job that has one.
+    """
+    steps = gpu_guard.command_steps(gpu_guard.workflow_steps(lines), command, marker)
+    if not steps:
+        return None
+    if len(steps) != 1:
+        raise gpu_guard.WorkflowContractError(
+            f"expected exactly one executed {marker!r} step, found {len(steps)}"
+        )
+    return steps[0]
+
+
+def _build_step(lines):
+    steps = gpu_guard.command_steps(
+        gpu_guard.workflow_steps(lines), gpu_guard._BUILD_COMMAND, gpu_guard.BUILD_MARKER
+    )
+    return steps[0] if steps else None
 
 README_SECTION_HEADING = "### GPU contention"
 
@@ -97,7 +137,7 @@ class GpuJobContentionContract(unittest.TestCase):
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
                 self.assertIsNotNone(
-                    gpu_guard.first_index(lines, PREFLIGHT_INVOCATION),
+                    _one_step(lines, _CONTENTION_PREFLIGHT_COMMAND, PREFLIGHT_INVOCATION),
                     f"{workflow}: job {job!r} runs on the shared self-hosted GPU pool but "
                     f"never runs `{PREFLIGHT_INVOCATION}`. Without it the job starts "
                     "whenever the queue reaches it, contended or not, and its wall-clock "
@@ -108,8 +148,10 @@ class GpuJobContentionContract(unittest.TestCase):
         """Waiting after the build has already run measures nothing worth having."""
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                wait_at = gpu_guard.first_index(lines, PREFLIGHT_INVOCATION)
-                build_at = gpu_guard.first_index(lines, gpu_guard.BUILD_MARKER)
+                wait_step = _one_step(lines, _CONTENTION_PREFLIGHT_COMMAND, PREFLIGHT_INVOCATION)
+                build = _build_step(lines)
+                wait_at = None if wait_step is None else wait_step.index
+                build_at = None if build is None else build.index
                 self.assertIsNotNone(
                     build_at,
                     f"{workflow}: job {job!r} has no {gpu_guard.BUILD_MARKER!r} invocation, "
@@ -129,7 +171,7 @@ class GpuJobContentionContract(unittest.TestCase):
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
                 self.assertIsNotNone(
-                    gpu_guard.first_index(lines, POSTFLIGHT_INVOCATION),
+                    _one_step(lines, _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION),
                     f"{workflow}: job {job!r} waits for a free GPU at the start and then "
                     "never checks again. Contention that begins mid-run is exactly what "
                     "happened on PR #881, and a start-only check calls that run clean.",
@@ -139,12 +181,16 @@ class GpuJobContentionContract(unittest.TestCase):
         """`always()`, or the verdict is missing from every run that needs it."""
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                index = gpu_guard.first_index(lines, POSTFLIGHT_INVOCATION)
-                self.assertIsNotNone(index)
-                window = "\n".join(lines[max(0, index - 6) : index + 1])
+                step = _one_step(lines, _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION)
+                self.assertIsNotNone(step)
+                # The step's OWN `if:`, not a six-line window above it: a comment
+                # mentioning always() used to satisfy this.
+                condition = (step.condition or "").strip()
+                if condition.startswith("${{") and condition.endswith("}}"):
+                    condition = condition[3:-2].strip()
                 self.assertIn(
                     "always()",
-                    window,
+                    condition,
                     f"{workflow}: job {job!r} runs the contention postflight without an "
                     "`if: always()` condition, so it is skipped precisely when a step above "
                     "failed -- the only situation in which anyone reads it. A timing failure "
@@ -154,9 +200,12 @@ class GpuJobContentionContract(unittest.TestCase):
     def test_the_postflight_runs_after_the_build(self) -> None:
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                post_at = gpu_guard.first_index(lines, POSTFLIGHT_INVOCATION)
-                build_at = gpu_guard.first_index(lines, gpu_guard.BUILD_MARKER)
+                post = _one_step(lines, _CONTENTION_POSTFLIGHT_COMMAND, POSTFLIGHT_INVOCATION)
+                build = _build_step(lines)
+                post_at = None if post is None else post.index
+                build_at = None if build is None else build.index
                 self.assertIsNotNone(build_at)
+                self.assertIsNotNone(post_at)
                 self.assertGreater(
                     post_at,
                     build_at,

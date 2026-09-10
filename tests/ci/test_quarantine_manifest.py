@@ -106,16 +106,41 @@ QUARANTINE_ENTRIES_FINGERPRINT = (
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 )
 
-# 'unlaned_tests': 10 declarations covering 86 stranded cases, matching
-# check_test_lane_coverage.py's "86 stranded, all declared in 10 manifest
+# 'unlaned_tests': 19 declarations covering 83 stranded cases, matching
+# check_test_lane_coverage.py's "83 stranded, all declared in 19 manifest
 # entries". Measured, not transcribed -- see --print-fingerprint.
-UNLANED_MAX_DECLARATIONS = 10
-UNLANED_MAX_TOTAL_COUNT = 86
+#
+# Re-pinned by T4 (#906/#907/#908/#910, ADR
+# docs/architecture/adr-phase1-guard-hardening.md section 5.4). The TOTAL -- the
+# amnesty this ratchet actually caps -- SHRANK 86 -> 83: the three
+# test_gpu_streaming.h cases were retagged [Streaming][RequiresGPU] and now
+# execute in the harness's Streaming batch (#908), leaving the stranded set by
+# RUNNING, not by being excused. The DECLARATION count rose 10 -> 19 because the
+# single untraceable 59-case "*][RequiresGPU]*" catch-all (issue #820, now
+# superseded) was split into issue-keyed declarations: 4 for #907 (7+2+2+1 = 12
+# device-ownership / buffer-lifetime / memory-leak cases), 5 for #910 (2+1+1+1+1
+# = 6 singletons), and 1 anchored family declaration for #906 (the 38 bare-tagged
+# test_renderer_pipeline.h cases, enumerated one by one in that issue). Every
+# replacement pattern is strictly narrower than the wildcard it replaces, and
+# NOTHING was newly stranded or newly quarantined -- this is the growth-by-split
+# the SAME-PR re-pin exception in the block comment above exists for, not the
+# path-of-least-resistance growth the max refuses.
+UNLANED_MAX_DECLARATIONS = 19
+UNLANED_MAX_TOTAL_COUNT = 83
 UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
-    ("*][RequiresGPU]*", 59),
     ("[GPU Memory Stream]*", 6),
     ("[GaussianSplatting][GeneratePLY]*", 1),
+    ("[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails", 1),
     ("[GaussianSplatting][NodeSurface][World]*", 1),
+    ("[GaussianSplatting][RequiresGPU] *", 38),
+    ("[GaussianSplatting][RequiresGPU] Debug projection output matches golden gradient", 1),
+    ("[GaussianSplatting][RequiresGPU] GPU Sorting Performance", 1),
+    ("[GaussianSplatting][RequiresGPU] GPU memory leak detection*", 2),
+    ("[GaussianSplatting][RequiresGPU] GPUBufferManager*", 2),
+    ("[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state", 1),
+    ("[GaussianSplatting][RequiresGPU] OutputCompositor*", 2),
+    ("[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components", 1),
+    ("[GaussianSplatting][RequiresGPU] RenderDeviceManager*", 7),
     ("[GaussianSplatting][Thumbnail]*", 2),
     ("[GaussianSplatting][World]*", 3),
     ("[Integration]*", 9),
@@ -131,8 +156,11 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
 # and UNLANED_MAX_DECLARATIONS / UNLANED_MAX_TOTAL_COUNT / UNLANED_BASELINE are
 # untouched above. Previous value, for audit: 599451ce55bba30f68959d61a61526989
 # fe2046ed0e7ac31cedfa77c9f525b9e.
+# Re-pinned by T4 alongside the split above; the fingerprint moves because the
+# declaration OBJECTS moved (one entry replaced by ten). Previous value, for
+# audit: 16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7.
 UNLANED_FINGERPRINT = (
-    "16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7"
+    "ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02"
 )
 
 # ---------------------------------------------------------------------------
@@ -179,8 +207,12 @@ MAX_EXPIRY_UTC = "2026-10-15T00:00:00Z"
 #   gh issue view <n> --repo klausi3D/godotGS --json number,state
 # Verified CLOSED at the same time, and therefore deliberately NOT listed:
 #   #329, #520.
-ISSUES_VERIFIED_OPEN = frozenset({641, 814, 819, 820})
-ISSUES_VERIFIED_OPEN_UTC = "2026-08-03T00:00:00Z"
+# T4: #906/#907/#910 added (the named declarations that replaced the
+# "*][RequiresGPU]*" catch-all cite them); #820 removed -- no declaration cites
+# it any more, and the T4 PR closes it as superseded by that split. #641, #814
+# and #819 re-verified OPEN on the same date.
+ISSUES_VERIFIED_OPEN = frozenset({641, 814, 819, 906, 907, 910})
+ISSUES_VERIFIED_OPEN_UTC = "2026-08-15T00:00:00Z"
 # An allowlist can only answer "was this open when a human last looked". Bound
 # how stale that answer may get, so the verification cannot silently become
 # folklore. This horizon is deliberately LATER than MAX_EXPIRY_UTC: every

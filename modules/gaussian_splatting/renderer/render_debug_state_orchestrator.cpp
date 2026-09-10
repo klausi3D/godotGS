@@ -534,6 +534,22 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// The reason code is the last GaussianSplatting::UnsortedCompositeReason (0 == NONE).
 	out["unsorted_composite_frames"] = (int64_t)tr->get_unsorted_composite_frames();
 	out["unsorted_composite_last_reason"] = (int64_t)tr->get_unsorted_composite_last_reason();
+	// #586 FIX: frames the global-composite path REFUSED to publish (nothing presented)
+	// rather than composite translucent splats unsorted. Partition with the pair above:
+	// a degraded frame is counted in exactly one of them.
+	out["global_composite_rejected_frames"] = (int64_t)tr->get_global_composite_rejected_frames();
+	out["global_composite_last_reject_reason"] = (int64_t)tr->get_global_composite_last_reject_reason();
+	// #586 PR 2: the tile sorter's retry state (shared GPU-003 policy). A non-zero
+	// failure count with a rising rejected-frames counter is "retrying on backoff";
+	// recoveries counts episodes that ended with a SORTED FRAME PUBLISHED by the
+	// renderer's own retry -- not merely a sorter or buffers rebuilt.
+	out["global_sort_sorter_init_failures"] = (int64_t)tr->get_global_sort_sorter_init_failure_count();
+	out["global_sort_sorter_recoveries"] = (int64_t)tr->get_global_sort_sorter_recoveries();
+	// #586 PR 3: a pending grow that keeps failing while the working sorter renders at
+	// its old budget (frames publish, overflow-drop telemetry counts the clamped
+	// records), and how many such episodes ended with the grow succeeding.
+	out["global_sort_sorter_grow_failures"] = (int64_t)tr->get_global_sort_sorter_grow_failure_count();
+	out["global_sort_sorter_grow_recoveries"] = (int64_t)tr->get_global_sort_sorter_grow_recoveries();
 
 	// Overflow-drop telemetry (C4b, "no silent degradation"). Channel A: overlap-record drops
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.

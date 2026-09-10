@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "program_id": "GS-PROGRAM-EXAMPLE",
+  "title": "Example dependency-ordered agent program",
+  "planning_snapshot_sha": "0000000000000000000000000000000000000000",
+  "status_authority": "#1",
+  "dispatch": {
+    "task_contract_template": ".agentic/templates/task.json",
+    "implementation_wip_limit": 1,
+    "heavy_process_limit": 1,
+    "live_status_requery_required": true,
+    "invariants": [
+      "Create a fresh task contract with an immutable base SHA at dispatch time."
+    ]
+  },
+  "milestones": [
+    {
+      "id": "M0",
+      "title": "Example milestone",
+      "github_milestone": "https://github.com/example/project/milestone/1",
+      "coordinator_issue": "#1",
+      "objective": "Prepare every listed work item for human disposition with reproducible evidence.",
+      "depends_on": [],
+      "work_items": [
+        {
+          "kind": "issue",
+          "ref": "#2",
+          "purpose": "Example independently closable task."
+        }
+      ],
+      "agent_completion_criteria": [
+        "Every work item has immutable evidence and no unresolved agent-actionable blocker."
+      ],
+      "human_gates": [
+        "A human owns merge and waiver decisions."
+      ]
+    }
+  ]
+}

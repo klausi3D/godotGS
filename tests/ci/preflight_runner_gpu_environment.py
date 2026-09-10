@@ -66,15 +66,18 @@ Verdict
 * Gate 1 fails if the effective chain contains any layer outside
   :data:`EXPECTED_LAYERS` (the GPU driver's own implicit layers), naming each
   unexpected layer and the module the loader loaded for it.
-* Gate 1 also fails if a driver layer the control run put on a chain is missing
-  from that **same chain** in the effective run. The comparison is per chain, not
-  per layer name: the loader builds an instance chain and a device chain and
-  reports them separately, so a layer that survives on one and disappears from
-  the other keeps its *name* in the effective set while the device stack the GPU
+* Gate 1 also fails if a driver layer's chain membership differs between the
+  control and effective runs in **either direction** -- missing from a chain the
+  control run put it on, or added to a chain the control run did not. The
+  comparison is per chain, not per layer name: the loader builds an instance
+  chain and a device chain and reports them separately, so a layer that survives
+  on one and disappears from the other -- or is force-enabled onto one it never
+  had -- keeps its *name* in the effective set while the device stack the GPU
   jobs measure on has changed.
 * Gate 1 also fails if the probe could not be validated (missing probe binary,
-  non-zero exit, unparseable output, empty control set, or an effective set that
-  is not a subset of the control set).
+  non-zero exit, unparseable output, empty control set, a control run that
+  never observed one of the two chains, or an effective set that is not a
+  subset of the control set).
 * Gate 2 fails if page-heap/Application Verifier flags are set for any image we
   execute, or system-wide.
 
@@ -196,6 +199,11 @@ PAGE_HEAP_VALUE_NAMES = ("GlobalFlag", "PageHeapFlags", "VerifierDlls")
 #: Override for the loader probe binary (mainly for the guard's own tests).
 PROBE_ENV_VAR = "GS_CI_VULKAN_PROBE"
 
+#: Any line the Vulkan loader's debug channel emits. It is also the provenance
+#: anchor for layer-chain parsing: layer-shaped text without this prefix is not
+#: a loader report and must not influence the gate (#923).
+_LOADER_DEBUG_MARKER = "[Vulkan Loader]"
+
 #: The loader's own debug messages, one per layer it inserts into a chain.
 #: `Insert instance layer "VK_LAYER_X" (C:\\path\\to.dll)` and the device-chain
 #: form `Inserted device layer "..."`. The module path is optional so a loader
@@ -206,6 +214,7 @@ PROBE_ENV_VAR = "GS_CI_VULKAN_PROBE"
 #: `C:\\Program Files (x86` under a non-greedy `[^)]*`, which would name the
 #: offending layer's module wrongly in the very message a maintainer acts on.
 _LAYER_LINE = re.compile(
+    rf'^{re.escape(_LOADER_DEBUG_MARKER)}[^\r\n]*?'
     r'(?P<chain>Insert instance layer|Inserted device layer)\s+"(?P<name>[^"]+)"'
     r'(?:\s*\((?P<module>.*)\))?\s*$',
     re.MULTILINE,
@@ -227,10 +236,6 @@ _IGNORED_ENV_LINE = re.compile(
 #: `info` is what carries the elevated-permissions notices above, and without it
 #: the loader silently declines our variables with nothing in the log.
 _PROBE_LOADER_DEBUG = "layer,info"
-
-#: Any line the Vulkan loader's debug channel emits. Used only to tell
-#: "the loader said nothing" apart from "the loader said nothing about layers".
-_LOADER_DEBUG_MARKER = "[Vulkan Loader]"
 
 PROBE_TIMEOUT_SEC = 300
 
@@ -428,6 +433,34 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
         )
         return False, lines, record
 
+    # A nonempty control set proves the parser saw *layers*; it does not prove
+    # it saw both chains. The loader reports the instance chain and the device
+    # chain with different line formats, and every comparison below diffs
+    # against the control run's own chain memberships -- so a format change
+    # that hides one chain's lines blinds the control and effective runs
+    # *symmetrically*: nothing is "lost", nothing is "unexpected", and a
+    # third-party layer living only on the hidden chain is invisible while the
+    # gate passes. The control run must therefore demonstrate it observed each
+    # chain before its silence about that chain means anything (#878 review,
+    # thread on line 418).
+    control_chain_types = {
+        chain for entry in control.layers.values() for chain in entry.chains
+    }
+    record["control_chain_types"] = sorted(control_chain_types)
+    missing_chain_types = sorted({"device", "instance"} - control_chain_types)
+    if missing_chain_types:
+        lines.append(
+            "  FAIL: the control run reported layers, but not one of them on the "
+            f"{' or the '.join(missing_chain_types)} chain, so this probe never observed "
+            f"that chain at all. Either the loader's debug format for "
+            f"{'/'.join(missing_chain_types)}-chain insertions changed and the parser is "
+            "matching nothing there, or the probe never built that chain -- and a "
+            "control that is blind to a chain cannot certify it. This means 'the gate "
+            "could not look', not 'that chain is clean'. Do not relax this assertion "
+            "to make the job green."
+        )
+        return False, lines, record
+
     outside_control = sorted(effective_names - control_names)
     if outside_control:
         lines.append(
@@ -512,6 +545,47 @@ def check_vulkan_layers() -> Tuple[bool, List[str], Dict[str, object]]:
             "same defect and just as invisible in the layer *names* -- narrow the disable "
             "rather than accepting the loss, and do not compare names instead of chains to "
             "make this green."
+        )
+        return False, lines, record
+
+    # The other direction of the same diff. Losses alone are a one-way
+    # subtraction: a driver layer the control observed on the instance chain
+    # only can silently *gain* device-chain membership in the effective run --
+    # the name-level subset and allowlist checks cannot see it, and `lost_chains`
+    # above is empty -- while the device stack the GPU jobs measure on is one
+    # this machine never runs outside CI. `VK_LOADER_LAYERS_ENABLE` force-
+    # enabling a layer onto both chains is a concrete route there (#878 review,
+    # thread on line 484). Together with `lost_chains` this makes the comparison
+    # an equality of each expected layer's chain sets, which is the contract:
+    # the effective run must be *the control run minus the third-party layers*,
+    # nothing else changed in either direction.
+    gained_chains = [
+        (name, chain)
+        for name in sorted(expected_in_control)
+        for chain in sorted(
+            set(effective.layers[name].chains if name in effective.layers else ())
+            - set(control.layers[name].chains)
+        )
+    ]
+    if gained_chains:
+        lines.append(
+            f"  FAIL: {len(gained_chains)} chain membership(s) of the GPU driver's own layers "
+            "are present in the effective run that the control run did not have:"
+        )
+        for name, chain in gained_chains:
+            lines.append(
+                f"    - {name}: added to the {chain} chain "
+                f"(control had {'+'.join(control.layers[name].chains)}; "
+                f"effective has {'+'.join(effective.layers[name].chains)})"
+            )
+        lines.append(
+            "  This job's environment placed a driver layer on a chain the loader does not "
+            "put it on by itself -- most likely a force-enable "
+            f"({LOADER_LAYERS_ENABLE_VAR} or VK_INSTANCE_LAYERS) widening its scope. That is "
+            "a changed device stack exactly like a lost membership: GPU jobs would measure "
+            "on a chain layout nothing outside CI uses. Narrow the enable rather than "
+            "accepting the addition, and do not drop this direction of the diff to make "
+            "it green."
         )
         return False, lines, record
 

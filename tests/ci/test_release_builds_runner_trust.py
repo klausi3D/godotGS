@@ -111,8 +111,10 @@ places where a near-miss reads as a pass:
   became a declared GitHub-hosted label, which is exactly the classification
   that drops a job out of `self_hosted_jobs()`.
 
-No PyYAML: `tests/ci/validate_automation.py` treats PyYAML as optional, so a
-guard that imports it would silently degrade on a runner without it.
+PyYAML is mandatory in the GitHub-hosted required gate as of T6 / #894, and
+`tests/ci/validate_automation.py` fails closed without it. This runner-trust
+suite remains a text-level contract because its label and invocation mutations
+are independent of the validator's whole-workflow structure check.
 
 Run directly (``python tests/ci/test_release_builds_runner_trust.py``) or via
 ``python tests/ci/run_module_tests.py --guard-only``.

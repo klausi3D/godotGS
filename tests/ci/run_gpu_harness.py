@@ -86,7 +86,18 @@ class BatchSpec:
 BATCHES: tuple[BatchSpec, ...] = (
     BatchSpec("CompositorHazard", ("*HazardRepro*",)),
     BatchSpec("OutputCompositor", ("*OutputCompositor*][RequiresGPU]*",)),
-    BatchSpec("ComputeInfrastructure", ("*ComputeInfra*][RequiresGPU]*",)),
+    # #909: the "ComputeInfrastructure" batch (filter "*ComputeInfra*][RequiresGPU]*")
+    # was DELETED here. All 11 [ComputeInfra] cases are null-device CPU contract tests
+    # (test_compute_infrastructure.h passes nullptr as the RenderingDevice and asserts
+    # the resulting error paths), none carries [RequiresGPU], so the batch structurally
+    # matched 0 cases from the day it was written — a permanently-green catalogue entry.
+    # Retagging the cases [RequiresGPU] was explicitly REJECTED (ADR
+    # docs/architecture/adr-phase1-guard-hardening.md §5.3): it would be a false claim
+    # about what they exercise AND would evict them from the strict headless
+    # "GaussianSplatting [ComputeInfra]" lane in run_module_tests.py, which excludes
+    # *][RequiresGPU]* and is where all 11 actually run today. Do not "restore" this
+    # batch from the zero-match symptom; re-add it only when genuine GPU
+    # compute-infrastructure cases exist for it to select.
     # #643: "Output format coercion keeps deterministic defaults" asserts the
     # DECIDED SRGB contract, which the renderer does not yet implement -- on a
     # real device create_output_textures() cannot make an SRGB storage texture,
@@ -126,7 +137,32 @@ BATCHES: tuple[BatchSpec, ...] = (
     # ample headroom -- no per-batch timeout override is needed.
     BatchSpec("GpuSorting", ("*Sort*][RequiresGPU]*",)),
     BatchSpec("MemoryStream", ("*MemoryStream*][RequiresGPU]*",)),
-    BatchSpec("Streaming", ("*Streaming*][RequiresGPU]*",)),
+    # #908: this batch matched 0 cases from its introduction until T4 -- its filter
+    # needs the token BEFORE `][RequiresGPU]`, and the three test_gpu_streaming.h
+    # cases carried it only in the descriptive tail (Stage-B not at all). T4 retagged
+    # them [GaussianSplatting][Streaming][RequiresGPU]; first-ever execution measured
+    # on an RTX 3090 (Vulkan, dev binary at fa9e86c1bf8 + the retag): 3 cases selected,
+    # 48 assertions, case_assert_audit_ok, zero_assertion_cases=[], 0.965 s wall vs the
+    # 60 s default (~62x headroom). "GPU Memory Streaming" passes outright. "Stage-B
+    # instance depth culling toggles" passes its pre-device assertions and then
+    # environment-skips at the primary-RenderingDevice check (test_gpu_streaming.h:391,
+    # a counted #595 inventory site) -- its culling substance does not yet execute
+    # under this harness's local-device bootstrap; that limit is stated here rather
+    # than papered over. NOT promoted: ADR §5.5 promotion evidence is recorded AT
+    # promotion, separately.
+    #
+    # "GPU Memory Streaming Performance" is EXCLUDED: reproduced failing its
+    # hard-coded upload budgets on first-ever execution (28.9-33.2 ms vs 10 ms at
+    # 10k splats; 143.7-144.3 ms vs 50 ms at 50k, two consecutive runs). Wall-clock
+    # budgets on this shared runner measure the machine, not regressions (#615/#630),
+    # and the budgets were written years before the case ever ran. Declared in
+    # deferred_requires_gpu_waivers (the documented flow); it rejoins automatically
+    # when the waiver is removed. Do NOT raise the budgets to re-include it.
+    BatchSpec(
+        "Streaming",
+        ("*Streaming*][RequiresGPU]*",),
+        excludes=("*GPU Memory Streaming Performance*",),
+    ),
     # #641: the sync-policy device-contract tests in
     # modules/gaussian_splatting/tests/test_integration.cpp. They need a real
     # local RenderingDevice, which only this harness provides; before #641 they
@@ -438,9 +474,13 @@ BATCHES: tuple[BatchSpec, ...] = (
 # (#630), and noisy required gates get waived — which is how coverage is lost permanently.
 # It stays advisory until its wall time is consistently well under budget across several
 # quiet green master runs, or #630 removes the contention variance. This is a deliberate
-# non-promotion, not an oversight. (ComputeInfrastructure/MemoryStream/Streaming are also
-# NOT promoted: a required batch that matches ~0 cases fails by design via empty_required —
-# that is #520 territory, out of scope here. GpuSorting is NOT empty — its `*Sort*][RequiresGPU]*`
+# non-promotion, not an oversight. (MemoryStream and Streaming are also NOT promoted:
+# MemoryStream matches the two #798 [MemoryStream] cases and Streaming runs two of the
+# three #908-retagged [Streaming] cases (the timing benchmark is waiver-excluded, see
+# the BatchSpec), but none has the proven-green promotion evidence ADR §5.5 requires —
+# >0 cases, >0 assertions, case_assert_audit_ok, zero hollow cases, recorded wall-time
+# headroom — recorded AT promotion on this runner.
+# GpuSorting is NOT empty — its `*Sort*][RequiresGPU]*`
 # filter matches the #508 `[GPUSortPipeline][RequiresGPU]` sticky-overflow test AND, since #622,
 # the three [GpuSort] sort-ORDER oracles in test_gpu_sorting.h — so it carries real, asserting
 # GPU coverage of sort-order correctness. It is REQUIRED (added #744, see the set below).)

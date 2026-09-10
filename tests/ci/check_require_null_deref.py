@@ -636,6 +636,68 @@ guard's landing: #844 records two hand-checked counter-examples
 follow, so the correct shape is an `else` branch) proving the conversion is not
 mechanical. Converting blind trades a loud failure for quiet wrong results.
 
+Detector 1's baseline (`require_null_deref_baseline.json`) has the matching tool,
+`--regenerate-null-deref-baseline`, added by GS-AUDIT-TEST-003; before that it was
+hand-maintained (round 9's 319 -> 337 was a hand edit, reviewed as a diff).
+
+Both baselines key each entry's fingerprint list by the source file's
+**repo-relative POSIX path**, not its basename (GS-AUDIT-TEST-003). A basename key
+collides when two files share a name in different directories, silently merging
+one file's sites onto the other's, in the under-reporting direction. This tree
+already has a same-named pair -- `modules/gaussian_splatting/tests/test_utils.h`
+and `tests/test_utils.h` -- but it is NOT currently an active collision for this
+guard specifically: `_test_sources()`'s `ENGINE_TESTS_DIR` glob is `test_*.cpp`
+only, never `.h`, so `tests/test_utils.h` is never a member of the scanned set
+here (it would collide with the module's copy if that glob were ever widened to
+match `.h`, or for any future `tests/test_X.cpp` vs
+`modules/gaussian_splatting/tests/test_X.cpp` pair, both of which the current
+`.cpp`-only glob does admit). `check_environment_skip_marker.py`'s own baseline,
+whose `_module_and_engine_sources()` DOES glob `.h` there, is where this exact
+pair collides for real today, and its `source_key()` already carries this fix and
+names this guard as the sibling still exposed to the (latent) hazard; `_site_key()`
+ports that fix's mechanism, independent of whether today's scanned set happens to
+exercise it.
+
+## Review-base comparison
+
+Both checks above compare the scan against the WORKING TREE's own copy of each
+baseline file -- and a change that adds a violation AND appends its fingerprint to
+that file, in the same commit, passes both: the scan and the baseline moved
+together, so there is nothing to diff. `check_unchecked_resize.py` (#794/#798)
+already carries the fix for this exact shape; this ports it rather than inventing a
+new one.
+
+`resolve_review_base()` resolves the review base the same way every other
+base-anchored guard in this repo does: `--base-ref`, else `GS_CI_BASE_REF` /
+`GITHUB_BASE_SHA` / `GITHUB_BASE_REF`, else (locally, when nothing is explicit)
+`origin/master` then `master`. When it cannot resolve, the run **fails closed** --
+it never falls back to grading the working tree against itself, which is the exact
+defect this exists to remove.
+
+Unlike the environment-skip and unchecked-resize guards, this one does NOT get
+`--base-ref` threaded through `run_module_tests.py`'s own CLI override -- that
+would mean editing `tests/ci/run_module_tests.py`, which this repo's risk policy
+(`.agentic/policy.json`) classifies as R3 "CI deterministic-check / release-gate
+machinery" by path alone, regardless of what the edit says. A `GS_CI_BASE_REF`
+(etc.) **environment variable** still reaches this guard correctly, through plain
+subprocess environment inheritance -- which is what CI and
+`run_module_tests.py --guard-only` both use. The gap is narrow and deliberate:
+`run_module_tests.py --guard-only --base-ref X` (the CLI override, as opposed to
+the env var) will not reach this guard, unlike the other two. See the PR that
+introduced this file's review-base comparison (GS-AUDIT-TEST-003) for why that
+tradeoff was made instead of folding an R3 path into an R1 change.
+
+For each baseline, the CURRENT SCAN (never the working-tree file) is compared
+against that file's content **as committed at the review base**. A fingerprint
+that already existed under the same key at the base is not new. Growth is
+otherwise rejected outright, with one narrow, mechanically-provable exception: when
+this script itself differs from its form at the review base (`detector_differs_from_base`
+-- true for a real detector change, e.g. round 9, or for this PR's own basename ->
+path rekey), a fingerprint that exists **anywhere** in the base baseline (any key,
+consumed one-for-one) is recognized as pre-existing content that only looks new
+under a changed key, not as a self-attested claim. A fingerprint that does not
+exist anywhere at the base is new regardless, whatever else changed in the diff.
+
 ## Failing closed
 
 A guard that cannot read or cannot parse must FAIL, never report "clean":
@@ -659,11 +721,15 @@ cannot tell "no new site" from "did not look".
 from __future__ import annotations
 
 import bisect
+import collections
 import functools
 import hashlib
+import importlib.util
 import json
 import re
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
@@ -717,6 +783,315 @@ _SIZE_INDEX_BASELINE_NOTE = (
     "test_memory_leak_detection.h:165 and test_resident_atlas_budget.h:109), and "
     "converting blind trades a loud failure for quiet wrong results."
 )
+
+# Detector 1's regeneration tool (GS-AUDIT-TEST-003). Previously this baseline had NO
+# regenerate flag at all and was maintained by hand; #656 explicitly tolerates that
+# because a legitimate edit is rare and reviewable either way (see the note field: 18
+# sites moved into the baseline in round 9, by hand, and the diff was the review). This
+# PR needs a MECHANICAL, hand-edit-free way to re-key the file from basename to
+# repo-relative path (`_site_key`, below) without asserting any fingerprint is safe or
+# new, so a tool now exists, mirroring detector 2's shape and its "refuses to add" rule.
+NULL_DEREF_REGENERATE_FLAG = "--regenerate-null-deref-baseline"
+_NULL_DEREF_BASELINE_NOTE = (
+    "Per-site fingerprints of pre-existing assert-then-dereference sites. Generated by "
+    "tests/ci/check_require_null_deref.py --regenerate-null-deref-baseline (tool added by "
+    "GS-AUDIT-TEST-003; this file was previously hand-maintained -- see git history for "
+    "the pre-tool provenance). Entries may only be REMOVED (as sites are fixed), never "
+    "added -- the ONE exception is the guard itself gaining recall over code that was "
+    "already there, which is why this list grew from 319 to 337 in PR #849 round 9: the "
+    "accepted assertion-macro names are now DERIVED from doctest's header, so the "
+    "CHECK/WARN spellings of a null-ish assertion are seen at last. Those 18 sites are "
+    "pre-existing and #656 rules out mass-rewriting them; a site added by NEW code still "
+    "fails. Keyed by repo-relative POSIX path, not basename (GS-AUDIT-TEST-003): a "
+    "basename key collides when two test files this guard's _test_sources() BOTH "
+    "scan share a name in different directories (e.g. a hypothetical "
+    "tests/test_x.cpp vs modules/gaussian_splatting/tests/test_x.cpp -- the "
+    "ENGINE_TESTS_DIR glob here is test_*.cpp only, so this is a real hazard for a "
+    ".cpp pair, not for the modules/.../test_utils.h vs tests/test_utils.h pair "
+    "that motivated the fix, which this guard's glob happens not to scan both "
+    "halves of), silently masking one file's sites under the other's."
+)
+
+# ---------------------------------------------------------------------------------
+# Review-base comparison (GS-AUDIT-TEST-003).
+#
+# Everything above this point answers "does the committed baseline match the working
+# tree scan?" -- and that question alone cannot see a change that adds a violation AND
+# appends its fingerprint to the baseline in the SAME commit, because both sides moved
+# together and the comparison is against itself. `check_unchecked_resize.py` (#794/#798)
+# already carries the fix for exactly this shape: resolve the review base via
+# GS_CI_BASE_REF (falling back to origin/master locally, exactly as
+# check_environment_skip_marker.py's resolve_base_sha documents), and grade the
+# WORKING-TREE SCAN against the baseline as it was COMMITTED AT THAT BASE, never
+# against the working tree's own copy of the file. What follows ports that base
+# resolution -- not a new one -- to this guard's two baselines.
+#
+# resolve_review_base() below is a near-verbatim mirror of check_unchecked_resize.py's
+# function of the same name, not an import of it: the one genuinely shared piece is
+# resolve_base_sha() in check_environment_skip_marker.py (three review rounds of
+# GS_CI_BASE_REF/GITHUB_BASE_REF/origin-master precedence live there once), and both
+# check_unchecked_resize.py and this file load it the same way -- dynamically, because
+# tests/ci is not a package and every guard here runs standalone. Importing
+# check_unchecked_resize.py's copy of the ~15-line wrapper instead would make this
+# guard depend on ANOTHER guard's module surface (and its unrelated resize-specific
+# argv/globals) for a function that is only a thin, mechanical call-through; mirroring
+# the wrapper keeps the one load-bearing piece (resolve_base_sha) singular while
+# keeping each guard's own file self-contained, which is how every guard in this
+# directory is already structured (each is runnable standalone as `python check_*.py`).
+BASE_RESOLVER_PATH = Path(__file__).resolve().parent / "check_environment_skip_marker.py"
+# The baseline as committed at the review base did not exist there -- this change
+# introduces it. A fact about history, distinct from "the base could not be resolved",
+# which is a hard failure.
+ABSENT_AT_BASE = "absent-at-base"
+
+
+def _git(args: list[str]) -> tuple[int, str, str]:
+    """Run git in ROOT. Mirrors check_unchecked_resize.py's `_git`, 3-tuple included:
+
+    the stderr is what makes "git failed" and "git said no" distinguishable in the
+    failure messages below, which is exactly the distinction _blob_at_base() depends
+    on to avoid reading a broken git as an absent file.
+    """
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, ValueError) as exc:
+        return 1, "", str(exc)
+    return result.returncode, result.stdout, result.stderr
+
+
+def resolve_review_base(base_ref: str | None = None) -> tuple[str | None, list[str]]:
+    """The immutable review base, delegated to the shared resolver.
+
+    See the module-level comment above ABSENT_AT_BASE for why this is a mirror of
+    check_unchecked_resize.py's function of the same name rather than an import of it.
+
+    An import failure is a FAILURE, not a fallback: without a base there is nothing
+    immutable to compare either baseline against, and "could not look" must never be
+    reported as "found nothing".
+    """
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "_gs_review_base_resolver_require_null_deref", BASE_RESOLVER_PATH
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {BASE_RESOLVER_PATH}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        resolve = module.resolve_base_sha
+    except Exception as exc:  # noqa: BLE001 -- any failure here must fail closed
+        return None, [
+            f"cannot load the shared review-base resolver from {BASE_RESOLVER_PATH}: {exc}. "
+            f"The baseline can only be graded against the review base, so this run has no "
+            f"reference and fails rather than passing on an unanchored comparison."
+        ]
+    return resolve(base_ref)
+
+
+def _blob_at_base(base_sha: str, path: Path) -> tuple[str | None, list[str]]:
+    """File content at the review base, or ABSENT_AT_BASE, or a failure.
+
+    Absence is established with `ls-tree` BEFORE `show` is attempted, deliberately --
+    mirrors check_unchecked_resize.py's function of the same name. `git show <sha>:<path>`
+    exits non-zero both when the path is not in that tree and when git could not answer
+    at all; conflating the two would let anything that breaks git (a corrupt object
+    store, an unfetched base) read as "the file did not exist at the base", which passes
+    the comparison and disables the ratchet silently, in exactly the conditions where
+    nobody is looking. `ls-tree` separates them: it exits 0 with no output for a path
+    that is genuinely absent, and non-zero when git failed.
+    """
+    try:
+        rel = path.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return None, [f"{path} is outside {ROOT}; cannot locate it at the review base."]
+    code, listing, err = _git(["ls-tree", "-r", "--name-only", base_sha, "--", rel])
+    if code != 0:
+        return None, [
+            f"git could not read the tree at review base {base_sha[:12]} for '{rel}' "
+            f"(exit {code}): {err.strip() or 'no stderr'}. Refusing to read that as the "
+            f"file being absent -- the two are different answers."
+        ]
+    if not listing.strip():
+        return ABSENT_AT_BASE, []
+    code, out, err = _git(["show", f"{base_sha}:{rel}"])
+    if code != 0:
+        return None, [
+            f"'{rel}' is present in the tree at review base {base_sha[:12]} but could not "
+            f"be read (exit {code}): {err.strip() or 'no stderr'}."
+        ]
+    return out, []
+
+
+def detector_differs_from_base(base_sha: str) -> tuple[bool, list[str]]:
+    """Whether THIS SCRIPT differs from its committed form at the review base.
+
+    A baseline may grow relative to the base ONLY when it is not new content but
+    content that was already there and only now surfaces under a changed key or a
+    sharper detector (round 9's 319 -> 337 is exactly this; this PR's basename ->
+    repo-relative-path rekey is another instance). Licensing that requires proof the
+    detector genuinely changed here, not a self-report -- otherwise any PR could claim
+    its new violation is "just a rename". `_baseline_growth_vs_base` below additionally
+    requires the surfaced fingerprint to already be present in the base's baseline
+    (content-hash identity, not a claim), which is the load-bearing check; this is the
+    gate on top of it, mirroring check_unchecked_resize.py's function of the same name.
+    """
+    content, failures = _blob_at_base(base_sha, Path(__file__).resolve())
+    if failures:
+        return False, failures
+    if content is ABSENT_AT_BASE:
+        return True, []  # this change introduces the detector
+    try:
+        current = Path(__file__).resolve().read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, [f"cannot read this script to compare it against the review base: {exc}"]
+    return current != content, []
+
+
+def _repo_path_for_key(name: str) -> Path:
+    """The Path a scan key names -- the inverse of `_site_key`'s PRIMARY branch.
+
+    `_site_key` computes `name` as `path.relative_to(ROOT).as_posix()` whenever the
+    scanned path sits under ROOT, which is every real (non-fixture) invocation; this
+    reconstructs that same Path directly. A monkeypatched ROOT (as some self-tests
+    use) inverts correctly too, since it is the SAME ROOT `_site_key` used to derive
+    the key. This does not need to invert `_site_key`'s tempdir FALLBACK branches
+    (used only when the scan roots are not nested under ROOT): tests that exercise
+    those route `name` through a stubbed `_rescan_base_content` instead of a real
+    path and git, exactly as `resolve_review_base` / `_blob_at_base` are stubbed.
+    """
+    return ROOT / name
+
+
+def _rescan_base_content(
+    name: str, base_sha: str, scan_kind: str
+) -> tuple[list[str] | None, list[str]]:
+    """Fingerprints THIS (current) detector finds re-run over `name`'s content as it
+    existed at the review base, or None if that file did not exist there.
+
+    `scan_kind` selects which of the two detectors does the re-run: "null_deref"
+    (`_scan_file` + `fingerprint`) or "size_index" (`_scan_file_size_index` +
+    `size_index_fingerprint`) -- the two baselines are graded by the SAME function
+    below, so the caller says which one this rescan is for.
+
+    The base content is written to a REAL temporary file, named identically to the
+    source (so any suffix- or name-dependent behaviour in the scanners -- error
+    messages via `path.name`, `_size_assertions`'s `path.name` argument -- behaves
+    exactly as an ordinary scan of that file would), rather than refactoring the
+    scanners to accept text directly: reusing `_scan_file` / `_scan_file_size_index`
+    unmodified means this rescan is provably the SAME code path a normal scan takes,
+    not a second, drift-prone implementation of "what counts as a violation".
+    """
+    path = _repo_path_for_key(name)
+    raw, failures = _blob_at_base(base_sha, path)
+    if failures:
+        return None, failures
+    if raw is ABSENT_AT_BASE:
+        return None, []
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp) / path.name
+        try:
+            tmp_path.write_text(raw, encoding="utf-8")
+        except OSError as exc:
+            return None, [f"cannot stage '{name}' at the review base for rescanning: {exc}"]
+        try:
+            if scan_kind == "null_deref":
+                violations = _scan_file(tmp_path)
+                return sorted(
+                    fingerprint(sym, form, stmt) for _, sym, form, stmt in violations
+                ), []
+            if scan_kind == "size_index":
+                sites = _scan_file_size_index(tmp_path)
+                return sorted(
+                    size_index_fingerprint(sym, macro, assertion, stmt)
+                    for _, sym, macro, assertion, _, stmt, _ in sites
+                ), []
+        except ScanError as exc:
+            return None, [f"cannot rescan '{name}' at the review base {base_sha[:12]}: {exc}"]
+    raise AssertionError(f"unknown scan_kind {scan_kind!r}")  # pragma: no cover
+
+
+def _baseline_growth_vs_base(
+    current: dict[str, list[str]],
+    baseline_path: Path,
+    base_sha: str,
+    detector_differs: bool,
+    scan_kind: str,
+) -> tuple[dict[str, list[str]], list[str], bool]:
+    """(new fingerprints per file relative to the base, failures, introduced-here).
+
+    `current` is THIS RUN's scan (never the working-tree copy of `baseline_path`): the
+    working-tree baseline is exactly what a joint mutation edits to agree with the
+    scan, so comparing against it proves nothing. This compares the scan against the
+    file's content as committed at the review base instead, which the mutation cannot
+    reach.
+
+    A fingerprint present under the SAME key in the base baseline is never new. One
+    added under the current key is otherwise new UNLESS `detector_differs` is true
+    (this script itself changed relative to the base -- see `detector_differs_from_base`)
+    AND re-running THIS (current) detector over THAT SAME FILE's content AS IT EXISTED
+    AT THE BASE finds that exact fingerprint there too (`_rescan_base_content`).
+
+    That per-FILE rescan, not a cross-file/global pool, is deliberate -- an earlier
+    version of this function drew from a flattened, repo-wide multiset of every
+    fingerprint anywhere in the base baseline, and a review found it exploitable: fix
+    a site in file A (removing its fingerprint's only base occurrence from nowhere in
+    particular, since the pool was never tied to A), copy byte-identical code into
+    file B, and B's "new" fingerprint matched something -- ANYTHING -- still sitting
+    unclaimed in the global pool, even though B never contained that code at the base.
+    Restricting the proof to "does B's OWN base-commit content contain this
+    fingerprint" closes that: a genuinely new site, wherever it is copied from, was
+    never in the file the guard is now asked to excuse it in. It still licenses a pure
+    rekey (this PR's own basename -> path migration touches no C++ at all, so every
+    file's base content and current content are byte-identical) and a genuine
+    detector improvement over unchanged content (e.g. #849 round 9: the file's base
+    content, rescanned with the WIDENED current detector, reveals the same
+    previously-invisible site the live scan finds) -- both are exactly "this file, at
+    the base, already contained what the live scan now reports", provable from git
+    history rather than asserted.
+    """
+    raw, failures = _blob_at_base(base_sha, baseline_path)
+    if failures:
+        return {}, failures, False
+    if raw is ABSENT_AT_BASE:
+        return {}, [], True
+    try:
+        base_document = json.loads(raw)
+        base_files_raw = base_document["files"]
+        base_files = {
+            str(name): [str(p) for p in prints] for name, prints in base_files_raw.items()
+        }
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as exc:
+        return {}, [f"baseline at review base {base_sha[:12]} is unusable: {exc}"], False
+
+    new_relative: dict[str, list[str]] = {}
+    for name in sorted(current):
+        added = _multiset_difference(current[name], base_files.get(name, []))
+        if not added:
+            continue
+        if detector_differs:
+            base_scan_prints, rescan_failures = _rescan_base_content(name, base_sha, scan_kind)
+            if rescan_failures:
+                return {}, rescan_failures, False
+            if base_scan_prints is not None:
+                # Recomputed against the FRESH RESCAN, not a further reduction of
+                # `added`: `added` was already reduced by `base_files.get(name, [])`
+                # (the COMMITTED baseline's recorded entries), so subtracting the
+                # rescan from it too would let the base's supply cover the same
+                # occurrences twice. current[3.h] = [FP,FP,FP] against a committed
+                # baseline of [FP,FP] and a genuine base-content rescan of [FP,FP]
+                # must find exactly ONE new copy, not zero -- reducing already-reduced
+                # `added` against the rescan again would report zero.
+                added = _multiset_difference(current[name], base_scan_prints)
+        if added:
+            new_relative[name] = added
+    return new_relative, [], False
+
 
 # How many statements to look ahead after the REQUIRE before giving up.
 _SCAN_STATEMENTS = 6
@@ -3524,8 +3899,38 @@ def _test_sources() -> list[Path]:
     )
 
 
+def _site_key(path: Path) -> str:
+    """The baseline key for a source: its repo-relative POSIX path, not its basename.
+
+    GS-AUDIT-TEST-003: a basename key collides whenever two SCANNED files share a
+    name in different directories, silently masking one file's sites under the
+    other's -- the wrong direction for a guard against a test-binary-killing defect
+    (#656). `modules/gaussian_splatting/tests/test_utils.h` and `tests/test_utils.h`
+    both exist in this tree and motivated the fix, but this guard's own
+    `_test_sources()` globs `ENGINE_TESTS_DIR` for `test_*.cpp` only (never `.h`),
+    so that specific pair is not an ACTIVE collision here today; the hazard is real
+    for any `.cpp` pair sharing a name across the two directories, present or
+    future, and for the `.h` pair too the day this glob (or a future guard reusing
+    this key function) widens to match it.
+    check_environment_skip_marker.py's `source_key()` -- whose OWN
+    `_module_and_engine_sources()` globs `.h` on both sides, so that exact pair DOES
+    collide for it today -- already carries this fix and names this guard as the
+    sibling still exposed to the hazard; this mirrors it, including its fallback
+    chain, so the self-tests below -- which point `_test_sources()` at directories
+    outside ROOT via monkeypatched MODULE_TESTS_DIR/ENGINE_TESTS_DIR -- get stable
+    keys instead of a ValueError.
+    """
+    resolved = path.resolve()
+    for base in (ROOT, MODULE_TESTS_DIR, ENGINE_TESTS_DIR):
+        try:
+            return resolved.relative_to(Path(base).resolve()).as_posix()
+        except ValueError:
+            continue
+    return path.name
+
+
 def scan_all_size_index() -> tuple[dict[str, list[tuple[int, str, str, str, int, str, str]]], list[str]]:
-    """(basename -> size-then-index sites, scan errors). Errors are never violations."""
+    """(repo-relative path -> size-then-index sites, scan errors). Errors are never violations."""
     results: dict[str, list[tuple[int, str, str, str, int, str, str]]] = {}
     errors: list[str] = []
     for path in _test_sources():
@@ -3535,7 +3940,7 @@ def scan_all_size_index() -> tuple[dict[str, list[tuple[int, str, str, str, int,
             errors.append(str(exc))
             continue
         if sites:
-            results[path.name] = sites
+            results[_site_key(path)] = sites
     return results, errors
 
 
@@ -3567,12 +3972,12 @@ def scan_size_index_fingerprints() -> tuple[dict[str, list[str]], list[str]]:
 
 
 def scan_all() -> dict[str, list[tuple[int, str, str, str]]]:
-    """Basename -> violations, for every test source that has any."""
+    """Repo-relative path -> violations, for every test source that has any."""
     results: dict[str, list[tuple[int, str, str, str]]] = {}
     for path in _test_sources():
         violations = _scan_file(path)
         if violations:
-            results[path.name] = violations
+            results[_site_key(path)] = violations
     return results
 
 
@@ -3728,8 +4133,31 @@ def _check_size_index() -> tuple[int, list[str], str]:
     return (1 if failures else 0), failures, summary
 
 
+def _refused_flattened_additions(
+    found_prints: dict[str, list[str]], baseline: dict[str, list[str]]
+) -> list[str]:
+    """Fingerprints regeneration would write that are not present ANYWHERE in the
+    existing baseline, regardless of which key they sit under.
+
+    GS-AUDIT-TEST-003 re-keys both baselines from basename to repo-relative path
+    (`_site_key`), so EVERY entry's dict key changes in that one commit. A per-key
+    "is this fingerprint already recorded under this exact key" comparison would then
+    see the whole (unchanged) baseline as new, because nothing survives under its old
+    key by construction of the rename. A fingerprint is a sha1 of the full statement
+    text (see `fingerprint`), so a flattened, cross-key comparison is still a precise
+    identity check -- what a rename preserves -- rather than a looser one. It is only
+    looser than a per-key check for one corner case, identical code duplicated
+    verbatim into a different file in the same regeneration run, which a human
+    reviewing the regenerated JSON diff still sees; this tool is never run by CI (see
+    `main()`), only by a person preparing a change.
+    """
+    existing_flat = collections.Counter(fp for prints in baseline.values() for fp in prints)
+    new_flat = collections.Counter(fp for prints in found_prints.values() for fp in prints)
+    return sorted((new_flat - existing_flat).elements())
+
+
 def _regenerate_size_index_baseline() -> int:
-    """Rewrite detector 2's baseline, REFUSING to add an entry.
+    """Rewrite detector 2's baseline, REFUSING to add a fingerprint.
 
     Shrink-only is enforced here mechanically rather than left to review: the
     whole point of the baseline is that a new site cannot be absorbed into it.
@@ -3746,20 +4174,16 @@ def _regenerate_size_index_baseline() -> int:
         for problem in problems:
             print(f"    {problem}")
         return 1
-    additions = {
-        name: _multiset_difference(prints, baseline.get(name, []))
-        for name, prints in found_prints.items()
-    }
-    additions = {name: added for name, added in additions.items() if added}
+    additions = _refused_flattened_additions(found_prints, baseline)
     if additions:
         print(
-            f"[size-then-index] REFUSED: regeneration would ADD "
-            f"{sum(len(v) for v in additions.values())} entr(ies). This baseline may only "
-            f"shrink - a new site is a new crash, not a new baseline line. Fix the site."
+            f"[size-then-index] REFUSED: regeneration would ADD {len(additions)} "
+            f"fingerprint(s) not present anywhere in the existing baseline. This baseline "
+            f"may only shrink or be re-keyed - a new site is a new crash, not a new "
+            f"baseline line. Fix the site."
         )
-        for name in sorted(additions):
-            for print_ in additions[name]:
-                print(f"    {name}: {print_}")
+        for print_ in additions:
+            print(f"    {print_}")
         return 1
     document = {
         "schema_version": 1,
@@ -3775,14 +4199,79 @@ def _regenerate_size_index_baseline() -> int:
     return 0
 
 
+def _regenerate_null_deref_baseline() -> int:
+    """Rewrite detector 1's baseline, REFUSING to add a fingerprint.
+
+    Detector 1 had no regeneration tool before GS-AUDIT-TEST-003; the file was
+    maintained by hand on the theory that a legitimate change to it is rare and
+    reviewable as a diff either way (round 9's 319 -> 337 landed that way). This PR
+    needs a mechanical, hand-edit-free way to re-key the file from basename to
+    repo-relative path, so a tool now exists, mirroring detector 2's shape and its
+    refuses-to-add rule (see `_refused_flattened_additions`).
+    """
+    found_prints = scan_fingerprints()
+    baseline, problems = load_baseline()
+    if problems:
+        print("[require-null-deref] REFUSED: the existing baseline cannot be read.")
+        for problem in problems:
+            print(f"    {problem}")
+        return 1
+    additions = _refused_flattened_additions(found_prints, baseline)
+    if additions:
+        print(
+            f"[require-null-deref] REFUSED: regeneration would ADD {len(additions)} "
+            f"fingerprint(s) not present anywhere in the existing baseline. #656 rules out "
+            f"blessing a new site this way - fix it instead."
+        )
+        for print_ in additions:
+            print(f"    {print_}")
+        return 1
+    document = {
+        "schema_version": 1,
+        "issue_url": BASELINE_ISSUE,
+        "note": _NULL_DEREF_BASELINE_NOTE,
+        "files": {name: found_prints[name] for name in sorted(found_prints)},
+    }
+    BASELINE_PATH.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    total = sum(len(v) for v in found_prints.values())
+    print(f"[require-null-deref] baseline rewritten: {total} site(s) across {len(found_prints)} file(s).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # Deliberately not argparse: main() is called with no arguments by the unit
     # test and by run_module_tests.py, and argparse would then parse THEIR argv.
     arguments = list(argv or [])
-    regenerate = SIZE_INDEX_REGENERATE_FLAG in arguments
-    unknown = [a for a in arguments if a != SIZE_INDEX_REGENERATE_FLAG]
+
+    # --base-ref VALUE, parsed by hand for the same reason the flags above are:
+    # mirrors check_unchecked_resize.py's `--base-ref`, the review base to grade the
+    # baseline's growth against (GS_CI_BASE_REF / GITHUB_BASE_REF / ..., then
+    # origin/master, resolved by resolve_review_base() below).
+    base_ref: str | None = None
+    if "--base-ref" in arguments:
+        idx = arguments.index("--base-ref")
+        if idx + 1 >= len(arguments):
+            print("[require-null-deref] FAIL --base-ref requires a value.")
+            return 1
+        base_ref = arguments[idx + 1]
+        arguments = arguments[:idx] + arguments[idx + 2 :]
+
+    regenerate_size_index = SIZE_INDEX_REGENERATE_FLAG in arguments
+    regenerate_null_deref = NULL_DEREF_REGENERATE_FLAG in arguments
+    unknown = [
+        a for a in arguments
+        if a not in (SIZE_INDEX_REGENERATE_FLAG, NULL_DEREF_REGENERATE_FLAG)
+    ]
     if unknown:
         print(f"[require-null-deref] FAIL unknown argument(s): {' '.join(unknown)}")
+        return 1
+    if regenerate_size_index and regenerate_null_deref:
+        print(
+            f"[require-null-deref] FAIL pass only one of {SIZE_INDEX_REGENERATE_FLAG} / "
+            f"{NULL_DEREF_REGENERATE_FLAG} at a time."
+        )
         return 1
 
     files = _test_sources()
@@ -3797,7 +4286,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {error}")
         return 1
 
-    if regenerate:
+    if regenerate_null_deref:
+        return _regenerate_null_deref_baseline()
+    if regenerate_size_index:
         return _regenerate_size_index_baseline()
 
     found = scan_all()
@@ -3870,7 +4361,64 @@ def main(argv: list[str] | None = None) -> int:
             f"[size-then-index] PASS {len(files)} test source(s) scanned; "
             f"{size_summary}, 0 new, 0 stale."
         )
-    return status or size_status
+
+    # GS-AUDIT-TEST-003: the two checks above compare the scan against the WORKING
+    # TREE's copy of each baseline, which a change edits together with the source it
+    # is adding a violation to -- so they cannot see a joint mutation, only a baseline
+    # that has drifted from an honest scan. This closes that hole by grading the scan
+    # against each baseline as committed at the REVIEW BASE instead, which the mutation
+    # cannot reach. Runs even when the checks above already failed, for the same reason
+    # detector 2 always runs: one guard masking another's report is how a second
+    # defect ships behind a first.
+    base_sha, base_sha_failures = resolve_review_base(base_ref)
+    if base_sha_failures or base_sha is None:
+        print("[require-null-deref] FAIL cannot resolve the review base needed to grade "
+              "either baseline's growth (GS-AUDIT-TEST-003):")
+        for line in (base_sha_failures or ["the review base did not resolve."]):
+            print(f"  {line}")
+        base_growth_status = 1
+    else:
+        differs, differ_failures = detector_differs_from_base(base_sha)
+        if differ_failures:
+            print(f"[require-null-deref] FAIL cannot compare this script against the "
+                  f"review base {base_sha[:12]}:")
+            for line in differ_failures:
+                print(f"  {line}")
+            base_growth_status = 1
+        else:
+            base_growth_status = 0
+            size_index_prints, _size_index_scan_errors = scan_size_index_fingerprints()
+            for label, current_prints, baseline_path, issue, scan_kind in (
+                ("require-null-deref", found_prints, BASELINE_PATH, BASELINE_ISSUE, "null_deref"),
+                ("size-then-index", size_index_prints, SIZE_INDEX_BASELINE_PATH, SIZE_INDEX_ISSUE, "size_index"),
+            ):
+                new_relative, growth_failures, introduced = _baseline_growth_vs_base(
+                    current_prints, baseline_path, base_sha, differs, scan_kind
+                )
+                if growth_failures:
+                    print(f"[{label}] FAIL cannot grade {baseline_path.name} against the "
+                          f"review base {base_sha[:12]}:")
+                    for line in growth_failures:
+                        print(f"  {line}")
+                    base_growth_status = 1
+                elif introduced:
+                    print(f"[{label}] NOTE {baseline_path.name} is absent at review base "
+                          f"{base_sha[:12]}: this change introduces it, so there is no "
+                          f"shrink-only reference for the review-base comparison this run.")
+                elif new_relative:
+                    total_new = sum(len(v) for v in new_relative.values())
+                    print(f"[{label}] FAIL {total_new} fingerprint(s) NEW relative to review "
+                          f"base {base_sha[:12]}. Comparing against the WORKING TREE baseline "
+                          f"alone cannot see this: a change that adds a violation and its "
+                          f"baseline entry in the same commit would grade itself. ({issue})")
+                    for name in sorted(new_relative):
+                        for fp in new_relative[name]:
+                            print(f"    {name}: {fp}")
+                    base_growth_status = 1
+                else:
+                    print(f"[{label}] PASS 0 new relative to review base {base_sha[:12]}.")
+
+    return status or size_status or base_growth_status
 
 
 if __name__ == "__main__":

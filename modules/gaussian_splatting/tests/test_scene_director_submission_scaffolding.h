@@ -8,6 +8,7 @@
 #include "../core/gs_project_settings.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 #include "../nodes/gaussian_splat_world_3d.h"
+#include "../interfaces/gpu_sorting_pipeline.h" // #980: SortBufferHandles / get_buffer_handles()
 #include "../renderer/quantization_config.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
@@ -1211,6 +1212,330 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	memdelete(node);
 	tree->process(0.0);
 	g_quantization_config = saved_quantization_config;
+}
+
+// #980 -- a runtime sorting-config reload (or any other sorter rebuild) must keep the resident
+// instance route rendering, and the published instance contract must be told about it.
+//
+// DEFECT (reproduced on an RTX 3090 / Vulkan at 7dd6f9e6606 with a real-scan asset under a
+// GaussianSplatNode3D: 201 identical failures in the 200 frames after the call, visible_splats
+// 0 for the rest of the session). GaussianSplatRenderer::reload_gpu_sorting_config_from_
+// project_settings() marks the sorter dirty and calls refresh_gpu_sorter(); GPUSortingPipeline::
+// rebuild_sorter() then frees and reallocates the pipeline-owned sort buffers (manage_buffers),
+// but the resident instance contract keeps COPIES of the old RIDs (the resident publisher takes
+// them from get_buffer_handles() at publish time) and the per-frame sort stage copies the
+// contract into the pipeline's instance inputs. The instance depth pass then binds a freed
+// buffer at binding 6 on every frame ("Storage buffer supplied (binding: 6) is invalid"), the
+// sort route reports COMMON.SKIP.NO_VISIBLE and nothing renders. The resident publisher never
+// republishes: its skip condition sees an unchanged source generation and freed-but-nonzero
+// RIDs. The same funnel serves set_max_splats(), set_quality_preset() (refresh deferred to the
+// next sort), the forced-algorithm override and the sort benchmarks, so reload is only the
+// cheapest trigger.
+//
+// WHAT IT ASSERTS, on the same resident fixture as the quantization case above (proven to render
+// on a real device):
+//   1. a healthy control frame, and the contract's sort buffers equal the pipeline's handles;
+//   2. after reload with NO setting changed, FIVE consecutive frames each render with visible
+//      splats and a non-skipped sort route -- several frames, so a fix that survives one frame
+//      and decays still fails;
+//   3. the pipeline's sort buffers differ from the pre-reload ones (the reload really
+//      reallocated: it moves the pipeline from the publisher's owned buffers to the GPU buffer
+//      manager's), the contract's sort RIDs equal the pipeline's CURRENT handles, and the
+//      instance-pipeline content
+//      generation MOVED. Visible splats prove the depth pass got good RIDs; the generation
+//      proves the record became honest. A fix that patches the RIDs but leaves the
+//      change-detector stable passes the first and fails the second;
+//   4. the same for the DEFERRED trigger set_quality_preset(): its rebuild is serviced before the
+//      instance route is gated on it (render_sorting_orchestrator.cpp, sort_gaussians_for_view),
+//      observable as the pipeline's sorter capacity reaching the preset's max_splats. Before this
+//      fix the flag was serviced only below the available_splats == 0 exit, which the resident
+//      route always takes, so the instance route stayed gated and the sort reported
+//      COMMON.SKIP.NO_VISIBLE for the rest of the session -- a second, pre-existing hole;
+//   5. (#984 review round 1) the fixture publishes a requirement of 250,001, ONE above the
+//      performance preset's budget; after every trigger (and after set_max_splats(8)) the sorter,
+//      the buffers and the contract must still be sized for the PUBLISHED requirement and the
+//      frame must show the same splats as the control -- the refresh sizes from the requirement,
+//      not from the single-instance budget, so the republish never clamps the contract.
+// Pre-fix: phase 2 fails on the first post-reload frame (visible_splats=0,
+// sort_route_uid=COMMON.SKIP.NO_VISIBLE). With the republish deleted the same, plus the named
+// stale_sort_buffer_handles diagnostic in the log; with the generation move deleted, phase 3's
+// generation assertion fails alone.
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Runtime sorting-config reload keeps the resident instance route rendering and republishes the sort buffers (#980)") {
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case - the harness is required to provide one");
+		return;
+	}
+
+	SceneTree *tree = SceneTree::get_singleton();
+	if (tree == nullptr || tree->get_root() == nullptr) {
+		FAIL("SceneTree unavailable in a [SceneTree] case - the harness is required to provide one");
+		return;
+	}
+	Window *root = tree->get_root();
+
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings == nullptr) {
+		FAIL("ProjectSettings unavailable - the engine bootstrap always provides one");
+		return;
+	}
+	ProjectSettingGuard route_guard(project_settings, "rendering/gaussian_splatting/streaming/route_policy");
+	ProjectSettingGuard instance_guard(project_settings, "rendering/gaussian_splatting/instance_pipeline/enabled");
+	project_settings->set_setting("rendering/gaussian_splatting/streaming/route_policy",
+			int64_t(gs::settings::GS_ROUTE_RESIDENT));
+	project_settings->set_setting("rendering/gaussian_splatting/instance_pipeline/enabled", true);
+	project_settings->emit_signal("settings_changed");
+
+	// Same fixture as the quantization case above: it is the resident configuration proven to
+	// produce rendered output under --gs-gpu-test (#719/#745).
+	const QuantizationConfig saved_quantization_config = g_quantization_config;
+	g_quantization_config.per_chunk_quantization = true;
+	g_quantization_config.position_bits = 16;
+	g_quantization_config.scale_bits = 12;
+	g_quantization_config.quantize_scales = false;
+
+	constexpr uint32_t FIXTURE_SPLATS = 250001u;
+	Ref<GaussianSplatWorld> world_resource;
+	world_resource.instantiate();
+	Ref<GaussianData> data = stage1a_make_submission_test_data(int(FIXTURE_SPLATS), 0.0f);
+	world_resource->set_gaussian_data(data);
+	// One chunk indexing ALL splats (x = 0..FIXTURE_SPLATS-1): the published sort requirement
+	// becomes FIXTURE_SPLATS (1 instance x 1 chunk x that many chunk splats) -- ONE above the
+	// 250,000 budget set_quality_preset("performance") applies, which is exactly the review's
+	// scenario: the publisher records its generation first, the deferred refresh must not then
+	// rebuild the sorter below the requirement. Only the splats near the origin are in the
+	// frustum (camera at z=5, 70 degrees).
+	Vector<GaussianSplatRenderer::StaticChunk> chunks;
+	GaussianSplatRenderer::StaticChunk full_chunk;
+	full_chunk.bounds = AABB(Vector3(-0.5f, -0.5f, -0.5f), Vector3(float(FIXTURE_SPLATS), 1.0f, 1.0f));
+	full_chunk.center = full_chunk.bounds.get_center();
+	full_chunk.radius = full_chunk.bounds.size.length() * 0.5f;
+	for (uint32_t i = 0; i < FIXTURE_SPLATS; i++) {
+		full_chunk.indices.push_back(i);
+	}
+	chunks.push_back(full_chunk);
+	world_resource->set_static_chunks(chunks);
+
+	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
+	node->set_auto_apply_on_ready(false);
+	node->set_world(world_resource);
+	root->add_child(node);
+	tree->process(0.0);
+	node->apply_world();
+
+	auto teardown = [&]() {
+		root->remove_child(node);
+		memdelete(node);
+		tree->process(0.0);
+		g_quantization_config = saved_quantization_config;
+	};
+
+	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+	if (!renderer.is_valid()) {
+		FAIL("Premise failed: the world node has no renderer under a real RenderingDevice");
+		teardown();
+		return;
+	}
+	renderer->test_release_current_streaming_system();
+
+	RenderSceneDataRD scene_data;
+	scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
+	scene_data.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	RenderDataRD render_data;
+	render_data.scene_data = &scene_data;
+	render_data.render_buffers = Ref<RenderSceneBuffersRD>();
+
+	// ---- Phase 1: healthy control. ----
+	renderer->render_scene_instance(&render_data);
+	if (!renderer->has_instance_pipeline_buffers() ||
+			renderer->get_instance_backend_policy() != GaussianRenderPipeline::InstanceBackendPolicy::RESIDENT ||
+			!renderer->has_rendered_content() || renderer->get_visible_splat_count() == 0) {
+		FAIL("Premise failed: the resident fixture did not render before any trigger (has_buffers=",
+				renderer->has_instance_pipeline_buffers(), " resident=",
+				renderer->get_instance_backend_policy() == GaussianRenderPipeline::InstanceBackendPolicy::RESIDENT,
+				" rendered=", renderer->has_rendered_content(), " visible=", renderer->get_visible_splat_count(),
+				"); the fixture, not the reload path, is at fault");
+		teardown();
+		return;
+	}
+	Ref<GPUSortingPipeline> sorting_pipeline = renderer->get_subsystem_state().sorting_pipeline;
+	if (sorting_pipeline.is_null()) {
+		FAIL("Premise failed: no sorting pipeline on the resident renderer");
+		teardown();
+		return;
+	}
+	auto contract_matches_pipeline = [&]() {
+		const GaussianRenderPipeline::InstancePipelineBuffers &published = renderer->get_instance_pipeline_buffers();
+		const SortBufferHandles handles = sorting_pipeline->get_buffer_handles();
+		return handles.valid && published.sort_key_buffer == handles.keys_buffer &&
+				published.sort_value_buffer == handles.indices_buffer;
+	};
+	CHECK_MESSAGE(contract_matches_pipeline(), "Premise: the published contract and the pipeline agree on the sort buffers before any trigger");
+	auto republish_count = [&]() -> int64_t {
+		return int64_t(renderer->get_render_stats().get("instance_sort_buffer_republishes", int64_t(-1)));
+	};
+	auto dump_state = [&](const String &p_label) {
+		const GaussianRenderPipeline::InstancePipelineBuffers &published = renderer->get_instance_pipeline_buffers();
+		const SortBufferHandles handles = sorting_pipeline->get_buffer_handles();
+		MESSAGE("[#980 state] ", p_label, ": pipeline keys=", handles.keys_buffer.get_id(), " values=", handles.indices_buffer.get_id(),
+				" capacity=", handles.capacity, " | contract keys=", published.sort_key_buffer.get_id(), " values=",
+				published.sort_value_buffer.get_id(), " max_visible_splats=", published.max_visible_splats,
+				" | content_generation=", renderer->get_instance_pipeline_content_generation(), " republishes=", republish_count(),
+				" sorter_capacity=", sorting_pipeline->get_max_elements(), " manager_capacity=",
+				(renderer->get_resource_state().buffer_manager.is_valid() ? renderer->get_resource_state().buffer_manager->get_buffer_capacity() : 0u),
+				" buffer_manager_initialized=", renderer->get_resource_state().buffer_manager_initialized,
+				" visible=", renderer->get_visible_splat_count(), " max_splats=", renderer->get_max_splats());
+	};
+	dump_state("after the healthy control frame");
+	const uint32_t visible_control = renderer->get_visible_splat_count();
+	const uint32_t published_requirement = renderer->get_instance_pipeline_buffers().max_visible_splats;
+	if (published_requirement <= 250000u) {
+		FAIL("Premise failed: the fixture did not publish a sort requirement above the performance preset's budget of 250,000 (got ",
+				published_requirement, "); the review scenario could not be provoked");
+		teardown();
+		return;
+	}
+
+	// Drives p_frames frames after a trigger and checks every one of them, then the record.
+	// p_expect_reallocation: the trigger must leave the pipeline on DIFFERENT sort buffers (the
+	// reload does: it moves the pipeline from the publisher's owned buffers to the GPU buffer
+	// manager's). p_min_sorter_capacity_after: the trigger must leave the pipeline's sorter at
+	// least this large (the deferred preset does: max_splats 250000). Two different observables
+	// because the resident publisher may itself republish within a frame and the buffer
+	// manager's external buffers are re-adopted after a rebuild, so end-state RIDs alone cannot
+	// tell a serviced rebuild from an unserviced one; the sorter capacity can.
+	// #984 review round 1: after ANY trigger the instance route must still be sized for the
+	// PUBLISHED requirement -- sorter, buffers and the contract itself -- and show the same
+	// splats as the control. The refresh used to size the sorter from the single-instance
+	// max_splats budget; when that is below the requirement the republish clamped the contract
+	// and the resident publisher's fast path kept it there.
+	auto check_requirement_held = [&](const String &p_trigger) {
+		const GaussianRenderPipeline::InstancePipelineBuffers &published = renderer->get_instance_pipeline_buffers();
+		const SortBufferHandles handles = sorting_pipeline->get_buffer_handles();
+		INFO("#984 REVIEW REGRESSION: after ", p_trigger, " the instance route dropped below its published requirement (sorter capacity ",
+				sorting_pipeline->get_max_elements(), ", buffers ", handles.capacity, ", contract max_visible_splats ",
+				published.max_visible_splats, ", requirement ", published_requirement, ", visible ", renderer->get_visible_splat_count(),
+				" vs control ", visible_control, "): the refresh sized the sorter from the single-instance budget and the republish clamped the contract");
+		CHECK(sorting_pipeline->get_max_elements() >= published_requirement);
+		CHECK(handles.capacity >= published_requirement);
+		CHECK(published.max_visible_splats == published_requirement);
+		CHECK(renderer->get_visible_splat_count() == visible_control);
+	};
+	auto drive_and_check = [&](const String &p_trigger, int p_frames, const RID &p_pipeline_keys_before, uint64_t p_generation_before,
+									int64_t p_republishes_before, bool p_expect_reallocation, uint32_t p_min_sorter_capacity_after) {
+		for (int frame = 1; frame <= p_frames; frame++) {
+			renderer->render_scene_instance(&render_data);
+			const uint32_t visible = renderer->get_visible_splat_count();
+			const Dictionary stats = renderer->get_render_stats();
+			const String sort_route = stats.get("sort_route_uid", String());
+			const bool rendered = renderer->has_rendered_content() && visible > 0 &&
+					sort_route != String("COMMON.SKIP.NO_VISIBLE");
+			INFO("#980 REGRESSION: frame ", frame, " after ", p_trigger, " did not render (visible_splats=", visible,
+					" sort_route_uid=", sort_route, " has_rendered_content=", renderer->has_rendered_content(),
+					" visible_after_culling=", int64_t(stats.get("visible_after_culling", int64_t(-1))),
+					" cull_route_uid=", String(stats.get("cull_route_uid", String())),
+					" stage_cull_reason=", String(stats.get("stage_cull_reason", String())),
+					"): with a stale contract the instance depth pass binds sort buffers the sorter rebuild freed");
+			CHECK(rendered);
+		}
+		const GaussianRenderPipeline::InstancePipelineBuffers &published = renderer->get_instance_pipeline_buffers();
+		const SortBufferHandles handles = sorting_pipeline->get_buffer_handles();
+		{
+			INFO("After ", p_trigger, " the published contract's sort buffers are not the pipeline's current buffers (contract keys=",
+					published.sort_key_buffer.get_id(), " pipeline keys=", handles.keys_buffer.get_id(),
+					" contract values=", published.sort_value_buffer.get_id(), " pipeline values=", handles.indices_buffer.get_id(),
+					"): the record is stale");
+			CHECK(handles.valid);
+			CHECK(published.sort_key_buffer == handles.keys_buffer);
+			CHECK(published.sort_value_buffer == handles.indices_buffer);
+		}
+		if (p_expect_reallocation) {
+			INFO("Premise: ", p_trigger, " did not reallocate the pipeline's sort buffers (keys ", p_pipeline_keys_before.get_id(),
+					" -> ", handles.keys_buffer.get_id(), "), so this phase exercised nothing");
+			CHECK(handles.keys_buffer != p_pipeline_keys_before);
+		}
+		if (p_min_sorter_capacity_after > 0) {
+			INFO("Premise: ", p_trigger, " did not get its sorter rebuild serviced (pipeline sorter capacity ",
+					sorting_pipeline->get_max_elements(), " < ", p_min_sorter_capacity_after,
+					"): the deferred rebuild went around the funnel instead of through it");
+			CHECK(sorting_pipeline->get_max_elements() >= p_min_sorter_capacity_after);
+		}
+		{
+			// The record's change-detector must move exactly when the record was republished:
+			// the reload republishes exactly once (its RIDs change); the deferred trigger
+			// republishes whenever the rebuild left the pipeline on different buffers than the
+			// contract held at that moment (the resident publisher can itself republish within
+			// the frame, so the count is what pairs with the generation, not end-state RIDs).
+			const uint64_t generation_after = renderer->get_instance_pipeline_content_generation();
+			const int64_t republishes_after = republish_count();
+			INFO("After ", p_trigger, " the instance-pipeline content generation did not follow the record (republishes ",
+					p_republishes_before, " -> ", republishes_after, ", generation ", p_generation_before, " -> ", generation_after,
+					"): the contract's sort buffers were republished but its change-detector says nothing changed, or the reverse");
+			// One direction only: the resident publisher writes the same generation on its own
+			// republishes, so "generation moved" does not imply "this fix republished".
+			if (republishes_after > p_republishes_before) {
+				CHECK(generation_after != p_generation_before);
+			}
+			if (p_expect_reallocation) {
+				INFO("The reload must republish the contract exactly once (republishes ", p_republishes_before, " -> ", republishes_after, ")");
+				CHECK(republishes_after == p_republishes_before + 1);
+			}
+		}
+	};
+
+	// ---- Phase 2: the reload, with NO setting changed. ----
+	const RID keys_before_reload = sorting_pipeline->get_buffer_handles().keys_buffer;
+	const uint64_t generation_before_reload = renderer->get_instance_pipeline_content_generation();
+	const int64_t republishes_before_reload = republish_count();
+	CHECK_MESSAGE(republishes_before_reload == 0, "Premise: no contract republish happened before the first trigger");
+	renderer->reload_gpu_sorting_config_from_project_settings();
+	dump_state("right after reload (before any frame)");
+	drive_and_check(String("reload_gpu_sorting_config_from_project_settings()"), 5, keys_before_reload, generation_before_reload,
+			republishes_before_reload, true, 0u);
+	check_requirement_held(String("reload_gpu_sorting_config_from_project_settings()"));
+	dump_state("after 5 frames post-reload");
+
+	// ---- Phase 3: the DEFERRED trigger; its rebuild runs on the next sort. ----
+	// set_quality_preset("performance") also raises the LOD bias and switches culling
+	// knobs, which on this 32-splat fixture cull everything by themselves. Those knobs are
+	// restored right after the call so the only effect left is the one under test: the
+	// sorter rebuild it armed (sorter_needs_rebuild), which lands in refresh_gpu_sorter()
+	// from sort_gaussians_for_view() on the next frame -- inside the funnel, after this
+	// frame's stage copy of the contract.
+	const RID keys_before_preset = sorting_pipeline->get_buffer_handles().keys_buffer;
+	const uint64_t generation_before_preset = renderer->get_instance_pipeline_content_generation();
+	const int64_t republishes_before_preset = republish_count();
+	const bool lod_enabled_before = renderer->get_lod_enabled();
+	const float lod_bias_before = renderer->get_lod_bias();
+	const bool frustum_culling_before = renderer->get_frustum_culling();
+	renderer->set_quality_preset("performance");
+	renderer->set_lod_enabled(lod_enabled_before);
+	renderer->set_lod_bias(lod_bias_before);
+	renderer->set_frustum_culling(frustum_culling_before);
+	dump_state("right after set_quality_preset (before any frame)");
+	drive_and_check(String("set_quality_preset(\"performance\") (refresh deferred to the next sort)"), 5, keys_before_preset,
+			generation_before_preset, republishes_before_preset, false, 250000u);
+	check_requirement_held(String("set_quality_preset(\"performance\") (budget 250,000 below the published requirement)"));
+	dump_state("after 5 frames post-preset");
+
+	// ---- Phase 4 (#984 review round 1): a refresh must never rebuild below the PUBLISHED requirement. ----
+	// set_max_splats() refreshes immediately with the single-instance budget, here 8, while the
+	// published requirement is 32. The sorter and the buffers must stay at >= 32, the contract
+	// must not be clamped, and the frame must show the same splats as the control. Round-1
+	// head: the sorter was rebuilt at 8 and, once the GPU buffer manager followed the budget,
+	// the republish clamped the contract to the manager's capacity -- permanently, because the
+	// resident publisher's fast path sees an unchanged source generation and valid RIDs.
+	const RID keys_before_budget = sorting_pipeline->get_buffer_handles().keys_buffer;
+	const uint64_t generation_before_budget = renderer->get_instance_pipeline_content_generation();
+	const int64_t republishes_before_budget = republish_count();
+	renderer->set_max_splats(8);
+	dump_state("right after set_max_splats(8)");
+	drive_and_check(String("set_max_splats(8) (single-instance budget far below the published requirement)"), 5, keys_before_budget,
+			generation_before_budget, republishes_before_budget, false, 0u);
+	check_requirement_held(String("set_max_splats(8)"));
+	dump_state("after 5 frames post-budget");
+
+	teardown();
 }
 
 // #702 -- the local-device instance cull must publish THIS frame's counter

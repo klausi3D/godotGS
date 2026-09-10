@@ -375,16 +375,32 @@
       "passed": true,
       "scene": "res://scenes/qa/qa_sh_rotation_instance.tscn",
       "skipped": false
+    },
+    {
+      "message": "All 3 composite configurations present (variance floor 0.0010): depth_true_scale_100 var=0.008760, depth_true_scale_075 var=0.008731, depth_false_scale_075 var=0.008731",
+      "metrics": {
+        "composite_configs_absent": 0,
+        "composite_configs_measured": 3,
+        "composite_depth_false_scale_075_luma_variance": 0.00873147076448799,
+        "composite_depth_false_scale_075_present_ratio": 1.0,
+        "composite_depth_true_scale_075_luma_variance": 0.00873147076448799,
+        "composite_depth_true_scale_075_present_ratio": 1.0,
+        "composite_depth_true_scale_100_luma_variance": 0.00875965922596478,
+        "composite_depth_true_scale_100_present_ratio": 1.0
+      },
+      "passed": true,
+      "scene": "res://scenes/qa/qa_composite_production_defaults.tscn",
+      "skipped": false
     }
   ],
   "summary": {
     "duration_s": 157.529,
     "end_time": 170.908,
     "failed": 0,
-    "passed": 9,
+    "passed": 10,
     "quarantined": 5,
     "skipped": 0,
     "start_time": 13.379,
-    "total_tests": 9
+    "total_tests": 10
   }
 }

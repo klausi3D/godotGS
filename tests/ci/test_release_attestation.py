@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import tempfile
 import unittest
@@ -31,8 +33,14 @@ class ReleaseAttestationTests(unittest.TestCase):
         (self.payload / "linux" / "BUILD-INFO.txt").write_text(f"commit={COMMIT}\n", encoding="utf-8")
         self.attestation = self.tmp / "att" / "release-attestation.json"
 
+    @staticmethod
+    def _run_main(args: list[str]) -> int:
+        """Keep expected negative-path diagnostics out of the enclosing CI log."""
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return attest.main(args)
+
     def _generate(self, commit: str = COMMIT) -> int:
-        return attest.main(
+        return self._run_main(
             [
                 "generate",
                 "--root", str(self.payload),
@@ -52,7 +60,7 @@ class ReleaseAttestationTests(unittest.TestCase):
         ]
         for rel in require or []:
             args += ["--require", rel]
-        return attest.main(args)
+        return self._run_main(args)
 
     def test_generate_then_verify_passes(self) -> None:
         self.assertEqual(0, self._generate())
@@ -67,7 +75,7 @@ class ReleaseAttestationTests(unittest.TestCase):
     def test_refuses_to_attest_empty_payload(self) -> None:
         empty = self.tmp / "empty"
         empty.mkdir()
-        rc = attest.main(
+        rc = self._run_main(
             ["generate", "--root", str(empty), "--commit", COMMIT, "--output", str(self.attestation)]
         )
         self.assertEqual(1, rc)

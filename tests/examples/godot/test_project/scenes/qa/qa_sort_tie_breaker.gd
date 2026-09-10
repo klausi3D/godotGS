@@ -6,28 +6,32 @@ extends "res://scripts/qa_test_base.gd"
 @export var capture_samples: int = 5
 @export var ssim_stability_threshold: float = 0.98
 
-## WHY THIS SCENE RECORDS A WINNER INSTEAD OF ASSERTING ONE
+const EXPECTED_TIE_BREAK_WINNER := "red"
+const OPAQUE_LOGIT := 8.0
+const MINIMUM_TIE_BREAK_MARGIN := 5.0 / 255.0
+
+## WHY RED IS THE EXPECTED WINNER
 ##
 ## Stability alone cannot fail this test: both splats occupy the same position,
 ## so a tie-break that is reversed, ignored, or resolved by a consistent emit
 ## order still produces identical frames and still scores SSIM 1.0. That gap is
 ## real and was raised in review.
 ##
-## The obvious fix — assert the expected winner — was tried and the premise did
-## not survive contact. tile_binning.glsl packs the key as
-## `(depth_quant << 8) | (global_idx & 0xFF)`, i.e. equal depths order by
-## ascending index, which suggests the higher index (green) composites last and
-## should dominate. The render disagrees: the centre pixel measures r=0.125
-## g=0.118 — red ahead, and by only ~6% because both splats are semi-transparent
-## and the centre is a BLEND rather than a winner-takes-all pixel.
+## #792 traced the production 64-bit path end to end: equal depths sort by
+## ascending global index, the rasterizer traverses the sorted range from index
+## zero upward, and front-to-back remaining-alpha accumulation gives the first
+## contributor priority. Index 0 is red, so red must win.
 ##
-## Rather than flip the constant until the test passes — which would assert
-## whichever behaviour happens to exist while looking like a contract — the
-## observed winner is recorded as a metric and pinned by the committed QA
-## baseline. A reversed tie-break flips `tie_break_winner` from "red" to
-## "green", and the baseline's exact-match comparison fails. That catches the
-## regression under review without claiming to know which direction is
-## intended. Determining the intended order is filed separately.
+## The fixture must set opacity explicitly. set_splat_count() creates a complete
+## opacity-logit lane initialized to zero, which decodes to 0.5 and takes
+## precedence over Color.a. Relying on Color(..., 1.0) therefore made both
+## splats semi-transparent and left only a one- or two-LSB presented-image
+## margin. A high finite logit makes the pair effectively opaque without using
+## infinities; the rasterizer clamps the resulting alpha to its normal 0.99
+## ceiling. The corrected fixture measures eight 8-bit channel steps locally;
+## require at least five so a weak but directionally correct signal fails in
+## the scene itself. The committed baseline remains a second guard, while the
+## scene asserts both the approved direction and a non-trivial signal directly.
 
 var splat_node: GaussianSplatNode3D
 var captured_images: Array[Image] = []
@@ -54,10 +58,12 @@ func _on_test_start():
 	var positions := PackedFloat32Array([0.0, 0.0, -1.5, 0.0, 0.0, -1.5])
 	var colors := PackedColorArray([Color(1.0, 0.0, 0.0, 1.0), Color(0.0, 1.0, 0.0, 1.0)])
 	var scales := PackedFloat32Array([0.7, 0.7, 0.7, 0.7, 0.7, 0.7])
+	var opacity_logits := PackedFloat32Array([OPAQUE_LOGIT, OPAQUE_LOGIT])
 
 	asset.set_positions(positions)
 	asset.set_colors(colors)
 	asset.set_scales(scales)
+	asset.set_opacity_logits(opacity_logits)
 
 	splat_node.splat_asset = asset
 	captured_images.clear()
@@ -94,10 +100,10 @@ func _on_test_complete():
 	# comparison still reports 1.0. A reversed tie-break would have been
 	# invisible to this scene.
 	#
-	# The key packing suggests green should dominate, but the measured composite
-	# is a red-leading blend. The intended winner is unresolved (#792), so record
-	# the observed direction and margin instead of asserting one here; the
-	# committed baseline makes either a reversal or a signal collapse visible.
+	# #792 established that ascending global index is traversed first by the
+	# front-to-back rasterizer. Index 0 is red, so record the observed direction
+	# and margin and assert red directly. The committed baseline independently
+	# catches a collapse in the strength of that ordering signal.
 	var winner_image: Image = captured_images[captured_images.size() - 1]
 	var center := Vector2i(winner_image.get_width() / 2, winner_image.get_height() / 2)
 	var center_color := winner_image.get_pixel(center.x, center.y)
@@ -109,7 +115,8 @@ func _on_test_complete():
 	elif channel_delta < 0.0:
 		winner = "red"
 	result_metrics["tie_break_winner"] = winner
-	result_metrics["tie_break_margin"] = absf(channel_delta)
+	var tie_break_margin := absf(channel_delta)
+	result_metrics["tie_break_margin"] = tie_break_margin
 
 	var min_ssim = 1.0
 	var sum_ssim = 0.0
@@ -147,5 +154,18 @@ func _on_test_complete():
 	result_metrics["ssim_min"] = min_ssim
 	result_metrics["ssim_avg"] = avg_ssim
 
-	_test_result = min_ssim >= ssim_stability_threshold
-	_test_message = "SSIM min=%.4f avg=%.4f" % [min_ssim, avg_ssim]
+	var ordering_matches := winner == EXPECTED_TIE_BREAK_WINNER
+	var margin_sufficient := tie_break_margin >= MINIMUM_TIE_BREAK_MARGIN
+	_test_result = min_ssim >= ssim_stability_threshold and ordering_matches and margin_sufficient
+	if not ordering_matches:
+		_test_message = "Wrong equal-depth order: expected %s, observed %s (margin=%.6f)" % [
+			EXPECTED_TIE_BREAK_WINNER, winner, tie_break_margin
+		]
+	elif not margin_sufficient:
+		_test_message = "Equal-depth ordering signal too weak: margin=%.6f minimum=%.6f" % [
+			tie_break_margin, MINIMUM_TIE_BREAK_MARGIN
+		]
+	else:
+		_test_message = "SSIM min=%.4f avg=%.4f; tie-break winner=%s margin=%.6f" % [
+			min_ssim, avg_ssim, winner, tie_break_margin
+		]

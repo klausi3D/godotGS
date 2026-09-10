@@ -13,20 +13,45 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The `build_linux_export_template` / `build_windows_export_template` jobs (#825) upload export templates as **artifacts only** — they are deliberately not wired into `release_candidate_gate` or `publish_release`; see [export templates](../../docs/development/export-templates.md). |
-| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
 
 `agentic-pr-gate` (the job name in `agentic_pr_gate.yml`, shown in the PR checks UI
-as `Agentic PR Gate / agentic-pr-gate`) is the fork-safe, always-on blocking check
-intended for `master` branch protection (see `docs/governance/github-settings.md`,
-added by a sibling PR in this foundation series).
+as `Agentic PR Gate / agentic-pr-gate`) **is** a required status check on `master`,
+and it is the **only** one. Live protection, read back with
+`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-08-14:
+`contexts: ["agentic-pr-gate"]`, `strict: false`, `enforce_admins: true`,
+`required_conversation_resolution: true`, `required_approving_review_count: 0`, force
+pushes and branch deletion blocked, no rulesets. See
+`docs/governance/github-settings.md` for the full table. An earlier revision of this
+section described the check as merely *intended* for branch protection; it was
+already live (`GS-AUDIT-DOC-003`).
+
+Because `enforce_admins` is `true` and this is the only required context, a broken
+edit to `agentic_pr_gate.yml` blocks every merge in the repository, including its own
+fix. Every other lane — GPU, runtime, visual, release — is advisory at the merge
+boundary.
+
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
 without touching the self-hosted lanes. It runs:
 
-- `python scripts/agentic/validate_repo_contract.py`
-- the `scripts/agentic` contract validators against the shipped templates
+- `python tests/ci/test_validate_automation.py -v` followed by
+  `python tests/ci/validate_automation.py --contracts-only` after installing the
+  version-and-hash-pinned PyYAML dependency; the validator derives and parses
+  every `*.yml` and `*.yaml` workflow, and fails closed if the parser or corpus
+  is absent, or if a document lacks a typed, non-empty top-level trigger or
+  `jobs` mapping
+- `python scripts/agentic/validate_repo_contract.py --strict-hierarchy` (the
+  `--strict-hierarchy` flag also requires the AGENTS.md hierarchy and
+  `docs/governance/*`; without it those could all be deleted with the gate green)
+- the `scripts/agentic` contract validators as a **self-test against the shipped
+  templates** — fixtures, not this PR (see the limit below)
+- `python scripts/agentic/classify_change.py --base-ref <PR base> --format json
+  --github-step-summary` — derives the risk class from the PR's own diff on both
+  `pull_request` and `merge_group`, and fails the check when the base cannot be
+  resolved
 - `python -m unittest discover -s tests/agentic`
 - `python scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md AGENTS.md CLAUDE.md`
 - `python tests/ci/run_module_tests.py --guard-only` (GPU-free; the StringName guard
@@ -35,6 +60,16 @@ without touching the self-hosted lanes. It runs:
 The link check covers the full docs tree plus the root governance docs (only paths
 present in the tree are passed, so it is robust on partial trees and is the full-docs
 check on `master`).
+
+**Limit of what this gate enforces.** The risk class is enforced *from the diff*: an
+unresolvable base fails the check, and an empty changed-path set falls back to
+`classification.default_unclassified` (R3) rather than R0. The class's
+`evidence_requirements` and `deterministic_checks` are **published** to the job
+summary for the merging human, not verified. Per-PR **scope** (`owned_paths` /
+`forbidden_paths`) and evidence contracts are **not consumed by CI at all**, because
+the repository has no per-PR contract source — `check_pr_contract.py` only ever sees
+`.agentic/templates/task.json`. Wiring a contract source is the Phase-2
+contract-source ADR.
 
 ## Manual Dispatch Inputs
 
@@ -64,19 +99,30 @@ python tests/ci/check_renderer_release_gates.py --mode contract
 The same contract check is part of `tests/ci/run_module_tests.py --guard-only`,
 which is what the Gaussian Production Gates `guards` job runs. The contract check
 is deterministic and GPU-free. Public-alpha candidate mode
-requires the evidence bundle, a public-alpha channel/tag selector, and a live
-issue-label snapshot so P0, P1, and release-blocker issues cannot be bypassed by
-release notes or manual workflow choices. The workflow-policy
-portion of the checker validates required workflow files and job markers only;
+requires the evidence bundle, a public-alpha channel/tag selector, and a
+separate operator-supplied issue-label snapshot through `--issues-json` so P0,
+P1, and release-blocker rows cannot be replaced by a snapshot embedded in the
+bundle. The gate proves separate filesystem identity only; it does not
+machine-enforce the snapshot's GitHub provenance, completeness, capture time, or
+freshness. Live acquisition and those stronger guarantees remain owned by
+issue #360. The workflow-policy portion of the checker validates required
+workflow files and job markers only;
 the stronger no-downgrade workflow rules remain documented review policy until
 the checker grows a real GitHub Actions behavior parser.
 
 External checks are not automatically renderer release blockers. `qlty check`
 is currently documented in the manifest as a deferred, non-blocking external
-signal because `master` branch protection has no required status checks and the
-repo does not track a qlty configuration/log contract. If branch protection
-later requires qlty, update the manifest before treating a qlty result as part
-of public-alpha signoff.
+signal because `master` branch protection does **not** require it — the single
+required context is `agentic-pr-gate` (live state observed 2026-08-14, see
+[Required Checks](#required-checks) above) — and the repo does not track a qlty
+configuration/log contract. If branch protection later requires qlty, update the
+manifest before treating a qlty result as part of public-alpha signoff. Note that
+`docs/reference/renderer_release_gate_manifest.json` and
+`docs/reference/renderer-release-gates.md` still phrase this rationale as "master
+branch protection has no required status checks", which was true when it was written
+(2026-05-21) but is not true now; the qlty decision itself is unaffected, and
+correcting that wording is left to the release-gate owner rather than done from a
+CI-gate change.
 
 ### Fast-math finiteness guard (`finite_math_guard`)
 
@@ -116,8 +162,9 @@ that publish path (issue #593):
 - it fails the stable/candidate path unless **both** `build_linux` and
   `build_windows` succeeded (no Linux-only stable release);
 - it runs `check_renderer_release_gates.py --mode candidate` against a
-  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
-  a tag cannot publish without passing candidate validation;
+  public-alpha evidence bundle and a separate issue snapshot, and **fails closed**
+  when either file is absent, so a tag cannot publish without passing candidate
+  validation;
 - `publish_release` hard-depends on the gate and sets
   `fail_on_unmatched_files: true` for the stable channel;
 - it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
@@ -136,9 +183,10 @@ Windows runner outage cannot stall the nightly cadence.
 
 **Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
 #360), so the gate currently fails closed on every real `v*` tag. A maintainer
-cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
-`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
-`docs/reference/renderer-release-gates.md` for details.
+cutting a candidate must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. See `docs/reference/renderer-release-gates.md` for
+details.
 
 ## Runner Trust Boundary (fork PRs)
 
@@ -484,6 +532,8 @@ which brings it into the derived set automatically.
 ## Dependencies
 
 - Python 3.11
+- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
+  CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
 - SCons/build toolchain for compiled lanes
 - Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
 - Optional GPU evidence label `gpu` for the Windows evidence lane

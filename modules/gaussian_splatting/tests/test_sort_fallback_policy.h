@@ -241,4 +241,93 @@ TEST_CASE("[GaussianSplatting][SortFallback] sort-dispatch failures are counted,
 	CHECK_EQ(ok_counter, 0u);
 }
 
+// #586 FIX: the frame-reject verdict. The whole correctness decision is one pure
+// function; these lock which reasons reject and which are still presented.
+TEST_CASE("[GaussianSplatting][SortFallback] sorter-unavailable frames are rejected, transient reasons are presented (#586)") {
+	CHECK(unsorted_composite_must_reject_frame(UnsortedCompositeReason::SORTER_UNAVAILABLE));
+	CHECK(unsorted_composite_must_reject_frame(UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::NONE));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::SORT_DISPATCH_FAILED));
+	CHECK_FALSE(unsorted_composite_must_reject_frame(UnsortedCompositeReason::ASYNC_SORT_NOT_SUBMITTED));
+	// Fail closed: an enumerator the switch does not know is rejected, never presented.
+	CHECK(unsorted_composite_must_reject_frame(static_cast<UnsortedCompositeReason>(250)));
+	// The new pre-binning reason has a distinct, non-empty name for the log/telemetry.
+	CHECK(String(unsorted_composite_reason_name(UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE)).length() > 0);
+	CHECK(String(unsorted_composite_reason_name(UnsortedCompositeReason::GLOBAL_SORT_RESOURCES_UNAVAILABLE)) !=
+			String(unsorted_composite_reason_name(UnsortedCompositeReason::SORTER_UNAVAILABLE)));
+}
+
+// #586 FIX, as the property the choke point relies on: over the two pure inputs it
+// derives from, the ONLY (work, outcome) pair that rejects is "translucent work and no
+// sort was attempted" — the sorter did not exist. Every ordered outcome presents, the
+// transient failures present (counted), and no frame without work is ever rejected.
+TEST_CASE("[GaussianSplatting][SortFallback] the choke point rejects exactly the no-sorter frame (#586)") {
+	for (GlobalSortAttemptOutcome outcome : {
+				 GlobalSortAttemptOutcome::NOT_ATTEMPTED,
+				 GlobalSortAttemptOutcome::SUBMITTED,
+				 GlobalSortAttemptOutcome::SYNC_FALLBACK_OK,
+				 GlobalSortAttemptOutcome::SYNC_FALLBACK_FAILED,
+				 GlobalSortAttemptOutcome::NOT_SUBMITTED,
+		 }) {
+		const bool rejects_with_work =
+				unsorted_composite_must_reject_frame(classify_unsorted_composite(true, outcome));
+		CHECK_EQ(rejects_with_work, outcome == GlobalSortAttemptOutcome::NOT_ATTEMPTED);
+		CHECK_FALSE(unsorted_composite_must_reject_frame(classify_unsorted_composite(false, outcome)));
+	}
+	// The indirect (GPU-driven) work path is subject to the same verdict: CPU splat_count
+	// may read 0 while the instance indirect buffer describes real work.
+	const bool indirect_work = global_composite_has_translucent_work(false, 0, 0, true);
+	CHECK(unsorted_composite_must_reject_frame(
+			classify_unsorted_composite(indirect_work, GlobalSortAttemptOutcome::NOT_ATTEMPTED)));
+}
+
+// GPU-003 (refs #922): the sorter-init retry policy that replaced the one-way
+// "5 failures -> GPU sorting permanently disabled for the session" latch.
+// These lock the fix's contract: backoff grows per consecutive failure, is
+// capped, and NO failure count ever stops retrying.
+TEST_CASE("[GaussianSplatting][SortFallback] sorter-init backoff doubles per failure and caps (GPU-003)") {
+	CHECK_EQ(sorter_init_backoff_frames(0), 0u);
+	CHECK_EQ(sorter_init_backoff_frames(1), SORTER_INIT_BASE_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(2), SORTER_INIT_BASE_BACKOFF_FRAMES * 2);
+	CHECK_EQ(sorter_init_backoff_frames(3), SORTER_INIT_BASE_BACKOFF_FRAMES * 4);
+	CHECK_EQ(sorter_init_backoff_frames(4), SORTER_INIT_BASE_BACKOFF_FRAMES * 8);
+	CHECK_EQ(sorter_init_backoff_frames(5), SORTER_INIT_BASE_BACKOFF_FRAMES * 16);
+	// From here the cap takes over (60 << 5 = 1920 > 1800).
+	CHECK_EQ(sorter_init_backoff_frames(6), SORTER_INIT_MAX_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(100), SORTER_INIT_MAX_BACKOFF_FRAMES);
+	CHECK_EQ(sorter_init_backoff_frames(0xFFFFFFFFu), SORTER_INIT_MAX_BACKOFF_FRAMES);
+
+	// Monotonic non-decreasing and never above the cap.
+	uint64_t previous = 0;
+	for (uint32_t count = 1; count <= 64; count++) {
+		const uint64_t backoff = sorter_init_backoff_frames(count);
+		CHECK(backoff >= previous);
+		CHECK(backoff <= SORTER_INIT_MAX_BACKOFF_FRAMES);
+		previous = backoff;
+	}
+}
+
+TEST_CASE("[GaussianSplatting][SortFallback] sorter-init retry never latches off permanently (GPU-003)") {
+	// No failures -> always attempt.
+	CHECK(should_attempt_sorter_init(0, 0));
+
+	// Within a backoff window -> wait; at the boundary -> attempt.
+	CHECK_FALSE(should_attempt_sorter_init(1, SORTER_INIT_BASE_BACKOFF_FRAMES - 1));
+	CHECK(should_attempt_sorter_init(1, SORTER_INIT_BASE_BACKOFF_FRAMES));
+
+	// THE DEFECT THIS REPLACES: >= SORTER_INIT_DEGRADED_FAILURE_THRESHOLD
+	// failures used to disable retries for the whole session. Now every failure
+	// count, however large, retries once the capped probe interval has elapsed.
+	const uint32_t counts[] = { SORTER_INIT_DEGRADED_FAILURE_THRESHOLD, 6u, 100u, 1000000u, 0xFFFFFFFFu };
+	for (uint32_t count : counts) {
+		CHECK_FALSE(should_attempt_sorter_init(count, sorter_init_backoff_frames(count) - 1));
+		CHECK(should_attempt_sorter_init(count, SORTER_INIT_MAX_BACKOFF_FRAMES));
+	}
+
+	// Degradation is an observability threshold, not a retry stop.
+	CHECK_FALSE(sorter_init_degraded(SORTER_INIT_DEGRADED_FAILURE_THRESHOLD - 1));
+	CHECK(sorter_init_degraded(SORTER_INIT_DEGRADED_FAILURE_THRESHOLD));
+	CHECK(sorter_init_degraded(0xFFFFFFFFu));
+}
+
 } // namespace TestGaussianSplatting

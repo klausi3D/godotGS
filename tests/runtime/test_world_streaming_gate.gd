@@ -2,9 +2,10 @@ extends SceneTree
 
 # Runtime corridor-return gate for the large-world proof ladder.
 
-const SKIP_MARKER := "[RUNTIME_SKIP]"
-const FAIL_MARKER := "[RUNTIME_FAIL]"
-const METRICS_MARKER := "[RUNTIME_METRICS]"
+const GsRuntimeReport := preload("gs_runtime_report.gd")
+const SKIP_MARKER := GsRuntimeReport.SKIP_MARKER
+const FAIL_MARKER := GsRuntimeReport.FAIL_MARKER
+const METRICS_MARKER := GsRuntimeReport.METRICS_MARKER
 
 const ASSET_PATH := "res://tests/fixtures/test_splats.ply"
 const MAX_TEST_FRAMES := 300
@@ -14,6 +15,9 @@ const RETURN_SETTLE_FRAMES := 24
 const STREAMING_ROUTE_POLICY_PATH := "rendering/gaussian_splatting/streaming/route_policy"
 const STREAMING_ROUTE_RESIDENT := 0
 const STREAMING_ROUTE_STREAMING := 1
+
+# T3 (#891): registry name from GDS_TESTS in run_runtime_validation.py.
+var _report := GsRuntimeReport.new("World Streaming Gate")
 
 var scene_root: Node3D
 var world_node: GaussianSplatWorld3D
@@ -293,6 +297,7 @@ func _run() -> void:
         _restore_streaming_settings()
         quit(1)
         return
+    _report.ok()
 
     var passed := false
     var failure_reason := "World streaming gate did not reach long-walk return-path readiness within frame budget."
@@ -313,10 +318,14 @@ func _run() -> void:
         _sample_metrics(frame_idx)
         if _has_return_path_ready() and _is_gate_ready():
             passed = true
+            # T3 (#891): the corridor-return readiness gate is this scenario's
+            # terminal assertion.
+            _report.ok()
             break
 
     if passed:
         _emit_metrics("passed", "World streaming monitors stayed healthy across near and return phases.")
+        _report.emit_pass()
     else:
         _emit_metrics("failed", failure_reason)
         push_error("%s %s" % [FAIL_MARKER, failure_reason])

@@ -85,8 +85,16 @@ GATE_PATH = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 # [GpuSort] so they are SELECTED by the required GpuSorting batch, leaving the backlog
 # by executing rather than by being deleted or excused. ("GPU Sorting Performance",
 # a timing benchmark, is intentionally NOT retagged and remains in the backlog.)
-BACKLOG_MAX_ENTRIES = 66
-BACKLOG_FINGERPRINT = "570e67e0829d3323cac191da605623bad9a8367fd14b0ac892da2c8cb21a72ef"
+# Re-pinned by T4/#908 (legitimate SHRINK, 66 -> 63): the three test_gpu_streaming.h
+# cases ("GPU Memory Streaming", "GPU Memory Streaming Performance", "Stage-B instance
+# depth culling toggles") were retagged [GaussianSplatting][Streaming][RequiresGPU] so
+# the existing (advisory) Streaming batch's `*Streaming*][RequiresGPU]*` filter selects
+# them -- a tag-ORDER defect: the filter needs the token BEFORE `][RequiresGPU]`, and
+# the old names carried it only in the descriptive tail (or, for Stage-B, not at all).
+# They leave the backlog by executing rather than by being deleted or excused, per
+# ADR docs/architecture/adr-phase1-guard-hardening.md section 5.2.
+BACKLOG_MAX_ENTRIES = 63
+BACKLOG_FINGERPRINT = "f4998c2e91696c4a0ae11ab4f444f04d6f905f967d477b6684224fe66c09fae7"
 
 
 def _load(name: str, path: Path):

@@ -233,6 +233,15 @@ The ratchet only turns one way:
 * a baselined site that no longer exists FAILS as **stale**, with an instruction
   to lower the number, so the slack cannot be reoccupied.
 
+Because a site's fingerprint includes its enclosing case name, a **rename** of
+either the file or the case moves fingerprints while the site count stays
+identical. Both directions have a narrow, validated route and no other:
+`--rename OLD=NEW` for a moved file (rename_ledger), and
+`--retag-case FILE::OLD=NEW` for a **tag-only** `TEST_CASE` rename inside a
+live file (case_retag_ledger, #916) -- the latter refuses unless the file is
+byte-identical to the review base apart from the header substitution itself,
+so nothing else can ride along.
+
 `--write-baseline` regenerates the file **from this guard's own scan**, never by
 hand. It refuses to write any entry that would ADD a fingerprint (set inclusion,
 not net counts), so it cannot be used to launder a new skip into the baseline;
@@ -577,15 +586,22 @@ def fingerprint(kind: str, detail: str, case: str = FILE_SCOPE) -> str:
     to zero. If it ever must change, that is its own reviewed commit whose diff
     shows all 384 keys moving and says why.
     """
-    case_digest = hashlib.sha1(
-        _normalize(case).encode("utf-8"), usedforsecurity=False
-    ).hexdigest()[:10]
+    case_digest = _case_digest(case)
     if kind == "macro":
         return f"macro|{detail}|{case_digest}"
     digest = hashlib.sha1(
         _normalize(detail).encode("utf-8"), usedforsecurity=False
     ).hexdigest()[:10]
     return f"{kind}|{digest}|{case_digest}"
+
+
+def _case_digest(case: str) -> str:
+    """The case-name component of a fingerprint. See fingerprint() for the
+    SHA1/truncation rationale; this is factored out (unchanged bytes) so the
+    case-retag ledger can compute the SAME component when re-keying."""
+    return hashlib.sha1(
+        _normalize(case).encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:10]
 
 
 # A doctest case header. The name is the first string literal. Bounding a case
@@ -610,6 +626,47 @@ def _enclosing_case(bounds: list[tuple[int, str]], offset: int) -> str:
         else:
             break
     return owner
+
+
+def _case_names_in(text: str) -> set[str]:
+    """Every TEST_CASE name registered by this source, comment-stripped.
+
+    Stripped for the same reason the scanner strips: a commented-out header is
+    not a registered case, and the case-retag ledger's presence/absence checks
+    must answer about what doctest actually sees.
+    """
+    return {name for _, name in _case_bounds(strip_comments(text))}
+
+
+def _substitute_case_headers(text: str, renames: dict[str, str]) -> str:
+    """Rewrite TEST_CASE("<old>") name spans to their new names; nothing else.
+
+    Operates on the RAW text (comments included) because it feeds the case-retag
+    ledger's byte-identity check, which is deliberately stricter than the
+    scanner: the transformed base must equal the head byte-for-byte (modulo
+    newline encoding), so even a comment edit riding along fails the check.
+    """
+    out: list[str] = []
+    last = 0
+    for match in _CASE_RE.finditer(text):
+        if match.group(1) in renames:
+            start, end = match.span(1)
+            out.append(text[last:start])
+            out.append(renames[match.group(1)])
+            last = end
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _normalize_newlines(text: str) -> str:
+    """CRLF -> LF, for the byte-identity comparison only.
+
+    `_git()` decodes with universal newlines while the worktree file keeps
+    whatever the checkout wrote, so a raw comparison would fail on line endings
+    alone on Windows. Line endings cannot create, move or remove a skip site:
+    every fingerprint input passes through _normalize() first.
+    """
+    return text.replace("\r\n", "\n")
 
 
 def scan_source(
@@ -877,6 +934,7 @@ def build_baseline_document(
     found: dict[str, list[str]],
     previous: dict | None,
     new_renames: dict[str, str] | None = None,
+    new_case_retags: list[dict] | None = None,
 ) -> dict:
     """Render the on-disk baseline document from a scan result."""
     document = {
@@ -932,6 +990,20 @@ def build_baseline_document(
         "rename_ledger": (
             list((previous or {}).get("rename_ledger", []))
             + [{"from": old_key, "to": new_key} for old_key, new_key in sorted((new_renames or {}).items())]
+        ),
+        # Within-file TEST_CASE retags (tag-only renames), recorded by
+        # --write-baseline --retag-case. Same append-only, re-key-the-reference
+        # semantics as rename_ledger, one level down: the base comparison
+        # re-keys the affected fingerprints' case-hash component instead of a
+        # whole file key. Validated by resolve_case_retags() (#916).
+        "case_retag_ledger": (
+            list((previous or {}).get("case_retag_ledger", []))
+            + [
+                {"file": e["file"], "from": e["from"], "to": e["to"]}
+                for e in sorted(
+                    new_case_retags or [], key=lambda e: (e["file"], e["from"])
+                )
+            ]
         ),
         "files": {
             name: {
@@ -1063,6 +1135,25 @@ def _check_document_schema(document: dict) -> list[str]:
                 if not isinstance(value, str) or not value.strip():
                     failures.append(
                         f"rename_ledger[{index}].{field} must be a non-empty string."
+                    )
+
+    # Same lesson as the rename ledger directly above: shape-validate on EVERY
+    # run, not only on the runs that consult the base. The semantic validation
+    # (the #916 three-leg contract) lives in resolve_case_retags(), which needs
+    # the base; this catches a malformed entry even when the base is absent.
+    retag_ledger = document.get("case_retag_ledger", [])
+    if not isinstance(retag_ledger, list):
+        failures.append("case_retag_ledger must be a list.")
+    else:
+        for index, entry in enumerate(retag_ledger):
+            if not isinstance(entry, dict):
+                failures.append(f"case_retag_ledger[{index}] must be an object, got {entry!r}.")
+                continue
+            for field in ("file", "from", "to"):
+                value = entry.get(field)
+                if not isinstance(value, str) or not value.strip():
+                    failures.append(
+                        f"case_retag_ledger[{index}].{field} must be a non-empty string."
                     )
     return failures
 
@@ -1277,6 +1368,7 @@ def check_sites_against_base(
     base_document: dict | str,
     rename_ledger: list[dict] | None = None,
     scanned_keys: set[str] | None = None,
+    case_retag_rekey: dict[str, dict[str, str]] | None = None,
 ) -> list[str]:
     """The baseline's SITE LIST may only shrink relative to the review base.
 
@@ -1345,6 +1437,16 @@ def check_sites_against_base(
             base_sites[new] = sorted(base_sites.get(new, []) + base_sites.pop(old))
     if failures:
         return failures
+
+    # Within-file case retags, applied to the REFERENCE exactly like the rename
+    # ledger: `case_retag_rekey` only ever re-keys the case-hash component of
+    # fingerprints that were already baselined at the base, and only after
+    # resolve_case_retags() validated the #916 contract -- the caller passes
+    # None when that validation failed, so an invalid ledger fails closed as
+    # plain growth instead of being half-applied.
+    for file_key, mapping in (case_retag_rekey or {}).items():
+        if file_key in base_sites:
+            base_sites[file_key] = _rekey_case_sites(base_sites[file_key], mapping)
 
     for name in sorted(set(current) | set(base_sites)):
         added = multiset_difference(current.get(name, []), base_sites.get(name, []))
@@ -1420,10 +1522,298 @@ def _validate_renames(
     return failures
 
 
+def _parse_case_retags(pairs: list[str]) -> tuple[list[dict], list[str]]:
+    """`FILE::OLD=NEW` arguments -> ledger-shaped entries.
+
+    Split on the FIRST '::' and the FIRST '=' after it. A case name containing
+    '=' cannot be expressed through this flag; the parse then produces a name
+    the validator cannot find at the base, so the failure is loud, never a
+    silent misattribution. (No current case name contains '='.)
+    """
+    entries: list[dict] = []
+    errors: list[str] = []
+    for pair in pairs:
+        file_key, sep, names = pair.partition("::")
+        old, eq, new = names.partition("=")
+        if not sep or not eq or not file_key.strip() or not old.strip() or not new.strip():
+            errors.append(f"--retag-case expects FILE::OLD=NEW, got {pair!r}.")
+            continue
+        entries.append({"file": file_key.strip(), "from": old.strip(), "to": new.strip()})
+    return entries, errors
+
+
+def _rekey_case_sites(sites: list[str], mapping: dict[str, str]) -> list[str]:
+    """Re-key the case-hash component of each fingerprint; everything else verbatim."""
+    out: list[str] = []
+    for site in sites:
+        prefix, _, case_hash = site.rpartition("|")
+        out.append(f"{prefix}|{mapping.get(case_hash, case_hash)}" if prefix else site)
+    return sorted(out)
+
+
+def resolve_case_retags(
+    entries: list,
+    base_document: dict | str | None,
+    base_ref: str | None = None,
+    *,
+    strict: bool = False,
+    rename_ledger: list | None = None,
+    read_base_source=None,
+    read_head_source=None,
+) -> tuple[dict[str, dict[str, str]], list[str]]:
+    """Validate case-retag ledger entries; -> ({file: {old_hash: new_hash}}, failures).
+
+    A within-file TEST_CASE rename (a retag) moves the case-hash component of
+    every fingerprint under that case, which the base-relative growth check
+    reads as pure growth -- the same no-legal-route deadlock the file-level
+    rename ledger already solved for moved files (#916, the 5th instance of the
+    programme's rename blind spot). This is the equally narrow route for it.
+
+    The contract, per issue #916 -- all three legs required, so the ledger
+    cannot become a laundering primitive:
+
+      1. The base and head source blobs are byte-identical EXCEPT the tag-only
+         TEST_CASE header substitution(s) declared for that file (compared on
+         raw text, comments included, modulo newline encoding -- see
+         _normalize_newlines). Any other edit riding along fails, even one the
+         scanner would not count.
+      2. The old case name is absent at head (a retag means the old name is
+         GONE) and the new case name is absent at base (a retag CREATES its
+         destination; landing on a pre-existing case would launder a deletion
+         plus new skipped coverage, the same shape _validate_renames blocks).
+      3. Only the case-hash component of existing fingerprints is re-keyed.
+         Counts, message hashes and file keys cannot move through this route.
+
+    Entries whose old case-hash appears in NO baselined site at the review base
+    are HISTORICAL once the base moves past the retag: the ledger is
+    append-only, so they are skipped at read time (`strict=False`) exactly like
+    a rename_ledger entry whose source key left the base. At write time
+    (`strict=True`) such an entry is a failure -- there is nothing to re-key,
+    so recording it would be a no-op wearing a ledger entry's clothes.
+
+    DECLARED LIMIT: a change that retags a case AND makes any other edit to the
+    same baselined file cannot pass through this route in one commit -- leg 1
+    refuses by design. Split the change; the narrowness is the decision
+    (#916), because every wider comparison is a place for a site to hide.
+
+    COMPOSITION WITH THE FILE-LEVEL RENAME LEDGER (Codex round 2): a file that
+    was renamed between the base and head carries its baselined sites -- and
+    its source blob -- under the OLD key at the base. `rename_ledger` (the same
+    entries check_sites_against_base replays) is therefore applied to the
+    base's KEYS first, so a retag inside a renamed file looks up activity and
+    reads the base blob at the file's ORIGIN key while everything head-side
+    uses the current key. Entries in the returned rekey map stay keyed by the
+    HEAD file key, which is the key the base sites carry after
+    check_sites_against_base's own rename replay.
+
+    `read_base_source` / `read_head_source` are injectable for the unit tests;
+    the defaults read `git show <merge-base>:<file>` and the worktree file.
+    """
+    failures: list[str] = []
+    valid_shape: list[dict] = []
+    for index, entry in enumerate(entries or []):
+        if not isinstance(entry, dict):
+            failures.append(f"case_retag_ledger[{index}] must be an object, got {entry!r}.")
+            continue
+        file_key = entry.get("file")
+        old = entry.get("from")
+        new = entry.get("to")
+        if not all(isinstance(v, str) and v.strip() for v in (file_key, old, new)):
+            failures.append(
+                f"case_retag_ledger[{index}] needs non-empty string 'file', 'from' and 'to': "
+                f"{entry!r}"
+            )
+            continue
+        if old == new:
+            failures.append(f"case_retag_ledger[{index}]: 'from' and 'to' are identical.")
+            continue
+        valid_shape.append({"file": file_key, "from": old, "to": new})
+    if failures:
+        return {}, failures
+
+    if base_document == ABSENT_AT_BASE or base_document is None:
+        if strict and valid_shape:
+            return {}, [
+                "cannot validate --retag-case without a review base: the baseline does not "
+                "exist there (or the base could not be consulted), so there is nothing to "
+                "re-key against."
+            ]
+        # The growth check has no reference on these runs either; historical
+        # entries are inert by construction.
+        return {}, []
+    assert isinstance(base_document, dict)
+    base_files = base_document.get("files")
+    if not isinstance(base_files, dict):
+        return {}, ["baseline at the review base has no 'files' object; refusing to validate "
+                    "case_retag_ledger against it."]
+    base_sites: dict[str, list[str]] = {}
+    for name, entry in base_files.items():
+        if isinstance(entry, dict) and isinstance(entry.get("sites"), list):
+            base_sites[name] = [str(s) for s in entry["sites"]]
+
+    # Replay file renames over the base's keys, so a retag inside a renamed
+    # file resolves against the right origin. Malformed ledger entries are
+    # skipped here; check_sites_against_base fails them on its own pass.
+    current_name = {key: key for key in base_sites}
+    for ledger_entry in rename_ledger or []:
+        if not isinstance(ledger_entry, dict):
+            continue
+        old_key, new_key = ledger_entry.get("from"), ledger_entry.get("to")
+        if not isinstance(old_key, str) or not isinstance(new_key, str):
+            continue
+        for base_key, name in current_name.items():
+            if name == old_key:
+                current_name[base_key] = new_key
+    base_origin: dict[str, str] = {}
+    for base_key, name in current_name.items():
+        base_origin.setdefault(name, base_key)
+
+    def _origin_of(file_key: str) -> str:
+        return base_origin.get(file_key, file_key)
+
+    def _forward(file_key: str) -> str:
+        """A retag entry's file key, forwarded through LATER file renames.
+
+        The ledgers are append-only history with no interleaving recorded, so a
+        retag written when the file was named `b` stays keyed to `b` after a
+        later `b -> c` rename. Without forwarding, that entry reads inert
+        against a base predating both commits and the final file falsely
+        reports as newly grown (Codex round 3). Sequential replay matches the
+        rename ledger's own key semantics in check_sites_against_base.
+        """
+        name = file_key
+        for ledger_entry in rename_ledger or []:
+            if (
+                isinstance(ledger_entry, dict)
+                and ledger_entry.get("from") == name
+                and isinstance(ledger_entry.get("to"), str)
+                and ledger_entry["to"]
+            ):
+                name = ledger_entry["to"]
+        return name
+
+    # Activity filter: an entry only participates when its old case-hash is
+    # still baselined at THIS base (under the file's origin key, with the
+    # entry's own key first forwarded through any later renames).
+    active: list[dict] = []
+    for entry in valid_shape:
+        entry = dict(entry, file=_forward(entry["file"]))
+        old_hash = _case_digest(entry["from"])
+        carried = any(
+            site.rpartition("|")[2] == old_hash
+            for site in base_sites.get(_origin_of(entry["file"]), [])
+        )
+        if carried:
+            active.append(entry)
+        elif strict:
+            failures.append(
+                f"--retag-case {entry['file']!r}: {entry['from']!r} matches no baselined "
+                f"site at the review base; there is no credit to re-key."
+            )
+    if failures or not active:
+        return {}, failures
+
+    base_sha: str | None = None
+    if read_base_source is None or read_head_source is None:
+        base_sha, sha_failures = resolve_base_sha(base_ref)
+        if sha_failures:
+            return {}, [f"case_retag_ledger: {f}" for f in sha_failures]
+
+    def _default_base(file_key: str) -> tuple[bool, str]:
+        code, out = _git(["show", f"{base_sha}:{file_key}"])
+        return code == 0, out
+
+    def _default_head(file_key: str) -> tuple[bool, str]:
+        path = ROOT / file_key
+        if not path.is_file():
+            return False, ""
+        return True, path.read_text(encoding="utf-8", errors="replace")
+
+    read_base_source = read_base_source or _default_base
+    read_head_source = read_head_source or _default_head
+
+    by_file: dict[str, dict[str, str]] = {}
+    for entry in active:
+        pair = by_file.setdefault(entry["file"], {})
+        if entry["from"] in pair and pair[entry["from"]] != entry["to"]:
+            failures.append(
+                f"case_retag_ledger: {entry['file']!r} declares {entry['from']!r} retagged "
+                f"to two different names; a case has one name."
+            )
+        pair[entry["from"]] = entry["to"]
+    if failures:
+        return {}, failures
+
+    rekey: dict[str, dict[str, str]] = {}
+    for file_key, renames in sorted(by_file.items()):
+        ok, base_text = read_base_source(_origin_of(file_key))
+        if not ok:
+            failures.append(
+                f"case_retag_ledger: cannot read {_origin_of(file_key)!r} at the review "
+                f"base; failing closed rather than assuming the retag is what it claims."
+            )
+            continue
+        ok, head_text = read_head_source(file_key)
+        if not ok:
+            failures.append(
+                f"case_retag_ledger: {file_key!r} is not readable at head; a retag's "
+                f"destination file must exist."
+            )
+            continue
+        base_names = _case_names_in(base_text)
+        head_names = _case_names_in(head_text)
+        for old, new in sorted(renames.items()):
+            where = f"case_retag_ledger: {file_key!r} {old!r} -> {new!r}"
+            if old not in base_names:
+                failures.append(
+                    f"{where}: the old case name is not registered at the review base, so "
+                    f"this is not a retag of anything the base knew."
+                )
+            if old in head_names:
+                failures.append(
+                    f"{where}: the old case name still exists at head. A retag means the "
+                    f"old name is GONE; this shape would let one entry bless a copy."
+                )
+            if new not in head_names:
+                failures.append(
+                    f"{where}: the new case name is not registered at head; credit cannot "
+                    f"be parked on a case that does not exist."
+                )
+            if new in base_names:
+                failures.append(
+                    f"{where}: the new case name already existed at the review base. A "
+                    f"retag CREATES its destination; landing on a pre-existing case would "
+                    f"launder a deletion plus new skipped coverage as a rename."
+                )
+        if failures:
+            continue
+        expected = _normalize_newlines(_substitute_case_headers(base_text, renames))
+        actual = _normalize_newlines(head_text)
+        if expected != actual:
+            divergence = 1
+            for a, b in zip(expected.splitlines(True), actual.splitlines(True)):
+                if a != b:
+                    break
+                divergence += 1
+            failures.append(
+                f"case_retag_ledger: {file_key!r} differs from the review base by MORE than "
+                f"the declared TEST_CASE header substitution(s) (first divergence around "
+                f"line {divergence}). A case-retag entry authorises the tag-only rename and "
+                f"nothing else -- no other edit to this file may ride along in the same "
+                f"change (#916). Split the change."
+            )
+            continue
+        rekey[file_key] = {_case_digest(o): _case_digest(n) for o, n in renames.items()}
+    if failures:
+        return {}, failures
+    return rekey, []
+
+
 def write_baseline(
     path: Path | None = None,
     *,
     renames: dict[str, str] | None = None,
+    case_retags: list[dict] | None = None,
     base_ref: str | None = None,
 ) -> int:
     """Regenerate the baseline from this guard's own scan. Refuses to ADD sites.
@@ -1447,10 +1837,17 @@ def write_baseline(
     check, so moving or renaming a file is not a deadlock between "guard says
     stale/new" and "writer refuses". See _validate_renames() for what stops it
     being used to transfer credit between unrelated files.
+
+    `case_retags` (`--retag-case FILE::OLD=NEW`) is the WITHIN-file analogue for
+    a tag-only TEST_CASE rename: it re-keys only the case-hash component of that
+    file's fingerprints, under resolve_case_retags()'s three-leg contract
+    (#916). At write time validation is STRICT: an entry that re-keys nothing is
+    refused rather than recorded as history.
     """
     path = BASELINE_PATH if path is None else path
     found = scan_fingerprints()
     renames = renames or {}
+    case_retags = case_retags or []
 
     if not path.is_file():
         print(
@@ -1475,10 +1872,13 @@ def write_baseline(
         return 1
 
     base_keys: set[str] | None = None
-    if renames:
+    base_document: dict | str | None = None
+    if renames or case_retags:
         base_document, base_failures = baseline_document_at_base(path, base_ref)
         if base_failures:
-            print("[env-skip] FAIL cannot validate --rename without a review base:")
+            print(
+                "[env-skip] FAIL cannot validate --rename / --retag-case without a review base:"
+            )
             for failure in base_failures:
                 print(f"  - {failure}")
             return 1
@@ -1494,6 +1894,29 @@ def write_baseline(
     for old, new in renames.items():
         baseline[new] = sorted(baseline.pop(old) + baseline.get(new, []))
 
+    retag_rekey, retag_failures = resolve_case_retags(
+        case_retags,
+        base_document,
+        base_ref,
+        strict=True,
+        # Compose with file renames from BOTH directions of history: entries
+        # already committed to the ledger, plus the --rename pairs landing in
+        # this very invocation (a file renamed and a case inside it retagged in
+        # one change is a legitimate stack -- Codex round 2).
+        rename_ledger=(
+            list((previous_document or {}).get("rename_ledger", []))
+            + [{"from": o, "to": n} for o, n in sorted(renames.items())]
+        ),
+    )
+    if retag_failures:
+        print("[env-skip] FAIL --retag-case rejected:")
+        for failure in retag_failures:
+            print(f"  - {failure}")
+        return 1
+    for file_key, mapping in retag_rekey.items():
+        if file_key in baseline:
+            baseline[file_key] = _rekey_case_sites(baseline[file_key], mapping)
+
     additions: list[str] = []
     for name in sorted(set(found) | set(baseline)):
         added = multiset_difference(found.get(name, []), baseline.get(name, []))
@@ -1508,7 +1931,7 @@ def write_baseline(
             print(f"  - {addition}")
         return 1
 
-    document = build_baseline_document(found, previous_document, renames)
+    document = build_baseline_document(found, previous_document, renames, case_retags)
     path.write_text(_serialize(document), encoding="utf-8")
     total = sum(len(v) for v in found.values())
     print(
@@ -1538,6 +1961,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--retag-case",
+        action="append",
+        default=[],
+        metavar="FILE::OLD=NEW",
+        help=(
+            "Re-key baselined fingerprints when a TEST_CASE inside FILE is renamed "
+            "TAG-ONLY (e.g. a subsystem tag inserted). Validated against the review "
+            "base: the file must differ from the base by exactly the header "
+            "substitution and nothing else (#916). Repeatable."
+        ),
+    )
+    parser.add_argument(
         "--base-ref",
         default=None,
         help=(
@@ -1552,16 +1987,20 @@ def main(argv: list[str] | None = None) -> int:
     base_ref = args.base_ref
 
     renames, rename_errors = _parse_renames(args.rename)
-    if rename_errors:
-        for error in rename_errors:
-            print(f"[env-skip] FAIL {error}")
+    case_retags, retag_errors = _parse_case_retags(args.retag_case)
+    for error in rename_errors + retag_errors:
+        print(f"[env-skip] FAIL {error}")
+    if rename_errors or retag_errors:
         return 1
     if renames and not args.write_baseline:
         print("[env-skip] FAIL --rename only applies together with --write-baseline.")
         return 1
+    if case_retags and not args.write_baseline:
+        print("[env-skip] FAIL --retag-case only applies together with --write-baseline.")
+        return 1
 
     if args.write_baseline:
-        return write_baseline(renames=renames, base_ref=base_ref)
+        return write_baseline(renames=renames, case_retags=case_retags, base_ref=base_ref)
 
     files = test_sources()
     if not files:
@@ -1602,12 +2041,22 @@ def main(argv: list[str] | None = None) -> int:
                         "run. Review the whole file, not a diff."
                     )
                 failures.extend(check_allowance(document, base_document))
+                retag_rekey, retag_failures = resolve_case_retags(
+                    document.get("case_retag_ledger", []),
+                    base_document,
+                    base_ref,
+                    rename_ledger=document.get("rename_ledger"),
+                )
+                failures.extend(retag_failures)
                 failures.extend(
                     check_sites_against_base(
                         baseline,
                         base_document,
                         document.get("rename_ledger"),
                         {source_key(p) for p in files},
+                        # Fail closed: an invalid ledger re-keys NOTHING, so the
+                        # affected fingerprints then read as plain growth.
+                        retag_rekey if not retag_failures else None,
                     )
                 )
 
@@ -1650,7 +2099,10 @@ def main(argv: list[str] | None = None) -> int:
                 f"has no runtime skip API), so a new one silently removes coverage. Either give "
                 f"the case a lane that can satisfy its precondition, or make the precondition a "
                 f"FAIL. If it genuinely must skip, it belongs in the conversion slice "
-                f"{CONVERSION_SLICE} with an owner ({BASELINE_ISSUE})."
+                f"{CONVERSION_SLICE} with an owner ({BASELINE_ISSUE}). If these 'new' sites "
+                f"are an existing case RENAMED TAG-ONLY (they will appear beside the same "
+                f"number of stale sites below), the documented route is "
+                f"`--write-baseline --retag-case \"FILE::OLD=NEW\"` (#916)."
             )
         if removed:
             failures.append(

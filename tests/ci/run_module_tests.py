@@ -52,13 +52,20 @@ RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_g
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
 EDITOR_NODE_POINTER_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_editor_node_pointer_lifetime.py"
+GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale_hook.py"
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+# T3 (#891): module-level constants (not inline paths) so the guard-wiring
+# contract in test_run_module_tests_lane_ledger.py can derive that a wired
+# runner actually reaches these contract-test files.
+RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
 SOURCE_TREES = (ROOT,)
 HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     # Only tags whose TEST_CASEs are registered at runtime belong here. Phantom
@@ -80,6 +87,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "SceneTree",
     "SortBenchmark",
     "Synthetic",
+    "TestPump",  # #881: the wall-clock pump helper's own contract (gs_test_pump.h).
     "VRAMBudgetRegulator",
     "ViewTransform",
     "WorldIO",
@@ -123,6 +131,14 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     ),
     ("GaussianSplatting [SortBenchmark]", ("*GaussianSplatting*][SortBenchmark]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [Synthetic]", ("*GaussianSplatting*][Synthetic]*",), ("*][RequiresGPU]*",), False),
+    # #881: `gs_test_pump.h` is the bound that every converted renderer warm-up
+    # now depends on, and its own review found the bound could be evaded (readiness
+    # was accepted before expiry was checked, so a frame that returned true past the
+    # deadline still passed). The cases in test_gs_pump.h are the only executable
+    # proof of that ordering, and they need no GPU and no SceneTree, so they run in
+    # a strict headless lane rather than in the advisory [untagged] safety net: a
+    # proof of a fail-closed bound that cannot fail CI is not a proof.
+    ("GaussianSplatting [TestPump]", ("*GaussianSplatting*][TestPump]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [VRAMBudgetRegulator]", ("*GaussianSplatting*][VRAMBudgetRegulator]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [ViewTransform]", ("*GaussianSplatting*][ViewTransform]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [WorldIO]", ("*GaussianSplatting*][WorldIO]*",), ("*][RequiresGPU]*",), True),
@@ -872,6 +888,33 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_gs_pre_upscale_hook_guard() -> tuple[bool, list[str]]:
+    """GPU-001 Option B contract guard (refs #921): the Gaussian pre-upscale
+    composite hook must precede every internal-buffer consumer (FSR2/MetalFX-
+    temporal/TAA/tonemap), the legacy post-scene hook must stay gated on the
+    phase flag, and
+    the source_decode_srgb push-constant mirror must exist on both sides. Runs
+    the script's --self-test first so a vacuous (never-failing) checker is
+    itself a failure."""
+    if not GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing GS pre-upscale hook guard script: {GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    for args in (
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT), "--self-test"],
+        [sys.executable, str(GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT)],
+    ):
+        code, out, err = _run_command(args)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"GS pre-upscale hook guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
 def _run_test_linkage_guard() -> tuple[bool, list[str]]:
     if not TEST_LINKAGE_GUARD_SCRIPT.is_file():
         return False, [
@@ -1308,7 +1351,11 @@ def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
 def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     missing = [
         path.relative_to(ROOT)
-        for path in (RENDERER_RELEASE_GATE_SCRIPT, RENDERER_RELEASE_GATE_TEST_SCRIPT)
+        for path in (
+            RENDERER_RELEASE_GATE_SCRIPT,
+            RENDERER_RELEASE_GATE_TEST_SCRIPT,
+            RELEASE_ATTESTATION_TEST_SCRIPT,
+        )
         if not path.is_file()
     ]
     if missing:
@@ -1318,6 +1365,7 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     commands = (
         [sys.executable, str(RENDERER_RELEASE_GATE_SCRIPT), "--mode", "contract"],
         [sys.executable, str(RENDERER_RELEASE_GATE_TEST_SCRIPT)],
+        [sys.executable, str(RELEASE_ATTESTATION_TEST_SCRIPT)],
     )
     for args in commands:
         code, out, err = _run_command(args)
@@ -1741,7 +1789,7 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     pins all three backup states (absent / present-with-preset /
     present-without-preset) and that a refusal rewrites nothing.
     """
-    script = ROOT / "tests" / "runtime" / "test_export_smoke_preset_state.py"
+    script = EXPORT_SMOKE_PRESET_STATE_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing export smoke preset state test: {script.relative_to(ROOT)}"]
 
@@ -1768,7 +1816,7 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     reported as "Can't create an accessibility driver" and the message naming the real
     fault was captured and discarded.
     """
-    script = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+    script = RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 
@@ -3242,6 +3290,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_renderer_contract_boundary_guard,
             "Renderer-contract boundary guard failed.",
             "Renderer-contract boundary guard passed.",
+        ),
+        (
+            True,
+            _run_gs_pre_upscale_hook_guard,
+            "GS pre-upscale composite hook guard failed.",
+            "GS pre-upscale composite hook guard passed.",
         ),
         (
             True,
