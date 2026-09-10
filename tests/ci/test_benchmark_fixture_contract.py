@@ -507,41 +507,91 @@ class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
             self.assertIsNotNone(_prepare.fixture_floor_failure(junk, 64))
 
 
+def _tracked_fixture_plys() -> "list[Path]":
+    """The `.ply` files git actually tracks, asked of git rather than of the disk.
+
+    "Committed" and "present" are different questions, and this file got them
+    confused: `tests/fixtures/*.ply` and the consumer `test_splats.ply` are
+    GITIGNORED and generated, so on a runner that has already run the fallback
+    prep they exist at the fallback's own size while their floor is the C++
+    generator's count. A test that globbed the directory therefore asserted a
+    property of whatever the last generation run happened to leave behind, and
+    failed on CI for a corpus that was exactly what it should have been.
+
+    Tracked fixtures are committed at a known size and must satisfy their floors.
+    Generated ones are the prep script's business, and the prep script has its own
+    guards for them.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "*.ply"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    paths = [ROOT / name for name in result.stdout.split("\0") if name]
+    return sorted(path for path in paths if path.is_file())
+
+
 class RealFixtureCorpusTests(unittest.TestCase):
-    """The completeness predicate, run over fixtures nobody in this file invented.
+    """The completeness and floor rules, run over fixtures nobody in this file invented.
 
     A body-length rule is only safe if it accepts what the producers actually
-    write. This reads the committed corpus in the repository rather than a
-    fixture authored to match the rule.
+    write, and a floor is only meaningful if the corpus committed at it clears it.
+    Both read the tracked corpus in the repository rather than fixtures authored
+    to match the rules.
     """
 
-    def test_every_committed_fixture_is_complete(self):
-        directory = (
-            ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
-        )
-        committed = sorted(directory.glob("*.ply"))
-        self.assertTrue(committed, "no committed fixtures found; this test is vacuous")
-        for path in committed:
-            with self.subTest(fixture=path.name):
+    def test_every_tracked_fixture_is_complete(self):
+        tracked = _tracked_fixture_plys()
+        self.assertTrue(tracked, "git tracks no .ply fixtures; this test is vacuous")
+        for path in tracked:
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
                 self.assertIsNone(
                     _prepare.ply_payload_failure(path),
-                    f"{path.name} is a committed fixture the completeness rule rejects",
+                    f"{path.name} is a tracked fixture the completeness rule rejects",
                 )
 
-    def test_every_committed_fixture_satisfies_its_own_floor(self):
+    def test_every_tracked_fixture_satisfies_its_own_floor(self):
         checked = 0
-        for resource_path, required in _prepare.ASSET_MIN_SPLAT_COUNTS.items():
-            relative = Path(resource_path.removeprefix("res://"))
-            path = ROOT / "tests" / "examples" / "godot" / "test_project" / relative
-            if not path.is_file():
-                continue  # gitignored generated fixture; absent in a clean checkout
+        for path in _tracked_fixture_plys():
+            resource_path = f"res://tests/fixtures/{path.name}"
+            required = _prepare.ASSET_MIN_SPLAT_COUNTS.get(resource_path, 0)
+            if required <= 0:
+                continue
             checked += 1
-            with self.subTest(fixture=path.name):
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
                 self.assertIsNone(
                     _prepare.fixture_floor_failure(path, required),
                     f"{path.name} does not satisfy the floor it is committed at",
                 )
-        self.assertGreater(checked, 0, "no committed fixture was checked; vacuous")
+        self.assertGreater(checked, 0, "no tracked fixture carried a floor; vacuous")
+
+    def test_a_generated_fixture_is_not_judged_as_a_committed_one(self):
+        """The regression this replaces: a fallback-sized generated file failed CI.
+
+        `test_splats.ply` is gitignored on both paths and generated. A runner that
+        has run the fallback prep holds it at 1024 splats against a floor of 10000
+        -- correct behaviour for a generated corpus, and not something a test about
+        the COMMITTED corpus may fail on.
+        """
+        generated = "res://tests/fixtures/test_splats.ply"
+        fallback_counts = {
+            Path(spec.relative_path).name: spec.count for spec in _prepare.CANONICAL_SPECS
+        }
+        self.assertGreater(
+            _prepare.ASSET_MIN_SPLAT_COUNTS.get(generated, 0),
+            fallback_counts.get("test_splats.ply", 0),
+            "test_splats.ply's floor no longer exceeds its fallback size; this case is moot",
+        )
+        tracked_names = {path.name for path in _tracked_fixture_plys()}
+        self.assertNotIn(
+            "test_splats.ply",
+            tracked_names,
+            "test_splats.ply is tracked now; the floor tests above must cover it",
+        )
 
 
 FIXTURE_IMPORT_RELATIVE_DIR = (
