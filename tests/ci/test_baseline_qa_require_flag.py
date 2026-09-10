@@ -661,6 +661,196 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
         self.assertTrue(any("$qaSummary.results" in failure for failure in failures), failures)
 
 
+
+class RenderThreadSeparateNeedsAProjectTest(unittest.TestCase):
+    """`--render-thread separate` is silently downgraded without a project (#104).
+
+    An editor build that finds no project falls back to the project manager
+    (main/main.cpp:2031-2034), and `if (editor || project_manager)
+    separate_thread_render = 0` (main/main.cpp:2760-2763) then drops the mode
+    the flag asked for -- with no warning and no non-zero exit. The
+    characterization runs OFF the render thread by definition, so it asserted
+    `not RenderingServer.is_on_render_thread()` and failed on every run: the
+    CI red on this PR was the harness correctly reporting an impossible
+    precondition, not flake.
+
+    Measured on this machine with the same binary and flags, differing only in
+    whether a project was loaded:
+        no --path : on_render_thread=true   <- what CI ran
+        --path <test project> : on_render_thread=false
+    """
+
+    def _runner(self):
+        return run_baseline_qa.BaselineQARunner(godot_binary="godot")
+
+    def test_every_separate_render_thread_test_declares_a_project(self):
+        table = self._runner()._build_test_table()
+        separate = [t for t in table if t.get("render_thread") == "separate"]
+        self.assertTrue(
+            separate,
+            "no test requests render_thread='separate'; this guard would be vacuous",
+        )
+        for test in separate:
+            with self.subTest(test=test["name"]):
+                project_path = test.get("project_path")
+                self.assertTrue(
+                    project_path,
+                    f"{test['name']} requests --render-thread separate without a "
+                    "project_path; Godot downgrades the mode when no project is found",
+                )
+                self.assertTrue(
+                    (ROOT / project_path / "project.godot").is_file(),
+                    f"{test['name']}: project_path {project_path!r} is not a Godot "
+                    "project (no project.godot), so the downgrade would still apply",
+                )
+                script = test["script"]
+                self.assertTrue(
+                    script.startswith("res://"),
+                    f"{test['name']}: with --path the script must be a res:// path "
+                    f"inside the project, got {script!r}",
+                )
+                self.assertTrue(
+                    (ROOT / project_path / script[len("res://"):]).is_file(),
+                    f"{test['name']}: {script} does not exist inside {project_path}",
+                )
+
+    def test_the_project_path_reaches_argv(self):
+        """A declaration that never reaches the command line changes nothing.
+
+        Asserted at the real construction site (subprocess.run), because
+        `_build_test_table()` entries do not carry the launch flags.
+        """
+        runner = self._runner()
+        table = runner._build_test_table()
+        separate = [t for t in table if t.get("render_thread") == "separate"]
+        self.assertTrue(separate, "no separate-render-thread test; guard would be vacuous")
+
+        captured = []
+
+        class _Completed:
+            returncode = 0
+            stdout = "[GS-RTD] RESULT: PASS"
+            stderr = ""
+
+        def fake_run(command, *args, **kwargs):
+            captured.append(list(command))
+            return _Completed()
+
+        for test in separate:
+            captured.clear()
+            with mock.patch.object(run_baseline_qa.subprocess, "run", side_effect=fake_run):
+                runner.run_test(test)
+            command = captured[0]
+            self.assertIn("--path", command, f"{test['name']}: no --path in argv")
+            self.assertEqual(
+                command[command.index("--path") + 1],
+                test["project_path"],
+                f"{test['name']}: --path does not carry the declared project",
+            )
+            self.assertLess(
+                command.index("--path"),
+                command.index("--script"),
+                f"{test['name']}: --path must precede --script",
+            )
+
+    def test_a_script_error_fails_a_marker_classified_test(self):
+        """The script's own verdict is not the only way it can be wrong.
+
+        A GDScript runtime error aborts the FUNCTION it occurs in, not the
+        script. Run against a binary whose test hooks are absent, every case of
+        this harness died on its first call, `_failures` stayed empty, and it
+        printed `RESULT: PASS - 5 characterizations executed` with exit 0 --
+        observed on this machine before the fix. Marker classification has to
+        reject that output even though the pass marker is present.
+        """
+        runner = self._runner()
+        table = runner._build_test_table()
+        marker_tests = [t for t in table if t.get("classify_by_marker")]
+        self.assertTrue(marker_tests, "no marker-classified test; guard would be vacuous")
+        test = marker_tests[0]
+        self.assertIn(
+            "SCRIPT ERROR",
+            test.get("fail_markers") or [],
+            f"{test['name']}: SCRIPT ERROR is not a failure marker",
+        )
+
+        pass_marker = test["pass_marker"]
+
+        class _Clean:
+            returncode = 0
+            stdout = pass_marker + "\n"
+            stderr = ""
+
+        class _Errored:
+            returncode = 0
+            stdout = pass_marker + "\n"
+            stderr = "SCRIPT ERROR: Invalid call. Nonexistent function 'test_x'.\n"
+
+        with mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Clean()):
+            clean_success, _out, _details = runner.run_test(test)
+        with mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Errored()):
+            errored_success, _out, _details = runner.run_test(test)
+
+        self.assertTrue(
+            clean_success,
+            "a run with the pass marker and no script error was not classified as a pass; "
+            "this half must hold or the marker rule rejects everything",
+        )
+        self.assertFalse(
+            errored_success,
+            "a run whose every hook call raised a GDScript error was classified as a "
+            "pass because it printed its own success marker",
+        )
+
+
+class EmptyCategorySelectionIsNotAPassTest(unittest.TestCase):
+    """A requested category that selects nothing must fail (#104 lane).
+
+    `--categories sorting,renderer` keeps reporting success if the renderer
+    entry is renamed or dropped: the overall selection is still non-empty, so
+    nothing notices that one of the two requested lanes contributed no tests.
+    That is the catalogued-but-empty shape `REQUIRED_BATCHES` exists to stop in
+    the GPU harness, and this lane exists precisely because the C++ cases it
+    replaces could only ever skip.
+    """
+
+    def _runner(self):
+        runner = run_baseline_qa.BaselineQARunner(godot_binary="godot")
+        return runner
+
+    def test_a_requested_category_that_matches_nothing_fails(self):
+        runner = self._runner()
+        table = [t for t in runner._build_test_table() if t.get("category") != "renderer"]
+        with mock.patch.object(run_baseline_qa, "prepare_synthetic_assets", lambda: None), \
+                mock.patch.object(runner, "_build_test_table", return_value=table), \
+                mock.patch.object(run_baseline_qa.subprocess, "run") as run_mock:
+            ok = runner.run_all_tests(categories={"renderer"})
+        self.assertFalse(
+            ok, "a lane whose category selected no tests reported success"
+        )
+        run_mock.assert_not_called()
+
+    def test_a_populated_category_still_runs(self):
+        """Discrimination: the guard must not reject a category that has tests."""
+        runner = self._runner()
+        table = runner._build_test_table()
+        self.assertTrue(
+            any(t.get("category") == "renderer" for t in table),
+            "the renderer category has no entry at all; the lane is empty",
+        )
+
+        class _Completed:
+            returncode = 0
+            stdout = "[GS-RTD] RESULT: PASS"
+            stderr = ""
+
+        with mock.patch.object(run_baseline_qa, "prepare_synthetic_assets", lambda: None), \
+                mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Completed()) as run_mock:
+            ok = runner.run_all_tests(categories={"renderer"})
+        self.assertTrue(ok, "the populated renderer category did not run/pass")
+        self.assertEqual(run_mock.call_count, 1, "expected exactly one launch")
+
+
 class QaRequireCaptureTest(unittest.TestCase):
     """The third laundering path (#522): a lane that promised a GPU, skipped.
 

@@ -546,6 +546,15 @@ class BaselineQARunner:
                 command.extend(gpu_display_args(test.get("render_thread", "safe")))
             else:
                 command.append("--headless")
+            project_path = test.get("project_path")
+            if project_path:
+                # A Godot project must be loaded for `--render-thread separate`
+                # to survive: with no project found, an editor build falls back
+                # to the project manager (main/main.cpp:2031-2034), and
+                # `if (editor || project_manager) separate_thread_render = 0`
+                # (main/main.cpp:2760-2763) silently downgrades the mode. The
+                # script path is then a res:// path inside that project.
+                command.extend(["--path", project_path])
             command.extend(["--verbose", "--script", test["script"]])
             descriptor = test["script"]
         else:
@@ -577,9 +586,19 @@ class BaselineQARunner:
                 # verdict. Classify by the explicit verdict markers instead: fail on the standard
                 # [RUNTIME_FAIL] marker (AGENTS.md), and pass ONLY if the success marker is present
                 # (so a mid-run crash before the verdict is still a failure).
-                fail_marker = test.get("fail_marker", "[RUNTIME_FAIL]")
+                # Several markers, because the script's own verdict is not the only
+                # way it can be wrong: a GDScript runtime error aborts the FUNCTION
+                # it occurs in, not the script, so a harness whose every hook call
+                # errored still reached its success print. "SCRIPT ERROR" in the
+                # output of a marker-classified test is therefore a failure
+                # regardless of what the script concluded about itself.
+                fail_markers = test.get("fail_markers") or [test.get("fail_marker", "[RUNTIME_FAIL]")]
                 pass_marker = test.get("pass_marker")
-                success = pass_marker is not None and pass_marker in output and fail_marker not in output
+                success = (
+                    pass_marker is not None
+                    and pass_marker in output
+                    and not any(marker in output for marker in fail_markers)
+                )
             else:
                 success = result.returncode == 0
             details = self._parse_test_output(output)
@@ -737,6 +756,28 @@ class BaselineQARunner:
 
         selected_tests = tests
         if categories:
+            # A requested category that selects nothing is a coverage hole, not a
+            # pass: a renamed or dropped entry would otherwise leave the lane green
+            # while measuring nothing (the shape REQUIRED_BATCHES exists to stop in
+            # the GPU harness). Checked per category, because a selection that is
+            # non-empty overall still hides one category contributing zero tests.
+            empty = sorted(
+                str(requested)
+                for requested in categories
+                if requested is not None
+                and not any(test.get("category") == requested for test in tests)
+            )
+            if empty:
+                print(
+                    "[FAIL] requested categor(y/ies) select no tests: "
+                    + ", ".join(empty)
+                    + " — the entry was renamed or dropped; a lane that runs nothing "
+                    "must not report success"
+                )
+                self.test_results["total_tests"] = 0
+                self.test_results["failed_tests"] = 1
+                self.test_results["end_time"] = time.time()
+                return False
             selected_tests = [test for test in tests if test.get("category") in categories]
         elif category:
             selected_tests = [test for test in tests if test.get("category") == category]
@@ -790,13 +831,17 @@ class BaselineQARunner:
                 # can only skip under --test (no RenderingServer), which is the gap #104 closes.
                 "name": "Render-Thread Dispatch Characterization",
                 "type": "godot",
-                "script": "tests/ci/test_render_thread_dispatch.gd",
+                # Inside the test project, and launched with --path, because
+                # `--render-thread separate` is silently downgraded when Godot
+                # finds no project (see the --path comment in run_test).
+                "script": "res://tests/test_render_thread_dispatch.gd",
+                "project_path": "tests/examples/godot/test_project",
                 "category": "renderer",
                 "requires_gpu": True,
                 "render_thread": "separate",
                 "classify_by_marker": True,
                 "pass_marker": "[GS-RTD] RESULT: PASS",
-                "fail_marker": "[RUNTIME_FAIL]",
+                "fail_markers": ["[RUNTIME_FAIL]", "SCRIPT ERROR"],
                 "timeout": 180,
             },
             {

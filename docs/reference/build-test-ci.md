@@ -215,13 +215,19 @@ Required-batch contract: `REQUIRED_BATCHES = {"CompositorHazard", "RendererPipel
 
 The render-thread dispatch/timeout/teardown characterization (the #75 bounded-wait behavior) needs a **live `RenderingServer` with a running render loop**, running **off** the render thread. The `--gs-gpu-test` doctest boot never creates a `RenderingServer` at all, so the equivalent `[RequiresGPU]` cases in `test_renderer_pipeline.h` can only ever *skip* (a vacuous zero-assertion pass) — the gap tracked as #104.
 
-The executable harness for it is `tests/ci/test_render_thread_dispatch.gd`, run under the full engine via the baseline QA `renderer` category:
+The executable harness for it is `tests/examples/godot/test_project/tests/test_render_thread_dispatch.gd`, run under the full engine via the baseline QA `renderer` category:
 
 ```
 python tests/ci/run_baseline_qa.py --godot <module-built-binary> --category renderer
 ```
 
-It is launched with `--display-driver windows --rendering-driver vulkan --render-thread separate` (the `separate` render thread is what makes the script run *off* the render thread — a precondition the characterization asserts). Because `--render-thread separate` has engine-level shutdown instability (`RenderingDevice::finalize` thread assert) that makes the process exit code unreliable *after* the verdict is printed, this test is classified by its verdict markers, not the exit code: it passes only if `[GS-RTD] RESULT: PASS` is present and the standard `[RUNTIME_FAIL]` marker is absent (see `classify_by_marker` in `run_baseline_qa.py`). The GDScript bindings it drives (`test_dispatch_call_on_render_thread_blocking_*`, `test_is_render_thread_dispatch_path_active`, …) exist only in `TESTS_ENABLED` builds and never ship in a release template. CI runs it in the self-hosted GPU lane (`--categories sorting,renderer` in `baseline_qa.yml`).
+It is launched with `--display-driver windows --rendering-driver vulkan --render-thread separate --path tests/examples/godot/test_project`, and the script lives *inside* that project (`res://tests/test_render_thread_dispatch.gd`).
+
+**The `--path` is load-bearing, not cosmetic.** `--render-thread separate` is what makes the script run *off* the render thread, which the characterization asserts as a precondition — but an editor build that finds no project falls back to the project manager (`main/main.cpp:2031-2034`), and `if (editor || project_manager) { separate_thread_render = 0; }` (`main/main.cpp:2760-2763`) then downgrades the mode silently: no warning, no non-zero exit, `RenderingServer.is_on_render_thread()` simply returns `true` on the main thread. Measured on the GPU runner with one binary and identical flags, differing only in whether a project was loaded: without `--path`, `on_render_thread=true`; with it, `false`. A test that requests `separate` must therefore also declare a `project_path`, which `test_baseline_qa_require_flag.py` asserts for every such entry rather than for this one by name.
+
+This test is classified by its verdict markers rather than by the process exit code (see `classify_by_marker` in `run_baseline_qa.py`): it passes only if `[GS-RTD] RESULT: PASS` is present and neither `[RUNTIME_FAIL]` nor `SCRIPT ERROR` appears. `SCRIPT ERROR` is a failure marker because a GDScript runtime error aborts the *function* it occurs in, not the script: against a binary without the `TESTS_ENABLED` bindings, every case died on its first call, the failure list stayed empty, and the harness printed a PASS verdict having characterized nothing. The harness now also proves execution positively — it checks each hook with `has_method()` before running, and each case records its own completion, with the verdict requiring all five.
+
+The GDScript bindings it drives (`test_dispatch_call_on_render_thread_blocking_*`, `test_is_render_thread_dispatch_path_active`, …) exist only in `TESTS_ENABLED` builds and never ship in a release template. CI runs it in the self-hosted GPU lane (`--categories sorting,renderer` in `baseline_qa.yml`); a requested category that selects no tests now fails the run, so dropping or renaming this entry cannot leave the lane green.
 
 ## CI Source of Truth
 
