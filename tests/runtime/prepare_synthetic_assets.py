@@ -511,6 +511,35 @@ def ply_payload_failure(path: Path) -> str | None:
     return None
 
 
+def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
+    """Why `path` does not satisfy `required_splats`, or None when it does.
+
+    COMPLETE first, then counted. A declared vertex count is a claim the file
+    makes about itself; `ply_payload_failure()` is what checks the file kept it.
+    Round 7 taught the staging path that difference, but every decision about the
+    PUBLISHED corpus -- the files the runtime lanes actually load -- still rested
+    on the claim alone: the `--require-asset-floors` gate and both preservation
+    branches read `read_ply_vertex_count()` and nothing else. A fixture truncated
+    by a short write, an interrupted copy or a killed job keeps a header claiming
+    50,000 splats, so it cleared the floor, was preserved in place by the next
+    run, and was measured by the lanes as if it were whole (#934 review).
+
+    One predicate, three callers, so "satisfies the floor" cannot mean two
+    different things in the same script.
+    """
+    if not path.is_file():
+        return "MISSING"
+    payload_problem = ply_payload_failure(path)
+    if payload_problem is not None:
+        return f"INCOMPLETE ({payload_problem})"
+    actual = read_ply_vertex_count(path)
+    if actual is None:
+        return "UNVERIFIABLE"
+    if required_splats > 0 and actual < required_splats:
+        return f"UNDERSIZED (has {actual} splats)"
+    return None
+
+
 def _resource_path_for_spec(spec: PLYSpec) -> str | None:
     spec_path = Path(spec.relative_path)
     for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
@@ -531,22 +560,17 @@ def asset_floor_failures(repo_root: Path) -> list[str]:
         for resource_path, required in sorted(ASSET_MIN_SPLAT_COUNTS.items()):
             relative_resource = Path(resource_path.removeprefix("res://"))
             asset_file = repo_root / project_root / relative_resource
-            if not asset_file.is_file():
-                failures.append(
-                    f"{asset_file.relative_to(repo_root).as_posix()}: MISSING; "
-                    f"{resource_path} requires >= {required} splats"
-                )
+            problem = fixture_floor_failure(asset_file, required)
+            if problem is None:
                 continue
-            actual = read_ply_vertex_count(asset_file)
-            if actual is None:
+            relative = asset_file.relative_to(repo_root).as_posix()
+            if problem.startswith("UNDERSIZED"):
                 failures.append(
-                    f"{asset_file.relative_to(repo_root).as_posix()}: UNVERIFIABLE; "
-                    f"{resource_path} requires >= {required} splats"
+                    f"{relative}: {problem} but {resource_path} requires >= {required}"
                 )
-            elif actual < required:
+            else:
                 failures.append(
-                    f"{asset_file.relative_to(repo_root).as_posix()}: UNDERSIZED; "
-                    f"has {actual} splats but {resource_path} requires >= {required}"
+                    f"{relative}: {problem}; {resource_path} requires >= {required} splats"
                 )
     return failures
 
@@ -1110,11 +1134,34 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             )
             return False
 
+        # Publish by REPLACING, not by deleting and then moving.
+        #
+        # `unlink()` followed by `shutil.move()` leaves a window in which the
+        # canonical fixture is already gone and the new one is not yet there. A
+        # move that fails in that window -- a sharing lock on the persistent
+        # Windows runner, a full disk -- destroyed the existing fixture, raised
+        # out of prep as an unhandled OSError, and took the staging directory
+        # (with the replacement in it) down with the `with` block. `os.replace()`
+        # is atomic within a filesystem, and the staging directory is created
+        # inside `output_dir`, so the destination is never transiently absent.
+        published: list[str] = []
         for name in sorted(CPP_GENERATED_FILENAMES):
             destination = output_dir / name
-            if destination.exists():
-                destination.unlink()
-            shutil.move(str(staging_dir / name), str(destination))
+            try:
+                os.replace(staging_dir / name, destination)
+            except OSError as exc:
+                print(
+                    "[prepare_synthetic_assets] could not publish the generated "
+                    f"{name}: {exc}"
+                )
+                if published:
+                    print(
+                        "  already published this run: " + ", ".join(published) + "; the "
+                        "rest of the corpus is the previous run's and the floor check "
+                        "will report any file that is not whole"
+                    )
+                return False
+            published.append(name)
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
@@ -1194,12 +1241,14 @@ def _generate(
             src = fixtures_dir / filename
             resource_path = _resource_path_for_spec(spec)
             required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+            # Preserve only what is WHOLE and over the floor. Deciding this on
+            # the declared count alone kept a truncated consumer copy in place
+            # and skipped the copy that would have repaired it, run after run.
             existing_splats = read_ply_vertex_count(output)
             if (
                 preserve_floor_valid
                 and required_splats > 0
-                and existing_splats is not None
-                and existing_splats >= required_splats
+                and fixture_floor_failure(output, required_splats) is None
             ):
                 if not quiet:
                     print(
@@ -1221,10 +1270,14 @@ def _generate(
         required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
         existing_splats = read_ply_vertex_count(output)
         fallback_is_below_floor = required_splats > 0 and spec.count < required_splats
+        # Same rule as above, and it matters more here: this branch runs without
+        # --require-asset-floors, so a truncated leftover claiming enough splats
+        # was preserved by EVERY subsequent run and the fallback never repaired
+        # it. A file that is not whole is not a fixture worth keeping; falling
+        # through writes the small-but-honest fallback instead.
         if (
             fallback_is_below_floor
-            and existing_splats is not None
-            and existing_splats >= required_splats
+            and fixture_floor_failure(output, required_splats) is None
         ):
             if not quiet:
                 print(

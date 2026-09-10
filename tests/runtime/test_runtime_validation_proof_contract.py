@@ -366,6 +366,156 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 "an absent file was reported complete",
             )
 
+    def test_a_truncated_consumer_copy_is_repaired_not_preserved(self) -> None:
+        """#934 review round 8: preservation believed the header too.
+
+        The cpp-secondary branch keeps an existing consumer fixture instead of
+        copying the freshly generated primary over it. That decision read the
+        declared count alone, so a truncated copy -- header claiming enough
+        splats, body short -- was preserved, and the copy that would have
+        repaired it was skipped. Every later run made the same decision, so the
+        corrupt file stayed corrupt.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            consumer = (
+                root / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+            )
+            consumer.mkdir(parents=True, exist_ok=True)
+            victim = consumer / "test_splats.ply"
+
+            floor = prep.FIXTURE_FLOORS_BY_FILENAME["test_splats.ply"]
+            truncated = _write_fixture_header(victim, floor)[:-8]
+            victim.write_bytes(truncated)
+            self.assertEqual(
+                prep.read_ply_vertex_count(victim),
+                floor,
+                "the truncated copy no longer claims the floor; the case is moot",
+            )
+
+            def fake_producer(binary, output_dir, quiet):
+                output_dir.mkdir(parents=True, exist_ok=True)
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    _write_fixture_header(
+                        output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
+                return True
+
+            with mock.patch.object(prep, "_generate_via_godot", side_effect=fake_producer):
+                rc = prep._generate(
+                    root, quiet=True, godot_binary=Path("godot"), preserve_floor_valid=True
+                )
+
+            self.assertEqual(rc, 0)
+            self.assertNotEqual(
+                victim.read_bytes(),
+                truncated,
+                "a truncated consumer fixture was preserved instead of being replaced "
+                "by the freshly generated one",
+            )
+            self.assertIsNone(
+                prep.ply_payload_failure(victim),
+                "the consumer copy is still not a complete PLY after preparation",
+            )
+
+    def test_a_whole_consumer_copy_over_the_floor_is_still_preserved(self) -> None:
+        """Discrimination: preservation exists to avoid churning good fixtures.
+
+        Without this the rule above is satisfied by copying unconditionally,
+        which would defeat the branch's purpose.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            consumer = (
+                root / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+            )
+            consumer.mkdir(parents=True, exist_ok=True)
+            floor = prep.FIXTURE_FLOORS_BY_FILENAME["test_splats.ply"]
+            kept = _write_fixture_header(consumer / "test_splats.ply", floor + 5)
+
+            def fake_producer(binary, output_dir, quiet):
+                output_dir.mkdir(parents=True, exist_ok=True)
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    _write_fixture_header(
+                        output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
+                return True
+
+            with mock.patch.object(prep, "_generate_via_godot", side_effect=fake_producer):
+                rc = prep._generate(
+                    root, quiet=True, godot_binary=Path("godot"), preserve_floor_valid=True
+                )
+            self.assertEqual(rc, 0)
+            self.assertEqual(
+                (consumer / "test_splats.ply").read_bytes(),
+                kept,
+                "a whole, floor-satisfying consumer fixture was overwritten anyway",
+            )
+
+    def test_a_failed_publish_does_not_delete_the_existing_fixture(self) -> None:
+        """#934 review round 8: unlink-then-move loses the corpus on failure.
+
+        Publishing deleted the canonical fixture and then moved the staged one
+        into its place. A move that failed in that window -- a sharing lock on the
+        persistent Windows runner, a full disk -- destroyed the existing fixture,
+        raised out of prep as an unhandled OSError, and took the staging directory
+        (with the replacement still inside it) down with it.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            names = sorted(prep.CPP_GENERATED_FILENAMES)
+            existing = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in names
+            }
+            blocked = names[-1]
+            real_replace = prep.os.replace
+            real_move = prep.shutil.move
+
+            # The lock is injected into BOTH publish primitives, so this measures
+            # the property -- no window in which the destination is gone -- and
+            # not which call the implementation happens to use. Injecting only
+            # into os.replace would let an unlink-then-move revert fail this test
+            # for the wrong reason.
+            def flaky_replace(src, dst, *args, **kwargs):
+                if Path(dst).name == blocked:
+                    raise OSError(13, "the file is locked by another process")
+                return real_replace(src, dst, *args, **kwargs)
+
+            def flaky_move(src, dst, *args, **kwargs):
+                if Path(dst).name == blocked:
+                    raise OSError(13, "the file is locked by another process")
+                return real_move(src, dst, *args, **kwargs)
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                for name in names:
+                    _write_fixture_header(
+                        staging / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                with mock.patch.object(prep.os, "replace", side_effect=flaky_replace):
+                    with mock.patch.object(prep.shutil, "move", side_effect=flaky_move):
+                        accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertFalse(accepted, "a failed publish was reported as a success")
+            self.assertTrue(
+                (output_dir / blocked).is_file(),
+                f"{blocked} was deleted and never replaced; the corpus lost a fixture",
+            )
+            self.assertEqual(
+                (output_dir / blocked).read_bytes(),
+                existing[blocked],
+                f"{blocked} was left in a state that is neither the old nor the new file",
+            )
+
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
         """Discrimination: a real producer run must still be accepted.
 
@@ -530,6 +680,27 @@ class FixtureReferencesAreSeenWhereverTheyAreWritten(unittest.TestCase):
                 )
         self.assertIn("sample data.ply", str(caught.exception))
 
+    def test_an_unquoted_reference_is_still_seen(self) -> None:
+        """The fallback half of the reader had no test of its own.
+
+        Quoted values cover GDScript and `.tscn`; the whitespace-terminated half
+        is what sees a reference written without quotes -- in a comment, or in a
+        value a scene file leaves bare. Removing that half entirely broke no test,
+        so it could have been dropped as dead code while the guard quietly stopped
+        governing those references.
+        """
+        prep = self._prep()
+        governed = sorted(runtime_validation.ASSET_MIN_SPLAT_COUNTS)[0]
+        self.assertEqual(
+            prep.fixture_references_in(f"# regenerate {governed} before running"),
+            [governed],
+            "an unquoted fixture reference was invisible to the reader",
+        )
+        self.assertEqual(
+            prep.fixture_references_in(f"path={governed} # bare tscn-style value"),
+            [governed],
+        )
+
     def test_the_reader_does_not_swallow_the_surrounding_line(self) -> None:
         """Discrimination: reading whole quoted values must not read whole lines.
 
@@ -648,6 +819,77 @@ class PrepFailuresKeepTheirDiagnostics(unittest.TestCase):
             with contextlib.redirect_stdout(buffer):
                 runtime_validation.ensure_synthetic_assets("godot")
         self.assertNotIn("synthetic asset prep stdout", buffer.getvalue())
+
+
+class ProjectPathContainmentIsEnforcedTests(unittest.TestCase):
+    """#934 review round 8: the containment guard had no test at all.
+
+    `--project-path` decides where Godot resolves `res://tests/fixtures/...`, and
+    the floor check only validates the two roots in
+    `ASSET_CONSUMER_PROJECT_ROOTS`. Pointed anywhere else, a selected fixture
+    consumer runs against fixtures no floor was enforced on while the floor check
+    reports green about two copies nobody loaded. The refusal that prevents this
+    was already implemented -- and deleting it outright broke no test, which is
+    the "guard wired to nothing" shape this repository treats as a defect.
+    """
+
+    def _run_main(self, project_path: "str | None"):
+        prepared: list[str] = []
+        with tempfile.TemporaryDirectory() as raw_td:
+            argv = [
+                "run_runtime_validation.py",
+                "--godot-binary",
+                "C:/godot/bin/godot.exe",
+                "--profile",
+                "headless-ci",
+                "--skip-cpp",
+                "--gd-test",
+                "World Streaming Gate",
+                "--report-path",
+                str(Path(raw_td) / "report.json"),
+            ]
+            if project_path is not None:
+                argv += ["--project-path", project_path]
+            buffer = io.StringIO()
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(
+                        runtime_validation,
+                        "ensure_synthetic_assets",
+                        side_effect=lambda binary: prepared.append(binary),
+                    ), \
+                    mock.patch.object(runtime_validation, "run_gd_tests", return_value=[]), \
+                    contextlib.redirect_stdout(buffer):
+                code = runtime_validation.main()
+        return code, prepared, buffer.getvalue()
+
+    def test_a_foreign_project_path_is_refused_before_any_preparation(self) -> None:
+        with tempfile.TemporaryDirectory() as elsewhere:
+            code, prepared, output = self._run_main(elsewhere)
+        self.assertEqual(
+            code,
+            1,
+            "a fixture consumer was allowed to run under a project root whose "
+            "fixtures no floor was enforced on",
+        )
+        self.assertIn("is outside the project roots", output)
+        self.assertEqual(
+            prepared, [], "fixtures were prepared for a root the floor check ignores"
+        )
+
+    def test_a_validated_project_path_still_runs(self) -> None:
+        """Discrimination: the canonical test project must remain usable.
+
+        Without this, the refusal above is satisfied by rejecting every
+        --project-path, which would break the documented runtime invocation.
+        """
+        validated = str(
+            (ROOT / "tests" / "examples" / "godot" / "test_project").resolve()
+        )
+        code, prepared, _output = self._run_main(validated)
+        self.assertEqual(code, 0, "the canonical test project was refused")
+        self.assertEqual(
+            prepared, ["C:/godot/bin/godot.exe"], "fixture preparation did not run"
+        )
 
 
 class SyntheticAssetFloorWiringTests(unittest.TestCase):

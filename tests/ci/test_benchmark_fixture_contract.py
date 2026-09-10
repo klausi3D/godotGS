@@ -414,6 +414,136 @@ class SyntheticAssetGenerationContractTests(unittest.TestCase):
         self.assertEqual(failures, [])
 
 
+class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
+    """#934 review: `--require-asset-floors` believed a header (#934 round 8).
+
+    Round 7 taught the STAGING path that a declared vertex count is a claim the
+    file makes about itself. Every decision about the PUBLISHED corpus still
+    rested on that claim: `asset_floor_failures()` -- the gate the flag runs and
+    the runtime harness depends on -- read `read_ply_vertex_count()` and nothing
+    else. A fixture truncated by a short write, an interrupted copy or a killed
+    job keeps a header claiming enough splats, so the gate passed it and the
+    lanes measured it.
+    """
+
+    ASSET = "res://tests/fixtures/test_splats.ply"
+
+    def _corpus(self, root: Path, *, vertices: int) -> list[Path]:
+        written = []
+        for relative in (
+            Path("tests/fixtures/test_splats.ply"),
+            Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+        ):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_ply(path, vertices)
+            written.append(path)
+        return written
+
+    def test_a_truncated_fixture_does_not_satisfy_its_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            copies = self._corpus(root, vertices=10000)
+            whole = copies[0].read_bytes()
+            copies[0].write_bytes(whole[:-24])  # a short write: header intact
+
+            self.assertEqual(
+                read_ply_vertex_count(copies[0]),
+                10000,
+                "the truncated file no longer claims enough splats; the case is moot",
+            )
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(
+            len(failures),
+            1,
+            f"a truncated fixture satisfied its floor on its header alone: {failures}",
+        )
+        self.assertIn("INCOMPLETE", failures[0])
+
+    def test_a_whole_fixture_at_the_floor_still_passes(self):
+        """Discrimination: the check must not start rejecting real fixtures.
+
+        Both producers write bodies this reader has to accept -- see
+        RealFixtureCorpusTests, which runs the same predicate over the committed
+        corpus rather than over a file this test invented.
+        """
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            self._corpus(root, vertices=10000)
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                self.assertEqual(_prepare.asset_floor_failures(root), [])
+
+    def test_the_predicate_separates_the_four_ways_a_fixture_fails(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+
+            whole = root / "whole.ply"
+            _write_ply(whole, 64)
+            self.assertIsNone(_prepare.fixture_floor_failure(whole, 64))
+
+            self.assertEqual(
+                _prepare.fixture_floor_failure(root / "absent.ply", 64), "MISSING"
+            )
+
+            small = root / "small.ply"
+            _write_ply(small, 8)
+            self.assertIn("UNDERSIZED", _prepare.fixture_floor_failure(small, 64) or "")
+
+            truncated = root / "truncated.ply"
+            _write_ply(truncated, 64)
+            truncated.write_bytes(truncated.read_bytes()[:-4])
+            self.assertIn(
+                "INCOMPLETE", _prepare.fixture_floor_failure(truncated, 64) or ""
+            )
+
+            junk = root / "junk.ply"
+            junk.write_bytes(b"not a ply at all\n")
+            self.assertIsNotNone(_prepare.fixture_floor_failure(junk, 64))
+
+
+class RealFixtureCorpusTests(unittest.TestCase):
+    """The completeness predicate, run over fixtures nobody in this file invented.
+
+    A body-length rule is only safe if it accepts what the producers actually
+    write. This reads the committed corpus in the repository rather than a
+    fixture authored to match the rule.
+    """
+
+    def test_every_committed_fixture_is_complete(self):
+        directory = (
+            ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
+        )
+        committed = sorted(directory.glob("*.ply"))
+        self.assertTrue(committed, "no committed fixtures found; this test is vacuous")
+        for path in committed:
+            with self.subTest(fixture=path.name):
+                self.assertIsNone(
+                    _prepare.ply_payload_failure(path),
+                    f"{path.name} is a committed fixture the completeness rule rejects",
+                )
+
+    def test_every_committed_fixture_satisfies_its_own_floor(self):
+        checked = 0
+        for resource_path, required in _prepare.ASSET_MIN_SPLAT_COUNTS.items():
+            relative = Path(resource_path.removeprefix("res://"))
+            path = ROOT / "tests" / "examples" / "godot" / "test_project" / relative
+            if not path.is_file():
+                continue  # gitignored generated fixture; absent in a clean checkout
+            checked += 1
+            with self.subTest(fixture=path.name):
+                self.assertIsNone(
+                    _prepare.fixture_floor_failure(path, required),
+                    f"{path.name} does not satisfy the floor it is committed at",
+                )
+        self.assertGreater(checked, 0, "no committed fixture was checked; vacuous")
+
+
 FIXTURE_IMPORT_RELATIVE_DIR = (
     Path("tests") / "examples" / "godot" / "test_project" / "tests" / "fixtures"
 )
