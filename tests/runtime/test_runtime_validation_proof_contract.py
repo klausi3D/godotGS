@@ -22,6 +22,8 @@ import importlib.util
 import io
 import json
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -515,6 +517,50 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 existing[blocked],
                 f"{blocked} was left in a state that is neither the old nor the new file",
             )
+
+    def test_a_killed_run_cannot_leave_committable_fixtures_behind(self) -> None:
+        """#934: the staging directory is inside tests/fixtures, and git can see it.
+
+        Publishing is a same-filesystem rename, so the staging directory has to
+        live beside the corpus -- which means a killed run leaves it there with
+        `.ply` files in it. `.gitignore`'s `tests/fixtures/*.ply` does not match a
+        nested path, so those leftovers were untracked and committable, and
+        committing generated fixtures is exactly what the contribution rules
+        forbid.
+
+        Asked of git itself rather than of the pattern text: `check-ignore` is the
+        thing that decides, and a rule that looks right and does not match is the
+        failure this pins.
+        """
+        prep = self._prep_module()
+        staging = ROOT / "tests" / "fixtures" / f"{prep.STAGING_DIR_PREFIX}probe"
+        leftover = staging / "test_splats.ply"
+        staging.mkdir(parents=True, exist_ok=True)
+        try:
+            leftover.write_bytes(b"leftover from a killed run\n")
+            result = subprocess.run(
+                ["git", "check-ignore", "-q", str(leftover)],
+                cwd=ROOT,
+                capture_output=True,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"{leftover.relative_to(ROOT)} is not ignored: a killed generation run "
+                "leaves committable fixtures inside tests/fixtures",
+            )
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+        # Discrimination: the rule must not swallow the tracked corpus around it.
+        for tracked in ("tests/AGENTS.md", "tests/runtime/prepare_synthetic_assets.py"):
+            with self.subTest(path=tracked):
+                result = subprocess.run(
+                    ["git", "check-ignore", "-q", tracked], cwd=ROOT, capture_output=True
+                )
+                self.assertNotEqual(
+                    result.returncode, 0, f"{tracked} is ignored; the rule is too broad"
+                )
 
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
         """Discrimination: a real producer run must still be accepted.

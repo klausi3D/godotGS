@@ -406,6 +406,15 @@ def fixture_references_in(text: str) -> list[str]:
     return list(seen)
 
 
+#: Prefix of the directory the producer writes into before anything is
+#: published. It lives beside the corpus so the publish is a same-filesystem
+#: rename, which means a killed run leaves it inside `tests/fixtures/` with
+#: `.ply` files in it -- and `.gitignore`'s `tests/fixtures/*.ply` does not match
+#: a nested path, so those leftovers show up as untracked and can be committed,
+#: which the contribution rules forbid for generated fixtures. The ignore rule
+#: keyed on this prefix is asserted by the tests.
+STAGING_DIR_PREFIX = ".gs_ply_staging_"
+
 #: The same floors, keyed by the filename a producer writes. Derived rather than
 #: transcribed: a floor added above must not be able to go unchecked here.
 FIXTURE_FLOORS_BY_FILENAME: dict[str, int] = {
@@ -1053,7 +1062,7 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     producer's output.  Staging makes existence proof of writing.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".gs_ply_staging_", dir=output_dir) as staging_name:
+    with tempfile.TemporaryDirectory(prefix=STAGING_DIR_PREFIX, dir=output_dir) as staging_name:
         staging_dir = Path(staging_name)
         env = os.environ.copy()
         env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(staging_dir)
