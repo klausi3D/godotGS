@@ -356,6 +356,24 @@ def normalize_test_category(category: Optional[str]) -> Optional[str]:
     )
 
 
+# #790 asked for `--godot-binary` to be forwarded here. Measured, it cannot be:
+# this runner OWNS the corpus that is pinned to the Python-fallback fixture. Its
+# `qa` category is the blocking visual/SSIM gate in `.github/workflows/baseline_qa.yml`,
+# its baseline (`tests/ci/baselines/qa_results.json`) records
+# `source_splat_count: 1024`, and the world-vs-instance A/B it runs compares
+# `test_splats.ply` against the committed 1024-splat `test_splats.gsplatworld`,
+# refusing to score when the two disagree (`scripts/qa_route_capture_base.gd`).
+# The `sorting` and `qa` steps share one workspace, so regenerating at the C++
+# count in either would break the gate. Flipping this is a baseline change:
+# rebake the world and re-measure the QA baseline first.
+FIXTURE_CORPUS_BLOCKER = (
+    "the QA scene suite's committed expectations are pinned to it "
+    "(tests/ci/baselines/qa_results.json records source_splat_count=1024 and the "
+    "committed test_splats.gsplatworld is a 1024-splat bake); regenerating at the C++ "
+    "count requires rebaking the world and re-measuring the QA baseline first (#790)"
+)
+
+
 def prepare_synthetic_assets() -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
@@ -363,6 +381,7 @@ def prepare_synthetic_assets() -> None:
         )
 
     command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    print(f"[INFO] Fixture generator: Python fallback by design -- {FIXTURE_CORPUS_BLOCKER}.")
     result = subprocess.run(
         command,
         capture_output=True,
@@ -370,6 +389,12 @@ def prepare_synthetic_assets() -> None:
         cwd=ROOT,
         check=False,
     )
+    # Echo prep output even on success: under --quiet the only thing it prints is
+    # the low-fidelity warning, and swallowing that is how the downgrade stayed
+    # invisible (#790).
+    for line in (result.stdout or "").splitlines():
+        if line.strip():
+            print(line)
     if result.returncode != 0:
         detail = (result.stdout + result.stderr).strip()
         if not detail:

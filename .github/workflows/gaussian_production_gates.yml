@@ -550,15 +550,31 @@ jobs:
           Write-Host "Resolved Godot binary: $resolved"
           "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      # #790: this step used to omit --godot-binary, so it regenerated the
+      # lightweight Python-fallback corpus -- test_splats.ply at 1024 splats
+      # against a declared floor of 10000 -- and every benchmark lane below then
+      # failed preflight into a continue-on-error step. The binary resolved above
+      # is the tests=yes build that carries the C++ [GeneratePLY] generators; it
+      # was already in scope and simply was not handed over. The prep script now
+      # fails rather than substituting the small fixtures, so this step going red
+      # means the generators are broken, not that the fixtures are small.
       - name: Prepare canonical synthetic assets
         shell: pwsh
+        env:
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         run: |
-          python tests/runtime/prepare_synthetic_assets.py --quiet
+          python tests/runtime/prepare_synthetic_assets.py --quiet --godot-binary "$env:GODOT_BINARY"
 
+      # #790: `continue-on-error: true` used to sit on this step. The fixture
+      # floor guard in run_benchmark.py preflight is fail-closed and was failing
+      # exactly as designed -- exit 2, no numbers produced -- and this line made a
+      # working guard invisible. It is gone. The JOB still carries
+      # continue-on-error (this evidence surface is non-blocking by design), so a
+      # failure here shows as a red job with a named cause instead of a green one
+      # that measured nothing.
       - name: Run openworld-proof-dev evidence surface
         id: openworld_proof_dev
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true }}
-        continue-on-error: true
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
@@ -570,11 +586,14 @@ jobs:
             --profile performance `
             --lane open_world_corridor_proof `
             --lane city_flyover `
+            --require-asset-variant cpp_rich `
             --no-dashboard `
             --output-dir $outputDir
 
       - name: Summarize openworld-proof-dev evidence
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true }}
+        env:
+          SURFACE_OUTCOME: ${{ steps.openworld_proof_dev.outcome }}
         shell: pwsh
         run: |
           $surfaceName = "openworld-proof-dev"
@@ -584,10 +603,15 @@ jobs:
           Add-Content -LiteralPath $stepSummary -Value ""
           Add-Content -LiteralPath $stepSummary -Value "## $surfaceName (non-blocking evidence)"
           Add-Content -LiteralPath $stepSummary -Value ""
+          Add-Content -LiteralPath $stepSummary -Value "- Benchmark run outcome: ``$env:SURFACE_OUTCOME``"
+          Add-Content -LiteralPath $stepSummary -Value ""
           if (Test-Path -LiteralPath $summaryPath) {
             Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $stepSummary
           } else {
-            Add-Content -LiteralPath $stepSummary -Value "- Benchmark summary not produced."
+            # #790: "not produced" was the only thing this surface ever said, and
+            # it read as "nothing to report" rather than "the fixture contract
+            # refused to publish numbers". Name the outcome, and where to look.
+            Add-Content -LiteralPath $stepSummary -Value "- **No benchmark summary was produced.** The run above ended ``$env:SURFACE_OUTCOME``; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
           }
 
       - name: Upload openworld-proof-dev evidence artifact
@@ -598,10 +622,15 @@ jobs:
           path: repo/tests/output/benchmark_evidence/openworld-proof-dev
           if-no-files-found: warn
 
+      # A dispatch can request both surfaces. Without the step-level
+      # continue-on-error above, a dev-surface failure would otherwise skip this
+      # one silently, so the dev surface's own failure is admitted explicitly --
+      # and only that one. `always()` is deliberately NOT used: a failed build or
+      # a failed fixture prep must still skip this step rather than run a
+      # benchmark against a binary that does not exist.
       - name: Run openworld-proof-weekly evidence surface
         id: openworld_proof_weekly
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true) }}
-        continue-on-error: true
+        if: ${{ (success() || steps.openworld_proof_dev.outcome == 'failure') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
@@ -612,11 +641,14 @@ jobs:
             --project-path tests/examples/godot/test_project `
             --profile performance `
             --lane long_soak `
+            --require-asset-variant cpp_rich `
             --no-dashboard `
             --output-dir $outputDir
 
       - name: Summarize openworld-proof-weekly evidence
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
+        env:
+          SURFACE_OUTCOME: ${{ steps.openworld_proof_weekly.outcome }}
         shell: pwsh
         run: |
           $surfaceName = "openworld-proof-weekly"
@@ -626,10 +658,12 @@ jobs:
           Add-Content -LiteralPath $stepSummary -Value ""
           Add-Content -LiteralPath $stepSummary -Value "## $surfaceName (non-blocking evidence)"
           Add-Content -LiteralPath $stepSummary -Value ""
+          Add-Content -LiteralPath $stepSummary -Value "- Benchmark run outcome: ``$env:SURFACE_OUTCOME``"
+          Add-Content -LiteralPath $stepSummary -Value ""
           if (Test-Path -LiteralPath $summaryPath) {
             Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $stepSummary
           } else {
-            Add-Content -LiteralPath $stepSummary -Value "- Benchmark summary not produced."
+            Add-Content -LiteralPath $stepSummary -Value "- **No benchmark summary was produced.** The run above ended ``$env:SURFACE_OUTCOME``; if it failed, the benchmark-suite preflight refused to publish numbers (missing, undersized or unrecognized fixture) - read that step's log for the per-lane reason."
           }
 
       - name: Upload openworld-proof-weekly evidence artifact
