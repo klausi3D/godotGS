@@ -33,9 +33,11 @@ Run directly (``python tests/ci/test_runner_gpu_contention.py``) or via
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 import posixpath
+import subprocess
 import re
 import sys
 import tempfile
@@ -1648,6 +1650,229 @@ class EndOfJobEvidenceMustBeMeasured(unittest.TestCase):
             ]
         )
         self.assertEqual(code, 0, "a confirmed blip was treated as contention")
+
+
+class UnresolvedWritersOutliveTheirSession(unittest.TestCase):
+    """An orphan nobody could identify must not be forgotten next session (#882 review).
+
+    `stop_orphaned_sampler()` records the unresolved orphan in the session it is
+    about to write, and the postflight narrows contention on it. That record was
+    then overwritten with the NEW sampler's pid, so the protection lasted one
+    session: after this job's sampler exited, the next job saw a single dead pid,
+    found no orphan, and read both writers' samples as contention -- while the
+    original sampler can keep appending for up to three hours.
+    """
+
+    ORPHAN_PID = 9931
+
+    def _session(self, directory: Path, **fields) -> None:
+        payload = {"sampler_pid": 4242, "start_verdict": contention.VERDICT_CLEAN}
+        payload.update(fields)
+        (directory / contention.SESSION_FILE).write_text(json.dumps(payload), encoding="utf-8")
+
+    def _carry(self, directory: Path, probe, orphan_error=None):
+        with mock.patch.object(contention, "probe_process", side_effect=probe):
+            return contention.carried_unresolved_writers(directory, orphan_error)
+
+    def test_an_unidentifiable_pid_is_carried_to_the_next_session(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._session(base, unresolved_sampler_pids=[self.ORPHAN_PID])
+            lines, still = self._carry(base, lambda _pid: (True, None))
+        self.assertEqual(
+            still,
+            [self.ORPHAN_PID],
+            "an unidentifiable live pid was dropped, so the next job reads its samples "
+            "as this job's contention",
+        )
+        self.assertIn("unaccounted for", "\n".join(lines))
+
+    def test_this_sessions_unresolved_orphan_joins_the_carry(self) -> None:
+        """The pid `stop_orphaned_sampler` could not account for is itself carried.
+
+        It reports the fact but not the pid, so the pid comes from the session
+        record it was read out of.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._session(base, sampler_pid=self.ORPHAN_PID)
+            _lines, still = self._carry(
+                base, lambda _pid: (True, None), orphan_error="pid could not be identified"
+            )
+        self.assertEqual(still, [self.ORPHAN_PID])
+
+    def test_a_dead_pid_is_dropped(self) -> None:
+        """Discrimination: carrying forever would void every later run's attribution."""
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._session(base, unresolved_sampler_pids=[self.ORPHAN_PID])
+            lines, still = self._carry(base, lambda _pid: (False, None))
+        self.assertEqual(still, [], "a pid that has exited was still carried")
+        self.assertEqual(lines, [])
+
+    def test_a_recycled_pid_owned_by_someone_else_is_dropped(self) -> None:
+        """Discrimination: a readable command line that is not ours proves it is gone."""
+        stranger = '"C:\\Windows\\explorer.exe"'
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._session(base, unresolved_sampler_pids=[self.ORPHAN_PID])
+            _lines, still = self._carry(base, lambda _pid: (True, stranger))
+        self.assertEqual(still, [])
+
+    def test_no_previous_record_carries_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lines, still = self._carry(Path(directory), lambda _pid: (True, None))
+        self.assertEqual((lines, still), ([], []))
+
+    def test_the_preflight_persists_the_carry_and_narrows_on_it(self) -> None:
+        """Wiring: the list has to reach the session record the postflight reads.
+
+        Without this the helper is correct and unreachable -- and
+        `evaluate_series` narrows on `orphan_sampler_error`, so that has to be set
+        too when only a carried pid remains.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            self._session(base, unresolved_sampler_pids=[self.ORPHAN_PID])
+            with contextlib.ExitStack() as stack:
+                patch = lambda name, **kw: stack.enter_context(  # noqa: E731
+                    mock.patch.object(contention, name, **kw)
+                )
+                patch("stop_orphaned_sampler", return_value=([], None))
+                patch("run_sample_script", return_value=({"processes": {}}, None))
+                patch("wait_for_free_gpu", return_value=(True, [_sample(at=1.0)], []))
+                patch("spawn_sampler", return_value=(SAMPLER_PID, None))
+                patch("await_sampler_ready", return_value=(2.0, None))
+                # The real unidentifiable state: running, no readable command line.
+                patch("probe_process", return_value=(True, None))
+                patch("terminate_process", side_effect=lambda pid: None)
+                contention.main(["preflight", "--record-dir", str(base)])
+            session = json.loads(
+                (base / contention.SESSION_FILE).read_text(encoding="utf-8")
+            )
+        self.assertEqual(
+            session.get("unresolved_sampler_pids"),
+            [self.ORPHAN_PID],
+            "the carried pid did not reach the session record, so the next job forgets it",
+        )
+        self.assertTrue(
+            session.get("orphan_sampler_error"),
+            "a carried unresolved writer did not set orphan_sampler_error, so the "
+            "postflight would not narrow contention to this job's own sampler",
+        )
+
+
+class ProbeReportsThreeStatesNotTwo(unittest.TestCase):
+    """A failed lookup is not a dead process (#882 review).
+
+    `probe_process` answers a three-state question -- gone, running-and-named,
+    running-but-unidentifiable -- and the third state is what stops a stranger's
+    process being killed on a machine that is also the maintainer's workstation.
+    The Windows branch used `-ErrorAction SilentlyContinue` and ignored the exit
+    status, so a CIM failure printed nothing and read exactly like an exited pid.
+    Both callers act on that: the orphan cleanup reuses the shared series, and
+    the postflight takes its closing sample believing the sampler has stopped --
+    and because neither records anything unresolved, the narrowing that exists to
+    stop two writers manufacturing a contention streak never engages.
+
+    Driven through a patched `subprocess.run`, so the states are exercised
+    without needing a real WMI failure. `os.name` is patched too so the Windows
+    branch is reached on any host -- otherwise this test would silently skip on
+    the Linux gate, which is where it runs.
+    """
+
+    PID = 4242
+
+    def _probe(self, stdout: str, returncode: int = 0):
+        completed = subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+        with mock.patch.object(contention.os, "name", "nt"):
+            with mock.patch.object(contention.subprocess, "run", return_value=completed):
+                return contention.probe_process(self.PID)
+
+    def test_a_failed_query_is_running_but_unidentifiable(self) -> None:
+        """The defect: no marker, so the query never completed."""
+        for label, stdout, code in (
+            ("empty output, non-zero exit", "", 1),
+            ("empty output, zero exit", "", 0),
+            ("noise without the marker", "Get-CimInstance : RPC server unavailable\n", 1),
+        ):
+            with self.subTest(shape=label):
+                running, command_line = self._probe(stdout, code)
+                self.assertTrue(
+                    running,
+                    f"{label}: a lookup that did not complete was reported as a dead pid, "
+                    "so a live sampler is treated as gone",
+                )
+                self.assertIsNone(
+                    command_line,
+                    f"{label}: an unidentifiable process must carry no command line, or a "
+                    "caller could match it and terminate it",
+                )
+
+    def test_a_completed_query_that_finds_nothing_is_gone(self) -> None:
+        """Discrimination: without this, 'always running' would pass the test above.
+
+        A filter matching no instance is not an error, so a genuinely exited pid
+        still reaches the marker.
+        """
+        running, command_line = self._probe(f"{contention._PROBE_QUERY_OK}\n")
+        self.assertFalse(running, "an exited pid was reported as still running")
+        self.assertIsNone(command_line)
+
+    def test_a_completed_query_that_finds_the_process_names_it(self) -> None:
+        """Discrimination: the identified state must survive, or nothing is ever killed."""
+        expected = OUR_SAMPLER_COMMAND.format(directory=Path("C:/records"))
+        running, command_line = self._probe(
+            f"{contention._PROBE_QUERY_OK}\nALIVE\n{expected}\n"
+        )
+        self.assertTrue(running)
+        self.assertEqual(command_line, expected)
+
+    def test_the_marker_is_emitted_only_after_the_query_returns(self) -> None:
+        """Where the marker sits in the script is the whole fix.
+
+        The tests above drive `subprocess.run` with canned output, so they cannot
+        see the script itself: printing the marker BEFORE the CIM call would make
+        a failed lookup print it too, and every one of them would still pass.
+        That ordering is a property of the source, so it is read from the source.
+        """
+        # Comment lines are stripped first: this function's own comments
+        # explain the defect by name, and matching those would make the check
+        # fail on the fix that mentions what it fixed.
+        source = "\n".join(
+            line for line in inspect.getsource(contention.probe_process).splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        self.assertNotIn(
+            "SilentlyContinue",
+            source,
+            "the probe suppresses its own query errors again; a CIM failure then "
+            "prints nothing and reads as a dead pid",
+        )
+        query_at = source.find("Get-CimInstance")
+        stop_at = source.find("-ErrorAction Stop")
+        marker_at = source.find(f"Write-Output '{{_PROBE_QUERY_OK}}'")
+        for label, position in (
+            ("Get-CimInstance", query_at),
+            ("-ErrorAction Stop", stop_at),
+            ("the marker", marker_at),
+        ):
+            self.assertGreater(position, -1, f"{label} is missing from the probe script")
+        self.assertLess(
+            query_at,
+            marker_at,
+            "the query-succeeded marker is printed before the query runs, so a "
+            "failed lookup emits it too and the three states collapse again",
+        )
+        self.assertLess(stop_at, marker_at)
+
+    def test_the_marker_is_read_positionally(self) -> None:
+        """A command line quoting the marker must not be able to fake a verdict."""
+        running, command_line = self._probe(
+            f"ALIVE\n{contention._PROBE_QUERY_OK}\n"
+        )
+        self.assertTrue(running, "output whose first line is not the marker is unidentifiable")
+        self.assertIsNone(command_line)
 
 
 class OrphanedSamplersAreStoppedNotInherited(unittest.TestCase):

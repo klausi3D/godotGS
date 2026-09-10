@@ -1013,6 +1013,12 @@ SAMPLER_CLOSE_TIMEOUT_SEC = 30.0
 SAMPLER_STOP_POLL_SEC = 1.0
 
 
+#: Printed by the Windows probe once its CIM query has RETURNED. Its absence
+#: means the query did not complete, which is not the same answer as "no such
+#: process" -- see :func:`probe_process`.
+_PROBE_QUERY_OK = "GS_PROBE_QUERY_OK"
+
+
 def probe_process(pid: int) -> Tuple[bool, Optional[str]]:
     """`(is running, command line)` for `pid`.
 
@@ -1037,10 +1043,24 @@ def probe_process(pid: int) -> Tuple[bool, Optional[str]]:
             return True, None
         parts = [part for part in raw.decode("utf-8", "replace").split("\0") if part]
         return True, (" ".join(parts) or None)
+    # The marker says the QUERY ran, which is a different fact from the process
+    # existing. `-ErrorAction SilentlyContinue` used to swallow a CIM failure --
+    # WMI unavailable, an RPC error, the repository being rebuilt -- and the
+    # script then printed nothing, exactly as it does for a pid that has exited.
+    # `probe_process` read both as "gone", so a live sampler looked dead to the
+    # orphan cleanup and to the postflight's join, and the compensating
+    # narrowing (`concurrent_writer_unresolved`) was never engaged because
+    # nothing was recorded as unresolved (#882 review).
+    #
+    # A filter matching no instance is NOT an error, so a genuinely dead pid
+    # still reaches the marker and returns cleanly.
     script = (
+        "try { "
         f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
-        "-ErrorAction SilentlyContinue; "
-        "if ($p) { Write-Output 'ALIVE'; Write-Output $p.CommandLine }"
+        "-ErrorAction Stop; "
+        f"Write-Output '{_PROBE_QUERY_OK}'; "
+        "if ($p) { Write-Output 'ALIVE'; Write-Output $p.CommandLine } "
+        "} catch { }"
     )
     try:
         completed = subprocess.run(  # noqa: S603 -- fixed argv, no shell
@@ -1054,9 +1074,16 @@ def probe_process(pid: int) -> Tuple[bool, Optional[str]]:
         # kill on this, and must not assume the directory is free either.
         return True, None
     lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
-    if not lines or lines[0] != "ALIVE":
+    if not lines or lines[0] != _PROBE_QUERY_OK:
+        # The query did not complete: PowerShell exited non-zero, crashed, or the
+        # CIM call threw. "Could not look" is not "nothing there", so this is the
+        # running-but-unidentifiable state -- the caller neither kills it nor
+        # treats the record directory as free.
+        return True, None
+    body = lines[1:]
+    if not body or body[0] != "ALIVE":
         return False, None
-    return True, (" ".join(lines[1:]) or None)
+    return True, (" ".join(body[1:]) or None)
 
 
 def is_this_guards_sampler(command_line: Optional[str], session_dir: Path) -> bool:
@@ -1212,7 +1239,18 @@ def stop_orphaned_sampler(
     deadline = now() + ORPHAN_STOP_TIMEOUT_SEC
     while True:
         running, command_line = probe_process(pid)
-        if not running or not is_this_guards_sampler(command_line, session_dir):
+        if not running:
+            return (
+                [
+                    f"  stopped an orphaned sampler (pid {pid}) left by a previous job in "
+                    "this record directory, before reusing it"
+                ],
+                None,
+            )
+        if command_line is not None and not is_this_guards_sampler(command_line, session_dir):
+            # The pid now belongs to something else, so the sampler that held it
+            # is gone. Only a READ command line proves that; an unreadable one
+            # keeps waiting below rather than being counted as success.
             return (
                 [
                     f"  stopped an orphaned sampler (pid {pid}) left by a previous job in "
@@ -1319,6 +1357,72 @@ def await_sampler_exit(
         sleep(0.5)
 
 
+def carried_unresolved_writers(
+    session_dir: Path, orphan_error: Optional[str]
+) -> Tuple[List[str], List[int]]:
+    """Pids from EARLIER jobs that can still write to this series, re-probed.
+
+    `stop_orphaned_sampler()` records an unresolved orphan in the session it is
+    about to write, and the postflight reads that to narrow contention to this
+    job's own sampler. But the session file is then overwritten with the NEW
+    sampler's pid, so the protection lasted exactly one session: once this job's
+    sampler exited, the next job saw one dead pid, found no orphan, and read both
+    writers' samples as contention -- while the original sampler, unidentifiable
+    but alive, can keep appending for up to SAMPLER_MAX_LIFETIME_SEC (#882
+    review).
+
+    The pids are therefore carried in the session record and re-probed here every
+    preflight. A pid is dropped only on EVIDENCE that the sampler is gone: the
+    process has exited, or its command line reads as somebody else's (the pid was
+    recycled). "Running but unidentifiable" keeps it -- the same conservative
+    reading `probe_process` exists to make possible.
+    """
+    session_path = session_dir / SESSION_FILE
+    previous: Dict[str, object] = {}
+    try:
+        loaded = json.loads(session_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            previous = loaded
+    except (OSError, ValueError):
+        previous = {}
+
+    def _pid(value: object) -> Optional[int]:
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return int(value)
+
+    carried: List[int] = []
+    raw_pids = previous.get("unresolved_sampler_pids")
+    if isinstance(raw_pids, list):
+        carried.extend(pid for pid in (_pid(entry) for entry in raw_pids) if pid is not None)
+    # The sampler this preflight could not account for a moment ago is itself an
+    # unresolved writer; `stop_orphaned_sampler` reports the fact but not the pid.
+    if orphan_error:
+        previous_pid = _pid(previous.get("sampler_pid"))
+        if previous_pid is not None:
+            carried.append(previous_pid)
+
+    lines: List[str] = []
+    still: List[int] = []
+    for pid in sorted(set(carried)):
+        if pid == os.getpid():
+            continue
+        running, command_line = probe_process(pid)
+        if not running:
+            continue
+        if command_line is not None and not is_this_guards_sampler(command_line, session_dir):
+            continue
+        still.append(pid)
+
+    if still:
+        lines.append(
+            f"  {len(still)} sampler pid(s) from earlier jobs in this directory are still "
+            f"unaccounted for: {still}. They can append to this series, so contention is "
+            "read from this job's own sampler only."
+        )
+    return lines, still
+
+
 def _first_token(command_line: str) -> str:
     text = command_line.strip()
     if text.startswith('"'):
@@ -1339,6 +1443,15 @@ def phase_preflight(args: argparse.Namespace) -> int:
     # Order matters here; this has to happen while the old session record still
     # exists, and before the new sampler is started.
     orphan_lines, orphan_error = stop_orphaned_sampler(session_dir)
+    # Read BEFORE the session file is overwritten below: it is the only record of
+    # what earlier jobs left behind.
+    carry_lines, unresolved_pids = carried_unresolved_writers(session_dir, orphan_error)
+    orphan_lines = list(orphan_lines) + carry_lines
+    if unresolved_pids and not orphan_error:
+        orphan_error = (
+            f"sampler pid(s) {unresolved_pids} from an earlier job in this directory are "
+            "still unaccounted for"
+        )
     # A stale series from a previous job on this persistent runner would be read
     # by the postflight as this job's own history.
     for stale in (samples_path, session_dir / STOP_FILE):
@@ -1398,6 +1511,9 @@ def phase_preflight(args: argparse.Namespace) -> int:
         # coverage (the postflight counts only this job's own sampler), and
         # voiding a run on it would be a false-void generator.
         "orphan_sampler_error": orphan_error,
+        # Carried forward until each pid is provably gone, so the narrowing above
+        # outlives the single session that recorded it.
+        "unresolved_sampler_pids": unresolved_pids,
     }
 
     if not free:
