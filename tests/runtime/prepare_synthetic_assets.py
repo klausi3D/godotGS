@@ -1129,11 +1129,18 @@ def _read_unrestored(quarantine: Path) -> "set[str] | None":
 
     * a marker listing names -- those originals are pending recovery;
     * no marker at all -- nothing is pending, which is the normal state;
-    * a marker that exists and cannot be read (or was never written because the
-      write failed) -- UNKNOWN. Treating that as "nothing pending" turned an
-      unrestored original into a superseded copy and unlinked it.
+    * a marker that exists and cannot be read -- UNKNOWN. Treating that as
+      "nothing pending" turned an unrestored original into a superseded copy and
+      unlinked it.
 
     Absent is `set()`; unknown is `None`, and the caller decides conservatively.
+
+    A marker whose WRITE failed is absent, not unknown, and this cannot tell the
+    difference -- nothing on disk distinguishes them. What covers that case is the
+    evidence rule in the isolation loop: after a failed restore the canonical path
+    holds debris or nothing, and a quarantine copy beside either of those is
+    adopted without consulting the marker at all. The marker is only load-bearing
+    when both files are whole.
     """
     marker = quarantine / UNRESTORED_MARKER_FILENAME
     if not marker.exists():
@@ -1145,6 +1152,42 @@ def _read_unrestored(quarantine: Path) -> "set[str] | None":
     if not isinstance(raw, list):
         return None
     return {name for name in raw if isinstance(name, str)}
+
+
+def _merge_unrestored(quarantine: Path, failed_names: "set[str]") -> None:
+    """Add `failed_names` to the pending-recovery marker, or leave it alone.
+
+    The two restore paths used to compute `(_read_unrestored(...) or set()) |
+    failures`, and that `or` is where an UNKNOWN state became an empty one: with
+    an unreadable marker and no new failures the set was empty, `_write_unrestored`
+    deletes on empty, and the deletion cleared the very file whose unreadability
+    had just made the run stop and ask for a human. The next run then saw no
+    marker, classified the quarantined original as a superseded copy, and deleted
+    it -- so "nothing was moved or deleted; remove the marker and re-run" was
+    followed by a re-run that removed the copy instead (#969 review).
+
+    An unreadable marker therefore stays exactly as it is. Nothing is merged into
+    it, because it cannot be read to merge into, and nothing is written over it,
+    because whatever it says is the only record that these copies were originals.
+    Dropping the new failure names with it is safe: after a failed restore the
+    canonical path holds debris or nothing, and the isolation loop adopts a
+    quarantine copy beside either of those on the evidence alone.
+    """
+    state = _read_unrestored(quarantine)
+    if state is None:
+        marker = quarantine / UNRESTORED_MARKER_FILENAME
+        print(
+            f"[prepare_synthetic_assets] {marker} cannot be read, so it is being left "
+            "exactly as it is: it is the only record that the quarantined copies are "
+            "originals, and rewriting it from a guess is how they get deleted."
+        )
+        if failed_names:
+            print(
+                "  this run additionally failed to restore: "
+                f"{', '.join(sorted(failed_names))}"
+            )
+        return
+    _write_unrestored(quarantine, state | failed_names)
 
 
 def _write_unrestored(quarantine: Path, names: "set[str]") -> None:
@@ -1244,11 +1287,7 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             except OSError as exc:
                 failures.append(f"{name}: {exc}")
         _report_restore_failures(failures)
-        _write_unrestored(
-            quarantine,
-            (_read_unrestored(quarantine) or set())
-            | {line.split(":", 1)[0] for line in failures},
-        )
+        _merge_unrestored(quarantine, {line.split(":", 1)[0] for line in failures})
         stashed.clear()
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
@@ -1388,11 +1427,7 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             except OSError as exc:
                 failures.append(f"{name}: {exc}")
         _report_restore_failures(failures)
-        _write_unrestored(
-            quarantine,
-            (_read_unrestored(quarantine) or set())
-            | {line.split(":", 1)[0] for line in failures},
-        )
+        _merge_unrestored(quarantine, {line.split(":", 1)[0] for line in failures})
         try:
             if quarantine.is_dir() and not any(quarantine.iterdir()):
                 quarantine.rmdir()
@@ -1461,7 +1496,9 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             cleanup_failures.append(f"{name}: {exc}")
     # Nothing is pending recovery after a successful run: whatever survives in the
     # quarantine is superseded by what was just generated, and the marker saying so
-    # is what stops the next run adopting it.
+    # is what stops the next run adopting it. This is the one caller that may clear
+    # an unreadable marker -- it does not need to read it, because a fresh corpus
+    # settles the question the marker exists to answer.
     _write_unrestored(quarantine, set())
     if cleanup_failures:
         print(

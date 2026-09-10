@@ -158,20 +158,30 @@ def record_producer_output(
     for path, variant in (produced or {}).items():
         path = Path(path)
         digest = file_digest(path)
-        if digest is None:
-            # Skipping it wrote an incomplete record and still returned True, so
-            # the prep exited 0 with one fixture unauthenticated and the benchmark
-            # rejected the corpus a job later (#969 review). A produced file that
-            # cannot be hashed -- a transient sharing lock on the Windows runner is
-            # the case that produces one -- is a record this run cannot make.
+        size: "int | None" = None
+        if digest is not None:
+            # Read in the same guarded step as the digest. `path.stat()` sat
+            # unguarded inside a `setdefault` default, which is evaluated
+            # EAGERLY -- so it ran for every produced path, including ones whose
+            # digest was already recorded, and a file that vanished between the
+            # two calls raised FileNotFoundError straight out of a function whose
+            # contract is to RETURN FALSE. That is the same transient-lock class
+            # the hash check above was added for, one line further down: it
+            # bypassed `_generate()`'s own diagnostic and killed the prep with a
+            # traceback instead (#969 review).
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = None
+        if digest is None or size is None:
             print(
-                f"[fixture_provenance] could not hash {path}, so its provenance "
+                f"[fixture_provenance] could not read {path}, so its provenance "
                 "cannot be recorded"
             )
             return False
         entry = entries.setdefault(
             digest,
-            {"variant": variant, "filenames": [], "bytes": path.stat().st_size},
+            {"variant": variant, "filenames": [], "bytes": size},
         )
         if entry["variant"] != variant:
             # Identical bytes attributed to two producers is not a thing either

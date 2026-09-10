@@ -671,6 +671,45 @@ class ProducerRecordIsProvenanceTests(unittest.TestCase):
                 _provenance.recorded_variant(fixtures_dir, produced), "cpp_rich"
             )
 
+    def test_a_produced_file_that_vanishes_after_hashing_fails_the_record(self):
+        """#969 review round 9: the same race, one line past the check for it.
+
+        `path.stat().st_size` sat inside a `setdefault` default -- evaluated
+        EAGERLY, so it ran for every produced path, including ones whose digest
+        was already recorded. A file that disappeared between the hash and the
+        stat therefore raised FileNotFoundError out of a function whose documented
+        contract is to return False, bypassing `_generate()`'s own "provenance
+        could not be recorded" diagnostic and killing the prep with a traceback.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixtures_dir = root / "fixtures"
+            fixtures_dir.mkdir()
+            produced = root / "produced.ply"
+            produced.write_bytes(b"produced\n")
+
+            real_digest = _provenance.file_digest
+
+            def digest_then_vanish(path):
+                value = real_digest(path)
+                if Path(path).name == "produced.ply" and Path(path).is_file():
+                    Path(path).unlink()
+                return value
+
+            with mock.patch.object(_provenance, "file_digest", digest_then_vanish):
+                recorded = _provenance.record_producer_output(
+                    fixtures_dir, {produced: "cpp_rich"}
+                )
+
+            self.assertFalse(
+                recorded,
+                "a produced file that vanished mid-record did not fail the record",
+            )
+            self.assertFalse(
+                _provenance.provenance_path(fixtures_dir).exists(),
+                "a partial record was published for a run that could not be recorded",
+            )
+
     def test_a_damaged_record_authenticates_nothing(self):
         """Fail closed: a corrupt record must not be read as provenance."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -2312,6 +2351,127 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                 with self.subTest(fixture=name):
                     self.assertEqual((out / name).read_bytes(), canonical[name])
                     self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
+
+    def test_the_undecidable_stop_survives_the_next_run(self):
+        """#969 review round 9: a stop that clears its own evidence is not a stop.
+
+        The undecidable branch refuses to choose between a quarantined original
+        and a superseded copy, prints "nothing was moved or deleted", and asks for
+        a human. But the rollback that followed rewrote the marker from
+        `(_read_unrestored(...) or set()) | failures` -- and with an UNREADABLE
+        marker that `or` yields the empty set, which `_write_unrestored` writes by
+        DELETING the file. The next run then saw no marker at all, classified the
+        quarantined original as a superseded copy, and unlinked it: the re-run the
+        message asked for destroyed the copy instead of the human deciding.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
+            for name in names:
+                _write_ply(quarantine / name, 32, rich_sh=True)
+                _write_ply(out / name, 64, rich_sh=True)
+            marker.write_bytes(b"{not json")
+            quarantined = {name: (quarantine / name).read_bytes() for name in names}
+
+            buffer = io.StringIO()
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(
+                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+                    )
+
+            self.assertTrue(
+                marker.is_file(),
+                "the stop deleted the marker it stopped on, so the state it refused "
+                "to guess at is gone",
+            )
+            self.assertIsNone(
+                _prepare._read_unrestored(quarantine),
+                "the marker was rewritten, so the next run no longer knows the state "
+                "is unknown",
+            )
+
+            # The decision has to still be pending on the NEXT run -- that is the
+            # run the message asks for, and it is where the copies were destroyed.
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(
+                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+                    )
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertTrue(
+                        (quarantine / name).is_file(),
+                        f"{name}: the re-run discarded the quarantined original the "
+                        "previous run refused to judge",
+                    )
+                    self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
+
+    def test_a_readable_marker_is_still_updated_and_cleared(self):
+        """Discrimination: only an UNREADABLE marker is untouchable.
+
+        Without this, the fix above is satisfied by never writing the marker at
+        all -- which would strand every genuine recovery, since an adopted
+        original must stop being listed as pending.
+        """
+        quarantine_names = sorted(_prepare.CPP_GENERATED_FILENAMES)[:2]
+        with tempfile.TemporaryDirectory() as tmp:
+            quarantine = Path(tmp) / ".pre_cpp_generation"
+            quarantine.mkdir()
+
+            # merging into a readable marker keeps both the old and the new names
+            _prepare._write_unrestored(quarantine, {quarantine_names[0]})
+            _prepare._merge_unrestored(quarantine, {quarantine_names[1]})
+            self.assertEqual(_prepare._read_unrestored(quarantine), set(quarantine_names))
+
+            # and clearing it outright still removes the file
+            _prepare._write_unrestored(quarantine, set())
+            self.assertEqual(_prepare._read_unrestored(quarantine), set())
+            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
+
+    def test_a_successful_run_still_clears_an_unreadable_marker(self):
+        """The one caller that may: a fresh corpus answers the marker's question.
+
+        After the producer delivers, whatever is left in the quarantine is
+        superseded whatever the marker said, so leaving an unreadable one behind
+        would make the next run stop on a state that is no longer ambiguous.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
+            for name in names:
+                _write_ply(out / name, 16, rich_sh=True)
+            marker.write_bytes(b"{not json")
+
+            class _Proc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def producer(*_args, **_kwargs):
+                for name in names:
+                    _write_ply(out / name, 48, rich_sh=True)
+                return _Proc()
+
+            with mock.patch.object(_prepare.subprocess, "run", producer):
+                self.assertTrue(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+
+            self.assertEqual(
+                _prepare._read_unrestored(quarantine),
+                set(),
+                "a successful generation left the marker unreadable, so the next run "
+                "would stop on a question its own output already answered",
+            )
 
     def test_a_failed_cleanup_after_success_is_reported_and_disarmed(self):
         """The other half: say so, and make sure the next run cannot be misled.
