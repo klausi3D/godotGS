@@ -42,6 +42,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = ROOT / "tests" / "runtime"
@@ -299,6 +300,298 @@ class ManifestContractTests(unittest.TestCase):
             manifest = _manifest_mod.load_benchmark_asset_manifest(legacy)
             self.assertEqual(manifest.asset_min_splat_counts, {})
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
+
+
+class SyntheticAssetGenerationContractTests(unittest.TestCase):
+    """The lightweight producer must not destroy a fixture that meets its floor."""
+
+    def test_python_fallback_preserves_existing_valid_canonical_asset(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            fixture = root / "tests" / "fixtures" / "test_splats.ply"
+            fixture.parent.mkdir(parents=True)
+            _write_ply(fixture, 10000)
+            original = fixture.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0
+            )
+
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()):
+                self.assertEqual(_prepare._generate(root, quiet=True), 0)
+
+            self.assertEqual(
+                fixture.read_bytes(),
+                original,
+                "the 1024-splat fallback must not overwrite a valid 10000-splat fixture",
+            )
+
+    def test_required_floor_mode_does_not_dirty_valid_consumer_fixture(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            primary = root / "tests" / "fixtures" / "synthetic_sphere.ply"
+            consumer = (
+                root
+                / "tests"
+                / "examples"
+                / "godot"
+                / "test_project"
+                / "tests"
+                / "fixtures"
+                / "synthetic_sphere.ply"
+            )
+            primary.parent.mkdir(parents=True)
+            consumer.parent.mkdir(parents=True)
+            _write_ply(primary, 50000)
+            _write_ply(consumer, 2048)
+            original = consumer.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/examples/godot/test_project/tests/fixtures/synthetic_sphere.ply",
+                2048,
+                3101,
+                "sphere",
+                4.5,
+            )
+
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_generate_via_godot", return_value=True), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()):
+                self.assertEqual(
+                    _prepare._generate(
+                        root,
+                        quiet=True,
+                        godot_binary=Path("godot.exe"),
+                        preserve_floor_valid=True,
+                    ),
+                    0,
+                )
+
+            self.assertEqual(consumer.read_bytes(), original)
+
+    def test_floor_validation_rejects_the_1024_fallback(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 1024)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(all("1024" in failure and "10000" in failure for failure in failures))
+
+    def test_floor_validation_accepts_both_consumer_copies_at_the_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 10000)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(failures, [])
+
+
+class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
+    """#934 review: `--require-asset-floors` believed a header (#934 round 8).
+
+    Round 7 taught the STAGING path that a declared vertex count is a claim the
+    file makes about itself. Every decision about the PUBLISHED corpus still
+    rested on that claim: `asset_floor_failures()` -- the gate the flag runs and
+    the runtime harness depends on -- read `read_ply_vertex_count()` and nothing
+    else. A fixture truncated by a short write, an interrupted copy or a killed
+    job keeps a header claiming enough splats, so the gate passed it and the
+    lanes measured it.
+    """
+
+    ASSET = "res://tests/fixtures/test_splats.ply"
+
+    def _corpus(self, root: Path, *, vertices: int) -> list[Path]:
+        written = []
+        for relative in (
+            Path("tests/fixtures/test_splats.ply"),
+            Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+        ):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_ply(path, vertices)
+            written.append(path)
+        return written
+
+    def test_a_truncated_fixture_does_not_satisfy_its_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            copies = self._corpus(root, vertices=10000)
+            whole = copies[0].read_bytes()
+            copies[0].write_bytes(whole[:-24])  # a short write: header intact
+
+            self.assertEqual(
+                read_ply_vertex_count(copies[0]),
+                10000,
+                "the truncated file no longer claims enough splats; the case is moot",
+            )
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(
+            len(failures),
+            1,
+            f"a truncated fixture satisfied its floor on its header alone: {failures}",
+        )
+        self.assertIn("INCOMPLETE", failures[0])
+
+    def test_a_whole_fixture_at_the_floor_still_passes(self):
+        """Discrimination: the check must not start rejecting real fixtures.
+
+        Both producers write bodies this reader has to accept -- see
+        RealFixtureCorpusTests, which runs the same predicate over the committed
+        corpus rather than over a file this test invented.
+        """
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            self._corpus(root, vertices=10000)
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                self.assertEqual(_prepare.asset_floor_failures(root), [])
+
+    def test_the_predicate_separates_the_four_ways_a_fixture_fails(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+
+            whole = root / "whole.ply"
+            _write_ply(whole, 64)
+            self.assertIsNone(_prepare.fixture_floor_failure(whole, 64))
+
+            self.assertEqual(
+                _prepare.fixture_floor_failure(root / "absent.ply", 64), "MISSING"
+            )
+
+            small = root / "small.ply"
+            _write_ply(small, 8)
+            self.assertIn("UNDERSIZED", _prepare.fixture_floor_failure(small, 64) or "")
+
+            truncated = root / "truncated.ply"
+            _write_ply(truncated, 64)
+            truncated.write_bytes(truncated.read_bytes()[:-4])
+            self.assertIn(
+                "INCOMPLETE", _prepare.fixture_floor_failure(truncated, 64) or ""
+            )
+
+            junk = root / "junk.ply"
+            junk.write_bytes(b"not a ply at all\n")
+            self.assertIsNotNone(_prepare.fixture_floor_failure(junk, 64))
+
+
+def _tracked_fixture_plys() -> "list[Path]":
+    """The `.ply` files git actually tracks, asked of git rather than of the disk.
+
+    "Committed" and "present" are different questions, and this file got them
+    confused: `tests/fixtures/*.ply` and the consumer `test_splats.ply` are
+    GITIGNORED and generated, so on a runner that has already run the fallback
+    prep they exist at the fallback's own size while their floor is the C++
+    generator's count. A test that globbed the directory therefore asserted a
+    property of whatever the last generation run happened to leave behind, and
+    failed on CI for a corpus that was exactly what it should have been.
+
+    Tracked fixtures are committed at a known size and must satisfy their floors.
+    Generated ones are the prep script's business, and the prep script has its own
+    guards for them.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "*.ply"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    paths = [ROOT / name for name in result.stdout.split("\0") if name]
+    return sorted(path for path in paths if path.is_file())
+
+
+class RealFixtureCorpusTests(unittest.TestCase):
+    """The completeness and floor rules, run over fixtures nobody in this file invented.
+
+    A body-length rule is only safe if it accepts what the producers actually
+    write, and a floor is only meaningful if the corpus committed at it clears it.
+    Both read the tracked corpus in the repository rather than fixtures authored
+    to match the rules.
+    """
+
+    def test_every_tracked_fixture_is_complete(self):
+        tracked = _tracked_fixture_plys()
+        self.assertTrue(tracked, "git tracks no .ply fixtures; this test is vacuous")
+        for path in tracked:
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
+                self.assertIsNone(
+                    _prepare.ply_payload_failure(path),
+                    f"{path.name} is a tracked fixture the completeness rule rejects",
+                )
+
+    def test_every_tracked_fixture_satisfies_its_own_floor(self):
+        checked = 0
+        for path in _tracked_fixture_plys():
+            resource_path = f"res://tests/fixtures/{path.name}"
+            required = _prepare.ASSET_MIN_SPLAT_COUNTS.get(resource_path, 0)
+            if required <= 0:
+                continue
+            checked += 1
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
+                self.assertIsNone(
+                    _prepare.fixture_floor_failure(path, required),
+                    f"{path.name} does not satisfy the floor it is committed at",
+                )
+        self.assertGreater(checked, 0, "no tracked fixture carried a floor; vacuous")
+
+    def test_a_generated_fixture_is_not_judged_as_a_committed_one(self):
+        """The regression this replaces: a fallback-sized generated file failed CI.
+
+        `test_splats.ply` is gitignored on both paths and generated. A runner that
+        has run the fallback prep holds it at 1024 splats against a floor of 10000
+        -- correct behaviour for a generated corpus, and not something a test about
+        the COMMITTED corpus may fail on.
+        """
+        generated = "res://tests/fixtures/test_splats.ply"
+        fallback_counts = {
+            Path(spec.relative_path).name: spec.count for spec in _prepare.CANONICAL_SPECS
+        }
+        self.assertGreater(
+            _prepare.ASSET_MIN_SPLAT_COUNTS.get(generated, 0),
+            fallback_counts.get("test_splats.ply", 0),
+            "test_splats.ply's floor no longer exceeds its fallback size; this case is moot",
+        )
+        tracked_names = {path.name for path in _tracked_fixture_plys()}
+        self.assertNotIn(
+            "test_splats.ply",
+            tracked_names,
+            "test_splats.ply is tracked now; the floor tests above must cover it",
+        )
 
 
 FIXTURE_IMPORT_RELATIVE_DIR = (

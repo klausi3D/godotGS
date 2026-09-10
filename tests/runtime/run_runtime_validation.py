@@ -83,6 +83,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -96,6 +97,20 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = ROOT / "tests" / "runtime"
 BUILD_DIR = RUNTIME_DIR / "build"
 SYNTHETIC_ASSET_PREP_SCRIPT = RUNTIME_DIR / "prepare_synthetic_assets.py"
+
+if str(RUNTIME_DIR) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_DIR))
+
+from prepare_synthetic_assets import (
+    ASSET_MIN_SPLAT_COUNTS,
+    FIXTURE_REFERENCE_RE,
+    fixture_references_in,
+)
+
+# One shared matcher (prepare_synthetic_assets.FIXTURE_REFERENCE_RE): the guard
+# that reads these references and the floors they are checked against have to
+# agree on what a reference looks like.
+RUNTIME_FIXTURE_REFERENCE_RE = FIXTURE_REFERENCE_RE
 
 SKIP_MARKER = "[RUNTIME_SKIP]"
 FAIL_MARKER = "[RUNTIME_FAIL]"
@@ -179,6 +194,12 @@ class CppBuildConfig:
     link_flags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ScenarioFixtureContract:
+    source: Path
+    fixtures: tuple[str, ...]
+
+
 CPP_TESTS: Dict[str, Path] = {
     "Runtime Modifications": RUNTIME_DIR / "test_runtime_modifications.cpp",
     "Animation Persistence": RUNTIME_DIR / "test_animation_persistence.cpp",
@@ -198,18 +219,102 @@ GDS_TESTS: Dict[str, Path] = {
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
 }
 
+# Explicit dependency policy for every registered runtime scenario. Empty tuples
+# are deliberate fixture-free declarations, not an inferred absence. A scenario
+# that obtains a fixture through a helper or constructs its resource path still
+# declares that fixture here. Completeness and direct-reference drift are checked
+# by _validate_scenario_fixture_contracts().
+SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
+    "C++: Runtime Modifications": ScenarioFixtureContract(
+        CPP_TESTS["Runtime Modifications"], ()
+    ),
+    "C++: Animation Persistence": ScenarioFixtureContract(
+        CPP_TESTS["Animation Persistence"], ()
+    ),
+    "GDScript: Interactive State": ScenarioFixtureContract(
+        GDS_TESTS["Interactive State"], ()
+    ),
+    "GDScript: GPU Streaming Stress": ScenarioFixtureContract(
+        GDS_TESTS["GPU Streaming Stress"], ()
+    ),
+    "GDScript: Engine Capability Sanity": ScenarioFixtureContract(
+        GDS_TESTS["Engine Capability Sanity"], ()
+    ),
+    "GDScript: Scene Effector Runtime Controls": ScenarioFixtureContract(
+        GDS_TESTS["Scene Effector Runtime Controls"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: World Streaming Gate": ScenarioFixtureContract(
+        GDS_TESTS["World Streaming Gate"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Streaming Residency API": ScenarioFixtureContract(
+        GDS_TESTS["Streaming Residency API"], ()
+    ),
+    "GDScript: Streaming GPU Tier Budget Contract": ScenarioFixtureContract(
+        GDS_TESTS["Streaming GPU Tier Budget Contract"], ()
+    ),
+    "GDScript: Canonical Node Asset Render": ScenarioFixtureContract(
+        GDS_TESTS["Canonical Node Asset Render"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Data Flow Recent Window": ScenarioFixtureContract(
+        GDS_TESTS["Data Flow Recent Window"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Pipeline Trace Freshness": ScenarioFixtureContract(
+        GDS_TESTS["Pipeline Trace Freshness"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Monitor Lifecycle Hardening": ScenarioFixtureContract(
+        GDS_TESTS["Monitor Lifecycle Hardening"], ()
+    ),
+}
+
 
 def ensure_build_dir() -> None:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def ensure_synthetic_assets() -> None:
+def _asset_consumer_project_roots() -> "tuple[Path, ...]":
+    """The project roots the fixture floor check actually validates.
+
+    Read from prepare_synthetic_assets rather than restated here: a second copy
+    of that tuple would drift the moment one side gained a root, and a stale
+    copy in a guard is worse than no guard. Imported lazily, because this module
+    otherwise talks to that script only as a subprocess.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_prepare_synthetic_assets", SYNTHETIC_ASSET_PREP_SCRIPT
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"cannot read the fixture floor roots from {SYNTHETIC_ASSET_PREP_SCRIPT}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    # Register before exec: the target module defines dataclasses, and
+    # @dataclass resolves its own __module__ through sys.modules.
+    sys.modules.setdefault(spec.name, module)
+    spec.loader.exec_module(module)
+    return tuple(module.ASSET_CONSUMER_PROJECT_ROOTS)
+
+
+def ensure_synthetic_assets(godot_binary: str) -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
             f"Missing synthetic asset prep script: {SYNTHETIC_ASSET_PREP_SCRIPT.relative_to(ROOT)}"
         )
 
-    command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    command = [
+        sys.executable,
+        str(SYNTHETIC_ASSET_PREP_SCRIPT),
+        "--quiet",
+        "--require-asset-floors",
+        "--godot-binary",
+        godot_binary,
+    ]
     print(f"[runtime] Preparing synthetic assets: {_format_command(command)}")
     try:
         completed = subprocess.run(
@@ -223,8 +328,18 @@ def ensure_synthetic_assets() -> None:
         raise RuntimeError(f"Synthetic asset prep failed to launch: {type(exc).__name__}: {exc}") from exc
 
     if completed.returncode != 0:
-        output = ((completed.stdout or "") + (completed.stderr or "")).strip()
-        detail = _first_non_empty_line(output) or f"exit code {completed.returncode}"
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        _replay_captured_output("synthetic asset prep", stdout, stderr)
+        # The one-line detail that reaches the summary is the LAST stderr line
+        # when there is stderr -- an uncaught exception is there, not in the
+        # banner -- and otherwise the prep's own first line of complaint. The
+        # replay above carries the rest either way.
+        detail = (
+            _last_non_empty_line(stderr)
+            or _first_non_empty_line(stdout)
+            or f"exit code {completed.returncode}"
+        )
         raise RuntimeError(f"Synthetic asset prep failed: {detail}")
 
 
@@ -394,6 +509,41 @@ def _first_non_empty_line(text: str) -> Optional[str]:
         if line:
             return line
     return None
+
+
+def _last_non_empty_line(text: str) -> Optional[str]:
+    """The last non-blank line, which is where a Python traceback keeps its point.
+
+    `Traceback (most recent call last):` is the FIRST line of an uncaught
+    exception and says nothing; the exception and its message are the last
+    (#934 review).
+    """
+    for raw_line in reversed(text.splitlines()):
+        line = raw_line.strip()
+        if line:
+            return line
+    return None
+
+
+def _replay_captured_output(label: str, stdout: str, stderr: str) -> None:
+    """Print what a failed child actually said, both streams, bounded.
+
+    A one-line summary is the wrong half of every failure this harness reports:
+    the fixture-floor report names the fixture and its actual/required counts on
+    the lines AFTER its heading, and a traceback puts its banner first. The
+    diagnosis is in the body, so the body is replayed.
+    """
+    for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+        if not stream.strip():
+            continue
+        lines = stream.strip().splitlines()
+        clipped = lines[-OUTPUT_TAIL_LINES:]
+        elided = len(lines) - len(clipped)
+        print(f"[runtime] {label} {stream_name}:")
+        if elided > 0:
+            print(f"    ... {elided} earlier line(s) omitted ...")
+        for line in clipped:
+            print(f"    {line}")
 
 
 def _extract_metrics_payload(output: str) -> Dict[str, object]:
@@ -933,6 +1083,165 @@ def _resolve_named_test_map(
     return resolved
 
 
+def _resolve_selected_gd_test_map(
+    selected_scripts: Iterable[str],
+    selected_tests: Iterable[str],
+) -> Dict[str, Path]:
+    gd_scripts = [entry for entry in selected_scripts if entry and entry.strip()]
+    if gd_scripts:
+        return _resolve_gd_test_map(gd_scripts)
+    return _resolve_named_test_map(
+        GDS_TESTS,
+        selected_tests,
+        kind="GDScript runtime test",
+    )
+
+
+def _selected_fixture_consumer_sources(
+    *,
+    selected_cpp_tests: Iterable[str],
+    run_cpp: bool,
+    selected_gd_scripts: Iterable[str],
+    selected_gd_tests: Iterable[str],
+    run_gd: bool,
+) -> Dict[str, Path]:
+    """Resolve source files that the selected run will actually execute.
+
+    Selection errors remain owned by their harness and are therefore omitted
+    here; the harness will report them as a failed result. Both harness kinds
+    contribute sources so a future C++ fixture consumer cannot accidentally
+    inherit today's C++-only exemption.
+    """
+    selected: Dict[str, Path] = {}
+    if run_cpp:
+        try:
+            cpp_tests = _resolve_named_test_map(
+                CPP_TESTS,
+                selected_cpp_tests,
+                kind="C++ runtime test",
+            )
+        except ValueError:
+            cpp_tests = {}
+        selected.update({f"C++: {name}": path for name, path in cpp_tests.items()})
+
+    if run_gd:
+        try:
+            gd_tests = _resolve_selected_gd_test_map(
+                selected_gd_scripts,
+                selected_gd_tests,
+            )
+        except (FileNotFoundError, ValueError):
+            gd_tests = {}
+        selected.update({f"GDScript: {name}": path for name, path in gd_tests.items()})
+    return selected
+
+
+def _direct_floor_governed_fixture_references(
+    name: str,
+    source: Path,
+) -> set[str]:
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            f"Could not inspect runtime scenario '{name}' for fixture use: {exc}"
+        ) from exc
+
+    # Read through the shared reader, not the bare pattern: a quoted path may
+    # contain spaces, and the pattern alone cannot see one.
+    direct_references = set(fixture_references_in(text))
+    missing_direct_floors = sorted(
+        reference
+        for reference in direct_references
+        if int(ASSET_MIN_SPLAT_COUNTS.get(reference, 0)) <= 0
+    )
+    if missing_direct_floors:
+        raise RuntimeError(
+            "Runtime scenario '{name}' references fixture(s) without a positive "
+            "ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                name=name,
+                paths=", ".join(missing_direct_floors),
+            )
+        )
+    return direct_references
+
+
+def _validate_scenario_fixture_contracts() -> None:
+    expected_sources = {
+        **{f"C++: {name}": path for name, path in CPP_TESTS.items()},
+        **{f"GDScript: {name}": path for name, path in GDS_TESTS.items()},
+    }
+    contract_names = set(SCENARIO_FIXTURE_CONTRACTS)
+    expected_names = set(expected_sources)
+    if contract_names != expected_names:
+        missing = sorted(expected_names - contract_names)
+        extra = sorted(contract_names - expected_names)
+        raise RuntimeError(
+            "Runtime scenario fixture contract is incomplete or stale: "
+            f"missing={missing}, extra={extra}"
+        )
+
+    for name, source in expected_sources.items():
+        contract = SCENARIO_FIXTURE_CONTRACTS[name]
+        if contract.source.resolve() != source.resolve():
+            raise RuntimeError(
+                f"Runtime scenario fixture contract source mismatch for '{name}': "
+                f"declared={contract.source}, registered={source}"
+            )
+        missing_floors = [
+            fixture
+            for fixture in contract.fixtures
+            if int(ASSET_MIN_SPLAT_COUNTS.get(fixture, 0)) <= 0
+        ]
+        if missing_floors:
+            raise RuntimeError(
+                "Runtime scenario fixture contract for '{name}' references fixture(s) "
+                "without a positive ASSET_MIN_SPLAT_COUNTS floor: {paths}".format(
+                    name=name,
+                    paths=", ".join(missing_floors),
+                )
+            )
+
+        # Scan the complete registry, not only this run's selected scenarios.
+        # Preparation remains selected-only below, while contract drift is a
+        # deterministic guard failure even for an unselected scenario.
+        direct_references = _direct_floor_governed_fixture_references(name, source)
+        undeclared_direct = sorted(direct_references - set(contract.fixtures))
+        if undeclared_direct:
+            raise RuntimeError(
+                "Registered runtime scenario '{name}' directly references fixture(s) "
+                "missing from SCENARIO_FIXTURE_CONTRACTS: {paths}".format(
+                    name=name,
+                    paths=", ".join(undeclared_direct),
+                )
+            )
+
+
+def _floor_governed_fixture_consumers(
+    selected_sources: Dict[str, Path],
+) -> Dict[str, tuple[str, ...]]:
+    """Return selected scenarios whose explicit contract requires fixture prep."""
+    _validate_scenario_fixture_contracts()
+    consumers: Dict[str, tuple[str, ...]] = {}
+    for name, source in selected_sources.items():
+        registered_contract = SCENARIO_FIXTURE_CONTRACTS.get(name)
+        if (
+            registered_contract is None
+            or registered_contract.source.resolve() != source.resolve()
+        ):
+            # An ad-hoc --gd-script has no reviewed dependency declaration. It
+            # may construct a path or load it through a helper, so conservatively
+            # preflight every governed fixture instead of inferring exemption
+            # from source text.
+            _direct_floor_governed_fixture_references(name, source)
+            consumers[name] = tuple(sorted(ASSET_MIN_SPLAT_COUNTS))
+            continue
+
+        if registered_contract.fixtures:
+            consumers[name] = registered_contract.fixtures
+    return consumers
+
+
 def _load_scenario_config(path: Path) -> Dict[str, object]:
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
@@ -1284,39 +1593,21 @@ def run_gd_tests(
         selected_tests: Iterable[str],
         zero_assertion_allowlist: Optional[Dict[str, Dict[str, object]]] = None,
 ) -> List[TestResult]:
-    gd_scripts = [entry for entry in selected_scripts if entry and entry.strip()]
-    if gd_scripts:
-        try:
-            gd_tests = _resolve_gd_test_map(gd_scripts)
-        except FileNotFoundError as exc:
-            return [
-                TestResult(
-                    name="GDScript Runtime Selection",
-                    command=[],
-                    duration=0.0,
-                    exit_code=1,
-                    stdout="",
-                    stderr=str(exc),
-                    status="failed",
-                    reasons=[str(exc)],
-                )
-            ]
-    else:
-        try:
-            gd_tests = _resolve_named_test_map(GDS_TESTS, selected_tests, kind="GDScript runtime test")
-        except ValueError as exc:
-            return [
-                TestResult(
-                    name="GDScript Runtime Selection",
-                    command=[],
-                    duration=0.0,
-                    exit_code=1,
-                    stdout="",
-                    stderr=str(exc),
-                    status="failed",
-                    reasons=[str(exc)],
-                )
-            ]
+    try:
+        gd_tests = _resolve_selected_gd_test_map(selected_scripts, selected_tests)
+    except (FileNotFoundError, ValueError) as exc:
+        return [
+            TestResult(
+                name="GDScript Runtime Selection",
+                command=[],
+                duration=0.0,
+                exit_code=1,
+                stdout="",
+                stderr=str(exc),
+                status="failed",
+                reasons=[str(exc)],
+            )
+        ]
 
     availability_error = _godot_binary_is_available(config.binary)
     if availability_error:
@@ -1429,11 +1720,6 @@ def _print_summary(summary: Dict[str, object]) -> None:
 def main() -> int:
     args = _parse_args()
     ensure_build_dir()
-    try:
-        ensure_synthetic_assets()
-    except RuntimeError as exc:
-        print(f"[runtime] [FAIL] {exc}")
-        return 1
 
     report_path = Path(args.report_path)
     if not report_path.is_absolute():
@@ -1543,6 +1829,54 @@ def main() -> int:
     )
 
     zero_assertion_allowlist = _load_zero_assertion_allowlist(scenario_config)
+
+    try:
+        # T7a (#895) + #935: the runtime consumer owns the final floor decision,
+        # but only selected registered scenarios whose explicit contract declares
+        # floor-governed fixtures need the producer. Resolve this after profile/CLI
+        # selection across both harness kinds. Unregistered ad-hoc scripts preflight
+        # conservatively because their indirect dependencies are unknown.
+        selected_fixture_consumers = _floor_governed_fixture_consumers(
+            _selected_fixture_consumer_sources(
+                selected_cpp_tests=selected_cpp_tests,
+                run_cpp=should_run_cpp_harnesses,
+                selected_gd_scripts=args.gd_script,
+                selected_gd_tests=selected_gd_tests,
+                run_gd=not args.skip_gd,
+            )
+        )
+        if selected_fixture_consumers:
+            consumer_names = ", ".join(sorted(selected_fixture_consumers))
+            print(f"[runtime] Fixture preflight required by: {consumer_names}")
+            # The floor check validates the fixtures under
+            # prepare_synthetic_assets.ASSET_CONSUMER_PROJECT_ROOTS -- the repo
+            # root and the canonical test project. With --project-path pointing
+            # somewhere else, Godot resolves res://tests/fixtures/... beneath
+            # THAT project, so an undersized fixture there reaches the scenario
+            # while the floor check reports green about two copies nobody loaded.
+            #
+            # Rejected rather than validated: preparing and floor-checking an
+            # arbitrary project root is a real feature, and guessing at it here
+            # would be the fail-open half of the trade. Refusing names the
+            # limitation instead of quietly not enforcing what it advertises.
+            if project_path is not None:
+                known_roots = {
+                    (ROOT / candidate).resolve()
+                    for candidate in _asset_consumer_project_roots()
+                }
+                if project_path not in known_roots:
+                    print(
+                        f"[runtime] [FAIL] --project-path {project_path} is outside the "
+                        "project roots the fixture floor check validates "
+                        + ", ".join(sorted(str(r) for r in known_roots))
+                        + "; a fixture consumer selected under it would run against "
+                        "fixtures no floor was enforced on."
+                    )
+                    return 1
+            ensure_synthetic_assets(args.godot_binary)
+    except RuntimeError as exc:
+        print(f"[runtime] [FAIL] {exc}")
+        return 1
 
     all_results: List[TestResult] = []
     if should_run_cpp_harnesses:

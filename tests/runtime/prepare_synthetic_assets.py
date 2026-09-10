@@ -13,10 +13,12 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -359,6 +361,227 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_spiral.ply": 25000,
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
+
+#: A `res://tests/fixtures/...` PLY reference, as written in scenario, scene and
+#: benchmark source. ONE definition, imported by every consumer: it decides which
+#: references the floor contract can see, and two copies of that decision drift.
+#:
+#: Deliberately permissive after the prefix. `[A-Za-z0-9_-]+\.ply` matched only a
+#: flat, dot-free basename, so a legal path such as
+#: `res://tests/fixtures/cases/sample.v2.ply` matched NOTHING -- and a reference
+#: this reader cannot see is a reference the guard cannot govern: the scenario
+#: showed no direct reference, an empty fixture contract was accepted, and the run
+#: skipped floor preparation for a fixture it actually loads (#934 review).
+#: An UNQUOTED `res://tests/fixtures/...` PLY reference. Bare references cannot
+#: contain a space -- nothing would tell the path from the next word -- so this
+#: half stops at whitespace, and `fixture_references_in()` reads the quoted half
+#: from the quotes instead.
+FIXTURE_REFERENCE_RE = re.compile(r"res://tests/fixtures/[^\s\"'\\]+\.ply")
+
+#: A quoted string literal, as GDScript and `.tscn` write one. The value inside is
+#: taken whole, spaces included: `res://tests/fixtures/cases/sample data.ply` is a
+#: legal resource path, and a matcher that stops at the space sees no reference at
+#: all -- so the scenario shows none, an empty fixture contract is accepted, and
+#: the run skips floor preparation for a fixture it loads (#934 review).
+_QUOTED_STRING_RE = re.compile(r"""(["'])((?:(?!\1)[^\r\n])*)\1""")
+
+_FIXTURE_PREFIX = "res://tests/fixtures/"
+
+
+def fixture_references_in(text: str) -> list[str]:
+    """Every floor-governed fixture path `text` references, in order of appearance.
+
+    Quoted values are read from the quotes, so a path containing spaces is seen
+    whole. Bare occurrences -- comments, `.tscn` values that are not quoted -- fall
+    back to the whitespace-terminated form, which is the most that can be read
+    without a delimiter. Duplicates are collapsed; order is kept so a caller can
+    report the first one.
+    """
+    seen: dict[str, None] = {}
+    for _quote, value in _QUOTED_STRING_RE.findall(text):
+        if value.startswith(_FIXTURE_PREFIX) and value.endswith(".ply"):
+            seen.setdefault(value, None)
+    for match in FIXTURE_REFERENCE_RE.finditer(text):
+        seen.setdefault(match.group(0), None)
+    return list(seen)
+
+
+#: Prefix of the directory the producer writes into before anything is
+#: published. It lives beside the corpus so the publish is a same-filesystem
+#: rename, which means a killed run leaves it inside `tests/fixtures/` with
+#: `.ply` files in it -- and `.gitignore`'s `tests/fixtures/*.ply` does not match
+#: a nested path, so those leftovers show up as untracked and can be committed,
+#: which the contribution rules forbid for generated fixtures. The ignore rule
+#: keyed on this prefix is asserted by the tests.
+STAGING_DIR_PREFIX = ".gs_ply_staging_"
+
+#: The same floors, keyed by the filename a producer writes. Derived rather than
+#: transcribed: a floor added above must not be able to go unchecked here.
+FIXTURE_FLOORS_BY_FILENAME: dict[str, int] = {
+    Path(resource_path).name: required
+    for resource_path, required in ASSET_MIN_SPLAT_COUNTS.items()
+}
+
+# The same res:// path is consumed in two project roots: the repository-root
+# doctest/runtime context and the canonical Godot test project.  A consumer
+# gate must validate both copies or a direct res:// reference can select the
+# unchecked one (issue #895).
+ASSET_CONSUMER_PROJECT_ROOTS: tuple[Path, ...] = (
+    Path("."),
+    Path("tests/examples/godot/test_project"),
+)
+
+
+def read_ply_vertex_count(path: Path) -> int | None:
+    """Read the declared PLY vertex count, failing closed on malformed input."""
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return None
+            for _ in range(64):
+                line = stream.readline()
+                if not line:
+                    return None
+                fields = line.strip().split()
+                if len(fields) == 3 and fields[:2] == [b"element", b"vertex"]:
+                    try:
+                        return int(fields[2])
+                    except ValueError:
+                        return None
+                if line.strip() == b"end_header":
+                    return None
+    except OSError:
+        return None
+    return None
+
+
+def ply_payload_failure(path: Path) -> str | None:
+    """Why `path` is not a COMPLETE PLY, or None when its body is all there.
+
+    `read_ply_vertex_count()` returns as soon as it reads the `element vertex`
+    line: it never sees `end_header` and never looks at a single vertex. A
+    declared count is therefore a CLAIM, and a producer that exits 0 after a short
+    write -- `synthetic_ply_writer.cpp` ignores the result of every
+    `store_buffer`/`store_float` call -- leaves a file whose claim satisfies every
+    floor while its body is missing (#934 review).
+
+    The body's size is derived from the header: vertex count times the number of
+    declared properties times four. Anything the reader cannot size -- a non-float
+    property, a second element block, a missing `end_header` -- is a reason, not a
+    pass: sizing the body wrongly and calling it complete is the failure this
+    exists to prevent.
+    """
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return "does not begin with a PLY magic line"
+            vertex_count: int | None = None
+            properties = 0
+            elements = 0
+            saw_end_header = False
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    saw_end_header = True
+                    break
+                fields = stripped.split()
+                if fields[:1] == [b"element"]:
+                    elements += 1
+                    if elements > 1:
+                        return "declares more than one element block; the body cannot be sized"
+                    if len(fields) != 3 or fields[1] != b"vertex":
+                        return f"unexpected element line {stripped!r}"
+                    try:
+                        vertex_count = int(fields[2])
+                    except ValueError:
+                        return f"unreadable vertex count in {stripped!r}"
+                elif fields[:1] == [b"property"]:
+                    if len(fields) != 3 or fields[1] != b"float":
+                        return f"property {stripped!r} is not a float; the body cannot be sized"
+                    properties += 1
+            if not saw_end_header:
+                return "the header never ends (no end_header line)"
+            if vertex_count is None:
+                return "the header declares no vertex element"
+            if properties == 0:
+                return "the header declares no properties"
+            expected = stream.tell() + vertex_count * properties * 4
+        actual = path.stat().st_size
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if actual != expected:
+        return (
+            f"{actual:,} bytes on disk, {expected:,} expected for {vertex_count:,} "
+            f"vertices x {properties} float properties"
+        )
+    return None
+
+
+def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
+    """Why `path` does not satisfy `required_splats`, or None when it does.
+
+    COMPLETE first, then counted. A declared vertex count is a claim the file
+    makes about itself; `ply_payload_failure()` is what checks the file kept it.
+    Round 7 taught the staging path that difference, but every decision about the
+    PUBLISHED corpus -- the files the runtime lanes actually load -- still rested
+    on the claim alone: the `--require-asset-floors` gate and both preservation
+    branches read `read_ply_vertex_count()` and nothing else. A fixture truncated
+    by a short write, an interrupted copy or a killed job keeps a header claiming
+    50,000 splats, so it cleared the floor, was preserved in place by the next
+    run, and was measured by the lanes as if it were whole (#934 review).
+
+    One predicate, three callers, so "satisfies the floor" cannot mean two
+    different things in the same script.
+    """
+    if not path.is_file():
+        return "MISSING"
+    payload_problem = ply_payload_failure(path)
+    if payload_problem is not None:
+        return f"INCOMPLETE ({payload_problem})"
+    actual = read_ply_vertex_count(path)
+    if actual is None:
+        return "UNVERIFIABLE"
+    if required_splats > 0 and actual < required_splats:
+        return f"UNDERSIZED (has {actual} splats)"
+    return None
+
+
+def _resource_path_for_spec(spec: PLYSpec) -> str | None:
+    spec_path = Path(spec.relative_path)
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        try:
+            project_relative = spec_path.relative_to(project_root)
+        except ValueError:
+            continue
+        candidate = "res://" + project_relative.as_posix()
+        if candidate in ASSET_MIN_SPLAT_COUNTS:
+            return candidate
+    return None
+
+
+def asset_floor_failures(repo_root: Path) -> list[str]:
+    """Return every absent, unreadable, or undersized consumer fixture."""
+    failures: list[str] = []
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        for resource_path, required in sorted(ASSET_MIN_SPLAT_COUNTS.items()):
+            relative_resource = Path(resource_path.removeprefix("res://"))
+            asset_file = repo_root / project_root / relative_resource
+            problem = fixture_floor_failure(asset_file, required)
+            if problem is None:
+                continue
+            relative = asset_file.relative_to(repo_root).as_posix()
+            if problem.startswith("UNDERSIZED"):
+                failures.append(
+                    f"{relative}: {problem} but {resource_path} requires >= {required}"
+                )
+            else:
+                failures.append(
+                    f"{relative}: {problem}; {resource_path} requires >= {required} splats"
+                )
+    return failures
 
 
 def _benchmark_asset_manifest() -> dict[str, object]:
@@ -826,35 +1049,128 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
     Returns True on success, False on failure (caller should fall back to Python).
+
+    The producer writes into an empty staging directory, never straight into
+    ``output_dir``, and a file is only accepted once it has been moved out of
+    that staging directory.  Exit status alone does not prove the generators
+    ran: doctest returns ``EXIT_SUCCESS`` whenever no test case *failed*,
+    including when zero cases matched the filter
+    (``thirdparty/doctest/doctest.h``), so a binary that predates the
+    ``[GeneratePLY]`` case exits 0 and writes nothing.  Deciding success from
+    the mere existence of the expected names in ``output_dir`` would then hand
+    back whatever an unrelated earlier run left there and report it as this
+    producer's output.  Staging makes existence proof of writing.
     """
-    env = os.environ.copy()
-    env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(output_dir)
-    cmd = [
-        str(godot_binary),
-        "--headless",
-        "--test",
-        "--test-case=*GeneratePLY*",
-    ]
-    if not quiet:
-        print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
-        return False
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=STAGING_DIR_PREFIX, dir=output_dir) as staging_name:
+        staging_dir = Path(staging_name)
+        env = os.environ.copy()
+        env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(staging_dir)
+        cmd = [
+            str(godot_binary),
+            "--headless",
+            "--test",
+            "--test-case=*GeneratePLY*",
+        ]
+        if not quiet:
+            print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
+            return False
 
-    if proc.returncode != 0:
-        print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
-        if proc.stderr:
-            for line in proc.stderr.strip().splitlines()[-5:]:
-                print(f"  {line}")
-        return False
+        if proc.returncode != 0:
+            print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
+            if proc.stderr:
+                for line in proc.stderr.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            return False
 
-    # Verify all expected files were written.
-    missing = [name for name in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / name).is_file()]
-    if missing:
-        print(f"[prepare_synthetic_assets] C++ generation missing files: {missing}")
-        return False
+        # Verify all expected files were written *by this run*.  They can only be
+        # here if the producer wrote them: the staging directory was created empty.
+        missing = [
+            name for name in sorted(CPP_GENERATED_FILENAMES) if not (staging_dir / name).is_file()
+        ]
+        if missing:
+            print(
+                f"[prepare_synthetic_assets] C++ generation exited 0 but did not write: {missing}"
+            )
+            print(
+                "[prepare_synthetic_assets] the selected binary ran no [GeneratePLY] case "
+                "(doctest exits 0 when zero cases match); any file already in "
+                f"{output_dir} came from a different run and is not this producer's output"
+            )
+            return False
+
+        # Validate the staged corpus BEFORE it replaces the canonical one.
+        #
+        # A producer regression that writes every expected file but writes it
+        # SMALL is exactly what the floors exist to catch, and publishing first
+        # meant `asset_floor_failures()` correctly failed the command in a
+        # workspace whose usable fixtures had already been overwritten with the
+        # bad ones -- broken until the next successful generation. Rejecting here
+        # needs no rollback to get right: the staging directory is discarded and
+        # the canonical files were never touched.
+        rejected: list[str] = []
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            staged = staging_dir / name
+            # Structure first: a declared count is a claim, and the floor check
+            # below believes it. A truncated file whose header claims 50,000
+            # splats clears every floor there is.
+            payload_problem = ply_payload_failure(staged)
+            if payload_problem is not None:
+                rejected.append(f"{name}: {payload_problem}")
+                continue
+            floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
+            if floor <= 0:
+                continue
+            staged_splats = read_ply_vertex_count(staged)
+            if staged_splats is None:
+                rejected.append(f"{name}: no vertex count could be read from the header")
+            elif staged_splats < floor:
+                rejected.append(f"{name}: {staged_splats} splats, floor is {floor}")
+        if rejected:
+            print(
+                "[prepare_synthetic_assets] the producer ran but its output is not usable "
+                "as the fixture corpus:"
+            )
+            for line in rejected:
+                print(f"  - {line}")
+            print(
+                "  nothing was published; the fixtures already in the workspace are "
+                "untouched and still usable"
+            )
+            return False
+
+        # Publish by REPLACING, not by deleting and then moving.
+        #
+        # `unlink()` followed by `shutil.move()` leaves a window in which the
+        # canonical fixture is already gone and the new one is not yet there. A
+        # move that fails in that window -- a sharing lock on the persistent
+        # Windows runner, a full disk -- destroyed the existing fixture, raised
+        # out of prep as an unhandled OSError, and took the staging directory
+        # (with the replacement in it) down with the `with` block. `os.replace()`
+        # is atomic within a filesystem, and the staging directory is created
+        # inside `output_dir`, so the destination is never transiently absent.
+        published: list[str] = []
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            destination = output_dir / name
+            try:
+                os.replace(staging_dir / name, destination)
+            except OSError as exc:
+                print(
+                    "[prepare_synthetic_assets] could not publish the generated "
+                    f"{name}: {exc}"
+                )
+                if published:
+                    print(
+                        "  already published this run: " + ", ".join(published) + "; the "
+                        "rest of the corpus is the previous run's and the floor check "
+                        "will report any file that is not whole"
+                    )
+                return False
+            published.append(name)
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
@@ -863,7 +1179,14 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     return True
 
 
-def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) -> int:
+def _generate(
+    repo_root: Path,
+    quiet: bool,
+    godot_binary: Path | None = None,
+    *,
+    preserve_floor_valid: bool = False,
+    allow_fallback: bool = False,
+) -> int:
     removed: list[str] = []
     fixtures_dir = repo_root / "tests" / "fixtures"
 
@@ -872,7 +1195,45 @@ def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) ->
     if godot_binary is not None:
         cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
         if not cpp_generated:
-            print("[prepare_synthetic_assets] falling back to Python generators for all files")
+            # Passing --godot-binary SELECTS a producer; it does not merely offer
+            # one. Falling back reported success while the selected producer had
+            # failed: the Python fallback declares fewer splats than the floor,
+            # the preservation branch below then keeps an existing fixture from an
+            # unrelated earlier run, and module and runtime validation proceed
+            # against it. The floor check passes because the old file satisfies
+            # it -- so the failure of the thing under test is laundered into a
+            # pass by a leftover file.
+            #
+            # Round 2 made that fatal only under --require-asset-floors, which
+            # left the documented benchmark-prep commands -- neither of which
+            # passes that flag -- taking the silent fallback (#934 review). The
+            # rule is now the mode-independent one: a selected producer that fails
+            # fails the command. --allow-fallback is the explicit opt-in for a
+            # low-fidelity tree, and it cannot override the floor rule, because
+            # under floors a leftover fixture is exactly what would absorb the
+            # failure.
+            if preserve_floor_valid or not allow_fallback:
+                print(
+                    "[prepare_synthetic_assets] ERROR: the selected --godot-binary did "
+                    "not generate the fixtures."
+                )
+                if preserve_floor_valid:
+                    print(
+                        "  --require-asset-floors is set, so --allow-fallback does not "
+                        "apply: a fixture already in the workspace came from a different "
+                        "run and cannot stand in for this producer's output."
+                    )
+                else:
+                    print(
+                        "  refusing to substitute the lightweight Python corpus silently; "
+                        "re-run with --allow-fallback if a low-fidelity tree is genuinely "
+                        "acceptable here."
+                    )
+                return 1
+            print(
+                "[prepare_synthetic_assets] --allow-fallback was given: falling back to "
+                "Python generators for all files"
+            )
 
     # Phase 2: Generate remaining files via Python.
     for spec in CANONICAL_SPECS:
@@ -887,10 +1248,51 @@ def _generate(repo_root: Path, quiet: bool, godot_binary: Path | None = None) ->
         if cpp_generated and not is_primary and filename in CPP_GENERATED_FILENAMES:
             # Copy the C++-generated primary to the secondary location.
             src = fixtures_dir / filename
+            resource_path = _resource_path_for_spec(spec)
+            required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+            # Preserve only what is WHOLE and over the floor. Deciding this on
+            # the declared count alone kept a truncated consumer copy in place
+            # and skipped the copy that would have repaired it, run after run.
+            existing_splats = read_ply_vertex_count(output)
+            if (
+                preserve_floor_valid
+                and required_splats > 0
+                and fixture_floor_failure(output, required_splats) is None
+            ):
+                if not quiet:
+                    print(
+                        f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                        f"floor-valid consumer fixture -> {spec.relative_path}"
+                    )
+                continue
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, output)
             if not quiet:
                 print(f"[prepare_synthetic_assets] copied C++ {filename} -> {spec.relative_path}")
+            continue
+
+        # The Python fallback is intentionally lightweight.  In particular it
+        # declares only 1024 vertices for test_splats.ply while the canonical
+        # consumer contract requires 10000.  Never replace an existing fixture
+        # that already satisfies the contract with that weaker fallback.
+        resource_path = _resource_path_for_spec(spec)
+        required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+        existing_splats = read_ply_vertex_count(output)
+        fallback_is_below_floor = required_splats > 0 and spec.count < required_splats
+        # Same rule as above, and it matters more here: this branch runs without
+        # --require-asset-floors, so a truncated leftover claiming enough splats
+        # was preserved by EVERY subsequent run and the fallback never repaired
+        # it. A file that is not whole is not a fixture worth keeping; falling
+        # through writes the small-but-honest fallback instead.
+        if (
+            fallback_is_below_floor
+            and fixture_floor_failure(output, required_splats) is None
+        ):
+            if not quiet:
+                print(
+                    f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                    f"canonical fixture -> {spec.relative_path}"
+                )
             continue
 
         # Python fallback generation.
@@ -953,6 +1355,19 @@ def main() -> int:
              "(50K-100K splats with SH, anisotropy, fBm noise) instead of the "
              "lightweight Python fallback generators.",
     )
+    parser.add_argument(
+        "--require-asset-floors",
+        action="store_true",
+        help="Fail after generation unless every runtime consumer fixture meets ASSET_MIN_SPLAT_COUNTS.",
+    )
+    parser.add_argument(
+        "--allow-fallback",
+        action="store_true",
+        help="Permit the lightweight Python corpus when a --godot-binary was given "
+             "but its generators failed. Without this, a selected producer that "
+             "fails fails the command; with --require-asset-floors it fails "
+             "regardless.",
+    )
     args = parser.parse_args()
 
     repo_root = _resolve_repo_root(args.repo_root)
@@ -962,14 +1377,42 @@ def main() -> int:
 
     godot_binary: Path | None = None
     if args.godot_binary:
-        godot_binary = Path(args.godot_binary).expanduser().resolve()
-        if not godot_binary.is_file():
-            print(f"[prepare_synthetic_assets] godot binary not found: {godot_binary}")
+        binary_candidate = Path(args.godot_binary).expanduser()
+        resolved_command = shutil.which(args.godot_binary)
+        if binary_candidate.is_file():
+            godot_binary = binary_candidate.resolve()
+        elif resolved_command:
+            godot_binary = Path(resolved_command).resolve()
+        else:
+            print(f"[prepare_synthetic_assets] godot binary not found: {args.godot_binary}")
             return 1
 
     if args.check:
         return _check_only(repo_root)
-    return _generate(repo_root, args.quiet, godot_binary)
+    result = _generate(
+        repo_root,
+        args.quiet,
+        godot_binary,
+        preserve_floor_valid=args.require_asset_floors,
+        allow_fallback=args.allow_fallback,
+    )
+    if result != 0 or not args.require_asset_floors:
+        return result
+
+    failures = asset_floor_failures(repo_root)
+    if failures:
+        print("[prepare_synthetic_assets] runtime fixture floor check failed")
+        for failure in failures:
+            print(f"  - {failure}")
+        print(
+            "  regenerate with a tests-enabled binary: "
+            "python tests/runtime/prepare_synthetic_assets.py --godot-binary <binary> "
+            "--require-asset-floors"
+        )
+        return 1
+    if not args.quiet:
+        print("[prepare_synthetic_assets] runtime fixture floor check passed")
+    return 0
 
 
 if __name__ == "__main__":

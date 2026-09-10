@@ -176,11 +176,27 @@ create a second blocking streaming gate.
 
 Runtime and benchmark scenes depend on deterministic synthetic fixtures.
 
-Generate/update them:
+Generate/update lightweight fixtures (preserving existing floor-valid canonical assets):
 
 ```bash
 python3 tests/runtime/prepare_synthetic_assets.py --quiet
 ```
+
+Generate and require the runtime consumer floors:
+
+```bash
+python3 tests/runtime/prepare_synthetic_assets.py --quiet \
+  --godot-binary ./bin/<your-godot-binary> --require-asset-floors
+```
+
+`run_runtime_validation.py` uses this fail-closed form automatically when the
+selected registered C++ or GDScript scenario contract declares a floor-governed
+fixture; unregistered ad-hoc scripts preflight conservatively because their
+indirect dependencies are unknown.
+Fixture-free selections (including C++-only `--skip-gd` runs) do not require a
+Godot binary for asset preparation. A tests-enabled `run_module_tests.py` lane
+uses the fail-closed form before its fixture-consuming module tests; a binary
+without test support keeps the runner's strict/warn unavailable-lane policy.
 
 Validate canonical fixture policy:
 
