@@ -221,7 +221,7 @@ jobs:
               || github.event.pull_request.base.sha }}
       run: |
         $args = @(
-          "--categories", "sorting",
+          "--categories", "sorting,renderer",
           "--godot", $env:GODOT_BINARY
         )
         python tests/ci/run_baseline_qa.py @args
