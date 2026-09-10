@@ -1121,30 +1121,41 @@ def ply_payload_failure(path: Path) -> str | None:
 UNRESTORED_MARKER_FILENAME = ".unrestored.json"
 
 
+def _marker_present(quarantine: Path) -> bool:
+    """Whether a marker file exists at all, readable or not."""
+    return (quarantine / UNRESTORED_MARKER_FILENAME).exists()
+
+
 def _read_unrestored(quarantine: Path) -> "set[str] | None":
-    """Names a previous run could not restore, or None when the state is unknown.
+    """The marker's STATEMENT about the quarantine, or None when there is none.
 
-    The three cases are different and collapsing them is how the last copy of a
-    fixture gets deleted (#969 review):
+    A marker only ever carries a positive statement, and absence of one is not a
+    statement:
 
-    * a marker listing names -- those originals are pending recovery;
-    * no marker at all -- nothing is pending, which is the normal state;
-    * a marker that exists and cannot be read -- UNKNOWN. Treating that as
-      "nothing pending" turned an unrestored original into a superseded copy and
-      unlinked it.
+    * a list of names -- those originals are pending recovery, adopt them;
+    * an EMPTY list -- a successful run superseded whatever is in the quarantine,
+      so the next run may discard it;
+    * no marker, or a marker that cannot be read -- NO STATEMENT. `None`.
 
-    Absent is `set()`; unknown is `None`, and the caller decides conservatively.
+    Absence used to read as "nothing is pending", which is a statement nobody
+    made, and it fails OPEN: `_write_unrestored()` can fail (a full disk, a locked
+    quarantine directory) and then the pending names it was recording simply
+    vanish, leaving a run that could not restore an original looking exactly like
+    a run that had nothing to restore. The next run then deleted the original as a
+    superseded copy (#969 review).
 
-    A marker whose WRITE failed is absent, not unknown, and this cannot tell the
-    difference -- nothing on disk distinguishes them. What covers that case is the
-    evidence rule in the isolation loop: after a failed restore the canonical path
-    holds debris or nothing, and a quarantine copy beside either of those is
-    adopted without consulting the marker at all. The marker is only load-bearing
-    when both files are whole.
+    The evidence rule in the isolation loop does not cover that on its own, and an
+    earlier version of this docstring wrongly claimed it did: it reasoned that a
+    failed restore leaves debris or nothing at the canonical path, so the marker
+    is only load-bearing when both files are whole. A producer that FINISHED one
+    fixture before dying on another leaves a complete file at that canonical
+    path -- whole by every check this module has -- with the original still
+    quarantined. That is the case the claim missed, and it is why absence must
+    mean "ask", not "assume".
     """
     marker = quarantine / UNRESTORED_MARKER_FILENAME
     if not marker.exists():
-        return set()
+        return None
     try:
         raw = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
@@ -1174,7 +1185,7 @@ def _merge_unrestored(quarantine: Path, failed_names: "set[str]") -> None:
     quarantine copy beside either of those on the evidence alone.
     """
     state = _read_unrestored(quarantine)
-    if state is None:
+    if state is None and _marker_present(quarantine):
         marker = quarantine / UNRESTORED_MARKER_FILENAME
         print(
             f"[prepare_synthetic_assets] {marker} cannot be read, so it is being left "
@@ -1187,25 +1198,55 @@ def _merge_unrestored(quarantine: Path, failed_names: "set[str]") -> None:
                 f"{', '.join(sorted(failed_names))}"
             )
         return
-    _write_unrestored(quarantine, state | failed_names)
+    if state is None and not failed_names:
+        # No marker and nothing to record. Writing an empty list here would be a
+        # positive "nothing is pending", and this run is in no position to say
+        # that -- it is the state a crash between isolation and restore leaves,
+        # where the quarantined originals ARE pending.
+        return
+    _write_unrestored(quarantine, (state or set()) | failed_names)
 
 
-def _write_unrestored(quarantine: Path, names: "set[str]") -> None:
-    """Record (or clear) the names whose original is still quarantined."""
+def _write_unrestored(quarantine: Path, names: "set[str]") -> bool:
+    """Write the marker's statement: these names are pending recovery.
+
+    An EMPTY set is written as an empty list, not by deleting the file: `[]` is
+    the positive "a successful run superseded what is here" that authorises the
+    next run to discard the copies, and deleting the file says nothing at all.
+    Only `_clear_unrestored()` removes it.
+
+    Returns whether the statement reached the disk. A failure is no longer merely
+    reported: the next run reads the resulting absence as NO STATEMENT and stops
+    rather than discarding a quarantined original (#969 review).
+    """
     marker = quarantine / UNRESTORED_MARKER_FILENAME
     try:
-        if not names:
-            if marker.exists():
-                marker.unlink()
-            return
         quarantine.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps(sorted(names), indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         print(
             f"[prepare_synthetic_assets] WARNING: could not update {marker}: {exc}; the "
-            "next run cannot tell a quarantined original from a superseded copy and "
-            "will treat it as superseded"
+            "next run therefore has no statement about "
+            f"{quarantine} and will refuse to discard anything in it rather than "
+            "guess"
         )
+        return False
+    return True
+
+
+def _clear_unrestored(quarantine: Path) -> None:
+    """Remove the marker, for a quarantine that is being torn down.
+
+    Removal is not "nothing is pending" -- it is the absence of a statement, and
+    the isolation loop treats it as such. It is therefore only correct where no
+    quarantined copy survives to be misjudged.
+    """
+    marker = quarantine / UNRESTORED_MARKER_FILENAME
+    try:
+        if marker.exists():
+            marker.unlink()
+    except OSError as exc:
+        print(f"[prepare_synthetic_assets] WARNING: could not remove {marker}: {exc}")
 
 
 def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bool:
@@ -1341,9 +1382,11 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     continue
                 if dst.is_file() and marker_unknown:
                     # A whole fixture at the canonical path, a copy in the
-                    # quarantine, and no readable record of which is which.
-                    # Deleting either one could be the wrong one, so neither is
-                    # touched and the run stops instead.
+                    # quarantine, and no statement about which is which -- the
+                    # marker is absent, or present and unreadable. Deleting either
+                    # one could be the wrong one, so neither is touched and the run
+                    # stops instead. Absence counts as no statement because the
+                    # write that would have made one can fail (#969 review).
                     undecidable.append(name)
                     continue
                 if dst.is_file():
@@ -1368,22 +1411,36 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         return False
 
     if undecidable:
+        marker_path = quarantine / UNRESTORED_MARKER_FILENAME
+        state_note = (
+            "is present but unreadable"
+            if _marker_present(quarantine)
+            else "is absent, so no run has recorded what the quarantined copies are"
+        )
         print(
             "[prepare_synthetic_assets] cannot tell an unrestored original from a "
             f"superseded copy for: {', '.join(undecidable)}"
         )
         print(
-            f"  {quarantine / UNRESTORED_MARKER_FILENAME} is present but unreadable, and "
-            "both the quarantined copy and the canonical fixture are whole files. "
-            "Nothing was moved or deleted; remove the marker (or the copy you know is "
-            "obsolete) and re-run."
+            f"  {marker_path} {state_note}, and both the quarantined copy and the "
+            "canonical fixture are whole files. Nothing was moved or deleted; remove "
+            "the copy you know is obsolete (or the marker, if it is unreadable) and "
+            "re-run."
         )
         _rollback_isolation()
         return False
 
     # Adopted entries are no longer pending; anything still pending has no
-    # quarantine copy left to recover, so the marker is rewritten either way.
-    _write_unrestored(quarantine, pending_recovery - set(recovered) - set(superseded))
+    # quarantine copy left to recover. Cleared rather than written empty: every
+    # canonical path this loop touched is empty now, so a crash here leaves a state
+    # the next run resolves from evidence alone -- and an empty list would instead
+    # be a positive "nothing is pending" that authorises deleting the originals
+    # this run just isolated.
+    remaining = pending_recovery - set(recovered) - set(superseded)
+    if remaining:
+        _write_unrestored(quarantine, remaining)
+    elif _marker_present(quarantine):
+        _clear_unrestored(quarantine)
 
     if recovered:
         print(
@@ -1494,12 +1551,15 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             src.unlink()
         except OSError as exc:
             cleanup_failures.append(f"{name}: {exc}")
-    # Nothing is pending recovery after a successful run: whatever survives in the
-    # quarantine is superseded by what was just generated, and the marker saying so
-    # is what stops the next run adopting it. This is the one caller that may clear
-    # an unreadable marker -- it does not need to read it, because a fresh corpus
-    # settles the question the marker exists to answer.
-    _write_unrestored(quarantine, set())
+    # A fresh corpus settles the question the marker exists to answer, so this is
+    # the one caller that may state "nothing is pending" -- and where copies
+    # survived a failed cleanup, it MUST, because an absent marker is no statement
+    # and the next run would refuse to discard them. Where nothing survived, the
+    # marker is cleared so the quarantine directory can go.
+    if cleanup_failures:
+        _write_unrestored(quarantine, set())
+    else:
+        _clear_unrestored(quarantine)
     if cleanup_failures:
         print(
             "[prepare_synthetic_assets] WARNING: could not remove superseded quarantine "

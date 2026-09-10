@@ -2264,13 +2264,15 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             names = sorted(_prepare.CPP_GENERATED_FILENAMES)
             quarantine = out / ".pre_cpp_generation"
             quarantine.mkdir()
-            # No marker: nothing failed to restore, these are leftovers a
-            # successful run could not remove. Both files are WHOLE -- that is
-            # what makes the marker the deciding evidence, and a header-only
-            # canonical file would be debris rather than a fixture.
+            # The marker a successful run leaves when its cleanup failed: an
+            # EMPTY list, which is the positive "these are superseded" that
+            # authorises discarding them. Both files are WHOLE -- that is what
+            # makes the marker the deciding evidence, and a header-only canonical
+            # file would be debris rather than a fixture.
             for name in names:
                 _write_ply(quarantine / name, 32, rich_sh=True)
                 _write_ply(out / name, 64, rich_sh=True)
+            _prepare._write_unrestored(quarantine, set())
             current = {name: (out / name).read_bytes() for name in names}
 
             with mock.patch.object(
@@ -2415,26 +2417,66 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                     self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
 
     def test_a_readable_marker_is_still_updated_and_cleared(self):
-        """Discrimination: only an UNREADABLE marker is untouchable.
+        """Discrimination: only a marker that says nothing is untouchable.
 
         Without this, the fix above is satisfied by never writing the marker at
         all -- which would strand every genuine recovery, since an adopted
         original must stop being listed as pending.
+
+        The three states are asserted apart here, because collapsing two of them
+        is what this round removes: a LIST is a statement, an EMPTY LIST is the
+        different statement "a successful run superseded these", and NO FILE is
+        no statement at all.
         """
         quarantine_names = sorted(_prepare.CPP_GENERATED_FILENAMES)[:2]
         with tempfile.TemporaryDirectory() as tmp:
             quarantine = Path(tmp) / ".pre_cpp_generation"
             quarantine.mkdir()
+            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
 
             # merging into a readable marker keeps both the old and the new names
             _prepare._write_unrestored(quarantine, {quarantine_names[0]})
             _prepare._merge_unrestored(quarantine, {quarantine_names[1]})
             self.assertEqual(_prepare._read_unrestored(quarantine), set(quarantine_names))
 
-            # and clearing it outright still removes the file
+            # writing EMPTY is a statement, and it is written, not deleted
             _prepare._write_unrestored(quarantine, set())
+            self.assertTrue(
+                marker.is_file(),
+                "'nothing is pending' was recorded by deleting the file, which says "
+                "nothing at all",
+            )
             self.assertEqual(_prepare._read_unrestored(quarantine), set())
-            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
+
+            # clearing removes the file, and that reads back as NO statement
+            _prepare._clear_unrestored(quarantine)
+            self.assertFalse(marker.exists())
+            self.assertIsNone(_prepare._read_unrestored(quarantine))
+
+    def test_a_first_failed_restore_creates_the_marker(self):
+        """No marker yet is not a reason to record nothing.
+
+        `_merge_unrestored` leaves an UNREADABLE marker alone; it must still
+        create an absent one, or the first failed restore in a fresh quarantine
+        would record nothing and the original would be unattributed.
+        """
+        name = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            quarantine = Path(tmp) / ".pre_cpp_generation"
+            quarantine.mkdir()
+            self.assertIsNone(_prepare._read_unrestored(quarantine))
+
+            _prepare._merge_unrestored(quarantine, {name})
+            self.assertEqual(_prepare._read_unrestored(quarantine), {name})
+
+            # ...but with nothing to record it must not invent an empty statement
+            _prepare._clear_unrestored(quarantine)
+            _prepare._merge_unrestored(quarantine, set())
+            self.assertIsNone(
+                _prepare._read_unrestored(quarantine),
+                "a run with nothing to record wrote 'nothing is pending', which is a "
+                "claim it is in no position to make",
+            )
 
     def test_a_successful_run_still_clears_an_unreadable_marker(self):
         """The one caller that may: a fresh corpus answers the marker's question.
@@ -2466,12 +2508,88 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
             with mock.patch.object(_prepare.subprocess, "run", producer):
                 self.assertTrue(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
 
-            self.assertEqual(
-                _prepare._read_unrestored(quarantine),
-                set(),
-                "a successful generation left the marker unreadable, so the next run "
-                "would stop on a question its own output already answered",
+            # Nothing survived the cleanup here, so there is nothing left for a
+            # later run to misjudge and the marker is removed outright.
+            self.assertFalse(
+                (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists(),
+                "a successful generation left the unreadable marker behind, so the next "
+                "run would stop on a question its own output already answered",
             )
+
+    def test_an_absent_marker_is_not_permission_to_delete(self):
+        """#969 review round 10: a marker write can FAIL, and then it says nothing.
+
+        A producer that finished one fixture before dying on another leaves a
+        COMPLETE file at that canonical path while its original is still
+        quarantined -- whole by every check this module has, so the evidence rule
+        reads it as a fixture and defers to the marker. If the write recording that
+        original as pending also failed (a full disk, a locked quarantine
+        directory: the same conditions that made the restore fail), the marker is
+        absent. Absence used to mean "nothing is pending", so the next run
+        discarded the original as a superseded copy -- the last copy of the
+        pre-run fixture, deleted on the strength of a statement nobody made.
+
+        Absence is now no statement, and no statement means stop.
+        """
+        name = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            for other in sorted(_prepare.CPP_GENERATED_FILENAMES):
+                if other != name:
+                    _write_ply(out / other, 24, rich_sh=True)
+            _write_ply(quarantine / name, 32, rich_sh=True)
+            original = (quarantine / name).read_bytes()
+            # the completed output of the run that died: a WHOLE file, not debris
+            _write_ply(out / name, 64, rich_sh=True)
+            self.assertIsNone(
+                _prepare.ply_payload_failure(out / name),
+                "the case needs a complete file at the canonical path",
+            )
+            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
+
+            buffer = io.StringIO()
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(
+                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
+                    )
+
+            self.assertTrue(
+                (quarantine / name).is_file(),
+                f"{name}: the only copy of the pre-run fixture was discarded on an "
+                "absent marker",
+            )
+            self.assertEqual((quarantine / name).read_bytes(), original)
+            self.assertIn("cannot tell an unrestored original", buffer.getvalue())
+            self.assertIn("is absent", buffer.getvalue())
+
+    def test_a_marker_write_failure_is_reported_as_such(self):
+        """The writer must say whether the statement reached the disk.
+
+        It returned None and only printed, so the caller could not tell a recorded
+        pending original from one whose record evaporated.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            quarantine = Path(tmp) / ".pre_cpp_generation"
+            quarantine.mkdir()
+            self.assertTrue(_prepare._write_unrestored(quarantine, {"a.ply"}))
+
+            real_write_text = Path.write_text
+
+            def refuse(self, *args, **kwargs):
+                if self.name == _prepare.UNRESTORED_MARKER_FILENAME:
+                    raise OSError(28, "no space left on device")
+                return real_write_text(self, *args, **kwargs)
+
+            buffer = io.StringIO()
+            with mock.patch.object(Path, "write_text", refuse):
+                with contextlib.redirect_stdout(buffer):
+                    self.assertFalse(_prepare._write_unrestored(quarantine, {"b.ply"}))
+            self.assertIn("refuse to discard anything", buffer.getvalue())
 
     def test_a_failed_cleanup_after_success_is_reported_and_disarmed(self):
         """The other half: say so, and make sure the next run cannot be misled.
