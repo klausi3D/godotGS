@@ -23,6 +23,7 @@ states, and assert that a refusal leaves every byte on disk untouched.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -35,6 +36,319 @@ import run_export_smoke as smoke  # noqa: E402
 
 ORIGINAL_PRESET_BYTES = "[preset.0]\nname=\"My Own Preset\"\n"
 GENERATED_MARKER = "custom_template/release="
+
+
+PROBE_FILE = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "export_smoke_probe.gd"
+
+
+class IncompleteTemplateSetIsNamedTests(unittest.TestCase):
+    """A debug-only stock template set must be named, not filed under "unrelated".
+
+    `EditorExportPlatformPC::has_valid_export_configuration()` accepts
+    `dvalid || rvalid` (editor/export/editor_export_platform_pc.cpp:114), so a
+    stock DEBUG template installed with the RELEASE template absent lets
+    `--export-release` pass `can_export()`. No refusal prefix is emitted;
+    `template_path` then resolves EMPTY, which also skips the
+    `Template file not found: "<path>"` message because that branch is guarded by
+    `!template_path.is_empty()`; and the copy of an empty source fails with
+    `Prepare Template: Failed to copy export template.`
+
+    The control classified that as `unrelated_failure`, whose message tells the
+    operator a timeout or a crash looks identical -- true in general, and useless
+    for the one state that actually produced it.
+
+    It remains a FAILURE. The same sentence is printed by a copy that failed on
+    I/O and carries no path to separate them, so passing on it would trade a
+    bounded false failure for a bounded false pass (#873 review).
+    """
+
+    #: What the editor prints on that route: add_message() renders an error as
+    #: "<category>: <text>" (editor/export/editor_export_platform.h:254).
+    DEBUG_ONLY_OUTPUT = (
+        "Godot Engine v4.5.rc.custom_build - https://godotengine.org\n"
+        "ERROR: Prepare Template: Failed to copy export template.\n"
+        "   at: add_message (editor/export/editor_export_platform.h:254)\n"
+    )
+
+    def _classify(self, output: str, *, returncode: int = 1):
+        return smoke.negative_control_outcome(returncode, None, output)
+
+    def test_the_debug_only_route_is_named(self) -> None:
+        outcome, detail = self._classify(self.DEBUG_ONLY_OUTPUT)
+        self.assertEqual(
+            outcome,
+            "incomplete_template_set",
+            "the debug-only template set is still reported as an unrelated failure",
+        )
+        self.assertIn("release template", detail)
+
+    def test_it_still_fails_the_control(self) -> None:
+        """Fail-closed: naming the state must not have turned it into a pass.
+
+        A copy that failed on I/O prints the same sentence, so this outcome is
+        not evidence that the empty custom_template/release was detected.
+        """
+        outcome, _detail = self._classify(self.DEBUG_ONLY_OUTPUT)
+        self.assertNotIn(
+            outcome,
+            smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES,
+            "an ambiguous template-copy failure became a passing outcome",
+        )
+
+    def test_a_genuine_refusal_is_still_export_rejected(self) -> None:
+        """Discrimination: the real rejection path must be untouched."""
+        refusal = (
+            "ERROR: Cannot export project with preset \"Windows Desktop\" "
+            "due to configuration errors:\n"
+            "No export template found at the expected path:\n"
+            "  .../export_templates/4.5.rc/windows_release_x86_64.exe\n"
+        )
+        outcome, _detail = self._classify(refusal)
+        self.assertEqual(outcome, "export_rejected")
+        self.assertIn(outcome, smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES)
+
+    def test_an_unrelated_failure_is_still_unrelated(self) -> None:
+        """The other half: this must not have become a catch-all for red exports."""
+        outcome, detail = self._classify(
+            "ERROR: Save PCK: Can't open file to read from path \"res://foo\".\n"
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertIn("carries no missing-template rejection", detail)
+
+    def test_a_timeout_is_still_a_timeout(self) -> None:
+        """A hang that happened to print the copy failure is still a hang."""
+        outcome, _detail = smoke.negative_control_outcome(
+            124, None, self.DEBUG_ONLY_OUTPUT, timed_out=True
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_a_produced_binary_still_outranks_the_message(self) -> None:
+        """`undetected` is the worst case and must not be masked by this branch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "gs_export_smoke.exe"
+            binary.write_bytes(b"GaussianSplat gaussian_splatting")
+            outcome, _detail = smoke.negative_control_outcome(
+                1, binary, self.DEBUG_ONLY_OUTPUT
+            )
+        self.assertEqual(outcome, "undetected")
+
+
+class DeadlineOverrunIsNotABlankWindowTests(unittest.TestCase):
+    """A timeout must not be reported -- or tolerated -- as a blank viewport (#873).
+
+    The post-await deadline break added for the previous review round created a
+    state the earlier code could not reach: the proof loop ends holding COMPLETE
+    evidence (splats, pipeline green, non-background samples) because the frame
+    that produced it finished after the bound. The reporting ladder had no case
+    for it, so it fell through to `_fail_visual()` -- which names a blank window
+    and an interactive-desktop remedy that did not happen, and quits with
+    EXIT_NO_VISUAL_EVIDENCE, the single code `--allow-blank-viewport` downgrades
+    to a PASS. The deadline the probe had just enforced was handed back through
+    the visual-evidence tolerance.
+
+    These cases are executable: they exercise the runner's real classification
+    function. The probe-side half is asserted by ProbeDeadlineOrderingTests, which
+    can only read the source.
+    """
+
+    #: What the probe emits for a genuinely blank window: the GPU did the work and
+    #: the read-back was empty. This is the one outcome the flag may downgrade.
+    BLANK_WINDOW = {
+        "status": "failed_visual_evidence",
+        "pipeline_evidence_ok": True,
+        "visual_evidence_ok": False,
+        "deadline_exceeded": False,
+        "visible_splats_max": 4096,
+    }
+
+    def test_a_genuinely_blank_window_is_still_downgradable(self) -> None:
+        """Discrimination first: the tolerance must keep working, or this is a ban."""
+        self.assertTrue(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, dict(self.BLANK_WINDOW)
+            ),
+            "the blank-window tolerance no longer recognises the case it exists for",
+        )
+
+    def test_a_deadline_overrun_is_not_downgradable(self) -> None:
+        """The metrics say the clock ended the run; that is a timeout, not a window."""
+        overrun = dict(self.BLANK_WINDOW, deadline_exceeded=True)
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, overrun
+            ),
+            "a deadline overrun could be downgraded to a pass by --allow-blank-viewport",
+        )
+
+    def test_complete_visual_evidence_is_not_downgradable(self) -> None:
+        """`visual_evidence_ok` true means the window did NOT read back blank."""
+        complete = dict(self.BLANK_WINDOW, visual_evidence_ok=True)
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, complete
+            ),
+            "an outcome whose own metrics report good visual evidence was accepted "
+            "as a blank window",
+        )
+
+    def test_the_probes_own_deadline_exit_code_is_not_downgradable(self) -> None:
+        """End to end with the code the probe now uses: exit 1, not exit 4."""
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                1, dict(self.BLANK_WINDOW, deadline_exceeded=True, visual_evidence_ok=True)
+            )
+        )
+
+    def test_missing_or_partial_metrics_are_not_downgradable(self) -> None:
+        """Fail closed: no metrics, or no pipeline evidence, is not this case."""
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, None
+            )
+        )
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE,
+                dict(self.BLANK_WINDOW, pipeline_evidence_ok=False),
+            )
+        )
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE,
+                dict(self.BLANK_WINDOW, status="passed"),
+            )
+        )
+
+    def test_the_probe_reports_the_overrun_as_its_own_cause(self) -> None:
+        """Source side: the ladder has a deadline case, ahead of the blank-window one.
+
+        Mode: an ordering read of the GDScript, which cannot be executed here.
+        """
+        lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+        source = "\n".join(lines)
+        self.assertIn(
+            'metrics["deadline_exceeded"] = _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC)',
+            source,
+            "the probe no longer records whether the loop ended on the clock",
+        )
+
+        def index_of(needle: str) -> int:
+            for offset, line in enumerate(lines):
+                if needle in line:
+                    return offset
+            self.fail(f"anchor not found in the probe: {needle!r}")
+
+        deadline_case = index_of('if bool(metrics["deadline_exceeded"]) and bool(metrics["visual_evidence_ok"]):')
+        blank_case = index_of("\t_fail_visual(")
+        self.assertLess(
+            deadline_case,
+            blank_case,
+            "the blank-window failure is reached before the deadline case, so a "
+            "timeout is still reported as a blank window",
+        )
+
+        # ...and it must not borrow the downgradable exit code. Comments are
+        # stripped first: this block explains in prose why it does NOT use
+        # EXIT_NO_VISUAL_EVIDENCE, and an assertion that reads prose would fail on
+        # the explanation while passing on the mistake.
+        between = "\n".join(
+            line for line in lines[deadline_case:blank_case]
+            if not line.strip().startswith("#")
+        )
+        self.assertIn("EXIT_GENERIC_FAILURE", between)
+        self.assertNotIn("EXIT_NO_VISUAL_EVIDENCE", between)
+        self.assertNotIn("_fail_visual", between)
+
+
+class ProbeDeadlineOrderingTests(unittest.TestCase):
+    """The blocking probe may not pass on evidence observed after its bound (#873).
+
+    Both loops used to test the clock only at the top, before their awaits. A
+    frame that begins inside the bound can finish outside it, and the evidence it
+    produced was accepted -- so a release-blocking probe with a 120-second
+    deadline could pass at any time after it. The proof loop had the same shape of
+    hole around `MIN_PROOF_FRAMES`: the floor was consulted only when deciding
+    whether to STOP, never before accepting, so a first-frame coincidence passed
+    the gate on transient output.
+
+    **Mode:** this is a source-ORDERING guard, not an execution test. The probe
+    runs inside an exported binary on a GPU runner and cannot be executed here, so
+    what is asserted is that the guard sits between the await and the acceptance
+    in the source -- the property the review asked for. A green result here says
+    nothing about a real export run.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+
+    def _index(self, needle: str, start: int = 0, what: str = "") -> int:
+        for offset, line in enumerate(self.lines[start:], start=start):
+            if needle in line:
+                return offset
+        self.fail(f"anchor not found in the probe: {what or needle!r}")
+
+    def test_the_anchors_this_guard_reads_still_exist(self) -> None:
+        """Non-vacuity: every assertion below is an ordering over these lines."""
+        for anchor in (
+            "func _deadline_exceeded(",
+            "while not _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):",
+            'metrics["renderer_available"] = true',
+            "await RenderingServer.frame_post_draw",
+            "_pass(",
+        ):
+            with self.subTest(anchor=anchor):
+                self._index(anchor, what=anchor)
+
+    def test_the_renderer_is_not_accepted_after_the_bound(self) -> None:
+        loop = self._index("while not _deadline_exceeded(wait_started_ms")
+        awaited = self._index("await process_frame", loop)
+        accept = self._index('metrics["renderer_available"] = true', awaited)
+        guard = self._index("_deadline_exceeded(wait_started_ms", awaited)
+        self.assertLess(
+            guard,
+            accept,
+            "the renderer-wait loop accepts a renderer without re-checking the "
+            "deadline after its await",
+        )
+
+    def test_proof_evidence_is_not_accepted_after_the_bound(self) -> None:
+        drawn = self._index("await RenderingServer.frame_post_draw")
+        passed = self._index("_pass(", drawn)
+        guard = self._index("_deadline_exceeded(proof_started_ms", drawn)
+        self.assertLess(
+            guard,
+            passed,
+            "the proof loop passes on evidence gathered after frame_post_draw "
+            "without re-checking the deadline",
+        )
+
+    def test_the_success_path_enforces_the_settling_floor(self) -> None:
+        drawn = self._index("await RenderingServer.frame_post_draw")
+        passed = self._index("_pass(", drawn)
+        conditions = [
+            line for line in self.lines[drawn:passed]
+            if line.strip().startswith("if ") and "MIN_PROOF_FRAMES" in line
+        ]
+        self.assertTrue(
+            conditions,
+            "nothing between frame_post_draw and the success call mentions "
+            "MIN_PROOF_FRAMES; the floor still gates only the stop condition",
+        )
+        self.assertIn("_visual_evidence_ok()", conditions[-1])
+        self.assertIn("_pipeline_evidence_ok()", conditions[-1])
+
+    def test_the_frame_counter_means_frames_observed(self) -> None:
+        """The floor is only a floor if the number it compares is the right one.
+
+        `frame` was incremented before the await and read after it, so it was one
+        behind at the accept and level at the stop -- the same constant meaning two
+        different counts.
+        """
+        source = "\n".join(self.lines)
+        self.assertIn("var proof_frames := 0", source)
+        self.assertIn("proof_frames += 1", source)
+        self.assertNotIn("var frame := -1", source)
 
 
 class PresetStateTestCase(unittest.TestCase):
@@ -197,6 +511,385 @@ class BinaryPathResolutionTests(unittest.TestCase):
     def test_missing_relative_path_is_still_rejected(self) -> None:
         self.assertIsNone(smoke._resolve_editor("no-such-binary.exe"))
         self.assertIsNone(smoke._resolve_template("no-such-binary.exe"))
+
+
+class NegativeControlPresetTests(PresetStateTestCase):
+    """`--expect-stock-template-failure` must actually write an EMPTY template path.
+
+    The whole control rests on this substitution. If it silently kept writing the
+    template path the control would run the *positive* configuration and report
+    the reassuring answer, which is worse than not having it.
+    """
+
+    def test_default_writes_the_template_path(self) -> None:
+        generated = smoke._write_preset(ROOT / "bin", self.backup)
+        text = generated.read_text(encoding="utf-8")
+        self.assertIn(f'custom_template/release="{(ROOT / "bin").resolve().as_posix()}"', text)
+
+    def test_empty_string_is_honoured_rather_than_treated_as_unset(self) -> None:
+        # `""` is falsy, so a truth test here would fall back to the template
+        # path and quietly turn the negative control into a second positive run.
+        generated = smoke._write_preset(ROOT / "bin", self.backup, custom_template_release="")
+        self.assertIn('custom_template/release=""', generated.read_text(encoding="utf-8"))
+
+
+# What the editor actually prints when it refuses the export because no template
+# can be resolved. Assembled from the engine sources this control keys off:
+#   editor/editor_node.cpp                     -- the untranslated refusal prefix
+#   editor/export/editor_export_platform.cpp   -- the translated reason + the path
+#   editor/file_system/editor_paths.h          -- export_templates_folder
+#   platform/windows/export/export_plugin.cpp  -- windows_release_x86_64.exe
+GENUINE_REJECTION_OUTPUT = """\
+Godot Engine v4.5.stable.custom_build - https://godotengine.org
+Registering GaussianSplatting types
+ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
+No export template found at the expected path:
+C:/Users/runner/AppData/Roaming/Godot/export_templates/4.5.stable/windows_debug_x86_64.exe
+No export template found at the expected path:
+C:/Users/runner/AppData/Roaming/Godot/export_templates/4.5.stable/windows_release_x86_64.exe
+
+   at: _dispatch_export (editor/editor_node.cpp:1268)
+ERROR: Project export for preset "Export Smoke" failed.
+"""
+
+# The same refusal on a runner whose editor language is not English: every TTR()
+# string is translated, the vformat() prefix and the interpolated path are not.
+# This is the case that rules out matching the English message text.
+# Codex #873: the RELEASE template resolved; only the DEBUG one is missing, and
+# an unrelated preset validation then failed. Godot appends the missing debug
+# path first, so this output carries the refusal prefix, the reason marker and a
+# path under `export_templates` -- none of which says anything about the release
+# template. Modelled here because the pre-existing unrelated-error fixture omits
+# the independently generated debug-template diagnostic.
+MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT = """ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
+No export template found at the expected path:
+C:/Users/runner/AppData/Roaming/Godot/export_templates/4.5.stable/windows_debug_x86_64.exe
+Invalid export option value for "application/icon": file not found.
+ERROR: Project export for preset "Export Smoke" failed.
+"""
+
+GENUINE_REJECTION_OUTPUT_TRANSLATED = """\
+ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
+Keine Exportvorlage unter dem erwarteten Pfad gefunden:
+C:/Users/runner/AppData/Roaming/Godot/export_templates/4.5.stable/windows_release_x86_64.exe
+ERROR: Project export for preset "Export Smoke" failed.
+"""
+
+# A configuration error that is NOT the one this control is about. It reaches the
+# same refusal prefix, so the prefix alone cannot be the whole signal.
+UNRELATED_CONFIG_ERROR_OUTPUT = """\
+ERROR: Cannot export project with preset "Export Smoke" due to configuration errors:
+A texture format must be selected to export the project. Please select at least one texture format.
+ERROR: Project export for preset "Export Smoke" failed.
+"""
+
+UNRELATED_RESOURCE_ERROR_OUTPUT = """\
+ERROR: Cannot open file 'res://tests/fixtures/synthetic_cube.ply'.
+   at: _load (core/io/resource_loader.cpp:283)
+ERROR: Failed to load resource. Export aborted.
+"""
+
+TIMEOUT_OUTPUT = "Godot Engine v4.5.stable.custom_build\nEditor started, importing...\n"
+
+
+class NegativeControlOutcomeTests(unittest.TestCase):
+    """The outcomes of `--expect-stock-template-failure`, and which of them pass.
+
+    The rule this class pins: the control passes only on a *positive finding*
+    (a proven missing-template rejection, or a produced stock binary). "The
+    export did not succeed" is not a finding -- a timeout, a crash and an
+    unrelated resource error all satisfy it. An earlier version classified every
+    nonzero exit as `export_rejected` and reported green, so the discrimination
+    test could itself pass vacuously: the one thing it exists to rule out.
+
+    Both directions are asserted here on purpose. Making unrelated failures red
+    is only worth something if the genuine rejection is still green -- otherwise
+    the fix could "pass" by failing everything.
+    """
+
+    def setUp(self) -> None:
+        self.stack = tempfile.TemporaryDirectory()
+        self.addCleanup(self.stack.cleanup)
+        self.here = Path(self.stack.name)
+
+    def _binary(self, name: str, *, gs_symbols: bool) -> Path:
+        path = self.here / name
+        body = b"MZ" + b"\x00" * 64
+        if gs_symbols:
+            body += b"".join(smoke.REQUIRED_TEMPLATE_SYMBOLS)
+        path.write_bytes(body)
+        return path
+
+    @property
+    def _absent(self) -> Path:
+        return self.here / "never-written.exe"
+
+    # --- the one failure mode that is allowed to pass ------------------------
+
+    def test_the_expected_missing_template_rejection_passes(self) -> None:
+        outcome, detail = smoke.negative_control_outcome(1, self._absent, GENUINE_REJECTION_OUTPUT)
+        self.assertEqual(outcome, "export_rejected")
+        self.assertIn("could not resolve an export template", detail)
+        self.assertEqual(
+            smoke._negative_control_verdict(1, self._absent, GENUINE_REJECTION_OUTPUT), 0
+        )
+
+    def test_a_missing_debug_template_is_not_a_release_template_rejection(self) -> None:
+        """The release template resolved; only the DEBUG one is missing.
+
+        EditorExportPlatformPC::has_valid_export_configuration() appends the
+        missing debug-template path BEFORE later configuration errors, so this
+        output carries the refusal prefix, the reason marker, and a path under
+        `export_templates` -- while the release template was resolved and the
+        export failed for an unrelated reason.
+
+        The classifier used to accept the bare `export_templates` substring
+        anywhere in the combined diagnostic, so this passed as `export_rejected`
+        and the negative control reported green without ever detecting the
+        condition it exists to detect. It must be `unrelated_failure`.
+        """
+        outcome, detail = smoke.negative_control_outcome(
+            1, self._absent, MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT
+        )
+        self.assertEqual(
+            outcome,
+            "unrelated_failure",
+            f"a missing DEBUG template was misread as a release-template refusal: {detail}",
+        )
+        self.assertNotEqual(
+            smoke._negative_control_verdict(1, self._absent, MISSING_DEBUG_TEMPLATE_ONLY_OUTPUT),
+            0,
+            "the control passed on a failure that says nothing about the release template",
+        )
+
+    def test_the_release_template_rejection_still_passes_alongside_a_debug_path(self) -> None:
+        """The discriminating half: the genuine case must still be recognised.
+
+        Godot lists the debug path AND the release path when both are absent, so
+        a fix that merely rejected any output mentioning a debug template would
+        break the real signal. GENUINE_REJECTION_OUTPUT contains both.
+        """
+        outcome, _ = smoke.negative_control_outcome(1, self._absent, GENUINE_REJECTION_OUTPUT)
+        self.assertEqual(outcome, "export_rejected")
+        self.assertIn("windows_debug_x86_64.exe", GENUINE_REJECTION_OUTPUT)
+
+    def test_the_rejection_is_recognised_on_a_non_english_runner(self) -> None:
+        # The reason line is TTR()-translated; the refusal prefix and the
+        # interpolated template path are not. Keying off the English message
+        # text would make this control machine-dependent.
+        outcome, _ = smoke.negative_control_outcome(
+            1, self._absent, GENUINE_REJECTION_OUTPUT_TRANSLATED
+        )
+        self.assertEqual(outcome, "export_rejected")
+
+    def test_a_stock_binary_is_detected_and_the_control_passes(self) -> None:
+        exported = self._binary("stock.exe", gs_symbols=False)
+        outcome, detail = smoke.negative_control_outcome(0, exported, "")
+        self.assertEqual(outcome, "stock_template_detected")
+        self.assertIn("#825", detail)
+        self.assertEqual(smoke._negative_control_verdict(0, exported, ""), 0)
+
+    # --- everything else must be red -----------------------------------------
+
+    def test_a_timeout_is_not_a_rejection(self) -> None:
+        outcome, detail = smoke.negative_control_outcome(
+            smoke.TIMEOUT_RETURNCODE, self._absent, TIMEOUT_OUTPUT, timed_out=True
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertIn("TIMED OUT", detail)
+        self.assertEqual(
+            smoke._negative_control_verdict(
+                smoke.TIMEOUT_RETURNCODE, self._absent, TIMEOUT_OUTPUT, timed_out=True
+            ),
+            smoke.EXIT_FAIL,
+        )
+
+    def test_a_timeout_is_still_a_timeout_when_the_output_looks_like_a_rejection(self) -> None:
+        # A run that printed the refusal and then hung was still killed, not
+        # refused; the flag is authoritative over the text.
+        outcome, _ = smoke.negative_control_outcome(
+            smoke.TIMEOUT_RETURNCODE, self._absent, GENUINE_REJECTION_OUTPUT, timed_out=True
+        )
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_the_timeout_flag_is_not_inferred_from_the_exit_code(self) -> None:
+        # 124 is a legal exit code for a real process. Without the explicit flag
+        # a genuine rejection that happened to exit 124 would be misfiled.
+        outcome, _ = smoke.negative_control_outcome(
+            smoke.TIMEOUT_RETURNCODE, self._absent, GENUINE_REJECTION_OUTPUT
+        )
+        self.assertEqual(outcome, "export_rejected")
+
+    def test_a_crash_is_not_a_rejection(self) -> None:
+        # 0xC0000409 (STATUS_STACK_BUFFER_OVERRUN) as Windows reports it.
+        outcome, detail = smoke.negative_control_outcome(3221225477, self._absent, "")
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertEqual(smoke._negative_control_verdict(3221225477, self._absent, ""), smoke.EXIT_FAIL)
+        self.assertIn("no missing-template rejection", detail)
+
+    def test_an_unrelated_resource_error_is_not_a_rejection(self) -> None:
+        outcome, _ = smoke.negative_control_outcome(1, self._absent, UNRELATED_RESOURCE_ERROR_OUTPUT)
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_an_unrelated_configuration_error_is_not_a_rejection(self) -> None:
+        # Reaches the same untranslated refusal prefix, so the prefix on its own
+        # is not sufficient evidence.
+        outcome, _ = smoke.negative_control_outcome(1, self._absent, UNRELATED_CONFIG_ERROR_OUTPUT)
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_a_template_path_without_a_refusal_is_not_a_rejection(self) -> None:
+        # The other half: the path can appear in ordinary chatter, so it is not
+        # sufficient either.
+        chatter = "Loading templates from C:/Users/runner/AppData/Roaming/Godot/export_templates\n"
+        outcome, _ = smoke.negative_control_outcome(1, self._absent, chatter)
+        self.assertEqual(outcome, "unrelated_failure")
+
+    def test_a_zero_exit_that_produced_no_binary_establishes_nothing(self) -> None:
+        # Previously classified as `export_rejected`: an export that claims
+        # success and produces nothing is not a detection of anything.
+        outcome, detail = smoke.negative_control_outcome(0, self._absent, "")
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertIn("SUCCESS", detail)
+
+    def test_a_gs_binary_from_an_empty_preset_fails_the_control(self) -> None:
+        # Nothing in the chain noticed, so the positive run's green says nothing.
+        exported = self._binary("gs.exe", gs_symbols=True)
+        outcome, _ = smoke.negative_control_outcome(0, exported, "")
+        self.assertEqual(outcome, "undetected")
+        self.assertEqual(smoke._negative_control_verdict(0, exported, ""), smoke.EXIT_FAIL)
+
+    def test_a_gs_binary_is_still_undetected_when_the_export_also_failed(self) -> None:
+        exported = self._binary("gs.exe", gs_symbols=True)
+        outcome, _ = smoke.negative_control_outcome(1, exported, GENUINE_REJECTION_OUTPUT)
+        self.assertEqual(outcome, "undetected")
+
+    # --- the "no binary was produced" claim must be verified, not inferred ----
+
+    def test_a_failed_export_that_left_a_binary_is_not_reported_as_producing_none(self) -> None:
+        exported = self._binary("partial.exe", gs_symbols=False)
+        outcome, detail = smoke.negative_control_outcome(1, exported, GENUINE_REJECTION_OUTPUT)
+        self.assertEqual(outcome, "unrelated_failure")
+        self.assertIn("LEFT A BINARY", detail)
+        self.assertNotIn("no binary exists", detail)
+        self.assertEqual(
+            smoke._negative_control_verdict(1, exported, GENUINE_REJECTION_OUTPUT), smoke.EXIT_FAIL
+        )
+
+    def test_the_absence_claim_is_read_off_the_filesystem(self) -> None:
+        _, detail = smoke.negative_control_outcome(1, self._absent, GENUINE_REJECTION_OUTPUT)
+        self.assertIn("no binary exists", detail)
+        self.assertIn("checked on disk", detail)
+
+    # --- structural -----------------------------------------------------------
+
+    def test_every_outcome_is_declared(self) -> None:
+        # A new outcome nobody listed must not slip through the verdict.
+        exported = self._binary("stock.exe", gs_symbols=False)
+        cases = (
+            (1, None, GENUINE_REJECTION_OUTPUT),
+            (0, exported, ""),
+            (0, None, ""),
+            (1, None, ""),
+        )
+        for returncode, path, output in cases:
+            with self.subTest(returncode=returncode, output=bool(output)):
+                outcome, _ = smoke.negative_control_outcome(returncode, path, output)
+                self.assertIn(outcome, smoke.NEGATIVE_CONTROL_OUTCOMES)
+
+    def test_the_verdict_uses_a_pass_list_not_a_fail_list(self) -> None:
+        # Pins the inversion: an unrecognised outcome must be red. The previous
+        # form (`if outcome == "undetected"`) passed everything else by default.
+        self.assertTrue(
+            set(smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES).issubset(smoke.NEGATIVE_CONTROL_OUTCOMES)
+        )
+        self.assertEqual(
+            sorted(set(smoke.NEGATIVE_CONTROL_OUTCOMES) - set(smoke.NEGATIVE_CONTROL_PASSING_OUTCOMES)),
+            ["undetected", "unrelated_failure"],
+        )
+
+    def test_the_evidence_helper_requires_both_halves(self) -> None:
+        self.assertEqual(smoke.missing_template_rejection_evidence(""), [])
+        self.assertEqual(smoke.missing_template_rejection_evidence(UNRELATED_CONFIG_ERROR_OUTPUT), [])
+        evidence = smoke.missing_template_rejection_evidence(GENUINE_REJECTION_OUTPUT)
+        self.assertIn(smoke.EXPORT_REJECTION_MARKER, evidence)
+        self.assertTrue(any(marker in evidence for marker in smoke.MISSING_TEMPLATE_MARKERS))
+
+
+class CommandResultTests(unittest.TestCase):
+    """`_run` must record a kill, not encode it in the exit code."""
+
+    def test_a_normal_run_is_not_marked_as_timed_out(self) -> None:
+        result = smoke._run(
+            [sys.executable, "-c", "raise SystemExit(3)"],
+            cwd=ROOT,
+            timeout=120,
+            label="exit 3",
+        )
+        self.assertEqual(result.returncode, 3)
+        self.assertFalse(result.timed_out)
+
+    def test_a_process_that_merely_exits_124_is_not_marked_as_timed_out(self) -> None:
+        # The reason the flag exists: 124 is an ordinary exit code.
+        result = smoke._run(
+            [sys.executable, "-c", f"raise SystemExit({smoke.TIMEOUT_RETURNCODE})"],
+            cwd=ROOT,
+            timeout=120,
+            label="exit 124",
+        )
+        self.assertEqual(result.returncode, smoke.TIMEOUT_RETURNCODE)
+        self.assertFalse(result.timed_out)
+
+    def test_a_killed_process_is_marked_as_timed_out(self) -> None:
+        result = smoke._run(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            cwd=ROOT,
+            timeout=2,
+            label="hang",
+        )
+        self.assertEqual(result.returncode, smoke.TIMEOUT_RETURNCODE)
+        self.assertTrue(result.timed_out)
+
+    def test_combined_output_survives_empty_streams(self) -> None:
+        result = smoke.CommandResult(["x"], 0, "", "", timed_out=False)
+        self.assertEqual(result.combined_output, "\n")
+
+
+class NegativeControlFlagTests(unittest.TestCase):
+    """The CI step passes this flag by name; argparse has to know it.
+
+    Checked through the real parser rather than by grepping the source: a rename
+    would otherwise surface as an argparse error inside a self-hosted CI step
+    whose log nobody reads until the lane is already red.
+    """
+
+    def test_the_flag_is_registered_on_the_real_parser(self) -> None:
+        script = ROOT / "tests" / "runtime" / "run_export_smoke.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--expect-stock-template-failure", result.stdout)
+        self.assertIn("--require-binaries", result.stdout)
+
+    def test_an_unknown_flag_is_still_rejected(self) -> None:
+        # Discrimination for the test above: `--help` printing something is only
+        # evidence if a bogus flag does not also sail through. Deliberately NOT a
+        # prefix of the real flag -- argparse accepts unambiguous abbreviations,
+        # so a near-miss spelling would be accepted and would then start a real
+        # multi-minute export from inside a unit test.
+        script = ROOT / "tests" / "runtime" / "run_export_smoke.py"
+        result = subprocess.run(
+            [sys.executable, str(script), "--not-a-real-flag"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
