@@ -41,6 +41,133 @@ GENERATED_MARKER = "custom_template/release="
 PROBE_FILE = ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "export_smoke_probe.gd"
 
 
+class DeadlineOverrunIsNotABlankWindowTests(unittest.TestCase):
+    """A timeout must not be reported -- or tolerated -- as a blank viewport (#873).
+
+    The post-await deadline break added for the previous review round created a
+    state the earlier code could not reach: the proof loop ends holding COMPLETE
+    evidence (splats, pipeline green, non-background samples) because the frame
+    that produced it finished after the bound. The reporting ladder had no case
+    for it, so it fell through to `_fail_visual()` -- which names a blank window
+    and an interactive-desktop remedy that did not happen, and quits with
+    EXIT_NO_VISUAL_EVIDENCE, the single code `--allow-blank-viewport` downgrades
+    to a PASS. The deadline the probe had just enforced was handed back through
+    the visual-evidence tolerance.
+
+    These cases are executable: they exercise the runner's real classification
+    function. The probe-side half is asserted by ProbeDeadlineOrderingTests, which
+    can only read the source.
+    """
+
+    #: What the probe emits for a genuinely blank window: the GPU did the work and
+    #: the read-back was empty. This is the one outcome the flag may downgrade.
+    BLANK_WINDOW = {
+        "status": "failed_visual_evidence",
+        "pipeline_evidence_ok": True,
+        "visual_evidence_ok": False,
+        "deadline_exceeded": False,
+        "visible_splats_max": 4096,
+    }
+
+    def test_a_genuinely_blank_window_is_still_downgradable(self) -> None:
+        """Discrimination first: the tolerance must keep working, or this is a ban."""
+        self.assertTrue(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, dict(self.BLANK_WINDOW)
+            ),
+            "the blank-window tolerance no longer recognises the case it exists for",
+        )
+
+    def test_a_deadline_overrun_is_not_downgradable(self) -> None:
+        """The metrics say the clock ended the run; that is a timeout, not a window."""
+        overrun = dict(self.BLANK_WINDOW, deadline_exceeded=True)
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, overrun
+            ),
+            "a deadline overrun could be downgraded to a pass by --allow-blank-viewport",
+        )
+
+    def test_complete_visual_evidence_is_not_downgradable(self) -> None:
+        """`visual_evidence_ok` true means the window did NOT read back blank."""
+        complete = dict(self.BLANK_WINDOW, visual_evidence_ok=True)
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, complete
+            ),
+            "an outcome whose own metrics report good visual evidence was accepted "
+            "as a blank window",
+        )
+
+    def test_the_probes_own_deadline_exit_code_is_not_downgradable(self) -> None:
+        """End to end with the code the probe now uses: exit 1, not exit 4."""
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                1, dict(self.BLANK_WINDOW, deadline_exceeded=True, visual_evidence_ok=True)
+            )
+        )
+
+    def test_missing_or_partial_metrics_are_not_downgradable(self) -> None:
+        """Fail closed: no metrics, or no pipeline evidence, is not this case."""
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE, None
+            )
+        )
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE,
+                dict(self.BLANK_WINDOW, pipeline_evidence_ok=False),
+            )
+        )
+        self.assertFalse(
+            smoke.probe_outcome_is_downgradable_blank_viewport(
+                smoke.PROBE_EXIT_NO_VISUAL_EVIDENCE,
+                dict(self.BLANK_WINDOW, status="passed"),
+            )
+        )
+
+    def test_the_probe_reports_the_overrun_as_its_own_cause(self) -> None:
+        """Source side: the ladder has a deadline case, ahead of the blank-window one.
+
+        Mode: an ordering read of the GDScript, which cannot be executed here.
+        """
+        lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+        source = "\n".join(lines)
+        self.assertIn(
+            'metrics["deadline_exceeded"] = _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC)',
+            source,
+            "the probe no longer records whether the loop ended on the clock",
+        )
+
+        def index_of(needle: str) -> int:
+            for offset, line in enumerate(lines):
+                if needle in line:
+                    return offset
+            self.fail(f"anchor not found in the probe: {needle!r}")
+
+        deadline_case = index_of('if bool(metrics["deadline_exceeded"]) and bool(metrics["visual_evidence_ok"]):')
+        blank_case = index_of("\t_fail_visual(")
+        self.assertLess(
+            deadline_case,
+            blank_case,
+            "the blank-window failure is reached before the deadline case, so a "
+            "timeout is still reported as a blank window",
+        )
+
+        # ...and it must not borrow the downgradable exit code. Comments are
+        # stripped first: this block explains in prose why it does NOT use
+        # EXIT_NO_VISUAL_EVIDENCE, and an assertion that reads prose would fail on
+        # the explanation while passing on the mistake.
+        between = "\n".join(
+            line for line in lines[deadline_case:blank_case]
+            if not line.strip().startswith("#")
+        )
+        self.assertIn("EXIT_GENERIC_FAILURE", between)
+        self.assertNotIn("EXIT_NO_VISUAL_EVIDENCE", between)
+        self.assertNotIn("_fail_visual", between)
+
+
 class ProbeDeadlineOrderingTests(unittest.TestCase):
     """The blocking probe may not pass on evidence observed after its bound (#873).
 

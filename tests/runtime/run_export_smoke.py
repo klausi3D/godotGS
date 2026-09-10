@@ -609,6 +609,46 @@ def _negative_control_verdict(
     return EXIT_PASS
 
 
+def probe_outcome_is_downgradable_blank_viewport(
+    returncode: int,
+    metrics: Optional[dict],
+) -> bool:
+    """Is this probe outcome the ONE case `--allow-blank-viewport` may downgrade?
+
+    That tolerance exists for a single physical situation: the module loaded, a
+    real RenderingDevice came up, the GPU rastered the fixture, and the window
+    read back blank because the session has no composited desktop. Everything
+    else is a failure, and the flag must not become a general amnesty.
+
+    Narrow on purpose, and narrower than "exit code 4" alone (#873 review). The
+    probe's post-await deadline check can end its proof loop holding COMPLETE
+    evidence -- splats, pipeline, non-background samples -- when the frame that
+    produced it finished after the bound. That outcome is a timeout, and if it
+    reached this tolerance the deadline the probe just enforced would be handed
+    straight back. The probe reports it with EXIT_GENERIC_FAILURE for that reason;
+    this function refuses it a second way, from the metrics themselves, so the two
+    sides have to fail together before a timeout can be called a blank window:
+
+      * `deadline_exceeded` true -- the loop ended on the clock, whatever else
+        the run observed;
+      * `visual_evidence_ok` true -- the window did NOT read back blank, so the
+        one situation this tolerance describes did not happen.
+    """
+    if returncode != PROBE_EXIT_NO_VISUAL_EVIDENCE:
+        return False
+    if metrics is None:
+        return False
+    if metrics.get("status") != "failed_visual_evidence":
+        return False
+    if not bool(metrics.get("pipeline_evidence_ok")):
+        return False
+    if bool(metrics.get("deadline_exceeded")):
+        return False
+    if bool(metrics.get("visual_evidence_ok")):
+        return False
+    return True
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--editor-binary", default=None, help="Godot editor binary used to import and export.")
@@ -815,11 +855,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if metrics is not None:
             print(f"{METRICS_MARKER} {json.dumps(metrics, sort_keys=True)}")
 
-        blank_viewport = (
-            run_result.returncode == PROBE_EXIT_NO_VISUAL_EVIDENCE
-            and metrics is not None
-            and metrics.get("status") == "failed_visual_evidence"
-            and bool(metrics.get("pipeline_evidence_ok"))
+        blank_viewport = probe_outcome_is_downgradable_blank_viewport(
+            run_result.returncode, metrics
         )
         if blank_viewport and args.allow_blank_viewport:
             print(

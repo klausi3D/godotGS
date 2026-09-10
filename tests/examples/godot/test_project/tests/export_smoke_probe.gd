@@ -283,6 +283,9 @@ func _run() -> void:
 
 	metrics["visual_evidence_ok"] = _visual_evidence_ok()
 	metrics["pipeline_evidence_ok"] = _pipeline_evidence_ok()
+	# Every exit from the loop above is a deadline exit -- the two `break`s both
+	# test it -- so this records WHY the reporting ladder is running at all.
+	metrics["deadline_exceeded"] = _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC)
 
 	if int(metrics.get("visible_splats_max", 0)) < MIN_VISIBLE_SPLATS:
 		_fail("Exported binary never reported a visible splat.", EXIT_GENERIC_FAILURE)
@@ -293,6 +296,25 @@ func _run() -> void:
 				metrics["stage_cull_status"], metrics["stage_sort_status"],
 				metrics["stage_raster_status"], metrics["stage_composite_status"],
 				metrics["raster_path"],
+			],
+			EXIT_GENERIC_FAILURE
+		)
+		return
+	if bool(metrics["deadline_exceeded"]) and bool(metrics["visual_evidence_ok"]):
+		# Complete evidence, observed too late. Before this case existed the
+		# ladder fell through to _fail_visual(), which names a blank window and
+		# an interactive-desktop remedy -- neither of which happened here -- and
+		# quits with EXIT_NO_VISUAL_EVIDENCE. That is the single exit code
+		# `run_export_smoke.py --allow-blank-viewport` downgrades to a PASS, so a
+		# timeout must not borrow it: the deadline this probe just enforced would
+		# be handed back through the visual-evidence tolerance (#873 review).
+		_fail(
+			"Exported binary produced complete render evidence (%d splats, %d non-background samples) but only after the %.1fs proof deadline (%d frames, %.1fs elapsed)." % [
+				int(metrics["visible_splats_max"]),
+				int(metrics["visual_non_background_samples_max"]),
+				PROOF_DEADLINE_SEC,
+				proof_frames,
+				float(metrics.get("proof_seconds", 0.0)),
 			],
 			EXIT_GENERIC_FAILURE
 		)
