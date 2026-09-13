@@ -82,6 +82,29 @@ PREFLIGHT_SCRIPT = "tests/ci/preflight_runner_gpu_environment.py"
 #: prose.
 BUILD_MARKER = "python -m SCons"
 
+# A GPU job's ORDERING ANCHOR: the first step that puts work on the GPU, which
+# the preflight must precede.
+#
+# For a job that builds, that is its SCons invocation, and BUILD_MARKER finds it
+# with no help. But the contract this guard enforces is stated more broadly than
+# that -- "must precede the build and every GPU step" -- and a job can put work
+# on the GPU without building: `export_smoke_windows` (#825) consumes artifacts
+# from other jobs, then exports a project and RUNS the exported binary. Anchoring
+# only on SCons made the guard NARROWER than the contract it claims to enforce,
+# and it raised "no executed 'python -m SCons' step" on a job that is perfectly
+# well-formed.
+#
+# Such a job DECLARES its anchor here. This is deliberately a declaration and not
+# an inference: a workflow cannot tell you which arbitrary script or action
+# touches Vulkan, so guessing would be the fail-OPEN half of the trade. A GPU job
+# with neither a build nor an entry here is a FAILURE -- an ordering assertion
+# with nothing to order against passes for the wrong reason, which is exactly the
+# shape this guard exists to prevent.
+GPU_WORK_ANCHORS: Dict[Tuple[str, str], str] = {
+    # Runs the exported binary (a live RenderingDevice and a window read-back).
+    ("release_builds.yml", "export_smoke_windows"): "tests/runtime/run_export_smoke.py",
+}
+
 # These expressions deliberately recognize commands, not text. A path in a step
 # name, `if:` expression, comment, or `echo` is not execution (#918). The guard
 # fails closed on a future shell wrapper it does not understand: teaching this
@@ -262,6 +285,61 @@ def job_level_env(job_lines: List[str]) -> Dict[str, str]:
         index += 1
     return env
 
+
+#: A job's own `timeout-minutes:`, at the job's key depth (4 spaces). A
+#: step-level `timeout-minutes:` sits deeper and bounds one step, not the job,
+#: so matching it here would read a bound the runner never applies to the job.
+_JOB_TIMEOUT = re.compile(r"^    timeout-minutes:\s*([0-9]+)\s*(?:#.*)?$")
+
+#: GitHub's documented default when a job declares no `timeout-minutes:`.
+#: A job without one is not unbounded and is not excluded from the minimum --
+#: it genuinely gets this, and dropping it from the derivation would let a new
+#: GPU job silently sit outside every timeout-relative bound.
+DEFAULT_JOB_TIMEOUT_MINUTES = 360
+
+
+def job_timeout_minutes(job_lines: List[str]) -> Tuple[int, bool]:
+    """`(the job's timeout in minutes, whether it declared one)`.
+
+    The two are separate answers so a caller can tell "this job is bounded at 60"
+    from "nothing was found and 360 is GitHub's default", and so a derivation
+    that silently found *no* explicit timeout anywhere -- the shape a broken
+    parser produces -- is detectable rather than passing as a comfortable 360.
+    """
+    for line in job_lines:
+        if line.lstrip().startswith("#"):
+            continue
+        match = _JOB_TIMEOUT.match(line)
+        if match:
+            return int(match.group(1)), True
+    return DEFAULT_JOB_TIMEOUT_MINUTES, False
+
+
+def shortest_gpu_job_timeout_minutes() -> Tuple[int, Tuple[str, str], int]:
+    """`(shortest timeout, the job that sets it, how many declared one)`.
+
+    Derived, never restated. Any bound expressed as a fraction of "the job
+    timeout" has to be measured against the *shortest* one in the pool, because
+    that is the first job the bound can overrun -- and a constant written into a
+    test goes stale the moment a job with a tighter budget joins the pool, which
+    is exactly what happened when `baseline_qa.yml`'s 60-minute `gpu-harness`
+    landed under an assertion still claiming 120 (#882 review).
+    """
+    jobs = gpu_jobs()
+    if not jobs:
+        raise WorkflowContractError(
+            "No GPU job was derived, so there is no shortest timeout to bound "
+            "anything against. This must fail rather than return a default."
+        )
+    declared = 0
+    shortest: Optional[Tuple[int, Tuple[str, str]]] = None
+    for key, lines in sorted(jobs.items()):
+        minutes, explicit = job_timeout_minutes(lines)
+        declared += int(explicit)
+        if shortest is None or minutes < shortest[0]:
+            shortest = (minutes, key)
+    assert shortest is not None
+    return shortest[0], shortest[1], declared
 
 def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
@@ -499,8 +577,61 @@ def command_steps(
     return matched
 
 
-def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, WorkflowStep]:
-    """Return the one executed preflight and first build, or fail closed."""
+def _anchor_command(script: str) -> re.Pattern[str]:
+    """Invocation matcher for a declared GPU-work anchor script.
+
+    Deliberately LOOSER than _PREFLIGHT_COMMAND / _BUILD_COMMAND in one respect
+    and no other: leading indentation is allowed, and the invocation may be
+    followed by PowerShell backtick continuations.
+    """
+    return re.compile(
+        rf"^[ 	]*(?:&[ 	]*)?{_PYTHON_COMMAND}[ 	]+"
+        rf"[\"']?{re.escape(script)}[\"']?"
+        rf"(?:[ 	]+{_SAFE_COMMAND_TOKEN})*(?:[ 	]+`)?[ 	]*$",
+        re.IGNORECASE,
+    )
+
+
+def anchor_steps(steps: List[WorkflowStep], script: str) -> List[WorkflowStep]:
+    """Steps that genuinely INVOKE a declared GPU-work anchor script.
+
+    Why this does not reuse command_steps(). That helper requires the whole run
+    block to be modelled -- blank/comment lines and one column-zero invocation --
+    so that a mention inside a wrapper cannot be mistaken for an execution. That
+    strictness is right for the PREFLIGHT, whose entire value is that it really
+    ran. It is wrong for an anchor: the anchor only has to say WHERE GPU work
+    begins, and a real GPU step is normally a genuine script block (the export
+    smoke step guards its own exit code, which is correct and must not be
+    penalised).
+
+    What is still enforced, so this stays fail-closed: comment lines are stripped
+    first, and a surviving line must MATCH the invocation, so a mention in prose
+    or echo output does not qualify.
+    """
+    matcher = _anchor_command(script)
+    matched: List[WorkflowStep] = []
+    for step in steps:
+        if script.lower() not in step.run.lower():
+            continue
+        for line in step.run.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if matcher.match(line):
+                matched.append(step)
+                break
+    return matched
+
+
+def preflight_and_anchor_steps(
+    job_lines: List[str], job_key: Optional[Tuple[str, str]] = None
+) -> Tuple[WorkflowStep, WorkflowStep]:
+    """Return the one executed preflight and the job's GPU-work anchor, or fail closed.
+
+    The anchor is the job's SCons build when it has one, otherwise the command
+    declared for it in GPU_WORK_ANCHORS. `job_key` is optional only so the
+    synthetic single-job fixtures below need not invent one; a REAL job reaching
+    the no-build path without a key still raises.
+    """
     steps = workflow_steps(job_lines)
     preflights = command_steps(steps, _PREFLIGHT_COMMAND, PREFLIGHT_SCRIPT)
     builds = command_steps(steps, _BUILD_COMMAND, BUILD_MARKER)
@@ -508,13 +639,35 @@ def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, Workf
         raise WorkflowContractError(
             f"expected exactly one executed {PREFLIGHT_SCRIPT} step, found {len(preflights)}"
         )
-    if not builds:
-        raise WorkflowContractError(f"no executed {BUILD_MARKER!r} step")
+    if builds:
+        build_step = builds[0]
+        anchor_label = BUILD_MARKER
+    else:
+        declared = GPU_WORK_ANCHORS.get(job_key) if job_key is not None else None
+        if declared is None:
+            raise WorkflowContractError(
+                f"no executed {BUILD_MARKER!r} step and no GPU-work anchor declared "
+                f"for {job_key!r} in GPU_WORK_ANCHORS; a GPU job that does not build "
+                "must name the first step that puts work on the GPU, or the ordering "
+                "assertion has nothing to order against"
+            )
+        anchors = anchor_steps(steps, declared)
+        if not anchors:
+            raise WorkflowContractError(
+                f"declared GPU-work anchor {declared} for {job_key!r} is never executed "
+                "in this job; the declaration is stale or the step was removed"
+            )
+        # The FIRST such step, not the only one. A job may legitimately invoke
+        # its GPU workload more than once -- export_smoke_windows runs the smoke
+        # test and then a negative control -- and the contract is that the
+        # preflight precedes the FIRST of them. Requiring exactly one would fail
+        # a well-formed job; requiring at least one keeps it fail-closed.
+        build_step = min(anchors, key=lambda step: step.index)
+        anchor_label = declared
     preflight_step = preflights[0]
-    build_step = builds[0]
     default_shell = job_default_shell(job_lines)
     _assert_modelled_shell(preflight_step, default_shell, "preflight")
-    _assert_modelled_shell(build_step, default_shell, "build")
+    _assert_modelled_shell(build_step, default_shell, "GPU-work anchor")
     if preflight_step.continue_on_error is not None:
         continue_on_error = preflight_step.continue_on_error.strip()
         if continue_on_error.startswith("${{") and continue_on_error.endswith("}}"):
@@ -525,13 +678,15 @@ def preflight_and_build_steps(job_lines: List[str]) -> Tuple[WorkflowStep, Workf
                 f"{preflight_step.continue_on_error!r}"
             )
     if preflight_step.index >= build_step.index:
-        raise WorkflowContractError("preflight does not execute before the first build step")
+        raise WorkflowContractError(
+            f"preflight does not execute before the first {anchor_label} step"
+        )
     if (
         preflight_step.condition is not None
         and preflight_step.condition != build_step.condition
     ):
         raise WorkflowContractError(
-            "preflight condition differs from the build condition: "
+            f"preflight condition differs from the {anchor_label} condition: "
             f"{preflight_step.condition!r} != {build_step.condition!r}"
         )
     if build_step.condition is not None:
@@ -552,6 +707,72 @@ def _job_lines(step_text: str) -> List[str]:
     return ("  gpu-job:\n    steps:\n" + step_text).splitlines()
 
 
+class GatedImageSetCoversWhatCIExecutesTests(unittest.TestCase):
+    """The IFEO gate must name every image the GPU lanes launch (#873 review).
+
+    `CI_IMAGE_NAME_MARKERS` was `("godot",)`, which is the engine's own name --
+    but `export_smoke_windows` launches the EXPORTED GAME, and an exported binary
+    is named after its preset: `gs_export_smoke.exe`. IFEO binds by image NAME, so
+    page heap or Application Verifier configured for that name was recorded by the
+    sweep and passed the gate, and the blocking GPU measurement would then have
+    run under the debugger -- measuring the debugger, or crashing without a
+    symbolised backtrace.
+
+    The exported name is DERIVED from the exporter here rather than transcribed:
+    the two must stay in step, and a hand-copied name is how they would not.
+    """
+
+    #: The line in run_export_smoke.py that names the exported binary.
+    EXPORTED_BINARY_RE = re.compile(r'exported\s*=\s*output_dir\s*/\s*"([^"]+)"')
+
+    def _exported_binary_name(self) -> str:
+        source = (ROOT / "tests" / "runtime" / "run_export_smoke.py").read_text(encoding="utf-8")
+        matches = self.EXPORTED_BINARY_RE.findall(source)
+        self.assertEqual(
+            len(matches),
+            1,
+            "could not read a single exported-binary name out of run_export_smoke.py; "
+            f"found {matches}. This guard cannot check what it cannot find.",
+        )
+        return matches[0]
+
+    def test_the_exported_game_is_a_gated_image(self) -> None:
+        name = self._exported_binary_name()
+        self.assertTrue(
+            preflight._is_ci_image(name),
+            f"the export smoke lane launches {name!r} on the GPU pool, but the IFEO "
+            "gate does not treat it as an image CI executes: page heap on that name "
+            "would be recorded and passed",
+        )
+
+    def test_the_engine_is_still_a_gated_image(self) -> None:
+        """Discrimination: widening the set must not have replaced what it covered."""
+        for name in (
+            "godot.windows.editor.x86_64.exe",
+            "godot.windows.template_release.x86_64.exe",
+        ):
+            with self.subTest(image=name):
+                self.assertTrue(preflight._is_ci_image(name))
+
+    def test_unrelated_images_still_do_not_gate(self) -> None:
+        """The other half: this is a dual-use workstation, not a CI-only box.
+
+        Page heap on someone's unrelated tool is recorded, not fatal. A gate that
+        fired on every IFEO entry on this machine would be turned off within a
+        week.
+        """
+        for name in ("chrome.exe", "devenv.exe", "python.exe", "notepad++.exe"):
+            with self.subTest(image=name):
+                self.assertFalse(preflight._is_ci_image(name))
+
+    def test_the_gate_matches_the_name_as_ifeo_writes_it(self) -> None:
+        """IFEO subkeys carry the bare image name, in whatever case it was written."""
+        name = self._exported_binary_name()
+        for spelling in (name, name.upper(), name.replace(".exe", ".EXE")):
+            with self.subTest(spelling=spelling):
+                self.assertTrue(preflight._is_ci_image(spelling))
+
+
 class WorkflowStepExecutionParsing(unittest.TestCase):
     """Textual mentions cannot impersonate execution, and conditions stay aligned (#918)."""
 
@@ -568,7 +789,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
         with self.assertRaisesRegex(
             WorkflowContractError, "expected exactly one executed .* found 0"
         ):
-            preflight_and_build_steps(lines)
+            preflight_and_anchor_steps(lines)
 
     def test_command_in_unreachable_control_flow_is_not_execution(self) -> None:
         lines = _job_lines(
@@ -583,7 +804,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
 """
         )
         with self.assertRaises(WorkflowContractError):
-            preflight_and_build_steps(lines)
+            preflight_and_anchor_steps(lines)
 
     def test_command_inside_here_string_is_not_execution(self) -> None:
         lines = _job_lines(
@@ -598,7 +819,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
 """
         )
         with self.assertRaisesRegex(WorkflowContractError, "unmodelled content before"):
-            preflight_and_build_steps(lines)
+            preflight_and_anchor_steps(lines)
 
     def test_preflight_cannot_swallow_its_command_failure(self) -> None:
         for suffix in (
@@ -617,7 +838,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                 with self.assertRaisesRegex(
                     WorkflowContractError, "expected exactly one executed"
                 ):
-                    preflight_and_build_steps(lines)
+                    preflight_and_anchor_steps(lines)
 
     def test_preflight_continue_on_error_must_be_literal_false(self) -> None:
         for value in ("true", "${{ true }}", "${{ matrix.soft_fail }}"):
@@ -632,7 +853,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                 with self.assertRaisesRegex(
                     WorkflowContractError, "continue-on-error must be absent or literal false"
                 ):
-                    preflight_and_build_steps(lines)
+                    preflight_and_anchor_steps(lines)
 
     def test_literal_false_continue_on_error_preserves_failure_gating(self) -> None:
         lines = _job_lines(
@@ -644,7 +865,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
       run: python -m SCons platform=windows
 """
         )
-        preflight_step, _build_step = preflight_and_build_steps(lines)
+        preflight_step, _build_step = preflight_and_anchor_steps(lines)
         self.assertEqual(preflight_step.continue_on_error, "${{ false }}")
 
     def test_different_preflight_and_build_conditions_fail(self) -> None:
@@ -659,7 +880,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
 """
         )
         with self.assertRaisesRegex(WorkflowContractError, "condition differs"):
-            preflight_and_build_steps(lines)
+            preflight_and_anchor_steps(lines)
 
     def test_matching_conditions_and_real_commands_pass(self) -> None:
         lines = _job_lines(
@@ -675,7 +896,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
         python -m SCons platform=windows
 """
         )
-        preflight_step, build_step = preflight_and_build_steps(lines)
+        preflight_step, build_step = preflight_and_anchor_steps(lines)
         self.assertLess(preflight_step.index, build_step.index)
         self.assertEqual(preflight_step.condition, build_step.condition)
 
@@ -689,7 +910,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
       run: python -m SCons platform=windows
 """
         )
-        preflight_step, build_step = preflight_and_build_steps(lines)
+        preflight_step, build_step = preflight_and_anchor_steps(lines)
         self.assertIsNone(preflight_step.condition)
         self.assertIsNotNone(build_step.condition)
 
@@ -710,7 +931,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                 with self.assertRaisesRegex(
                     WorkflowContractError, "can override a failed preflight"
                 ):
-                    preflight_and_build_steps(lines)
+                    preflight_and_anchor_steps(lines)
 
     def test_a_custom_shell_template_cannot_certify_a_preflight(self) -> None:
         """A shell template can discard the exit status the `run:` command returns.
@@ -740,7 +961,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                 with self.assertRaisesRegex(
                     WorkflowContractError, "unmodelled shell"
                 ):
-                    preflight_and_build_steps(lines)
+                    preflight_and_anchor_steps(lines)
 
     def test_a_custom_job_default_shell_cannot_certify_a_preflight(self) -> None:
         """A job default reaches every step that does not override it."""
@@ -756,7 +977,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
             "      run: python -m SCons platform=windows\n"
         ).splitlines()
         with self.assertRaisesRegex(WorkflowContractError, "unmodelled shell"):
-            preflight_and_build_steps(lines)
+            preflight_and_anchor_steps(lines)
 
     def test_builtin_shells_still_certify(self) -> None:
         """Non-vacuity: the shell check must not reject the real workflow shape.
@@ -776,7 +997,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
                 "      run: python -m SCons platform=windows\n"
             )
             with self.subTest(shell=shell):
-                preflight_step, build_step = preflight_and_build_steps(lines)
+                preflight_step, build_step = preflight_and_anchor_steps(lines)
                 self.assertEqual(preflight_step.shell, shell)
                 self.assertEqual(build_step.shell, shell)
 
@@ -795,7 +1016,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
             "      shell: pwsh\n"
             "      run: python -m SCons platform=windows\n"
         ).splitlines()
-        preflight_step, build_step = preflight_and_build_steps(lines)
+        preflight_step, build_step = preflight_and_anchor_steps(lines)
         self.assertEqual(preflight_step.shell, "pwsh")
         self.assertEqual(build_step.shell, "pwsh")
 
@@ -809,7 +1030,7 @@ class WorkflowStepExecutionParsing(unittest.TestCase):
       run: python -m SCons platform=windows
 """
         )
-        preflight_step, build_step = preflight_and_build_steps(lines)
+        preflight_step, build_step = preflight_and_anchor_steps(lines)
         self.assertIsNone(preflight_step.condition)
         self.assertEqual(build_step.condition, "${{ success() }}")
 
@@ -898,7 +1119,7 @@ class GpuJobEnvironmentContract(unittest.TestCase):
     def test_preflight_runs_before_the_build(self) -> None:
         for (workflow, job), lines in sorted(self.jobs.items()):
             with self.subTest(workflow=workflow, job=job):
-                preflight_and_build_steps(lines)
+                preflight_and_anchor_steps(lines, (workflow, job))
 
     def test_readme_documents_the_gpu_runner_environment(self) -> None:
         text = README.read_text(encoding="utf-8")

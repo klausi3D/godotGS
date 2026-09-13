@@ -35,6 +35,16 @@ struct OutputCopyParams {
     // legacy post-tonemap destinations, whose content is sRGB-encoded like the
     // source.
     bool source_decode_srgb = false;
+    // Destination-alpha contract (#928). The LEGACY composite destination is
+    // Godot's post-tonemap framebuffer, whose alpha channel carries no meaning
+    // — sky, meshes and background are all opaque content — so the compute blit
+    // writes a fully opaque result there, as it always has. Under the Option B
+    // pre-upscale contract the destination is the INTERNAL scene buffer, whose
+    // alpha IS meaningful: a transparent_bg viewport clears it to 0 and Godot's
+    // tonemapper passes the sampled alpha through unchanged. Set this flag when
+    // the destination's alpha must survive the composite, or splat coverage is
+    // flattened to fully opaque and partially-covered silhouette texels are lost.
+    bool destination_has_alpha = false;
     bool depth_test_enabled = false;
     bool depth_is_orthogonal = false;
     float z_near = 0.0f;

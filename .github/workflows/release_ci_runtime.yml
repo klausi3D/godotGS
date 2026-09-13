@@ -88,6 +88,16 @@ jobs:
 
       # Must precede the build and every GPU step: it decides whether anything
       # measured afterwards is a measurement of the renderer (#875).
+      # #875 -- the GPU runner is also the maintainer's workstation, so unrelated
+      # GPU work lands on it while CI runs and turns wall-clock budgets into
+      # failures that read like renderer regressions (#867, #881). This waits for
+      # the GPU to be free, then leaves a background sampler running so the
+      # postflight below can say whether contention began mid-job. It never
+      # relaxes a budget: a contended run is void, not passed.
+      - name: Preflight - GPU contention, wait for a free runner (#875)
+        shell: pwsh
+        run: python tests/ci/runner_gpu_contention.py preflight
+
       - name: Preflight - runner GPU environment (#875)
         shell: pwsh
         run: python tests/ci/preflight_runner_gpu_environment.py
@@ -181,3 +191,11 @@ jobs:
           } else {
             Add-Content -LiteralPath $stepSummary -Value "- No runtime validation report was produced."
           }
+      # #875 -- must run even when the job failed: a timing failure above is
+      # exactly the result whose attribution this decides. Exits 75 (not 1) when
+      # the run is void, so it cannot be read as a test failure.
+      - name: Postflight - GPU contention verdict (#875)
+        if: always()
+        shell: pwsh
+        run: python tests/ci/runner_gpu_contention.py postflight
+
