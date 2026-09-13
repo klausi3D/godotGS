@@ -732,20 +732,116 @@ class DepthOcclusionBaselineIsSelfConsistentTest(unittest.TestCase):
     def test_the_committed_entry_agrees_with_its_own_recorded_warmths(self):
         self.assertEqual(_depth_occlusion_identity_failures(self._entry()), [])
 
+    DEPTH_OCCLUSION_SCENE = (
+        ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
+        / "qa_composite_depth_occlusion.gd"
+    )
+
+    @staticmethod
+    def _code_lines(source: str) -> list:
+        """Source lines with GDScript comments removed, so a comment cannot satisfy a check."""
+        return [line.split("#", 1)[0].rstrip() for line in source.splitlines()]
+
+    @classmethod
+    def _assignments(cls, source: str) -> dict:
+        """metric name -> every right-hand side assigned to result_metrics[name]."""
+        found: dict = {}
+        for line in cls._code_lines(source):
+            match = re.fullmatch(r'\s*result_metrics\["([A-Za-z0-9_]+)"\]\s*=\s*(.+?)\s*', line)
+            if match:
+                found.setdefault(match.group(1), []).append(match.group(2))
+        return found
+
+    @classmethod
+    def _definition(cls, source: str, name: str) -> list:
+        """Every `var <name>` definition's right-hand side, parentheses followed across lines."""
+        lines = cls._code_lines(source)
+        definitions = []
+        for index, line in enumerate(lines):
+            match = re.fullmatch(rf"\s*var {re.escape(name)}(?:\s*:\s*\w+)?\s*=\s*(.+)", line)
+            if not match:
+                continue
+            text = match.group(1)
+            depth = text.count("(") - text.count(")")
+            cursor = index
+            while depth > 0 and cursor + 1 < len(lines):
+                cursor += 1
+                text += " " + lines[cursor].strip()
+                depth += lines[cursor].count("(") - lines[cursor].count(")")
+            definitions.append(" ".join(text.split()))
+        return definitions
+
+    @classmethod
+    def _reassignments(cls, source: str, name: str) -> list:
+        """Plain `name = ...` statements after the definition -- each one can undo it."""
+        return [
+            line.strip()
+            for line in cls._code_lines(source)
+            if re.fullmatch(rf"\s*{re.escape(name)}\s*[-+*/]?=\s*.+", line)
+        ]
+
     def test_the_producer_still_defines_the_metric_this_way(self):
         """The identity is only the right one while the scene computes it this way.
 
-        Derived rather than transcribed: if the scene stops reporting the weaker
-        configuration, this fails and says so, instead of the guard quietly
-        checking an identity the producer no longer honours.
+        Bound to the statements, not to tokens (#968 review). The first version
+        asserted that `min(mesh_contrast_true, mesh_contrast_false)` and the metric
+        name literals appeared SOMEWHERE in the scene, so emitting
+        `result_metrics["mesh_contrast"] = mesh_contrast_true`, or swapping the two
+        per-configuration right-hand sides, kept every token present and passed --
+        while the committed-JSON check above cannot see the producer at all and
+        the comparator leaves these metrics unruled. Every guard would have stayed
+        green over a producer that no longer honours the identity.
+
+        So each metric must be assigned exactly once from exactly the right local,
+        each local must be defined exactly once with exactly the right expression,
+        and none may be reassigned afterwards.
         """
-        source = (
-            ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
-            / "qa_composite_depth_occlusion.gd"
-        ).read_text(encoding="utf-8")
-        self.assertIn("min(mesh_contrast_true, mesh_contrast_false)", source)
-        for config in ("true", "false"):
-            self.assertIn(f'result_metrics["mesh_contrast_depth_{config}"]', source)
+        source = self.DEPTH_OCCLUSION_SCENE.read_text(encoding="utf-8")
+
+        expected_assignments = {
+            "mesh_contrast": "mesh_contrast",
+            "mesh_contrast_depth_true": "mesh_contrast_true",
+            "mesh_contrast_depth_false": "mesh_contrast_false",
+        }
+        assignments = self._assignments(source)
+        for metric, local in expected_assignments.items():
+            with self.subTest(metric=metric):
+                self.assertEqual(
+                    assignments.get(metric),
+                    [local],
+                    f"result_metrics[{metric!r}] must be assigned exactly once, from {local}",
+                )
+
+        expected_definitions = {
+            "mesh_contrast_true": (
+                '( float(depth_true["background"]["warmth"]) - '
+                'float(depth_true["mesh_only"]["warmth"]) )'
+            ),
+            "mesh_contrast_false": (
+                '( float(depth_false["background"]["warmth"]) - '
+                'float(depth_false["mesh_only"]["warmth"]) )'
+            ),
+        }
+        for local, expression in expected_definitions.items():
+            with self.subTest(local=local):
+                self.assertEqual(
+                    self._definition(source, local),
+                    [expression],
+                    f"{local} must be defined exactly once as background - mesh_only "
+                    "for its own configuration",
+                )
+                self.assertEqual(self._reassignments(source, local), [])
+
+        aggregate = self._definition(source, "mesh_contrast")
+        self.assertIn(
+            aggregate,
+            (
+                ["min(mesh_contrast_true, mesh_contrast_false)"],
+                ["min(mesh_contrast_false, mesh_contrast_true)"],
+            ),
+            "mesh_contrast must be defined exactly once as the min() of the two configurations",
+        )
+        self.assertEqual(self._reassignments(source, "mesh_contrast"), [])
 
     def test_the_stale_entry_this_replaced_is_rejected(self):
         """Mutation: the exact metrics committed before ee1e09b3606 must fail.
