@@ -42,8 +42,24 @@ const METRICS_MARKER := "[EXPORT_SMOKE_METRICS]"
 
 const ASSET_PATH := "res://tests/fixtures/synthetic_cube.ply"
 const REQUIRED_CLASSES: Array[String] = ["GaussianSplatNode3D", "GaussianSplatAsset"]
-const MAX_RENDERER_WAIT_FRAMES := 240
-const MAX_PROOF_FRAMES := 360
+# WALL-CLOCK deadlines, not frame ceilings.
+#
+# These were `for i in range(240)` / `range(360)`. A frame count is not a wait:
+# the GS worker state being polled here becomes ready after a fixed amount of
+# WALL TIME (asset upload, the first sort), so on a fast GPU runner the frame
+# budget can be exhausted in a couple of seconds before readiness is published --
+# and this step is blocking, so that falsely fails a release for a healthy
+# template. The same reasoning is written up on
+# scenes/qa/qa_composite_production_defaults.gd, which hit it first.
+#
+# Still fail-closed: a genuinely dead renderer never satisfies the condition, the
+# deadline expires, and the probe fails exactly as before. What changes is that a
+# SLOW-but-working template is no longer indistinguishable from a broken one.
+const RENDERER_WAIT_DEADLINE_SEC := 60.0
+const PROOF_DEADLINE_SEC := 120.0
+# A floor, so the proof never runs on a single unsettled frame even if the
+# conditions happen to read true immediately.
+const MIN_PROOF_FRAMES := 8
 const MIN_VISIBLE_SPLATS := 1
 const MIN_NON_BACKGROUND_SAMPLES := 16
 const MIN_VISUAL_LUMA_RANGE := 0.05
@@ -126,6 +142,14 @@ func _fail_visual(reason: String) -> void:
 	quit(EXIT_NO_VISUAL_EVIDENCE)
 
 
+func _deadline_exceeded(started_ms: int, budget_sec: float) -> bool:
+	# Asked AFTER every await as well as before it. A frame that begins inside the
+	# bound can finish outside it, and evidence observed by that frame used to be
+	# accepted: the loop only tested the clock at its top, so this blocking release
+	# probe could pass after its own deadline (#873 review).
+	return Time.get_ticks_msec() - started_ms >= int(budget_sec * 1000.0)
+
+
 func _pass(reason: String) -> void:
 	_emit("passed", reason)
 	_cleanup()
@@ -177,24 +201,50 @@ func _run() -> void:
 	if not _setup_scene():
 		return
 
-	for i in range(MAX_RENDERER_WAIT_FRAMES):
+	var wait_started_ms := Time.get_ticks_msec()
+	var wait_frames := 0
+	while not _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):
 		await process_frame
-		metrics["frames"] = i + 1
-		_advance_camera(i)
+		wait_frames += 1
+		metrics["frames"] = wait_frames
+		_advance_camera(wait_frames - 1)
 		if splat_node.has_method("get_renderer"):
 			renderer = splat_node.get_renderer()
 		if renderer != null:
-			metrics["renderer_available"] = true
+			if _deadline_exceeded(wait_started_ms, RENDERER_WAIT_DEADLINE_SEC):
+				# The renderer came up, but the frame that showed us finished
+				# after the bound. Accepting it would let an overlong frame buy
+				# time the deadline exists to refuse, so it is dropped and the
+				# timeout below reports it.
+				renderer = null
+			else:
+				metrics["renderer_available"] = true
 			break
+	metrics["renderer_wait_seconds"] = float(Time.get_ticks_msec() - wait_started_ms) / 1000.0
 
 	if renderer == null:
-		_fail("Exported binary never brought up a Gaussian Splatting renderer.", EXIT_GENERIC_FAILURE)
+		_fail(
+			"Exported binary never brought up a Gaussian Splatting renderer within %.1fs (%d frames)." % [
+				RENDERER_WAIT_DEADLINE_SEC, wait_frames
+			],
+			EXIT_GENERIC_FAILURE
+		)
 		return
 
-	for frame in range(MAX_PROOF_FRAMES):
+	var proof_started_ms := Time.get_ticks_msec()
+	# Counts frames this loop has actually observed, so the floor and the stop
+	# condition read the same number. The previous `frame` counter was one behind
+	# at the accept and level with it at the top, which is why the floor never
+	# reached the success path.
+	var proof_frames := 0
+	while true:
+		if proof_frames >= MIN_PROOF_FRAMES and _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC):
+			break
 		await process_frame
+		proof_frames += 1
 		metrics["frames"] = int(metrics.get("frames", 0)) + 1
-		_advance_camera(frame)
+		metrics["proof_seconds"] = float(Time.get_ticks_msec() - proof_started_ms) / 1000.0
+		_advance_camera(proof_frames - 1)
 		if splat_node.has_method("force_update"):
 			splat_node.force_update()
 
@@ -215,14 +265,27 @@ func _run() -> void:
 
 		await RenderingServer.frame_post_draw
 		_sample_viewport()
-		if _visual_evidence_ok() and _pipeline_evidence_ok():
+		if _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC):
+			# Both awaits above can return past the bound. Evidence gathered by
+			# such a frame is real, but it is not evidence this probe is allowed
+			# to pass on, so the loop ends and the reporting below says why.
+			break
+		if proof_frames >= MIN_PROOF_FRAMES and _visual_evidence_ok() and _pipeline_evidence_ok():
+			# MIN_PROOF_FRAMES is a settling floor, and it used to be consulted
+			# only when deciding whether to STOP -- so a first-frame coincidence
+			# passed the gate on transient output. It gates the success path now.
 			metrics["visual_evidence_ok"] = true
 			metrics["pipeline_evidence_ok"] = true
-			_pass("Exported binary rendered %d splats with non-background viewport evidence." % int(metrics["visible_splats_max"]))
+			_pass("Exported binary rendered %d splats with non-background viewport evidence over %d frames." % [
+				int(metrics["visible_splats_max"]), proof_frames
+			])
 			return
 
 	metrics["visual_evidence_ok"] = _visual_evidence_ok()
 	metrics["pipeline_evidence_ok"] = _pipeline_evidence_ok()
+	# Every exit from the loop above is a deadline exit -- the two `break`s both
+	# test it -- so this records WHY the reporting ladder is running at all.
+	metrics["deadline_exceeded"] = _deadline_exceeded(proof_started_ms, PROOF_DEADLINE_SEC)
 
 	if int(metrics.get("visible_splats_max", 0)) < MIN_VISIBLE_SPLATS:
 		_fail("Exported binary never reported a visible splat.", EXIT_GENERIC_FAILURE)
@@ -233,6 +296,25 @@ func _run() -> void:
 				metrics["stage_cull_status"], metrics["stage_sort_status"],
 				metrics["stage_raster_status"], metrics["stage_composite_status"],
 				metrics["raster_path"],
+			],
+			EXIT_GENERIC_FAILURE
+		)
+		return
+	if bool(metrics["deadline_exceeded"]) and bool(metrics["visual_evidence_ok"]):
+		# Complete evidence, observed too late. Before this case existed the
+		# ladder fell through to _fail_visual(), which names a blank window and
+		# an interactive-desktop remedy -- neither of which happened here -- and
+		# quits with EXIT_NO_VISUAL_EVIDENCE. That is the single exit code
+		# `run_export_smoke.py --allow-blank-viewport` downgrades to a PASS, so a
+		# timeout must not borrow it: the deadline this probe just enforced would
+		# be handed back through the visual-evidence tolerance (#873 review).
+		_fail(
+			"Exported binary produced complete render evidence (%d splats, %d non-background samples) but only after the %.1fs proof deadline (%d frames, %.1fs elapsed)." % [
+				int(metrics["visible_splats_max"]),
+				int(metrics["visual_non_background_samples_max"]),
+				PROOF_DEADLINE_SEC,
+				proof_frames,
+				float(metrics.get("proof_seconds", 0.0)),
 			],
 			EXIT_GENERIC_FAILURE
 		)
