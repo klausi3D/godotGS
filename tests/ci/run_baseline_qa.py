@@ -31,7 +31,7 @@ MAXIMUM_TIME_RATIO = 1.20
 # scenes' own 0.15 acceptance gate. That ordering is the point: if this rule
 # were looser than the scene's own assertion it would add nothing.
 MINIMUM_DOMINANCE_RATIO = 0.70
-TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa")
+TEST_CATEGORIES = ("ply", "pipeline", "sorting", "runtime", "module", "qa", "renderer")
 CATEGORY_ALIASES = {"all": None}
 CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 
@@ -41,14 +41,33 @@ CLI_CATEGORY_CHOICES = tuple(CATEGORY_ALIASES.keys()) + TEST_CATEGORIES
 # even on the service-mode self-hosted runner, while --render-thread separate
 # does not (see #104). Single-sourced so the `type: godot` dispatch and the QA
 # Scene Suite argv cannot drift apart.
-GPU_DISPLAY_ARGS = (
-    "--display-driver",
-    "windows",
-    "--rendering-driver",
-    "vulkan",
-    "--render-thread",
-    "safe",
-)
+# The GPU display/driver arguments, with the render thread as a PARAMETER
+# rather than a baked-in "safe".
+#
+# #104 needs one test to run with `--render-thread separate`, off the render
+# thread. Appending a second `--render-thread` after a constant that already
+# contains one does work -- Godot assigns `separate_thread_render` on each
+# occurrence with no already-specified check (main/main.cpp:1492-1518), so the
+# last one wins -- but it puts two contradicting flags on the command line and
+# makes the behaviour depend on duplicate-option precedence that nothing here
+# asserts. A factory keeps the single shared definition master introduced while
+# guaranteeing every command carries exactly ONE render-thread pair.
+def gpu_display_args(render_thread: str = "safe") -> tuple[str, ...]:
+    """GPU display args. Headless cannot create a RenderingDevice, so the
+    Windows driver is required even on service-mode runners."""
+    if render_thread not in ("safe", "separate"):
+        raise ValueError(
+            f"unsupported --render-thread {render_thread!r}; Godot accepts "
+            "'safe' or 'separate' (main/main.cpp:1492-1518)"
+        )
+    return (
+        "--display-driver",
+        "windows",
+        "--rendering-driver",
+        "vulkan",
+        "--render-thread",
+        render_thread,
+    )
 
 # A missing QA baseline is a coverage gap, not a pass. This script must not
 # fabricate one or silently treat "nothing to compare against" as success
@@ -521,9 +540,21 @@ class BaselineQARunner:
         if test_type == "godot":
             command = [self.godot_binary]
             if test.get("requires_gpu", False):
-                command.extend(GPU_DISPLAY_ARGS)
+                # A test may request "separate" when it must run OFF the render
+                # thread (the render-thread dispatch characterization, #104);
+                # everything else takes the default "safe".
+                command.extend(gpu_display_args(test.get("render_thread", "safe")))
             else:
                 command.append("--headless")
+            project_path = test.get("project_path")
+            if project_path:
+                # A Godot project must be loaded for `--render-thread separate`
+                # to survive: with no project found, an editor build falls back
+                # to the project manager (main/main.cpp:2031-2034), and
+                # `if (editor || project_manager) separate_thread_render = 0`
+                # (main/main.cpp:2760-2763) silently downgrades the mode. The
+                # script path is then a res:// path inside that project.
+                command.extend(["--path", project_path])
             command.extend(["--verbose", "--script", test["script"]])
             descriptor = test["script"]
         else:
@@ -547,8 +578,29 @@ class BaselineQARunner:
             )
 
             test_duration = time.time() - test_start
-            success = result.returncode == 0
             output = (result.stdout or "") + (result.stderr or "")
+            if test.get("classify_by_marker"):
+                # Some GPU tests must run with --render-thread separate, whose engine-level
+                # shutdown is unstable (RenderingDevice::finalize thread assert + ObjectDB leak),
+                # making the process exit code unreliable AFTER the test has already printed its
+                # verdict. Classify by the explicit verdict markers instead: fail on the standard
+                # [RUNTIME_FAIL] marker (AGENTS.md), and pass ONLY if the success marker is present
+                # (so a mid-run crash before the verdict is still a failure).
+                # Several markers, because the script's own verdict is not the only
+                # way it can be wrong: a GDScript runtime error aborts the FUNCTION
+                # it occurs in, not the script, so a harness whose every hook call
+                # errored still reached its success print. "SCRIPT ERROR" in the
+                # output of a marker-classified test is therefore a failure
+                # regardless of what the script concluded about itself.
+                fail_markers = test.get("fail_markers") or [test.get("fail_marker", "[RUNTIME_FAIL]")]
+                pass_marker = test.get("pass_marker")
+                success = (
+                    pass_marker is not None
+                    and pass_marker in output
+                    and not any(marker in output for marker in fail_markers)
+                )
+            else:
+                success = result.returncode == 0
             details = self._parse_test_output(output)
             test_status = "passed" if success else "failed"
             expected_headless_qa_skip = False
@@ -704,6 +756,28 @@ class BaselineQARunner:
 
         selected_tests = tests
         if categories:
+            # A requested category that selects nothing is a coverage hole, not a
+            # pass: a renamed or dropped entry would otherwise leave the lane green
+            # while measuring nothing (the shape REQUIRED_BATCHES exists to stop in
+            # the GPU harness). Checked per category, because a selection that is
+            # non-empty overall still hides one category contributing zero tests.
+            empty = sorted(
+                str(requested)
+                for requested in categories
+                if requested is not None
+                and not any(test.get("category") == requested for test in tests)
+            )
+            if empty:
+                print(
+                    "[FAIL] requested categor(y/ies) select no tests: "
+                    + ", ".join(empty)
+                    + " — the entry was renamed or dropped; a lane that runs nothing "
+                    "must not report success"
+                )
+                self.test_results["total_tests"] = 0
+                self.test_results["failed_tests"] = 1
+                self.test_results["end_time"] = time.time()
+                return False
             selected_tests = [test for test in tests if test.get("category") in categories]
         elif category:
             selected_tests = [test for test in tests if test.get("category") == category]
@@ -749,6 +823,28 @@ class BaselineQARunner:
                 "requires_gpu": True,
             },
             {
+                # #104: executes the render-thread dispatch/timeout/teardown characterization
+                # under a LIVE RenderingServer + render loop. Runs with --render-thread separate
+                # so the script is OFF the render thread (required by the characterization); that
+                # mode's shutdown is engine-unstable, so this test is classified by its verdict
+                # markers, not the process exit code. The equivalent C++ [RequiresGPU] doctests
+                # can only skip under --test (no RenderingServer), which is the gap #104 closes.
+                "name": "Render-Thread Dispatch Characterization",
+                "type": "godot",
+                # Inside the test project, and launched with --path, because
+                # `--render-thread separate` is silently downgraded when Godot
+                # finds no project (see the --path comment in run_test).
+                "script": "res://tests/test_render_thread_dispatch.gd",
+                "project_path": "tests/examples/godot/test_project",
+                "category": "renderer",
+                "requires_gpu": True,
+                "render_thread": "separate",
+                "classify_by_marker": True,
+                "pass_marker": "[GS-RTD] RESULT: PASS",
+                "fail_markers": ["[RUNTIME_FAIL]", "SCRIPT ERROR"],
+                "timeout": 180,
+            },
+            {
                 "name": "Runtime Validation Suite",
                 "type": "command",
                 "command": [
@@ -778,7 +874,7 @@ class BaselineQARunner:
                 # when the caller has NOT declared that capture is required.
                 "command": [
                     self.godot_binary,
-                    *(GPU_DISPLAY_ARGS if self.qa_require_capture else ("--headless",)),
+                    *(gpu_display_args() if self.qa_require_capture else ("--headless",)),
                     "--path",
                     "tests/examples/godot/test_project",
                     "--script",
