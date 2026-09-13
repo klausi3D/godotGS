@@ -3002,26 +3002,89 @@ class BenchmarkEvidenceWorkflowWiringTests(unittest.TestCase):
             for path in sorted(WORKFLOW_DIR.glob("*.yml"))
         }
 
-    def test_every_workflow_prep_invocation_passes_a_godot_binary(self):
-        invocations = 0
-        offenders: list[str] = []
-        for path, text in self._workflow_texts().items():
-            for idx, line in enumerate(text.splitlines(), start=1):
-                if "prepare_synthetic_assets.py" not in line:
-                    continue
-                invocations += 1
-                if "--godot-binary" not in line:
-                    offenders.append(f"{path.name}:{idx}: {line.strip()}")
-        self.assertGreater(
-            invocations,
-            0,
-            "no workflow invokes prepare_synthetic_assets.py - this guard now covers nothing",
+    def _executed_prep_steps(self):
+        """(workflow, job, step name, run script) for every step that RUNS the prep.
+
+        Read through the GPU-environment guard's structural step parser rather than
+        by grepping lines. The first version of this test matched any line that
+        MENTIONED prepare_synthetic_assets.py, and #873 then added that path to
+        release_builds.yml's `paths:` trigger filter -- two filter entries, neither
+        of them an invocation, and this guard failed master for both. A path in a
+        trigger filter, a step name or a comment is not execution; the sibling
+        guard already refuses to count those (#918), so the same reader is reused
+        instead of writing a second, looser one.
+        """
+        ci_dir = ROOT / "tests" / "ci"
+        if str(ci_dir) not in sys.path:
+            sys.path.insert(0, str(ci_dir))
+        env_guard = _load_module(
+            "_gs_preflight_runner_gpu_environment",
+            ci_dir / "test_preflight_runner_gpu_environment.py",
         )
+        found = []
+        for path in env_guard.workflow_paths():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for job, (first, last) in sorted(env_guard.job_spans(lines).items()):
+                job_lines = lines[first:last]
+                if not any(line.strip() == "steps:" for line in job_lines):
+                    continue  # a reusable-workflow call: no steps of its own to run
+                for step in env_guard.workflow_steps(job_lines):
+                    executed = [
+                        line
+                        for line in step.run.splitlines()
+                        if "prepare_synthetic_assets.py" in line
+                        and not line.lstrip().startswith("#")
+                    ]
+                    if executed:
+                        found.append((path.name, job, step.name, step.run))
+        return found
+
+    def test_every_workflow_prep_invocation_passes_a_godot_binary(self):
+        steps = self._executed_prep_steps()
+        self.assertTrue(
+            steps,
+            "no workflow step runs prepare_synthetic_assets.py - this guard now covers nothing",
+        )
+        offenders = [
+            f"{workflow}: job {job!r} step {name!r}"
+            for workflow, job, name, run in steps
+            if "--godot-binary" not in run
+        ]
         self.assertEqual(
             offenders,
             [],
             "workflow prep calls without --godot-binary regenerate the lightweight "
             "Python-fallback fixtures (#790):\n  " + "\n  ".join(offenders),
+        )
+
+    def test_a_trigger_path_filter_is_not_a_prep_invocation(self):
+        """The regression this replaces: two `paths:` entries failed master.
+
+        Discrimination in both directions. The filter entries must exist -- if they
+        stop existing, this case says so rather than passing over nothing -- and
+        they must not be counted, while the real invocation in
+        gaussian_production_gates.yml still is.
+        """
+        release = (WORKFLOW_DIR / "release_builds.yml").read_text(encoding="utf-8")
+        filter_entries = [
+            line for line in release.splitlines()
+            if line.strip() == '- "tests/runtime/prepare_synthetic_assets.py"'
+        ]
+        self.assertTrue(
+            filter_entries,
+            "release_builds.yml no longer lists the prep script as a trigger path; "
+            "this case no longer exercises anything",
+        )
+        steps = self._executed_prep_steps()
+        self.assertNotIn(
+            "release_builds.yml",
+            {workflow for workflow, _job, _name, _run in steps},
+            "a trigger path filter was counted as an invocation of the prep script",
+        )
+        self.assertIn(
+            "gaussian_production_gates.yml",
+            {workflow for workflow, _job, _name, _run in steps},
+            "the real prep invocation is no longer found; the reader is too strict",
         )
 
     def test_no_benchmark_step_swallows_its_own_failure(self):
