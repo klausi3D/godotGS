@@ -503,6 +503,16 @@ def ply_payload_failure(path: Path) -> str | None:
                     except ValueError:
                         return f"unreadable vertex count in {stripped!r}"
                 elif fields[:1] == [b"property"]:
+                    if vertex_count is None:
+                        # PLYLoader::parse_header() attaches a property to the vertex
+                        # schema only while the current element is `vertex`, so a
+                        # property declared before it is ignored: the loader reads a
+                        # narrower record at the wrong stride while this check sized
+                        # the body WITH it (#934 review).
+                        return (
+                            f"declares {stripped.decode('ascii', 'replace')!r} before the "
+                            "vertex element; the loader does not count it"
+                        )
                     if len(fields) != 3 or fields[1] != b"float":
                         return f"property {stripped!r} is not a float; the body cannot be sized"
                     properties += 1
@@ -542,8 +552,16 @@ def ply_payload_failure(path: Path) -> str | None:
 
 
 def ply_property_names(path: Path) -> "tuple[str, ...] | None":
-    """The `property` names a PLY header declares, in order; None if unreadable."""
+    """The properties of the VERTEX element, in order; None if unreadable.
+
+    Scoped the way the loader scopes them. `PLYLoader::parse_header()` adds a
+    property to the vertex schema only while the current element is `vertex`, so a
+    name declared before that element, or under another one, is not a vertex
+    property no matter what it is called -- and counting it let a file satisfy
+    the schema with a property the loader never reads (#934 review).
+    """
     names: list[str] = []
+    current_element: bytes | None = None
     try:
         with path.open("rb") as stream:
             if stream.readline().strip() != b"ply":
@@ -556,7 +574,13 @@ def ply_property_names(path: Path) -> "tuple[str, ...] | None":
                 if stripped == b"end_header":
                     return tuple(names)
                 fields = stripped.split()
-                if fields[:1] == [b"property"] and len(fields) >= 3:
+                if fields[:1] == [b"element"] and len(fields) >= 2:
+                    current_element = fields[1]
+                elif (
+                    fields[:1] == [b"property"]
+                    and len(fields) >= 3
+                    and current_element == b"vertex"
+                ):
                     names.append(fields[-1].decode("ascii", "replace"))
     except OSError:
         return None

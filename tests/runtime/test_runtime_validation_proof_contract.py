@@ -21,6 +21,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -67,6 +68,77 @@ def _write_fixture_header(path: Path, splats: int) -> bytes:
     contents = header + b"\x00" * (splats * 4 * len(props))
     path.write_bytes(contents)
     return contents
+
+
+def _producer_binary() -> "Path | None":
+    """A Godot build carrying the C++ `[GeneratePLY]` case, or None.
+
+    Resolved from `GODOT_BINARY` the way `run_module_tests.py` resolves it -- a
+    path, or a name on PATH.
+    """
+    import shutil
+
+    raw = os.environ.get("GODOT_BINARY", "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if candidate.is_file():
+        return candidate
+    resolved = shutil.which(raw)
+    return Path(resolved) if resolved else None
+
+
+@unittest.skipUnless(
+    _producer_binary() is not None,
+    "GODOT_BINARY is not set to a build carrying the C++ [GeneratePLY] case",
+)
+class CapturedProducerOutputIsAcceptedTests(unittest.TestCase):
+    """The acceptance path, on bytes the C++ producer actually wrote (#934 review).
+
+    `test_a_producer_that_writes_every_fixture_is_accepted` fills staging with
+    `_write_fixture_header()`: a stand-in that exercises the STAGING logic, and
+    cannot say anything about the producer's real header -- its property order, its
+    optional normal and SH blocks, its exact format line. This class runs the real
+    `[GeneratePLY]` case through `_generate_via_godot()` and asserts the whole
+    validation chain accepts what it writes and publishes those bytes.
+
+    **Mode:** gated on `GODOT_BINARY`; SKIPPED without it, and a skipped test
+    proves nothing. Committing a captured corpus instead was considered and not
+    done: the fixtures are gitignored and regenerated (`.gitignore`), and
+    generated artifacts stay out of commits (tests/AGENTS.md).
+    """
+
+    def test_the_real_producer_run_is_staged_validated_and_published(self) -> None:
+        import importlib
+
+        prep = importlib.import_module("prepare_synthetic_assets")
+        binary = _producer_binary()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            for name in prep.CPP_GENERATED_FILENAMES:
+                (output_dir / name).write_bytes(b"leftover from an unrelated run\n")
+
+            self.assertTrue(
+                prep._generate_via_godot(binary, output_dir, True),
+                f"the real producer at {binary} was rejected by the staging validation",
+            )
+            for name in sorted(prep.CPP_GENERATED_FILENAMES):
+                path = output_dir / name
+                with self.subTest(fixture=name):
+                    self.assertNotEqual(
+                        path.read_bytes()[:32],
+                        b"leftover from an unrelated run\n"[:32],
+                        f"{name} still holds the leftover; nothing was published",
+                    )
+                    self.assertIsNone(prep.ply_payload_failure(path))
+                    self.assertIsNone(prep.ply_schema_failure(path))
+                    self.assertIsNone(
+                        prep.fixture_floor_failure(
+                            path, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
+                        )
+                    )
+            strays = sorted(entry.name for entry in output_dir.iterdir() if entry.is_dir())
+            self.assertEqual(strays, [], "the staging directory was left behind")
 
 
 class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
@@ -619,10 +691,12 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                     )
 
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
-        """Discrimination: a real producer run must still be accepted.
+        """Discrimination: an accepted staging run must still be published.
 
         Without this, the check above is satisfied by a function that rejects
-        every producer, which would make --godot-binary unusable.
+        every producer, which would make --godot-binary unusable. The staged bytes
+        here are a stand-in for the staging LOGIC, not a model of the producer's
+        header; CapturedProducerOutputIsAcceptedTests runs the real one.
         """
         prep = self._prep_module()
         fresh: dict[str, bytes] = {}

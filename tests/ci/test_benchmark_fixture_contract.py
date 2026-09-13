@@ -601,6 +601,43 @@ class FixtureSchemaIsTheProducersSchemaTests(unittest.TestCase):
                     self.assertIsNone(_prepare.ply_schema_failure(ply))
                     self.assertIsNone(_prepare.fixture_floor_failure(ply, 16))
 
+    def test_a_property_declared_before_the_vertex_element_is_not_counted(self):
+        """#934 review: the loader scopes properties to elements; so must this.
+
+        `PLYLoader::parse_header()` adds a property to the vertex schema only while
+        the current element is `vertex`. Moving `property float x` above
+        `element vertex` therefore keeps 14 declared floats and a matching byte
+        count -- both checks passed -- while the loader reads 13 at the wrong stride
+        with `x` missing.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        count = 16
+        with tempfile.TemporaryDirectory() as tmp:
+            header = (
+                "ply\n"
+                "format binary_little_endian 1.0\n"
+                f"property float {props[0]}\n"
+                f"element vertex {count}\n"
+                + "".join(f"property float {name}\n" for name in props[1:])
+                + "end_header\n"
+            )
+            misplaced = Path(tmp) / "misplaced.ply"
+            misplaced.write_bytes(header.encode("ascii") + b"\x00" * (count * 4 * len(props)))
+
+            self.assertIn("before the vertex element", _prepare.ply_payload_failure(misplaced) or "")
+            self.assertNotIn(
+                props[0],
+                _prepare.ply_property_names(misplaced) or (),
+                "a property declared outside the vertex element was read as a vertex property",
+            )
+            self.assertIsNotNone(_prepare.ply_schema_failure(misplaced))
+            self.assertIsNotNone(_prepare.fixture_floor_failure(misplaced, count))
+
+            # Discrimination: the same properties inside the element are accepted.
+            placed = self._ply(Path(tmp) / "placed.ply", count, props)
+            self.assertEqual(_prepare.ply_property_names(placed), tuple(props))
+            self.assertIsNone(_prepare.fixture_floor_failure(placed, count))
+
     def test_a_missing_or_wrong_format_line_is_not_a_fixture(self):
         """#934 review: the loader reads the body as ASCII unless told otherwise.
 
