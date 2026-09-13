@@ -601,6 +601,54 @@ class FixtureSchemaIsTheProducersSchemaTests(unittest.TestCase):
                     self.assertIsNone(_prepare.ply_schema_failure(ply))
                     self.assertIsNone(_prepare.fixture_floor_failure(ply, 16))
 
+    def test_a_missing_or_wrong_format_line_is_not_a_fixture(self):
+        """#934 review: the loader reads the body as ASCII unless told otherwise.
+
+        `PLYLoader::PLYHeader::is_binary` defaults to false and only a `format`
+        line sets it, so a binary payload under a missing or corrupt declaration is
+        handed to the ASCII parser and rejected. Every other check here -- the
+        properties, the byte count, the floor -- still matched that file.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        body_per_vertex = b"\x00" * (4 * len(props))
+        cases = {
+            "no format line": None,
+            "ascii": "format ascii 1.0",
+            "big endian": "format binary_big_endian 1.0",
+            "corrupt": "format binary_little_endian 9.9",
+            "two format lines": "format binary_little_endian 1.0\nformat binary_little_endian 1.0",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, fmt in cases.items():
+                with self.subTest(case=label):
+                    header = "ply\n" + (fmt + "\n" if fmt else "") + (
+                        "element vertex 16\n"
+                        + "".join(f"property float {name}\n" for name in props)
+                        + "end_header\n"
+                    )
+                    ply = Path(tmp) / f"{label.replace(' ', '_')}.ply"
+                    ply.write_bytes(header.encode("ascii") + body_per_vertex * 16)
+                    self.assertIsNotNone(
+                        _prepare.ply_payload_failure(ply),
+                        f"a PLY with {label} was accepted as a complete binary fixture",
+                    )
+                    self.assertIsNotNone(_prepare.fixture_floor_failure(ply, 16))
+
+            # Discrimination: the producers' own declaration is accepted.
+            good = self._ply(Path(tmp) / "good.ply", 16, props)
+            self.assertIsNone(_prepare.ply_payload_failure(good))
+
+    def test_the_required_format_is_the_one_the_cpp_writer_emits(self):
+        """Read from the fallback's header; the C++ producer must write the same line."""
+        writer = self.WRITER.read_text(encoding="utf-8")
+        expected = _prepare.REQUIRED_PLY_FORMAT_LINE.decode("ascii")
+        self.assertIn(
+            f'header += "{expected}\\n";',
+            writer,
+            f"the C++ writer does not emit {expected!r}; staged producer output would be "
+            "rejected on every run",
+        )
+
     def test_every_required_property_is_an_unconditional_cpp_emission(self):
         """The set is read from the fallback's header; the C++ producer must agree.
 

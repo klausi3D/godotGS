@@ -478,6 +478,7 @@ def ply_payload_failure(path: Path) -> str | None:
             vertex_count: int | None = None
             properties = 0
             elements = 0
+            formats: list[bytes] = []
             saw_end_header = False
             for _ in range(512):
                 line = stream.readline()
@@ -488,6 +489,9 @@ def ply_payload_failure(path: Path) -> str | None:
                     saw_end_header = True
                     break
                 fields = stripped.split()
+                if fields[:1] == [b"format"]:
+                    formats.append(stripped)
+                    continue
                 if fields[:1] == [b"element"]:
                     elements += 1
                     if elements > 1:
@@ -504,6 +508,23 @@ def ply_payload_failure(path: Path) -> str | None:
                     properties += 1
             if not saw_end_header:
                 return "the header never ends (no end_header line)"
+            # The loader decides binary vs ASCII from this one line and defaults to
+            # ASCII without it (`PLYLoader::PLYHeader::is_binary = false`), so a
+            # binary body under a missing or wrong declaration is handed to the
+            # ASCII parser and rejected as corrupt -- while every byte count here
+            # still matched. And the size below only means anything for the
+            # encoding both producers write (#934 review).
+            if len(formats) != 1:
+                return (
+                    "declares no format line" if not formats
+                    else f"declares {len(formats)} format lines"
+                )
+            if formats[0] != REQUIRED_PLY_FORMAT_LINE:
+                return (
+                    f"declares {formats[0].decode('ascii', 'replace')!r}, not "
+                    f"{REQUIRED_PLY_FORMAT_LINE.decode('ascii')!r}; the body cannot be "
+                    "sized, and the loader would not read it as binary"
+                )
             if vertex_count is None:
                 return "the header declares no vertex element"
             if properties == 0:
@@ -678,6 +699,12 @@ def _header(count: int) -> bytes:
 #: listed a second time, and pinned by the tests against
 #: `synthetic_ply_writer.cpp` (each must be an unconditional emission there) and
 #: against `ply_loader.cpp` (each must be a property the loader reads).
+#: The format declaration both producers write, read back from the fallback's
+#: header rather than spelled again; the tests pin it against the C++ writer.
+REQUIRED_PLY_FORMAT_LINE: bytes = next(
+    line.strip() for line in _header(1).splitlines() if line.startswith(b"format ")
+)
+
 REQUIRED_PLY_PROPERTIES: tuple[str, ...] = tuple(
     line.split()[-1].decode("ascii")
     for line in _header(1).splitlines()
