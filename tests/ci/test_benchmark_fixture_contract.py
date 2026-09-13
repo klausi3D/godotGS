@@ -2644,6 +2644,76 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                 "the case did not reproduce: the copies were removed after all",
             )
 
+    def test_an_unrecordable_cleanup_fails_the_run_without_touching_the_new_corpus(self):
+        """#969 review: success must not be claimed without the state recovery needs.
+
+        Cleanup fails AND the marker write fails. Reporting success, and printing
+        that the leftovers "are recorded as holding no unrestored originals", pushed
+        the consequence one run away from its cause: the next run sees two whole
+        copies with no statement and correctly refuses to guess.
+
+        The fix must not be "report the producer as failed". `_generate()` would
+        then take the --allow-fallback branch and write the Python corpus over the
+        rich corpus this run just published, so this goes through `_generate()` WITH
+        --allow-fallback, which is the configuration where the wrong fix does harm.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "tests" / "fixtures"
+            out.mkdir(parents=True)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_ply(out / name, 1024, header_only=True)
+            quarantine = out / ".pre_cpp_generation"
+            real_unlink = Path.unlink
+
+            def stubborn_unlink(self, *args, **kwargs):
+                if self.parent == quarantine and self.suffix == ".ply":
+                    raise OSError(13, "the file is locked by another process")
+                return real_unlink(self, *args, **kwargs)
+
+            class _Proc:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            produced: dict = {}
+
+            def producer(*_args, **_kwargs):
+                for name in names:
+                    _write_ply(out / name, 64, rich_sh=True)
+                    produced[name] = (out / name).read_bytes()
+                return _Proc()
+
+            buffer = io.StringIO()
+            with mock.patch.object(_prepare.subprocess, "run", producer):
+                with mock.patch.object(Path, "unlink", stubborn_unlink):
+                    with mock.patch.object(_prepare, "_write_unrestored", return_value=False):
+                        with contextlib.redirect_stdout(buffer):
+                            code = _prepare._generate(
+                                root, quiet=True, godot_binary=Path("godot"), allow_fallback=True
+                            )
+
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (out / name).read_bytes(),
+                        produced[name],
+                        f"{name}: the rich corpus this run published was overwritten -- the "
+                        "failure was routed through the fallback",
+                    )
+            # The harm first: whatever else is true, the new corpus must survive.
+            output = buffer.getvalue()
+            self.assertEqual(
+                code, 1, "the run reported success without recording the state recovery needs"
+            )
+            self.assertIn("could not record that they are superseded", output)
+            self.assertNotIn(
+                "is recorded as holding no unrestored originals",
+                output,
+                "the run claimed to have recorded state it failed to write",
+            )
+
     def test_a_restore_that_cannot_write_says_so_and_keeps_the_original(self):
         """Silence is the other half: the state is recoverable only if it is known.
 

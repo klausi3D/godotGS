@@ -1126,6 +1126,17 @@ def _marker_present(quarantine: Path) -> bool:
     return (quarantine / UNRESTORED_MARKER_FILENAME).exists()
 
 
+class QuarantineStateError(RuntimeError):
+    """The corpus was generated and published, but the quarantine's state was not recorded.
+
+    Deliberately NOT a producer failure. `_generate()` treats a False producer
+    result as "the C++ generators did not run", and under `--allow-fallback` that
+    writes the Python corpus over whatever is at the canonical paths -- which here
+    is the rich corpus this run just published. Raising lets the caller stop with
+    the real cause and without that overwrite.
+    """
+
+
 def _read_unrestored(quarantine: Path) -> "set[str] | None":
     """The marker's STATEMENT about the quarantine, or None when there is none.
 
@@ -1556,8 +1567,9 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
     # survived a failed cleanup, it MUST, because an absent marker is no statement
     # and the next run would refuse to discard them. Where nothing survived, the
     # marker is cleared so the quarantine directory can go.
+    recorded = True
     if cleanup_failures:
-        _write_unrestored(quarantine, set())
+        recorded = _write_unrestored(quarantine, set())
     else:
         _clear_unrestored(quarantine)
     if cleanup_failures:
@@ -1567,6 +1579,19 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         )
         for line in cleanup_failures:
             print(f"  - {line}")
+        if not recorded:
+            # The leftovers stay, and so does the absence of any statement about
+            # them -- which the next run correctly reads as "cannot tell" and stops
+            # on. Reporting success here, and claiming the state was recorded, used
+            # to push that stop one run away from its cause (#969 review).
+            leftovers = ", ".join(str(quarantine / line.split(":", 1)[0]) for line in cleanup_failures)
+            raise QuarantineStateError(
+                "the fixtures were generated and published, but the superseded "
+                f"quarantine cop(y/ies) could not be removed AND {quarantine} could not "
+                "record that they are superseded. The next run cannot tell them from "
+                "originals and will refuse to proceed. Remove the leftovers and re-run: "
+                f"{leftovers}"
+            )
         print(
             f"  they are NOT the current fixtures; {quarantine} is recorded as holding "
             "no unrestored originals, so the next run discards them instead of adopting "
@@ -1636,7 +1661,14 @@ def _generate(
     # Phase 1: Generate primary fixtures via C++ generators if a binary is available.
     cpp_generated = False
     if godot_binary is not None:
-        cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
+        try:
+            cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
+        except QuarantineStateError as exc:
+            # The rich corpus IS in place. Returning here rather than falling
+            # through keeps --allow-fallback from regenerating the Python corpus
+            # over it, and names the cause at the run that caused it.
+            print(f"[prepare_synthetic_assets] ERROR: {exc}")
+            return 1
         if not cpp_generated:
             # #790: this used to fall back to Python and still exit 0. A caller
             # that passed --godot-binary asked for the benchmark workload; handing
