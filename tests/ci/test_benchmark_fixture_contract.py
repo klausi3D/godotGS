@@ -75,17 +75,26 @@ TEST_SPLATS_ASSET = "res://tests/fixtures/test_splats.ply"
 
 
 def _write_ply(path: Path, vertex_count: int, *, header_only: bool = False) -> None:
-    """Write a minimal binary PLY with a declared vertex count."""
+    """Write a binary splat PLY with a declared vertex count and the real schema.
+
+    The properties are REQUIRED_PLY_PROPERTIES, read from the module under test,
+    not an `x, y, z` stand-in: a fixture is now checked against the Gaussian schema
+    both producers write, and a helper that emitted a point cloud would have every
+    positive case here certifying a file no producer makes (#934 review).
+    """
+    props = _prepare.REQUIRED_PLY_PROPERTIES
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
         f"element vertex {vertex_count}\n"
-        "property float x\n"
-        "property float y\n"
-        "property float z\n"
-        "end_header\n"
+        + "".join(f"property float {name}\n" for name in props)
+        + "end_header\n"
     ).encode("ascii")
-    body = b"" if header_only else struct.pack("<3f", 0.0, 0.0, 0.0) * vertex_count
+    body = (
+        b""
+        if header_only
+        else struct.pack(f"<{len(props)}f", *([0.0] * len(props))) * vertex_count
+    )
     path.write_bytes(header + body)
 
 
@@ -535,6 +544,104 @@ def _tracked_fixture_plys() -> "list[Path]":
     return sorted(path for path in paths if path.is_file())
 
 
+class FixtureSchemaIsTheProducersSchemaTests(unittest.TestCase):
+    """#934 review: a complete payload is not a splat fixture.
+
+    `ply_payload_failure()` sizes the body from whatever properties the header
+    declares, so a 10,000-vertex file holding only `property float x` and 40,000
+    bytes is complete by that rule and clears every floor. The loader would not
+    refuse it either: a missing property is filled with a default, so it would load
+    as 10,000 splats at the origin -- a fixture that measures nothing, silently.
+    """
+
+    WRITER = ROOT / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
+    LOADER = ROOT / "modules" / "gaussian_splatting" / "io" / "ply_loader.cpp"
+
+    def _ply(self, path: Path, count: int, props) -> Path:
+        header = (
+            "ply\n"
+            "format binary_little_endian 1.0\n"
+            f"element vertex {count}\n"
+            + "".join(f"property float {name}\n" for name in props)
+            + "end_header\n"
+        ).encode("ascii")
+        path.write_bytes(header + b"\x00" * (count * 4 * len(props)))
+        return path
+
+    def test_a_one_property_file_is_complete_but_not_a_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._ply(Path(tmp) / "test_splats.ply", 10000, ["x"])
+            self.assertIsNone(
+                _prepare.ply_payload_failure(ply),
+                "premise: the file is structurally complete, which is what let it through",
+            )
+            self.assertIn("missing required properties", _prepare.ply_schema_failure(ply) or "")
+            self.assertIn(
+                "NOT A SPLAT FIXTURE",
+                _prepare.fixture_floor_failure(ply, 10000) or "",
+                "a one-property file satisfied the test_splats.ply floor",
+            )
+
+    def test_a_duplicated_property_is_not_a_fixture(self):
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES) + ["x"]
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._ply(Path(tmp) / "dup.ply", 8, props)
+            self.assertIn("more than once", _prepare.ply_schema_failure(ply) or "")
+
+    def test_the_required_schema_is_accepted_with_or_without_optional_blocks(self):
+        """Discrimination: the C++ producer adds normals and f_rest_*, and must pass."""
+        required = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        rich = required[:3] + ["nx", "ny", "nz"] + required[3:6] + [
+            f"f_rest_{i}" for i in range(45)
+        ] + required[6:]
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, props in (("fallback", required), ("rich", rich)):
+                with self.subTest(shape=label):
+                    ply = self._ply(Path(tmp) / f"{label}.ply", 16, props)
+                    self.assertIsNone(_prepare.ply_schema_failure(ply))
+                    self.assertIsNone(_prepare.fixture_floor_failure(ply, 16))
+
+    def test_every_required_property_is_an_unconditional_cpp_emission(self):
+        """The set is read from the fallback's header; the C++ producer must agree.
+
+        If the fallback gained a property the C++ writer does not ALWAYS write,
+        staged producer output would be rejected on every run. "Always" is the
+        load-bearing word: normals and f_rest_* are emitted only under their
+        `p_write_*` flags, so they may not be required.
+        """
+        unconditional: set[str] = set()
+        conditional_depth = 0
+        for line in self.WRITER.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if conditional_depth == 0 and stripped.startswith("if (p_write"):
+                conditional_depth = stripped.count("{") - stripped.count("}")
+                continue
+            if conditional_depth > 0:
+                conditional_depth += stripped.count("{") - stripped.count("}")
+                continue
+            match = re.search(r'header \+= "property float ([A-Za-z0-9_]+)\\n"', stripped)
+            if match:
+                unconditional.add(match.group(1))
+        self.assertTrue(unconditional, "no unconditional emissions parsed; this guard is vacuous")
+        self.assertNotIn("nx", unconditional, "the conditional-block parse is not working")
+        missing = [name for name in _prepare.REQUIRED_PLY_PROPERTIES if name not in unconditional]
+        self.assertEqual(
+            missing,
+            [],
+            f"required properties the C++ producer does not always write: {missing}",
+        )
+
+    def test_every_required_property_is_one_the_loader_reads(self):
+        """Required means the loader USES it -- otherwise the rule is ceremony."""
+        loader = self.LOADER.read_text(encoding="utf-8")
+        for name in _prepare.REQUIRED_PLY_PROPERTIES:
+            with self.subTest(property=name):
+                if name.startswith("f_dc_"):
+                    self.assertIn('vformat("f_dc_%d", c)', loader)
+                else:
+                    self.assertIn(f'find_property_index("{name}")', loader)
+
+
 class RealFixtureCorpusTests(unittest.TestCase):
     """The completeness and floor rules, run over fixtures nobody in this file invented.
 
@@ -552,6 +659,10 @@ class RealFixtureCorpusTests(unittest.TestCase):
                 self.assertIsNone(
                     _prepare.ply_payload_failure(path),
                     f"{path.name} is a tracked fixture the completeness rule rejects",
+                )
+                self.assertIsNone(
+                    _prepare.ply_schema_failure(path),
+                    f"{path.name} is a tracked fixture the schema rule rejects",
                 )
 
     def test_every_tracked_fixture_satisfies_its_own_floor(self):

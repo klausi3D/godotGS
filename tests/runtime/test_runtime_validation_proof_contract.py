@@ -45,21 +45,26 @@ spec.loader.exec_module(runtime_validation)
 
 
 def _write_fixture_header(path: Path, splats: int) -> bytes:
-    """A minimal COMPLETE PLY: one float property, and the body to match.
+    """A COMPLETE splat PLY: the required Gaussian schema, and the body to match.
 
-    The body is written because the producer's staged output is now checked
-    structurally as well as against its floor -- a declared count is a claim, and
-    a header-only file is exactly the truncation that check exists to catch. One
-    property keeps these fixtures small: four bytes per vertex.
+    Both halves are load-bearing. The body is written because staged output is
+    checked structurally -- a header-only file is the truncation that check exists
+    to catch. The schema is REQUIRED_PLY_PROPERTIES because staged output is also
+    checked against what both producers write: an earlier version of this helper
+    declared only `property float x`, so every positive case built on it was
+    certifying a one-property file as producer output (#934 review).
     """
+    import importlib
+
+    props = importlib.import_module("prepare_synthetic_assets").REQUIRED_PLY_PROPERTIES
     header = (
         "ply\n"
         "format binary_little_endian 1.0\n"
         f"element vertex {splats}\n"
-        "property float x\n"
-        "end_header\n"
+        + "".join(f"property float {name}\n" for name in props)
+        + "end_header\n"
     ).encode("ascii")
-    contents = header + b"\x00" * (splats * 4)
+    contents = header + b"\x00" * (splats * 4 * len(props))
     path.write_bytes(contents)
     return contents
 
@@ -561,6 +566,57 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 self.assertNotEqual(
                     result.returncode, 0, f"{tracked} is ignored; the rule is too broad"
                 )
+
+    def test_a_one_property_file_never_reaches_the_canonical_paths(self) -> None:
+        """#934 review: complete and floor-clearing, but not a splat fixture.
+
+        A producer regression that still exits 0 can write a body sized from a
+        single declared float: complete by the payload rule, over every floor, and
+        published over the usable corpus. The loader would not refuse it -- missing
+        properties default -- so the lanes would then measure 10,000 splats at the
+        origin.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            good = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in prep.CPP_GENERATED_FILENAMES
+            }
+            degenerate = sorted(prep.CPP_GENERATED_FILENAMES)[0]
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                for name in prep.CPP_GENERATED_FILENAMES:
+                    count = prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    if name == degenerate:
+                        header = (
+                            "ply\n"
+                            "format binary_little_endian 1.0\n"
+                            f"element vertex {count}\n"
+                            "property float x\n"
+                            "end_header\n"
+                        ).encode("ascii")
+                        (staging / name).write_bytes(header + b"\x00" * (count * 4))
+                    else:
+                        _write_fixture_header(staging / name, count)
+                return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+            with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+            self.assertFalse(
+                accepted, "a one-property file was published as this producer's output"
+            )
+            for name in sorted(prep.CPP_GENERATED_FILENAMES):
+                with self.subTest(fixture=name):
+                    self.assertEqual(
+                        (output_dir / name).read_bytes(),
+                        good[name],
+                        f"{name}: a usable fixture was replaced by a schema-less file",
+                    )
 
     def test_a_producer_that_writes_every_fixture_is_accepted(self) -> None:
         """Discrimination: a real producer run must still be accepted.

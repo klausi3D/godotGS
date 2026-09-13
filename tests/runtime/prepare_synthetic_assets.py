@@ -520,6 +520,56 @@ def ply_payload_failure(path: Path) -> str | None:
     return None
 
 
+def ply_property_names(path: Path) -> "tuple[str, ...] | None":
+    """The `property` names a PLY header declares, in order; None if unreadable."""
+    names: list[str] = []
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return None
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    return None
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    return tuple(names)
+                fields = stripped.split()
+                if fields[:1] == [b"property"] and len(fields) >= 3:
+                    names.append(fields[-1].decode("ascii", "replace"))
+    except OSError:
+        return None
+    return None
+
+
+def ply_schema_failure(path: Path) -> str | None:
+    """Why `path` is not a Gaussian splat PLY this repo's producers write, or None.
+
+    A complete payload is not a usable one. `ply_payload_failure()` sizes the body
+    from whatever properties the header declares, so a 10,000-vertex file holding
+    only `property float x` and 40,000 bytes is complete by that rule and clears
+    every floor (#934 review). The loader does not refuse it either: a missing
+    property is filled with a default (`ply_loader.cpp`, `default_gaussian` and
+    `parse_vertex`), so that file loads as 10,000 splats at the origin with unit
+    scale and white colour -- a fixture that measures nothing, silently.
+
+    The required set is REQUIRED_PLY_PROPERTIES: the properties BOTH producers
+    always write. It is derived from the Python fallback's own header rather than
+    listed here, and the tests couple it to the C++ writer and to the loader, so
+    none of the three can drift without a failure naming it.
+    """
+    names = ply_property_names(path)
+    if names is None:
+        return "the header cannot be read"
+    duplicated = sorted({name for name in names if names.count(name) > 1})
+    if duplicated:
+        return f"declares {', '.join(duplicated)} more than once"
+    missing = [name for name in REQUIRED_PLY_PROPERTIES if name not in names]
+    if missing:
+        return f"is missing required propert{'y' if len(missing) == 1 else 'ies'} {', '.join(missing)}"
+    return None
+
+
 def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
     """Why `path` does not satisfy `required_splats`, or None when it does.
 
@@ -541,6 +591,9 @@ def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
     payload_problem = ply_payload_failure(path)
     if payload_problem is not None:
         return f"INCOMPLETE ({payload_problem})"
+    schema_problem = ply_schema_failure(path)
+    if schema_problem is not None:
+        return f"NOT A SPLAT FIXTURE ({schema_problem})"
     actual = read_ply_vertex_count(path)
     if actual is None:
         return "UNVERIFIABLE"
@@ -618,6 +671,18 @@ def _header(count: int) -> bytes:
         "end_header\n"
     )
     return text.encode("ascii")
+
+
+#: The properties every Gaussian splat fixture in this repo carries: the ones BOTH
+#: producers always write. Read back from the fallback's own header rather than
+#: listed a second time, and pinned by the tests against
+#: `synthetic_ply_writer.cpp` (each must be an unconditional emission there) and
+#: against `ply_loader.cpp` (each must be a property the loader reads).
+REQUIRED_PLY_PROPERTIES: tuple[str, ...] = tuple(
+    line.split()[-1].decode("ascii")
+    for line in _header(1).splitlines()
+    if line.startswith(b"property ")
+)
 
 
 def _encode_splat(
@@ -1121,6 +1186,12 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             payload_problem = ply_payload_failure(staged)
             if payload_problem is not None:
                 rejected.append(f"{name}: {payload_problem}")
+                continue
+            # ...and a complete file is not a splat file. A body sized from ONE
+            # declared float passes the structural check above and every floor.
+            schema_problem = ply_schema_failure(staged)
+            if schema_problem is not None:
+                rejected.append(f"{name}: {schema_problem}")
                 continue
             floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
             if floor <= 0:
