@@ -191,7 +191,16 @@ _CONTROL_STRIPPED_VARS = (
 #: name. These are the images CI executes; page-heap flags on any of them taint
 #: our measurements. Other images on this dual-use workstation are recorded but
 #: do not gate -- page heap on someone's unrelated tool is not our variable.
-CI_IMAGE_NAME_MARKERS = ("godot",)
+#:
+#: "godot" alone was not the set of images CI runs on this pool (#873 review).
+#: `export_smoke_windows` launches the EXPORTED GAME, and an exported binary is
+#: named after its preset, not after the engine: `gs_export_smoke.exe`. IFEO
+#: binds by image NAME, so flags on that name would have been recorded and
+#: passed while the blocking GPU measurement ran under the debugger. The name is
+#: kept in step with the exporter by
+#: tests/ci/test_preflight_runner_gpu_environment.py, which reads it back out of
+#: run_export_smoke.py and fails if this tuple stops covering it.
+CI_IMAGE_NAME_MARKERS = ("godot", "gs_export_smoke")
 
 #: IFEO values that turn on page heap / Application Verifier for an image.
 PAGE_HEAP_VALUE_NAMES = ("GlobalFlag", "PageHeapFlags", "VerifierDlls")

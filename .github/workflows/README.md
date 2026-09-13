@@ -12,8 +12,8 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Docs Pages (Versioned) | `docs_pages.yml` | Builds and deploys MkDocs docs with mike versioning to `gh-pages`. | Publishes `latest` from `master/main` and versioned docs from `v*` tags. |
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
-| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The `build_linux_export_template` / `build_windows_export_template` jobs (#825) upload export templates as **artifacts only** — they are deliberately not wired into `release_candidate_gate` or `publish_release`; see [export templates](../../docs/development/export-templates.md). |
-| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates the agentic control plane, runs the agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
+| Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
@@ -37,6 +37,12 @@ boundary.
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
 without touching the self-hosted lanes. It runs:
 
+- `python tests/ci/test_validate_automation.py -v` followed by
+  `python tests/ci/validate_automation.py --contracts-only` after installing the
+  version-and-hash-pinned PyYAML dependency; the validator derives and parses
+  every `*.yml` and `*.yaml` workflow, and fails closed if the parser or corpus
+  is absent, or if a document lacks a typed, non-empty top-level trigger or
+  `jobs` mapping
 - `python scripts/agentic/validate_repo_contract.py --strict-hierarchy` (the
   `--strict-hierarchy` flag also requires the AGENTS.md hierarchy and
   `docs/governance/*`; without it those could all be deleted with the gate green)
@@ -93,10 +99,14 @@ python tests/ci/check_renderer_release_gates.py --mode contract
 The same contract check is part of `tests/ci/run_module_tests.py --guard-only`,
 which is what the Gaussian Production Gates `guards` job runs. The contract check
 is deterministic and GPU-free. Public-alpha candidate mode
-requires the evidence bundle, a public-alpha channel/tag selector, and a live
-issue-label snapshot so P0, P1, and release-blocker issues cannot be bypassed by
-release notes or manual workflow choices. The workflow-policy
-portion of the checker validates required workflow files and job markers only;
+requires the evidence bundle, a public-alpha channel/tag selector, and a
+separate operator-supplied issue-label snapshot through `--issues-json` so P0,
+P1, and release-blocker rows cannot be replaced by a snapshot embedded in the
+bundle. The gate proves separate filesystem identity only; it does not
+machine-enforce the snapshot's GitHub provenance, completeness, capture time, or
+freshness. Live acquisition and those stronger guarantees remain owned by
+issue #360. The workflow-policy portion of the checker validates required
+workflow files and job markers only;
 the stronger no-downgrade workflow rules remain documented review policy until
 the checker grows a real GitHub Actions behavior parser.
 
@@ -152,8 +162,9 @@ that publish path (issue #593):
 - it fails the stable/candidate path unless **both** `build_linux` and
   `build_windows` succeeded (no Linux-only stable release);
 - it runs `check_renderer_release_gates.py --mode candidate` against a
-  public-alpha evidence bundle and **fails closed** when the bundle is absent, so
-  a tag cannot publish without passing candidate validation;
+  public-alpha evidence bundle and a separate issue snapshot, and **fails closed**
+  when either file is absent, so a tag cannot publish without passing candidate
+  validation;
 - `publish_release` hard-depends on the gate and sets
   `fail_on_unmatched_files: true` for the stable channel;
 - it binds the evidence to reality: `--expected-commit ${{ github.sha }}` (the
@@ -172,9 +183,10 @@ Windows runner outage cannot stall the nightly cadence.
 
 **Scoped gap:** no CI lane yet produces the candidate evidence bundle (issue
 #360), so the gate currently fails closed on every real `v*` tag. A maintainer
-cutting a candidate points the `RELEASE_CANDIDATE_EVIDENCE` (and optional
-`RELEASE_CANDIDATE_ISSUES`) repo/environment variable at a produced bundle. See
-`docs/reference/renderer-release-gates.md` for details.
+cutting a candidate must place both files in the runner workspace and point the
+`RELEASE_CANDIDATE_EVIDENCE` and `RELEASE_CANDIDATE_ISSUES` repo/environment
+variables at different files. See `docs/reference/renderer-release-gates.md` for
+details.
 
 ## Runner Trust Boundary (fork PRs)
 
@@ -191,7 +203,7 @@ if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.re
 - `gaussian_production_gates.yml` — `guards`, `module-validation` (form above), and `openworld-proof-evidence`, which carries a *narrower* guard: `if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && ...)`, so it never runs on a pull request at all, fork or same-repo.
 - `gaussian_shader_validation.yml` — `shader-validation` (form above).
 - `release_ci_runtime.yml` — `runtime-release-ci` (form above). This workflow has no `pull_request` trigger (schedule + `workflow_dispatch` only), so the guard is trivially satisfied; it is carried explicitly to keep the self-hosted job fail-closed if a `pull_request` trigger is ever added.
-- `release_builds.yml` — self-hosted jobs `build_windows` (strict), `build_windows_export_template` (strict). The tag after each job is the guard form that job actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form one of them has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. Both Windows release lanes therefore run on `push`/tag/schedule/dispatch only. The deviation is *narrower* than the standard form, never wider — it cannot admit fork code — but it does cost pull-request coverage, and that cost is accepted deliberately rather than overlooked: Windows-only packaging steps (PowerShell staging, zip, checksum) are first exercised after the branch reaches `master`, or on the nightly/dispatch run. Two things bound the exposure. The Windows-specific *naming* logic — the part that actually broke (#825, the `.console.exe` wrapper name) — lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`; and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and the same package/checksum/upload shape. Moving these jobs to the standard guard would place a multi-hour template build on the single shared self-hosted runner ahead of the GPU gates on every same-repo PR, so it is a maintainer trade-off rather than a default. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (`runs-on: [Windows, X64, godotgs]`, no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
+- `release_builds.yml` — self-hosted jobs `build_windows` (strict), `build_windows_export_template` (strict), `export_smoke_windows` (strict). The tag after each job is the guard form that job actually carries, and `tests/ci/test_release_builds_runner_trust.py` compares it against the workflow **per job**, so this line cannot go on claiming a form one of them has stopped using. **strict** = `if: github.event_name != 'pull_request'`, which skips **all** pull requests (fork *and* same-repo); **standard** = the repository-standard fork guard in the code block above, under which trusted same-repo PRs still run. All three Windows release lanes therefore run on `push`/tag/schedule/dispatch only. `export_smoke_windows` is the only one of the three that additionally carries the `gpu` label: it exports the test project against the template built by the same run and then *launches* the exported binary, and `export_smoke_probe.gd` requires a live RenderingDevice and a real window read-back, so a non-GPU runner could not produce the evidence the job exists for. The deviation is *narrower* than the standard form, never wider — it cannot admit fork code — but it does cost pull-request coverage, and that cost is accepted deliberately rather than overlooked: Windows-only packaging steps (PowerShell staging, zip, checksum) are first exercised after the branch reaches `master`, or on the nightly/dispatch run. Two things bound the exposure. The Windows-specific *naming* logic — the part that actually broke (#825, the `.console.exe` wrapper name) — lives in `tests/ci/resolve_export_template.py` and is unit-covered on every PR by `tests/ci/test_resolve_export_template.py`; and `build_linux_export_template` is GitHub-hosted, runs on pull requests, and drives the same resolver and the same package/checksum/upload shape. Moving these jobs to the standard guard would place a multi-hour template build on the single shared self-hosted runner ahead of the GPU gates on every same-repo PR, so it is a maintainer trade-off rather than a default. Kept in sync with the workflow by `tests/ci/test_release_builds_runner_trust.py`, which derives the self-hosted job set from `release_builds.yml` — by label routing, so a job that reaches the persistent runner through its custom labels alone (`runs-on: [Windows, X64, godotgs]`, no `self-hosted` label) is caught too — and fails if a job here is undocumented, documented but nonexistent, carrying neither accepted guard form, or carrying a different form than the tag above claims.
 
 ### Runner label policy
 
@@ -379,6 +391,103 @@ A layer this preflight reports is a finding to act on, not one to add to its
 allowlist. Widening `EXPECTED_LAYERS` asserts that a layer is part of the GPU
 driver and cannot be removed — a claim about the machine that a maintainer makes.
 
+### GPU contention
+
+The runner is the maintainer's workstation and there is only one of it. That is
+an **accepted constraint**, not something CI can fix — so the handling is
+attribution, never tolerance.
+
+Unrelated GPU work lands on the box while jobs run. On the day #875 was written
+it happened three times: 4× `Godot_v4.7-stable` gdUnit4 at 11:13, the same again
+around 13:00, 2× `Godot_v4.5.2-stable` at 22:28. None were ours; all contend for
+the GPU the runner uses. The cost is not slow jobs, it is **false failures that
+read like real ones**: PR #881's streaming gate failed on wall-clock budgets
+alone (`first_visible_ms=3500`, `frame_p95_to_avg_ratio=1.935`) while residency
+hit 1.0, fallback rate 0.0 and readiness `READY` — nothing failed functionally.
+#867's `NodeSceneTree` 300 s timeout was the same thing and cost a full
+diagnosis cycle.
+
+Every GPU-pool job therefore runs, before its build:
+
+```yaml
+- name: Preflight - GPU contention, wait for a free runner (#875)
+  run: python tests/ci/runner_gpu_contention.py preflight
+```
+
+and, as its last step, **with `if: always()`**:
+
+```yaml
+- name: Postflight - GPU contention verdict (#875)
+  if: always()
+  run: python tests/ci/runner_gpu_contention.py postflight
+```
+
+**It waits; it does not fail on sight.** On a machine that is also somebody's
+workstation, failing the moment the GPU is busy would let the owner's own work
+block CI outright. The preflight polls for the GPU to be free of *foreign* load
+(our own build and tests are supposed to use it) for up to **15 minutes**, which
+is longer than any comparable workload of ours — the GPU harness runs 3–8
+minutes per batch — and is 12.5 % of the 120-minute `gpu-tests` timeout, so a job
+that waits the whole bound still keeps over 105 minutes and cannot fail *as a
+timeout* because of the wait. Beyond a quarter of an hour the contending work is
+not a transient; it is someone using their machine, and the right answer is a
+loud "retry when it is free" rather than CI sitting on a serialised queue.
+
+**When it does give up, it is unmistakable.** Exit code **75**, not 1 — a job
+that ends there did not fail a test, it produced no measurement — behind a
+banner reading `RUNNER BUSY — THIS RESULT IS VOID`, naming every process holding
+the GPU with pid, image path and measured share, plus a GitHub error annotation
+and a step-summary entry.
+
+**Start *and* end, and everything between.** #881's interference began *after*
+the job started, so a check that only looked at job start would have called that
+run clean. The preflight leaves a detached sampler running for the life of the
+job; the postflight stops it, takes a closing measurement, and reads back the
+whole series. A run that was clean at start and contended while running is
+`CONTENDED_MID_RUN` — void, with the window and the offending image printed. A
+run whose series has a hole larger than five minutes is `UNMEASURED` — also
+void, because "the monitor saw nothing" and "the monitor was not running" must
+never read the same.
+
+**"It was monitored" is a positive fact, not the absence of a complaint.** The
+postflight appends its own closing sample to the same series, so a series
+containing *only* that sample would otherwise score as perfect continuous
+coverage over a zero-length window — a measurement of the last instant standing
+in for a measurement of the job. Every sample therefore records who wrote it, and
+only samples written by *this job's* sampler (matched by the pid the preflight
+got back from the spawn) count as coverage; the preflight in turn declares
+monitoring active only once that sampler has actually written its first sample,
+not merely when it was started. Contention, by contrast, is read from every
+sample whoever wrote it: filtering evidence on provenance could only turn a void
+run green.
+
+**An orphaned sampler is stopped, never inherited.** A job killed by its own
+timeout never runs its postflight, so its detached sampler keeps going for up to
+three hours. Before reusing the shared record directory, the next preflight
+terminates that sampler — but only after confirming from the process's command
+line that the pid really is this guard's sampler for this directory. Pids are
+recycled and this runner is also the maintainer's workstation, so an
+unidentifiable or reassigned pid is left alone and recorded rather than killed.
+
+**Nothing is relaxed.** No budget, timeout or threshold moves. A contended run is
+*void*, never *passed*. Every verdict also prints the discriminator this repo
+already measured — clean `frame_p95_to_avg_ratio ≈ 1.15` on the streaming lane
+(#630/#624) — so a reader who arrives at a bare `first_visible_exceeded` sees
+"ratio 1.94, this is contention" instead of starting a diagnosis from scratch.
+Whether wall-clock budgets belong in correctness lanes at all is #523/#778 and a
+much larger change.
+
+Busy is decided from two independent sources: the Windows
+`\GPU Engine(*)\Utilization Percentage` counters, whose instance names carry the
+owning pid, joined against `Win32_Process` for the image path (this is what makes
+a failure *actionable* — it names the process); and `nvidia-smi` as the driver's
+aggregate view, recorded always. `nvidia-smi --query-compute-apps` is
+deliberately not the attribution source: under WDDM it lists 60 rows of shell,
+browser and tray processes with `[N/A]` memory — volume without attribution. The
+15 % threshold sits above the measured idle desktop floor on this machine (0.5–5.5 %
+per process, aggregate 3–7 %) and well below what a single Godot workload pulls
+(19–34 %, measured).
+
 ### Which jobs
 
 The GPU pool is derived, never listed here:
@@ -391,7 +500,13 @@ label-routing classification from
 `tests/ci/test_release_builds_runner_trust.py` — and requires
 each to export both the loader-filter pair *and* every per-layer opt-out at job
 level, to run the preflight, and to run it
-before the build. An empty derived set fails the guard rather than passing. At
+before the build. `tests/ci/test_runner_gpu_contention.py` reuses that same
+derivation — importing it rather than restating it, so the two guards cannot come
+to disagree about which jobs are the GPU pool — and requires each derived job to
+run the contention preflight before its build, to run the postflight after it,
+and to carry `always()` on the postflight (a verdict that is skipped when a step
+above failed is missing from the only runs anyone reads it in). An empty derived
+set fails both guards rather than passing. At
 the time of writing that set is `gpu-tests` and `gpu-harness`
 (`baseline_qa.yml`), `module-validation` and `openworld-proof-evidence`
 (`gaussian_production_gates.yml`), and `runtime-release-ci`
@@ -417,6 +532,8 @@ which brings it into the derived set automatically.
 ## Dependencies
 
 - Python 3.11
+- PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
+  CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
 - SCons/build toolchain for compiled lanes
 - Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
 - Optional GPU evidence label `gpu` for the Windows evidence lane

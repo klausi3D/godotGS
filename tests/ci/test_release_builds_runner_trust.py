@@ -26,6 +26,13 @@ So this guard derives both directions from source:
   actually be one -- so the bullet cannot go stale in the other direction
   either.
 
+Scope: this guard is about the TRUST boundary (which jobs reach the persistent
+runner, and under which guard form), not about which jobs gate publication.
+README's other stale claim about the same jobs -- that both export-template
+builds are ungated -- is checked by `tests/ci/test_release_publication_gating.py`
+(`GatingDocumentationTests`), which already derives the `needs:` closure it
+needs. Extend that one rather than teaching this file a second policy.
+
 Two guard forms are accepted, and only two:
 
 ``STANDARD_FORK_GUARD``
@@ -111,8 +118,10 @@ places where a near-miss reads as a pass:
   became a declared GitHub-hosted label, which is exactly the classification
   that drops a job out of `self_hosted_jobs()`.
 
-No PyYAML: `tests/ci/validate_automation.py` treats PyYAML as optional, so a
-guard that imports it would silently degrade on a runner without it.
+PyYAML is mandatory in the GitHub-hosted required gate as of T6 / #894, and
+`tests/ci/validate_automation.py` fails closed without it. This runner-trust
+suite remains a text-level contract because its label and invocation mutations
+are independent of the validator's whole-workflow structure check.
 
 Run directly (``python tests/ci/test_release_builds_runner_trust.py``) or via
 ``python tests/ci/run_module_tests.py --guard-only``.

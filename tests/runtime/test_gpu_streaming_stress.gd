@@ -689,6 +689,17 @@ func _exercise_tier(tier: Dictionary) -> Dictionary:
             ]
         )
 
+    # #875/#881: a wall-clock failure on this runner is as likely to be the
+    # machine as the renderer, and the discriminator is already in the numbers
+    # above. Say so here, next to the verdict, rather than leaving the next
+    # reader to rediscover #630/#624. It changes no threshold and no verdict.
+    if not within_budget:
+        var contention_note: String = StreamingGpuTierBudget.contention_signature(
+            {"frame_p95_to_avg_ratio": frame_p95_to_avg_ratio}
+        )
+        if contention_note != "":
+            budget_context["contention_signature"] = contention_note
+
     if not blocking_failures.is_empty():
         if enforce:
             _record_failure("[Streaming] Tier budget check failed", budget_context)
