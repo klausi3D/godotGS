@@ -1173,7 +1173,15 @@ def _read_unrestored(quarantine: Path) -> "set[str] | None":
         return None
     if not isinstance(raw, list):
         return None
-    return {name for name in raw if isinstance(name, str)}
+    # Every entry must be a fixture this producer writes, or the whole marker is
+    # unknown. Filtering bad entries out turned `[42]` into an empty set, and an
+    # empty set is the authoritative "every quarantine copy is superseded" --
+    # so a malformed marker authorised deleting an original that a failed restore
+    # had left behind (#969 review). A marker this script never wrote is not a
+    # statement about anything.
+    if not all(isinstance(name, str) and name in CPP_GENERATED_FILENAMES for name in raw):
+        return None
+    return set(raw)
 
 
 def _merge_unrestored(quarantine: Path, failed_names: "set[str]") -> None:

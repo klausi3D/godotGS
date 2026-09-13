@@ -2714,6 +2714,65 @@ class CppGenerationProvesFreshOutputTests(unittest.TestCase):
                 "the run claimed to have recorded state it failed to write",
             )
 
+    def test_a_malformed_marker_is_unknown_not_empty(self):
+        """#969 review: a marker this script never wrote is not a statement.
+
+        `[42]` is valid JSON and a list, and filtering its non-string entry out left
+        an empty set -- the authoritative "every quarantine copy is superseded". So
+        an original a failed restore had left beside a complete producer output was
+        deleted on the strength of a corrupt file.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            quarantine = Path(tmp)
+            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
+            real = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
+            for label, body in (
+                ("non-string entry", [42]),
+                ("unknown fixture name", ["not_a_fixture.ply"]),
+                ("one bad entry among good ones", [real, 7]),
+            ):
+                with self.subTest(marker=label):
+                    marker.write_text(json.dumps(body), encoding="utf-8")
+                    self.assertIsNone(
+                        _prepare._read_unrestored(quarantine),
+                        f"a marker with a {label} was read as a statement",
+                    )
+            # Discrimination: what the script actually writes still reads back.
+            for label, body, expected in (
+                ("pending entries", [real], {real}),
+                ("empty statement", [], set()),
+            ):
+                with self.subTest(marker=label):
+                    marker.write_text(json.dumps(body), encoding="utf-8")
+                    self.assertEqual(_prepare._read_unrestored(quarantine), expected)
+
+    def test_a_malformed_marker_cannot_authorise_deleting_an_original(self):
+        """End to end: the original survives, and the run stops rather than guessing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
+            quarantine = out / ".pre_cpp_generation"
+            quarantine.mkdir()
+            for name in names:
+                _write_ply(quarantine / name, 32, rich_sh=True)  # originals
+                _write_ply(out / name, 64, rich_sh=True)  # a complete, newer file
+            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text("[42]", encoding="utf-8")
+            originals = {name: (quarantine / name).read_bytes() for name in names}
+
+            with mock.patch.object(
+                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
+            ):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
+
+            for name in names:
+                with self.subTest(fixture=name):
+                    self.assertTrue(
+                        (quarantine / name).is_file(),
+                        f"{name}: a malformed marker authorised deleting the original",
+                    )
+                    self.assertEqual((quarantine / name).read_bytes(), originals[name])
+
     def test_a_restore_that_cannot_write_says_so_and_keeps_the_original(self):
         """Silence is the other half: the state is recoverable only if it is known.
 
