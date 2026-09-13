@@ -174,11 +174,28 @@ public:
     float get_rasterization_time() const { return perf_metrics.rasterization_ms; }
 	uint64_t get_sort_sync_fallback_count() const { return perf_metrics.sort_sync_fallback_count; }
 	// Persistent count of frames the global-composite path rasterized UNSORTED, i.e.
-	// presented INCORRECT alpha compositing — all causes, all work paths (see #586, which
-	// remains open: this counts the wrong output, it does not prevent it).
+	// presented INCORRECT alpha compositing. Since the #586 reject only the transient
+	// reasons can raise it (see TilePerformanceMetrics::unsorted_composite_frames).
 	uint64_t get_unsorted_composite_frames() const { return perf_metrics.unsorted_composite_frames; }
 	// Last GaussianSplatting::UnsortedCompositeReason observed (0 == NONE).
 	uint8_t get_unsorted_composite_last_reason() const { return perf_metrics.unsorted_composite_last_reason; }
+	// #586 FIX: persistent count of frames the global-composite path REFUSED to publish
+	// (render() returned an invalid RID) rather than composite translucent splats unsorted.
+	uint64_t get_global_composite_rejected_frames() const { return perf_metrics.global_composite_rejected_frames; }
+	// GaussianSplatting::UnsortedCompositeReason of the most recent rejected frame (0 == NONE).
+	uint8_t get_global_composite_last_reject_reason() const { return perf_metrics.global_composite_last_reject_reason; }
+	// #586 PR 2: consecutive tile-sorter creation failures in the current episode (0 == a
+	// sorter exists or none was ever attempted), and how many episodes ended with a
+	// sorted frame actually PUBLISHED by the renderer's own retry. Together with
+	// global_composite_rejected_frames these say whether the renderer is rejecting,
+	// retrying, or recovered.
+	uint32_t get_global_sort_sorter_init_failure_count() const { return global_sort_resources.sorter_init_failure_count; }
+	uint64_t get_global_sort_sorter_recoveries() const { return global_sort_resources.sorter_recoveries; }
+	// #586 PR 3: consecutive failed attempts of a pending GROW (the working sorter keeps
+	// rendering at its capacity meanwhile), and how many grow episodes ended with the grow
+	// succeeding.
+	uint32_t get_global_sort_sorter_grow_failure_count() const { return global_sort_resources.sorter_grow_failure_count; }
+	uint64_t get_global_sort_sorter_grow_recoveries() const { return global_sort_resources.sorter_grow_recoveries; }
 	uint32_t get_raster_pipeline_reformat_count() const { return perf_metrics.raster_pipeline_reformats; }
 	float get_last_submission_cpu_ms() const { return timing_state.last_submission_cpu_ms; }
 	float get_last_gpu_frame_time_ms() const { return timing_state.last_frame_gpu_ms; }

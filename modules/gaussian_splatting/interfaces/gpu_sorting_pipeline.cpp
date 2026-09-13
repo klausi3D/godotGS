@@ -2294,6 +2294,27 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     if (!compute_rd) {
         return false;
     }
+
+    // #980, load-bearing diagnostic. This pipeline OWNS the sort buffers when manage_buffers
+    // is set; the instance contract only carries copies of their RIDs. Every path that
+    // reallocates them must republish the contract (RenderSortingOrchestrator::
+    // refresh_gpu_sorter is the funnel that does). A path that does not shows up HERE with a
+    // named reason, instead of as a raw "Storage buffer supplied (binding: 6) is invalid" on
+    // every frame -- and the frame fails closed rather than binding a freed buffer.
+    if (manage_buffers && sort_keys_buffer.is_valid() && sort_indices_buffer.is_valid() &&
+            (inputs.sort_key_buffer != sort_keys_buffer || inputs.sort_value_buffer != sort_indices_buffer)) {
+        const String stale_reason = vformat(
+                "[GPUSortingPipeline] GPUSort.InstanceDepth.Inputs: code=stale_sort_buffer_handles detail=the published instance contract references sort buffers (keys=%s values=%s) that are not this pipeline's owned buffers (keys=%s values=%s); the sort buffers were reallocated without republishing the instance contract (#980) fallback=none",
+                String::num_uint64(inputs.sort_key_buffer.is_valid() ? inputs.sort_key_buffer.get_id() : 0ULL),
+                String::num_uint64(inputs.sort_value_buffer.is_valid() ? inputs.sort_value_buffer.get_id() : 0ULL),
+                String::num_uint64(sort_keys_buffer.get_id()), String::num_uint64(sort_indices_buffer.get_id()));
+        if (last_compute_error != stale_reason) {
+            // Once per distinct stale pair, not once per frame.
+            GS_LOG_WARN_DEFAULT(stale_reason);
+        }
+        last_compute_error = stale_reason;
+        return false;
+    }
     GPUCuller *gpu_culler = sort_ctx.gpu_culler;
     if (gpu_culler) {
         gpu_culler->update_culling_settings();

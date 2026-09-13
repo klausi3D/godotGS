@@ -23,6 +23,13 @@ var test_scenes: Array[String] = [
 	"res://scenes/qa/qa_visual_diff_instance.tscn",
 	"res://scenes/qa/qa_sh_rotation_world.tscn",
 	"res://scenes/qa/qa_sh_rotation_instance.tscn",
+	# LAST ON PURPOSE (#903). This is the only scene that changes
+	# process-global render configuration -- composite/depth_test and the
+	# viewport's 3D scaling -- rather than reading whatever the project pins.
+	# ProjectSettings is process-global, so a restore that failed would leak
+	# into whichever scene ran next. Running it after every other scene means
+	# a leak cannot silently change another scene's result.
+	"res://scenes/qa/qa_composite_production_defaults.tscn",
 ]
 
 ## Scenes deliberately not run, and why.

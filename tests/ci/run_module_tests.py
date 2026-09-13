@@ -56,6 +56,7 @@ GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
@@ -1350,7 +1351,11 @@ def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
 def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     missing = [
         path.relative_to(ROOT)
-        for path in (RENDERER_RELEASE_GATE_SCRIPT, RENDERER_RELEASE_GATE_TEST_SCRIPT)
+        for path in (
+            RENDERER_RELEASE_GATE_SCRIPT,
+            RENDERER_RELEASE_GATE_TEST_SCRIPT,
+            RELEASE_ATTESTATION_TEST_SCRIPT,
+        )
         if not path.is_file()
     ]
     if missing:
@@ -1360,6 +1365,7 @@ def _run_renderer_release_gate_guard() -> tuple[bool, list[str]]:
     commands = (
         [sys.executable, str(RENDERER_RELEASE_GATE_SCRIPT), "--mode", "contract"],
         [sys.executable, str(RENDERER_RELEASE_GATE_TEST_SCRIPT)],
+        [sys.executable, str(RELEASE_ATTESTATION_TEST_SCRIPT)],
     )
     for args in commands:
         code, out, err = _run_command(args)
@@ -1683,6 +1689,37 @@ def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
     return True, ["Release builds path filter guard passed."]
 
 
+def _run_release_publication_gating_guard() -> tuple[bool, list[str]]:
+    """Guard (#825): nothing publishes an artifact no lane has executed.
+
+    Static, headless, no GPU, no PyYAML. `export_smoke_windows` is the only lane
+    that RUNS the export template `publish_release` ships, and it was added as a
+    sibling job -- listed in neither `publish_release`'s `needs:` nor its `if:`,
+    so GitHub could attach the assets while the smoke test was still running or
+    after it had failed. The workflow described a blocking check and wired a
+    decorative one.
+
+    Both halves are checked because neither is sufficient: `needs:` is the only
+    thing that makes publication WAIT, and under `always()` a `needs:` entry
+    blocks nothing unless the result is asserted (the lesson `finite_math_guard`
+    already recorded and this job reproduced). The conditions are EVALUATED over
+    a truth table rather than grepped, because a clause that is present but
+    structurally inert passes a substring check and gates nothing.
+    """
+    script = ROOT / "tests" / "ci" / "test_release_publication_gating.py"
+    if not script.is_file():
+        return False, [f"Missing release publication gating test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Release publication gating guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Release publication gating guard passed."]
+
+
 def _run_release_builds_runner_trust_guard() -> tuple[bool, list[str]]:
     """Guard (#825): every self-hosted release_builds.yml job is guarded and documented.
 
@@ -1738,6 +1775,35 @@ def _run_gpu_runner_environment_contract_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["GPU runner environment contract guard passed."]
+
+
+def _run_gpu_contention_contract_guard() -> tuple[bool, list[str]]:
+    """Guard (#875): every GPU-pool job waits for a free runner, and says so afterwards.
+
+    Static, headless, no GPU: it reads `.github/workflows/*.yml` (reusing the
+    derived GPU-pool job set rather than restating it) and unit-tests the wait
+    loop, the attribution rules and the start-vs-end verdict over synthetic
+    samples. The *runtime* half is `runner_gpu_contention.py`, which runs inside
+    each GPU job.
+
+    The sole self-hosted GPU runner is also the maintainer's workstation, and
+    unrelated GPU work on it has already produced two failures that read as
+    renderer regressions (#867, #881). Neither half is sufficient alone: a job
+    that waits at the start but never checks again calls a run contended from
+    minute five "clean", and a mechanism no job invokes protects nothing.
+    """
+    script = ROOT / "tests" / "ci" / "test_runner_gpu_contention.py"
+    if not script.is_file():
+        return False, [f"Missing GPU contention contract test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"GPU contention contract guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["GPU contention contract guard passed."]
 
 
 def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
@@ -3378,9 +3444,21 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_release_publication_gating_guard,
+            "Release publication gating guard failed.",
+            "Release publication gating guard passed.",
+        ),
+        (
+            True,
             _run_gpu_runner_environment_contract_guard,
             "GPU runner environment contract guard failed.",
             "GPU runner environment contract guard passed.",
+        ),
+        (
+            True,
+            _run_gpu_contention_contract_guard,
+            "GPU contention contract guard failed.",
+            "GPU contention contract guard passed.",
         ),
     ]
     for enabled, runner, failure_summary, success_summary in optional_message_guards:

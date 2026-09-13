@@ -425,6 +425,7 @@ static void _append_telemetry_extras(const GaussianSplatRenderer &p_renderer,
 
 	r_metrics["frame_count"] = static_cast<int64_t>(frame_state.frame_counter);
 	r_metrics["sorted_splats"] = static_cast<int64_t>(sorting_state.sorted_splat_count);
+	r_metrics["instance_sort_buffer_republishes"] = static_cast<int64_t>(sorting_state.instance_sort_buffer_republishes);
 	r_metrics["render_time_ms"] = frame_state.render_time_ms;
 	r_metrics["sort_time_ms"] = frame_state.sort_time_ms;
 	r_metrics["frame_time_ms"] = p_frame_time_ms;

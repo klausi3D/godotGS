@@ -315,13 +315,24 @@ struct TilePerformanceMetrics {
 	// sort_fallback_policy.h). Distinct from sort_sync_fallback_count (sorter EXISTS and
 	// the async→sync fallback SUCCEEDS, so output is still correctly sorted — issue #9).
 	// Surfaced via TileRenderer::get_unsorted_composite_frames() and
-	// get_binning_debug_counters(). This is observability only: #586 (never composite
-	// translucent splats unsorted) remains OPEN.
+	// get_binning_debug_counters(). Since the #586 reject only the TRANSIENT reasons
+	// (sync sort dispatch failed, async sort not submitted) can raise it; the
+	// "no sorter exists" class is rejected instead and counted below.
 	// Reset with the whole struct in TileRenderer::release() (perf_metrics = TilePerformanceMetrics()).
 	uint64_t unsorted_composite_frames = 0;
 	// Most recent GaussianSplatting::UnsortedCompositeReason (0 == NONE) so telemetry can
 	// tell a capability-gated absence from a sort-dispatch failure without log scraping.
 	uint8_t unsorted_composite_last_reason = 0;
+	// #586 FIX: persistent count of frames the global-composite path REFUSED to publish
+	// (render() returned an invalid RID, nothing presented) rather than rasterize
+	// translucent splats unsorted: the sorter did not exist at the choke point, or the
+	// sort resources were unavailable at the pre-binning check. Partition with
+	// unsorted_composite_frames — a degraded frame lands in exactly one of them.
+	// Surfaced via TileRenderer::get_global_composite_rejected_frames() and
+	// get_binning_debug_counters().
+	uint64_t global_composite_rejected_frames = 0;
+	// GaussianSplatting::UnsortedCompositeReason of the most recent rejected frame (0 == NONE).
+	uint8_t global_composite_last_reject_reason = 0;
 	// Counts how many times the cached graphics raster pipeline was rebuilt due to a
 	// framebuffer-format mismatch (e.g. when the eager pre-create at init used a
 	// "probable" color format that differed from the live framebuffer).
