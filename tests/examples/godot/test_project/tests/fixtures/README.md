@@ -47,6 +47,19 @@ corpus it needs.
 The count is in the name on purpose. Changing it is a baseline change: rebake the
 world from the new file (below) and re-measure `qa_results.json` in the same change.
 
+### Which prep commands pass `--godot-binary`
+
+Only the benchmark evidence surface in `.github/workflows/gaussian_production_gates.yml`.
+`run_module_tests.py`, `run_baseline_qa.py` and `run_runtime_validation.py` still
+prep with the Python fallback and say why at the point of prep
+(`FIXTURE_CORPUS_BLOCKER`), and
+`tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests` still holds
+that pin. The reason they give -- that the QA corpus *is* `test_splats.ply` -- was
+true when #790 added the pin and is what this split removes: the QA suite no longer
+loads the file those runners would regenerate. Moving the runners onto the C++
+corpus is no longer a baseline change; it is #934's, and the pin and its test are
+revised there.
+
 ## `test_splats.gsplatworld` — committed, baked from `qa_splats_1024.ply`
 
 The world fixture is the world-route half of the render-route A/B in
