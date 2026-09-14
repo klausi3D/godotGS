@@ -1814,7 +1814,13 @@ PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 QA_BASELINE = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
 ROUTE_CAPTURE_SCRIPT = "res://scripts/qa_route_capture_base.gd"
 
-PLY_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+\.ply\b")
+# Literal path characters only: a `%s`, `{}` or `+` means the path is built at run
+# time, and _unverifiable_ply_mentions() fails that closed instead of checking a
+# path that is never loaded.
+PLY_REFERENCE_RE = re.compile(r"res://[\w./-]+\.ply\b")
+RES_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+")
+# Files a QA scene can pull in by reference and that can themselves load a PLY.
+QA_TEXT_SUFFIXES = (".gd", ".tscn", ".tres")
 WORLD_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+\.gsplatworld\b")
 EXT_RESOURCE_RE = re.compile(r"^\[ext_resource\b([^\]]*)\]", re.MULTILINE)
 ATTRIBUTE_RE = re.compile(r'(\w+)="([^"]*)"')
@@ -1854,11 +1860,68 @@ def _qa_route_pairs(qa_texts):
     return pairs
 
 
+def _qa_reference_closure(project_root, roots):
+    """{res path: text} for every scene/script/resource reachable from `roots`.
+
+    A QA scene loads PLYs through its own attached script, that script's base
+    classes, and anything they preload -- not only through `scenes/qa/*.tscn` and
+    `scripts/qa_*.gd`. So the scanned set is followed from the references
+    themselves (ext_resource paths, extends/preload/load strings), transitively,
+    instead of being named by a glob that a new scene script can sit outside of.
+    """
+    texts = {}
+    queue = list(roots)
+    while queue:
+        res = queue.pop()
+        if res in texts or not res.endswith(QA_TEXT_SUFFIXES):
+            continue
+        path = project_root / res[len("res://"):]
+        if not path.is_file():
+            continue
+        texts[res] = path.read_text(encoding="utf-8")
+        for reference in RES_REFERENCE_RE.findall(texts[res]):
+            reference = reference.rstrip(".,;:")
+            if reference.endswith(QA_TEXT_SUFFIXES) and reference not in texts:
+                queue.append(reference)
+    return texts
+
+
+def _unverifiable_ply_mentions(source, text):
+    """Code lines naming a PLY the static check cannot resolve to one file.
+
+    `load("res://tests/fixtures/%s.ply" % name)` loads a PLY this check cannot
+    see. So in a scanned file every non-comment line that mentions `.ply` must
+    carry a complete, literal res:// PLY path; anything else fails closed rather
+    than passing unchecked.
+    """
+    problems = []
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if ".ply" not in stripped or stripped.startswith(("#", ";")):
+            continue
+        if not PLY_REFERENCE_RE.search(stripped):
+            problems.append(
+                f"{source}:{number} mentions a PLY this check cannot resolve to a literal "
+                f"res:// path: {stripped[:120]!r}"
+            )
+    return problems
+
+
+# Written by qa_route_capture_base.gd for every route scene
+# (`result_metrics["source_splat_count"]`, :158) and, for the candidate only, when it
+# loads the reference manifest (`result_metrics["reference_source_splat_count"]`, :391).
+ROUTE_COUNT_METRICS = {
+    "reference": ("source_splat_count",),
+    "candidate": ("source_splat_count", "reference_source_splat_count"),
+}
+
+
 def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline_payload):
     """Everything that would let a producer choice change what the QA suite loads."""
     failures = []
 
     for source, text in sorted(qa_texts.items()):
+        failures.extend(_unverifiable_ply_mentions(source, text))
         for ply in sorted(set(PLY_REFERENCE_RE.findall(text))):
             if ply in floor_governed:
                 failures.append(
@@ -1885,17 +1948,20 @@ def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, wo
     pairs = _qa_route_pairs(qa_texts)
     if not pairs:
         failures.append(f"no QA route pair found (no scene uses {ROUTE_CAPTURE_SCRIPT})")
-    baseline_metrics = {
-        entry.get("scene"): entry.get("metrics") or {}
+    baseline_entries = {
+        entry.get("scene"): entry
         for entry in baseline_payload.get("results", [])
         if isinstance(entry, dict)
     }
+    quarantined = set((baseline_payload.get("quarantined") or {}).keys())
     for slot, roles in sorted(pairs.items(), key=lambda item: str(item[0])):
         if sorted(roles) != ["candidate", "reference"] or any(len(v) != 1 for v in roles.values()):
             failures.append(f"route slot {slot!r} is not exactly one reference and one candidate: {roles}")
             continue
         counts = {}
+        roles_by_scene = {}
         for role, [(scene, fixtures)] in roles.items():
+            roles_by_scene[scene] = role
             if len(fixtures) != 1:
                 failures.append(f"{scene} does not name exactly one splat fixture: {fixtures}")
                 continue
@@ -1915,9 +1981,27 @@ def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, wo
             continue
         expected = next(iter(counts.values()))
         for scene in counts:
-            metrics = baseline_metrics.get(scene, {})
-            for key in ("source_splat_count", "reference_source_splat_count"):
-                if key in metrics and metrics[key] != expected:
+            # A quarantined scene is not compared, so it has no baseline entry to hold.
+            if scene in quarantined:
+                continue
+            # REQUIRED, not merely checked when present: the runtime comparator
+            # iterates the baseline's keys, so a deleted count field would silently
+            # stop being compared at all -- in this check and at run time.
+            entry = baseline_entries.get(scene)
+            if entry is None:
+                failures.append(f"{scene}: route scene has no entry in the committed baseline")
+                continue
+            metrics = entry.get("metrics")
+            if not isinstance(metrics, dict):
+                failures.append(f"{scene}: the committed baseline entry has no metrics object")
+                continue
+            for key in ROUTE_COUNT_METRICS[roles_by_scene[scene]]:
+                if key not in metrics:
+                    failures.append(
+                        f"{scene}: the committed baseline does not record {key}, so the "
+                        "fixture size is not compared"
+                    )
+                elif metrics[key] != expected:
                     failures.append(
                         f"{scene}: the committed baseline records {key}={metrics[key]} but the "
                         f"route's fixtures hold {expected} splats"
@@ -1936,12 +2020,17 @@ def _load_prep_tables():
     return spec_counts, set(module.CPP_GENERATED_FILENAMES), set(module.ASSET_MIN_SPLAT_COUNTS)
 
 
+def _qa_closure_roots(project_root):
+    """Every QA scene on disk, and the runner that decides which of them run."""
+    roots = [
+        "res://" + path.relative_to(project_root).as_posix()
+        for path in sorted((project_root / "scenes" / "qa").glob("*.tscn"))
+    ]
+    return roots + ["res://scripts/qa_test_runner.gd"]
+
+
 def _real_qa_corpus_inputs():
-    qa_texts = {}
-    for path in sorted((QA_PROJECT_ROOT / "scenes" / "qa").glob("*.tscn")):
-        qa_texts["res://" + path.relative_to(QA_PROJECT_ROOT).as_posix()] = path.read_text(encoding="utf-8")
-    for path in sorted((QA_PROJECT_ROOT / "scripts").glob("qa_*.gd")):
-        qa_texts["res://" + path.relative_to(QA_PROJECT_ROOT).as_posix()] = path.read_text(encoding="utf-8")
+    qa_texts = _qa_reference_closure(QA_PROJECT_ROOT, _qa_closure_roots(QA_PROJECT_ROOT))
     spec_counts, cpp_generated, floor_governed = _load_prep_tables()
     world_counts = {}
     for text in qa_texts.values():
@@ -2037,6 +2126,104 @@ class QaCorpusIsPinnedTest(unittest.TestCase):
                 entry["metrics"]["source_splat_count"] = 10000
         failures = self._failures(baseline_payload=baseline)
         self.assertTrue(any("committed baseline records" in failure for failure in failures), failures)
+
+    def test_every_script_a_qa_scene_attaches_is_scanned(self):
+        """#991 review: the scene scripts under scenes/qa were outside the old glob."""
+        qa_texts = self.inputs[0]
+        attached = set()
+        for scene, text in qa_texts.items():
+            if not scene.startswith("res://scenes/qa/") or not scene.endswith(".tscn"):
+                continue
+            for match in EXT_RESOURCE_RE.findall(text):
+                attributes = dict(ATTRIBUTE_RE.findall(match))
+                if attributes.get("type") == "Script":
+                    attached.add(attributes["path"])
+        self.assertTrue(attached, "no QA scene attaches a script; the derivation read nothing")
+        self.assertTrue(
+            any(path.startswith("res://scenes/qa/") for path in attached),
+            "no scene-local QA script found; the case the review named is not exercised",
+        )
+        self.assertEqual(sorted(attached - set(qa_texts)), [])
+        # Transitive: base classes reached only through `extends` are scanned too.
+        self.assertIn("res://scripts/qa_test_base.gd", qa_texts)
+
+    def test_a_ply_loaded_two_references_deep_is_found(self):
+        """The closure itself, on a project it did not grow up with."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "scenes" / "qa").mkdir(parents=True)
+            (project / "scripts").mkdir()
+            (project / "scenes" / "qa" / "qa_probe.tscn").write_text(
+                '[ext_resource type="Script" path="res://scenes/qa/qa_probe.gd" id="1"]\n',
+                encoding="utf-8",
+            )
+            (project / "scenes" / "qa" / "qa_probe.gd").write_text(
+                'extends "res://scripts/qa_probe_base.gd"\n', encoding="utf-8"
+            )
+            (project / "scripts" / "qa_probe_base.gd").write_text(
+                'var fixture = preload("res://tests/fixtures/test_splats.ply")\n', encoding="utf-8"
+            )
+            (project / "scripts" / "qa_test_runner.gd").write_text("extends SceneTree\n", encoding="utf-8")
+            closure = _qa_reference_closure(project, _qa_closure_roots(project))
+        self.assertIn("res://scripts/qa_probe_base.gd", closure)
+        failures = self._failures(qa_texts={**self.inputs[0], **closure})
+        self.assertTrue(
+            any("qa_probe_base.gd loads res://tests/fixtures/test_splats.ply" in f for f in failures),
+            failures,
+        )
+
+    def test_a_scene_script_loading_the_benchmark_fixture_fails(self):
+        qa_texts = dict(self.inputs[0])
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        self.assertIn(scene_script, qa_texts)
+        qa_texts[scene_script] += '\nvar extra = load("res://tests/fixtures/test_splats.ply")\n'
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("floor-governed" in failure for failure in failures), failures)
+
+    def test_a_ply_path_built_at_run_time_fails_closed(self):
+        qa_texts = dict(self.inputs[0])
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        qa_texts[scene_script] += '\nvar extra = load("res://tests/fixtures/%s.ply" % name)\n'
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("cannot resolve to a literal" in failure for failure in failures), failures)
+        # Discrimination: a comment naming a PLY is not a load.
+        commented = dict(self.inputs[0])
+        commented[scene_script] += "\n## qa_splats_1024.ply is the QA corpus\n"
+        self.assertEqual(self._failures(qa_texts=commented), [])
+
+    def test_a_deleted_baseline_count_field_fails(self):
+        """#991 review: the counts must be REQUIRED, or deleting them disables the check."""
+        pairs = _qa_route_pairs(self.inputs[0])
+        [(candidate, _)] = pairs["visual_diff"]["candidate"]
+        [(reference, _)] = pairs["visual_diff"]["reference"]
+        cases = {
+            "candidate source count": (candidate, "source_splat_count", "does not record source_splat_count"),
+            "candidate reference count": (
+                candidate, "reference_source_splat_count", "does not record reference_source_splat_count"
+            ),
+            "reference source count": (reference, "source_splat_count", "does not record source_splat_count"),
+        }
+        for label, (scene, key, expected) in cases.items():
+            with self.subTest(case=label):
+                baseline = json.loads(json.dumps(self.inputs[5]))
+                for entry in baseline["results"]:
+                    if entry.get("scene") == scene:
+                        del entry["metrics"][key]
+                failures = self._failures(baseline_payload=baseline)
+                self.assertTrue(any(scene in f and expected in f for f in failures), failures)
+
+        with self.subTest(case="whole entry removed"):
+            baseline = json.loads(json.dumps(self.inputs[5]))
+            baseline["results"] = [e for e in baseline["results"] if e.get("scene") != candidate]
+            failures = self._failures(baseline_payload=baseline)
+            self.assertTrue(any("has no entry in the committed baseline" in f for f in failures), failures)
+
+        with self.subTest(case="quarantined pair scene is exempt"):
+            baseline = json.loads(json.dumps(self.inputs[5]))
+            baseline["results"] = [e for e in baseline["results"] if e.get("scene") != candidate]
+            baseline.setdefault("quarantined", {})[candidate] = "test"
+            failures = self._failures(baseline_payload=baseline)
+            self.assertFalse(any(candidate in f for f in failures), failures)
 
     def test_the_world_header_is_read_at_the_loaders_offsets(self):
         header = struct.pack("<IIII", WORLD_MAGIC, 1, 4, 1024)
