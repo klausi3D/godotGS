@@ -1897,8 +1897,16 @@ def _run_runtime_validation_contract_guard(
     selected = _selected_producer_binary(
         godot_binary if godot_binary is not None else _GUARD_GODOT_BINARY_OVERRIDE
     )
+    # A selected binary built without test support cannot run [GeneratePLY] at
+    # all. main() already classifies that case and defers it to the module lanes'
+    # strict/warn-only disposition -- but this guard phase runs BEFORE main()'s
+    # probe, so requiring the capture here failed warn-only and
+    # --allow-tests-unavailable runs in the guards instead (#934 review). Same
+    # probe, same classification. A binary that cannot be launched at all is not
+    # "unavailable" by that probe, so it is still forwarded and still fails.
+    without_test_support = selected is not None and _test_runner_is_unavailable(selected)
     env = None
-    if selected is not None:
+    if selected is not None and not without_test_support:
         env = dict(os.environ)
         env["GODOT_BINARY"] = selected
         env[PRODUCER_CAPTURE_REQUIRED_ENV] = "1"
@@ -1912,11 +1920,15 @@ def _run_runtime_validation_contract_guard(
 
     # Say which mode the pass came from: with no binary selected the capture is
     # skipped, and a bare "passed" would read as if it had run.
-    mode = (
-        f"real-producer capture ran against {selected}"
-        if selected is not None
-        else "real-producer capture NOT run: no Godot binary was selected"
-    )
+    if without_test_support:
+        mode = (
+            f"real-producer capture NOT run: the selected binary {selected} has no "
+            "test support; the module lanes apply the tests-unavailable disposition"
+        )
+    elif selected is not None:
+        mode = f"real-producer capture ran against {selected}"
+    else:
+        mode = "real-producer capture NOT run: no Godot binary was selected"
     return True, [f"Runtime validation contract guard passed ({mode})."]
 
 

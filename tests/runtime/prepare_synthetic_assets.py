@@ -1275,6 +1275,32 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
         # (with the replacement in it) down with the `with` block. `os.replace()`
         # is atomic within a filesystem, and the staging directory is created
         # inside `output_dir`, so the destination is never transiently absent.
+        #
+        # ...and publish the corpus ALL OR NOTHING. Each replace is atomic, but the
+        # corpus is several files: a replace that failed after earlier ones had
+        # succeeded left this run's fixtures beside the previous run's. Every one
+        # of them is structurally whole and above its floor, so no later check can
+        # see the mixture (#934 review). Copy each file about to be replaced first
+        # -- copying leaves the destination in place -- and put the previous corpus
+        # back if any replacement fails.
+        previous: dict[str, Path | None] = {}
+        backup_dir = staging_dir / ".previous_corpus"
+        try:
+            backup_dir.mkdir()
+            for name in sorted(CPP_GENERATED_FILENAMES):
+                destination = output_dir / name
+                if destination.exists():
+                    shutil.copy2(destination, backup_dir / name)
+                    previous[name] = backup_dir / name
+                else:
+                    previous[name] = None
+        except OSError as exc:
+            print(
+                "[prepare_synthetic_assets] could not keep a copy of the current fixtures "
+                f"before publishing ({exc}); nothing was published"
+            )
+            return False
+
         published: list[str] = []
         for name in sorted(CPP_GENERATED_FILENAMES):
             destination = output_dir / name
@@ -1285,12 +1311,23 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                     "[prepare_synthetic_assets] could not publish the generated "
                     f"{name}: {exc}"
                 )
-                if published:
+                not_restored = _roll_back_publish(output_dir, published, previous)
+                if not_restored:
                     print(
-                        "  already published this run: " + ", ".join(published) + "; the "
-                        "rest of the corpus is the previous run's and the floor check "
-                        "will report any file that is not whole"
+                        "  ROLLBACK INCOMPLETE: "
+                        + ", ".join(not_restored)
+                        + " still hold this run's output while the rest of the corpus is "
+                        "the previous run's. Every file is individually valid, so nothing "
+                        f"downstream can detect the mixture: delete the fixtures in {output_dir} "
+                        "and regenerate before using them"
                     )
+                elif published:
+                    print(
+                        "  rolled back " + ", ".join(published) + "; the fixtures in the "
+                        "workspace are the previous corpus, unchanged"
+                    )
+                else:
+                    print("  nothing was published; the fixtures in the workspace are unchanged")
                 return False
             published.append(name)
 
@@ -1299,6 +1336,30 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             size = (output_dir / name).stat().st_size
             print(f"[prepare_synthetic_assets] C++ generated {name} ({size:,} bytes)")
     return True
+
+
+def _roll_back_publish(
+    output_dir: Path, published: list[str], previous: dict[str, Path | None]
+) -> list[str]:
+    """Restore the corpus a failed publish had partly replaced; return what it could not.
+
+    A file that existed before is put back from its copy by an atomic replace. A
+    file that did not exist before is removed again, because "absent" is what the
+    workspace held. Newest first, so a failure part-way leaves the longest possible
+    prefix of the corpus unchanged.
+    """
+    not_restored: list[str] = []
+    for name in reversed(published):
+        destination = output_dir / name
+        backup = previous.get(name)
+        try:
+            if backup is None:
+                destination.unlink()
+            else:
+                os.replace(backup, destination)
+        except OSError:
+            not_restored.append(name)
+    return sorted(not_restored)
 
 
 def _generate(

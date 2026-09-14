@@ -611,6 +611,109 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 f"{blocked} was left in a state that is neither the old nor the new file",
             )
 
+    def _publish_with_a_lock(self, output_dir, *, blocked_publish, blocked_restore=()):
+        """Run the producer path with `os.replace` failing for chosen destinations.
+
+        The staged corpus is written a few splats ABOVE each floor, so it is
+        byte-different from a corpus written AT the floor: "the previous corpus is
+        still there" is then a comparison that can fail.
+        """
+        prep = self._prep_module()
+        names = sorted(prep.CPP_GENERATED_FILENAMES)
+        real_replace = prep.os.replace
+
+        def flaky_replace(src, dst, *args, **kwargs):
+            source, destination = Path(src), Path(dst)
+            restoring = source.parent.name == ".previous_corpus"
+            if not restoring and destination.name == blocked_publish:
+                raise OSError(13, "the file is locked by another process")
+            if restoring and destination.name in blocked_restore:
+                raise OSError(13, "the file is locked by another process")
+            return real_replace(src, dst, *args, **kwargs)
+
+        def fake_run(cmd, **kwargs):
+            staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+            for name in names:
+                _write_fixture_header(
+                    staging / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024) + 7
+                )
+            return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+        out = io.StringIO()
+        with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+            with mock.patch.object(prep.os, "replace", side_effect=flaky_replace):
+                with contextlib.redirect_stdout(out):
+                    accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+        return prep, names, accepted, out.getvalue()
+
+    def test_a_publish_that_fails_part_way_restores_the_previous_corpus(self) -> None:
+        """#934 review: a partial publish left a mixture no later check can see.
+
+        The LAST file is locked, so every earlier file had already been replaced.
+        Each of those is whole and above its floor; only the rollback makes the
+        workspace the previous corpus again rather than half of each.
+        """
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            names = sorted(prep.CPP_GENERATED_FILENAMES)
+            self.assertGreater(len(names), 1, "a one-file corpus cannot be partly published")
+            existing = {
+                name: _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+                for name in names
+            }
+            _prep, _names, accepted, printed = self._publish_with_a_lock(
+                output_dir, blocked_publish=names[-1]
+            )
+
+            self.assertFalse(accepted, "a failed publish was reported as a success")
+            mixed = sorted(
+                name for name in names if (output_dir / name).read_bytes() != existing[name]
+            )
+            self.assertEqual(mixed, [], "the workspace holds a mixture of two corpora")
+            self.assertIn("rolled back", printed)
+
+    def test_a_rolled_back_publish_removes_files_that_did_not_exist_before(self) -> None:
+        """Absent is a state too: rolling back must not leave a new file behind."""
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            names = sorted(prep.CPP_GENERATED_FILENAMES)
+            for name in names[1:]:
+                _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+            _prep, _names, accepted, _printed = self._publish_with_a_lock(
+                output_dir, blocked_publish=names[-1]
+            )
+
+            self.assertFalse(accepted)
+            self.assertFalse(
+                (output_dir / names[0]).exists(),
+                f"{names[0]} did not exist before the failed publish and still does",
+            )
+
+    def test_an_incomplete_rollback_names_the_files_it_left_mixed(self) -> None:
+        """When the restore is locked too, say exactly which files are the new run's."""
+        prep = self._prep_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            names = sorted(prep.CPP_GENERATED_FILENAMES)
+            for name in names:
+                _write_fixture_header(
+                    output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                )
+            _prep, _names, accepted, printed = self._publish_with_a_lock(
+                output_dir, blocked_publish=names[-1], blocked_restore={names[0]}
+            )
+
+            self.assertFalse(accepted)
+            self.assertIn("ROLLBACK INCOMPLETE", printed)
+            self.assertIn(names[0], printed.split("ROLLBACK INCOMPLETE", 1)[1])
+            self.assertNotIn("rolled back", printed)
+
     def test_a_killed_run_cannot_leave_committable_fixtures_behind(self) -> None:
         """#934: the staging directory is inside tests/fixtures, and git can see it.
 
