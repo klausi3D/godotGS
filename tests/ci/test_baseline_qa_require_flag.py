@@ -1907,6 +1907,61 @@ def _unverifiable_ply_mentions(source, text):
     return problems
 
 
+# Any call whose name contains `load`: load, preload, ResourceLoader.load,
+# load_threaded_request, GaussianSplatAsset/GaussianData.load_from_file,
+# PLYLoader.load_file, ... -- matched by shape, not by a list of names that drifts.
+# Group 3 is empty when the call does not close on its own line.
+LOADER_CALL_RE = re.compile(r"\b([\w.]*load\w*)\s*\(([^)]*)(\)?)", re.IGNORECASE)
+LITERAL_RES_ARGUMENT_RE = re.compile(r"""^\s*("res://[^"]*"|'res://[^']*')\s*(,.*)?$""")
+FUNCTION_DEFINITION_RE = re.compile(r"^(static\s+)?func\b")
+
+# POLICY, so enumerated: the loader calls in QA code whose argument is not a
+# literal res:// path, each with the reason it cannot load a PLY. Keyed by the
+# exact call text, so an edited call leaves the list and fails closed; an entry
+# whose call is gone is reported as stale.
+QA_NON_LITERAL_LOADS = {
+    ("res://scripts/qa_test_runner.gd", "load(scene_path)"):
+        "loads the scenes listed in test_scenes, which are this closure's own roots",
+    ("res://scripts/qa_route_capture_base.gd", "Image.load_from_file(ref_path)"):
+        "reads back the PNG capture the reference route wrote (_capture_path), not a splat fixture",
+}
+
+
+def _unresolved_loads(source, text):
+    """Loader calls in a QA script whose target this check cannot read as a literal path.
+
+    A path is a PLY only if something loads it, and `load("...test_splats." + "ply")`
+    loads one without a `.ply` or a res:// literal anywhere on the line (#991
+    review). So the rule is on the CALL: its argument must be one literal res://
+    path (checked like any other reference), or the call must be on the policy
+    list above. Anything else -- a variable, an expression, a call spanning lines
+    -- fails closed.
+    """
+    problems = []
+    if not source.endswith(".gd"):
+        return problems
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#") or FUNCTION_DEFINITION_RE.match(stripped):
+            continue
+        for name, argument, closed in LOADER_CALL_RE.findall(stripped):
+            call = f"{name}({argument.strip()})"
+            if not closed:
+                problems.append(
+                    f"{source}:{number} {name}(...) does not close on its line, so its target "
+                    f"cannot be read: {stripped[:120]!r}"
+                )
+            elif not argument.strip() or LITERAL_RES_ARGUMENT_RE.match(argument):
+                continue
+            elif (source, call) not in QA_NON_LITERAL_LOADS:
+                problems.append(
+                    f"{source}:{number} {call} loads a target this check cannot resolve to a "
+                    "literal res:// path; make it a literal or add it to QA_NON_LITERAL_LOADS "
+                    "with the reason it cannot load a PLY"
+                )
+    return problems
+
+
 # Written by qa_route_capture_base.gd for every route scene
 # (`result_metrics["source_splat_count"]`, :158) and, for the candidate only, when it
 # loads the reference manifest (`result_metrics["reference_source_splat_count"]`, :391).
@@ -1922,6 +1977,7 @@ def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, wo
 
     for source, text in sorted(qa_texts.items()):
         failures.extend(_unverifiable_ply_mentions(source, text))
+        failures.extend(_unresolved_loads(source, text))
         for ply in sorted(set(PLY_REFERENCE_RE.findall(text))):
             if ply in floor_governed:
                 failures.append(
@@ -1944,6 +2000,13 @@ def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, wo
                         "Godot resolves a uid before the path, and a generated fixture has no "
                         "stable uid, so the scene can load a different file than it names"
                     )
+
+    for (source, call), _reason in sorted(QA_NON_LITERAL_LOADS.items()):
+        if call not in qa_texts.get(source, ""):
+            failures.append(
+                f"QA_NON_LITERAL_LOADS lists {call} in {source}, which no longer makes that call; "
+                "remove the stale entry"
+            )
 
     pairs = _qa_route_pairs(qa_texts)
     if not pairs:
@@ -2190,6 +2253,43 @@ class QaCorpusIsPinnedTest(unittest.TestCase):
         commented = dict(self.inputs[0])
         commented[scene_script] += "\n## qa_splats_1024.ply is the QA corpus\n"
         self.assertEqual(self._failures(qa_texts=commented), [])
+
+    def test_a_load_whose_target_is_not_a_literal_fails_closed(self):
+        """#991 review: the extension assembled at run time never contains `.ply`."""
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        cases = {
+            "concatenated extension": 'var extra = load("res://tests/fixtures/test_splats." + "ply")',
+            "variable": 'var extra = load(fixture_path)',
+            "asset method": 'var ok = asset.load_from_file(path)',
+            "ResourceLoader": 'var extra = ResourceLoader.load(base + name)',
+            "call spanning lines": 'var extra = load(\n\t"res://tests/fixtures/qa_splats_1024.ply")',
+        }
+        for label, code in cases.items():
+            with self.subTest(case=label):
+                qa_texts = dict(self.inputs[0])
+                qa_texts[scene_script] += "\n" + code + "\n"
+                failures = self._failures(qa_texts=qa_texts)
+                self.assertTrue(any(scene_script in f and "cannot" in f for f in failures), failures)
+
+        with self.subTest(case="a literal QA fixture load is accepted"):
+            qa_texts = dict(self.inputs[0])
+            qa_texts[scene_script] += '\nvar extra = preload("res://tests/fixtures/qa_splats_1024.ply")\n'
+            self.assertEqual(self._failures(qa_texts=qa_texts), [])
+
+    def test_the_non_literal_load_policy_is_exact_and_not_stale(self):
+        runner = "res://scripts/qa_test_runner.gd"
+        with self.subTest(case="an edited policy call leaves the list"):
+            qa_texts = dict(self.inputs[0])
+            self.assertIn("load(scene_path)", qa_texts[runner])
+            qa_texts[runner] = qa_texts[runner].replace("load(scene_path)", "load(scene_path + suffix)")
+            failures = self._failures(qa_texts=qa_texts)
+            self.assertTrue(any("load(scene_path + suffix)" in f for f in failures), failures)
+            self.assertTrue(any("stale entry" in f for f in failures), failures)
+
+        with self.subTest(case="every entry names a call that exists"):
+            for (source, call), reason in QA_NON_LITERAL_LOADS.items():
+                self.assertIn(call, self.inputs[0].get(source, ""), (source, call))
+                self.assertTrue(reason)
 
     def test_a_deleted_baseline_count_field_fails(self):
         """#991 review: the counts must be REQUIRED, or deleting them disables the check."""
