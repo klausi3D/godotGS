@@ -24,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,9 @@ def _write_fixture_header(path: Path, splats: int) -> bytes:
     checked against what both producers write: an earlier version of this helper
     declared only `property float x`, so every positive case built on it was
     certifying a one-property file as producer output (#934 review).
+
+    And the VALUES are loadable: an all-zero body is an all-zero rotation, which
+    the loader normalizes into NaN and refuses. So each splat is the identity.
     """
     import importlib
 
@@ -65,7 +69,9 @@ def _write_fixture_header(path: Path, splats: int) -> bytes:
         + "".join(f"property float {name}\n" for name in props)
         + "end_header\n"
     ).encode("ascii")
-    contents = header + b"\x00" * (splats * 4 * len(props))
+    record = [0.0] * len(props)
+    record[props.index("rot_0")] = 1.0
+    contents = header + struct.pack(f"<{len(props)}f", *record) * splats
     path.write_bytes(contents)
     return contents
 
@@ -610,6 +616,57 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
                 existing[blocked],
                 f"{blocked} was left in a state that is neither the old nor the new file",
             )
+
+    def test_a_staged_corpus_the_loader_would_refuse_is_not_published(self) -> None:
+        """#934 review: complete, schema-correct and above the floor is not loadable.
+
+        `GaussianSplatAsset::load_from_file()` refuses an asset holding one
+        non-finite render field, and two finite inputs decode into one: an
+        all-zero rotation (normalize() divides by zero) and a log-scale whose
+        exp() overflows. Each passed the staged checks and replaced a usable
+        corpus with one every scenario then fails to load.
+        """
+        prep = self._prep_module()
+        props = list(prep.REQUIRED_PLY_PROPERTIES)
+        corruptions = {
+            "nan position": ("x", float("nan"), "non-finite x"),
+            "zero rotation": ("rot_0", 0.0, "all-zero rotation"),
+            "overflowing scale": ("scale_1", 200.0, "overflows"),
+        }
+        for label, (prop, value, expected) in corruptions.items():
+            with self.subTest(corruption=label), tempfile.TemporaryDirectory() as tmp:
+                output_dir = Path(tmp)
+                names = sorted(prep.CPP_GENERATED_FILENAMES)
+                existing = {
+                    name: _write_fixture_header(
+                        output_dir / name, prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024)
+                    )
+                    for name in names
+                }
+                victim = names[0]
+
+                def fake_run(cmd, **kwargs):
+                    staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                    for name in names:
+                        count = prep.FIXTURE_FLOORS_BY_FILENAME.get(name, 1024) + 7
+                        contents = bytearray(_write_fixture_header(staging / name, count))
+                        if name == victim:
+                            body_start = contents.index(b"end_header\n") + len(b"end_header\n")
+                            offset = body_start + (3 * len(props) + props.index(prop)) * 4
+                            contents[offset:offset + 4] = struct.pack("<f", value)
+                            (staging / name).write_bytes(bytes(contents))
+                    return prep.subprocess.CompletedProcess(cmd, 0, "", "")
+
+                out = io.StringIO()
+                with mock.patch.object(prep.subprocess, "run", side_effect=fake_run):
+                    with contextlib.redirect_stdout(out):
+                        accepted = prep._generate_via_godot(Path("godot"), output_dir, True)
+
+                self.assertFalse(accepted, f"a corpus with a {label} was published")
+                changed = sorted(n for n in names if (output_dir / n).read_bytes() != existing[n])
+                self.assertEqual(changed, [], "the usable corpus was replaced")
+                self.assertIn(victim, out.getvalue())
+                self.assertIn(expected, out.getvalue())
 
     def _publish_with_a_lock(self, output_dir, *, blocked_publish, blocked_restore=()):
         """Run the producer path with `os.replace` failing for chosen destinations.

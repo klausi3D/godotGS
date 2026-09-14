@@ -9,6 +9,7 @@ Policy:
 from __future__ import annotations
 
 import argparse
+import array
 import json
 import math
 import os
@@ -615,6 +616,94 @@ def ply_schema_failure(path: Path) -> str | None:
     return None
 
 
+#: `PLYLoader::parse_vertex()` stores `exp(scale_n)` in a float field
+#: (ply_loader.cpp:654-656); a log-scale above ln(FLT_MAX) overflows it to inf.
+FLOAT32_MAX = 3.4028234663852886e38
+MAX_LOG_SCALE = math.log(FLOAT32_MAX)
+SCALE_PROPERTIES: tuple[str, ...] = ("scale_0", "scale_1", "scale_2")
+ROTATION_PROPERTIES: tuple[str, ...] = ("rot_0", "rot_1", "rot_2", "rot_3")
+
+
+def ply_value_failure(path: Path) -> str | None:
+    """Why the loader would REFUSE the splats in `path`, or None when it would load them.
+
+    A complete body with the producers' schema can still hold values the runtime
+    refuses: `GaussianSplatAsset::load_from_file()` rejects the whole asset when
+    `GaussianData::all_render_fields_finite()` finds a single non-finite position,
+    scale, rotation, opacity or SH value (gaussian_data.cpp:586-624). So a
+    producer regression that wrote a NaN passed every structural check here and
+    replaced a usable corpus with one no scenario can load (#934 review). Two
+    decoded values turn non-finite from finite input, so they are checked the way
+    the loader computes them:
+
+    * scale -- the loader stores `exp(scale_n)` (ply_loader.cpp:654-656), which
+      overflows a float to inf above ln(FLT_MAX);
+    * rotation -- it normalizes the quaternion (ply_loader.cpp:660-664), and
+      `Quaternion::normalize()` divides by the length (core/math/quaternion.cpp:65-67),
+      so an all-zero rotation becomes NaN.
+
+    Any non-finite float in the body is refused. That is slightly stricter than the
+    loader, which does not check normals and saturates an infinite opacity logit;
+    a producer that writes one is broken either way. Call it on a file that
+    `ply_payload_failure()` and `ply_schema_failure()` have already accepted.
+    """
+    names = ply_property_names(path)
+    vertex_count = read_ply_vertex_count(path)
+    if not names or vertex_count is None:
+        return "the header cannot be read"
+    stride = len(names)
+    try:
+        with path.open("rb") as stream:
+            while True:
+                line = stream.readline()
+                if not line:
+                    return "the header never ends (no end_header line)"
+                if line.strip() == b"end_header":
+                    break
+            body = stream.read()
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if len(body) != vertex_count * stride * 4:
+        return f"the body is {len(body):,} bytes, not {vertex_count * stride * 4:,}"
+    values = array.array("f")
+    values.frombytes(body)
+    if sys.byteorder != "little":
+        values.byteswap()
+
+    # One pass decides; the slow scan runs only to name the offender.
+    try:
+        finite = math.isfinite(math.fsum(values))
+    except (ValueError, OverflowError):  # fsum raises on inf + -inf
+        finite = False
+    if not finite:
+        index = next(i for i, value in enumerate(values) if not math.isfinite(value))
+        return (
+            f"splat {index // stride} has a non-finite {names[index % stride]} "
+            f"({values[index]}); the loader refuses the whole asset"
+        )
+
+    for name in SCALE_PROPERTIES:
+        if name not in names:
+            continue
+        column = values[names.index(name)::stride]
+        if max(column, default=0.0) > MAX_LOG_SCALE:
+            splat = next(i for i, value in enumerate(column) if value > MAX_LOG_SCALE)
+            return (
+                f"splat {splat} has {name}={column[splat]}; the loader's exp() of it "
+                "overflows to inf and the asset is refused"
+            )
+
+    if all(name in names for name in ROTATION_PROPERTIES):
+        columns = [values[names.index(name)::stride] for name in ROTATION_PROPERTIES]
+        for splat, quaternion in enumerate(zip(*columns)):
+            if not any(quaternion):
+                return (
+                    f"splat {splat} has an all-zero rotation; the loader's normalize() "
+                    "turns it into NaN and the asset is refused"
+                )
+    return None
+
+
 def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
     """Why `path` does not satisfy `required_splats`, or None when it does.
 
@@ -639,6 +728,10 @@ def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
     schema_problem = ply_schema_failure(path)
     if schema_problem is not None:
         return f"NOT A SPLAT FIXTURE ({schema_problem})"
+    # ...and a well-formed splat file can still hold values the loader refuses.
+    value_problem = ply_value_failure(path)
+    if value_problem is not None:
+        return f"UNLOADABLE ({value_problem})"
     actual = read_ply_vertex_count(path)
     if actual is None:
         return "UNVERIFIABLE"
@@ -1243,6 +1336,13 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
             schema_problem = ply_schema_failure(staged)
             if schema_problem is not None:
                 rejected.append(f"{name}: {schema_problem}")
+                continue
+            # ...and a splat file is not a loadable one. A NaN position or an
+            # all-zero rotation passes both checks above and every floor, and the
+            # runtime then refuses the asset in every scenario (#934 review).
+            value_problem = ply_value_failure(staged)
+            if value_problem is not None:
+                rejected.append(f"{name}: {value_problem}")
                 continue
             floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
             if floor <= 0:

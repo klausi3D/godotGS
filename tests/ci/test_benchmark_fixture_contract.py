@@ -90,11 +90,11 @@ def _write_ply(path: Path, vertex_count: int, *, header_only: bool = False) -> N
         + "".join(f"property float {name}\n" for name in props)
         + "end_header\n"
     ).encode("ascii")
-    body = (
-        b""
-        if header_only
-        else struct.pack(f"<{len(props)}f", *([0.0] * len(props))) * vertex_count
-    )
+    # The identity rotation, not zeros: an all-zero quaternion is a value the
+    # loader normalizes into NaN and refuses, so a zero body is not a fixture.
+    record = [0.0] * len(props)
+    record[props.index("rot_0")] = 1.0
+    body = b"" if header_only else struct.pack(f"<{len(props)}f", *record) * vertex_count
     path.write_bytes(header + body)
 
 
@@ -488,6 +488,69 @@ class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
             ):
                 self.assertEqual(_prepare.asset_floor_failures(root), [])
 
+    def test_values_the_loader_refuses_are_not_a_fixture(self):
+        """#934 review: complete and schema-correct does not mean loadable.
+
+        Mirrors the loader: every render field must be finite
+        (`GaussianData::all_render_fields_finite()`), `exp(scale_n)` must not
+        overflow, and a rotation must not be all zero (`normalize()` divides by its
+        length). Each case is otherwise a whole fixture above its floor.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        inf = float("inf")
+        cases = {
+            "nan position": {"x": float("nan")},
+            "infinite colour": {"f_dc_0": inf},
+            "opposite infinities": {"y": inf, "z": -inf},
+            "zero rotation": {"rot_0": 0.0},
+            "negative-zero rotation": {"rot_0": -0.0, "rot_1": -0.0, "rot_2": -0.0, "rot_3": -0.0},
+            "overflowing scale": {"scale_2": _prepare.MAX_LOG_SCALE + 1.0},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, overrides in cases.items():
+                with self.subTest(case=label):
+                    ply = Path(tmp) / f"{label.replace(' ', '_')}.ply"
+                    _write_ply(ply, 32)
+                    data = bytearray(ply.read_bytes())
+                    body_start = data.index(b"end_header\n") + len(b"end_header\n")
+                    for prop, value in overrides.items():
+                        offset = body_start + (9 * len(props) + props.index(prop)) * 4
+                        data[offset:offset + 4] = struct.pack("<f", value)
+                    ply.write_bytes(bytes(data))
+                    self.assertIsNone(_prepare.ply_payload_failure(ply))
+                    self.assertIsNone(_prepare.ply_schema_failure(ply))
+                    problem = _prepare.ply_value_failure(ply)
+                    self.assertIsNotNone(problem, f"a fixture with a {label} was accepted")
+                    self.assertIn("splat 9", problem)
+                    self.assertIn("UNLOADABLE", _prepare.fixture_floor_failure(ply, 32) or "")
+
+            # Discrimination: legal extremes the loader accepts are accepted.
+            edge = Path(tmp) / "edge.ply"
+            _write_ply(edge, 32)
+            data = bytearray(edge.read_bytes())
+            body_start = data.index(b"end_header\n") + len(b"end_header\n")
+            for prop, value in {
+                "scale_0": 88.0,
+                "scale_1": -300.0,
+                "rot_0": 0.0,
+                "rot_3": 1e-3,
+            }.items():
+                offset = body_start + (5 * len(props) + props.index(prop)) * 4
+                data[offset:offset + 4] = struct.pack("<f", value)
+            edge.write_bytes(bytes(data))
+            self.assertIsNone(_prepare.ply_value_failure(edge))
+            self.assertIsNone(_prepare.fixture_floor_failure(edge, 32))
+
+    def test_the_python_producers_real_output_is_loadable(self):
+        """Coupling: the check must accept what the fallback producer really writes."""
+        spec = _prepare.CANONICAL_SPECS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / Path(spec.relative_path).name
+            _prepare._write_ply(ply, _prepare._generate_rows(spec))
+            self.assertIsNone(_prepare.ply_payload_failure(ply))
+            self.assertIsNone(_prepare.ply_schema_failure(ply))
+            self.assertIsNone(_prepare.ply_value_failure(ply))
+
     def test_the_predicate_separates_the_four_ways_a_fixture_fails(self):
         with tempfile.TemporaryDirectory() as raw_td:
             root = Path(raw_td)
@@ -565,7 +628,10 @@ class FixtureSchemaIsTheProducersSchemaTests(unittest.TestCase):
             + "".join(f"property float {name}\n" for name in props)
             + "end_header\n"
         ).encode("ascii")
-        path.write_bytes(header + b"\x00" * (count * 4 * len(props)))
+        record = [0.0] * len(props)
+        if "rot_0" in props:
+            record[list(props).index("rot_0")] = 1.0  # identity; zeros normalize to NaN
+        path.write_bytes(header + struct.pack(f"<{len(props)}f", *record) * count)
         return path
 
     def test_a_one_property_file_is_complete_but_not_a_fixture(self):
