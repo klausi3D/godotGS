@@ -938,6 +938,12 @@ def _run_test_linkage_guard() -> tuple[bool, list[str]]:
 # the guard-step table calls its runners with no arguments.
 _GUARD_BASE_REF_OVERRIDE: str | None = None
 
+# Set from --godot-binary in _run_ci_guard_steps, for the same reason: the
+# runtime validation contract guard forwards it to its test so the real-producer
+# capture runs on the command that has a producer (#934 review). A lambda in the
+# table would have hidden the guard's script from the lane-ledger wiring check.
+_GUARD_GODOT_BINARY_OVERRIDE: str | None = None
+
 # The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
 # .github/workflows/agentic_pr_gate.yml has available from
 # `github.event.pull_request.base.*`.
@@ -1888,7 +1894,9 @@ def _run_runtime_validation_contract_guard(
     # class reads GODOT_BINARY, and without this the canonical
     # `run_module_tests.py --godot-binary <binary>` left it unset: the class
     # skipped and this guard still reported a plain pass (#934 review).
-    selected = _selected_producer_binary(godot_binary)
+    selected = _selected_producer_binary(
+        godot_binary if godot_binary is not None else _GUARD_GODOT_BINARY_OVERRIDE
+    )
     env = None
     if selected is not None:
         env = dict(os.environ)
@@ -3467,7 +3475,7 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
-            lambda: _run_runtime_validation_contract_guard(cli_args.godot_binary),
+            _run_runtime_validation_contract_guard,
             "Runtime validation contract guard failed.",
             "Runtime validation contract guard passed.",
         ),
@@ -3547,8 +3555,9 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     # Publish --base-ref so the env-skip guard subprocess ratchets against the
     # SAME base the render-path guard diffs against, instead of silently
     # resolving its own (which ends at origin/master).
-    global _GUARD_BASE_REF_OVERRIDE
+    global _GUARD_BASE_REF_OVERRIDE, _GUARD_GODOT_BINARY_OVERRIDE
     _GUARD_BASE_REF_OVERRIDE = getattr(cli_args, "base_ref", None)
+    _GUARD_GODOT_BINARY_OVERRIDE = getattr(cli_args, "godot_binary", None)
 
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:

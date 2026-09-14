@@ -146,14 +146,57 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
         self.assertIsNone(launched["env"], "the default binary was forwarded as a selection")
         self.assertIn("real-producer capture NOT run", messages[0])
 
-    def test_the_guard_list_passes_the_cli_binary(self):
-        """A forwarding function nobody calls with the binary forwards nothing."""
-        source = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn(
-            "lambda: _run_runtime_validation_contract_guard(cli_args.godot_binary)",
-            source,
-            "the guard phase no longer hands the selected binary to the contract guard",
-        )
+    def test_the_guard_phase_hands_the_cli_binary_to_the_contract_guard(self):
+        """Driven through the real `_run_ci_guard_steps()` table, not read from source.
+
+        A forwarding function that is never given the binary forwards nothing. The
+        first version of this wiring used a lambda in the guard table, which the
+        lane-ledger reachability check could not see through -- so this asserts the
+        behaviour end to end: the CLI binary is published by the guard phase and the
+        contract guard the table actually calls launches its test with it.
+        """
+        recorded: list = []
+
+        def _record_runner(runner, *_args, **_kwargs):
+            recorded.append(runner)
+            return None
+
+        cli_args = GuardScriptWiringTests._cli_args()
+        cli_args.godot_binary = "C:/selected/godot.windows.editor.dev.x86_64.exe"
+        saved = (harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE)
+        try:
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(harness, "_run_message_guard", _record_runner))
+                for step_name in GuardScriptWiringTests.LEAF_STEPS:
+                    stack.enter_context(
+                        mock.patch.object(harness, step_name, lambda *a, **k: None)
+                    )
+                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                harness._run_ci_guard_steps(cli_args)
+
+            self.assertIn(
+                harness._run_runtime_validation_contract_guard,
+                recorded,
+                "the guard table no longer calls the runtime validation contract guard",
+            )
+            launched = {}
+
+            def fake_run(args, cwd=None, env=None):
+                launched["env"] = env
+                return 0, "", ""
+
+            with mock.patch.dict(harness.os.environ, {}, clear=False):
+                harness.os.environ.pop("GODOT_BINARY", None)
+                with mock.patch.object(harness, "_run_command", side_effect=fake_run):
+                    harness._run_runtime_validation_contract_guard()
+            self.assertIsNotNone(launched.get("env"), "the CLI binary never reached the test")
+            self.assertEqual(
+                launched["env"]["GODOT_BINARY"],
+                "C:/selected/godot.windows.editor.dev.x86_64.exe",
+            )
+            self.assertEqual(launched["env"][harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
+        finally:
+            harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE = saved
 
     def test_required_mode_turns_an_unusable_binary_into_a_failure(self):
         """End to end, on the real contract test: required is not skippable."""
