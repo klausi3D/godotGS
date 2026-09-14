@@ -130,6 +130,19 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
             )
         return ok, messages, launched
 
+    def _assert_no_producer(self, env, message):
+        """The contract test got an explicit environment naming no producer.
+
+        Membership is asserted with assertTrue: assertNotIn would print the whole
+        environment on failure, and in CI that holds tokens.
+        """
+        self.assertTrue(env is not None, "the contract test inherited the runner's environment")
+        self.assertTrue("GODOT_BINARY" not in env, f"{message} (GODOT_BINARY reached the test)")
+        self.assertTrue(
+            harness.PRODUCER_CAPTURE_REQUIRED_ENV not in env,
+            f"{message} ({harness.PRODUCER_CAPTURE_REQUIRED_ENV} reached the test)",
+        )
+
     def test_a_selected_binary_is_forwarded_and_the_capture_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "godot.windows.editor.dev.x86_64.exe"
@@ -173,9 +186,8 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
                 str(binary), environ={}, without_test_support=True
             )
         self.assertTrue(ok, messages)
-        self.assertTrue(
-            launched["env"] is None,
-            "a binary without test support was forwarded and the capture required",
+        self._assert_no_producer(
+            launched["env"], "a binary without test support was forwarded and the capture required"
         )
         self.assertIn("real-producer capture NOT run", messages[0])
         self.assertIn("has no test support", messages[0])
@@ -249,10 +261,74 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
         self.assertTrue(launched.get("ok"), "the contract guard did not run, or failed")
         envs = launched.get("contract_envs", [])
         self.assertEqual(len(envs), 1, "the contract test was not launched exactly once")
-        self.assertTrue(
-            envs[0] is None, "the capture was required for a tests-disabled binary"
-        )
+        self._assert_no_producer(envs[0], "the capture was required for a tests-disabled binary")
         prep.assert_not_called()
+
+    def test_an_exported_tests_disabled_binary_is_not_inherited_by_the_contract_test(self):
+        """#934 review: the same scenario, selected through the environment instead.
+
+        `GODOT_BINARY=<tests-disabled build> run_module_tests.py --tests-unavailable-mode
+        warn-only`, with GS_REQUIRE_PRODUCER_CAPTURE also exported. Forwarding was
+        suppressed, but `env=None` let the contract test inherit both, so it ran the
+        capture with the unavailable binary and failed the guard phase.
+        """
+        launched: dict = {}
+        contract_script = str(harness.RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT)
+
+        def fake_run(args, cwd=None, env=None):
+            if contract_script in [str(arg) for arg in args]:
+                launched.setdefault("contract_envs", []).append(env)
+            return 0, "", ""
+
+        def run_only_the_contract_guard(runner, *_args, **_kwargs):
+            if runner is harness._run_runtime_validation_contract_guard:
+                ok, messages = runner()
+                launched["ok"], launched["messages"] = ok, messages
+                return None if ok else 1
+            return None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "godot.windows.template_release.x86_64.exe"
+            binary.write_bytes(b"")
+            argv = ["run_module_tests.py", "--tests-unavailable-mode", "warn-only"]
+            exported = {"GODOT_BINARY": str(binary), harness.PRODUCER_CAPTURE_REQUIRED_ENV: "1"}
+            saved = (
+                harness._GUARD_BASE_REF_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_EXPLICIT,
+            )
+            try:
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(mock.patch.dict(harness.os.environ, exported, clear=False))
+                    stack.enter_context(mock.patch.object(sys, "argv", argv))
+                    stack.enter_context(
+                        mock.patch.object(harness, "_run_message_guard", run_only_the_contract_guard)
+                    )
+                    for step_name in GuardScriptWiringTests.LEAF_STEPS:
+                        stack.enter_context(mock.patch.object(harness, step_name, lambda *a, **k: None))
+                    stack.enter_context(mock.patch.object(harness, "_run_command", side_effect=fake_run))
+                    stack.enter_context(
+                        mock.patch.object(harness, "_test_runner_is_unavailable", return_value=True)
+                    )
+                    stack.enter_context(mock.patch.object(harness, "_prepare_synthetic_assets"))
+                    stack.enter_context(mock.patch.object(harness, "_build_module_test_runs", return_value=[]))
+                    stack.enter_context(
+                        mock.patch.object(harness, "_lane_runs_missing_from_module_filters", return_value=[])
+                    )
+                    stack.enter_context(mock.patch.object(harness, "_run_doctest_lanes", return_value=0))
+                    stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                    self.assertEqual(harness.main(), 0, launched.get("messages"))
+            finally:
+                (
+                    harness._GUARD_BASE_REF_OVERRIDE,
+                    harness._GUARD_GODOT_BINARY_OVERRIDE,
+                    harness._GUARD_GODOT_BINARY_EXPLICIT,
+                ) = saved
+
+        envs = launched.get("contract_envs", [])
+        self.assertEqual(len(envs), 1, "the contract test was not launched exactly once")
+        self._assert_no_producer(envs[0], "an exported tests-disabled binary reached the contract test")
+        self.assertIn("has no test support", launched["messages"][0])
 
     def test_the_bare_default_is_not_a_selection(self):
         """Discrimination: guard-only lanes pass no binary and must stay runnable.
@@ -261,10 +337,12 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
         must not turn a guard-only run into one that requires a tests=yes build.
         The pass then says, in so many words, that the capture did not run.
         """
-        ok, messages, launched = self._launched_env("godot", environ={})
+        ok, messages, launched = self._launched_env(
+            "godot", environ={harness.PRODUCER_CAPTURE_REQUIRED_ENV: "1"}
+        )
         self.assertTrue(ok)
-        # Not assertIsNone: its failure message would print the whole environment.
-        self.assertTrue(launched["env"] is None, "the default binary was forwarded as a selection")
+        # An inherited requirement flag is dropped too: nothing was selected to require.
+        self._assert_no_producer(launched["env"], "the default binary was forwarded as a selection")
         self.assertIn("real-producer capture NOT run", messages[0])
 
     def test_an_explicit_bare_name_is_a_selection(self):

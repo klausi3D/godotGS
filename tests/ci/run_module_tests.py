@@ -1912,9 +1912,18 @@ def _run_runtime_validation_contract_guard(
     # probe, same classification. A binary that cannot be launched at all is not
     # "unavailable" by that probe, so it is still forwarded and still fails.
     without_test_support = selected is not None and _test_runner_is_unavailable(selected)
-    env = None
+    # Always an explicit environment, holding exactly the producer chosen here. With
+    # `env=None` the test inherited GODOT_BINARY, so a tests-disabled build exported
+    # there ran the capture on the unavailable path anyway and failed the guards
+    # before the lanes could apply warn-only; an inherited
+    # GS_REQUIRE_PRODUCER_CAPTURE could likewise demand a capture nobody selected
+    # (#934 review).
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() not in ("GODOT_BINARY", PRODUCER_CAPTURE_REQUIRED_ENV)
+    }
     if selected is not None and not without_test_support:
-        env = dict(os.environ)
         env["GODOT_BINARY"] = selected
         env[PRODUCER_CAPTURE_REQUIRED_ENV] = "1"
 
