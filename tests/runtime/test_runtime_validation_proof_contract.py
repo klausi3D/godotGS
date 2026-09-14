@@ -630,7 +630,9 @@ class SelectedProducerFailureIsNotSuccess(unittest.TestCase):
         props = list(prep.REQUIRED_PLY_PROPERTIES)
         corruptions = {
             "nan position": ("x", float("nan"), "non-finite x"),
-            "zero rotation": ("rot_0", 0.0, "all-zero rotation"),
+            "zero rotation": ("rot_0", 0.0, "float32 length is zero"),
+            # #934 review: nonzero, but every component squares to a float32 zero.
+            "underflowing rotation": ("rot_0", 1e-30, "float32 length is zero"),
             "overflowing scale": ("scale_1", 200.0, "overflows"),
         }
         for label, (prop, value, expected) in corruptions.items():

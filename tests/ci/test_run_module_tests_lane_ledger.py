@@ -101,7 +101,7 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
     hand-authored fixtures on the one command that had a producer available.
     """
 
-    def _launched_env(self, godot_binary, environ=None, *, without_test_support=False):
+    def _launched_env(self, godot_binary, environ=None, *, without_test_support=False, explicit=None):
         """Run the guard with the test launch faked.
 
         `without_test_support` stubs the availability probe; None leaves the real
@@ -125,7 +125,9 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
                         harness, "_test_runner_is_unavailable", return_value=without_test_support
                     )
                 )
-            ok, messages = harness._run_runtime_validation_contract_guard(godot_binary)
+            ok, messages = harness._run_runtime_validation_contract_guard(
+                godot_binary, explicit=explicit
+            )
         return ok, messages, launched
 
     def test_a_selected_binary_is_forwarded_and_the_capture_required(self):
@@ -210,7 +212,11 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
                 "--tests-unavailable-mode",
                 "warn-only",
             ]
-            saved = (harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE)
+            saved = (
+                harness._GUARD_BASE_REF_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_EXPLICIT,
+            )
             try:
                 with contextlib.ExitStack() as stack:
                     stack.enter_context(mock.patch.object(sys, "argv", argv))
@@ -234,7 +240,11 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
                     stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
                     self.assertEqual(harness.main(), 0, launched.get("messages"))
             finally:
-                harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE = saved
+                (
+                    harness._GUARD_BASE_REF_OVERRIDE,
+                    harness._GUARD_GODOT_BINARY_OVERRIDE,
+                    harness._GUARD_GODOT_BINARY_EXPLICIT,
+                ) = saved
 
         self.assertTrue(launched.get("ok"), "the contract guard did not run, or failed")
         envs = launched.get("contract_envs", [])
@@ -257,6 +267,93 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
         self.assertTrue(launched["env"] is None, "the default binary was forwarded as a selection")
         self.assertIn("real-producer capture NOT run", messages[0])
 
+    def test_an_explicit_bare_name_is_a_selection(self):
+        """#934 review: `--godot-binary godot` is a selection; main() runs that binary.
+
+        Only the UNSET default is not. Inferring selection from the value made the
+        explicit bare name skip the required capture and report "no binary".
+        """
+        ok, messages, launched = self._launched_env("godot", environ={}, explicit=True)
+        self.assertTrue(ok, messages)
+        env = launched["env"]
+        self.assertTrue(env is not None, "an explicit --godot-binary godot was not forwarded")
+        self.assertTrue(Path(env["GODOT_BINARY"]).name.lower().startswith("godot"), env["GODOT_BINARY"])
+        self.assertEqual(env[harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
+        self.assertIn("real-producer capture ran against", messages[0])
+
+    def test_guard_only_with_an_explicit_bare_name_requires_the_capture(self):
+        """The reported invocation, end to end: parsed CLI -> guard phase -> contract guard.
+
+        `run_module_tests.py --guard-only --godot-binary godot` must reach the
+        contract test with the capture required. Driven through main(), the real
+        parser and the real `_run_ci_guard_steps()`, with only the test launch faked.
+        """
+        launched: dict = {}
+        contract_script = str(harness.RUNTIME_VALIDATION_CONTRACT_TEST_SCRIPT)
+
+        def fake_run(args, cwd=None, env=None):
+            if contract_script in [str(arg) for arg in args]:
+                launched.setdefault("contract_envs", []).append(env)
+            return 0, "", ""
+
+        def run_only_the_contract_guard(runner, *_args, **_kwargs):
+            if runner is harness._run_runtime_validation_contract_guard:
+                ok, messages = runner()
+                launched["ok"], launched["messages"] = ok, messages
+                return None if ok else 1
+            return None
+
+        argv = ["run_module_tests.py", "--guard-only", "--godot-binary", "godot"]
+        saved = (
+            harness._GUARD_BASE_REF_OVERRIDE,
+            harness._GUARD_GODOT_BINARY_OVERRIDE,
+            harness._GUARD_GODOT_BINARY_EXPLICIT,
+        )
+        try:
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(sys, "argv", argv))
+                stack.enter_context(mock.patch.dict(harness.os.environ, {}, clear=False))
+                harness.os.environ.pop("GODOT_BINARY", None)
+                stack.enter_context(
+                    mock.patch.object(harness, "_run_message_guard", run_only_the_contract_guard)
+                )
+                for step_name in GuardScriptWiringTests.LEAF_STEPS:
+                    stack.enter_context(mock.patch.object(harness, step_name, lambda *a, **k: None))
+                stack.enter_context(mock.patch.object(harness, "_run_command", side_effect=fake_run))
+                stack.enter_context(
+                    mock.patch.object(harness, "_test_runner_is_unavailable", return_value=False)
+                )
+                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                self.assertEqual(harness.main(), 0, launched.get("messages"))
+        finally:
+            (
+                harness._GUARD_BASE_REF_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_EXPLICIT,
+            ) = saved
+
+        envs = launched.get("contract_envs", [])
+        self.assertEqual(len(envs), 1, "the contract test was not launched exactly once")
+        self.assertTrue(envs[0] is not None, "the explicit bare name was not forwarded")
+        self.assertEqual(envs[0][harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
+        self.assertIn("real-producer capture ran against", launched["messages"][0])
+
+    def test_the_parser_records_whether_the_binary_was_given(self):
+        cases = {
+            "absent": ([], False),
+            "bare name": (["--godot-binary", "godot"], True),
+            "equals form": (["--godot-binary=godot"], True),
+            "path": (["--godot-binary", "C:/godot/bin/godot.exe"], True),
+        }
+        for label, (extra, expected) in cases.items():
+            with self.subTest(case=label):
+                with mock.patch.object(sys, "argv", ["run_module_tests.py", *extra]):
+                    with mock.patch.dict(harness.os.environ, {}, clear=False):
+                        harness.os.environ.pop("GODOT_BINARY", None)
+                        args = harness._parse_args()
+                self.assertIs(args.godot_binary_explicit, expected)
+                self.assertEqual(args.godot_binary, extra[-1].split("=")[-1] if extra else "godot")
+
     def test_the_guard_phase_hands_the_cli_binary_to_the_contract_guard(self):
         """Driven through the real `_run_ci_guard_steps()` table, not read from source.
 
@@ -274,7 +371,11 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
 
         cli_args = GuardScriptWiringTests._cli_args()
         cli_args.godot_binary = "C:/selected/godot.windows.editor.dev.x86_64.exe"
-        saved = (harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE)
+        saved = (
+            harness._GUARD_BASE_REF_OVERRIDE,
+            harness._GUARD_GODOT_BINARY_OVERRIDE,
+            harness._GUARD_GODOT_BINARY_EXPLICIT,
+        )
         try:
             with contextlib.ExitStack() as stack:
                 stack.enter_context(mock.patch.object(harness, "_run_message_guard", _record_runner))
@@ -307,7 +408,11 @@ class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
             )
             self.assertEqual(launched["env"][harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
         finally:
-            harness._GUARD_BASE_REF_OVERRIDE, harness._GUARD_GODOT_BINARY_OVERRIDE = saved
+            (
+                harness._GUARD_BASE_REF_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_OVERRIDE,
+                harness._GUARD_GODOT_BINARY_EXPLICIT,
+            ) = saved
 
     def test_required_mode_turns_an_unusable_binary_into_a_failure(self):
         """End to end, on the real contract test: required is not skippable."""
@@ -3826,6 +3931,7 @@ class GuardScriptWiringTests(unittest.TestCase):
 
         saved_override = harness._GUARD_BASE_REF_OVERRIDE
         saved_binary_override = harness._GUARD_GODOT_BINARY_OVERRIDE
+        saved_binary_explicit = harness._GUARD_GODOT_BINARY_EXPLICIT
         with contextlib.ExitStack() as stack:
             stack.enter_context(
                 mock.patch.object(harness, "_run_message_guard", _record_runner)
@@ -3843,6 +3949,7 @@ class GuardScriptWiringTests(unittest.TestCase):
             finally:
                 harness._GUARD_BASE_REF_OVERRIDE = saved_override
                 harness._GUARD_GODOT_BINARY_OVERRIDE = saved_binary_override
+                harness._GUARD_GODOT_BINARY_EXPLICIT = saved_binary_explicit
         return recorded
 
     @staticmethod

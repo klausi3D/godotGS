@@ -622,6 +622,18 @@ FLOAT32_MAX = 3.4028234663852886e38
 MAX_LOG_SCALE = math.log(FLOAT32_MAX)
 SCALE_PROPERTIES: tuple[str, ...] = ("scale_0", "scale_1", "scale_2")
 ROTATION_PROPERTIES: tuple[str, ...] = ("rot_0", "rot_1", "rot_2", "rot_3")
+#: A float32 square can only round to zero below this magnitude: the smallest
+#: subnormal float32 is ~1.4e-45, and (1e-22)**2 = 1e-44 is well above half of it.
+#: Components at or above it take no float32 emulation at all.
+FLOAT32_SQUARE_UNDERFLOW_BOUND = 1e-22
+
+
+def _float32(value: float) -> float:
+    """`value` rounded to the nearest float32, the way a single-precision `real_t` holds it."""
+    try:
+        return struct.unpack("<f", struct.pack("<f", value))[0]
+    except OverflowError:
+        return math.copysign(math.inf, value)
 
 
 def ply_value_failure(path: Path) -> str | None:
@@ -639,8 +651,13 @@ def ply_value_failure(path: Path) -> str | None:
     * scale -- the loader stores `exp(scale_n)` (ply_loader.cpp:654-656), which
       overflows a float to inf above ln(FLT_MAX);
     * rotation -- it normalizes the quaternion (ply_loader.cpp:660-664), and
-      `Quaternion::normalize()` divides by the length (core/math/quaternion.cpp:65-67),
-      so an all-zero rotation becomes NaN.
+      `Quaternion::normalize()` divides by the length (core/math/quaternion.cpp:65-67).
+      The length comes from `length_squared()`, `x*x + y*y + z*z + w*w` in `real_t`
+      (core/math/quaternion.h:173-179), which is float in the default
+      `precision=single` build (SConstruct:192). So not only an all-zero rotation
+      becomes NaN, but any rotation whose every component squares to a float32
+      zero -- `rot_0 = 1e-30` does (#934 review). A double-precision build would
+      load those; this follows the default build.
 
     Any non-finite float in the body is refused. That is slightly stricter than the
     loader, which does not check normals and saturates an infinite opacity logit;
@@ -696,9 +713,15 @@ def ply_value_failure(path: Path) -> str | None:
     if all(name in names for name in ROTATION_PROPERTIES):
         columns = [values[names.index(name)::stride] for name in ROTATION_PROPERTIES]
         for splat, quaternion in enumerate(zip(*columns)):
-            if not any(quaternion):
+            # The product of two float32 values is exact in a double, so rounding it
+            # once reproduces the float32 square; a sum of non-negative float32
+            # values is zero only when every term is.
+            if all(abs(c) < FLOAT32_SQUARE_UNDERFLOW_BOUND for c in quaternion) and all(
+                _float32(c * c) == 0.0 for c in quaternion
+            ):
                 return (
-                    f"splat {splat} has an all-zero rotation; the loader's normalize() "
+                    f"splat {splat} has a rotation whose float32 length is zero "
+                    f"({', '.join(repr(c) for c in quaternion)}); the loader's normalize() "
                     "turns it into NaN and the asset is refused"
                 )
     return None

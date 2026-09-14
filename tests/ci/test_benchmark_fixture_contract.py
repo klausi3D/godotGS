@@ -504,6 +504,12 @@ class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
             "opposite infinities": {"y": inf, "z": -inf},
             "zero rotation": {"rot_0": 0.0},
             "negative-zero rotation": {"rot_0": -0.0, "rot_1": -0.0, "rot_2": -0.0, "rot_3": -0.0},
+            # #934 review: nonzero, but every square rounds to a float32 zero.
+            "underflowing rotation": {"rot_0": 1e-30},
+            "subnormal rotation": {"rot_0": 1e-40, "rot_2": -1e-40},
+            # Just below the float32 rounding edge: 2e-23 squared is ~4e-46, under half
+            # of the smallest subnormal (~1.4e-45), so it rounds to zero.
+            "boundary-underflowing rotation": {"rot_0": 2e-23},
             "overflowing scale": {"scale_2": _prepare.MAX_LOG_SCALE + 1.0},
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -522,6 +528,8 @@ class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
                     problem = _prepare.ply_value_failure(ply)
                     self.assertIsNotNone(problem, f"a fixture with a {label} was accepted")
                     self.assertIn("splat 9", problem)
+                    if "rotation" in label:
+                        self.assertIn("float32 length is zero", problem)
                     self.assertIn("UNLOADABLE", _prepare.fixture_floor_failure(ply, 32) or "")
 
             # Discrimination: legal extremes the loader accepts are accepted.
@@ -529,14 +537,16 @@ class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
             _write_ply(edge, 32)
             data = bytearray(edge.read_bytes())
             body_start = data.index(b"end_header\n") + len(b"end_header\n")
-            for prop, value in {
-                "scale_0": 88.0,
-                "scale_1": -300.0,
-                "rot_0": 0.0,
-                "rot_3": 1e-3,
+            for splat, overrides in {
+                5: {"scale_0": 88.0, "scale_1": -300.0, "rot_0": 0.0, "rot_3": 1e-3},
+                # Tiny but NOT underflowing: 1e-20 is above the emulation bound, and
+                # 5e-23 is below it yet squares to ~2.5e-45, a nonzero float32 subnormal.
+                6: {"rot_0": 1e-20},
+                7: {"rot_0": 5e-23},
             }.items():
-                offset = body_start + (5 * len(props) + props.index(prop)) * 4
-                data[offset:offset + 4] = struct.pack("<f", value)
+                for prop, value in overrides.items():
+                    offset = body_start + (splat * len(props) + props.index(prop)) * 4
+                    data[offset:offset + 4] = struct.pack("<f", value)
             edge.write_bytes(bytes(data))
             self.assertIsNone(_prepare.ply_value_failure(edge))
             self.assertIsNone(_prepare.fixture_floor_failure(edge, 32))

@@ -943,6 +943,9 @@ _GUARD_BASE_REF_OVERRIDE: str | None = None
 # capture runs on the command that has a producer (#934 review). A lambda in the
 # table would have hidden the guard's script from the lane-ledger wiring check.
 _GUARD_GODOT_BINARY_OVERRIDE: str | None = None
+# Whether --godot-binary was actually PASSED. Its default is the bare name `godot`,
+# so the value alone cannot tell `--godot-binary godot` from no option at all.
+_GUARD_GODOT_BINARY_EXPLICIT: bool = False
 
 # The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
 # .github/workflows/agentic_pr_gate.yml has available from
@@ -1848,13 +1851,15 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
 PRODUCER_CAPTURE_REQUIRED_ENV = "GS_REQUIRE_PRODUCER_CAPTURE"
 
 
-def _selected_producer_binary(godot_binary: str | None) -> str | None:
+def _selected_producer_binary(godot_binary: str | None, *, explicit: bool = False) -> str | None:
     """The Godot binary the caller actually SELECTED, or None.
 
     `--godot-binary` defaults to `$GODOT_BINARY` or the bare name `godot`, so the
     default alone is not a selection: a guard-only run on a machine with some
     unrelated Godot on PATH must not start requiring a tests=yes producer. An
-    explicit `--godot-binary` value, or an exported GODOT_BINARY, is.
+    exported GODOT_BINARY is a selection, and so is any value the caller actually
+    passed -- including the bare name `godot`, which main() then runs (#934 review).
+    The value cannot say which, so `explicit` carries it.
 
     Returned as given when it does not resolve: a selected binary that is missing
     is a failure for the test to report, not a reason to skip.
@@ -1862,7 +1867,7 @@ def _selected_producer_binary(godot_binary: str | None) -> str | None:
     raw = _normalize_process_arg(godot_binary) if godot_binary else ""
     if not raw:
         return None
-    if raw == "godot" and not os.environ.get("GODOT_BINARY"):
+    if raw == "godot" and not explicit and not os.environ.get("GODOT_BINARY"):
         return None
     candidate = Path(raw)
     if candidate.is_file():
@@ -1873,6 +1878,8 @@ def _selected_producer_binary(godot_binary: str | None) -> str | None:
 
 def _run_runtime_validation_contract_guard(
     godot_binary: str | None = None,
+    *,
+    explicit: bool | None = None,
 ) -> tuple[bool, list[str]]:
     """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
 
@@ -1894,9 +1901,9 @@ def _run_runtime_validation_contract_guard(
     # class reads GODOT_BINARY, and without this the canonical
     # `run_module_tests.py --godot-binary <binary>` left it unset: the class
     # skipped and this guard still reported a plain pass (#934 review).
-    selected = _selected_producer_binary(
-        godot_binary if godot_binary is not None else _GUARD_GODOT_BINARY_OVERRIDE
-    )
+    if godot_binary is None:
+        godot_binary, explicit = _GUARD_GODOT_BINARY_OVERRIDE, _GUARD_GODOT_BINARY_EXPLICIT
+    selected = _selected_producer_binary(godot_binary, explicit=bool(explicit))
     # A selected binary built without test support cannot run [GeneratePLY] at
     # all. main() already classifies that case and defers it to the module lanes'
     # strict/warn-only disposition -- but this guard phase runs BEFORE main()'s
@@ -3567,9 +3574,10 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     # Publish --base-ref so the env-skip guard subprocess ratchets against the
     # SAME base the render-path guard diffs against, instead of silently
     # resolving its own (which ends at origin/master).
-    global _GUARD_BASE_REF_OVERRIDE, _GUARD_GODOT_BINARY_OVERRIDE
+    global _GUARD_BASE_REF_OVERRIDE, _GUARD_GODOT_BINARY_OVERRIDE, _GUARD_GODOT_BINARY_EXPLICIT
     _GUARD_BASE_REF_OVERRIDE = getattr(cli_args, "base_ref", None)
     _GUARD_GODOT_BINARY_OVERRIDE = getattr(cli_args, "godot_binary", None)
+    _GUARD_GODOT_BINARY_EXPLICIT = bool(getattr(cli_args, "godot_binary_explicit", False))
 
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:
@@ -4425,10 +4433,20 @@ def _run_doctest_lanes(
     return exit_code
 
 
+class _ExplicitGodotBinaryAction(argparse.Action):
+    """Store --godot-binary and record that the caller passed it (#934 review)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        setattr(namespace, "godot_binary_explicit", True)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Gaussian Splatting module tests and CI guards.")
     parser.add_argument("--godot-binary", default=os.environ.get("GODOT_BINARY", "godot"),
+                        action=_ExplicitGodotBinaryAction,
                         help="Path to Godot binary (default: GODOT_BINARY env or 'godot').")
+    parser.set_defaults(godot_binary_explicit=False)
     parser.add_argument("--base-ref", default=os.environ.get("GS_RENDER_GUARD_BASE"),
                         help="Git base ref/commit for render-path guard diff (default: auto-detected).")
     parser.add_argument("--guard-only", "--guards-only", action="store_true",
