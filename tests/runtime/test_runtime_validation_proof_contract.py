@@ -88,10 +88,6 @@ def _producer_binary() -> "Path | None":
     return Path(resolved) if resolved else None
 
 
-@unittest.skipUnless(
-    _producer_binary() is not None,
-    "GODOT_BINARY is not set to a build carrying the C++ [GeneratePLY] case",
-)
 class CapturedProducerOutputIsAcceptedTests(unittest.TestCase):
     """The acceptance path, on bytes the C++ producer actually wrote (#934 review).
 
@@ -107,6 +103,26 @@ class CapturedProducerOutputIsAcceptedTests(unittest.TestCase):
     done: the fixtures are gitignored and regenerated (`.gitignore`), and
     generated artifacts stay out of commits (tests/AGENTS.md).
     """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        """Skip only when nobody asked for the capture; fail when someone did.
+
+        `run_module_tests.py` sets GS_REQUIRE_PRODUCER_CAPTURE when it forwards a
+        selected binary. In that mode an unusable binary is an error: a lane that
+        was given a producer must not report this class green by skipping it.
+        """
+        if _producer_binary() is not None:
+            return
+        if os.environ.get("GS_REQUIRE_PRODUCER_CAPTURE") == "1":
+            raise AssertionError(
+                "the real-producer capture is required (a Godot binary was selected: "
+                f"GODOT_BINARY={os.environ.get('GODOT_BINARY')!r}) but that binary "
+                "cannot be used; refusing to report the capture as skipped"
+            )
+        raise unittest.SkipTest(
+            "GODOT_BINARY is not set to a build carrying the C++ [GeneratePLY] case"
+        )
 
     def test_the_real_producer_run_is_staged_validated_and_published(self) -> None:
         import importlib

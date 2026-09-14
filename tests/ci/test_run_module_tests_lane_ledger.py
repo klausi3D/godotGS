@@ -92,6 +92,100 @@ def _load_harness():
 harness = _load_harness()
 
 
+class RuntimeValidationContractForwardsTheProducerTests(unittest.TestCase):
+    """#934 review: the canonical command must exercise the real producer.
+
+    `run_module_tests.py --godot-binary <binary>` ran the runtime validation
+    contract test with no GODOT_BINARY, so its real-producer class skipped and the
+    guard still reported a plain pass -- the acceptance path certified only by
+    hand-authored fixtures on the one command that had a producer available.
+    """
+
+    def _launched_env(self, godot_binary, environ=None):
+        launched = {}
+
+        def fake_run(args, cwd=None, env=None):
+            launched["args"] = args
+            launched["env"] = env
+            return 0, "", ""
+
+        with mock.patch.dict(harness.os.environ, environ or {}, clear=False):
+            if environ is not None and "GODOT_BINARY" not in environ:
+                harness.os.environ.pop("GODOT_BINARY", None)
+            with mock.patch.object(harness, "_run_command", side_effect=fake_run):
+                ok, messages = harness._run_runtime_validation_contract_guard(godot_binary)
+        return ok, messages, launched
+
+    def test_a_selected_binary_is_forwarded_and_the_capture_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "godot.windows.editor.dev.x86_64.exe"
+            binary.write_bytes(b"")
+            ok, messages, launched = self._launched_env(str(binary), environ={})
+        self.assertTrue(ok)
+        env = launched["env"]
+        self.assertIsNotNone(env, "no environment was passed; GODOT_BINARY cannot reach the test")
+        self.assertEqual(Path(env["GODOT_BINARY"]), binary.resolve())
+        self.assertEqual(env[harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
+        self.assertIn("real-producer capture ran against", messages[0])
+
+    def test_a_missing_selected_binary_is_still_forwarded_so_the_test_can_fail(self):
+        """Selected-but-unusable must reach the test as required, not become a skip."""
+        ok, _messages, launched = self._launched_env("C:/nowhere/godot.exe", environ={})
+        self.assertEqual(launched["env"]["GODOT_BINARY"], "C:/nowhere/godot.exe")
+        self.assertEqual(launched["env"][harness.PRODUCER_CAPTURE_REQUIRED_ENV], "1")
+
+    def test_the_bare_default_is_not_a_selection(self):
+        """Discrimination: guard-only lanes pass no binary and must stay runnable.
+
+        `--godot-binary` defaults to `godot`; a developer's unrelated Godot on PATH
+        must not turn a guard-only run into one that requires a tests=yes build.
+        The pass then says, in so many words, that the capture did not run.
+        """
+        ok, messages, launched = self._launched_env("godot", environ={})
+        self.assertTrue(ok)
+        self.assertIsNone(launched["env"], "the default binary was forwarded as a selection")
+        self.assertIn("real-producer capture NOT run", messages[0])
+
+    def test_the_guard_list_passes_the_cli_binary(self):
+        """A forwarding function nobody calls with the binary forwards nothing."""
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(
+            "lambda: _run_runtime_validation_contract_guard(cli_args.godot_binary)",
+            source,
+            "the guard phase no longer hands the selected binary to the contract guard",
+        )
+
+    def test_required_mode_turns_an_unusable_binary_into_a_failure(self):
+        """End to end, on the real contract test: required is not skippable."""
+        contract = ROOT / "tests" / "runtime" / "test_runtime_validation_proof_contract.py"
+        env = dict(os.environ)
+        env["GODOT_BINARY"] = "C:/nowhere/godot.exe"
+        env[harness.PRODUCER_CAPTURE_REQUIRED_ENV] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        required = subprocess.run(
+            [sys.executable, "-m", "unittest",
+             "tests.runtime.test_runtime_validation_proof_contract.CapturedProducerOutputIsAcceptedTests"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+        )
+        self.assertTrue(contract.is_file())
+        self.assertNotEqual(
+            required.returncode, 0,
+            "a required capture with an unusable binary was reported as a pass",
+        )
+        self.assertIn("real-producer capture is required", required.stderr)
+
+        # Discrimination: without the flag, the same unusable binary is a skip.
+        env.pop(harness.PRODUCER_CAPTURE_REQUIRED_ENV)
+        env.pop("GODOT_BINARY")
+        optional = subprocess.run(
+            [sys.executable, "-m", "unittest",
+             "tests.runtime.test_runtime_validation_proof_contract.CapturedProducerOutputIsAcceptedTests"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+        )
+        self.assertEqual(optional.returncode, 0, optional.stderr[-800:])
+        self.assertIn("skipped", optional.stderr)
+
+
 class SyntheticAssetFloorWiringTests(unittest.TestCase):
     def test_availability_probe_uses_the_real_doctest_skip_classification(self):
         unavailable = harness.GodotRunResult(

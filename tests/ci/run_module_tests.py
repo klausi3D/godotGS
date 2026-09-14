@@ -1835,7 +1835,39 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     return True, ["Export smoke preset state guard passed."]
 
 
-def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
+#: Set in the contract test's environment when this runner forwards a selected
+#: binary. It turns "no usable producer" from a skip into a failure, so a lane
+#: that was given a binary cannot report the real-producer capture green without
+#: having run it (#934 review).
+PRODUCER_CAPTURE_REQUIRED_ENV = "GS_REQUIRE_PRODUCER_CAPTURE"
+
+
+def _selected_producer_binary(godot_binary: str | None) -> str | None:
+    """The Godot binary the caller actually SELECTED, or None.
+
+    `--godot-binary` defaults to `$GODOT_BINARY` or the bare name `godot`, so the
+    default alone is not a selection: a guard-only run on a machine with some
+    unrelated Godot on PATH must not start requiring a tests=yes producer. An
+    explicit `--godot-binary` value, or an exported GODOT_BINARY, is.
+
+    Returned as given when it does not resolve: a selected binary that is missing
+    is a failure for the test to report, not a reason to skip.
+    """
+    raw = _normalize_process_arg(godot_binary) if godot_binary else ""
+    if not raw:
+        return None
+    if raw == "godot" and not os.environ.get("GODOT_BINARY"):
+        return None
+    candidate = Path(raw)
+    if candidate.is_file():
+        return str(candidate.resolve())
+    resolved = shutil.which(raw)
+    return str(Path(resolved).resolve()) if resolved else raw
+
+
+def _run_runtime_validation_contract_guard(
+    godot_binary: str | None = None,
+) -> tuple[bool, list[str]]:
     """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
 
     Static, headless, no GPU. `tests/runtime/test_runtime_validation_proof_contract.py`
@@ -1852,14 +1884,32 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 
-    code, out, err = _run_command([sys.executable, str(script)])
+    # Forward the binary this run was given. The contract test's real-producer
+    # class reads GODOT_BINARY, and without this the canonical
+    # `run_module_tests.py --godot-binary <binary>` left it unset: the class
+    # skipped and this guard still reported a plain pass (#934 review).
+    selected = _selected_producer_binary(godot_binary)
+    env = None
+    if selected is not None:
+        env = dict(os.environ)
+        env["GODOT_BINARY"] = selected
+        env[PRODUCER_CAPTURE_REQUIRED_ENV] = "1"
+
+    code, out, err = _run_command([sys.executable, str(script)], env=env)
     if code != 0:
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if not output_lines:
             output_lines = [f"Runtime validation contract guard failed with exit code {code}."]
         return False, output_lines
 
-    return True, ["Runtime validation contract guard passed."]
+    # Say which mode the pass came from: with no binary selected the capture is
+    # skipped, and a bare "passed" would read as if it had run.
+    mode = (
+        f"real-producer capture ran against {selected}"
+        if selected is not None
+        else "real-producer capture NOT run: no Godot binary was selected"
+    )
+    return True, [f"Runtime validation contract guard passed ({mode})."]
 
 
 def _run_gpu_sorting_order_coverage_guard() -> tuple[bool, list[str]]:
@@ -3417,7 +3467,7 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
-            _run_runtime_validation_contract_guard,
+            lambda: _run_runtime_validation_contract_guard(cli_args.godot_binary),
             "Runtime validation contract guard failed.",
             "Runtime validation contract guard passed.",
         ),
