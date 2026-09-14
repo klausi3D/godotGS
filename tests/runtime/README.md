@@ -179,8 +179,40 @@ Runtime and benchmark scenes depend on deterministic synthetic fixtures.
 Generate/update lightweight fixtures (preserving existing floor-valid canonical assets):
 
 ```bash
-python3 tests/runtime/prepare_synthetic_assets.py --quiet
+python3 tests/runtime/prepare_synthetic_assets.py --quiet \
+  --godot-binary ./bin/<godot built with tests=yes>
 ```
+
+**`--godot-binary` is not optional for anything that will produce a number.** The
+script has two generators. The Python fallback, used when no binary is given,
+writes `test_splats.ply` at 1024 splats and `synthetic_sphere.ply` at 2048; the
+C++ `[GeneratePLY]` case reached through `--godot-binary` writes 10000 and 50000
+for the same files — up to a 24x difference in workload. Both corpora are valid
+for smoke coverage and neither is valid as the other. Since #790:
+
+* Omitting `--godot-binary` still works and still produces the small corpus, but
+  prints a per-fixture `LOW-FIDELITY FIXTURES` notice that `--quiet` does not
+  suppress.
+* Passing `--godot-binary` and having the C++ generators fail is now an **error**
+  (exit 1), not a silent substitution. `--allow-fallback` opts back into the old
+  best-effort behaviour where a low-fidelity tree is genuinely acceptable.
+* The manifest records the exact count each producer writes
+  (`asset_expected_splat_counts`), so `run_benchmark.py` reports which corpus each
+  lane measured and can be told to require one (`--require-asset-variant cpp_rich`).
+
+`synthetic_spiral.ply` (25000) and `synthetic_flower_field.ply` (30000) have no
+C++ generator at all — their committed size is their maximum available fidelity,
+not a reduced variant.
+
+**Which CI surfaces pass it.** The benchmark evidence job in
+`.github/workflows/gaussian_production_gates.yml`, and the fixture consumers, which
+also require the floors and fail closed: `run_runtime_validation.py` when a selected
+scenario declares a floor-governed fixture, and a tests-enabled
+`run_module_tests.py` before its fixture-consuming module tests.
+`tests/ci/run_baseline_qa.py` preps the small corpus and says why at the point of
+prep: none of its categories needs the C++ one, and its QA scene suite loads its own
+pinned `qa_splats_1024.ply` (see
+`tests/examples/godot/test_project/tests/fixtures/README.md`).
 
 Generate and require the runtime consumer floors:
 

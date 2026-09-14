@@ -83,7 +83,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -327,14 +326,24 @@ def ensure_synthetic_assets(godot_binary: str) -> None:
     except (OSError, PermissionError) as exc:
         raise RuntimeError(f"Synthetic asset prep failed to launch: {type(exc).__name__}: {exc}") from exc
 
+    # Echo prep output on success too: under --quiet the only thing it prints is
+    # the low-fidelity warning (#790), and a warning nobody sees is not a warning.
+    for line in (completed.stdout or "").splitlines():
+        if line.strip():
+            print(line)
+
     if completed.returncode != 0:
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
         _replay_captured_output("synthetic asset prep", stdout, stderr)
         # The one-line detail that reaches the summary is the LAST stderr line
         # when there is stderr -- an uncaught exception is there, not in the
-        # banner -- and otherwise the prep's own first line of complaint. The
-        # replay above carries the rest either way.
+        # banner -- and otherwise the prep's own first line of complaint. stderr
+        # wins because stdout can open with a notice that is not the cause (the
+        # prep's low-fidelity warning, #969 review). This runner always passes
+        # --godot-binary, so the prep's first stdout line on failure is its cause
+        # ("C++ generation exited ...", "runtime fixture floor check failed"),
+        # and its last is remediation advice. The replay above carries the rest.
         detail = (
             _last_non_empty_line(stderr)
             or _first_non_empty_line(stdout)
@@ -516,7 +525,7 @@ def _last_non_empty_line(text: str) -> Optional[str]:
 
     `Traceback (most recent call last):` is the FIRST line of an uncaught
     exception and says nothing; the exception and its message are the last
-    (#934 review).
+    (#934 review, #969 review).
     """
     for raw_line in reversed(text.splitlines()):
         line = raw_line.strip()
@@ -528,9 +537,10 @@ def _last_non_empty_line(text: str) -> Optional[str]:
 def _replay_captured_output(label: str, stdout: str, stderr: str) -> None:
     """Print what a failed child actually said, both streams, bounded.
 
-    A one-line summary is the wrong half of every failure this harness reports:
+    A one-line summary is the wrong half of most failures this harness reports:
     the fixture-floor report names the fixture and its actual/required counts on
-    the lines AFTER its heading, and a traceback puts its banner first. The
+    the lines AFTER its heading, the prep's other diagnostics put the cause and the
+    regeneration command there too, and a traceback puts its banner first. The
     diagnosis is in the body, so the body is replayed.
     """
     for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):

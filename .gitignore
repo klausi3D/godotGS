@@ -435,6 +435,11 @@ tests/fixtures/*.ply
 # ...and the staging directory a killed generation run leaves behind: the rule
 # above does not match a nested path, so its .ply files would be untracked.
 tests/fixtures/.gs_ply_staging_*/
+# Written by the same script: which producer wrote the fixtures above.
+tests/fixtures/.fixture_provenance.json
+# ...and the quarantine an older prep moved originals into (#969). Staging
+# replaced it; a leftover can still hold .ply files a nested path escapes above.
+tests/fixtures/.pre_cpp_generation/
 templates/**/*.ply
 
 # Large local assets kept out of git
@@ -446,6 +451,9 @@ tests/examples/godot/test_project/*.gsplatworld.import
 tests/examples/godot/test_project/benchmark_assets_generated/
 tests/examples/godot/test_project/tests/fixtures/test_splats.ply
 tests/examples/godot/test_project/tests/fixtures/test_splats.ply.import
+tests/examples/godot/test_project/tests/fixtures/qa_splats_1024.ply
+tests/examples/godot/test_project/tests/fixtures/qa_splats_1024.ply.import
+tests/examples/godot/test_project/tests/fixtures/qa_splats_1024.gsplatcache
 tests/examples/godot/test_project/tests/fixtures/synthetic_*.ply
 tests/examples/godot/test_project/tests/fixtures/benchmark_asset_manifest.json
 test_data/visual_quality_reference.json

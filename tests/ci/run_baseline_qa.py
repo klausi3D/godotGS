@@ -375,6 +375,25 @@ def normalize_test_category(category: Optional[str]) -> Optional[str]:
     )
 
 
+# Why this runner's own prep uses the Python fallback -- stated, because a
+# downgrade nobody can see is the #790 defect.
+#
+# It used to be a pin: the QA scene suite loaded test_splats.ply, and its baseline
+# and world bake were measured at the fallback's 1024 splats. That coupling is
+# gone. The QA scenes load their own pinned qa_splats_1024.ply (#991,
+# QaCorpusIsPinnedTest), the ply/pipeline CI scripts compare what they loaded
+# against itself rather than against a count, and the categories that DO need the
+# benchmark corpus prepare it themselves: `module` runs run_module_tests.py and
+# `runtime` runs run_runtime_validation.py, each with the binary and
+# --require-asset-floors (#934). So nothing here needs the C++ corpus, and nothing
+# here stops it either; moving this prep is a choice, not a blocked baseline.
+FALLBACK_CORPUS_REASON = (
+    "no category run from here needs the C++ corpus: the QA scene suite loads its own "
+    "pinned qa_splats_1024.ply, and the module and runtime categories prepare the C++ "
+    "corpus themselves with --require-asset-floors (#934)"
+)
+
+
 def prepare_synthetic_assets() -> None:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         raise RuntimeError(
@@ -382,6 +401,7 @@ def prepare_synthetic_assets() -> None:
         )
 
     command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
+    print(f"[INFO] Fixture generator: Python fallback -- {FALLBACK_CORPUS_REASON}.")
     result = subprocess.run(
         command,
         capture_output=True,
@@ -389,6 +409,12 @@ def prepare_synthetic_assets() -> None:
         cwd=ROOT,
         check=False,
     )
+    # Echo prep output even on success: under --quiet the only thing it prints is
+    # the low-fidelity warning, and swallowing that is how the downgrade stayed
+    # invisible (#790).
+    for line in (result.stdout or "").splitlines():
+        if line.strip():
+            print(line)
     if result.returncode != 0:
         detail = (result.stdout + result.stderr).strip()
         if not detail:

@@ -1160,6 +1160,19 @@ class PrepFailuresKeepTheirDiagnostics(unittest.TestCase):
         self.assertNotIn("Traceback (most recent call last):", detail)
         self.assertIn("main()", printed, "the traceback body was discarded")
 
+    def test_the_low_fidelity_notice_still_does_not_become_the_cause(self) -> None:
+        """#969 review: the reason stderr wins must survive.
+
+        The prep can print its low-fidelity warning to stdout before it does any
+        file work, so the first stdout line may be that warning even when prep died
+        of something else entirely.
+        """
+        stdout = "[prepare_synthetic_assets] WARNING: LOW-FIDELITY FIXTURES\nlater line\n"
+        stderr = "OSError: disk full\n"
+        _printed, detail = self._fail_prep(stdout=stdout, stderr=stderr)
+        self.assertIn("disk full", detail)
+        self.assertNotIn("LOW-FIDELITY", detail)
+
     def test_an_empty_failure_still_names_the_exit_code(self) -> None:
         """Discrimination: with nothing said, the code is what there is to report."""
         _printed, detail = self._fail_prep(code=3)

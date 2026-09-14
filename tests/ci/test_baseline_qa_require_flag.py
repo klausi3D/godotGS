@@ -40,6 +40,9 @@ This test locks in the contract:
   - Nothing that failed to render may become the golden baseline
     (BaselineCandidateValidationTest), and the blocking lane may not compare
     machine-dependent metrics (NonDeterministicMetricStrippingTest).
+  - The QA suite loads a corpus no producer choice can change, and each route
+    pair's PLY, world bake and committed baseline agree on its size
+    (QaCorpusIsPinnedTest).
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import struct
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -1786,6 +1791,545 @@ class MetricValueFormattingTest(unittest.TestCase):
         markdown = runner._build_baseline_summary_markdown(comparison)
         self.assertIn("route_uid", markdown)
         self.assertIn("COMMON.SKIP", markdown)
+
+
+
+# --------------------------------------------------------------------------
+# The QA corpus is pinned.
+#
+# The QA scenes used to load res://tests/fixtures/test_splats.ply, which is a
+# BENCHMARK fixture: prepare_synthetic_assets.py writes it at 1024 splats with the
+# Python fallback and at 10000 with the C++ producer, and its floor (10000) needs
+# the latter. The QA route pairs compare that PLY against the committed 1024-splat
+# test_splats.gsplatworld, and qa_results.json was measured at 1024. So any runner
+# that generated the benchmark corpus properly handed the QA suite a fixture
+# mismatch (qa_route_capture_base.gd refuses to score) that said nothing about the
+# renderer. The QA scenes now load qa_splats_1024.ply, which only the Python
+# generator writes. Everything below is derived from the sources: the scene
+# files, the prep script's own tables, the world file's header, the baseline.
+# --------------------------------------------------------------------------
+QA_PROJECT_ROOT = ROOT / "tests" / "examples" / "godot" / "test_project"
+QA_PROJECT_RELATIVE = "tests/examples/godot/test_project/"
+PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
+QA_BASELINE = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+ROUTE_CAPTURE_SCRIPT = "res://scripts/qa_route_capture_base.gd"
+
+# Literal path characters only: a `%s`, `{}` or `+` means the path is built at run
+# time, and _unverifiable_ply_mentions() fails that closed instead of checking a
+# path that is never loaded.
+PLY_REFERENCE_RE = re.compile(r"res://[\w./-]+\.ply\b")
+RES_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+")
+# Files a QA scene can pull in by reference and that can themselves load a PLY.
+QA_TEXT_SUFFIXES = (".gd", ".tscn", ".tres")
+WORLD_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+\.gsplatworld\b")
+EXT_RESOURCE_RE = re.compile(r"^\[ext_resource\b([^\]]*)\]", re.MULTILINE)
+ATTRIBUTE_RE = re.compile(r'(\w+)="([^"]*)"')
+SCENE_PROPERTY_RE = re.compile(r'^(capture_slot|route_role)\s*=\s*"([^"]*)"', re.MULTILINE)
+
+# modules/gaussian_splatting/io/gaussian_splat_world_io.cpp:524-541 reads the
+# header as u32 magic, u32 version, u32 flags, u32 splat_count, little-endian.
+WORLD_MAGIC = 0x57505347
+
+
+def _world_header_splat_count(data):
+    """splat_count from a .gsplatworld header, or None when it is not one."""
+    if len(data) < 16:
+        return None
+    magic, _version, _flags, splat_count = struct.unpack_from("<IIII", data, 0)
+    return splat_count if magic == WORLD_MAGIC else None
+
+
+def _res_to_repo(res_path):
+    return QA_PROJECT_RELATIVE + res_path[len("res://"):]
+
+
+def _qa_route_pairs(qa_texts):
+    """{capture_slot: {route_role: (scene, fixture res path)}} from the route scenes."""
+    pairs = {}
+    for scene, text in qa_texts.items():
+        if not scene.endswith(".tscn") or ROUTE_CAPTURE_SCRIPT not in text:
+            continue
+        properties = dict(SCENE_PROPERTY_RE.findall(text))
+        fixtures = [
+            dict(ATTRIBUTE_RE.findall(match)).get("path", "")
+            for match in EXT_RESOURCE_RE.findall(text)
+        ]
+        fixtures = [path for path in fixtures if path.endswith((".ply", ".gsplatworld"))]
+        slot, role = properties.get("capture_slot"), properties.get("route_role")
+        pairs.setdefault(slot, {}).setdefault(role, []).append((scene, fixtures))
+    return pairs
+
+
+def _qa_reference_closure(project_root, roots):
+    """{res path: text} for every scene/script/resource reachable from `roots`.
+
+    A QA scene loads PLYs through its own attached script, that script's base
+    classes, and anything they preload -- not only through `scenes/qa/*.tscn` and
+    `scripts/qa_*.gd`. So the scanned set is followed from the references
+    themselves (ext_resource paths, extends/preload/load strings), transitively,
+    instead of being named by a glob that a new scene script can sit outside of.
+    """
+    texts = {}
+    queue = list(roots)
+    while queue:
+        res = queue.pop()
+        if res in texts or not res.endswith(QA_TEXT_SUFFIXES):
+            continue
+        path = project_root / res[len("res://"):]
+        if not path.is_file():
+            continue
+        texts[res] = path.read_text(encoding="utf-8")
+        for reference in RES_REFERENCE_RE.findall(texts[res]):
+            reference = reference.rstrip(".,;:")
+            if reference.endswith(QA_TEXT_SUFFIXES) and reference not in texts:
+                queue.append(reference)
+    return texts
+
+
+def _unverifiable_ply_mentions(source, text):
+    """Code lines naming a PLY the static check cannot resolve to one file.
+
+    `load("res://tests/fixtures/%s.ply" % name)` loads a PLY this check cannot
+    see. So in a scanned file every non-comment line that mentions `.ply` must
+    carry a complete, literal res:// PLY path; anything else fails closed rather
+    than passing unchecked.
+    """
+    problems = []
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if ".ply" not in stripped or stripped.startswith(("#", ";")):
+            continue
+        if not PLY_REFERENCE_RE.search(stripped):
+            problems.append(
+                f"{source}:{number} mentions a PLY this check cannot resolve to a literal "
+                f"res:// path: {stripped[:120]!r}"
+            )
+    return problems
+
+
+# Any call whose name contains `load`: load, preload, ResourceLoader.load,
+# load_threaded_request, GaussianSplatAsset/GaussianData.load_from_file,
+# PLYLoader.load_file, ... -- matched by shape, not by a list of names that drifts.
+# Group 3 is empty when the call does not close on its own line.
+LOADER_CALL_RE = re.compile(r"\b([\w.]*load\w*)\s*\(([^)]*)(\)?)", re.IGNORECASE)
+LITERAL_RES_ARGUMENT_RE = re.compile(r"""^\s*("res://[^"]*"|'res://[^']*')\s*(,.*)?$""")
+FUNCTION_DEFINITION_RE = re.compile(r"^(static\s+)?func\b")
+
+# POLICY, so enumerated: the loader calls in QA code whose argument is not a
+# literal res:// path, each with the reason it cannot load a PLY. Keyed by the
+# exact call text, so an edited call leaves the list and fails closed; an entry
+# whose call is gone is reported as stale.
+QA_NON_LITERAL_LOADS = {
+    ("res://scripts/qa_test_runner.gd", "load(scene_path)"):
+        "loads the scenes listed in test_scenes, which are this closure's own roots",
+    ("res://scripts/qa_route_capture_base.gd", "Image.load_from_file(ref_path)"):
+        "reads back the PNG capture the reference route wrote (_capture_path), not a splat fixture",
+}
+
+
+def _unresolved_loads(source, text):
+    """Loader calls in a QA script whose target this check cannot read as a literal path.
+
+    A path is a PLY only if something loads it, and `load("...test_splats." + "ply")`
+    loads one without a `.ply` or a res:// literal anywhere on the line (#991
+    review). So the rule is on the CALL: its argument must be one literal res://
+    path (checked like any other reference), or the call must be on the policy
+    list above. Anything else -- a variable, an expression, a call spanning lines
+    -- fails closed.
+    """
+    problems = []
+    if not source.endswith(".gd"):
+        return problems
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("#") or FUNCTION_DEFINITION_RE.match(stripped):
+            continue
+        for name, argument, closed in LOADER_CALL_RE.findall(stripped):
+            call = f"{name}({argument.strip()})"
+            if not closed:
+                problems.append(
+                    f"{source}:{number} {name}(...) does not close on its line, so its target "
+                    f"cannot be read: {stripped[:120]!r}"
+                )
+            elif not argument.strip() or LITERAL_RES_ARGUMENT_RE.match(argument):
+                continue
+            elif (source, call) not in QA_NON_LITERAL_LOADS:
+                problems.append(
+                    f"{source}:{number} {call} loads a target this check cannot resolve to a "
+                    "literal res:// path; make it a literal or add it to QA_NON_LITERAL_LOADS "
+                    "with the reason it cannot load a PLY"
+                )
+    return problems
+
+
+# Written by qa_route_capture_base.gd for every route scene
+# (`result_metrics["source_splat_count"]`, :158) and, for the candidate only, when it
+# loads the reference manifest (`result_metrics["reference_source_splat_count"]`, :391).
+ROUTE_COUNT_METRICS = {
+    "reference": ("source_splat_count",),
+    "candidate": ("source_splat_count", "reference_source_splat_count"),
+}
+
+
+def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline_payload):
+    """Everything that would let a producer choice change what the QA suite loads."""
+    failures = []
+
+    for source, text in sorted(qa_texts.items()):
+        failures.extend(_unverifiable_ply_mentions(source, text))
+        failures.extend(_unresolved_loads(source, text))
+        for ply in sorted(set(PLY_REFERENCE_RE.findall(text))):
+            if ply in floor_governed:
+                failures.append(
+                    f"{source} loads {ply}, a floor-governed benchmark fixture whose "
+                    "producer (and size) depends on the prep command"
+                )
+            repo_path = _res_to_repo(ply)
+            if repo_path not in spec_counts:
+                failures.append(f"{source} loads {ply}, which prepare_synthetic_assets.py does not generate")
+            if Path(ply).name in cpp_generated:
+                failures.append(
+                    f"{source} loads {ply}, which the C++ producer writes when a binary is given"
+                )
+        if source.endswith(".tscn"):
+            for match in EXT_RESOURCE_RE.findall(text):
+                attributes = dict(ATTRIBUTE_RE.findall(match))
+                if attributes.get("path", "").endswith(".ply") and "uid" in attributes:
+                    failures.append(
+                        f"{source} references {attributes['path']} with uid {attributes['uid']}: "
+                        "Godot resolves a uid before the path, and a generated fixture has no "
+                        "stable uid, so the scene can load a different file than it names"
+                    )
+
+    for (source, call), _reason in sorted(QA_NON_LITERAL_LOADS.items()):
+        if call not in qa_texts.get(source, ""):
+            failures.append(
+                f"QA_NON_LITERAL_LOADS lists {call} in {source}, which no longer makes that call; "
+                "remove the stale entry"
+            )
+
+    pairs = _qa_route_pairs(qa_texts)
+    if not pairs:
+        failures.append(f"no QA route pair found (no scene uses {ROUTE_CAPTURE_SCRIPT})")
+    baseline_entries = {
+        entry.get("scene"): entry
+        for entry in baseline_payload.get("results", [])
+        if isinstance(entry, dict)
+    }
+    quarantined = set((baseline_payload.get("quarantined") or {}).keys())
+    for slot, roles in sorted(pairs.items(), key=lambda item: str(item[0])):
+        if sorted(roles) != ["candidate", "reference"] or any(len(v) != 1 for v in roles.values()):
+            failures.append(f"route slot {slot!r} is not exactly one reference and one candidate: {roles}")
+            continue
+        counts = {}
+        roles_by_scene = {}
+        for role, [(scene, fixtures)] in roles.items():
+            roles_by_scene[scene] = role
+            if len(fixtures) != 1:
+                failures.append(f"{scene} does not name exactly one splat fixture: {fixtures}")
+                continue
+            fixture = fixtures[0]
+            if fixture.endswith(".ply"):
+                count = spec_counts.get(_res_to_repo(fixture))
+            else:
+                count = world_counts.get(fixture)
+            if count is None:
+                failures.append(f"{scene}: the splat count of {fixture} could not be determined")
+                continue
+            counts[scene] = count
+        if len(counts) != 2:
+            continue
+        if len(set(counts.values())) != 1:
+            failures.append(f"route slot {slot!r} compares fixtures of different sizes: {counts}")
+            continue
+        expected = next(iter(counts.values()))
+        for scene in counts:
+            # A quarantined scene is not compared, so it has no baseline entry to hold.
+            if scene in quarantined:
+                continue
+            # REQUIRED, not merely checked when present: the runtime comparator
+            # iterates the baseline's keys, so a deleted count field would silently
+            # stop being compared at all -- in this check and at run time.
+            entry = baseline_entries.get(scene)
+            if entry is None:
+                failures.append(f"{scene}: route scene has no entry in the committed baseline")
+                continue
+            metrics = entry.get("metrics")
+            if not isinstance(metrics, dict):
+                failures.append(f"{scene}: the committed baseline entry has no metrics object")
+                continue
+            for key in ROUTE_COUNT_METRICS[roles_by_scene[scene]]:
+                if key not in metrics:
+                    failures.append(
+                        f"{scene}: the committed baseline does not record {key}, so the "
+                        "fixture size is not compared"
+                    )
+                elif metrics[key] != expected:
+                    failures.append(
+                        f"{scene}: the committed baseline records {key}={metrics[key]} but the "
+                        f"route's fixtures hold {expected} splats"
+                    )
+    return failures
+
+
+def _load_prep_tables():
+    spec = importlib.util.spec_from_file_location("prepare_synthetic_assets_for_qa_corpus", PREP_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered first: the script's dataclasses resolve their module by name.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    spec_counts = {entry.relative_path: entry.count for entry in module.CANONICAL_SPECS}
+    return spec_counts, set(module.CPP_GENERATED_FILENAMES), set(module.ASSET_MIN_SPLAT_COUNTS)
+
+
+def _qa_closure_roots(project_root):
+    """Every QA scene on disk, and the runner that decides which of them run."""
+    roots = [
+        "res://" + path.relative_to(project_root).as_posix()
+        for path in sorted((project_root / "scenes" / "qa").glob("*.tscn"))
+    ]
+    return roots + ["res://scripts/qa_test_runner.gd"]
+
+
+def _real_qa_corpus_inputs():
+    qa_texts = _qa_reference_closure(QA_PROJECT_ROOT, _qa_closure_roots(QA_PROJECT_ROOT))
+    spec_counts, cpp_generated, floor_governed = _load_prep_tables()
+    world_counts = {}
+    for text in qa_texts.values():
+        for world in WORLD_REFERENCE_RE.findall(text):
+            world_file = QA_PROJECT_ROOT / world[len("res://"):]
+            world_counts[world] = (
+                _world_header_splat_count(world_file.read_bytes()) if world_file.is_file() else None
+            )
+    baseline = json.loads(QA_BASELINE.read_text(encoding="utf-8"))
+    return qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline
+
+
+class QaCorpusIsPinnedTest(unittest.TestCase):
+    """The QA suite's inputs cannot be changed by which producer ran prep."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.inputs = _real_qa_corpus_inputs()
+
+    def _failures(self, **overrides):
+        qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline = self.inputs
+        arguments = {
+            "qa_texts": dict(qa_texts),
+            "spec_counts": dict(spec_counts),
+            "cpp_generated": set(cpp_generated),
+            "floor_governed": set(floor_governed),
+            "world_counts": dict(world_counts),
+            "baseline_payload": json.loads(json.dumps(baseline)),
+        }
+        arguments.update(overrides)
+        return _qa_corpus_failures(**arguments)
+
+    def _instance_scene(self):
+        pairs = _qa_route_pairs(self.inputs[0])
+        [(scene, [fixture])] = pairs["visual_diff"]["candidate"]
+        return scene, fixture
+
+    def test_the_committed_qa_corpus_is_pinned(self):
+        self.assertEqual(self._failures(), [])
+
+    def test_the_route_pairs_and_their_fixtures_are_really_read(self):
+        """Vacuity guard: an empty derivation would make every check above pass."""
+        qa_texts, spec_counts, _cpp, _floors, world_counts, _baseline = self.inputs
+        pairs = _qa_route_pairs(qa_texts)
+        self.assertGreaterEqual(len(pairs), 2, pairs)
+        self.assertTrue(all(sorted(roles) == ["candidate", "reference"] for roles in pairs.values()), pairs)
+        _scene, fixture = self._instance_scene()
+        self.assertTrue(fixture.endswith(".ply"), fixture)
+        self.assertIn(_res_to_repo(fixture), spec_counts)
+        self.assertTrue(world_counts, "no world fixture header was read")
+        self.assertTrue(all(isinstance(count, int) and count > 0 for count in world_counts.values()), world_counts)
+
+    def test_a_qa_scene_loading_the_benchmark_fixture_fails(self):
+        """The defect this pins: the QA pair back on test_splats.ply."""
+        scene, fixture = self._instance_scene()
+        qa_texts = dict(self.inputs[0])
+        qa_texts[scene] = qa_texts[scene].replace(fixture, "res://tests/fixtures/test_splats.ply")
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("floor-governed" in failure for failure in failures), failures)
+        self.assertTrue(any("C++ producer" in failure for failure in failures), failures)
+
+    def test_a_uid_on_a_generated_fixture_reference_fails(self):
+        scene, fixture = self._instance_scene()
+        qa_texts = dict(self.inputs[0])
+        qa_texts[scene] = qa_texts[scene].replace(
+            f'path="{fixture}"', f'uid="uid://dufbqibv4cxau" path="{fixture}"'
+        )
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("resolves a uid before the path" in failure for failure in failures), failures)
+
+    def test_a_qa_fixture_the_cpp_producer_writes_fails(self):
+        _scene, fixture = self._instance_scene()
+        failures = self._failures(cpp_generated=set(self.inputs[2]) | {Path(fixture).name})
+        self.assertTrue(any("C++ producer" in failure for failure in failures), failures)
+
+    def test_a_resized_qa_ply_spec_fails_the_pair(self):
+        _scene, fixture = self._instance_scene()
+        spec_counts = dict(self.inputs[1])
+        spec_counts[_res_to_repo(fixture)] = 10000
+        failures = self._failures(spec_counts=spec_counts)
+        self.assertTrue(any("different sizes" in failure for failure in failures), failures)
+
+    def test_a_rebaked_world_of_another_size_fails_the_pair(self):
+        world_counts = {world: count + 1 for world, count in self.inputs[4].items()}
+        failures = self._failures(world_counts=world_counts)
+        self.assertTrue(any("different sizes" in failure for failure in failures), failures)
+
+    def test_a_baseline_measured_at_another_size_fails(self):
+        scene, _fixture = self._instance_scene()
+        baseline = json.loads(json.dumps(self.inputs[5]))
+        for entry in baseline["results"]:
+            if entry.get("scene") == scene:
+                entry["metrics"]["source_splat_count"] = 10000
+        failures = self._failures(baseline_payload=baseline)
+        self.assertTrue(any("committed baseline records" in failure for failure in failures), failures)
+
+    def test_every_script_a_qa_scene_attaches_is_scanned(self):
+        """#991 review: the scene scripts under scenes/qa were outside the old glob."""
+        qa_texts = self.inputs[0]
+        attached = set()
+        for scene, text in qa_texts.items():
+            if not scene.startswith("res://scenes/qa/") or not scene.endswith(".tscn"):
+                continue
+            for match in EXT_RESOURCE_RE.findall(text):
+                attributes = dict(ATTRIBUTE_RE.findall(match))
+                if attributes.get("type") == "Script":
+                    attached.add(attributes["path"])
+        self.assertTrue(attached, "no QA scene attaches a script; the derivation read nothing")
+        self.assertTrue(
+            any(path.startswith("res://scenes/qa/") for path in attached),
+            "no scene-local QA script found; the case the review named is not exercised",
+        )
+        self.assertEqual(sorted(attached - set(qa_texts)), [])
+        # Transitive: base classes reached only through `extends` are scanned too.
+        self.assertIn("res://scripts/qa_test_base.gd", qa_texts)
+
+    def test_a_ply_loaded_two_references_deep_is_found(self):
+        """The closure itself, on a project it did not grow up with."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "scenes" / "qa").mkdir(parents=True)
+            (project / "scripts").mkdir()
+            (project / "scenes" / "qa" / "qa_probe.tscn").write_text(
+                '[ext_resource type="Script" path="res://scenes/qa/qa_probe.gd" id="1"]\n',
+                encoding="utf-8",
+            )
+            (project / "scenes" / "qa" / "qa_probe.gd").write_text(
+                'extends "res://scripts/qa_probe_base.gd"\n', encoding="utf-8"
+            )
+            (project / "scripts" / "qa_probe_base.gd").write_text(
+                'var fixture = preload("res://tests/fixtures/test_splats.ply")\n', encoding="utf-8"
+            )
+            (project / "scripts" / "qa_test_runner.gd").write_text("extends SceneTree\n", encoding="utf-8")
+            closure = _qa_reference_closure(project, _qa_closure_roots(project))
+        self.assertIn("res://scripts/qa_probe_base.gd", closure)
+        failures = self._failures(qa_texts={**self.inputs[0], **closure})
+        self.assertTrue(
+            any("qa_probe_base.gd loads res://tests/fixtures/test_splats.ply" in f for f in failures),
+            failures,
+        )
+
+    def test_a_scene_script_loading_the_benchmark_fixture_fails(self):
+        qa_texts = dict(self.inputs[0])
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        self.assertIn(scene_script, qa_texts)
+        qa_texts[scene_script] += '\nvar extra = load("res://tests/fixtures/test_splats.ply")\n'
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("floor-governed" in failure for failure in failures), failures)
+
+    def test_a_ply_path_built_at_run_time_fails_closed(self):
+        qa_texts = dict(self.inputs[0])
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        qa_texts[scene_script] += '\nvar extra = load("res://tests/fixtures/%s.ply" % name)\n'
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("cannot resolve to a literal" in failure for failure in failures), failures)
+        # Discrimination: a comment naming a PLY is not a load.
+        commented = dict(self.inputs[0])
+        commented[scene_script] += "\n## qa_splats_1024.ply is the QA corpus\n"
+        self.assertEqual(self._failures(qa_texts=commented), [])
+
+    def test_a_load_whose_target_is_not_a_literal_fails_closed(self):
+        """#991 review: the extension assembled at run time never contains `.ply`."""
+        scene_script = "res://scenes/qa/qa_scale_validation.gd"
+        cases = {
+            "concatenated extension": 'var extra = load("res://tests/fixtures/test_splats." + "ply")',
+            "variable": 'var extra = load(fixture_path)',
+            "asset method": 'var ok = asset.load_from_file(path)',
+            "ResourceLoader": 'var extra = ResourceLoader.load(base + name)',
+            "call spanning lines": 'var extra = load(\n\t"res://tests/fixtures/qa_splats_1024.ply")',
+        }
+        for label, code in cases.items():
+            with self.subTest(case=label):
+                qa_texts = dict(self.inputs[0])
+                qa_texts[scene_script] += "\n" + code + "\n"
+                failures = self._failures(qa_texts=qa_texts)
+                self.assertTrue(any(scene_script in f and "cannot" in f for f in failures), failures)
+
+        with self.subTest(case="a literal QA fixture load is accepted"):
+            qa_texts = dict(self.inputs[0])
+            qa_texts[scene_script] += '\nvar extra = preload("res://tests/fixtures/qa_splats_1024.ply")\n'
+            self.assertEqual(self._failures(qa_texts=qa_texts), [])
+
+    def test_the_non_literal_load_policy_is_exact_and_not_stale(self):
+        runner = "res://scripts/qa_test_runner.gd"
+        with self.subTest(case="an edited policy call leaves the list"):
+            qa_texts = dict(self.inputs[0])
+            self.assertIn("load(scene_path)", qa_texts[runner])
+            qa_texts[runner] = qa_texts[runner].replace("load(scene_path)", "load(scene_path + suffix)")
+            failures = self._failures(qa_texts=qa_texts)
+            self.assertTrue(any("load(scene_path + suffix)" in f for f in failures), failures)
+            self.assertTrue(any("stale entry" in f for f in failures), failures)
+
+        with self.subTest(case="every entry names a call that exists"):
+            for (source, call), reason in QA_NON_LITERAL_LOADS.items():
+                self.assertIn(call, self.inputs[0].get(source, ""), (source, call))
+                self.assertTrue(reason)
+
+    def test_a_deleted_baseline_count_field_fails(self):
+        """#991 review: the counts must be REQUIRED, or deleting them disables the check."""
+        pairs = _qa_route_pairs(self.inputs[0])
+        [(candidate, _)] = pairs["visual_diff"]["candidate"]
+        [(reference, _)] = pairs["visual_diff"]["reference"]
+        cases = {
+            "candidate source count": (candidate, "source_splat_count", "does not record source_splat_count"),
+            "candidate reference count": (
+                candidate, "reference_source_splat_count", "does not record reference_source_splat_count"
+            ),
+            "reference source count": (reference, "source_splat_count", "does not record source_splat_count"),
+        }
+        for label, (scene, key, expected) in cases.items():
+            with self.subTest(case=label):
+                baseline = json.loads(json.dumps(self.inputs[5]))
+                for entry in baseline["results"]:
+                    if entry.get("scene") == scene:
+                        del entry["metrics"][key]
+                failures = self._failures(baseline_payload=baseline)
+                self.assertTrue(any(scene in f and expected in f for f in failures), failures)
+
+        with self.subTest(case="whole entry removed"):
+            baseline = json.loads(json.dumps(self.inputs[5]))
+            baseline["results"] = [e for e in baseline["results"] if e.get("scene") != candidate]
+            failures = self._failures(baseline_payload=baseline)
+            self.assertTrue(any("has no entry in the committed baseline" in f for f in failures), failures)
+
+        with self.subTest(case="quarantined pair scene is exempt"):
+            baseline = json.loads(json.dumps(self.inputs[5]))
+            baseline["results"] = [e for e in baseline["results"] if e.get("scene") != candidate]
+            baseline.setdefault("quarantined", {})[candidate] = "test"
+            failures = self._failures(baseline_payload=baseline)
+            self.assertFalse(any(candidate in f for f in failures), failures)
+
+    def test_the_world_header_is_read_at_the_loaders_offsets(self):
+        header = struct.pack("<IIII", WORLD_MAGIC, 1, 4, 1024)
+        self.assertEqual(_world_header_splat_count(header), 1024)
+        self.assertIsNone(_world_header_splat_count(struct.pack("<IIII", 0xDEADBEEF, 1, 4, 1024)))
+        self.assertIsNone(_world_header_splat_count(header[:12]))
 
 
 if __name__ == "__main__":
