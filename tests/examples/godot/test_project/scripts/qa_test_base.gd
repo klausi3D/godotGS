@@ -83,6 +83,12 @@ func _process(delta: float):
 			set_process(false)
 
 func _finish_test():
+	# Idempotent: _process() calls _on_test_frame() before checking the duration
+	# bound, so a scene that finishes its own sweep on a frame already past that
+	# bound would be finished twice -- emitting test_completed twice and letting
+	# the runner advance twice. Whichever call arrives first wins.
+	if phase == TestPhase.COMPLETE:
+		return
 	phase = TestPhase.COMPLETE
 	_on_test_complete()
 	print("[QA:%s] %s: %s" % [test_name, "PASS" if _test_result else "FAIL", _test_message])

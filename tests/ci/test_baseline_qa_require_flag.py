@@ -49,6 +49,7 @@ import json
 import re
 import tempfile
 import unittest
+from unittest import mock
 from collections import Counter
 from pathlib import Path
 
@@ -338,7 +339,11 @@ class WorkflowCategorySelectionTest(unittest.TestCase):
     # to update it mechanically, which is how a pin stops meaning anything.
     EXPECTED = sorted(
         [
-            ("baseline_qa.yml", frozenset({"sorting"})),
+            # #104: the GPU lane gained the render-thread dispatch characterization
+            # (category "renderer"), a deliberate lane addition pinned here.
+            ("baseline_qa.yml", frozenset({"sorting", "renderer"})),
+            # #522: the GPU job also selects `qa`, which is what makes the
+            # QA-skip path reachable from CI at all.
             ("baseline_qa.yml", frozenset({"qa"})),
             ("baseline_qa.yml", frozenset({"ply", "pipeline", "runtime", "module"})),
             ("gaussian_production_gates.yml", frozenset({"pipeline"})),
@@ -656,6 +661,409 @@ class QaInventoryAndEvidenceContractTest(unittest.TestCase):
         self.assertTrue(any("$qaSummary.results" in failure for failure in failures), failures)
 
 
+DEPTH_OCCLUSION_SCENE = "res://scenes/qa/qa_composite_depth_occlusion.tscn"
+
+#: JSON keeps 15 significant digits, so a value that round-tripped through the
+#: baseline file can differ from the recomputed one by an ULP. This is a
+#: serialization allowance, NOT a drift tolerance: the identities below are exact
+#: in the producer, and anything looser would start hiding real staleness.
+_ROUND_TRIP_EPSILON = 1e-12
+
+
+def _depth_occlusion_identity_failures(metrics: dict) -> list:
+    """Ways the depth-occlusion entry contradicts its own recorded inputs.
+
+    `mesh_contrast` is a DERIVED value: the scene computes each configuration's
+    contrast as background_warmth - mesh_only_warmth and reports the weaker of
+    the two. Those are arithmetic identities over numbers the same entry already
+    records, so a violation needs no tolerance judgement to detect -- the entry
+    is simply inconsistent with itself.
+
+    That is what makes this checkable at all. `mesh_contrast` carries no
+    comparison rule in `_metric_rule()`, so the comparator can never fail on its
+    value; the committed entry was 0.9456 (the depth_true contrast alone) for a
+    scene that had reported min() since 46cf0209cf2, and nothing noticed. An
+    identity is falsifiable without anyone having to decide what drift counts as
+    a regression.
+    """
+    failures = []
+    required = (
+        "mesh_contrast",
+        "mesh_contrast_depth_true",
+        "mesh_contrast_depth_false",
+        "depth_true_background_warmth",
+        "depth_true_mesh_only_warmth",
+        "depth_false_background_warmth",
+        "depth_false_mesh_only_warmth",
+    )
+    missing = [name for name in required if name not in metrics]
+    if missing:
+        # The two per-configuration metrics were absent from the committed entry,
+        # which is precisely why the stale aggregate had nothing to contradict.
+        return [f"metrics absent from the entry: {', '.join(missing)}"]
+
+    for config in ("true", "false"):
+        recomputed = (
+            metrics[f"depth_{config}_background_warmth"]
+            - metrics[f"depth_{config}_mesh_only_warmth"]
+        )
+        recorded = metrics[f"mesh_contrast_depth_{config}"]
+        if abs(recorded - recomputed) > _ROUND_TRIP_EPSILON:
+            failures.append(
+                f"mesh_contrast_depth_{config}={recorded!r} but "
+                f"background - mesh_only = {recomputed!r}"
+            )
+
+    weaker = min(metrics["mesh_contrast_depth_true"], metrics["mesh_contrast_depth_false"])
+    if abs(metrics["mesh_contrast"] - weaker) > _ROUND_TRIP_EPSILON:
+        failures.append(
+            f"mesh_contrast={metrics['mesh_contrast']!r} but the weaker configuration "
+            f"is {weaker!r}"
+        )
+    return failures
+
+
+class DepthOcclusionBaselineIsSelfConsistentTest(unittest.TestCase):
+    """A derived baseline value must agree with the inputs recorded beside it."""
+
+    def _entry(self) -> dict:
+        baseline = json.loads(
+            (ROOT / "tests" / "ci" / "baselines" / "qa_results.json").read_text(encoding="utf-8")
+        )
+        entries = [r for r in baseline["results"] if r["scene"] == DEPTH_OCCLUSION_SCENE]
+        self.assertEqual(len(entries), 1, "the depth-occlusion entry is not in the baseline once")
+        return entries[0]["metrics"]
+
+    def test_the_committed_entry_agrees_with_its_own_recorded_warmths(self):
+        self.assertEqual(_depth_occlusion_identity_failures(self._entry()), [])
+
+    DEPTH_OCCLUSION_SCENE = (
+        ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
+        / "qa_composite_depth_occlusion.gd"
+    )
+
+    @staticmethod
+    def _code_lines(source: str) -> list:
+        """Source lines with GDScript comments removed, so a comment cannot satisfy a check."""
+        return [line.split("#", 1)[0].rstrip() for line in source.splitlines()]
+
+    @classmethod
+    def _assignments(cls, source: str) -> dict:
+        """metric name -> every right-hand side assigned to result_metrics[name]."""
+        found: dict = {}
+        for line in cls._code_lines(source):
+            match = re.fullmatch(r'\s*result_metrics\["([A-Za-z0-9_]+)"\]\s*=\s*(.+?)\s*', line)
+            if match:
+                found.setdefault(match.group(1), []).append(match.group(2))
+        return found
+
+    @classmethod
+    def _definition(cls, source: str, name: str) -> list:
+        """Every `var <name>` definition's right-hand side, parentheses followed across lines."""
+        lines = cls._code_lines(source)
+        definitions = []
+        for index, line in enumerate(lines):
+            match = re.fullmatch(rf"\s*var {re.escape(name)}(?:\s*:\s*\w+)?\s*=\s*(.+)", line)
+            if not match:
+                continue
+            text = match.group(1)
+            depth = text.count("(") - text.count(")")
+            cursor = index
+            while depth > 0 and cursor + 1 < len(lines):
+                cursor += 1
+                text += " " + lines[cursor].strip()
+                depth += lines[cursor].count("(") - lines[cursor].count(")")
+            definitions.append(" ".join(text.split()))
+        return definitions
+
+    @classmethod
+    def _reassignments(cls, source: str, name: str) -> list:
+        """Plain `name = ...` statements after the definition -- each one can undo it."""
+        return [
+            line.strip()
+            for line in cls._code_lines(source)
+            if re.fullmatch(rf"\s*{re.escape(name)}\s*[-+*/]?=\s*.+", line)
+        ]
+
+    def test_the_producer_still_defines_the_metric_this_way(self):
+        """The identity is only the right one while the scene computes it this way.
+
+        Bound to the statements, not to tokens (#968 review). The first version
+        asserted that `min(mesh_contrast_true, mesh_contrast_false)` and the metric
+        name literals appeared SOMEWHERE in the scene, so emitting
+        `result_metrics["mesh_contrast"] = mesh_contrast_true`, or swapping the two
+        per-configuration right-hand sides, kept every token present and passed --
+        while the committed-JSON check above cannot see the producer at all and
+        the comparator leaves these metrics unruled. Every guard would have stayed
+        green over a producer that no longer honours the identity.
+
+        So each metric must be assigned exactly once from exactly the right local,
+        each local must be defined exactly once with exactly the right expression,
+        and none may be reassigned afterwards.
+        """
+        source = self.DEPTH_OCCLUSION_SCENE.read_text(encoding="utf-8")
+
+        expected_assignments = {
+            "mesh_contrast": "mesh_contrast",
+            "mesh_contrast_depth_true": "mesh_contrast_true",
+            "mesh_contrast_depth_false": "mesh_contrast_false",
+        }
+        assignments = self._assignments(source)
+        for metric, local in expected_assignments.items():
+            with self.subTest(metric=metric):
+                self.assertEqual(
+                    assignments.get(metric),
+                    [local],
+                    f"result_metrics[{metric!r}] must be assigned exactly once, from {local}",
+                )
+
+        expected_definitions = {
+            "mesh_contrast_true": (
+                '( float(depth_true["background"]["warmth"]) - '
+                'float(depth_true["mesh_only"]["warmth"]) )'
+            ),
+            "mesh_contrast_false": (
+                '( float(depth_false["background"]["warmth"]) - '
+                'float(depth_false["mesh_only"]["warmth"]) )'
+            ),
+        }
+        for local, expression in expected_definitions.items():
+            with self.subTest(local=local):
+                self.assertEqual(
+                    self._definition(source, local),
+                    [expression],
+                    f"{local} must be defined exactly once as background - mesh_only "
+                    "for its own configuration",
+                )
+                self.assertEqual(self._reassignments(source, local), [])
+
+        aggregate = self._definition(source, "mesh_contrast")
+        self.assertIn(
+            aggregate,
+            (
+                ["min(mesh_contrast_true, mesh_contrast_false)"],
+                ["min(mesh_contrast_false, mesh_contrast_true)"],
+            ),
+            "mesh_contrast must be defined exactly once as the min() of the two configurations",
+        )
+        self.assertEqual(self._reassignments(source, "mesh_contrast"), [])
+
+    def test_the_stale_entry_this_replaced_is_rejected(self):
+        """Mutation: the exact metrics committed before ee1e09b3606 must fail.
+
+        Without this the guard could be vacuously true -- and this is the shape it
+        has to catch, because the comparator passed that entry every time.
+        """
+        stale = {
+            "depth_false_background_warmth": 0.0475291196320556,
+            "depth_false_mesh_only_warmth": -0.755912930350325,
+            "depth_true_background_warmth": 0.0475291196320556,
+            "depth_true_mesh_only_warmth": -0.898039221763611,
+            "mesh_contrast": 0.945568341395666,
+        }
+        failures = _depth_occlusion_identity_failures(stale)
+        self.assertTrue(failures, "the stale entry was accepted as self-consistent")
+        self.assertIn("mesh_contrast_depth_true", failures[0])
+
+        # And with the per-configuration metrics present but the aggregate stale,
+        # the arithmetic itself is what rejects it.
+        stale_with_configs = dict(stale)
+        stale_with_configs["mesh_contrast_depth_true"] = 0.9455683413956666
+        stale_with_configs["mesh_contrast_depth_false"] = 0.8034420499823807
+        failures = _depth_occlusion_identity_failures(stale_with_configs)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("the weaker configuration", failures[0])
+
+
+class RenderThreadSeparateNeedsAProjectTest(unittest.TestCase):
+    """`--render-thread separate` is silently downgraded without a project (#104).
+
+    An editor build that finds no project falls back to the project manager
+    (main/main.cpp:2031-2034), and `if (editor || project_manager)
+    separate_thread_render = 0` (main/main.cpp:2760-2763) then drops the mode
+    the flag asked for -- with no warning and no non-zero exit. The
+    characterization runs OFF the render thread by definition, so it asserted
+    `not RenderingServer.is_on_render_thread()` and failed on every run: the
+    CI red on this PR was the harness correctly reporting an impossible
+    precondition, not flake.
+
+    Measured on this machine with the same binary and flags, differing only in
+    whether a project was loaded:
+        no --path : on_render_thread=true   <- what CI ran
+        --path <test project> : on_render_thread=false
+    """
+
+    def _runner(self):
+        return run_baseline_qa.BaselineQARunner(godot_binary="godot")
+
+    def test_every_separate_render_thread_test_declares_a_project(self):
+        table = self._runner()._build_test_table()
+        separate = [t for t in table if t.get("render_thread") == "separate"]
+        self.assertTrue(
+            separate,
+            "no test requests render_thread='separate'; this guard would be vacuous",
+        )
+        for test in separate:
+            with self.subTest(test=test["name"]):
+                project_path = test.get("project_path")
+                self.assertTrue(
+                    project_path,
+                    f"{test['name']} requests --render-thread separate without a "
+                    "project_path; Godot downgrades the mode when no project is found",
+                )
+                self.assertTrue(
+                    (ROOT / project_path / "project.godot").is_file(),
+                    f"{test['name']}: project_path {project_path!r} is not a Godot "
+                    "project (no project.godot), so the downgrade would still apply",
+                )
+                script = test["script"]
+                self.assertTrue(
+                    script.startswith("res://"),
+                    f"{test['name']}: with --path the script must be a res:// path "
+                    f"inside the project, got {script!r}",
+                )
+                self.assertTrue(
+                    (ROOT / project_path / script[len("res://"):]).is_file(),
+                    f"{test['name']}: {script} does not exist inside {project_path}",
+                )
+
+    def test_the_project_path_reaches_argv(self):
+        """A declaration that never reaches the command line changes nothing.
+
+        Asserted at the real construction site (subprocess.run), because
+        `_build_test_table()` entries do not carry the launch flags.
+        """
+        runner = self._runner()
+        table = runner._build_test_table()
+        separate = [t for t in table if t.get("render_thread") == "separate"]
+        self.assertTrue(separate, "no separate-render-thread test; guard would be vacuous")
+
+        captured = []
+
+        class _Completed:
+            returncode = 0
+            stdout = "[GS-RTD] RESULT: PASS"
+            stderr = ""
+
+        def fake_run(command, *args, **kwargs):
+            captured.append(list(command))
+            return _Completed()
+
+        for test in separate:
+            captured.clear()
+            with mock.patch.object(run_baseline_qa.subprocess, "run", side_effect=fake_run):
+                runner.run_test(test)
+            command = captured[0]
+            self.assertIn("--path", command, f"{test['name']}: no --path in argv")
+            self.assertEqual(
+                command[command.index("--path") + 1],
+                test["project_path"],
+                f"{test['name']}: --path does not carry the declared project",
+            )
+            self.assertLess(
+                command.index("--path"),
+                command.index("--script"),
+                f"{test['name']}: --path must precede --script",
+            )
+
+    def test_a_script_error_fails_a_marker_classified_test(self):
+        """The script's own verdict is not the only way it can be wrong.
+
+        A GDScript runtime error aborts the FUNCTION it occurs in, not the
+        script. Run against a binary whose test hooks are absent, every case of
+        this harness died on its first call, `_failures` stayed empty, and it
+        printed `RESULT: PASS - 5 characterizations executed` with exit 0 --
+        observed on this machine before the fix. Marker classification has to
+        reject that output even though the pass marker is present.
+        """
+        runner = self._runner()
+        table = runner._build_test_table()
+        marker_tests = [t for t in table if t.get("classify_by_marker")]
+        self.assertTrue(marker_tests, "no marker-classified test; guard would be vacuous")
+        test = marker_tests[0]
+        self.assertIn(
+            "SCRIPT ERROR",
+            test.get("fail_markers") or [],
+            f"{test['name']}: SCRIPT ERROR is not a failure marker",
+        )
+
+        pass_marker = test["pass_marker"]
+
+        class _Clean:
+            returncode = 0
+            stdout = pass_marker + "\n"
+            stderr = ""
+
+        class _Errored:
+            returncode = 0
+            stdout = pass_marker + "\n"
+            stderr = "SCRIPT ERROR: Invalid call. Nonexistent function 'test_x'.\n"
+
+        with mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Clean()):
+            clean_success, _out, _details = runner.run_test(test)
+        with mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Errored()):
+            errored_success, _out, _details = runner.run_test(test)
+
+        self.assertTrue(
+            clean_success,
+            "a run with the pass marker and no script error was not classified as a pass; "
+            "this half must hold or the marker rule rejects everything",
+        )
+        self.assertFalse(
+            errored_success,
+            "a run whose every hook call raised a GDScript error was classified as a "
+            "pass because it printed its own success marker",
+        )
+
+
+class EmptyCategorySelectionIsNotAPassTest(unittest.TestCase):
+    """A requested category that selects nothing must fail (#104 lane).
+
+    `--categories sorting,renderer` keeps reporting success if the renderer
+    entry is renamed or dropped: the overall selection is still non-empty, so
+    nothing notices that one of the two requested lanes contributed no tests.
+    That is the catalogued-but-empty shape `REQUIRED_BATCHES` exists to stop in
+    the GPU harness, and this lane exists precisely because the C++ cases it
+    replaces could only ever skip.
+    """
+
+    def _runner(self):
+        runner = run_baseline_qa.BaselineQARunner(godot_binary="godot")
+        return runner
+
+    def test_a_requested_category_that_matches_nothing_fails(self):
+        runner = self._runner()
+        table = [t for t in runner._build_test_table() if t.get("category") != "renderer"]
+        with mock.patch.object(run_baseline_qa, "prepare_synthetic_assets", lambda: None), \
+                mock.patch.object(runner, "_build_test_table", return_value=table), \
+                mock.patch.object(run_baseline_qa.subprocess, "run") as run_mock:
+            ok = runner.run_all_tests(categories={"renderer"})
+        self.assertFalse(
+            ok, "a lane whose category selected no tests reported success"
+        )
+        run_mock.assert_not_called()
+
+    def test_a_populated_category_still_runs(self):
+        """Discrimination: the guard must not reject a category that has tests."""
+        runner = self._runner()
+        table = runner._build_test_table()
+        self.assertTrue(
+            any(t.get("category") == "renderer" for t in table),
+            "the renderer category has no entry at all; the lane is empty",
+        )
+
+        class _Completed:
+            returncode = 0
+            stdout = "[GS-RTD] RESULT: PASS"
+            stderr = ""
+
+        with mock.patch.object(run_baseline_qa, "prepare_synthetic_assets", lambda: None), \
+                mock.patch.object(run_baseline_qa.subprocess, "run", return_value=_Completed()) as run_mock:
+            ok = runner.run_all_tests(categories={"renderer"})
+        self.assertTrue(ok, "the populated renderer category did not run/pass")
+        self.assertEqual(run_mock.call_count, 1, "expected exactly one launch")
+
+
 class QaRequireCaptureTest(unittest.TestCase):
     """The third laundering path (#522): a lane that promised a GPU, skipped.
 
@@ -727,9 +1135,74 @@ class QaRequireCaptureTest(unittest.TestCase):
 
         self.assertIn("--headless", headless_cmd)
         self.assertNotIn("--headless", capture_cmd)
-        for flag in run_baseline_qa.GPU_DISPLAY_ARGS:
+        for flag in run_baseline_qa.gpu_display_args():
             self.assertIn(flag, capture_cmd)
         self.assertNotIn("--display-driver", headless_cmd)
+
+    def test_render_thread_override_reaches_argv_exactly_once(self):
+        """#104's whole subject is running one test OFF the render thread, and
+        until this test existed nothing asserted the override survived to argv.
+
+        It must intercept the REAL construction site. `_build_test_table()`
+        entries do NOT carry the display args -- run_test() appends them
+        (run_baseline_qa.py:540-549) -- so a version of this test that inspected
+        the table skipped every entry and passed against a deliberately broken
+        implementation. Verified: with the duplicate-flag shape restored, the
+        table-based form still reported OK. This form patches subprocess.run and
+        asserts the argv actually launched.
+
+        The duplicate-count assertion is the load-bearing half. Appending a
+        second `--render-thread` after a constant that already carried one also
+        "works" -- Godot assigns separate_thread_render on every occurrence with
+        no already-specified check (main/main.cpp:1492-1518), so the last wins --
+        but it makes behaviour depend on duplicate-option precedence.
+        """
+        runner = run_baseline_qa.BaselineQARunner(godot_binary="godot")
+        table = runner._build_test_table()
+        gpu_tests = [t for t in table if t.get("type", "godot") == "godot" and t.get("requires_gpu")]
+        self.assertTrue(gpu_tests, "no GPU test entries; this assertion would be vacuous")
+        self.assertTrue(
+            any(t.get("render_thread") == "separate" for t in gpu_tests),
+            "no GPU test declares render_thread='separate'; the #104 override is "
+            "unexercised, so this assertion would be vacuous",
+        )
+
+        captured = []
+
+        class _Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def fake_run(command, *args, **kwargs):
+            captured.append(list(command))
+            return _Completed()
+
+        for test in gpu_tests:
+            captured.clear()
+            with mock.patch.object(run_baseline_qa.subprocess, "run", side_effect=fake_run):
+                runner.run_test(test)
+            self.assertEqual(len(captured), 1, f"{test['name']}: expected one launch")
+            command = captured[0]
+            self.assertEqual(
+                command.count("--render-thread"),
+                1,
+                f"{test['name']}: expected exactly one --render-thread in argv, "
+                f"got {command.count('--render-thread')} ({command})",
+            )
+            expected = test.get("render_thread", "safe")
+            self.assertEqual(
+                command[command.index("--render-thread") + 1],
+                expected,
+                f"{test['name']}: --render-thread value does not match the "
+                f"test's declared render_thread ({expected})",
+            )
+
+    def test_gpu_display_args_rejects_an_unsupported_render_thread(self):
+        """Godot aborts on an unknown mode (main/main.cpp:1504-1510). Failing in
+        the harness names the offending value instead of leaving a dead GPU lane."""
+        with self.assertRaises(ValueError):
+            run_baseline_qa.gpu_display_args("sepatate")
 
     def test_headless_skip_laundering_cannot_fire_on_a_capture_run(self):
         """_is_expected_headless_qa_skip() converts a non-zero exit into a
@@ -742,7 +1215,7 @@ class QaRequireCaptureTest(unittest.TestCase):
         )
         capture_cmd = [
             "godot",
-            *run_baseline_qa.GPU_DISPLAY_ARGS,
+            *run_baseline_qa.gpu_display_args(),
             "--script",
             "res://scripts/qa_test_runner.gd",
         ]
