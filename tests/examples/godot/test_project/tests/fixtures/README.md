@@ -28,6 +28,32 @@ category — including the blocking QA scene lane — runs against the **1024-sp
 Python fixture**. The 10000 floor in `ASSET_MIN_SPLAT_COUNTS` is a *benchmark
 lane* contract; it does not describe what the QA lane has on disk.
 
+Since #790 that is a **deliberate, enforced pin, not an oversight** (it was
+previously both). This whole QA corpus is measured against the 1024-splat
+fixture:
+
+| Artifact | pinned to |
+| --- | --- |
+| `tests/ci/baselines/qa_results.json` | `source_splat_count: 1024`, `reference_source_splat_count: 1024` |
+| `test_splats.gsplatworld` (below) | a 1024-splat bake |
+
+and `scripts/qa_route_capture_base.gd` refuses to score when the world route and
+the instance route disagree on their source splat count. So regenerating
+`test_splats.ply` at the C++ count in this workspace would not upgrade a
+measurement — it would break a blocking gate whose numbers describe the other
+corpus. `run_module_tests.py`, `run_baseline_qa.py` and `run_runtime_validation.py`
+each say so at the point of prep (`FIXTURE_CORPUS_BLOCKER`), and
+`tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests` asserts
+the two artifacts above stay consistent with the fallback count, so rebaking one
+side without the other fails immediately.
+
+Moving this corpus to the C++ fixtures is therefore a **baseline change**, in one
+deliberate sequence: rebake the world at the C++ count, re-measure
+`qa_results.json`, and forward `--godot-binary` in those three runners — together,
+in the same change. The benchmark evidence surface in
+`.github/workflows/gaussian_production_gates.yml` is separate: it shares no QA
+corpus, so it already preps with `--godot-binary`.
+
 ## `test_splats.gsplatworld` — committed, baked from `test_splats.ply`
 
 The world fixture is the world-route half of the render-route A/B in

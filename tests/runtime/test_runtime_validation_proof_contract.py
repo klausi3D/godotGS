@@ -427,6 +427,79 @@ def _result(name: str, metrics: dict[str, object], status: str = "passed"):
     )
 
 
+class PrepFailuresKeepTheirDiagnostics(unittest.TestCase):
+    """#969 review: the actionable line of a traceback is its last, not its first.
+
+    `ensure_synthetic_assets()` preferred stderr, correctly -- but took its FIRST
+    line, which for an uncaught exception is `Traceback (most recent call last):`.
+    The cause (`PermissionError: ... 'tests/fixtures'`) sits on the last line and
+    was discarded, and the rest of the captured output was never shown at all.
+    """
+
+    def _fail_prep(self, stdout: str = "", stderr: str = "", code: int = 1):
+        buffer = io.StringIO()
+        completed = mock.Mock(returncode=code, stdout=stdout, stderr=stderr)
+        with mock.patch.object(runtime_validation.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stdout(buffer):
+                with self.assertRaises(RuntimeError) as caught:
+                    runtime_validation.ensure_synthetic_assets()
+        return buffer.getvalue(), str(caught.exception)
+
+    def test_a_traceback_reports_the_exception_not_the_banner(self) -> None:
+        stderr = "\n".join(
+            [
+                "Traceback (most recent call last):",
+                '  File "prepare_synthetic_assets.py", line 1, in <module>',
+                "    main()",
+                "PermissionError: [Errno 13] Permission denied: 'tests/fixtures'",
+            ]
+        )
+        printed, detail = self._fail_prep(stderr=stderr)
+        self.assertIn("PermissionError", detail)
+        self.assertNotIn("Traceback (most recent call last):", detail)
+        self.assertIn("main()", printed, "the traceback body was never shown")
+
+    def test_the_captured_output_is_replayed(self) -> None:
+        """The prep's own diagnostics put the cause after the heading."""
+        stdout = "\n".join(
+            [
+                "[prepare_synthetic_assets] C++ generation exited 0 but wrote incomplete "
+                "fixtures:",
+                "  - synthetic_sphere.ply: 12,345 bytes on disk, 23,456 expected",
+                "  the previous fixtures are being restored",
+            ]
+        )
+        printed, detail = self._fail_prep(stdout=stdout)
+        self.assertIn("synthetic_sphere.ply", printed)
+        self.assertIn("12,345 bytes on disk", printed)
+        self.assertIn("the previous fixtures are being restored", detail)
+
+    def test_the_low_fidelity_notice_still_does_not_become_the_cause(self) -> None:
+        """Discrimination: the reason stderr wins must survive this change.
+
+        The child prints its low-fidelity warning to stdout before doing any file
+        work, so the first stdout line is that warning even when prep died of
+        something else entirely.
+        """
+        stdout = "[prepare_synthetic_assets] WARNING: LOW-FIDELITY FIXTURES\nlater line\n"
+        stderr = "OSError: disk full\n"
+        _printed, detail = self._fail_prep(stdout=stdout, stderr=stderr)
+        self.assertIn("disk full", detail)
+        self.assertNotIn("LOW-FIDELITY", detail)
+
+    def test_an_empty_failure_still_names_the_exit_code(self) -> None:
+        _printed, detail = self._fail_prep(code=3)
+        self.assertIn("exit code 3", detail)
+
+    def test_a_successful_prep_prints_no_diagnostics(self) -> None:
+        buffer = io.StringIO()
+        completed = mock.Mock(returncode=0, stdout="all good\n", stderr="")
+        with mock.patch.object(runtime_validation.subprocess, "run", return_value=completed):
+            with contextlib.redirect_stdout(buffer):
+                runtime_validation.ensure_synthetic_assets()
+        self.assertNotIn("synthetic asset prep stdout", buffer.getvalue())
+
+
 class RuntimeRendererProofContractTests(unittest.TestCase):
     def test_required_renderer_proof_passes_with_canonical_pass(self) -> None:
         summary = runtime_validation._build_renderer_proof_summary(
