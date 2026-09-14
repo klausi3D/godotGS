@@ -60,6 +60,15 @@ CPP_GENERATED_FILENAMES: frozenset[str] = frozenset({
 CANONICAL_SPECS: tuple[PLYSpec, ...] = (
     PLYSpec("tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0),
     PLYSpec("tests/examples/godot/test_project/tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0),
+    # The QA scene suite's own corpus. A separate file from test_splats.ply on
+    # purpose: test_splats.ply is a benchmark fixture whose floor needs the C++
+    # producer, while the QA route pairs compare THIS file against the committed
+    # test_splats.gsplatworld bake, and tests/ci/baselines/qa_results.json was
+    # measured at 1024 splats. Python-only by construction -- the name is not in
+    # CPP_GENERATED_FILENAMES -- so no producer choice changes what QA loads.
+    # Same seed and shape as the test_splats fallback, so it is the same bytes
+    # the QA baseline was measured on. QaCorpusIsPinnedTest holds the coupling.
+    PLYSpec("tests/examples/godot/test_project/tests/fixtures/qa_splats_1024.ply", 1024, 1101, "sphere", 3.0),
     PLYSpec("templates/gaussian_splat_template/assets/template_splats.ply", 768, 2202, "sphere", 2.4),
     PLYSpec("tests/fixtures/synthetic_sphere.ply", 2048, 3101, "sphere", 4.5),
     PLYSpec("tests/examples/godot/test_project/tests/fixtures/synthetic_sphere.ply", 2048, 3101, "sphere", 4.5),

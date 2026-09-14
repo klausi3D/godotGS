@@ -40,6 +40,9 @@ This test locks in the contract:
   - Nothing that failed to render may become the golden baseline
     (BaselineCandidateValidationTest), and the blocking lane may not compare
     machine-dependent metrics (NonDeterministicMetricStrippingTest).
+  - The QA suite loads a corpus no producer choice can change, and each route
+    pair's PLY, world bake and committed baseline agree on its size
+    (QaCorpusIsPinnedTest).
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import struct
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -1786,6 +1791,258 @@ class MetricValueFormattingTest(unittest.TestCase):
         markdown = runner._build_baseline_summary_markdown(comparison)
         self.assertIn("route_uid", markdown)
         self.assertIn("COMMON.SKIP", markdown)
+
+
+
+# --------------------------------------------------------------------------
+# The QA corpus is pinned.
+#
+# The QA scenes used to load res://tests/fixtures/test_splats.ply, which is a
+# BENCHMARK fixture: prepare_synthetic_assets.py writes it at 1024 splats with the
+# Python fallback and at 10000 with the C++ producer, and its floor (10000) needs
+# the latter. The QA route pairs compare that PLY against the committed 1024-splat
+# test_splats.gsplatworld, and qa_results.json was measured at 1024. So any runner
+# that generated the benchmark corpus properly handed the QA suite a fixture
+# mismatch (qa_route_capture_base.gd refuses to score) that said nothing about the
+# renderer. The QA scenes now load qa_splats_1024.ply, which only the Python
+# generator writes. Everything below is derived from the sources: the scene
+# files, the prep script's own tables, the world file's header, the baseline.
+# --------------------------------------------------------------------------
+QA_PROJECT_ROOT = ROOT / "tests" / "examples" / "godot" / "test_project"
+QA_PROJECT_RELATIVE = "tests/examples/godot/test_project/"
+PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
+QA_BASELINE = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+ROUTE_CAPTURE_SCRIPT = "res://scripts/qa_route_capture_base.gd"
+
+PLY_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+\.ply\b")
+WORLD_REFERENCE_RE = re.compile(r"res://[^\"'\s)]+\.gsplatworld\b")
+EXT_RESOURCE_RE = re.compile(r"^\[ext_resource\b([^\]]*)\]", re.MULTILINE)
+ATTRIBUTE_RE = re.compile(r'(\w+)="([^"]*)"')
+SCENE_PROPERTY_RE = re.compile(r'^(capture_slot|route_role)\s*=\s*"([^"]*)"', re.MULTILINE)
+
+# modules/gaussian_splatting/io/gaussian_splat_world_io.cpp:524-541 reads the
+# header as u32 magic, u32 version, u32 flags, u32 splat_count, little-endian.
+WORLD_MAGIC = 0x57505347
+
+
+def _world_header_splat_count(data):
+    """splat_count from a .gsplatworld header, or None when it is not one."""
+    if len(data) < 16:
+        return None
+    magic, _version, _flags, splat_count = struct.unpack_from("<IIII", data, 0)
+    return splat_count if magic == WORLD_MAGIC else None
+
+
+def _res_to_repo(res_path):
+    return QA_PROJECT_RELATIVE + res_path[len("res://"):]
+
+
+def _qa_route_pairs(qa_texts):
+    """{capture_slot: {route_role: (scene, fixture res path)}} from the route scenes."""
+    pairs = {}
+    for scene, text in qa_texts.items():
+        if not scene.endswith(".tscn") or ROUTE_CAPTURE_SCRIPT not in text:
+            continue
+        properties = dict(SCENE_PROPERTY_RE.findall(text))
+        fixtures = [
+            dict(ATTRIBUTE_RE.findall(match)).get("path", "")
+            for match in EXT_RESOURCE_RE.findall(text)
+        ]
+        fixtures = [path for path in fixtures if path.endswith((".ply", ".gsplatworld"))]
+        slot, role = properties.get("capture_slot"), properties.get("route_role")
+        pairs.setdefault(slot, {}).setdefault(role, []).append((scene, fixtures))
+    return pairs
+
+
+def _qa_corpus_failures(qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline_payload):
+    """Everything that would let a producer choice change what the QA suite loads."""
+    failures = []
+
+    for source, text in sorted(qa_texts.items()):
+        for ply in sorted(set(PLY_REFERENCE_RE.findall(text))):
+            if ply in floor_governed:
+                failures.append(
+                    f"{source} loads {ply}, a floor-governed benchmark fixture whose "
+                    "producer (and size) depends on the prep command"
+                )
+            repo_path = _res_to_repo(ply)
+            if repo_path not in spec_counts:
+                failures.append(f"{source} loads {ply}, which prepare_synthetic_assets.py does not generate")
+            if Path(ply).name in cpp_generated:
+                failures.append(
+                    f"{source} loads {ply}, which the C++ producer writes when a binary is given"
+                )
+        if source.endswith(".tscn"):
+            for match in EXT_RESOURCE_RE.findall(text):
+                attributes = dict(ATTRIBUTE_RE.findall(match))
+                if attributes.get("path", "").endswith(".ply") and "uid" in attributes:
+                    failures.append(
+                        f"{source} references {attributes['path']} with uid {attributes['uid']}: "
+                        "Godot resolves a uid before the path, and a generated fixture has no "
+                        "stable uid, so the scene can load a different file than it names"
+                    )
+
+    pairs = _qa_route_pairs(qa_texts)
+    if not pairs:
+        failures.append(f"no QA route pair found (no scene uses {ROUTE_CAPTURE_SCRIPT})")
+    baseline_metrics = {
+        entry.get("scene"): entry.get("metrics") or {}
+        for entry in baseline_payload.get("results", [])
+        if isinstance(entry, dict)
+    }
+    for slot, roles in sorted(pairs.items(), key=lambda item: str(item[0])):
+        if sorted(roles) != ["candidate", "reference"] or any(len(v) != 1 for v in roles.values()):
+            failures.append(f"route slot {slot!r} is not exactly one reference and one candidate: {roles}")
+            continue
+        counts = {}
+        for role, [(scene, fixtures)] in roles.items():
+            if len(fixtures) != 1:
+                failures.append(f"{scene} does not name exactly one splat fixture: {fixtures}")
+                continue
+            fixture = fixtures[0]
+            if fixture.endswith(".ply"):
+                count = spec_counts.get(_res_to_repo(fixture))
+            else:
+                count = world_counts.get(fixture)
+            if count is None:
+                failures.append(f"{scene}: the splat count of {fixture} could not be determined")
+                continue
+            counts[scene] = count
+        if len(counts) != 2:
+            continue
+        if len(set(counts.values())) != 1:
+            failures.append(f"route slot {slot!r} compares fixtures of different sizes: {counts}")
+            continue
+        expected = next(iter(counts.values()))
+        for scene in counts:
+            metrics = baseline_metrics.get(scene, {})
+            for key in ("source_splat_count", "reference_source_splat_count"):
+                if key in metrics and metrics[key] != expected:
+                    failures.append(
+                        f"{scene}: the committed baseline records {key}={metrics[key]} but the "
+                        f"route's fixtures hold {expected} splats"
+                    )
+    return failures
+
+
+def _load_prep_tables():
+    spec = importlib.util.spec_from_file_location("prepare_synthetic_assets_for_qa_corpus", PREP_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered first: the script's dataclasses resolve their module by name.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    spec_counts = {entry.relative_path: entry.count for entry in module.CANONICAL_SPECS}
+    return spec_counts, set(module.CPP_GENERATED_FILENAMES), set(module.ASSET_MIN_SPLAT_COUNTS)
+
+
+def _real_qa_corpus_inputs():
+    qa_texts = {}
+    for path in sorted((QA_PROJECT_ROOT / "scenes" / "qa").glob("*.tscn")):
+        qa_texts["res://" + path.relative_to(QA_PROJECT_ROOT).as_posix()] = path.read_text(encoding="utf-8")
+    for path in sorted((QA_PROJECT_ROOT / "scripts").glob("qa_*.gd")):
+        qa_texts["res://" + path.relative_to(QA_PROJECT_ROOT).as_posix()] = path.read_text(encoding="utf-8")
+    spec_counts, cpp_generated, floor_governed = _load_prep_tables()
+    world_counts = {}
+    for text in qa_texts.values():
+        for world in WORLD_REFERENCE_RE.findall(text):
+            world_file = QA_PROJECT_ROOT / world[len("res://"):]
+            world_counts[world] = (
+                _world_header_splat_count(world_file.read_bytes()) if world_file.is_file() else None
+            )
+    baseline = json.loads(QA_BASELINE.read_text(encoding="utf-8"))
+    return qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline
+
+
+class QaCorpusIsPinnedTest(unittest.TestCase):
+    """The QA suite's inputs cannot be changed by which producer ran prep."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.inputs = _real_qa_corpus_inputs()
+
+    def _failures(self, **overrides):
+        qa_texts, spec_counts, cpp_generated, floor_governed, world_counts, baseline = self.inputs
+        arguments = {
+            "qa_texts": dict(qa_texts),
+            "spec_counts": dict(spec_counts),
+            "cpp_generated": set(cpp_generated),
+            "floor_governed": set(floor_governed),
+            "world_counts": dict(world_counts),
+            "baseline_payload": json.loads(json.dumps(baseline)),
+        }
+        arguments.update(overrides)
+        return _qa_corpus_failures(**arguments)
+
+    def _instance_scene(self):
+        pairs = _qa_route_pairs(self.inputs[0])
+        [(scene, [fixture])] = pairs["visual_diff"]["candidate"]
+        return scene, fixture
+
+    def test_the_committed_qa_corpus_is_pinned(self):
+        self.assertEqual(self._failures(), [])
+
+    def test_the_route_pairs_and_their_fixtures_are_really_read(self):
+        """Vacuity guard: an empty derivation would make every check above pass."""
+        qa_texts, spec_counts, _cpp, _floors, world_counts, _baseline = self.inputs
+        pairs = _qa_route_pairs(qa_texts)
+        self.assertGreaterEqual(len(pairs), 2, pairs)
+        self.assertTrue(all(sorted(roles) == ["candidate", "reference"] for roles in pairs.values()), pairs)
+        _scene, fixture = self._instance_scene()
+        self.assertTrue(fixture.endswith(".ply"), fixture)
+        self.assertIn(_res_to_repo(fixture), spec_counts)
+        self.assertTrue(world_counts, "no world fixture header was read")
+        self.assertTrue(all(isinstance(count, int) and count > 0 for count in world_counts.values()), world_counts)
+
+    def test_a_qa_scene_loading_the_benchmark_fixture_fails(self):
+        """The defect this pins: the QA pair back on test_splats.ply."""
+        scene, fixture = self._instance_scene()
+        qa_texts = dict(self.inputs[0])
+        qa_texts[scene] = qa_texts[scene].replace(fixture, "res://tests/fixtures/test_splats.ply")
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("floor-governed" in failure for failure in failures), failures)
+        self.assertTrue(any("C++ producer" in failure for failure in failures), failures)
+
+    def test_a_uid_on_a_generated_fixture_reference_fails(self):
+        scene, fixture = self._instance_scene()
+        qa_texts = dict(self.inputs[0])
+        qa_texts[scene] = qa_texts[scene].replace(
+            f'path="{fixture}"', f'uid="uid://dufbqibv4cxau" path="{fixture}"'
+        )
+        failures = self._failures(qa_texts=qa_texts)
+        self.assertTrue(any("resolves a uid before the path" in failure for failure in failures), failures)
+
+    def test_a_qa_fixture_the_cpp_producer_writes_fails(self):
+        _scene, fixture = self._instance_scene()
+        failures = self._failures(cpp_generated=set(self.inputs[2]) | {Path(fixture).name})
+        self.assertTrue(any("C++ producer" in failure for failure in failures), failures)
+
+    def test_a_resized_qa_ply_spec_fails_the_pair(self):
+        _scene, fixture = self._instance_scene()
+        spec_counts = dict(self.inputs[1])
+        spec_counts[_res_to_repo(fixture)] = 10000
+        failures = self._failures(spec_counts=spec_counts)
+        self.assertTrue(any("different sizes" in failure for failure in failures), failures)
+
+    def test_a_rebaked_world_of_another_size_fails_the_pair(self):
+        world_counts = {world: count + 1 for world, count in self.inputs[4].items()}
+        failures = self._failures(world_counts=world_counts)
+        self.assertTrue(any("different sizes" in failure for failure in failures), failures)
+
+    def test_a_baseline_measured_at_another_size_fails(self):
+        scene, _fixture = self._instance_scene()
+        baseline = json.loads(json.dumps(self.inputs[5]))
+        for entry in baseline["results"]:
+            if entry.get("scene") == scene:
+                entry["metrics"]["source_splat_count"] = 10000
+        failures = self._failures(baseline_payload=baseline)
+        self.assertTrue(any("committed baseline records" in failure for failure in failures), failures)
+
+    def test_the_world_header_is_read_at_the_loaders_offsets(self):
+        header = struct.pack("<IIII", WORLD_MAGIC, 1, 4, 1024)
+        self.assertEqual(_world_header_splat_count(header), 1024)
+        self.assertIsNone(_world_header_splat_count(struct.pack("<IIII", 0xDEADBEEF, 1, 4, 1024)))
+        self.assertIsNone(_world_header_splat_count(header[:12]))
 
 
 if __name__ == "__main__":

@@ -59,7 +59,7 @@ const CAPTURE_DIR := "user://qa_route_captures"
 ## Point the camera orbits and looks at.
 ##
 ## MUST be the centre of the fixture's content, not the world origin. With
-## test_splats.ply (a sphere centred on z = -4.0) an origin-centred orbit puts
+## qa_splats_1024.ply (a sphere centred on z = -4.0) an origin-centred orbit puts
 ## the camera 6.6 units from the cloud at 135 deg and pushes the content into the
 ## frustum edge, where the two routes clip differently and the comparison stops
 ## being about SH rotation at all. Cross-checked between the two scenes of a pair
