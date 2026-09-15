@@ -38,10 +38,13 @@ Each successful publish includes:
 - Linux SHA-256 checksum file
 - `BUILD-INFO.txt` metadata (channel, commit, binary name, generation timestamp)
 
-When `build_windows` succeeds for the same run, the publish also includes:
+When `build_windows` succeeds for the same run (which then also requires `export_smoke_windows` to pass), the publish also includes:
 
-- Windows editor zip (`godotgs-windows-x86_64-<tag-or-sha>.zip`)
+- Windows editor zip (`godotgs-windows-x86_64-<tag-or-sha>.zip`). It is optimized on every channel (`optimize=speed_trace`, no `dev_build`) since #994.
 - Windows SHA-256 checksum file
+- Windows export template zip (`godotgs-export-template-windows-x86_64-<tag-or-sha>.zip`) and its SHA-256 checksum file. This is the `target=template_release` build the export smoke test executed in the same run.
+
+The Linux editor tarball stays `dev_build=yes` (`-O0`) on the nightly channel.
 
 ## Current Limits and Caveats
 

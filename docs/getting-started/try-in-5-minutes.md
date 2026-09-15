@@ -7,17 +7,18 @@ This is the shortest honest path to a visible result: download the latest nightl
 Open the [GitHub Releases](https://github.com/klausi3D/godotGS/releases) page, pick the most recent `nightly-YYYYMMDD` entry at the top of the list, and download the archive that matches your platform:
 
 - **Linux:** `godotgs-linux-x86_64-<date>.tar.xz`
-- **Windows:** `godotgs-windows-x86_64-<date>.zip` (contains both the GUI editor and the console wrapper — pick whichever fits your workflow)
+- **Windows:** `godotgs-windows-x86_64-<date>.zip` (contains both the GUI editor and the console wrapper — pick whichever fits your workflow). Do not take `godotgs-export-template-windows-x86_64-<date>.zip` by mistake: that is the export template for shipping a game, not the editor.
 - **macOS:** no published binary; stop here and use [Build from Source](../BUILDING.md).
 
 See the [Downloads page](downloads.md) for verification and integrity-check details.
 
-!!! warning "This editor is an unoptimized `-O0` build"
-    Nightlies are compiled with `dev_build=yes`, i.e. `-O0`, which inflates CPU-side
-    frame cost by roughly an order of magnitude. This page is the fastest way to see
-    godotGS work; it is **not** a way to see how fast it is. For that, build with
-    `optimize=speed_trace` ([Build Flavors](../BUILDING.md#build-flavors)) and read
-    the [Performance Dashboard](../performance/index.md#measurement-environment).
+!!! warning "The Linux nightly editor is an unoptimized `-O0` build"
+    The Linux nightly is compiled with `dev_build=yes`, i.e. `-O0`, which inflates
+    CPU-side frame cost by roughly an order of magnitude. The Windows nightly editor is
+    optimized (`optimize=speed_trace`). This page is the fastest way to see godotGS
+    work; it is **not** a way to see how fast it is. For that, use an optimized build
+    ([Build Flavors](../BUILDING.md#build-flavors)) and read the
+    [Performance Dashboard](../performance/index.md#measurement-environment).
 
 ## 2. Get the Sample Project
 
@@ -40,7 +41,7 @@ $GODOT_BINARY --path tests/examples/godot/test_project
 ```
 
 ```powershell
-$env:GODOT_BINARY="C:\absolute\path\to\godot.windows.editor.dev.x86_64.exe"
+$env:GODOT_BINARY="C:\absolute\path\to\godot.windows.editor.x86_64.exe"
 & $env:GODOT_BINARY --path .\tests\examples\godot\test_project
 ```
 
