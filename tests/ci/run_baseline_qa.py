@@ -375,21 +375,22 @@ def normalize_test_category(category: Optional[str]) -> Optional[str]:
     )
 
 
-# #790 asked for `--godot-binary` to be forwarded here. Measured, it cannot be:
-# this runner OWNS the corpus that is pinned to the Python-fallback fixture. Its
-# `qa` category is the blocking visual/SSIM gate in `.github/workflows/baseline_qa.yml`,
-# its baseline (`tests/ci/baselines/qa_results.json`) records
-# `source_splat_count: 1024`, and the world-vs-instance A/B it runs compares
-# `test_splats.ply` against the committed 1024-splat `test_splats.gsplatworld`,
-# refusing to score when the two disagree (`scripts/qa_route_capture_base.gd`).
-# The `sorting` and `qa` steps share one workspace, so regenerating at the C++
-# count in either would break the gate. Flipping this is a baseline change:
-# rebake the world and re-measure the QA baseline first.
-FIXTURE_CORPUS_BLOCKER = (
-    "the QA scene suite's committed expectations are pinned to it "
-    "(tests/ci/baselines/qa_results.json records source_splat_count=1024 and the "
-    "committed test_splats.gsplatworld is a 1024-splat bake); regenerating at the C++ "
-    "count requires rebaking the world and re-measuring the QA baseline first (#790)"
+# Why this runner's own prep uses the Python fallback -- stated, because a
+# downgrade nobody can see is the #790 defect.
+#
+# It used to be a pin: the QA scene suite loaded test_splats.ply, and its baseline
+# and world bake were measured at the fallback's 1024 splats. That coupling is
+# gone. The QA scenes load their own pinned qa_splats_1024.ply (#991,
+# QaCorpusIsPinnedTest), the ply/pipeline CI scripts compare what they loaded
+# against itself rather than against a count, and the categories that DO need the
+# benchmark corpus prepare it themselves: `module` runs run_module_tests.py and
+# `runtime` runs run_runtime_validation.py, each with the binary and
+# --require-asset-floors (#934). So nothing here needs the C++ corpus, and nothing
+# here stops it either; moving this prep is a choice, not a blocked baseline.
+FALLBACK_CORPUS_REASON = (
+    "no category run from here needs the C++ corpus: the QA scene suite loads its own "
+    "pinned qa_splats_1024.ply, and the module and runtime categories prepare the C++ "
+    "corpus themselves with --require-asset-floors (#934)"
 )
 
 
@@ -400,7 +401,7 @@ def prepare_synthetic_assets() -> None:
         )
 
     command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
-    print(f"[INFO] Fixture generator: Python fallback by design -- {FIXTURE_CORPUS_BLOCKER}.")
+    print(f"[INFO] Fixture generator: Python fallback -- {FALLBACK_CORPUS_REASON}.")
     result = subprocess.run(
         command,
         capture_output=True,

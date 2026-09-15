@@ -123,8 +123,9 @@ python3 tests/runtime/prepare_synthetic_assets.py --quiet \
 !!! important "Pass `--godot-binary` for benchmark collection"
     Several fixtures — including `test_splats.ply`, which most lanes resolve to — are listed in
     `CPP_GENERATED_FILENAMES` and are produced by the engine's `[GeneratePLY]` test case when a
-    binary is supplied. Without `--godot-binary` the script falls back to lightweight Python
-    generators and writes `test_splats.ply` with **1024** splats instead of **10000**. Both forms
+    binary is supplied. Without `--godot-binary` the script preserves an existing fixture that
+    already meets the 10000-splat floor; if none exists, it falls back to lightweight Python
+    generators and writes `test_splats.ply` with **1024** splats. Both forms
     are valid for smoke coverage, but they are different workloads and will not reproduce
     published benchmark numbers. Since #669 the benchmark harness enforces this rather than
     trusting it: a lane loading the 1024-splat fixture fails instead of reporting a number.
@@ -188,21 +189,23 @@ result (`asset_variant`, `asset_splat_count`) and into a **Fixture Provenance** 
 generator (`synthetic_spiral`, `synthetic_flower_field`) are exempt, because demanding a producer
 that does not exist is a gate that can never go green.
 
-!!! warning "Only the benchmark evidence job preps with `--godot-binary`"
-    `tests/ci/run_module_tests.py`, `tests/ci/run_baseline_qa.py` and
-    `tests/runtime/run_runtime_validation.py` deliberately do **not**. They share a workspace with
-    the QA scene suite, whose committed expectations were measured against the Python-fallback
-    fixture: `tests/ci/baselines/qa_results.json` records `source_splat_count: 1024`, and the
-    committed `test_splats.gsplatworld` is a 1024-splat bake that the world-vs-instance A/B
-    compares against the PLY. Regenerating at the C++ count there would break a blocking gate
-    rather than improve a benchmark. Moving that corpus is a baseline change — rebake the world,
-    re-measure the QA baseline, and forward the binary in one sequence.
-    `tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests` keeps the coupling
-    enforced, and each runner states it at the point of prep.
+!!! note "Which prep commands use `--godot-binary`"
+    The benchmark evidence job, and the fixture consumers: `tests/ci/run_module_tests.py` and
+    `tests/runtime/run_runtime_validation.py` pass their selected tests-enabled binary with
+    `--require-asset-floors` and fail closed. `tests/ci/run_baseline_qa.py` preps the small corpus
+    and states why (`FALLBACK_CORPUS_REASON`). The QA scene suite that shares those workspaces
+    loads its own pinned `qa_splats_1024.ply`, so regenerating `test_splats.ply` at the C++ count
+    no longer touches a QA baseline; `QaCorpusIsPinnedTest` in `tests/ci/test_baseline_qa_require_flag.py`
+    holds that separation.
 
 Before #669 such a lane instantiated zero splat nodes and reported an *implausibly high* FPS with
 a passing recommendation — the failure presented as a spectacular result rather than a broken one.
 Regression coverage lives in `tests/ci/test_benchmark_fixture_contract.py`.
+
+The full module-test and runtime-validation consumers additionally invoke preparation with their
+selected tests-enabled binary and `--require-asset-floors`. They refuse to start when either
+consumer copy is absent, unreadable, or below `ASSET_MIN_SPLAT_COUNTS`; direct PLY references in
+`tests/runtime/*.gd` are statically required to name an asset with a positive declared floor.
 
 Streaming-named lanes that still resolve to `test_splats.ply` are intentionally classified as
 `lightweight_smoke`; they are useful for proof-shape smoke coverage, but they are not chunked

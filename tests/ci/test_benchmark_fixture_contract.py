@@ -100,11 +100,12 @@ PLY_PREP_COMMAND = _run_benchmark.PLY_PREP_COMMAND
 TEST_SPLATS_ASSET = "res://tests/fixtures/test_splats.ply"
 
 
-#: The property set a real Gaussian fixture declares. The helper writes this by
-#: default so tests exercise the header shape the generators actually produce;
+#: The property set a real Gaussian fixture declares: REQUIRED_PLY_PROPERTIES, read
+#: from the module under test rather than restated (#934 review). The helper writes
+#: this by default so tests exercise the header shape the generators actually produce;
 #: `gaussian=False` writes a bare point cloud -- what a fixture swapped for an
 #: unrelated file looks like.
-_GAUSSIAN_PLY_PROPERTIES = ("x","y","z","f_dc_0","f_dc_1","f_dc_2","opacity","scale_0","scale_1","scale_2","rot_0","rot_1","rot_2","rot_3")
+_GAUSSIAN_PLY_PROPERTIES = tuple(_prepare.REQUIRED_PLY_PROPERTIES)
 
 
 def _write_ply_with_properties(path: Path, vertex_count: int, props: tuple) -> None:
@@ -145,11 +146,12 @@ def _write_ply(
         + "".join(f"property float {name}\n" for name in props)
         + "end_header\n"
     ).encode("ascii")
-    body = (
-        b""
-        if header_only
-        else struct.pack(f"<{len(props)}f", *([0.0] * len(props))) * vertex_count
-    )
+    # The identity rotation, not zeros: an all-zero quaternion is a value the
+    # loader normalizes into NaN and refuses, so a zero body is not a fixture.
+    record = [0.0] * len(props)
+    if "rot_0" in props:  # a bare point cloud (gaussian=False) has no rotation
+        record[props.index("rot_0")] = 1.0
+    body = b"" if header_only else struct.pack(f"<{len(props)}f", *record) * vertex_count
     path.write_bytes(header + body)
 
 
@@ -1163,6 +1165,573 @@ class ManifestContractTests(unittest.TestCase):
             self.assertEqual(manifest.min_splat_count_for("res://a.ply"), 0)
 
 
+class SyntheticAssetGenerationContractTests(unittest.TestCase):
+    """The lightweight producer must not destroy a fixture that meets its floor."""
+
+    def test_python_fallback_preserves_existing_valid_canonical_asset(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            fixture = root / "tests" / "fixtures" / "test_splats.ply"
+            fixture.parent.mkdir(parents=True)
+            _write_ply(fixture, 10000)
+            original = fixture.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/fixtures/test_splats.ply", 1024, 1101, "sphere", 3.0
+            )
+
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()):
+                self.assertEqual(_prepare._generate(root, quiet=True), 0)
+
+            self.assertEqual(
+                fixture.read_bytes(),
+                original,
+                "the 1024-splat fallback must not overwrite a valid 10000-splat fixture",
+            )
+
+    def test_required_floor_mode_does_not_dirty_valid_consumer_fixture(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            primary = root / "tests" / "fixtures" / "synthetic_sphere.ply"
+            consumer = (
+                root
+                / "tests"
+                / "examples"
+                / "godot"
+                / "test_project"
+                / "tests"
+                / "fixtures"
+                / "synthetic_sphere.ply"
+            )
+            primary.parent.mkdir(parents=True)
+            consumer.parent.mkdir(parents=True)
+            _write_ply(primary, 50000)
+            _write_ply(consumer, 2048)
+            original = consumer.read_bytes()
+            spec = _prepare.PLYSpec(
+                "tests/examples/godot/test_project/tests/fixtures/synthetic_sphere.ply",
+                2048,
+                3101,
+                "sphere",
+                4.5,
+            )
+
+            # `_generate_via_godot` is stubbed to "succeeded" without writing the other
+            # primaries, so the producer record -- which hashes every file it is told
+            # was produced (#969) -- is stubbed too, and asked the question that
+            # matters where preservation meets provenance: a copy left in place is
+            # RETAINED, never claimed as written by this run.
+            with mock.patch.object(_prepare, "CANONICAL_SPECS", (spec,)), \
+                    mock.patch.object(_prepare, "_generate_via_godot", return_value=True), \
+                    mock.patch.object(_prepare, "_write_manifest"), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_PLYS", ()), \
+                    mock.patch.object(_prepare, "FORBIDDEN_LEGACY_ASSET_DIRS", ()), \
+                    mock.patch.object(
+                        _prepare.fixture_provenance, "record_producer_output", return_value=True
+                    ) as record:
+                self.assertEqual(
+                    _prepare._generate(
+                        root,
+                        quiet=True,
+                        godot_binary=Path("godot.exe"),
+                        preserve_floor_valid=True,
+                    ),
+                    0,
+                )
+
+            self.assertEqual(consumer.read_bytes(), original)
+            produced = record.call_args.args[1]
+            retained = record.call_args.kwargs["retain"]
+            self.assertNotIn(consumer, produced, "a preserved copy was recorded as this run's output")
+            self.assertIn(consumer, retained, "a preserved copy's provenance would be pruned")
+
+    def test_floor_validation_rejects_the_1024_fallback(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 1024)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(len(failures), 2)
+        self.assertTrue(all("1024" in failure and "10000" in failure for failure in failures))
+
+    def test_floor_validation_accepts_both_consumer_copies_at_the_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            for relative in (
+                Path("tests/fixtures/test_splats.ply"),
+                Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+            ):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_ply(path, 10000)
+
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS,
+                {TEST_SPLATS_ASSET: 10000},
+                clear=True,
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(failures, [])
+
+
+class FloorGateChecksTheBodyNotTheClaimTests(unittest.TestCase):
+    """#934 review: `--require-asset-floors` believed a header (#934 round 8).
+
+    Round 7 taught the STAGING path that a declared vertex count is a claim the
+    file makes about itself. Every decision about the PUBLISHED corpus still
+    rested on that claim: `asset_floor_failures()` -- the gate the flag runs and
+    the runtime harness depends on -- read `read_ply_vertex_count()` and nothing
+    else. A fixture truncated by a short write, an interrupted copy or a killed
+    job keeps a header claiming enough splats, so the gate passed it and the
+    lanes measured it.
+    """
+
+    ASSET = "res://tests/fixtures/test_splats.ply"
+
+    def _corpus(self, root: Path, *, vertices: int) -> list[Path]:
+        written = []
+        for relative in (
+            Path("tests/fixtures/test_splats.ply"),
+            Path("tests/examples/godot/test_project/tests/fixtures/test_splats.ply"),
+        ):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_ply(path, vertices)
+            written.append(path)
+        return written
+
+    def test_a_truncated_fixture_does_not_satisfy_its_floor(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            copies = self._corpus(root, vertices=10000)
+            whole = copies[0].read_bytes()
+            copies[0].write_bytes(whole[:-24])  # a short write: header intact
+
+            self.assertEqual(
+                read_ply_vertex_count(copies[0]),
+                10000,
+                "the truncated file no longer claims enough splats; the case is moot",
+            )
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                failures = _prepare.asset_floor_failures(root)
+
+        self.assertEqual(
+            len(failures),
+            1,
+            f"a truncated fixture satisfied its floor on its header alone: {failures}",
+        )
+        self.assertIn("INCOMPLETE", failures[0])
+
+    def test_a_whole_fixture_at_the_floor_still_passes(self):
+        """Discrimination: the check must not start rejecting real fixtures.
+
+        Both producers write bodies this reader has to accept -- see
+        RealFixtureCorpusTests, which runs the same predicate over the committed
+        corpus rather than over a file this test invented.
+        """
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+            self._corpus(root, vertices=10000)
+            with mock.patch.dict(
+                _prepare.ASSET_MIN_SPLAT_COUNTS, {self.ASSET: 10000}, clear=True
+            ):
+                self.assertEqual(_prepare.asset_floor_failures(root), [])
+
+    def test_values_the_loader_refuses_are_not_a_fixture(self):
+        """#934 review: complete and schema-correct does not mean loadable.
+
+        Mirrors the loader: every render field must be finite
+        (`GaussianData::all_render_fields_finite()`), `exp(scale_n)` must not
+        overflow, and a rotation must not be all zero (`normalize()` divides by its
+        length). Each case is otherwise a whole fixture above its floor.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        inf = float("inf")
+        cases = {
+            "nan position": {"x": float("nan")},
+            "infinite colour": {"f_dc_0": inf},
+            "opposite infinities": {"y": inf, "z": -inf},
+            "zero rotation": {"rot_0": 0.0},
+            "negative-zero rotation": {"rot_0": -0.0, "rot_1": -0.0, "rot_2": -0.0, "rot_3": -0.0},
+            # #934 review: nonzero, but every square rounds to a float32 zero.
+            "underflowing rotation": {"rot_0": 1e-30},
+            "subnormal rotation": {"rot_0": 1e-40, "rot_2": -1e-40},
+            # Just below the float32 rounding edge: 2e-23 squared is ~4e-46, under half
+            # of the smallest subnormal (~1.4e-45), so it rounds to zero.
+            "boundary-underflowing rotation": {"rot_0": 2e-23},
+            "overflowing scale": {"scale_2": _prepare.MAX_LOG_SCALE + 1.0},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, overrides in cases.items():
+                with self.subTest(case=label):
+                    ply = Path(tmp) / f"{label.replace(' ', '_')}.ply"
+                    _write_ply(ply, 32)
+                    data = bytearray(ply.read_bytes())
+                    body_start = data.index(b"end_header\n") + len(b"end_header\n")
+                    for prop, value in overrides.items():
+                        offset = body_start + (9 * len(props) + props.index(prop)) * 4
+                        data[offset:offset + 4] = struct.pack("<f", value)
+                    ply.write_bytes(bytes(data))
+                    self.assertIsNone(_prepare.ply_payload_failure(ply))
+                    self.assertIsNone(_prepare.ply_schema_failure(ply))
+                    problem = _prepare.ply_value_failure(ply)
+                    self.assertIsNotNone(problem, f"a fixture with a {label} was accepted")
+                    self.assertIn("splat 9", problem)
+                    if "rotation" in label:
+                        self.assertIn("float32 length is zero", problem)
+                    self.assertIn("UNLOADABLE", _prepare.fixture_floor_failure(ply, 32) or "")
+
+            # Discrimination: legal extremes the loader accepts are accepted.
+            edge = Path(tmp) / "edge.ply"
+            _write_ply(edge, 32)
+            data = bytearray(edge.read_bytes())
+            body_start = data.index(b"end_header\n") + len(b"end_header\n")
+            for splat, overrides in {
+                5: {"scale_0": 88.0, "scale_1": -300.0, "rot_0": 0.0, "rot_3": 1e-3},
+                # Tiny but NOT underflowing: 1e-20 is above the emulation bound, and
+                # 5e-23 is below it yet squares to ~2.5e-45, a nonzero float32 subnormal.
+                6: {"rot_0": 1e-20},
+                7: {"rot_0": 5e-23},
+            }.items():
+                for prop, value in overrides.items():
+                    offset = body_start + (splat * len(props) + props.index(prop)) * 4
+                    data[offset:offset + 4] = struct.pack("<f", value)
+            edge.write_bytes(bytes(data))
+            self.assertIsNone(_prepare.ply_value_failure(edge))
+            self.assertIsNone(_prepare.fixture_floor_failure(edge, 32))
+
+    def test_the_python_producers_real_output_is_loadable(self):
+        """Coupling: the check must accept what the fallback producer really writes."""
+        spec = _prepare.CANONICAL_SPECS[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = Path(tmp) / Path(spec.relative_path).name
+            _prepare._write_ply(ply, _prepare._generate_rows(spec))
+            self.assertIsNone(_prepare.ply_payload_failure(ply))
+            self.assertIsNone(_prepare.ply_schema_failure(ply))
+            self.assertIsNone(_prepare.ply_value_failure(ply))
+
+    def test_the_predicate_separates_the_four_ways_a_fixture_fails(self):
+        with tempfile.TemporaryDirectory() as raw_td:
+            root = Path(raw_td)
+
+            whole = root / "whole.ply"
+            _write_ply(whole, 64)
+            self.assertIsNone(_prepare.fixture_floor_failure(whole, 64))
+
+            self.assertEqual(
+                _prepare.fixture_floor_failure(root / "absent.ply", 64), "MISSING"
+            )
+
+            small = root / "small.ply"
+            _write_ply(small, 8)
+            self.assertIn("UNDERSIZED", _prepare.fixture_floor_failure(small, 64) or "")
+
+            truncated = root / "truncated.ply"
+            _write_ply(truncated, 64)
+            truncated.write_bytes(truncated.read_bytes()[:-4])
+            self.assertIn(
+                "INCOMPLETE", _prepare.fixture_floor_failure(truncated, 64) or ""
+            )
+
+            junk = root / "junk.ply"
+            junk.write_bytes(b"not a ply at all\n")
+            self.assertIsNotNone(_prepare.fixture_floor_failure(junk, 64))
+
+
+def _tracked_fixture_plys() -> "list[Path]":
+    """The `.ply` files git actually tracks, asked of git rather than of the disk.
+
+    "Committed" and "present" are different questions, and this file got them
+    confused: `tests/fixtures/*.ply` and the consumer `test_splats.ply` are
+    GITIGNORED and generated, so on a runner that has already run the fallback
+    prep they exist at the fallback's own size while their floor is the C++
+    generator's count. A test that globbed the directory therefore asserted a
+    property of whatever the last generation run happened to leave behind, and
+    failed on CI for a corpus that was exactly what it should have been.
+
+    Tracked fixtures are committed at a known size and must satisfy their floors.
+    Generated ones are the prep script's business, and the prep script has its own
+    guards for them.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "*.ply"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    paths = [ROOT / name for name in result.stdout.split("\0") if name]
+    return sorted(path for path in paths if path.is_file())
+
+
+class FixtureSchemaIsTheProducersSchemaTests(unittest.TestCase):
+    """#934 review: a complete payload is not a splat fixture.
+
+    `ply_payload_failure()` sizes the body from whatever properties the header
+    declares, so a 10,000-vertex file holding only `property float x` and 40,000
+    bytes is complete by that rule and clears every floor. The loader would not
+    refuse it either: a missing property is filled with a default, so it would load
+    as 10,000 splats at the origin -- a fixture that measures nothing, silently.
+    """
+
+    WRITER = ROOT / "modules" / "gaussian_splatting" / "tests" / "synthetic_ply_writer.cpp"
+    LOADER = ROOT / "modules" / "gaussian_splatting" / "io" / "ply_loader.cpp"
+
+    def _ply(self, path: Path, count: int, props) -> Path:
+        header = (
+            "ply\n"
+            "format binary_little_endian 1.0\n"
+            f"element vertex {count}\n"
+            + "".join(f"property float {name}\n" for name in props)
+            + "end_header\n"
+        ).encode("ascii")
+        record = [0.0] * len(props)
+        if "rot_0" in props:
+            record[list(props).index("rot_0")] = 1.0  # identity; zeros normalize to NaN
+        path.write_bytes(header + struct.pack(f"<{len(props)}f", *record) * count)
+        return path
+
+    def test_a_one_property_file_is_complete_but_not_a_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._ply(Path(tmp) / "test_splats.ply", 10000, ["x"])
+            self.assertIsNone(
+                _prepare.ply_payload_failure(ply),
+                "premise: the file is structurally complete, which is what let it through",
+            )
+            self.assertIn("missing required properties", _prepare.ply_schema_failure(ply) or "")
+            self.assertIn(
+                "NOT A SPLAT FIXTURE",
+                _prepare.fixture_floor_failure(ply, 10000) or "",
+                "a one-property file satisfied the test_splats.ply floor",
+            )
+
+    def test_a_duplicated_property_is_not_a_fixture(self):
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES) + ["x"]
+        with tempfile.TemporaryDirectory() as tmp:
+            ply = self._ply(Path(tmp) / "dup.ply", 8, props)
+            self.assertIn("more than once", _prepare.ply_schema_failure(ply) or "")
+
+    def test_the_required_schema_is_accepted_with_or_without_optional_blocks(self):
+        """Discrimination: the C++ producer adds normals and f_rest_*, and must pass."""
+        required = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        rich = required[:3] + ["nx", "ny", "nz"] + required[3:6] + [
+            f"f_rest_{i}" for i in range(45)
+        ] + required[6:]
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, props in (("fallback", required), ("rich", rich)):
+                with self.subTest(shape=label):
+                    ply = self._ply(Path(tmp) / f"{label}.ply", 16, props)
+                    self.assertIsNone(_prepare.ply_schema_failure(ply))
+                    self.assertIsNone(_prepare.fixture_floor_failure(ply, 16))
+
+    def test_a_property_declared_before_the_vertex_element_is_not_counted(self):
+        """#934 review: the loader scopes properties to elements; so must this.
+
+        `PLYLoader::parse_header()` adds a property to the vertex schema only while
+        the current element is `vertex`. Moving `property float x` above
+        `element vertex` therefore keeps 14 declared floats and a matching byte
+        count -- both checks passed -- while the loader reads 13 at the wrong stride
+        with `x` missing.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        count = 16
+        with tempfile.TemporaryDirectory() as tmp:
+            header = (
+                "ply\n"
+                "format binary_little_endian 1.0\n"
+                f"property float {props[0]}\n"
+                f"element vertex {count}\n"
+                + "".join(f"property float {name}\n" for name in props[1:])
+                + "end_header\n"
+            )
+            misplaced = Path(tmp) / "misplaced.ply"
+            misplaced.write_bytes(header.encode("ascii") + b"\x00" * (count * 4 * len(props)))
+
+            self.assertIn("before the vertex element", _prepare.ply_payload_failure(misplaced) or "")
+            self.assertNotIn(
+                props[0],
+                _prepare.ply_property_names(misplaced) or (),
+                "a property declared outside the vertex element was read as a vertex property",
+            )
+            self.assertIsNotNone(_prepare.ply_schema_failure(misplaced))
+            self.assertIsNotNone(_prepare.fixture_floor_failure(misplaced, count))
+
+            # Discrimination: the same properties inside the element are accepted.
+            placed = self._ply(Path(tmp) / "placed.ply", count, props)
+            self.assertEqual(_prepare.ply_property_names(placed), tuple(props))
+            self.assertIsNone(_prepare.fixture_floor_failure(placed, count))
+
+    def test_a_missing_or_wrong_format_line_is_not_a_fixture(self):
+        """#934 review: the loader reads the body as ASCII unless told otherwise.
+
+        `PLYLoader::PLYHeader::is_binary` defaults to false and only a `format`
+        line sets it, so a binary payload under a missing or corrupt declaration is
+        handed to the ASCII parser and rejected. Every other check here -- the
+        properties, the byte count, the floor -- still matched that file.
+        """
+        props = list(_prepare.REQUIRED_PLY_PROPERTIES)
+        body_per_vertex = b"\x00" * (4 * len(props))
+        cases = {
+            "no format line": None,
+            "ascii": "format ascii 1.0",
+            "big endian": "format binary_big_endian 1.0",
+            "corrupt": "format binary_little_endian 9.9",
+            "two format lines": "format binary_little_endian 1.0\nformat binary_little_endian 1.0",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, fmt in cases.items():
+                with self.subTest(case=label):
+                    header = "ply\n" + (fmt + "\n" if fmt else "") + (
+                        "element vertex 16\n"
+                        + "".join(f"property float {name}\n" for name in props)
+                        + "end_header\n"
+                    )
+                    ply = Path(tmp) / f"{label.replace(' ', '_')}.ply"
+                    ply.write_bytes(header.encode("ascii") + body_per_vertex * 16)
+                    self.assertIsNotNone(
+                        _prepare.ply_payload_failure(ply),
+                        f"a PLY with {label} was accepted as a complete binary fixture",
+                    )
+                    self.assertIsNotNone(_prepare.fixture_floor_failure(ply, 16))
+
+            # Discrimination: the producers' own declaration is accepted.
+            good = self._ply(Path(tmp) / "good.ply", 16, props)
+            self.assertIsNone(_prepare.ply_payload_failure(good))
+
+    def test_the_required_format_is_the_one_the_cpp_writer_emits(self):
+        """Read from the fallback's header; the C++ producer must write the same line."""
+        writer = self.WRITER.read_text(encoding="utf-8")
+        expected = _prepare.REQUIRED_PLY_FORMAT_LINE.decode("ascii")
+        self.assertIn(
+            f'header += "{expected}\\n";',
+            writer,
+            f"the C++ writer does not emit {expected!r}; staged producer output would be "
+            "rejected on every run",
+        )
+
+    def test_every_required_property_is_an_unconditional_cpp_emission(self):
+        """The set is read from the fallback's header; the C++ producer must agree.
+
+        If the fallback gained a property the C++ writer does not ALWAYS write,
+        staged producer output would be rejected on every run. "Always" is the
+        load-bearing word: normals and f_rest_* are emitted only under their
+        `p_write_*` flags, so they may not be required.
+        """
+        unconditional: set[str] = set()
+        conditional_depth = 0
+        for line in self.WRITER.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if conditional_depth == 0 and stripped.startswith("if (p_write"):
+                conditional_depth = stripped.count("{") - stripped.count("}")
+                continue
+            if conditional_depth > 0:
+                conditional_depth += stripped.count("{") - stripped.count("}")
+                continue
+            match = re.search(r'header \+= "property float ([A-Za-z0-9_]+)\\n"', stripped)
+            if match:
+                unconditional.add(match.group(1))
+        self.assertTrue(unconditional, "no unconditional emissions parsed; this guard is vacuous")
+        self.assertNotIn("nx", unconditional, "the conditional-block parse is not working")
+        missing = [name for name in _prepare.REQUIRED_PLY_PROPERTIES if name not in unconditional]
+        self.assertEqual(
+            missing,
+            [],
+            f"required properties the C++ producer does not always write: {missing}",
+        )
+
+    def test_every_required_property_is_one_the_loader_reads(self):
+        """Required means the loader USES it -- otherwise the rule is ceremony."""
+        loader = self.LOADER.read_text(encoding="utf-8")
+        for name in _prepare.REQUIRED_PLY_PROPERTIES:
+            with self.subTest(property=name):
+                if name.startswith("f_dc_"):
+                    self.assertIn('vformat("f_dc_%d", c)', loader)
+                else:
+                    self.assertIn(f'find_property_index("{name}")', loader)
+
+
+class RealFixtureCorpusTests(unittest.TestCase):
+    """The completeness and floor rules, run over fixtures nobody in this file invented.
+
+    A body-length rule is only safe if it accepts what the producers actually
+    write, and a floor is only meaningful if the corpus committed at it clears it.
+    Both read the tracked corpus in the repository rather than fixtures authored
+    to match the rules.
+    """
+
+    def test_every_tracked_fixture_is_complete(self):
+        tracked = _tracked_fixture_plys()
+        self.assertTrue(tracked, "git tracks no .ply fixtures; this test is vacuous")
+        for path in tracked:
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
+                self.assertIsNone(
+                    _prepare.ply_payload_failure(path),
+                    f"{path.name} is a tracked fixture the completeness rule rejects",
+                )
+                self.assertIsNone(
+                    _prepare.ply_schema_failure(path),
+                    f"{path.name} is a tracked fixture the schema rule rejects",
+                )
+
+    def test_every_tracked_fixture_satisfies_its_own_floor(self):
+        checked = 0
+        for path in _tracked_fixture_plys():
+            resource_path = f"res://tests/fixtures/{path.name}"
+            required = _prepare.ASSET_MIN_SPLAT_COUNTS.get(resource_path, 0)
+            if required <= 0:
+                continue
+            checked += 1
+            with self.subTest(fixture=str(path.relative_to(ROOT))):
+                self.assertIsNone(
+                    _prepare.fixture_floor_failure(path, required),
+                    f"{path.name} does not satisfy the floor it is committed at",
+                )
+        self.assertGreater(checked, 0, "no tracked fixture carried a floor; vacuous")
+
+    def test_a_generated_fixture_is_not_judged_as_a_committed_one(self):
+        """The regression this replaces: a fallback-sized generated file failed CI.
+
+        `test_splats.ply` is gitignored on both paths and generated. A runner that
+        has run the fallback prep holds it at 1024 splats against a floor of 10000
+        -- correct behaviour for a generated corpus, and not something a test about
+        the COMMITTED corpus may fail on.
+        """
+        generated = "res://tests/fixtures/test_splats.ply"
+        fallback_counts = {
+            Path(spec.relative_path).name: spec.count for spec in _prepare.CANONICAL_SPECS
+        }
+        self.assertGreater(
+            _prepare.ASSET_MIN_SPLAT_COUNTS.get(generated, 0),
+            fallback_counts.get("test_splats.ply", 0),
+            "test_splats.ply's floor no longer exceeds its fallback size; this case is moot",
+        )
+        tracked_names = {path.name for path in _tracked_fixture_plys()}
+        self.assertNotIn(
+            "test_splats.ply",
+            tracked_names,
+            "test_splats.ply is tracked now; the floor tests above must cover it",
+        )
+
+
 FIXTURE_IMPORT_RELATIVE_DIR = (
     Path("tests") / "examples" / "godot" / "test_project" / "tests" / "fixtures"
 )
@@ -2028,857 +2597,110 @@ class ManifestVariantContractTests(unittest.TestCase):
             self.assertEqual(manifest.asset_expected_splat_counts, {})
 
 
-class CppGenerationProvesFreshOutputTests(unittest.TestCase):
-    """A producer that writes nothing must not inherit pre-existing fixtures (#790 review).
+class StagingReplacesTheQuarantineTests(unittest.TestCase):
+    """The C++ producer writes into staging; the canonical corpus is not moved aside.
 
-    The previous check compared mtimes against the launch time with two seconds
-    of slack. A caller who ran the fallback prep and immediately retried with a
-    binary whose `GeneratePLY` filter matches zero tests but exits 0 left files
-    inside that grace window, so every stale fallback fixture was accepted as
-    freshly generated and `cpp_generated` was set on a corpus the producer never
-    touched.
+    #969 proved fresh output by moving the existing fixtures into a quarantine
+    (`.pre_cpp_generation`) before the producer wrote straight into
+    `tests/fixtures`, and restoring them on failure -- with an `.unrestored.json`
+    marker to tell an original a failed restore stranded from a superseded copy.
+    #934 proves it by giving the producer an EMPTY staging directory and publishing
+    only a validated corpus, all or nothing. The reconciliation keeps staging: the
+    canonical files are never touched until the new corpus is known good, so the
+    states the marker existed to disambiguate cannot arise. What each quarantine
+    test guaranteed is held here or in
+    `SelectedProducerFailureIsNotSuccess` (test_runtime_validation_proof_contract.py):
+    partial or failed output never reaches the canonical paths, a truncated or
+    unloadable corpus is refused, a complete one is accepted, a producer that
+    writes nothing fails even beside fresh-looking leftovers, and a failed publish
+    rolls back.
     """
 
-    def _fake_binary_that_writes_nothing(self):
-        """A producer that exits 0 and creates no files."""
-        class _Proc:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-        return lambda *a, **k: _Proc()
+    def _corpus(self, out: Path, vertices: int = 32) -> dict:
+        written = {}
+        for name in sorted(_prepare.CPP_GENERATED_FILENAMES):
+            _write_ply(out / name, vertices)
+            written[name] = (out / name).read_bytes()
+        return written
 
-    def test_a_partially_written_failed_run_restores_the_originals(self):
-        """Partial output must not survive a failed attempt (#790 review).
-
-        A producer that writes some expected files and then dies leaves debris of
-        unknown content and unknown splat count. Restoring only where the target
-        was ABSENT left that debris in place and dropped the original underneath
-        it -- a mix of partial output and stale originals, indistinguishable from
-        a good corpus by filename.
-        """
+    def test_the_producer_writes_into_staging_and_the_originals_stay_in_place(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            for name in names:
-                _write_ply(out / name, 1024, header_only=True)
-            originals = {n: (out / n).read_bytes() for n in names}
+            originals = self._corpus(out)
+            seen = {}
 
-            partial = names[0]
-
-            class _Proc:
-                returncode = 1
-                stdout = ""
-                stderr = "generator died halfway"
-
-            def _writes_one_then_fails(*a, **k):
-                # Simulate the producer emitting one file before dying.
-                _write_ply(out / partial, 99999, header_only=True)
-                return _Proc()
-
-            with mock.patch.object(_prepare.subprocess, "run", _writes_one_then_fails):
-                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-
-            self.assertFalse(ok, "a failed generator run was reported as success")
-            for name in names:
-                self.assertTrue((out / name).is_file(), f"{name} missing after failed run")
-                self.assertEqual(
-                    (out / name).read_bytes(), originals[name],
-                    f"{name} was left as partial generator output instead of the original",
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                seen["staging"] = staging
+                # While the producer runs, every original is still where it was.
+                seen["originals_in_place"] = all(
+                    (out / name).read_bytes() == data for name, data in originals.items()
                 )
+                return subprocess.CompletedProcess(cmd, 1, "", "boom")
 
-    def test_a_truncated_fixture_is_refused_and_the_originals_come_back(self):
-        """#969 review round 5: a file that is there is not a file that is whole.
+            with mock.patch.object(_prepare.subprocess, "run", side_effect=fake_run):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    accepted = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
 
-        `synthetic_ply_writer.cpp` ignores the result of every `store_buffer` /
-        `store_float` call and returns true regardless, so a short write -- a full
-        disk on the persistent runner is the case that produces one -- reaches the
-        prep script as a producer that exited 0. The file exists, this run wrote
-        it, and its header declares the producer's count, so every earlier check
-        passes: it was accepted, recorded as `cpp_rich`, and the originals it
-        replaced were deleted.
-        """
+            self.assertFalse(accepted)
+            self.assertNotEqual(seen["staging"], out, "the producer wrote into the canonical directory")
+            self.assertTrue(seen["staging"].name.startswith(_prepare.STAGING_DIR_PREFIX))
+            self.assertTrue(seen["originals_in_place"], "the originals were moved aside")
+            self.assertFalse((out / _prepare.LEGACY_QUARANTINE_DIRNAME).exists())
+
+    def test_a_failed_producer_that_wrote_partial_output_leaves_the_corpus_as_it_was(self):
+        """#969's first quarantine test, restated: debris never reaches the canonical paths."""
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            for name in names:
-                _write_ply(out / name, 512)
-            originals = {name: (out / name).read_bytes() for name in names}
-            starved = names[0]
-
-            class _Proc:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            def short_write(*_args, **_kwargs):
-                for name in names:
-                    _write_ply(out / name, 2048)
-                whole = (out / starved).read_bytes()
-                (out / starved).write_bytes(whole[:-128])
-                return _Proc()
-
-            with mock.patch.object(_prepare.subprocess, "run", short_write):
-                accepted = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-
-            self.assertFalse(
-                accepted, "a truncated fixture was accepted as this producer's output"
-            )
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual(
-                        (out / name).read_bytes(),
-                        originals[name],
-                        f"{name}: the original was discarded for a truncated corpus",
-                    )
-
-    def test_a_complete_corpus_is_still_accepted(self):
-        """Discrimination: the size formula must accept what the producer writes.
-
-        A body-length check that is wrong by one property rejects every real run,
-        which is the same defect in the other direction. (The formula is also
-        checked against genuine producer output in ProducerCapturedPositiveTests.)
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-
-            class _Proc:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            def complete_write(*_args, **_kwargs):
-                for name in names:
-                    _write_ply(out / name, 2048, rich_sh=True)
-                return _Proc()
-
-            with mock.patch.object(_prepare.subprocess, "run", complete_write):
-                self.assertTrue(
-                    _prepare._generate_via_godot(Path("godot"), out, quiet=True),
-                    "a complete corpus was rejected by the payload check",
-                )
-
-    def test_the_payload_check_fails_closed_on_what_it_cannot_size(self):
-        """Sizing a body wrongly and calling it complete is the failure to avoid."""
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-
-            complete = out / "complete.ply"
-            _write_ply(complete, 32)
-            self.assertIsNone(
-                _prepare.ply_payload_failure(complete),
-                "a complete fixture was reported as truncated",
-            )
-
-            header_only = out / "header_only.ply"
-            _write_ply(header_only, 32, header_only=True)
-            self.assertIsNotNone(
-                _prepare.ply_payload_failure(header_only),
-                "a header with no body at all was accepted",
-            )
-
-            NL = chr(10)
-            unsizeable = out / "double.ply"
-            unsizeable.write_bytes(
-                (
-                    "ply" + NL
-                    + "format binary_little_endian 1.0" + NL
-                    + "element vertex 4" + NL
-                    + "property double x" + NL
-                    + "end_header" + NL
-                ).encode("ascii")
-                + b"\x00" * 32
-            )
-            self.assertIn(
-                "not a float",
-                _prepare.ply_payload_failure(unsizeable) or "",
-                "a property this reader cannot size was treated as sizeable",
-            )
-
-            missing = out / "absent.ply"
-            self.assertIsNotNone(
-                _prepare.ply_payload_failure(missing), "an absent file was reported complete"
-            )
-
-    def test_a_quarantined_original_is_recovered_not_overwritten(self):
-        """A failed restore must not become permanent loss on the next run (#969 review).
-
-        When restoring an original raises -- a fixture locked by another process
-        on the persistent Windows runner is the case that produces it -- the
-        canonical path keeps that run's partial output and the original stays in
-        `.pre_cpp_generation`. The isolation loop then deleted the existing
-        quarantine entry to make room for the file at the canonical path, so the
-        LAST COPY of the fixture was destroyed and the debris kept in its place.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            # Exactly the state a failed restore leaves behind: the originals in
-            # the quarantine, this run's debris at the canonical paths, and the
-            # marker naming what could not be put back. The marker is part of that
-            # state -- see test_a_restore_that_cannot_write_says_so_and_keeps_the_original,
-            # which produces it through the real restore path.
-            for name in names:
-                _write_ply(quarantine / name, 1024, header_only=True)
-                _write_ply(out / name, 99999, header_only=True)
-            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text(
-                json.dumps(names), encoding="utf-8"
-            )
-            originals = {name: (quarantine / name).read_bytes() for name in names}
-            debris = {name: (out / name).read_bytes() for name in names}
-            self.assertNotEqual(
-                originals[names[0]], debris[names[0]], "the case needs distinguishable bytes"
-            )
-
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-
-            self.assertFalse(ok, "a producer that created no files was accepted")
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertTrue((out / name).is_file(), f"{name} is missing entirely")
-                    self.assertEqual(
-                        (out / name).read_bytes(),
-                        originals[name],
-                        f"{name}: the quarantined original was destroyed and the failed "
-                        "run's partial output kept in its place",
-                    )
-
-    def test_a_superseded_quarantine_copy_is_never_adopted(self):
-        """#969 review round 7: two states, one look, and the wrong one assumed.
-
-        When a SUCCESSFUL run cannot delete a stashed copy -- Windows denying the
-        unlink is the case that produces it -- the quarantine keeps a file that
-        looks exactly like an original a failed restore left behind. The recovery
-        path adopted it: the current, valid fixture was deleted as "debris", and
-        when this run's producer then failed, the superseded corpus was restored
-        over it. A failed retry downgraded a workspace that was valid when it
-        started.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            # The marker a successful run leaves when its cleanup failed: an
-            # EMPTY list, which is the positive "these are superseded" that
-            # authorises discarding them. Both files are WHOLE -- that is what
-            # makes the marker the deciding evidence, and a header-only canonical
-            # file would be debris rather than a fixture.
-            for name in names:
-                _write_ply(quarantine / name, 32, rich_sh=True)
-                _write_ply(out / name, 64, rich_sh=True)
-            _prepare._write_unrestored(quarantine, set())
-            current = {name: (out / name).read_bytes() for name in names}
-
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
-
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual(
-                        (out / name).read_bytes(),
-                        current[name],
-                        f"{name}: a superseded quarantine copy replaced the valid fixture",
-                    )
-
-    def test_debris_at_the_canonical_path_recovers_without_a_marker(self):
-        """#969 review round 8: evidence outranks the marker where there is any.
-
-        An original left by an older implementation, or by a marker write that
-        itself failed, has no marker entry. Classifying it as superseded and
-        unlinking it threw away the only copy while the canonical path held a
-        failed producer's debris. A canonical file that is not a whole PLY is not
-        a fixture, and that is enough to know which of the two the copy is.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            for name in names:
-                _write_ply(quarantine / name, 32, rich_sh=True)      # the original
-                _write_ply(out / name, 99999, header_only=True)      # debris
-            originals = {name: (quarantine / name).read_bytes() for name in names}
-            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
-
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
-
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual(
-                        (out / name).read_bytes(),
-                        originals[name],
-                        f"{name}: the only copy was deleted as superseded",
-                    )
-
-    def test_an_unreadable_marker_stops_the_run_instead_of_guessing(self):
-        """Two whole files and no readable record of which is which: touch neither.
-
-        This is the case evidence cannot settle. Deleting the wrong one is
-        unrecoverable, so the run refuses and says what to remove.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            for name in names:
-                _write_ply(quarantine / name, 32, rich_sh=True)
-                _write_ply(out / name, 64, rich_sh=True)
-            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_bytes(b"{not json")
-            quarantined = {name: (quarantine / name).read_bytes() for name in names}
-            canonical = {name: (out / name).read_bytes() for name in names}
-
-            buffer = io.StringIO()
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(
-                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-                    )
-
-            self.assertIn("cannot tell an unrestored original", buffer.getvalue())
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual((out / name).read_bytes(), canonical[name])
-                    self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
-
-    def test_the_undecidable_stop_survives_the_next_run(self):
-        """#969 review round 9: a stop that clears its own evidence is not a stop.
-
-        The undecidable branch refuses to choose between a quarantined original
-        and a superseded copy, prints "nothing was moved or deleted", and asks for
-        a human. But the rollback that followed rewrote the marker from
-        `(_read_unrestored(...) or set()) | failures` -- and with an UNREADABLE
-        marker that `or` yields the empty set, which `_write_unrestored` writes by
-        DELETING the file. The next run then saw no marker at all, classified the
-        quarantined original as a superseded copy, and unlinked it: the re-run the
-        message asked for destroyed the copy instead of the human deciding.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
-            for name in names:
-                _write_ply(quarantine / name, 32, rich_sh=True)
-                _write_ply(out / name, 64, rich_sh=True)
-            marker.write_bytes(b"{not json")
-            quarantined = {name: (quarantine / name).read_bytes() for name in names}
-
-            buffer = io.StringIO()
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(
-                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-                    )
-
-            self.assertTrue(
-                marker.is_file(),
-                "the stop deleted the marker it stopped on, so the state it refused "
-                "to guess at is gone",
-            )
-            self.assertIsNone(
-                _prepare._read_unrestored(quarantine),
-                "the marker was rewritten, so the next run no longer knows the state "
-                "is unknown",
-            )
-
-            # The decision has to still be pending on the NEXT run -- that is the
-            # run the message asks for, and it is where the copies were destroyed.
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(
-                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-                    )
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertTrue(
-                        (quarantine / name).is_file(),
-                        f"{name}: the re-run discarded the quarantined original the "
-                        "previous run refused to judge",
-                    )
-                    self.assertEqual((quarantine / name).read_bytes(), quarantined[name])
-
-    def test_a_readable_marker_is_still_updated_and_cleared(self):
-        """Discrimination: only a marker that says nothing is untouchable.
-
-        Without this, the fix above is satisfied by never writing the marker at
-        all -- which would strand every genuine recovery, since an adopted
-        original must stop being listed as pending.
-
-        The three states are asserted apart here, because collapsing two of them
-        is what this round removes: a LIST is a statement, an EMPTY LIST is the
-        different statement "a successful run superseded these", and NO FILE is
-        no statement at all.
-        """
-        quarantine_names = sorted(_prepare.CPP_GENERATED_FILENAMES)[:2]
-        with tempfile.TemporaryDirectory() as tmp:
-            quarantine = Path(tmp) / ".pre_cpp_generation"
-            quarantine.mkdir()
-            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
-
-            # merging into a readable marker keeps both the old and the new names
-            _prepare._write_unrestored(quarantine, {quarantine_names[0]})
-            _prepare._merge_unrestored(quarantine, {quarantine_names[1]})
-            self.assertEqual(_prepare._read_unrestored(quarantine), set(quarantine_names))
-
-            # writing EMPTY is a statement, and it is written, not deleted
-            _prepare._write_unrestored(quarantine, set())
-            self.assertTrue(
-                marker.is_file(),
-                "'nothing is pending' was recorded by deleting the file, which says "
-                "nothing at all",
-            )
-            self.assertEqual(_prepare._read_unrestored(quarantine), set())
-
-            # clearing removes the file, and that reads back as NO statement
-            _prepare._clear_unrestored(quarantine)
-            self.assertFalse(marker.exists())
-            self.assertIsNone(_prepare._read_unrestored(quarantine))
-
-    def test_a_first_failed_restore_creates_the_marker(self):
-        """No marker yet is not a reason to record nothing.
-
-        `_merge_unrestored` leaves an UNREADABLE marker alone; it must still
-        create an absent one, or the first failed restore in a fresh quarantine
-        would record nothing and the original would be unattributed.
-        """
-        name = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
-        with tempfile.TemporaryDirectory() as tmp:
-            quarantine = Path(tmp) / ".pre_cpp_generation"
-            quarantine.mkdir()
-            self.assertIsNone(_prepare._read_unrestored(quarantine))
-
-            _prepare._merge_unrestored(quarantine, {name})
-            self.assertEqual(_prepare._read_unrestored(quarantine), {name})
-
-            # ...but with nothing to record it must not invent an empty statement
-            _prepare._clear_unrestored(quarantine)
-            _prepare._merge_unrestored(quarantine, set())
-            self.assertIsNone(
-                _prepare._read_unrestored(quarantine),
-                "a run with nothing to record wrote 'nothing is pending', which is a "
-                "claim it is in no position to make",
-            )
-
-    def test_a_successful_run_still_clears_an_unreadable_marker(self):
-        """The one caller that may: a fresh corpus answers the marker's question.
-
-        After the producer delivers, whatever is left in the quarantine is
-        superseded whatever the marker said, so leaving an unreadable one behind
-        would make the next run stop on a state that is no longer ambiguous.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
-            for name in names:
-                _write_ply(out / name, 16, rich_sh=True)
-            marker.write_bytes(b"{not json")
-
-            class _Proc:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            def producer(*_args, **_kwargs):
-                for name in names:
-                    _write_ply(out / name, 48, rich_sh=True)
-                return _Proc()
-
-            with mock.patch.object(_prepare.subprocess, "run", producer):
-                self.assertTrue(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
-
-            # Nothing survived the cleanup here, so there is nothing left for a
-            # later run to misjudge and the marker is removed outright.
-            self.assertFalse(
-                (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists(),
-                "a successful generation left the unreadable marker behind, so the next "
-                "run would stop on a question its own output already answered",
-            )
-
-    def test_an_absent_marker_is_not_permission_to_delete(self):
-        """#969 review round 10: a marker write can FAIL, and then it says nothing.
-
-        A producer that finished one fixture before dying on another leaves a
-        COMPLETE file at that canonical path while its original is still
-        quarantined -- whole by every check this module has, so the evidence rule
-        reads it as a fixture and defers to the marker. If the write recording that
-        original as pending also failed (a full disk, a locked quarantine
-        directory: the same conditions that made the restore fail), the marker is
-        absent. Absence used to mean "nothing is pending", so the next run
-        discarded the original as a superseded copy -- the last copy of the
-        pre-run fixture, deleted on the strength of a statement nobody made.
-
-        Absence is now no statement, and no statement means stop.
-        """
-        name = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            for other in sorted(_prepare.CPP_GENERATED_FILENAMES):
-                if other != name:
-                    _write_ply(out / other, 24, rich_sh=True)
-            _write_ply(quarantine / name, 32, rich_sh=True)
-            original = (quarantine / name).read_bytes()
-            # the completed output of the run that died: a WHOLE file, not debris
-            _write_ply(out / name, 64, rich_sh=True)
-            self.assertIsNone(
-                _prepare.ply_payload_failure(out / name),
-                "the case needs a complete file at the canonical path",
-            )
-            self.assertFalse((quarantine / _prepare.UNRESTORED_MARKER_FILENAME).exists())
-
-            buffer = io.StringIO()
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(
-                        _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-                    )
-
-            self.assertTrue(
-                (quarantine / name).is_file(),
-                f"{name}: the only copy of the pre-run fixture was discarded on an "
-                "absent marker",
-            )
-            self.assertEqual((quarantine / name).read_bytes(), original)
-            self.assertIn("cannot tell an unrestored original", buffer.getvalue())
-            self.assertIn("is absent", buffer.getvalue())
-
-    def test_a_marker_write_failure_is_reported_as_such(self):
-        """The writer must say whether the statement reached the disk.
-
-        It returned None and only printed, so the caller could not tell a recorded
-        pending original from one whose record evaporated.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            quarantine = Path(tmp) / ".pre_cpp_generation"
-            quarantine.mkdir()
-            self.assertTrue(_prepare._write_unrestored(quarantine, {"a.ply"}))
-
-            real_write_text = Path.write_text
-
-            def refuse(self, *args, **kwargs):
-                if self.name == _prepare.UNRESTORED_MARKER_FILENAME:
-                    raise OSError(28, "no space left on device")
-                return real_write_text(self, *args, **kwargs)
-
-            buffer = io.StringIO()
-            with mock.patch.object(Path, "write_text", refuse):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(_prepare._write_unrestored(quarantine, {"b.ply"}))
-            self.assertIn("refuse to discard anything", buffer.getvalue())
-
-    def test_a_failed_cleanup_after_success_is_reported_and_disarmed(self):
-        """The other half: say so, and make sure the next run cannot be misled.
-
-        The copy stays on disk because the delete failed, so what has to change is
-        the record of what it MEANS -- the marker says nothing is pending recovery,
-        which is what stops the next run adopting it.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            for name in names:
-                _write_ply(out / name, 1024, header_only=True)
-            quarantine = out / ".pre_cpp_generation"
-            real_unlink = Path.unlink
-
-            def stubborn_unlink(self, *args, **kwargs):
-                if self.parent == quarantine and self.suffix == ".ply":
-                    raise OSError(13, "the file is locked by another process")
-                return real_unlink(self, *args, **kwargs)
-
-            class _Proc:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            def producer(*_args, **_kwargs):
-                # A COMPLETE body: the payload check refuses a header-only file,
-                # and this case is about the cleanup that follows a success.
-                for name in names:
-                    _write_ply(out / name, 64, rich_sh=True)
-                return _Proc()
-
-            buffer = io.StringIO()
-            with mock.patch.object(_prepare.subprocess, "run", producer):
-                with mock.patch.object(Path, "unlink", stubborn_unlink):
-                    with contextlib.redirect_stdout(buffer):
-                        self.assertTrue(
-                            _prepare._generate_via_godot(Path("godot"), out, quiet=True),
-                            "a successful generation was failed by a cleanup problem",
-                        )
-
-            output = buffer.getvalue()
-            self.assertIn("could not remove superseded quarantine", output)
-            self.assertEqual(
-                _prepare._read_unrestored(quarantine),
-                set(),
-                "the leftovers were left looking like originals pending recovery",
-            )
-            self.assertTrue(
-                any((quarantine / name).is_file() for name in names),
-                "the case did not reproduce: the copies were removed after all",
-            )
-
-    def test_an_unrecordable_cleanup_fails_the_run_without_touching_the_new_corpus(self):
-        """#969 review: success must not be claimed without the state recovery needs.
-
-        Cleanup fails AND the marker write fails. Reporting success, and printing
-        that the leftovers "are recorded as holding no unrestored originals", pushed
-        the consequence one run away from its cause: the next run sees two whole
-        copies with no statement and correctly refuses to guess.
-
-        The fix must not be "report the producer as failed". `_generate()` would
-        then take the --allow-fallback branch and write the Python corpus over the
-        rich corpus this run just published, so this goes through `_generate()` WITH
-        --allow-fallback, which is the configuration where the wrong fix does harm.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            out = root / "tests" / "fixtures"
-            out.mkdir(parents=True)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            for name in names:
-                _write_ply(out / name, 1024, header_only=True)
-            quarantine = out / ".pre_cpp_generation"
-            real_unlink = Path.unlink
-
-            def stubborn_unlink(self, *args, **kwargs):
-                if self.parent == quarantine and self.suffix == ".ply":
-                    raise OSError(13, "the file is locked by another process")
-                return real_unlink(self, *args, **kwargs)
-
-            class _Proc:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            produced: dict = {}
-
-            def producer(*_args, **_kwargs):
-                for name in names:
-                    _write_ply(out / name, 64, rich_sh=True)
-                    produced[name] = (out / name).read_bytes()
-                return _Proc()
-
-            buffer = io.StringIO()
-            with mock.patch.object(_prepare.subprocess, "run", producer):
-                with mock.patch.object(Path, "unlink", stubborn_unlink):
-                    with mock.patch.object(_prepare, "_write_unrestored", return_value=False):
-                        with contextlib.redirect_stdout(buffer):
-                            code = _prepare._generate(
-                                root, quiet=True, godot_binary=Path("godot"), allow_fallback=True
-                            )
-
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual(
-                        (out / name).read_bytes(),
-                        produced[name],
-                        f"{name}: the rich corpus this run published was overwritten -- the "
-                        "failure was routed through the fallback",
-                    )
-            # The harm first: whatever else is true, the new corpus must survive.
-            output = buffer.getvalue()
-            self.assertEqual(
-                code, 1, "the run reported success without recording the state recovery needs"
-            )
-            self.assertIn("could not record that they are superseded", output)
-            self.assertNotIn(
-                "is recorded as holding no unrestored originals",
-                output,
-                "the run claimed to have recorded state it failed to write",
-            )
-
-    def test_a_malformed_marker_is_unknown_not_empty(self):
-        """#969 review: a marker this script never wrote is not a statement.
-
-        `[42]` is valid JSON and a list, and filtering its non-string entry out left
-        an empty set -- the authoritative "every quarantine copy is superseded". So
-        an original a failed restore had left beside a complete producer output was
-        deleted on the strength of a corrupt file.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            quarantine = Path(tmp)
-            marker = quarantine / _prepare.UNRESTORED_MARKER_FILENAME
-            real = sorted(_prepare.CPP_GENERATED_FILENAMES)[0]
-            for label, body in (
-                ("non-string entry", [42]),
-                ("unknown fixture name", ["not_a_fixture.ply"]),
-                ("one bad entry among good ones", [real, 7]),
-            ):
-                with self.subTest(marker=label):
-                    marker.write_text(json.dumps(body), encoding="utf-8")
-                    self.assertIsNone(
-                        _prepare._read_unrestored(quarantine),
-                        f"a marker with a {label} was read as a statement",
-                    )
-            # Discrimination: what the script actually writes still reads back.
-            for label, body, expected in (
-                ("pending entries", [real], {real}),
-                ("empty statement", [], set()),
-            ):
-                with self.subTest(marker=label):
-                    marker.write_text(json.dumps(body), encoding="utf-8")
-                    self.assertEqual(_prepare._read_unrestored(quarantine), expected)
-
-    def test_a_malformed_marker_cannot_authorise_deleting_an_original(self):
-        """End to end: the original survives, and the run stops rather than guessing."""
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            for name in names:
-                _write_ply(quarantine / name, 32, rich_sh=True)  # originals
-                _write_ply(out / name, 64, rich_sh=True)  # a complete, newer file
-            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text("[42]", encoding="utf-8")
-            originals = {name: (quarantine / name).read_bytes() for name in names}
-
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
+            originals = self._corpus(out)
+            names = sorted(originals)
+
+            def fake_run(cmd, **kwargs):
+                staging = Path(kwargs["env"]["SYNTHETIC_PLY_OUTPUT_DIR"])
+                (staging / names[0]).write_bytes(b"ply\npartial")
+                return subprocess.CompletedProcess(cmd, 1, "", "died half way")
+
+            with mock.patch.object(_prepare.subprocess, "run", side_effect=fake_run):
                 with contextlib.redirect_stdout(io.StringIO()):
                     self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
 
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertTrue(
-                        (quarantine / name).is_file(),
-                        f"{name}: a malformed marker authorised deleting the original",
-                    )
-                    self.assertEqual((quarantine / name).read_bytes(), originals[name])
+            changed = sorted(n for n, data in originals.items() if (out / n).read_bytes() != data)
+            self.assertEqual(changed, [], "partial producer output replaced an original")
+            leftovers = sorted(p.name for p in out.iterdir() if p.name.startswith(_prepare.STAGING_DIR_PREFIX))
+            self.assertEqual(leftovers, [], "the staging directory outlived the run")
 
-    def test_a_restore_that_cannot_write_says_so_and_keeps_the_original(self):
-        """Silence is the other half: the state is recoverable only if it is known.
-
-        The original survives in the quarantine, so nothing is lost -- but a log
-        that says nothing leaves a corpus of partial output looking like fixtures
-        until someone happens to regenerate.
-        """
+    def test_a_legacy_quarantine_is_reported_and_left_alone(self):
+        """A directory an older prep left may hold originals; it is named, never read or deleted."""
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            for name in names:
-                _write_ply(out / name, 1024, header_only=True)
-            originals = {name: (out / name).read_bytes() for name in names}
-            locked = names[0]
-            quarantine = out / ".pre_cpp_generation"
-
-            real_replace = Path.replace
-
-            def flaky_replace(self, target):
-                target = Path(target)
-                if target.name == locked and target.parent == out:
-                    raise OSError(13, "the file is locked by another process")
-                return real_replace(self, target)
-
+            root = Path(tmp)
+            legacy = root / "tests" / "fixtures" / _prepare.LEGACY_QUARANTINE_DIRNAME
+            legacy.mkdir(parents=True)
+            (legacy / "test_splats.ply").write_bytes(b"original")
             buffer = io.StringIO()
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with mock.patch.object(Path, "replace", flaky_replace):
-                    with contextlib.redirect_stdout(buffer):
-                        self.assertFalse(
-                            _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-                        )
+            with contextlib.redirect_stdout(buffer):
+                _prepare._generate(root, quiet=True)
+            self.assertIn(str(legacy), buffer.getvalue())
+            self.assertIn("WARNING", buffer.getvalue())
+            self.assertEqual((legacy / "test_splats.ply").read_bytes(), b"original")
 
-            output = buffer.getvalue()
-            self.assertIn("could not restore the pre-run fixtures", output)
-            self.assertIn(locked, output)
-            self.assertTrue(
-                (quarantine / locked).is_file(),
-                "the original was neither restored nor preserved",
-            )
+    def test_a_legacy_quarantine_cannot_be_committed(self):
+        probe = "tests/fixtures/.pre_cpp_generation/test_splats.ply"
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "-q", probe], cwd=ROOT, capture_output=True
+        )
+        self.assertEqual(result.returncode, 0, f"{probe} is not ignored; a leftover is committable")
 
-            # And the next run picks it back up, so the failure is a delay rather
-            # than a loss. This is the sequence the review described end to end.
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                with contextlib.redirect_stdout(buffer):
-                    self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
-            self.assertEqual(
-                (out / locked).read_bytes(),
-                originals[locked],
-                "the original was not recovered by the following run",
-            )
-
-    def test_originals_stranded_in_the_quarantine_are_picked_back_up(self):
-        """A restore that unlinked the target and then failed leaves NOTHING canonical.
-
-        The isolation loop only ran when a canonical file existed, so in that
-        state it did not run at all: the originals sat in `.pre_cpp_generation`
-        while the producer wrote a fresh corpus over the top of nothing, and they
-        were never seen again.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            names = sorted(_prepare.CPP_GENERATED_FILENAMES)
-            quarantine = out / ".pre_cpp_generation"
-            quarantine.mkdir()
-            for name in names:
-                _write_ply(quarantine / name, 1024, header_only=True)
-            (quarantine / _prepare.UNRESTORED_MARKER_FILENAME).write_text(
-                json.dumps(names), encoding="utf-8"
-            )
-            originals = {name: (quarantine / name).read_bytes() for name in names}
-
-            with mock.patch.object(
-                _prepare.subprocess, "run", self._fake_binary_that_writes_nothing()
-            ):
-                self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
-
-            for name in names:
-                with self.subTest(fixture=name):
-                    self.assertEqual(
-                        (out / name).read_bytes() if (out / name).is_file() else None,
-                        originals[name],
-                        f"{name} was left stranded in the quarantine",
-                    )
-
-    def test_a_producer_that_writes_nothing_fails_even_with_fresh_leftovers(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            # Leftovers with mtimes from *right now* -- inside the old grace window.
-            for name in _prepare.CPP_GENERATED_FILENAMES:
-                _write_ply(out / name, 1024, header_only=True)
-
-            with mock.patch.object(_prepare.subprocess, "run",
-                                   self._fake_binary_that_writes_nothing()):
-                ok = _prepare._generate_via_godot(Path("godot"), out, quiet=True)
-
-            self.assertFalse(
-                ok, "a producer that created no files was accepted as having generated them"
-            )
-            # And the workspace is not left worse: the leftovers are restored.
-            for name in _prepare.CPP_GENERATED_FILENAMES:
-                self.assertTrue((out / name).is_file(),
-                                f"{name} was not restored after the failed attempt")
+    def test_no_quarantine_machinery_is_left_to_drift(self):
+        """One mechanism, not two: the marker state machine is gone, not dormant."""
+        for name in (
+            "QuarantineStateError",
+            "_read_unrestored",
+            "_merge_unrestored",
+            "_write_unrestored",
+            "_clear_unrestored",
+            "UNRESTORED_MARKER_FILENAME",
+        ):
+            self.assertFalse(hasattr(_prepare, name), f"{name} survived the reconciliation")
 
 
 class PrepFallbackPolicyTests(unittest.TestCase):
@@ -2938,141 +2760,55 @@ class PrepFallbackPolicyTests(unittest.TestCase):
                 self.assertFalse(_prepare._generate_via_godot(Path("godot"), out, quiet=True))
 
 
-GSPW_MAGIC = b"GSPW"
-GSPW_WORLD_VERSION = 1
-COMMITTED_WORLD_FIXTURE = (
-    ROOT / "tests" / "examples" / "godot" / "test_project" / "tests" / "fixtures"
-    / "test_splats.gsplatworld"
-)
-QA_BASELINE = ROOT / "tests" / "ci" / "baselines" / "qa_results.json"
+class PrepRunnerCorpusStatementTests(unittest.TestCase):
+    """What each shared prep runner does with the corpus, and why -- stated truthfully.
 
-
-def read_gsplatworld_splat_count(path: Path) -> int:
-    """Read `splat_count` out of a `.gsplatworld` header.
-
-    Field order is fixed by the saver in
-    `modules/gaussian_splatting/io/gaussian_splat_world_io.cpp`: magic, version,
-    flags, splat_count, each a little-endian uint32. Magic and version are checked
-    first, so a format change fails loudly instead of returning whatever now sits
-    at offset 12.
-    """
-    raw = path.read_bytes()[:16]
-    if len(raw) < 16 or raw[:4] != GSPW_MAGIC:
-        raise ValueError(f"{path.name} is not a GSPW world file")
-    version, _flags, splat_count = struct.unpack("<3I", raw[4:16])
-    if version != GSPW_WORLD_VERSION:
-        raise ValueError(
-            f"{path.name} declares world version {version}; this reader knows "
-            f"{GSPW_WORLD_VERSION}. Re-derive the header layout from "
-            "gaussian_splat_world_io.cpp before trusting the count."
-        )
-    return splat_count
-
-
-def _collect_source_splat_counts(node, out: list[int]) -> None:
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if isinstance(key, str) and "source_splat_count" in key and isinstance(value, int):
-                out.append(value)
-            _collect_source_splat_counts(value, out)
-    elif isinstance(node, list):
-        for value in node:
-            _collect_source_splat_counts(value, out)
-
-
-class FallbackPinnedCorpusTests(unittest.TestCase):
-    """Why `--godot-binary` is NOT forwarded by the shared CI prep runners (#790).
-
-    #790's fix direction 5 says to add `--godot-binary` to the three CI prep
-    invocations. Measured, only one of them can take it. `run_module_tests.py`,
-    `run_baseline_qa.py` and `run_runtime_validation.py` all share a workspace with
-    the QA scene suite, whose committed expectations were recorded against the
-    Python-fallback `test_splats.ply`:
-
-    * `tests/ci/baselines/qa_results.json` records `source_splat_count: 1024`;
-    * the committed `test_splats.gsplatworld` is a 1024-splat bake, and the
-      world-vs-instance A/B refuses to score when the world and the PLY disagree
-      (`scripts/qa_route_capture_base.gd`).
-
-    So regenerating the fixture at the C++ count in those runners would not
-    upgrade a benchmark -- it would break a blocking gate whose numbers describe
-    the other corpus. That coupling was invisible; these tests make it an enforced
-    invariant, so it is discovered here rather than from a red GPU lane, and so
-    that rebaking one side without the other fails immediately.
+    #969 pinned run_module_tests.py, run_runtime_validation.py and
+    run_baseline_qa.py to the Python fallback, because the QA scene suite loaded
+    test_splats.ply and its baseline and world bake were measured at 1024 splats
+    (FallbackPinnedCorpusTests held that coupling). #991 gave the QA suite its own
+    pinned qa_splats_1024.ply, and QaCorpusIsPinnedTest now holds THAT coupling, so
+    the pin had nothing left to protect. #934's floor consumers take the C++ corpus
+    and fail closed; the forwarding itself is pinned by
+    `test_prep_command_requires_floors_and_forwards_the_binary` and
+    `test_selected_fixture_consumer_passes_binary_to_asset_prep`.
     """
 
-    def _fallback_count(self) -> int:
-        return _prepare.PYTHON_FALLBACK_SPLAT_COUNTS["test_splats.ply"]
+    RUNNERS = {
+        "run_module_tests.py": ROOT / "tests" / "ci" / "run_module_tests.py",
+        "run_runtime_validation.py": RUNTIME_DIR / "run_runtime_validation.py",
+        "run_baseline_qa.py": ROOT / "tests" / "ci" / "run_baseline_qa.py",
+    }
 
-    def test_committed_world_fixture_holds_the_fallback_count(self):
-        self.assertTrue(
-            COMMITTED_WORLD_FIXTURE.is_file(),
-            f"{COMMITTED_WORLD_FIXTURE} is missing - this guard now covers nothing",
-        )
-        self.assertEqual(
-            read_gsplatworld_splat_count(COMMITTED_WORLD_FIXTURE),
-            self._fallback_count(),
-            "the committed world fixture and the Python-fallback test_splats.ply must hold "
-            "the same splats; the QA world-vs-instance A/B refuses to score otherwise. "
-            "If the world was rebaked at the C++ count, the prep runners in tests/ci must "
-            "forward --godot-binary in the same change (#790).",
-        )
-
-    def test_qa_baseline_records_the_fallback_count(self):
-        self.assertTrue(QA_BASELINE.is_file(), f"{QA_BASELINE} is missing")
-        counts: list[int] = []
-        _collect_source_splat_counts(
-            json.loads(QA_BASELINE.read_text(encoding="utf-8")), counts
-        )
-        self.assertTrue(
-            counts,
-            "no source_splat_count found in the QA baseline - this guard asserted nothing",
-        )
-        self.assertEqual(
-            sorted(set(counts)),
-            [self._fallback_count()],
-            "the QA baseline's recorded source splat counts must match the corpus CI "
-            "actually generates; a mismatch means the baseline and the fixture describe "
-            "different workloads (#790)",
-        )
-
-    def test_the_world_header_reader_discriminates(self):
-        """A guard that reads a constant is not reading the file."""
-        with tempfile.TemporaryDirectory() as tmp:
-            probe = Path(tmp) / "probe.gsplatworld"
-            probe.write_bytes(GSPW_MAGIC + struct.pack("<3I", GSPW_WORLD_VERSION, 4, 50000))
-            self.assertEqual(read_gsplatworld_splat_count(probe), 50000)
-
-            wrong_magic = Path(tmp) / "wrong.gsplatworld"
-            wrong_magic.write_bytes(b"XXXX" + struct.pack("<3I", 1, 0, 1024))
-            with self.assertRaises(ValueError):
-                read_gsplatworld_splat_count(wrong_magic)
-
-            wrong_version = Path(tmp) / "v99.gsplatworld"
-            wrong_version.write_bytes(GSPW_MAGIC + struct.pack("<3I", 99, 0, 1024))
-            with self.assertRaises(ValueError):
-                read_gsplatworld_splat_count(wrong_version)
-
-    def test_each_prep_runner_states_why_it_uses_the_fallback(self):
-        """The downgrade must be reported, not merely be true.
-
-        A runner that silently produced the small corpus is the #790 defect; a
-        runner that produces it and says which committed artifacts pin it there is
-        a documented constraint someone can act on.
-        """
-        runners = {
-            "run_module_tests.py": ROOT / "tests" / "ci" / "run_module_tests.py",
-            "run_baseline_qa.py": ROOT / "tests" / "ci" / "run_baseline_qa.py",
-            "run_runtime_validation.py": RUNTIME_DIR / "run_runtime_validation.py",
-        }
-        for name, path in runners.items():
+    def test_no_runner_still_claims_the_qa_corpus_pins_it(self):
+        for name, path in self.RUNNERS.items():
             with self.subTest(runner=name):
-                module = _load_module(f"_gs_corpus_blocker_{path.stem}", path)
-                blocker = getattr(module, "FIXTURE_CORPUS_BLOCKER", "")
-                self.assertTrue(blocker, f"{name} does not state why it uses the fallback")
-                self.assertIn("qa_results.json", blocker)
-                self.assertIn("gsplatworld", blocker)
-                self.assertIn("790", blocker)
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("FIXTURE_CORPUS_BLOCKER", text)
+                self.assertNotIn("requires rebaking the world", text)
+
+    def test_baseline_qa_states_why_its_own_prep_uses_the_fallback(self):
+        """The downgrade must be reported, not merely be true (#790)."""
+        module = _load_module("_gs_baseline_qa_corpus_reason", self.RUNNERS["run_baseline_qa.py"])
+        reason = getattr(module, "FALLBACK_CORPUS_REASON", "")
+        self.assertTrue(reason, "run_baseline_qa.py no longer says why it preps the fallback")
+        self.assertIn("qa_splats_1024.ply", reason)
+        self.assertIn("--require-asset-floors", reason)
+        self.assertIn(
+            "FALLBACK_CORPUS_REASON",
+            self.RUNNERS["run_baseline_qa.py"].read_text(encoding="utf-8").split("def prepare_synthetic_assets", 1)[1],
+            "the reason is defined but never printed at the point of prep",
+        )
+
+    def test_the_qa_suite_no_longer_loads_the_file_the_floor_consumers_regenerate(self):
+        """The premise of lifting the pin, asserted where the pin was lifted."""
+        qa_scenes = ROOT / "tests" / "examples" / "godot" / "test_project" / "scenes" / "qa"
+        loaders = sorted(
+            path.name
+            for path in qa_scenes.glob("*.tscn")
+            if "res://tests/fixtures/test_splats.ply" in path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(loaders, [], "a QA scene loads test_splats.ply again; the pin's reason is back")
 
 
 WORKFLOW_DIR = ROOT / ".github" / "workflows"

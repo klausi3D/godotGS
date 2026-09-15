@@ -176,7 +176,7 @@ create a second blocking streaming gate.
 
 Runtime and benchmark scenes depend on deterministic synthetic fixtures.
 
-Generate/update them:
+Generate/update lightweight fixtures (preserving existing floor-valid canonical assets):
 
 ```bash
 python3 tests/runtime/prepare_synthetic_assets.py --quiet \
@@ -204,15 +204,31 @@ for smoke coverage and neither is valid as the other. Since #790:
 C++ generator at all — their committed size is their maximum available fidelity,
 not a reduced variant.
 
-**Which CI surfaces pass it.** Only the benchmark evidence job in
-`.github/workflows/gaussian_production_gates.yml`. `tests/ci/run_module_tests.py`,
-`tests/ci/run_baseline_qa.py` and `tests/runtime/run_runtime_validation.py`
-deliberately do not: they share a workspace with the QA scene suite, whose
-committed expectations (`tests/ci/baselines/qa_results.json` and the 1024-splat
-`test_splats.gsplatworld`) were measured against the fallback corpus. Each says so
-at the point of prep. See
-`tests/examples/godot/test_project/tests/fixtures/README.md` for the sequence that
-would move them.
+**Which CI surfaces pass it.** The benchmark evidence job in
+`.github/workflows/gaussian_production_gates.yml`, and the fixture consumers, which
+also require the floors and fail closed: `run_runtime_validation.py` when a selected
+scenario declares a floor-governed fixture, and a tests-enabled
+`run_module_tests.py` before its fixture-consuming module tests.
+`tests/ci/run_baseline_qa.py` preps the small corpus and says why at the point of
+prep: none of its categories needs the C++ one, and its QA scene suite loads its own
+pinned `qa_splats_1024.ply` (see
+`tests/examples/godot/test_project/tests/fixtures/README.md`).
+
+Generate and require the runtime consumer floors:
+
+```bash
+python3 tests/runtime/prepare_synthetic_assets.py --quiet \
+  --godot-binary ./bin/<your-godot-binary> --require-asset-floors
+```
+
+`run_runtime_validation.py` uses this fail-closed form automatically when the
+selected registered C++ or GDScript scenario contract declares a floor-governed
+fixture; unregistered ad-hoc scripts preflight conservatively because their
+indirect dependencies are unknown.
+Fixture-free selections (including C++-only `--skip-gd` runs) do not require a
+Godot binary for asset preparation. A tests-enabled `run_module_tests.py` lane
+uses the fail-closed form before its fixture-consuming module tests; a binary
+without test support keeps the runner's strict/warn unavailable-lane policy.
 
 Validate canonical fixture policy:
 

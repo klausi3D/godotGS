@@ -61,6 +61,7 @@ BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
 SYNTHETIC_ASSET_PREP_SCRIPT = ROOT / "tests" / "runtime" / "prepare_synthetic_assets.py"
 BENCHMARK_ASSET_GUARD_SCRIPT = ROOT / "tests" / "runtime" / "check_benchmark_asset_paths.py"
+BENCHMARK_ASSET_GUARD_TEST_SCRIPT = ROOT / "tests" / "runtime" / "test_check_benchmark_asset_paths.py"
 # T3 (#891): module-level constants (not inline paths) so the guard-wiring
 # contract in test_run_module_tests_lane_ledger.py can derive that a wired
 # runner actually reaches these contract-test files.
@@ -936,6 +937,15 @@ def _run_test_linkage_guard() -> tuple[bool, list[str]]:
 # which base to ratchet against. A module global rather than a parameter because
 # the guard-step table calls its runners with no arguments.
 _GUARD_BASE_REF_OVERRIDE: str | None = None
+
+# Set from --godot-binary in _run_ci_guard_steps, for the same reason: the
+# runtime validation contract guard forwards it to its test so the real-producer
+# capture runs on the command that has a producer (#934 review). A lambda in the
+# table would have hidden the guard's script from the lane-ledger wiring check.
+_GUARD_GODOT_BINARY_OVERRIDE: str | None = None
+# Whether --godot-binary was actually PASSED. Its default is the bare name `godot`,
+# so the value alone cannot tell `--godot-binary godot` from no option at all.
+_GUARD_GODOT_BINARY_EXPLICIT: bool = False
 
 # The PR base, in priority order. GITHUB_BASE_SHA / GITHUB_BASE_REF are what
 # .github/workflows/agentic_pr_gate.yml has available from
@@ -1834,7 +1844,43 @@ def _run_export_smoke_preset_state_guard() -> tuple[bool, list[str]]:
     return True, ["Export smoke preset state guard passed."]
 
 
-def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
+#: Set in the contract test's environment when this runner forwards a selected
+#: binary. It turns "no usable producer" from a skip into a failure, so a lane
+#: that was given a binary cannot report the real-producer capture green without
+#: having run it (#934 review).
+PRODUCER_CAPTURE_REQUIRED_ENV = "GS_REQUIRE_PRODUCER_CAPTURE"
+
+
+def _selected_producer_binary(godot_binary: str | None, *, explicit: bool = False) -> str | None:
+    """The Godot binary the caller actually SELECTED, or None.
+
+    `--godot-binary` defaults to `$GODOT_BINARY` or the bare name `godot`, so the
+    default alone is not a selection: a guard-only run on a machine with some
+    unrelated Godot on PATH must not start requiring a tests=yes producer. An
+    exported GODOT_BINARY is a selection, and so is any value the caller actually
+    passed -- including the bare name `godot`, which main() then runs (#934 review).
+    The value cannot say which, so `explicit` carries it.
+
+    Returned as given when it does not resolve: a selected binary that is missing
+    is a failure for the test to report, not a reason to skip.
+    """
+    raw = _normalize_process_arg(godot_binary) if godot_binary else ""
+    if not raw:
+        return None
+    if raw == "godot" and not explicit and not os.environ.get("GODOT_BINARY"):
+        return None
+    candidate = Path(raw)
+    if candidate.is_file():
+        return str(candidate.resolve())
+    resolved = shutil.which(raw)
+    return str(Path(resolved).resolve()) if resolved else raw
+
+
+def _run_runtime_validation_contract_guard(
+    godot_binary: str | None = None,
+    *,
+    explicit: bool | None = None,
+) -> tuple[bool, list[str]]:
     """Guard (#787): the runtime summary keeps the diagnostic a crashed scenario emits.
 
     Static, headless, no GPU. `tests/runtime/test_runtime_validation_proof_contract.py`
@@ -1851,14 +1897,55 @@ def _run_runtime_validation_contract_guard() -> tuple[bool, list[str]]:
     if not script.is_file():
         return False, [f"Missing runtime validation contract test: {script.relative_to(ROOT)}"]
 
-    code, out, err = _run_command([sys.executable, str(script)])
+    # Forward the binary this run was given. The contract test's real-producer
+    # class reads GODOT_BINARY, and without this the canonical
+    # `run_module_tests.py --godot-binary <binary>` left it unset: the class
+    # skipped and this guard still reported a plain pass (#934 review).
+    if godot_binary is None:
+        godot_binary, explicit = _GUARD_GODOT_BINARY_OVERRIDE, _GUARD_GODOT_BINARY_EXPLICIT
+    selected = _selected_producer_binary(godot_binary, explicit=bool(explicit))
+    # A selected binary built without test support cannot run [GeneratePLY] at
+    # all. main() already classifies that case and defers it to the module lanes'
+    # strict/warn-only disposition -- but this guard phase runs BEFORE main()'s
+    # probe, so requiring the capture here failed warn-only and
+    # --allow-tests-unavailable runs in the guards instead (#934 review). Same
+    # probe, same classification. A binary that cannot be launched at all is not
+    # "unavailable" by that probe, so it is still forwarded and still fails.
+    without_test_support = selected is not None and _test_runner_is_unavailable(selected)
+    # Always an explicit environment, holding exactly the producer chosen here. With
+    # `env=None` the test inherited GODOT_BINARY, so a tests-disabled build exported
+    # there ran the capture on the unavailable path anyway and failed the guards
+    # before the lanes could apply warn-only; an inherited
+    # GS_REQUIRE_PRODUCER_CAPTURE could likewise demand a capture nobody selected
+    # (#934 review).
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() not in ("GODOT_BINARY", PRODUCER_CAPTURE_REQUIRED_ENV)
+    }
+    if selected is not None and not without_test_support:
+        env["GODOT_BINARY"] = selected
+        env[PRODUCER_CAPTURE_REQUIRED_ENV] = "1"
+
+    code, out, err = _run_command([sys.executable, str(script)], env=env)
     if code != 0:
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if not output_lines:
             output_lines = [f"Runtime validation contract guard failed with exit code {code}."]
         return False, output_lines
 
-    return True, ["Runtime validation contract guard passed."]
+    # Say which mode the pass came from: with no binary selected the capture is
+    # skipped, and a bare "passed" would read as if it had run.
+    if without_test_support:
+        mode = (
+            f"real-producer capture NOT run: the selected binary {selected} has no "
+            "test support; the module lanes apply the tests-unavailable disposition"
+        )
+    elif selected is not None:
+        mode = f"real-producer capture ran against {selected}"
+    else:
+        mode = "real-producer capture NOT run: no Godot binary was selected"
+    return True, [f"Runtime validation contract guard passed ({mode})."]
 
 
 def _run_gpu_sorting_order_coverage_guard() -> tuple[bool, list[str]]:
@@ -2025,43 +2112,26 @@ def _run_history_artifact_guard(mode: str) -> tuple[bool, int, list[str]]:
     return True, 0, messages
 
 
-# #790 asked for `--godot-binary` to be forwarded here. Measured, it cannot be:
-# this runner shares a workspace with a QA corpus pinned to the Python-fallback
-# `test_splats.ply`. `tests/ci/baselines/qa_results.json` records
-# `source_splat_count: 1024`, and the committed `test_splats.gsplatworld` is a
-# 1024-splat bake that the world-vs-instance A/B compares against the PLY -- it
-# refuses to score when the two disagree (`scripts/qa_route_capture_base.gd`).
-# The evidence collector this job runs afterwards
-# (`tests/ci/collect_production_evidence.ps1`) executes that whole QA suite.
-# Regenerating the fixture at the C++ count here would therefore not upgrade a
-# benchmark; it would break a blocking gate whose committed expectations were
-# measured against the other corpus. Flipping it is a baseline change: rebake the
-# world and re-measure the QA baseline first. FallbackPinnedCorpusTests in
-# tests/ci/test_benchmark_fixture_contract.py enforces that coupling so it stays
-# visible instead of being rediscovered from a red GPU lane.
-FIXTURE_CORPUS_BLOCKER = (
-    "the QA corpus in this workspace is pinned to the Python-fallback fixture "
-    "(tests/ci/baselines/qa_results.json records source_splat_count=1024 and "
-    "tests/examples/godot/test_project/tests/fixtures/test_splats.gsplatworld is a "
-    "1024-splat bake); regenerating at the C++ count requires rebaking the world and "
-    "re-measuring the QA baseline first (#790)"
-)
-
-
-def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
+def _prepare_synthetic_assets(godot_binary: str) -> tuple[bool, list[str]]:
     if not SYNTHETIC_ASSET_PREP_SCRIPT.is_file():
         return (
             False,
             [f"Missing synthetic asset prep script: {SYNTHETIC_ASSET_PREP_SCRIPT.relative_to(ROOT)}"],
         )
 
-    command = [sys.executable, str(SYNTHETIC_ASSET_PREP_SCRIPT), "--quiet"]
-    code, out, err = _run_command(command, cwd=ROOT)
+    code, out, err = _run_command(
+        [
+            sys.executable,
+            str(SYNTHETIC_ASSET_PREP_SCRIPT),
+            "--quiet",
+            "--require-asset-floors",
+            "--godot-binary",
+            godot_binary,
+        ],
+        cwd=ROOT,
+    )
 
     messages = ["Preparing synthetic PLY assets for runtime and template lanes."]
-    # The prep script prints the per-fixture cost of the fallback; this names the
-    # reason the rich path is not attempted, which the script cannot know.
-    messages.append(f"Fixture generator: Python fallback by design -- {FIXTURE_CORPUS_BLOCKER}.")
     combined = (out + err).strip()
     if combined:
         messages.extend(combined.splitlines())
@@ -2072,19 +2142,18 @@ def _prepare_synthetic_assets() -> tuple[bool, list[str]]:
 
 
 def _run_benchmark_asset_guard() -> tuple[bool, list[str]]:
-    if not BENCHMARK_ASSET_GUARD_SCRIPT.is_file():
-        return (
-            False,
-            [f"Missing benchmark asset guard script: {BENCHMARK_ASSET_GUARD_SCRIPT.relative_to(ROOT)}"],
-        )
-
-    code, out, err = _run_command([sys.executable, str(BENCHMARK_ASSET_GUARD_SCRIPT)], cwd=ROOT)
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Benchmark asset guard failed with exit code {code}."]
-        return False, output_lines
-    return True, output_lines
+    messages: list[str] = []
+    for script in (BENCHMARK_ASSET_GUARD_SCRIPT, BENCHMARK_ASSET_GUARD_TEST_SCRIPT):
+        if not script.is_file():
+            return False, [f"Missing benchmark asset guard component: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)], cwd=ROOT)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        messages.extend(output_lines)
+        if code != 0:
+            if not output_lines:
+                messages.append(f"{script.name} failed with exit code {code}.")
+            return False, messages
+    return True, messages
 
 
 class GodotRunResult(tuple):
@@ -2135,6 +2204,26 @@ def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
     if result.returncode != 0 and _tests_unavailable(output):
         return GodotRunResult(True, True, output, result.returncode)
     return GodotRunResult(result.returncode == 0, False, output, result.returncode)
+
+
+def _test_runner_is_unavailable(godot: str) -> bool:
+    """Probe the binary's real doctest entry point before fixture generation.
+
+    The deliberately unmatchable filter makes a tests-enabled binary do no
+    test work.  Availability is derived by the same `_run_godot` /
+    `_tests_unavailable` path as the lanes themselves, so warn-only and explicit
+    allow-unavailable runs retain their established disposition instead of
+    failing earlier in synthetic fixture preparation (issue #895 review).
+    """
+    _ok, skipped, _output = _run_godot(
+        godot,
+        [
+            "--headless",
+            "--test",
+            "--test-case=__godotgs_test_availability_probe_matches_nothing__",
+        ],
+    )
+    return skipped
 
 
 def _parse_doctest_results(output: str) -> tuple[int, int, int, int, int, bool]:
@@ -3494,8 +3583,10 @@ def _run_ci_guard_steps(cli_args: argparse.Namespace) -> int | None:
     # Publish --base-ref so the env-skip guard subprocess ratchets against the
     # SAME base the render-path guard diffs against, instead of silently
     # resolving its own (which ends at origin/master).
-    global _GUARD_BASE_REF_OVERRIDE
+    global _GUARD_BASE_REF_OVERRIDE, _GUARD_GODOT_BINARY_OVERRIDE, _GUARD_GODOT_BINARY_EXPLICIT
     _GUARD_BASE_REF_OVERRIDE = getattr(cli_args, "base_ref", None)
+    _GUARD_GODOT_BINARY_OVERRIDE = getattr(cli_args, "godot_binary", None)
+    _GUARD_GODOT_BINARY_EXPLICIT = bool(getattr(cli_args, "godot_binary_explicit", False))
 
     history_guard_mode, history_guard_mode_warning = _resolve_history_artifact_guard_mode()
     if history_guard_mode_warning:
@@ -4351,10 +4442,20 @@ def _run_doctest_lanes(
     return exit_code
 
 
+class _ExplicitGodotBinaryAction(argparse.Action):
+    """Store --godot-binary and record that the caller passed it (#934 review)."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        setattr(namespace, "godot_binary_explicit", True)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Gaussian Splatting module tests and CI guards.")
     parser.add_argument("--godot-binary", default=os.environ.get("GODOT_BINARY", "godot"),
+                        action=_ExplicitGodotBinaryAction,
                         help="Path to Godot binary (default: GODOT_BINARY env or 'godot').")
+    parser.set_defaults(godot_binary_explicit=False)
     parser.add_argument("--base-ref", default=os.environ.get("GS_RENDER_GUARD_BASE"),
                         help="Git base ref/commit for render-path guard diff (default: auto-detected).")
     parser.add_argument("--guard-only", "--guards-only", action="store_true",
@@ -4427,12 +4528,25 @@ def main() -> int:
         print("[module-tests] Guard-only mode complete.")
         return 0
 
-    synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets()
-    for message in synthetic_asset_messages:
-        print(f"[module-tests] {message}")
-    if not synthetic_assets_ok:
-        print("[module-tests] Synthetic asset preparation failed.")
-        return 1
+    if _test_runner_is_unavailable(godot):
+        # No test consumer will execute. Preserve the established strict vs
+        # warn-only disposition in `_run_doctest_lanes`; fixture preparation is
+        # neither evidence nor a prerequisite for an unavailable lane.
+        print(
+            "[module-tests] Test runner unavailable; deferring strict/warn-only "
+            "disposition to the module lanes without preparing fixtures."
+        )
+    else:
+        # T7a (#895): an available module-test consumer requires the floor after
+        # generation, and passes the selected tests-enabled binary so a clean
+        # checkout generates the canonical workload rather than the 1024-splat
+        # fallback.
+        synthetic_assets_ok, synthetic_asset_messages = _prepare_synthetic_assets(godot)
+        for message in synthetic_asset_messages:
+            print(f"[module-tests] {message}")
+        if not synthetic_assets_ok:
+            print("[module-tests] Synthetic asset preparation failed.")
+            return 1
 
     print(
         f"[module-tests] Tests-unavailable mode: {tests_unavailable_mode}"
