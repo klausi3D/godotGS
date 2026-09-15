@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3]
 
-[ext_resource type="GaussianSplatAsset" path="res://tests/fixtures/test_splats.ply" id="baseline_asset"]
+[ext_resource type="GaussianSplatAsset" path="res://tests/fixtures/qa_splats_1024.ply" id="baseline_asset"]
 [ext_resource type="Script" path="res://scenes/qa/qa_performance_budget.gd" id="perf_script"]
 [ext_resource type="Script" path="res://fps_camera_controller.gd" id="fps_script"]
 

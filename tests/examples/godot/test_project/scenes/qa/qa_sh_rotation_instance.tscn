@@ -1,6 +1,6 @@
 [gd_scene load_steps=4 format=3]
 
-[ext_resource type="GaussianSplatAsset" path="res://tests/fixtures/test_splats.ply" id="instance_fixture"]
+[ext_resource type="GaussianSplatAsset" path="res://tests/fixtures/qa_splats_1024.ply" id="instance_fixture"]
 [ext_resource type="Script" path="res://scripts/qa_route_capture_base.gd" id="route_script"]
 
 [sub_resource type="Environment" id="Environment_qa_route"]
