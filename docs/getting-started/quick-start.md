@@ -18,10 +18,11 @@ $env:GODOT_BINARY="C:\absolute\path\to\your\godot-editor.exe"
 
 Need a binary first? Open [GitHub Releases](https://github.com/klausi3D/godotGS/releases) and grab the most recent `nightly-YYYYMMDD` prerelease — Linux tarball or Windows zip. macOS users [Build from Source](../BUILDING.md), then come back here and set `GODOT_BINARY` to the binary you have.
 
-!!! warning "A nightly download is an unoptimized `-O0` build"
-    Published nightlies are compiled with `dev_build=yes`, i.e. `-O0`, which inflates
-    CPU-side frame cost by roughly an order of magnitude. Use one to check that
-    godotGS works, not to judge how fast it is. Build with `optimize=speed_trace`
+!!! warning "The Linux nightly download is an unoptimized `-O0` build"
+    The published Linux nightly editor is compiled with `dev_build=yes`, i.e. `-O0`,
+    which inflates CPU-side frame cost by roughly an order of magnitude. Use it to
+    check that godotGS works, not to judge how fast it is. The Windows nightly editor
+    is optimized (`optimize=speed_trace`). On Linux, build with `optimize=speed_trace`
     ([Build Flavors](../BUILDING.md#build-flavors)) when you need representative
     performance, and read the
     [Performance Dashboard](../performance/index.md#measurement-environment) for what

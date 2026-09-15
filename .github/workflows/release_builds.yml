@@ -630,9 +630,26 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install scons
 
-      - name: Build module-enabled Windows editor
+      - name: Build module-enabled Windows editor (optimized)
         shell: pwsh
         run: |
+          # OPTIMIZED ON EVERY CHANNEL (#994). This used to add dev_build=yes and
+          # tests=yes on every channel except stable. The nightly users download
+          # was therefore -O0 (/Od): an editor nobody should evaluate godotGS with.
+          # Without dev_build, optimize=auto resolves to speed_trace (/O2,
+          # SConstruct:497-504). That is the exact command the stable channel
+          # already ran, so the stable path does not change.
+          #
+          # Nothing in this workflow needs the dev/tests flavour. The only consumer
+          # of this artifact that runs it is export_smoke_windows, which uses it
+          # for --import and --export-release and runs no doctests. So the smoke
+          # test now executes the same optimized editor the release ships. The
+          # dev/tests Windows builds CI does need live in their own workflows
+          # (baseline_qa.yml, gaussian_production_gates.yml,
+          # release_ci_runtime.yml) and are untouched.
+          #
+          # Own cache: C:/godotgs-scons-cache holds those lanes' dev objects
+          # (cache_limit=50). Optimized objects written into it would evict them.
           $args = @(
             "platform=windows",
             "target=editor",
@@ -640,14 +657,10 @@ jobs:
             # gs_avx2=no pinned on every published artifact -- see #671 and the
             # comment on the Linux editor build above.
             "gs_avx2=no",
-            "cache_path=C:/godotgs-scons-cache",
-            "cache_limit=50",
+            "cache_path=C:/godotgs-scons-cache-editor-release",
+            "cache_limit=10",
             "-j12"
           )
-          if ("${{ needs.release_metadata.outputs.channel }}" -ne "stable") {
-            $args += "dev_build=yes"
-            $args += "tests=yes"
-          }
           python -m SCons @args
 
       - name: Resolve Godot binaries
@@ -845,6 +858,14 @@ jobs:
             "target=template_release",
             "arch=x86_64",
             "gs_native_arch=no",
+            # #994 attaches this template to releases, so it is now a published
+            # artifact and gets the same pin as the editors (#671). In
+            # modules/gaussian_splatting/SCsub, `auto` and `no` both leave
+            # gs_avx2_enabled False, and that value alone decides /arch:AVX2 and
+            # GS_AVX2_ENABLED on MSVC. So the compile lines do not change today.
+            # The pin stops a future `auto` from silently raising the CPU floor of
+            # a template a user ships in their game.
+            "gs_avx2=no",
             "cache_path=C:/godotgs-scons-cache-template",
             "cache_limit=50",
             "-j12"
@@ -1061,8 +1082,9 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           # Unpack the ARCHIVES, not a local bin/ directory. These are the exact
-          # bytes a user downloads and the exact bytes PR 3 attaches to the
-          # release, which is the thing this job has to say something about.
+          # bytes a user downloads and the exact bytes publish_release attaches to
+          # the release (the optimized editor zip and, since #994, the template
+          # zip). That is the thing this job has to say something about.
           function Expand-One([string] $sourceDir, [string] $destination) {
             $archives = @(Get-ChildItem -Path $sourceDir -Filter "*.zip" -File -Recurse)
             if ($archives.Count -ne 1) {
@@ -1292,6 +1314,21 @@ jobs:
           name: godotgs-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
           path: release-payload/windows
 
+      # #994: the Windows export template ships with the Windows editor. It is
+      # keyed on the SAME condition as the editor payload above. Whenever
+      # build_windows succeeded, this job's `if:` has already required
+      # export_smoke_windows == success, which needs build_windows_export_template
+      # and has executed exactly this artifact. So this download cannot race a
+      # template build and never attaches a template nobody ran. Downloading it
+      # into release-payload is what puts it under the attestation that
+      # publish_release re-verifies.
+      - name: Download Windows export template payload built by this run
+        if: needs.build_windows.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-export-template-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-payload/windows-export-template
+
       - name: Hash release payload and bind it to this commit
         id: built
         if: needs.build_linux.result == 'success'
@@ -1356,6 +1393,29 @@ jobs:
             windows_sidecar="$(resolve_one release-payload/windows 'godotgs-windows-x86_64-*.sha256')"
             windows_sha="$(check_sidecar "${windows_archive}" "${windows_sidecar}")"
             echo "Windows archive: ${windows_archive} sha256=${windows_sha}"
+
+            # #994: a Windows payload without its export template is a partial
+            # asset set. Fail closed rather than publish an editor users cannot
+            # export a GS game with.
+            template_dir="release-payload/windows-export-template"
+            if [[ ! -d "${template_dir}" ]]; then
+              echo "::error::Windows payload is present but ${template_dir} is not; refusing to publish the editor without its export template."
+              exit 1
+            fi
+            template_archive="$(resolve_one "${template_dir}" 'godotgs-export-template-windows-x86_64-*.zip')"
+            template_sidecar="$(resolve_one "${template_dir}" 'godotgs-export-template-windows-x86_64-*.sha256')"
+            template_info="${template_dir}/EXPORT-TEMPLATE-INFO.txt"
+            if [[ ! -f "${template_info}" ]]; then
+              echo "::error::Windows export template payload has no EXPORT-TEMPLATE-INFO.txt; cannot bind it to a commit."
+              exit 1
+            fi
+            template_commit="$(sed -n 's/^commit=//p' "${template_info}" | head -n 1 | tr -d '\r')"
+            if [[ "${template_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "::error::Windows export template INFO commit '${template_commit}' != commit being published '${GITHUB_SHA}'."
+              exit 1
+            fi
+            template_sha="$(check_sidecar "${template_archive}" "${template_sidecar}")"
+            echo "Windows export template archive: ${template_archive} sha256=${template_sha}"
           fi
           echo "windows_sha=${windows_sha}" >> "$GITHUB_OUTPUT"
 
@@ -1525,6 +1585,16 @@ jobs:
           name: godotgs-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
           path: release-assets/windows
 
+      # #994: same artifact, same condition and same relative directory as the
+      # gate's release-payload download. Attestation paths are relative to that
+      # root, so they must match, and an unattested file here fails verification.
+      - name: Download Windows export template artifact
+        if: needs.build_windows.result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: godotgs-export-template-windows-${{ needs.release_metadata.outputs.channel }}-${{ github.run_number }}
+          path: release-assets/windows-export-template
+
       - name: Download release attestation
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -1556,6 +1626,11 @@ jobs:
           if [[ "${WINDOWS_OK}" == "true" ]]; then
             args+=(--require "windows/godotgs-windows-x86_64-${TAG}.zip")
             args+=(--require "windows/godotgs-windows-x86_64-${TAG}.sha256")
+            # #994: the nightly relaxes fail_on_unmatched_files below, so a missing
+            # template would otherwise publish silently without it. This is
+            # what makes it required.
+            args+=(--require "windows-export-template/godotgs-export-template-windows-x86_64-${TAG}.zip")
+            args+=(--require "windows-export-template/godotgs-export-template-windows-x86_64-${TAG}.sha256")
           fi
           python repo/tests/ci/release_attestation.py "${args[@]}"
 
@@ -1568,6 +1643,16 @@ jobs:
           prerelease: ${{ needs.release_metadata.outputs.prerelease == 'true' }}
           draft: false
           generate_release_notes: true
+          # #994: say which asset is which. The editor zip and the template zip
+          # are both GS builds, and a template picked up as an editor (or the
+          # reverse) is an easy mistake.
+          body: |
+            **Assets**
+            - `godotgs-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.zip`: the GodotGS **editor** for Windows (optimized, `optimize=speed_trace`). Includes the `.console.exe` wrapper.
+            - `godotgs-export-template-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.zip`: the GodotGS Windows **export template** (`windows_release_x86_64.exe` and its console wrapper). Point `custom_template/release` in your export preset at `windows_release_x86_64.exe`. Otherwise the export silently uses a stock template with no Gaussian Splatting (docs/development/export-templates.md).
+            - `godotgs-linux-x86_64-${{ needs.release_metadata.outputs.tag }}.tar.xz`: the GodotGS editor for Linux. Nightly Linux editors are `dev_build=yes` (`-O0`) and not performance-representative.
+
+            The Windows assets are attached only when the Windows build, its export template and the export smoke test all succeeded for this run.
           # Stable releases must not silently ship a partial asset set: if any
           # listed file is missing the publish fails (#593). The stable path is
           # guaranteed both-platform by release_candidate_gate, so every file
@@ -1580,6 +1665,8 @@ jobs:
             release-assets/linux/BUILD-INFO.txt
             release-assets/windows/godotgs-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.zip
             release-assets/windows/godotgs-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.sha256
+            release-assets/windows-export-template/godotgs-export-template-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.zip
+            release-assets/windows-export-template/godotgs-export-template-windows-x86_64-${{ needs.release_metadata.outputs.tag }}.sha256
           overwrite_files: true
 
   prune_nightly_history:

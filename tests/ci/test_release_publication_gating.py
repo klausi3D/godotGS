@@ -738,6 +738,99 @@ class PublicationConditionTests(unittest.TestCase):
                         )
 
 
+class WindowsReleaseAssetSetTests(unittest.TestCase):
+    """What a Windows release ships: the optimized editor AND its export template (#994).
+
+    Before #994 the nightly Windows editor was `dev_build=yes` (-O0), and the export
+    template the smoke test executes was never attached, so a user could not export
+    a GS game from a release. Both halves decay silently. Re-adding `dev_build` still
+    builds and publishes, just at -O0. Dropping the template from `--require` still
+    publishes, because the nightly relaxes `fail_on_unmatched_files`. Nothing
+    downstream goes red.
+
+    **Mode:** a line read of the workflow text with comments stripped. It checks
+    which bytes are wired into the gate and the publish job. It says nothing about
+    whether those bytes work; that is `export_smoke_windows`, which executes both.
+    """
+
+    TEMPLATE_ARTIFACT = (
+        "name: godotgs-export-template-windows-${{ needs.release_metadata.outputs.channel }}"
+        "-${{ github.run_number }}"
+    )
+    EDITOR_PAYLOAD_CONDITION = "if: needs.build_windows.result == 'success'"
+
+    def _code_lines(self, job: str) -> List[str]:
+        lines = _workflow_lines()
+        start = None
+        for index, line in enumerate(lines):
+            if line.rstrip() == f"  {job}:":
+                start = index
+                break
+        if start is None:
+            self.fail(f"job {job!r} not found in {WORKFLOW.name}")
+        block: List[str] = []
+        for line in lines[start + 1:]:
+            if JOB_KEY.match(line):
+                break
+            if not line.strip().startswith("#"):
+                block.append(line)
+        return block
+
+    def _step_containing(self, job: str, needle: str) -> List[str]:
+        """The lines of the one step in `job` that contains `needle`."""
+        lines = self._code_lines(job)
+        hits = [i for i, line in enumerate(lines) if needle in line]
+        if len(hits) != 1:
+            self.fail(f"expected exactly one {needle!r} in {job}, found {len(hits)}")
+        begin = max(i for i in range(hits[0] + 1) if lines[i].strip().startswith("- name:"))
+        end = next(
+            (i for i in range(hits[0] + 1, len(lines)) if lines[i].strip().startswith("- name:")),
+            len(lines),
+        )
+        return lines[begin:end]
+
+    def test_the_published_windows_editor_is_never_a_dev_build(self) -> None:
+        code = "\n".join(self._code_lines("build_windows"))
+        # Non-vacuity: the build command this reads is really in the block.
+        self.assertIn('"target=editor"', code)
+        self.assertNotIn("dev_build", code, "build_windows publishes a dev_build (-O0) editor again")
+        self.assertNotIn("tests=yes", code)
+
+    def test_the_template_is_attested_required_and_attached(self) -> None:
+        gate = "\n".join(self._code_lines("release_candidate_gate"))
+        publish = "\n".join(self._code_lines("publish_release"))
+        self.assertIn(self.TEMPLATE_ARTIFACT, gate, "the gate no longer downloads (so no longer attests) the template")
+        self.assertIn("path: release-payload/windows-export-template", gate)
+        self.assertIn(self.TEMPLATE_ARTIFACT, publish)
+        self.assertIn("path: release-assets/windows-export-template", publish)
+        for suffix in ("zip", "sha256"):
+            with self.subTest(suffix=suffix):
+                self.assertIn(
+                    f'--require "windows-export-template/godotgs-export-template-windows-x86_64-${{TAG}}.{suffix}"',
+                    publish,
+                    "the template is not required by attestation verify, so a nightly "
+                    "(fail_on_unmatched_files: false) would publish without it",
+                )
+                self.assertIn(
+                    "release-assets/windows-export-template/godotgs-export-template-windows-x86_64-"
+                    f"${{{{ needs.release_metadata.outputs.tag }}}}.{suffix}",
+                    publish,
+                    "the template is not in the release `files:` list",
+                )
+
+    def test_the_template_ships_exactly_when_the_windows_editor_ships(self) -> None:
+        # Same condition as the editor payload. That keeps the two from ever
+        # shipping apart, and keeps the gate and publish sides downloading the
+        # same set, which the attestation requires.
+        for job, path in (
+            ("release_candidate_gate", "path: release-payload/windows-export-template"),
+            ("publish_release", "path: release-assets/windows-export-template"),
+        ):
+            with self.subTest(job=job):
+                step = [line.strip() for line in self._step_containing(job, path)]
+                self.assertIn(self.EDITOR_PAYLOAD_CONDITION, step)
+
+
 class ExpressionEvaluatorTests(unittest.TestCase):
     """The evaluator is the guard; test it against inline fixtures, not trust."""
 

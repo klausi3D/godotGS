@@ -3,9 +3,10 @@
 
 ## The failure this guards against
 
-Every binary godotGS publishes is built with `dev_build=yes`, which resolves to
-`optimize=none` (`SConstruct`, the `optimize == "auto"` branch) and therefore
-compiles at `-O0`. CPU-side frame cost on such a build is inflated by roughly an
+When this guard was written, every binary godotGS published was built with
+`dev_build=yes`. Since #994 the Windows editor is optimized. The Linux nightly
+editor still uses `dev_build=yes`, which resolves to `optimize=none` (`SConstruct`,
+the `optimize == "auto"` branch) and therefore compiles at `-O0`. CPU-side frame cost on such a build is inflated by roughly an
 order of magnitude. The project already knew this and had already written it down
 -- `docs/performance/index.md` carries the sentence verbatim -- but it was written
 on the page a reader only reaches *after* deciding godotGS is slow, and on none of

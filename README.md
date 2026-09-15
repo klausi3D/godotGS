@@ -7,20 +7,20 @@ GodotGS is a Godot 4.5 fork with an in-tree Gaussian Splatting module for import
 
 Nightly editor builds are published as prereleases on GitHub. Pick the latest:
 
-- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)** - pick the most recent `nightly-YYYYMMDD` entry at the top. The release workflow guarantees the Linux editor tarball when publishing succeeds. Windows editor zips are included when the self-hosted Windows build lane succeeds for that run.
+- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)** - pick the most recent `nightly-YYYYMMDD` entry at the top. The release workflow guarantees the Linux editor tarball when publishing succeeds. The Windows editor zip and the Windows export template zip are included when the self-hosted Windows build lane and its export smoke test succeed for that run.
 - macOS users currently need to [build from source](docs/BUILDING.md)
 
 No named stable (`v*`) release is published yet, so nightly is the only public install path today. See [Release Channels](docs/development/release-channels.md) for the full publishing model.
 
 > [!WARNING]
-> **Nightly binaries are unoptimized `-O0` builds.** They are compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude — the `.dev` segment in the filename is that flag. Use a nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
+> **The nightly Linux editor is an unoptimized `-O0` build.** It is compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude. The `.dev` segment in its filename is that flag. The nightly Windows editor is optimized (`optimize=speed_trace`, no `.dev` segment). Use the Linux nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
 
 ## Current Status
 
 | Area | State |
 | --- | --- |
 | Maturity | Alpha |
-| Public binaries | Linux nightly editor; Windows nightly editor when the Windows lane succeeds. All published binaries are `dev_build=yes` / `-O0` — not performance-representative. |
+| Public binaries | Linux nightly editor (`dev_build=yes` / `-O0`, not performance-representative). When the Windows lane succeeds: an optimized Windows nightly editor and the Windows export template. |
 | macOS | Source build first |
 | Stable release | Not yet published |
 | Compatibility truth | [Compatibility Matrix](docs/reference/compatibility-matrix.md) |
