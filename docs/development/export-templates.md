@@ -135,10 +135,14 @@ visible splats and a successful GPU raster pass. The game is therefore run with
 a real Vulkan rendering device rather than `--headless` — a headless run has no
 `RenderingDevice`, which would make any "it rendered" assertion vacuous.
 
-The final assertion reads pixels back from the game window, so it needs an
-interactive desktop session — the same requirement as the in-repo
-`Canonical Node Asset Render` proof. In a session without a composited desktop
-the window reads back blank; that is reported as its own status
+The final assertion reads the root viewport's texture back inside the game
+(`get_texture().get_image()`), not a desktop capture. It works in the CI
+runner's service session. The probe pins
+`rendering/gaussian_splatting/lighting/indirect_sh_scale` to its module default
+of 1.0. The test project sets it to 0.0, which multiplies every splat's colour
+by zero, and the probe scene has no light and a black background. Unpinned,
+every splat renders black on black and the read-back is uniformly blank (#992).
+A blank read-back with successful pipeline stages is reported as its own status
 (`failed_visual_evidence`, probe exit code 4) and can be downgraded with
 `--allow-blank-viewport`. That flag downgrades **only** that one case: the
 module check, the `RenderingDevice` check and the "a GPU raster pass actually

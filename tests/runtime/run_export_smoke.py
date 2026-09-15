@@ -109,10 +109,12 @@ EXIT_FAIL = 1
 
 # Mirrors export_smoke_probe.gd. Exit code 4 means: the exported binary loaded
 # the module, brought up a real RenderingDevice, and drove a successful GPU
-# raster pass over the fixture -- but the window read back blank. That is what a
-# session without a composited desktop looks like (the in-repo
-# `Canonical Node Asset Render` proof fails the same way there). It is still a
-# failure by default; `--allow-blank-viewport` downgrades ONLY this one code.
+# raster pass over the fixture -- but the window read back blank. This was long
+# attributed to a session without a composited desktop. #992 refuted that: the
+# read-back is in-engine (viewport texture), and the blank came from a scene that
+# rendered black splats on black, reproduced in an interactive session. It is
+# still a failure by default; `--allow-blank-viewport` downgrades ONLY this one
+# code.
 PROBE_EXIT_NO_VISUAL_EVIDENCE = 4
 
 # Exit code this module fabricates for a subprocess it had to kill. It is NOT a
@@ -656,8 +658,9 @@ def probe_outcome_is_downgradable_blank_viewport(
 
     That tolerance exists for a single physical situation: the module loaded, a
     real RenderingDevice came up, the GPU rastered the fixture, and the window
-    read back blank because the session has no composited desktop. Everything
-    else is a failure, and the flag must not become a general amnesty.
+    read back blank. (Its original rationale, a session with no composited
+    desktop, was refuted in #992.) Everything else is a failure, and the flag
+    must not become a general amnesty.
 
     Narrow on purpose, and narrower than "exit code 4" alone (#873 review). The
     probe's post-await deadline check can end its proof loop holding COMPLETE
@@ -720,7 +723,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help=(
             "Accept a run where the module, the RenderingDevice and a successful GPU raster pass "
-            "were all proven but the window read back blank (no composited desktop session). "
+            "were all proven but the window read back blank. "
             "Every other failure mode still fails."
         ),
     )
