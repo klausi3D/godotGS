@@ -368,15 +368,42 @@ class ProbeRadianceTests(unittest.TestCase):
     node) is recorded in #992, not here.
     """
 
+    PIN_CALL = "ProjectSettings.set_setting(INDIRECT_SH_SCALE_SETTING, PROOF_INDIRECT_SH_SCALE)"
+    NODE_CREATION = 'ClassDB.instantiate("GaussianSplatNode3D")'
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
 
-    def _code_index(self, needle: str) -> int:
-        for offset, line in enumerate(self.lines):
-            if needle in line and not line.strip().startswith("#"):
-                return offset
-        self.fail(f"anchor not found in the probe: {needle!r}")
+    def _function_body(self, name: str) -> list[str]:
+        """Code lines (comments and blanks dropped) of the top-level `func name(`.
+
+        The body ends at the next non-indented line. A lexical position anywhere
+        in the file is NOT enough (#993 review): a pin moved into a helper that is
+        declared earlier but never called would still sit above the node creation.
+        """
+        start = next(
+            (offset for offset, line in enumerate(self.lines) if line.startswith(f"func {name}(")),
+            None,
+        )
+        if start is None:
+            self.fail(f"func {name}() not found in the probe")
+        body: list[str] = []
+        for line in self.lines[start + 1:]:
+            if line and not line[0].isspace():
+                break
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                body.append(stripped)
+        if not body:
+            self.fail(f"func {name}() has no code lines")
+        return body
+
+    def _only_index(self, body: list[str], needle: str, where: str) -> int:
+        hits = [offset for offset, line in enumerate(body) if needle in line]
+        if len(hits) != 1:
+            self.fail(f"expected exactly one {needle!r} in {where}, found {len(hits)}")
+        return hits[0]
 
     def test_the_project_value_is_pinned_before_the_splat_node_exists(self) -> None:
         source = "\n".join(self.lines)
@@ -385,13 +412,30 @@ class ProbeRadianceTests(unittest.TestCase):
             source,
         )
         self.assertIn("const PROOF_INDIRECT_SH_SCALE := 1.0", source)
-        pin = self._code_index("ProjectSettings.set_setting(INDIRECT_SH_SCALE_SETTING, PROOF_INDIRECT_SH_SCALE)")
-        node = self._code_index('ClassDB.instantiate("GaussianSplatNode3D")')
+        # Both in the SAME function, the one that creates the node.
+        setup = self._function_body("_setup_scene")
+        pin = self._only_index(setup, self.PIN_CALL, "_setup_scene()")
+        node = self._only_index(setup, self.NODE_CREATION, "_setup_scene()")
         self.assertLess(
             pin,
             node,
             "the splat node is created before indirect_sh_scale is pinned, so its first "
             "frames render with the project's 0.0",
+        )
+
+    def test_the_pin_is_on_the_executed_path(self) -> None:
+        """_init defers _run, _run calls _setup_scene, and nothing else creates the node."""
+        self._only_index(self._function_body("_init"), 'call_deferred("_run")', "_init()")
+        self._only_index(self._function_body("_run"), "_setup_scene()", "_run()")
+        creation_sites = [
+            line for line in self.lines
+            if self.NODE_CREATION in line and not line.strip().startswith("#")
+        ]
+        self.assertEqual(
+            len(creation_sites),
+            1,
+            "the splat node is created somewhere other than _setup_scene(), so the pin "
+            "there no longer covers every node the probe renders",
         )
 
     def test_the_blank_readback_is_not_blamed_on_the_desktop(self) -> None:
