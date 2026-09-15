@@ -789,12 +789,35 @@ class WindowsReleaseAssetSetTests(unittest.TestCase):
         )
         return lines[begin:end]
 
-    def test_the_published_windows_editor_is_never_a_dev_build(self) -> None:
+    def test_the_published_windows_editor_is_optimized(self) -> None:
+        # Assert the property, not one mechanism for losing it (#995 review). The
+        # absence of dev_build alone would let a later "optimize=none" publish
+        # another -O0 editor. So exactly one optimize value may appear, and it must
+        # be speed_trace.
         code = "\n".join(self._code_lines("build_windows"))
         # Non-vacuity: the build command this reads is really in the block.
         self.assertIn('"target=editor"', code)
+        optimize_values = re.findall(r"optimize=([A-Za-z_]+)", code)
+        self.assertEqual(
+            optimize_values,
+            ["speed_trace"],
+            f"build_windows must pin exactly optimize=speed_trace; found {optimize_values}",
+        )
         self.assertNotIn("dev_build", code, "build_windows publishes a dev_build (-O0) editor again")
         self.assertNotIn("tests=yes", code)
+
+    def test_a_stable_release_binds_the_template_to_candidate_evidence(self) -> None:
+        # #995 review: the stable path ships the template too, so its digest must
+        # reach `check_renderer_release_gates.py --artifact-sha`, which fails
+        # closed when the bundle lacks the group or records another digest.
+        gate = "\n".join(self._code_lines("release_candidate_gate"))
+        self.assertIn('echo "windows_export_template_sha=${template_sha}" >> "$GITHUB_OUTPUT"', gate)
+        self.assertIn(
+            'template_sha="${{ steps.built.outputs.windows_export_template_sha }}"', gate
+        )
+        self.assertIn(
+            'args+=(--artifact-sha "windows_export_template_archive=${template_sha}")', gate
+        )
 
     def test_the_template_is_attested_required_and_attached(self) -> None:
         gate = "\n".join(self._code_lines("release_candidate_gate"))

@@ -637,8 +637,14 @@ jobs:
           # tests=yes on every channel except stable. The nightly users download
           # was therefore -O0 (/Od): an editor nobody should evaluate godotGS with.
           # Without dev_build, optimize=auto resolves to speed_trace (/O2,
-          # SConstruct:497-504). That is the exact command the stable channel
-          # already ran, so the stable path does not change.
+          # SConstruct:497-504) for target=editor. The value is also pinned
+          # explicitly below, so the release property ("the published editor is
+          # speed_trace") is on the command line and not inferred from an absent
+          # flag. The resolved flags are identical to what stable already built,
+          # so the stable path does not change. Deliberately not optimize=speed:
+          # on this fork that value also switches on the module's fast-math/ISA
+          # block (modules/gaussian_splatting/SCsub), a separate decision
+          # (docs/BUILDING.md "Build Flavors").
           #
           # Nothing in this workflow needs the dev/tests flavour. The only consumer
           # of this artifact that runs it is export_smoke_windows, which uses it
@@ -653,6 +659,7 @@ jobs:
           $args = @(
             "platform=windows",
             "target=editor",
+            "optimize=speed_trace",
             "gs_native_arch=no",
             # gs_avx2=no pinned on every published artifact -- see #671 and the
             # comment on the Linux editor build above.
@@ -1388,6 +1395,7 @@ jobs:
           echo "Linux archive sha256=${linux_sha}"
 
           windows_sha=""
+          template_sha=""
           if [[ -d release-payload/windows ]]; then
             windows_archive="$(resolve_one release-payload/windows 'godotgs-windows-x86_64-*.zip')"
             windows_sidecar="$(resolve_one release-payload/windows 'godotgs-windows-x86_64-*.sha256')"
@@ -1418,6 +1426,7 @@ jobs:
             echo "Windows export template archive: ${template_archive} sha256=${template_sha}"
           fi
           echo "windows_sha=${windows_sha}" >> "$GITHUB_OUTPUT"
+          echo "windows_export_template_sha=${template_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Validate release candidate (public-alpha gate)
         if: needs.release_metadata.outputs.channel == 'stable'
@@ -1459,6 +1468,19 @@ jobs:
             exit 1
           fi
           args+=(--artifact-sha "windows_release_archive=${windows_sha}")
+          # #994: a stable release also ships the Windows export template, so
+          # candidate evidence must have validated those bytes too.
+          # check_renderer_release_gates.py requires every --artifact-sha group
+          # to exist in the bundle with exactly that digest
+          # (_candidate_expected_artifact_sha_failures). A bundle without a
+          # windows_export_template_archive group therefore fails this gate
+          # closed; it does not silently authorize an unvalidated template.
+          template_sha="${{ steps.built.outputs.windows_export_template_sha }}"
+          if [[ -z "${template_sha}" ]]; then
+            echo "::error::No Windows export template digest was computed; a stable release must bind every shipped archive."
+            exit 1
+          fi
+          args+=(--artifact-sha "windows_export_template_archive=${template_sha}")
 
           echo "Running: python tests/ci/check_renderer_release_gates.py ${args[*]}"
           python tests/ci/check_renderer_release_gates.py "${args[@]}"
