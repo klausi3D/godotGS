@@ -351,6 +351,54 @@ class ProbeDeadlineOrderingTests(unittest.TestCase):
         self.assertNotIn("var frame := -1", source)
 
 
+class ProbeRadianceTests(unittest.TestCase):
+    """The probe scene must be able to put a non-black pixel on screen (#992).
+
+    `test_project/project.godot` sets `indirect_sh_scale=0.0`, and the renderer
+    multiplies every splat's base colour by that value. The probe scene has no
+    light and a black background, so unless the probe pins the setting, a fully
+    working export draws black splats on black. The blocking CI job then fails on
+    every run and says nothing about the template. That happened on every master
+    run from #873 to #992.
+
+    **Mode:** source-ordering read. The probe only runs on the Windows GPU job,
+    which is skipped on pull requests, so without this read nothing in PR CI
+    notices the pin being removed. The runtime proof that the pin is what makes
+    the difference (blank without it, rendered with it, blank again with no splat
+    node) is recorded in #992, not here.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+
+    def _code_index(self, needle: str) -> int:
+        for offset, line in enumerate(self.lines):
+            if needle in line and not line.strip().startswith("#"):
+                return offset
+        self.fail(f"anchor not found in the probe: {needle!r}")
+
+    def test_the_project_value_is_pinned_before_the_splat_node_exists(self) -> None:
+        source = "\n".join(self.lines)
+        self.assertIn(
+            'const INDIRECT_SH_SCALE_SETTING := "rendering/gaussian_splatting/lighting/indirect_sh_scale"',
+            source,
+        )
+        self.assertIn("const PROOF_INDIRECT_SH_SCALE := 1.0", source)
+        pin = self._code_index("ProjectSettings.set_setting(INDIRECT_SH_SCALE_SETTING, PROOF_INDIRECT_SH_SCALE)")
+        node = self._code_index('ClassDB.instantiate("GaussianSplatNode3D")')
+        self.assertLess(
+            pin,
+            node,
+            "the splat node is created before indirect_sh_scale is pinned, so its first "
+            "frames render with the project's 0.0",
+        )
+
+    def test_the_blank_readback_is_not_blamed_on_the_desktop(self) -> None:
+        source = "\n".join(line for line in self.lines if not line.strip().startswith("#"))
+        self.assertNotIn("Needs an interactive desktop session", source)
+
+
 class PresetStateTestCase(unittest.TestCase):
     """Repoints the module at a temp project dir so no real config is touched."""
 
