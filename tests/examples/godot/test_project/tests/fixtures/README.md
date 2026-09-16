@@ -20,7 +20,7 @@ Use CLI/manifest injection only when running alternative stress datasets.
 
 | Invocation | Producer | `test_splats.ply` |
 | --- | --- | --- |
-| `prepare_synthetic_assets.py` | Python fallback (`CANONICAL_SPECS`, seed 1101, sphere, scale 3.0) | **1024 splats**, 57704 bytes |
+| `prepare_synthetic_assets.py` | Preserve an existing floor-valid fixture; otherwise Python fallback (`CANONICAL_SPECS`, seed 1101, sphere, scale 3.0) | Existing **>=10000** splats, or **1024 splats** on a fresh checkout |
 | `prepare_synthetic_assets.py --godot-binary <bin>` | C++ `[GeneratePLY]` case in `modules/gaussian_splatting/tests/generate_synthetic_ply_fixtures.h` | 10000 splats |
 
 It is a **benchmark** fixture: the 10000 floor in `ASSET_MIN_SPLAT_COUNTS` needs
@@ -49,16 +49,13 @@ world from the new file (below) and re-measure `qa_results.json` in the same cha
 
 ### Which prep commands pass `--godot-binary`
 
-Only the benchmark evidence surface in `.github/workflows/gaussian_production_gates.yml`.
-`run_module_tests.py`, `run_baseline_qa.py` and `run_runtime_validation.py` still
-prep with the Python fallback and say why at the point of prep
-(`FIXTURE_CORPUS_BLOCKER`), and
-`tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests` still holds
-that pin. The reason they give -- that the QA corpus *is* `test_splats.ply` -- was
-true when #790 added the pin and is what this split removes: the QA suite no longer
-loads the file those runners would regenerate. Moving the runners onto the C++
-corpus is no longer a baseline change; it is #934's, and the pin and its test are
-revised there.
+The benchmark evidence surface in `.github/workflows/gaussian_production_gates.yml`,
+and the fixture consumers `run_module_tests.py` and `run_runtime_validation.py`,
+which also pass `--require-asset-floors` and fail closed. They can: the QA suite
+that shares their workspace no longer loads the file they regenerate.
+`run_baseline_qa.py` preps the small corpus and says why at the point of prep
+(`FALLBACK_CORPUS_REASON`). #790 had pinned all three to the fallback because the QA
+corpus *was* `test_splats.ply`; this split is what lifted that pin.
 
 ## `test_splats.gsplatworld` — committed, baked from `qa_splats_1024.ply`
 

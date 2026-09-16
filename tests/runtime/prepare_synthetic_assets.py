@@ -9,17 +9,17 @@ Policy:
 from __future__ import annotations
 
 import argparse
+import array
 import json
 import math
 import os
-import pathlib
 import random
 import re
 import shutil
 import struct
 import subprocess
 import sys
-import time
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -489,6 +489,440 @@ ASSET_MIN_SPLAT_COUNTS: dict[str, int] = {
     "res://tests/fixtures/synthetic_flower_field.ply": 30000,
 }
 
+#: A `res://tests/fixtures/...` PLY reference, as written in scenario, scene and
+#: benchmark source. ONE definition, imported by every consumer: it decides which
+#: references the floor contract can see, and two copies of that decision drift.
+#:
+#: Deliberately permissive after the prefix. `[A-Za-z0-9_-]+\.ply` matched only a
+#: flat, dot-free basename, so a legal path such as
+#: `res://tests/fixtures/cases/sample.v2.ply` matched NOTHING -- and a reference
+#: this reader cannot see is a reference the guard cannot govern: the scenario
+#: showed no direct reference, an empty fixture contract was accepted, and the run
+#: skipped floor preparation for a fixture it actually loads (#934 review).
+#: An UNQUOTED `res://tests/fixtures/...` PLY reference. Bare references cannot
+#: contain a space -- nothing would tell the path from the next word -- so this
+#: half stops at whitespace, and `fixture_references_in()` reads the quoted half
+#: from the quotes instead.
+FIXTURE_REFERENCE_RE = re.compile(r"res://tests/fixtures/[^\s\"'\\]+\.ply")
+
+#: A quoted string literal, as GDScript and `.tscn` write one. The value inside is
+#: taken whole, spaces included: `res://tests/fixtures/cases/sample data.ply` is a
+#: legal resource path, and a matcher that stops at the space sees no reference at
+#: all -- so the scenario shows none, an empty fixture contract is accepted, and
+#: the run skips floor preparation for a fixture it loads (#934 review).
+_QUOTED_STRING_RE = re.compile(r"""(["'])((?:(?!\1)[^\r\n])*)\1""")
+
+_FIXTURE_PREFIX = "res://tests/fixtures/"
+
+
+def fixture_references_in(text: str) -> list[str]:
+    """Every floor-governed fixture path `text` references, in order of appearance.
+
+    Quoted values are read from the quotes, so a path containing spaces is seen
+    whole. Bare occurrences -- comments, `.tscn` values that are not quoted -- fall
+    back to the whitespace-terminated form, which is the most that can be read
+    without a delimiter. Duplicates are collapsed; order is kept so a caller can
+    report the first one.
+    """
+    seen: dict[str, None] = {}
+    for _quote, value in _QUOTED_STRING_RE.findall(text):
+        if value.startswith(_FIXTURE_PREFIX) and value.endswith(".ply"):
+            seen.setdefault(value, None)
+    for match in FIXTURE_REFERENCE_RE.finditer(text):
+        seen.setdefault(match.group(0), None)
+    return list(seen)
+
+
+#: Prefix of the directory the producer writes into before anything is
+#: published. It lives beside the corpus so the publish is a same-filesystem
+#: rename, which means a killed run leaves it inside `tests/fixtures/` with
+#: `.ply` files in it -- and `.gitignore`'s `tests/fixtures/*.ply` does not match
+#: a nested path, so those leftovers show up as untracked and can be committed,
+#: which the contribution rules forbid for generated fixtures. The ignore rule
+#: keyed on this prefix is asserted by the tests.
+STAGING_DIR_PREFIX = ".gs_ply_staging_"
+
+#: The same floors, keyed by the filename a producer writes. Derived rather than
+#: transcribed: a floor added above must not be able to go unchecked here.
+FIXTURE_FLOORS_BY_FILENAME: dict[str, int] = {
+    Path(resource_path).name: required
+    for resource_path, required in ASSET_MIN_SPLAT_COUNTS.items()
+}
+
+# The same res:// path is consumed in two project roots: the repository-root
+# doctest/runtime context and the canonical Godot test project.  A consumer
+# gate must validate both copies or a direct res:// reference can select the
+# unchecked one (issue #895).
+ASSET_CONSUMER_PROJECT_ROOTS: tuple[Path, ...] = (
+    Path("."),
+    Path("tests/examples/godot/test_project"),
+)
+
+
+def read_ply_vertex_count(path: Path) -> int | None:
+    """Read the declared PLY vertex count, failing closed on malformed input."""
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return None
+            for _ in range(64):
+                line = stream.readline()
+                if not line:
+                    return None
+                fields = line.strip().split()
+                if len(fields) == 3 and fields[:2] == [b"element", b"vertex"]:
+                    try:
+                        return int(fields[2])
+                    except ValueError:
+                        return None
+                if line.strip() == b"end_header":
+                    return None
+    except OSError:
+        return None
+    return None
+
+
+def ply_payload_failure(path: Path) -> str | None:
+    """Why `path` is not a COMPLETE PLY, or None when its body is all there.
+
+    `read_ply_vertex_count()` returns as soon as it reads the `element vertex`
+    line: it never sees `end_header` and never looks at a single vertex. A
+    declared count is therefore a CLAIM, and a producer that exits 0 after a short
+    write -- `synthetic_ply_writer.cpp` ignores the result of every
+    `store_buffer`/`store_float` call -- leaves a file whose claim satisfies every
+    floor while its body is missing (#934 review).
+
+    The body's size is derived from the header: vertex count times the number of
+    declared properties times four. Anything the reader cannot size -- a non-float
+    property, a second element block, a missing `end_header` -- is a reason, not a
+    pass: sizing the body wrongly and calling it complete is the failure this
+    exists to prevent.
+    """
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return "does not begin with a PLY magic line"
+            vertex_count: int | None = None
+            properties = 0
+            elements = 0
+            formats: list[bytes] = []
+            saw_end_header = False
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    break
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    saw_end_header = True
+                    break
+                fields = stripped.split()
+                if fields[:1] == [b"format"]:
+                    formats.append(stripped)
+                    continue
+                if fields[:1] == [b"element"]:
+                    elements += 1
+                    if elements > 1:
+                        return "declares more than one element block; the body cannot be sized"
+                    if len(fields) != 3 or fields[1] != b"vertex":
+                        return f"unexpected element line {stripped!r}"
+                    try:
+                        vertex_count = int(fields[2])
+                    except ValueError:
+                        return f"unreadable vertex count in {stripped!r}"
+                elif fields[:1] == [b"property"]:
+                    if vertex_count is None:
+                        # PLYLoader::parse_header() attaches a property to the vertex
+                        # schema only while the current element is `vertex`, so a
+                        # property declared before it is ignored: the loader reads a
+                        # narrower record at the wrong stride while this check sized
+                        # the body WITH it (#934 review).
+                        return (
+                            f"declares {stripped.decode('ascii', 'replace')!r} before the "
+                            "vertex element; the loader does not count it"
+                        )
+                    if len(fields) != 3 or fields[1] != b"float":
+                        return f"property {stripped!r} is not a float; the body cannot be sized"
+                    properties += 1
+            if not saw_end_header:
+                return "the header never ends (no end_header line)"
+            # The loader decides binary vs ASCII from this one line and defaults to
+            # ASCII without it (`PLYLoader::PLYHeader::is_binary = false`), so a
+            # binary body under a missing or wrong declaration is handed to the
+            # ASCII parser and rejected as corrupt -- while every byte count here
+            # still matched. And the size below only means anything for the
+            # encoding both producers write (#934 review).
+            if len(formats) != 1:
+                return (
+                    "declares no format line" if not formats
+                    else f"declares {len(formats)} format lines"
+                )
+            if formats[0] != REQUIRED_PLY_FORMAT_LINE:
+                return (
+                    f"declares {formats[0].decode('ascii', 'replace')!r}, not "
+                    f"{REQUIRED_PLY_FORMAT_LINE.decode('ascii')!r}; the body cannot be "
+                    "sized, and the loader would not read it as binary"
+                )
+            if vertex_count is None:
+                return "the header declares no vertex element"
+            if properties == 0:
+                return "the header declares no properties"
+            expected = stream.tell() + vertex_count * properties * 4
+        actual = path.stat().st_size
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if actual != expected:
+        return (
+            f"{actual:,} bytes on disk, {expected:,} expected for {vertex_count:,} "
+            f"vertices x {properties} float properties"
+        )
+    return None
+
+
+def ply_property_names(path: Path) -> "tuple[str, ...] | None":
+    """The properties of the VERTEX element, in order; None if unreadable.
+
+    Scoped the way the loader scopes them. `PLYLoader::parse_header()` adds a
+    property to the vertex schema only while the current element is `vertex`, so a
+    name declared before that element, or under another one, is not a vertex
+    property no matter what it is called -- and counting it let a file satisfy
+    the schema with a property the loader never reads (#934 review).
+    """
+    names: list[str] = []
+    current_element: bytes | None = None
+    try:
+        with path.open("rb") as stream:
+            if stream.readline().strip() != b"ply":
+                return None
+            for _ in range(512):
+                line = stream.readline()
+                if not line:
+                    return None
+                stripped = line.strip()
+                if stripped == b"end_header":
+                    return tuple(names)
+                fields = stripped.split()
+                if fields[:1] == [b"element"] and len(fields) >= 2:
+                    current_element = fields[1]
+                elif (
+                    fields[:1] == [b"property"]
+                    and len(fields) >= 3
+                    and current_element == b"vertex"
+                ):
+                    names.append(fields[-1].decode("ascii", "replace"))
+    except OSError:
+        return None
+    return None
+
+
+def ply_schema_failure(path: Path) -> str | None:
+    """Why `path` is not a Gaussian splat PLY this repo's producers write, or None.
+
+    A complete payload is not a usable one. `ply_payload_failure()` sizes the body
+    from whatever properties the header declares, so a 10,000-vertex file holding
+    only `property float x` and 40,000 bytes is complete by that rule and clears
+    every floor (#934 review). The loader does not refuse it either: a missing
+    property is filled with a default (`ply_loader.cpp`, `default_gaussian` and
+    `parse_vertex`), so that file loads as 10,000 splats at the origin with unit
+    scale and white colour -- a fixture that measures nothing, silently.
+
+    The required set is REQUIRED_PLY_PROPERTIES: the properties BOTH producers
+    always write. It is derived from the Python fallback's own header rather than
+    listed here, and the tests couple it to the C++ writer and to the loader, so
+    none of the three can drift without a failure naming it.
+    """
+    names = ply_property_names(path)
+    if names is None:
+        return "the header cannot be read"
+    duplicated = sorted({name for name in names if names.count(name) > 1})
+    if duplicated:
+        return f"declares {', '.join(duplicated)} more than once"
+    missing = [name for name in REQUIRED_PLY_PROPERTIES if name not in names]
+    if missing:
+        return f"is missing required propert{'y' if len(missing) == 1 else 'ies'} {', '.join(missing)}"
+    return None
+
+
+#: `PLYLoader::parse_vertex()` stores `exp(scale_n)` in a float field
+#: (ply_loader.cpp:654-656); a log-scale above ln(FLT_MAX) overflows it to inf.
+FLOAT32_MAX = 3.4028234663852886e38
+MAX_LOG_SCALE = math.log(FLOAT32_MAX)
+SCALE_PROPERTIES: tuple[str, ...] = ("scale_0", "scale_1", "scale_2")
+ROTATION_PROPERTIES: tuple[str, ...] = ("rot_0", "rot_1", "rot_2", "rot_3")
+#: A float32 square can only round to zero below this magnitude: the smallest
+#: subnormal float32 is ~1.4e-45, and (1e-22)**2 = 1e-44 is well above half of it.
+#: Components at or above it take no float32 emulation at all.
+FLOAT32_SQUARE_UNDERFLOW_BOUND = 1e-22
+
+
+def _float32(value: float) -> float:
+    """`value` rounded to the nearest float32, the way a single-precision `real_t` holds it."""
+    try:
+        return struct.unpack("<f", struct.pack("<f", value))[0]
+    except OverflowError:
+        return math.copysign(math.inf, value)
+
+
+def ply_value_failure(path: Path) -> str | None:
+    """Why the loader would REFUSE the splats in `path`, or None when it would load them.
+
+    A complete body with the producers' schema can still hold values the runtime
+    refuses: `GaussianSplatAsset::load_from_file()` rejects the whole asset when
+    `GaussianData::all_render_fields_finite()` finds a single non-finite position,
+    scale, rotation, opacity or SH value (gaussian_data.cpp:586-624). So a
+    producer regression that wrote a NaN passed every structural check here and
+    replaced a usable corpus with one no scenario can load (#934 review). Two
+    decoded values turn non-finite from finite input, so they are checked the way
+    the loader computes them:
+
+    * scale -- the loader stores `exp(scale_n)` (ply_loader.cpp:654-656), which
+      overflows a float to inf above ln(FLT_MAX);
+    * rotation -- it normalizes the quaternion (ply_loader.cpp:660-664), and
+      `Quaternion::normalize()` divides by the length (core/math/quaternion.cpp:65-67).
+      The length comes from `length_squared()`, `x*x + y*y + z*z + w*w` in `real_t`
+      (core/math/quaternion.h:173-179), which is float in the default
+      `precision=single` build (SConstruct:192). So not only an all-zero rotation
+      becomes NaN, but any rotation whose every component squares to a float32
+      zero -- `rot_0 = 1e-30` does (#934 review). A double-precision build would
+      load those; this follows the default build.
+
+    Any non-finite float in the body is refused. That is slightly stricter than the
+    loader, which does not check normals and saturates an infinite opacity logit;
+    a producer that writes one is broken either way. Call it on a file that
+    `ply_payload_failure()` and `ply_schema_failure()` have already accepted.
+    """
+    names = ply_property_names(path)
+    vertex_count = read_ply_vertex_count(path)
+    if not names or vertex_count is None:
+        return "the header cannot be read"
+    stride = len(names)
+    try:
+        with path.open("rb") as stream:
+            while True:
+                line = stream.readline()
+                if not line:
+                    return "the header never ends (no end_header line)"
+                if line.strip() == b"end_header":
+                    break
+            body = stream.read()
+    except OSError as exc:
+        return f"could not be read ({exc})"
+    if len(body) != vertex_count * stride * 4:
+        return f"the body is {len(body):,} bytes, not {vertex_count * stride * 4:,}"
+    values = array.array("f")
+    values.frombytes(body)
+    if sys.byteorder != "little":
+        values.byteswap()
+
+    # One pass decides; the slow scan runs only to name the offender.
+    try:
+        finite = math.isfinite(math.fsum(values))
+    except (ValueError, OverflowError):  # fsum raises on inf + -inf
+        finite = False
+    if not finite:
+        index = next(i for i, value in enumerate(values) if not math.isfinite(value))
+        return (
+            f"splat {index // stride} has a non-finite {names[index % stride]} "
+            f"({values[index]}); the loader refuses the whole asset"
+        )
+
+    for name in SCALE_PROPERTIES:
+        if name not in names:
+            continue
+        column = values[names.index(name)::stride]
+        if max(column, default=0.0) > MAX_LOG_SCALE:
+            splat = next(i for i, value in enumerate(column) if value > MAX_LOG_SCALE)
+            return (
+                f"splat {splat} has {name}={column[splat]}; the loader's exp() of it "
+                "overflows to inf and the asset is refused"
+            )
+
+    if all(name in names for name in ROTATION_PROPERTIES):
+        columns = [values[names.index(name)::stride] for name in ROTATION_PROPERTIES]
+        for splat, quaternion in enumerate(zip(*columns)):
+            # The product of two float32 values is exact in a double, so rounding it
+            # once reproduces the float32 square; a sum of non-negative float32
+            # values is zero only when every term is.
+            if all(abs(c) < FLOAT32_SQUARE_UNDERFLOW_BOUND for c in quaternion) and all(
+                _float32(c * c) == 0.0 for c in quaternion
+            ):
+                return (
+                    f"splat {splat} has a rotation whose float32 length is zero "
+                    f"({', '.join(repr(c) for c in quaternion)}); the loader's normalize() "
+                    "turns it into NaN and the asset is refused"
+                )
+    return None
+
+
+def fixture_floor_failure(path: Path, required_splats: int) -> str | None:
+    """Why `path` does not satisfy `required_splats`, or None when it does.
+
+    COMPLETE first, then counted. A declared vertex count is a claim the file
+    makes about itself; `ply_payload_failure()` is what checks the file kept it.
+    Round 7 taught the staging path that difference, but every decision about the
+    PUBLISHED corpus -- the files the runtime lanes actually load -- still rested
+    on the claim alone: the `--require-asset-floors` gate and both preservation
+    branches read `read_ply_vertex_count()` and nothing else. A fixture truncated
+    by a short write, an interrupted copy or a killed job keeps a header claiming
+    50,000 splats, so it cleared the floor, was preserved in place by the next
+    run, and was measured by the lanes as if it were whole (#934 review).
+
+    One predicate, three callers, so "satisfies the floor" cannot mean two
+    different things in the same script.
+    """
+    if not path.is_file():
+        return "MISSING"
+    payload_problem = ply_payload_failure(path)
+    if payload_problem is not None:
+        return f"INCOMPLETE ({payload_problem})"
+    schema_problem = ply_schema_failure(path)
+    if schema_problem is not None:
+        return f"NOT A SPLAT FIXTURE ({schema_problem})"
+    # ...and a well-formed splat file can still hold values the loader refuses.
+    value_problem = ply_value_failure(path)
+    if value_problem is not None:
+        return f"UNLOADABLE ({value_problem})"
+    actual = read_ply_vertex_count(path)
+    if actual is None:
+        return "UNVERIFIABLE"
+    if required_splats > 0 and actual < required_splats:
+        return f"UNDERSIZED (has {actual} splats)"
+    return None
+
+
+def _resource_path_for_spec(spec: PLYSpec) -> str | None:
+    spec_path = Path(spec.relative_path)
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        try:
+            project_relative = spec_path.relative_to(project_root)
+        except ValueError:
+            continue
+        candidate = "res://" + project_relative.as_posix()
+        if candidate in ASSET_MIN_SPLAT_COUNTS:
+            return candidate
+    return None
+
+
+def asset_floor_failures(repo_root: Path) -> list[str]:
+    """Return every absent, unreadable, or undersized consumer fixture."""
+    failures: list[str] = []
+    for project_root in ASSET_CONSUMER_PROJECT_ROOTS:
+        for resource_path, required in sorted(ASSET_MIN_SPLAT_COUNTS.items()):
+            relative_resource = Path(resource_path.removeprefix("res://"))
+            asset_file = repo_root / project_root / relative_resource
+            problem = fixture_floor_failure(asset_file, required)
+            if problem is None:
+                continue
+            relative = asset_file.relative_to(repo_root).as_posix()
+            if problem.startswith("UNDERSIZED"):
+                failures.append(
+                    f"{relative}: {problem} but {resource_path} requires >= {required}"
+                )
+            else:
+                failures.append(
+                    f"{relative}: {problem}; {resource_path} requires >= {required} splats"
+                )
+    return failures
+
 # ---------------------------------------------------------------------------
 # Fixture provenance (#790)
 #
@@ -616,6 +1050,24 @@ def _header(count: int) -> bytes:
         "end_header\n"
     )
     return text.encode("ascii")
+
+
+#: The properties every Gaussian splat fixture in this repo carries: the ones BOTH
+#: producers always write. Read back from the fallback's own header rather than
+#: listed a second time, and pinned by the tests against
+#: `synthetic_ply_writer.cpp` (each must be an unconditional emission there) and
+#: against `ply_loader.cpp` (each must be a property the loader reads).
+#: The format declaration both producers write, read back from the fallback's
+#: header rather than spelled again; the tests pin it against the C++ writer.
+REQUIRED_PLY_FORMAT_LINE: bytes = next(
+    line.strip() for line in _header(1).splitlines() if line.startswith(b"format ")
+)
+
+REQUIRED_PLY_PROPERTIES: tuple[str, ...] = tuple(
+    line.split()[-1].decode("ascii")
+    for line in _header(1).splitlines()
+    if line.startswith(b"property ")
+)
 
 
 def _encode_splat(
@@ -1051,574 +1503,191 @@ def _check_only(repo_root: Path) -> int:
 # has to be generous enough that only a genuinely stuck generator hits it.
 CPP_GENERATION_TIMEOUT_S = 900
 
-
-def ply_payload_failure(path: Path) -> str | None:
-    """Why `path` is not a COMPLETE PLY, or None when its body is all there.
-
-    A declared vertex count and a readable header do not mean the vertices were
-    written. `synthetic_ply_writer.cpp` ignores the result of every
-    `store_buffer`/`store_float` call and returns true regardless, so a short
-    write -- a full disk on the persistent runner is the case that produces one --
-    leaves a header-bearing, truncated file behind a doctest that exited 0. Every
-    check before this one passes on that file: it exists, it was written by this
-    run, its header declares the producer's count, and it would be recorded as
-    that producer's output while the originals were discarded (#969 review).
-
-    The body's size is derived from the header rather than assumed: vertex count
-    times the number of declared properties times four. Anything the reader cannot
-    size -- a non-float property, a second element block, a missing end_header --
-    is a reason, not a pass: sizing the body wrongly and calling it complete is
-    the failure this exists to prevent.
-    """
-    try:
-        with path.open("rb") as stream:
-            if stream.readline().strip() != b"ply":
-                return "does not begin with a PLY magic line"
-            vertex_count: int | None = None
-            properties = 0
-            elements = 0
-            for _ in range(512):
-                line = stream.readline()
-                if not line:
-                    return "the header never ends (no end_header line)"
-                stripped = line.strip()
-                if stripped == b"end_header":
-                    break
-                fields = stripped.split()
-                if fields[:1] == [b"element"]:
-                    elements += 1
-                    if elements > 1:
-                        return "declares more than one element block; the body cannot be sized"
-                    if len(fields) != 3 or fields[1] != b"vertex":
-                        return f"unexpected element line {stripped!r}"
-                    try:
-                        vertex_count = int(fields[2])
-                    except ValueError:
-                        return f"unreadable vertex count in {stripped!r}"
-                elif fields[:1] == [b"property"]:
-                    if len(fields) != 3 or fields[1] != b"float":
-                        return f"property {stripped!r} is not a float; the body cannot be sized"
-                    properties += 1
-            else:
-                return "the header never ends (no end_header line)"
-            if vertex_count is None:
-                return "the header declares no vertex element"
-            if properties == 0:
-                return "the header declares no properties"
-            expected = stream.tell() + vertex_count * properties * 4
-        actual = path.stat().st_size
-    except OSError as exc:
-        return f"could not be read ({exc})"
-    if actual != expected:
-        return (
-            f"{actual:,} bytes on disk, {expected:,} expected for {vertex_count:,} "
-            f"vertices x {properties} float properties"
-        )
-    return None
-
-
-#: Names whose ORIGINAL is still sitting in the quarantine because a restore
-#: could not put it back. Written by the restore paths, read by the isolation loop
-#: on the next run, cleared when the entry is adopted or superseded.
-#:
-#: Without it, "there is a file in the quarantine" had two meanings and the code
-#: assumed the safe one. An original a failed restore left behind must be adopted;
-#: a copy a SUCCESSFUL run could not delete must not be -- adopting that one
-#: deletes the current, valid fixture and restores a superseded corpus if the new
-#: run then fails, downgrading a workspace that was fine when it started
-#: (#969 review).
-UNRESTORED_MARKER_FILENAME = ".unrestored.json"
-
-
-def _marker_present(quarantine: Path) -> bool:
-    """Whether a marker file exists at all, readable or not."""
-    return (quarantine / UNRESTORED_MARKER_FILENAME).exists()
-
-
-class QuarantineStateError(RuntimeError):
-    """The corpus was generated and published, but the quarantine's state was not recorded.
-
-    Deliberately NOT a producer failure. `_generate()` treats a False producer
-    result as "the C++ generators did not run", and under `--allow-fallback` that
-    writes the Python corpus over whatever is at the canonical paths -- which here
-    is the rich corpus this run just published. Raising lets the caller stop with
-    the real cause and without that overwrite.
-    """
-
-
-def _read_unrestored(quarantine: Path) -> "set[str] | None":
-    """The marker's STATEMENT about the quarantine, or None when there is none.
-
-    A marker only ever carries a positive statement, and absence of one is not a
-    statement:
-
-    * a list of names -- those originals are pending recovery, adopt them;
-    * an EMPTY list -- a successful run superseded whatever is in the quarantine,
-      so the next run may discard it;
-    * no marker, or a marker that cannot be read -- NO STATEMENT. `None`.
-
-    Absence used to read as "nothing is pending", which is a statement nobody
-    made, and it fails OPEN: `_write_unrestored()` can fail (a full disk, a locked
-    quarantine directory) and then the pending names it was recording simply
-    vanish, leaving a run that could not restore an original looking exactly like
-    a run that had nothing to restore. The next run then deleted the original as a
-    superseded copy (#969 review).
-
-    The evidence rule in the isolation loop does not cover that on its own, and an
-    earlier version of this docstring wrongly claimed it did: it reasoned that a
-    failed restore leaves debris or nothing at the canonical path, so the marker
-    is only load-bearing when both files are whole. A producer that FINISHED one
-    fixture before dying on another leaves a complete file at that canonical
-    path -- whole by every check this module has -- with the original still
-    quarantined. That is the case the claim missed, and it is why absence must
-    mean "ask", not "assume".
-    """
-    marker = quarantine / UNRESTORED_MARKER_FILENAME
-    if not marker.exists():
-        return None
-    try:
-        raw = json.loads(marker.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if not isinstance(raw, list):
-        return None
-    # Every entry must be a fixture this producer writes, or the whole marker is
-    # unknown. Filtering bad entries out turned `[42]` into an empty set, and an
-    # empty set is the authoritative "every quarantine copy is superseded" --
-    # so a malformed marker authorised deleting an original that a failed restore
-    # had left behind (#969 review). A marker this script never wrote is not a
-    # statement about anything.
-    if not all(isinstance(name, str) and name in CPP_GENERATED_FILENAMES for name in raw):
-        return None
-    return set(raw)
-
-
-def _merge_unrestored(quarantine: Path, failed_names: "set[str]") -> None:
-    """Add `failed_names` to the pending-recovery marker, or leave it alone.
-
-    The two restore paths used to compute `(_read_unrestored(...) or set()) |
-    failures`, and that `or` is where an UNKNOWN state became an empty one: with
-    an unreadable marker and no new failures the set was empty, `_write_unrestored`
-    deletes on empty, and the deletion cleared the very file whose unreadability
-    had just made the run stop and ask for a human. The next run then saw no
-    marker, classified the quarantined original as a superseded copy, and deleted
-    it -- so "nothing was moved or deleted; remove the marker and re-run" was
-    followed by a re-run that removed the copy instead (#969 review).
-
-    An unreadable marker therefore stays exactly as it is. Nothing is merged into
-    it, because it cannot be read to merge into, and nothing is written over it,
-    because whatever it says is the only record that these copies were originals.
-    Dropping the new failure names with it is safe: after a failed restore the
-    canonical path holds debris or nothing, and the isolation loop adopts a
-    quarantine copy beside either of those on the evidence alone.
-    """
-    state = _read_unrestored(quarantine)
-    if state is None and _marker_present(quarantine):
-        marker = quarantine / UNRESTORED_MARKER_FILENAME
-        print(
-            f"[prepare_synthetic_assets] {marker} cannot be read, so it is being left "
-            "exactly as it is: it is the only record that the quarantined copies are "
-            "originals, and rewriting it from a guess is how they get deleted."
-        )
-        if failed_names:
-            print(
-                "  this run additionally failed to restore: "
-                f"{', '.join(sorted(failed_names))}"
-            )
-        return
-    if state is None and not failed_names:
-        # No marker and nothing to record. Writing an empty list here would be a
-        # positive "nothing is pending", and this run is in no position to say
-        # that -- it is the state a crash between isolation and restore leaves,
-        # where the quarantined originals ARE pending.
-        return
-    _write_unrestored(quarantine, (state or set()) | failed_names)
-
-
-def _write_unrestored(quarantine: Path, names: "set[str]") -> bool:
-    """Write the marker's statement: these names are pending recovery.
-
-    An EMPTY set is written as an empty list, not by deleting the file: `[]` is
-    the positive "a successful run superseded what is here" that authorises the
-    next run to discard the copies, and deleting the file says nothing at all.
-    Only `_clear_unrestored()` removes it.
-
-    Returns whether the statement reached the disk. A failure is no longer merely
-    reported: the next run reads the resulting absence as NO STATEMENT and stops
-    rather than discarding a quarantined original (#969 review).
-    """
-    marker = quarantine / UNRESTORED_MARKER_FILENAME
-    try:
-        quarantine.mkdir(parents=True, exist_ok=True)
-        marker.write_text(json.dumps(sorted(names), indent=2) + "\n", encoding="utf-8")
-    except OSError as exc:
-        print(
-            f"[prepare_synthetic_assets] WARNING: could not update {marker}: {exc}; the "
-            "next run therefore has no statement about "
-            f"{quarantine} and will refuse to discard anything in it rather than "
-            "guess"
-        )
-        return False
-    return True
-
-
-def _clear_unrestored(quarantine: Path) -> None:
-    """Remove the marker, for a quarantine that is being torn down.
-
-    Removal is not "nothing is pending" -- it is the absence of a statement, and
-    the isolation loop treats it as such. It is therefore only correct where no
-    quarantined copy survives to be misjudged.
-    """
-    marker = quarantine / UNRESTORED_MARKER_FILENAME
-    try:
-        if marker.exists():
-            marker.unlink()
-    except OSError as exc:
-        print(f"[prepare_synthetic_assets] WARNING: could not remove {marker}: {exc}")
+#: Where the pre-staging prep (#969) moved existing fixtures aside while the C++
+#: producer wrote straight into tests/fixtures. Staging replaced that: the producer
+#: now writes into an empty staging directory and the canonical files are not
+#: touched until the staged corpus is validated. A directory left by an older
+#: run can still hold originals a failed restore stranded, and nothing reads it
+#: any more -- so its presence is reported, never silently ignored.
+LEGACY_QUARANTINE_DIRNAME = ".pre_cpp_generation"
 
 
 def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bool:
     """Run the Godot [GeneratePLY] test case to produce high-quality fixtures.
 
-    Returns True on success, False on failure.
+    Returns True on success, False on failure (caller should fall back to Python).
+
+    The producer writes into an empty staging directory, never straight into
+    ``output_dir``, and a file is only accepted once it has been moved out of
+    that staging directory.  Exit status alone does not prove the generators
+    ran: doctest returns ``EXIT_SUCCESS`` whenever no test case *failed*,
+    including when zero cases matched the filter
+    (``thirdparty/doctest/doctest.h``), so a binary that predates the
+    ``[GeneratePLY]`` case exits 0 and writes nothing.  Deciding success from
+    the mere existence of the expected names in ``output_dir`` would then hand
+    back whatever an unrelated earlier run left there and report it as this
+    producer's output.  Staging makes existence proof of writing.
     """
-    env = os.environ.copy()
-    env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(output_dir)
-    cmd = [
-        str(godot_binary),
-        "--headless",
-        "--test",
-        "--test-case=*GeneratePLY*",
-    ]
-    if not quiet:
-        print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
-    # Move the expected outputs aside BEFORE launching, so their later existence
-    # is proof that THIS invocation created them.
-    #
-    # This replaces a wall-clock comparison (`mtime < started_at - 2.0`) that
-    # could not do the job: a caller who ran the fallback prep and immediately
-    # retried with a binary whose filter matches zero tests but exits 0 left
-    # files whose mtimes fell inside the two-second grace, so every stale
-    # fallback fixture was accepted as freshly generated and `cpp_generated`
-    # was set on a corpus the producer never touched.
-    #
-    # Moved rather than deleted: if the producer fails we put them back, so a
-    # failed attempt does not leave the workspace worse than it found it.
-    quarantine = output_dir / ".pre_cpp_generation"
-    stashed: dict[str, pathlib.Path] = {}
-
-    def _report_restore_failures(failures: list[str]) -> None:
-        """Say what could not be put back, and where the originals now live.
-
-        Swallowing these left the canonical path holding a failed run's partial
-        output and the original sitting in the quarantine, with nothing said. The
-        state is recoverable -- the next invocation adopts the quarantined
-        original -- but only if someone reading the log knows the corpus is
-        currently debris rather than fixtures. Printed unconditionally: --quiet is
-        what every CI invocation passes.
-        """
-        if not failures:
-            return
-        print(
-            "[prepare_synthetic_assets] WARNING: could not restore the pre-run fixtures "
-            "after a failed generation:"
-        )
-        for line in failures:
-            print(f"  - {line}")
-        print(
-            f"  the originals are preserved in {quarantine} and the next run recovers "
-            "them; until then the canonical paths may hold partial producer output"
-        )
-
-    def _rollback_isolation() -> None:
-        """Undo a PARTIAL isolation, so a failure to isolate cannot itself lose
-        fixtures.
-
-        Isolating several files is not atomic: on the persistent Windows runner a
-        later file can be locked while earlier ones have already been moved into
-        the quarantine. Returning at that point left those originals missing from
-        their canonical paths -- the isolation failure corrupting the workspace it
-        was protecting.
-
-        Deliberately NOT _restore_stashed(). That one also deletes any file
-        sitting at a canonical path with no stash entry, on the grounds that it
-        must be partial producer output. Here the producer has not run yet, so
-        such a file is an ORIGINAL that failed to move, and deleting it would
-        destroy the very thing this rollback exists to preserve. This restores
-        what was stashed and removes nothing.
-        """
-        failures: list[str] = []
-        for name, src in sorted(stashed.items()):
-            target = output_dir / name
-            try:
-                if not target.exists():
-                    src.replace(target)
-            except OSError as exc:
-                failures.append(f"{name}: {exc}")
-        _report_restore_failures(failures)
-        _merge_unrestored(quarantine, {line.split(":", 1)[0] for line in failures})
-        stashed.clear()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=STAGING_DIR_PREFIX, dir=output_dir) as staging_name:
+        staging_dir = Path(staging_name)
+        env = os.environ.copy()
+        env["SYNTHETIC_PLY_OUTPUT_DIR"] = str(staging_dir)
+        cmd = [
+            str(godot_binary),
+            "--headless",
+            "--test",
+            "--test-case=*GeneratePLY*",
+        ]
+        if not quiet:
+            print(f"[prepare_synthetic_assets] running C++ generators via: {' '.join(cmd)}")
         try:
-            if quarantine.is_dir() and not any(quarantine.iterdir()):
-                quarantine.rmdir()
-        except OSError:
-            pass
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=CPP_GENERATION_TIMEOUT_S, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
+            return False
 
-    marker_state = _read_unrestored(quarantine)
-    marker_unknown = marker_state is None
-    pending_recovery = marker_state or set()
-    recovered: list[str] = []
-    superseded: list[str] = []
-    undecidable: list[str] = []
-    try:
-        # The quarantine directory is itself a reason to run this loop: a restore
-        # that failed can leave the originals there with nothing at the canonical
-        # paths, and those originals have to be picked back up rather than
-        # stranded beside a corpus the producer rewrites.
-        if quarantine.is_dir() or any(
-            (output_dir / n).is_file() for n in CPP_GENERATED_FILENAMES
-        ):
-            quarantine.mkdir(parents=True, exist_ok=True)
-            for name in sorted(CPP_GENERATED_FILENAMES):
-                src = output_dir / name
-                dst = quarantine / name
-                # Which of the two states this entry is in is decided from
-                # EVIDENCE where there is any, and from the marker only where
-                # there is not. A quarantine copy is the original whenever the
-                # canonical path holds no fixture -- absent, or present but not a
-                # complete PLY, which is what a failed producer's debris looks
-                # like. The marker settles the remaining case, where both files
-                # are whole.
-                canonical_is_a_fixture = (
-                    src.is_file() and ply_payload_failure(src) is None
-                )
-                if dst.is_file() and (
-                    name in pending_recovery or not canonical_is_a_fixture
-                ):
-                    # An ORIGINAL a previous restore could not put back -- a
-                    # fixture locked by another process on the persistent Windows
-                    # runner is the case that produces this. Whatever sits at the
-                    # canonical path is then that failed run's partial output.
-                    # Deleting the quarantine entry to make room for it, as this
-                    # loop used to, destroyed the last copy of the fixture and
-                    # kept the debris. The original is already isolated, so adopt
-                    # it and discard the debris instead.
-                    if src.is_file():
-                        src.unlink()
-                    stashed[name] = dst
-                    recovered.append(name)
-                    continue
-                if dst.is_file() and marker_unknown:
-                    # A whole fixture at the canonical path, a copy in the
-                    # quarantine, and no statement about which is which -- the
-                    # marker is absent, or present and unreadable. Deleting either
-                    # one could be the wrong one, so neither is touched and the run
-                    # stops instead. Absence counts as no statement because the
-                    # write that would have made one can fail (#969 review).
-                    undecidable.append(name)
-                    continue
-                if dst.is_file():
-                    # A copy a SUCCESSFUL run could not delete. It is SUPERSEDED,
-                    # not an original: the file at the canonical path is a whole
-                    # fixture and this run's marker says nothing is pending
-                    # recovery. Adopting this one would delete that fixture and,
-                    # if this run's producer then failed, restore the old corpus
-                    # over it -- a failed retry downgrading a workspace that was
-                    # valid when it started.
-                    superseded.append(name)
-                    try:
-                        dst.unlink()
-                    except OSError:
-                        pass
-                if src.is_file():
-                    src.replace(dst)
-                    stashed[name] = dst
-    except OSError as exc:
-        print(f"[prepare_synthetic_assets] could not isolate existing fixtures: {exc}")
-        _rollback_isolation()
-        return False
+        if proc.returncode != 0:
+            print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
+            if proc.stderr:
+                for line in proc.stderr.strip().splitlines()[-5:]:
+                    print(f"  {line}")
+            return False
 
-    if undecidable:
-        marker_path = quarantine / UNRESTORED_MARKER_FILENAME
-        state_note = (
-            "is present but unreadable"
-            if _marker_present(quarantine)
-            else "is absent, so no run has recorded what the quarantined copies are"
-        )
-        print(
-            "[prepare_synthetic_assets] cannot tell an unrestored original from a "
-            f"superseded copy for: {', '.join(undecidable)}"
-        )
-        print(
-            f"  {marker_path} {state_note}, and both the quarantined copy and the "
-            "canonical fixture are whole files. Nothing was moved or deleted; remove "
-            "the copy you know is obsolete (or the marker, if it is unreadable) and "
-            "re-run."
-        )
-        _rollback_isolation()
-        return False
-
-    # Adopted entries are no longer pending; anything still pending has no
-    # quarantine copy left to recover. Cleared rather than written empty: every
-    # canonical path this loop touched is empty now, so a crash here leaves a state
-    # the next run resolves from evidence alone -- and an empty list would instead
-    # be a positive "nothing is pending" that authorises deleting the originals
-    # this run just isolated.
-    remaining = pending_recovery - set(recovered) - set(superseded)
-    if remaining:
-        _write_unrestored(quarantine, remaining)
-    elif _marker_present(quarantine):
-        _clear_unrestored(quarantine)
-
-    if recovered:
-        print(
-            "[prepare_synthetic_assets] recovered "
-            f"{len(recovered)} original fixture(s) a previous run could not restore: "
-            f"{', '.join(recovered)}"
-        )
-    if superseded:
-        print(
-            "[prepare_synthetic_assets] discarded "
-            f"{len(superseded)} superseded quarantine cop(y/ies) a previous run could "
-            f"not remove: {', '.join(superseded)}"
-        )
-
-    def _restore_stashed() -> None:
-        """Undo the isolation after a FAILED attempt, partial output included.
-
-        A failed producer may have written some expected files before dying, and
-        those are not fixtures -- they are the debris of a run that did not
-        finish, of unknown content and unknown splat count. Restoring only where
-        the target is ABSENT (the first version of this) left that debris in
-        place and silently dropped the original underneath it, leaving the
-        workspace as a mix of partial output and stale originals: worse than
-        either, and indistinguishable from a good corpus by name alone.
-
-        So the partial output is discarded and the original put back. A file the
-        producer created that had no original is removed outright, since keeping
-        it would present a half-written fixture as a real one.
-        """
-        failures: list[str] = []
-        for name in sorted(CPP_GENERATED_FILENAMES):
-            target = output_dir / name
-            src = stashed.get(name)
-            try:
-                if src is not None:
-                    if target.exists():
-                        target.unlink()          # discard partial output
-                    src.replace(target)          # put the original back
-                elif target.exists():
-                    target.unlink()              # partial, and nothing to restore
-            except OSError as exc:
-                failures.append(f"{name}: {exc}")
-        _report_restore_failures(failures)
-        _merge_unrestored(quarantine, {line.split(":", 1)[0] for line in failures})
-        try:
-            if quarantine.is_dir() and not any(quarantine.iterdir()):
-                quarantine.rmdir()
-        except OSError:
-            pass
-
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=CPP_GENERATION_TIMEOUT_S, env=env
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"[prepare_synthetic_assets] C++ generation failed: {exc}")
-        _restore_stashed()
-        return False
-
-    if proc.returncode != 0:
-        print(f"[prepare_synthetic_assets] C++ generation exited with code {proc.returncode}")
-        if proc.stderr:
-            for line in proc.stderr.strip().splitlines()[-5:]:
-                print(f"  {line}")
-        _restore_stashed()
-        return False
-
-    # Existence IS the proof now: the expected outputs were moved aside above, so
-    # anything present here was created by the run that just finished. No
-    # timestamp reasoning, and therefore no grace window to slip through.
-    missing = [n for n in sorted(CPP_GENERATED_FILENAMES) if not (output_dir / n).is_file()]
-    if missing:
-        print(
-            "[prepare_synthetic_assets] C++ generation exited 0 but did not write: "
-            f"{missing}; the producer ran without producing these, so the corpus is "
-            "not C++-generated"
-        )
-        _restore_stashed()
-        return False
-
-    # ...and a file that is there is not yet a file that is whole. Checked
-    # BEFORE the stashed originals are discarded, so a truncated corpus costs the
-    # run rather than the workspace: _restore_stashed() puts the originals back
-    # exactly as it does for every other failure of this producer.
-    incomplete = []
-    for name in sorted(CPP_GENERATED_FILENAMES):
-        reason = ply_payload_failure(output_dir / name)
-        if reason is not None:
-            incomplete.append(f"{name}: {reason}")
-    if incomplete:
-        print(
-            "[prepare_synthetic_assets] C++ generation exited 0 but wrote incomplete "
-            "fixtures:"
-        )
-        for line in incomplete:
-            print(f"  - {line}")
-        print(
-            "  the writer does not check its own I/O results, so a short write reaches "
-            "here as a successful run; the previous fixtures are being restored"
-        )
-        _restore_stashed()
-        return False
-
-    # The producer succeeded, so the stashed copies are superseded.
-    cleanup_failures: list[str] = []
-    for name, src in sorted(stashed.items()):
-        try:
-            src.unlink()
-        except OSError as exc:
-            cleanup_failures.append(f"{name}: {exc}")
-    # A fresh corpus settles the question the marker exists to answer, so this is
-    # the one caller that may state "nothing is pending" -- and where copies
-    # survived a failed cleanup, it MUST, because an absent marker is no statement
-    # and the next run would refuse to discard them. Where nothing survived, the
-    # marker is cleared so the quarantine directory can go.
-    recorded = True
-    if cleanup_failures:
-        recorded = _write_unrestored(quarantine, set())
-    else:
-        _clear_unrestored(quarantine)
-    if cleanup_failures:
-        print(
-            "[prepare_synthetic_assets] WARNING: could not remove superseded quarantine "
-            "cop(y/ies) after a successful generation:"
-        )
-        for line in cleanup_failures:
-            print(f"  - {line}")
-        if not recorded:
-            # The leftovers stay, and so does the absence of any statement about
-            # them -- which the next run correctly reads as "cannot tell" and stops
-            # on. Reporting success here, and claiming the state was recorded, used
-            # to push that stop one run away from its cause (#969 review).
-            leftovers = ", ".join(str(quarantine / line.split(":", 1)[0]) for line in cleanup_failures)
-            raise QuarantineStateError(
-                "the fixtures were generated and published, but the superseded "
-                f"quarantine cop(y/ies) could not be removed AND {quarantine} could not "
-                "record that they are superseded. The next run cannot tell them from "
-                "originals and will refuse to proceed. Remove the leftovers and re-run: "
-                f"{leftovers}"
+        # Verify all expected files were written *by this run*.  They can only be
+        # here if the producer wrote them: the staging directory was created empty.
+        missing = [
+            name for name in sorted(CPP_GENERATED_FILENAMES) if not (staging_dir / name).is_file()
+        ]
+        if missing:
+            print(
+                f"[prepare_synthetic_assets] C++ generation exited 0 but did not write: {missing}"
             )
-        print(
-            f"  they are NOT the current fixtures; {quarantine} is recorded as holding "
-            "no unrestored originals, so the next run discards them instead of adopting "
-            "them"
-        )
-    try:
-        if quarantine.is_dir() and not any(quarantine.iterdir()):
-            quarantine.rmdir()
-    except OSError:
-        pass
+            print(
+                "[prepare_synthetic_assets] the selected binary ran no [GeneratePLY] case "
+                "(doctest exits 0 when zero cases match); any file already in "
+                f"{output_dir} came from a different run and is not this producer's output"
+            )
+            return False
+
+        # Validate the staged corpus BEFORE it replaces the canonical one.
+        #
+        # A producer regression that writes every expected file but writes it
+        # SMALL is exactly what the floors exist to catch, and publishing first
+        # meant `asset_floor_failures()` correctly failed the command in a
+        # workspace whose usable fixtures had already been overwritten with the
+        # bad ones -- broken until the next successful generation. Rejecting here
+        # needs no rollback to get right: the staging directory is discarded and
+        # the canonical files were never touched.
+        rejected: list[str] = []
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            staged = staging_dir / name
+            # Structure first: a declared count is a claim, and the floor check
+            # below believes it. A truncated file whose header claims 50,000
+            # splats clears every floor there is.
+            payload_problem = ply_payload_failure(staged)
+            if payload_problem is not None:
+                rejected.append(f"{name}: {payload_problem}")
+                continue
+            # ...and a complete file is not a splat file. A body sized from ONE
+            # declared float passes the structural check above and every floor.
+            schema_problem = ply_schema_failure(staged)
+            if schema_problem is not None:
+                rejected.append(f"{name}: {schema_problem}")
+                continue
+            # ...and a splat file is not a loadable one. A NaN position or an
+            # all-zero rotation passes both checks above and every floor, and the
+            # runtime then refuses the asset in every scenario (#934 review).
+            value_problem = ply_value_failure(staged)
+            if value_problem is not None:
+                rejected.append(f"{name}: {value_problem}")
+                continue
+            floor = FIXTURE_FLOORS_BY_FILENAME.get(name, 0)
+            if floor <= 0:
+                continue
+            staged_splats = read_ply_vertex_count(staged)
+            if staged_splats is None:
+                rejected.append(f"{name}: no vertex count could be read from the header")
+            elif staged_splats < floor:
+                rejected.append(f"{name}: {staged_splats} splats, floor is {floor}")
+        if rejected:
+            print(
+                "[prepare_synthetic_assets] the producer ran but its output is not usable "
+                "as the fixture corpus:"
+            )
+            for line in rejected:
+                print(f"  - {line}")
+            print(
+                "  nothing was published; the fixtures already in the workspace are "
+                "untouched and still usable"
+            )
+            return False
+
+        # Publish by REPLACING, not by deleting and then moving.
+        #
+        # `unlink()` followed by `shutil.move()` leaves a window in which the
+        # canonical fixture is already gone and the new one is not yet there. A
+        # move that fails in that window -- a sharing lock on the persistent
+        # Windows runner, a full disk -- destroyed the existing fixture, raised
+        # out of prep as an unhandled OSError, and took the staging directory
+        # (with the replacement in it) down with the `with` block. `os.replace()`
+        # is atomic within a filesystem, and the staging directory is created
+        # inside `output_dir`, so the destination is never transiently absent.
+        #
+        # ...and publish the corpus ALL OR NOTHING. Each replace is atomic, but the
+        # corpus is several files: a replace that failed after earlier ones had
+        # succeeded left this run's fixtures beside the previous run's. Every one
+        # of them is structurally whole and above its floor, so no later check can
+        # see the mixture (#934 review). Copy each file about to be replaced first
+        # -- copying leaves the destination in place -- and put the previous corpus
+        # back if any replacement fails.
+        previous: dict[str, Path | None] = {}
+        backup_dir = staging_dir / ".previous_corpus"
+        try:
+            backup_dir.mkdir()
+            for name in sorted(CPP_GENERATED_FILENAMES):
+                destination = output_dir / name
+                if destination.exists():
+                    shutil.copy2(destination, backup_dir / name)
+                    previous[name] = backup_dir / name
+                else:
+                    previous[name] = None
+        except OSError as exc:
+            print(
+                "[prepare_synthetic_assets] could not keep a copy of the current fixtures "
+                f"before publishing ({exc}); nothing was published"
+            )
+            return False
+
+        published: list[str] = []
+        for name in sorted(CPP_GENERATED_FILENAMES):
+            destination = output_dir / name
+            try:
+                os.replace(staging_dir / name, destination)
+            except OSError as exc:
+                print(
+                    "[prepare_synthetic_assets] could not publish the generated "
+                    f"{name}: {exc}"
+                )
+                not_restored = _roll_back_publish(output_dir, published, previous)
+                if not_restored:
+                    print(
+                        "  ROLLBACK INCOMPLETE: "
+                        + ", ".join(not_restored)
+                        + " still hold this run's output while the rest of the corpus is "
+                        "the previous run's. Every file is individually valid, so nothing "
+                        f"downstream can detect the mixture: delete the fixtures in {output_dir} "
+                        "and regenerate before using them"
+                    )
+                elif published:
+                    print(
+                        "  rolled back " + ", ".join(published) + "; the fixtures in the "
+                        "workspace are the previous corpus, unchanged"
+                    )
+                else:
+                    print("  nothing was published; the fixtures in the workspace are unchanged")
+                return False
+            published.append(name)
 
     if not quiet:
         for name in sorted(CPP_GENERATED_FILENAMES):
@@ -1628,6 +1697,30 @@ def _generate_via_godot(godot_binary: Path, output_dir: Path, quiet: bool) -> bo
                 f"({CPP_GENERATOR_SPLAT_COUNTS[name]} splats, {size:,} bytes)"
             )
     return True
+
+
+def _roll_back_publish(
+    output_dir: Path, published: list[str], previous: dict[str, Path | None]
+) -> list[str]:
+    """Restore the corpus a failed publish had partly replaced; return what it could not.
+
+    A file that existed before is put back from its copy by an atomic replace. A
+    file that did not exist before is removed again, because "absent" is what the
+    workspace held. Newest first, so a failure part-way leaves the longest possible
+    prefix of the corpus unchanged.
+    """
+    not_restored: list[str] = []
+    for name in reversed(published):
+        destination = output_dir / name
+        backup = previous.get(name)
+        try:
+            if backup is None:
+                destination.unlink()
+            else:
+                os.replace(backup, destination)
+        except OSError:
+            not_restored.append(name)
+    return sorted(not_restored)
 
 
 CPP_PREP_COMMAND_HINT = (
@@ -1656,7 +1749,10 @@ def _print_fallback_notice(reason: str) -> None:
     """
     print("[prepare_synthetic_assets] WARNING: LOW-FIDELITY FIXTURES")
     print(f"[prepare_synthetic_assets]   {reason}")
-    print("[prepare_synthetic_assets]   the Python fallback generators will write:")
+    print(
+        "[prepare_synthetic_assets]   where no whole, floor-valid fixture is already in place, "
+        "the Python fallback generators write:"
+    )
     for line in _fallback_fidelity_report():
         print(f"[prepare_synthetic_assets] {line}")
     print(
@@ -1670,40 +1766,62 @@ def _generate(
     repo_root: Path,
     quiet: bool,
     godot_binary: Path | None = None,
+    *,
+    preserve_floor_valid: bool = False,
     allow_fallback: bool = False,
 ) -> int:
     removed: list[str] = []
     fixtures_dir = repo_root / "tests" / "fixtures"
 
+    legacy_quarantine = fixtures_dir / LEGACY_QUARANTINE_DIRNAME
+    if legacy_quarantine.exists():
+        # Unconditional on --quiet: it is a statement about files a person may need.
+        print(
+            f"[prepare_synthetic_assets] WARNING: {legacy_quarantine} was left by an older "
+            "prep run. It may hold original fixtures that run could not restore; this "
+            "script no longer reads it. Inspect it, then delete it."
+        )
+
     # Phase 1: Generate primary fixtures via C++ generators if a binary is available.
     cpp_generated = False
     if godot_binary is not None:
-        try:
-            cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
-        except QuarantineStateError as exc:
-            # The rich corpus IS in place. Returning here rather than falling
-            # through keeps --allow-fallback from regenerating the Python corpus
-            # over it, and names the cause at the run that caused it.
-            print(f"[prepare_synthetic_assets] ERROR: {exc}")
-            return 1
+        cpp_generated = _generate_via_godot(godot_binary, fixtures_dir, quiet)
         if not cpp_generated:
-            # #790: this used to fall back to Python and still exit 0. A caller
-            # that passed --godot-binary asked for the benchmark workload; handing
-            # it a 10x-smaller one and reporting success is the exact shape of
-            # defect the issue documents. --allow-fallback opts back in explicitly.
-            if not allow_fallback:
+            # Passing --godot-binary SELECTS a producer; it does not merely offer
+            # one. Falling back reported success while the selected producer had
+            # failed: the Python fallback declares fewer splats than the floor,
+            # the preservation branch below then keeps an existing fixture from an
+            # unrelated earlier run, and module and runtime validation proceed
+            # against it. The floor check passes because the old file satisfies
+            # it -- so the failure of the thing under test is laundered into a
+            # pass by a leftover file.
+            #
+            # Round 2 made that fatal only under --require-asset-floors, which
+            # left the documented benchmark-prep commands -- neither of which
+            # passes that flag -- taking the silent fallback (#934 review). The
+            # rule is now the mode-independent one: a selected producer that fails
+            # fails the command. --allow-fallback is the explicit opt-in for a
+            # low-fidelity tree, and it cannot override the floor rule, because
+            # under floors a leftover fixture is exactly what would absorb the
+            # failure.
+            if preserve_floor_valid or not allow_fallback:
                 print(
-                    "[prepare_synthetic_assets] ERROR: --godot-binary was given but the C++ "
-                    "generators did not produce the fixtures."
+                    "[prepare_synthetic_assets] ERROR: the selected --godot-binary did "
+                    "not generate the fixtures."
                 )
-                _print_fallback_notice(
-                    "refusing to substitute them silently; re-run with --allow-fallback if a "
-                    "low-fidelity tree is genuinely acceptable here"
-                )
+                if preserve_floor_valid:
+                    print(
+                        "  --require-asset-floors is set, so --allow-fallback does not "
+                        "apply: a fixture already in the workspace came from a different "
+                        "run and cannot stand in for this producer's output."
+                    )
+                else:
+                    _print_fallback_notice(
+                        "refusing to substitute them silently; re-run with --allow-fallback "
+                        "if a low-fidelity tree is genuinely acceptable here"
+                    )
                 return 1
-            _print_fallback_notice(
-                "C++ generation failed and --allow-fallback was given"
-            )
+            _print_fallback_notice("C++ generation failed and --allow-fallback was given")
     else:
         _print_fallback_notice("no --godot-binary was given")
 
@@ -1728,11 +1846,52 @@ def _generate(
         if cpp_generated and not is_primary and filename in CPP_GENERATED_FILENAMES:
             # Copy the C++-generated primary to the secondary location.
             src = fixtures_dir / filename
+            resource_path = _resource_path_for_spec(spec)
+            required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+            # Preserve only what is WHOLE and over the floor. Deciding this on
+            # the declared count alone kept a truncated consumer copy in place
+            # and skipped the copy that would have repaired it, run after run.
+            existing_splats = read_ply_vertex_count(output)
+            if (
+                preserve_floor_valid
+                and required_splats > 0
+                and fixture_floor_failure(output, required_splats) is None
+            ):
+                if not quiet:
+                    print(
+                        f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                        f"floor-valid consumer fixture -> {spec.relative_path}"
+                    )
+                continue
             output.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, output)
             produced[output] = VARIANT_CPP_RICH
             if not quiet:
                 print(f"[prepare_synthetic_assets] copied C++ {filename} -> {spec.relative_path}")
+            continue
+
+        # The Python fallback is intentionally lightweight.  In particular it
+        # declares only 1024 vertices for test_splats.ply while the canonical
+        # consumer contract requires 10000.  Never replace an existing fixture
+        # that already satisfies the contract with that weaker fallback.
+        resource_path = _resource_path_for_spec(spec)
+        required_splats = ASSET_MIN_SPLAT_COUNTS.get(resource_path or "", 0)
+        existing_splats = read_ply_vertex_count(output)
+        fallback_is_below_floor = required_splats > 0 and spec.count < required_splats
+        # Same rule as above, and it matters more here: this branch runs without
+        # --require-asset-floors, so a truncated leftover claiming enough splats
+        # was preserved by EVERY subsequent run and the fallback never repaired
+        # it. A file that is not whole is not a fixture worth keeping; falling
+        # through writes the small-but-honest fallback instead.
+        if (
+            fallback_is_below_floor
+            and fixture_floor_failure(output, required_splats) is None
+        ):
+            if not quiet:
+                print(
+                    f"[prepare_synthetic_assets] preserved {existing_splats:5d}-splat "
+                    f"canonical fixture -> {spec.relative_path}"
+                )
             continue
 
         # Python fallback generation.
@@ -1826,12 +1985,18 @@ def main() -> int:
              "the script fails instead of substituting the small fixtures.",
     )
     parser.add_argument(
+        "--require-asset-floors",
+        action="store_true",
+        help="Fail after generation unless every runtime consumer fixture meets ASSET_MIN_SPLAT_COUNTS.",
+    )
+    parser.add_argument(
         "--allow-fallback",
         action="store_true",
-        help="Permit the lightweight Python fallback fixtures even though "
-             "--godot-binary was given.  Only for trees where a low-fidelity "
-             "corpus is genuinely acceptable; benchmark numbers produced from "
-             "such a tree do not describe the workload their lane names.",
+        help="Permit the lightweight Python corpus when a --godot-binary was given "
+             "but its generators failed. Without this, a selected producer that "
+             "fails fails the command; with --require-asset-floors it fails "
+             "regardless. Benchmark numbers produced from such a tree do not "
+             "describe the workload their lane names.",
     )
     args = parser.parse_args()
 
@@ -1842,14 +2007,42 @@ def main() -> int:
 
     godot_binary: Path | None = None
     if args.godot_binary:
-        godot_binary = Path(args.godot_binary).expanduser().resolve()
-        if not godot_binary.is_file():
-            print(f"[prepare_synthetic_assets] godot binary not found: {godot_binary}")
+        binary_candidate = Path(args.godot_binary).expanduser()
+        resolved_command = shutil.which(args.godot_binary)
+        if binary_candidate.is_file():
+            godot_binary = binary_candidate.resolve()
+        elif resolved_command:
+            godot_binary = Path(resolved_command).resolve()
+        else:
+            print(f"[prepare_synthetic_assets] godot binary not found: {args.godot_binary}")
             return 1
 
     if args.check:
         return _check_only(repo_root)
-    return _generate(repo_root, args.quiet, godot_binary, allow_fallback=args.allow_fallback)
+    result = _generate(
+        repo_root,
+        args.quiet,
+        godot_binary,
+        preserve_floor_valid=args.require_asset_floors,
+        allow_fallback=args.allow_fallback,
+    )
+    if result != 0 or not args.require_asset_floors:
+        return result
+
+    failures = asset_floor_failures(repo_root)
+    if failures:
+        print("[prepare_synthetic_assets] runtime fixture floor check failed")
+        for failure in failures:
+            print(f"  - {failure}")
+        print(
+            "  regenerate with a tests-enabled binary: "
+            "python tests/runtime/prepare_synthetic_assets.py --godot-binary <binary> "
+            "--require-asset-floors"
+        )
+        return 1
+    if not args.quiet:
+        print("[prepare_synthetic_assets] runtime fixture floor check passed")
+    return 0
 
 
 if __name__ == "__main__":
