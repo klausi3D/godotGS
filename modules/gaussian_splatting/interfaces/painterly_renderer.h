@@ -95,7 +95,7 @@ public:
     Error populate_painterly_gbuffer(GaussianSplatRenderer *p_renderer, const Size2i &p_internal_size,
             const Transform3D &p_view_transform, const Projection &p_projection, const Projection &p_render_projection);
     bool composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
-            RID p_depth_texture, const Size2i &p_viewport_size);
+            RID p_depth_texture, const Size2i &p_viewport_size, bool p_scene_depth_test_enabled);
     void free_painterly_resources(GaussianSplatRenderer *p_renderer);
     void clear_painterly_gpu_resources(GaussianSplatRenderer *p_renderer);
     void update_painterly_gpu_resources(GaussianSplatRenderer *p_renderer);

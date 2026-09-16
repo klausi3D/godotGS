@@ -274,24 +274,34 @@ struct PipelineEvent {
  * SPIRV_DATA_ALIGNMENT = 16), Godot adopts that value as the pipeline's required
  * push-constant size (servers/rendering/rendering_device_commons.cpp:1292) and
  * then rejects any draw that does not supply EXACTLY that many bytes
- * (servers/rendering/rendering_device.cpp:4745). The nine payload floats are 36
- * bytes, so the reflected requirement is 48; pushing 36 made every painterly
- * composite draw fail (#986 blocker B). Keep sizeof() a multiple of 16.
+ * (servers/rendering/rendering_device.cpp:4745). The payload scalars occupy 40
+ * bytes, so the reflected requirement is 48; pushing the unpadded size made
+ * every painterly composite draw fail (#986 blocker B). Keep sizeof() a
+ * multiple of 16.
  */
 struct PainterlyCompositePushConstant {
 	float inv_viewport_size[2];
-	float depth_bias;
+	float depth_epsilon;
 	float blend_strength;
-	float near_plane;
-	float far_plane;
-	float proj_22;
-	float proj_32;
-	float proj_23;
-	float pad[3];
+	float z_near;
+	float z_far;
+	// From the single host derivation in interfaces/gs_scene_depth_linearize.h,
+	// the same one the compute blit uses. This struct previously carried raw
+	// camera-projection columns and the shader linearized scene depth its own
+	// way; that never matched the depth buffer, so the composite's occlusion
+	// guard discarded every splat fragment once it became reachable (#986).
+	float depth_linearize_mul;
+	float depth_linearize_add;
+	int32_t depth_is_orthogonal;
+	// Mirrors `rendering/gaussian_splatting/composite/depth_test`. The compute
+	// composite honours that setting; this pass used to depth-test
+	// unconditionally, which nobody noticed while it could not run at all.
+	int32_t depth_test_enabled;
+	float pad[2];
 };
 static_assert(sizeof(PainterlyCompositePushConstant) == 48,
 		"PainterlyCompositePushConstant must match the reflected CompositePush size "
-		"(9 floats rounded up to the 16-byte SPIR-V push-constant block alignment).");
+		"(payload rounded up to the 16-byte SPIR-V push-constant block alignment).");
 static_assert(sizeof(PainterlyCompositePushConstant) % 16 == 0,
 		"Push-constant structs must be a multiple of 16 bytes; SPIRV-Reflect rounds the "
 		"shader block up to 16 and RenderingDevice requires an exact size match.");

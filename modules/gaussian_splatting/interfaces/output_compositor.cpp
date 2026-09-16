@@ -1648,6 +1648,8 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
         }
         output_cache.last_render_target = composite_target;
 
+        const bool scene_depth_test_requested = gs_get_composite_depth_test_enabled();
+
         bool composited = false;
         auto &subsystem_state = p_renderer->get_subsystem_state();
         // The painterly graphics composite draws into render_buffers->get_internal_texture()
@@ -1664,14 +1666,14 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
             }
             if (depth_for_composite.is_valid()) {
                 composited = subsystem_state.painterly_renderer->composite_painterly_output(
-                        p_renderer, p_render_data, p_final_output, depth_for_composite, viewport_size);
+                        p_renderer, p_render_data, p_final_output, depth_for_composite, viewport_size,
+                        scene_depth_test_requested);
                 if (composited) {
                     output_cache.last_viewport_copy_success = true;
                 }
             }
         }
 
-        const bool scene_depth_test_requested = gs_get_composite_depth_test_enabled();
         const GSSceneCompositeDepthPolicy scene_depth_policy = gs_get_scene_composite_depth_policy();
         output_cache.last_strict_depth_contract_required =
                 scene_depth_test_requested && scene_depth_policy == GS_SCENE_COMPOSITE_DEPTH_POLICY_STRICT;

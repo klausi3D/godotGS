@@ -5,6 +5,8 @@
 #include "overflow_auto_tuner.h"
 #include "painterly_material_manager.h"
 #include "gpu_sorting_pipeline.h"
+#include "gs_scene_depth_linearize.h"
+#include "output_compositor_interfaces.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include "../renderer/painterly_pass_graph.h"
@@ -1270,7 +1272,7 @@ void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRende
 }
 
 bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
-        RID p_depth_texture, const Size2i &p_viewport_size) {
+        RID p_depth_texture, const Size2i &p_viewport_size, bool p_scene_depth_test_enabled) {
     if (!p_renderer || !p_renderer->ensure_rendering_device("_composite_painterly_output") || !p_render_data || !p_render_data->render_buffers.is_valid()) {
         return false;
     }
@@ -1379,15 +1381,32 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
     GaussianSplatRenderer::PainterlyCompositePushConstant push_constant = {};
     push_constant.inv_viewport_size[0] = p_viewport_size.x > 0 ? 1.0f / float(p_viewport_size.x) : 1.0f;
     push_constant.inv_viewport_size[1] = p_viewport_size.y > 0 ? 1.0f / float(p_viewport_size.y) : 1.0f;
-    push_constant.depth_bias = 0.0005f;
+    // Same shared constant the compute composite's depth guard uses, so the two
+    // paths draw the silhouette at the same place.
+    push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;
     push_constant.blend_strength = 1.0f;
+
+    // Scene-depth linearization comes from the ONE host derivation
+    // (gs_scene_depth_linearize.h) that OutputCompositor also feeds to
+    // viewport_blit.glsl. Prefer the frame's own scene_data; fall back to the
+    // cached view state when the render data has none.
     const auto &view_state = p_renderer->get_view_state();
-    push_constant.near_plane = view_state.last_camera_projection.get_z_near();
-    push_constant.far_plane = view_state.last_camera_projection.get_z_far();
-    const Projection &proj = view_state.last_camera_projection;
-    push_constant.proj_22 = proj.columns[2][2];
-    push_constant.proj_32 = proj.columns[3][2];
-    push_constant.proj_23 = proj.columns[2][3];
+    const Projection *projection = &view_state.last_camera_projection;
+    bool orthogonal = false;
+    push_constant.z_near = view_state.last_camera_projection.get_z_near();
+    push_constant.z_far = view_state.last_camera_projection.get_z_far();
+    if (p_render_data->scene_data) {
+        projection = &p_render_data->scene_data->cam_projection;
+        orthogonal = p_render_data->scene_data->cam_orthogonal;
+        push_constant.z_near = p_render_data->scene_data->z_near;
+        push_constant.z_far = p_render_data->scene_data->z_far;
+    }
+    const GSSceneDepthLinearize linearize = gs_derive_scene_depth_linearize(
+            *projection, orthogonal, push_constant.z_near, push_constant.z_far);
+    push_constant.depth_linearize_mul = linearize.mul;
+    push_constant.depth_linearize_add = linearize.add;
+    push_constant.depth_is_orthogonal = orthogonal ? 1 : 0;
+    push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;
 
     draw_device->draw_list_set_push_constant(draw_list, &push_constant, sizeof(GaussianSplatRenderer::PainterlyCompositePushConstant));
     draw_device->draw_list_draw(draw_list, false, 1, 3);
