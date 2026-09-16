@@ -1286,7 +1286,8 @@ def _run_cull_signature_parity_guard() -> tuple[bool, list[str]]:
 
 
 def _run_download_build_flavor_guard() -> tuple[bool, list[str]]:
-    # Every binary this project publishes is dev_build=yes, i.e. -O0. The warning
+    # The Linux nightly editor is dev_build=yes, i.e. -O0 (the Windows editor is
+    # optimized since #994). The warning
     # saying so already existed -- on docs/performance/index.md, a page a reader
     # only reaches after concluding godotGS is slow. This guard derives the set of
     # pages that hand out the download (any Markdown LINK to the Releases page) and

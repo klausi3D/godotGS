@@ -28,8 +28,15 @@ grep -a -c GaussianSplat path/to/your_game.exe
 
 ## Where to get templates
 
+**Windows:** every nightly that ships a Windows editor also attaches
+`godotgs-export-template-windows-x86_64-<tag>.zip` (plus `.sha256`) to its GitHub
+release (#994; see [Downloads](../getting-started/downloads.md)). It is the
+template the same run's export smoke test executed. Unzip it next to your project
+and point `custom_template/release` at `windows_release_x86_64.exe`.
+
 Templates are built by the `Release Builds` workflow
-(`.github/workflows/release_builds.yml`) and uploaded as **CI artifacts**:
+(`.github/workflows/release_builds.yml`) and are also uploaded as **CI artifacts**.
+The Linux template is published only as an artifact:
 
 | Job | Artifact | Contains |
 | --- | --- | --- |

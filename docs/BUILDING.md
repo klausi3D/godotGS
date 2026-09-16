@@ -129,9 +129,10 @@ Use the built editor to open the sample project from this repository. The comman
 
 ## Output Naming
 
-- `dev_build=yes` adds a `.dev` segment to the binary name. The published nightly
-  binaries carry that segment, which is how you can tell a download is an `-O0`
-  build without looking at anything else.
+- `dev_build=yes` adds a `.dev` segment to the binary name. The published Linux
+  nightly binary carries that segment, which is how you can tell a download is an
+  `-O0` build without looking at anything else. The published Windows editor does
+  not: it is an optimized build.
 - An optimized build (no `dev_build=yes`) has no `.dev` segment: `bin/godot.windows.editor.x86_64.exe`.
 - Windows example: `bin/godot.windows.editor.dev.x86_64.exe`
 - Linux example: `bin/godot.linuxbsd.editor.dev.x86_64`
