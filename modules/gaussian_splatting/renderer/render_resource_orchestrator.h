@@ -37,7 +37,6 @@ public:
 
 	void initialize_shaders();
 	void create_gpu_resources_safe();
-	RID load_graphics_shader(const Vector<String> &p_vertex_paths, const Vector<String> &p_fragment_paths);
 	void update_gpu_pass_metrics_from_tile_renderer();
 	void update_pipeline_features(RenderingDevice *p_device);
 

@@ -84,20 +84,12 @@ vec3 linear_to_srgb(vec3 color) {
     return clamp(0.662002687 * S1 + 0.684122060 * S2 - 0.323583601 * S3 - 0.0225411470 * linear, vec3(0.0), vec3(1.0));
 }
 
-// EXACT piecewise sRGB EOTF (IEC 61966-2-1), used ONLY for the pre-upscale
-// source decode (params.source_decode_srgb). It must be the exact inverse of
-// the engine tonemapper's linear_to_srgb encode (tonemap.glsl uses the exact
-// piecewise OETF), so that 8-bit source content round-trips bit-stably through
-// decode -> linear tonemap -> encode. The fast polynomial srgb_to_linear above
-// carries ~0.4% error (~1 LSB), which measurably eats 1-LSB margins on this
-// round trip (QA tie-break margin); the legacy destination decode/encode paths
-// keep the fast approximations so their output is unchanged.
-vec3 srgb_to_linear_exact(vec3 color) {
-    vec3 srgb = clamp(color, vec3(0.0), vec3(1.0));
-    vec3 low = srgb / 12.92;
-    vec3 high = pow((srgb + vec3(0.055)) / 1.055, vec3(2.4));
-    return mix(high, low, lessThan(srgb, vec3(0.04045)));
-}
+// srgb_to_linear_exact() -- the EXACT piecewise sRGB EOTF used for the
+// pre-upscale source decode (params.source_decode_srgb) -- is shared with the
+// painterly viewport composite, which performs the same decode into the same
+// linear destination. The legacy destination decode/encode paths keep the fast
+// approximations above so their output is unchanged.
+#include "includes/gs_srgb.glsl"
 
 // Convert raw scene depth to linear view-space depth.
 float linearize_scene_depth(float raw_depth) {

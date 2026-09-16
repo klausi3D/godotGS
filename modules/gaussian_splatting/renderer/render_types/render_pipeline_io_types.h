@@ -267,6 +267,16 @@ struct PipelineEvent {
 /**
  * @struct PainterlyCompositePushConstant
  * @brief GPU push constants for painterly compositing shader.
+ *
+ * Mirrors the `CompositePush` block in shaders/painterly_composite.glsl.
+ * `pad` is load-bearing: SPIRV-Reflect reports a push-constant block's size
+ * rounded UP to a 16-byte multiple (thirdparty/spirv-reflect/spirv_reflect.c:2785-2803,
+ * SPIRV_DATA_ALIGNMENT = 16), Godot adopts that value as the pipeline's required
+ * push-constant size (servers/rendering/rendering_device_commons.cpp:1292) and
+ * then rejects any draw that does not supply EXACTLY that many bytes
+ * (servers/rendering/rendering_device.cpp:4745). The nine payload floats are 36
+ * bytes, so the reflected requirement is 48; pushing 36 made every painterly
+ * composite draw fail (#986 blocker B). Keep sizeof() a multiple of 16.
  */
 struct PainterlyCompositePushConstant {
 	float inv_viewport_size[2];
@@ -277,7 +287,14 @@ struct PainterlyCompositePushConstant {
 	float proj_22;
 	float proj_32;
 	float proj_23;
+	float pad[3];
 };
+static_assert(sizeof(PainterlyCompositePushConstant) == 48,
+		"PainterlyCompositePushConstant must match the reflected CompositePush size "
+		"(9 floats rounded up to the 16-byte SPIR-V push-constant block alignment).");
+static_assert(sizeof(PainterlyCompositePushConstant) % 16 == 0,
+		"Push-constant structs must be a multiple of 16 bytes; SPIRV-Reflect rounds the "
+		"shader block up to 16 and RenderingDevice requires an exact size match.");
 
 /**
  * @struct RenderFramePlan

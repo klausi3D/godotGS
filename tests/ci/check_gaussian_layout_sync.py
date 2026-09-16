@@ -16,7 +16,10 @@ TILE_RENDER_TYPES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "ti
 TILE_RENDER_DEBUG_STATS_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_debug_stats.cpp"
 TILE_RENDER_STAGES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_stages.h"
 TILE_PREFIX_SCAN_UTILS_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_prefix_scan_utils.h"
-RENDER_PARAMS_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
+RENDER_PIPELINE_IO_TYPES_H = (
+    ROOT / "modules" / "gaussian_splatting" / "renderer" / "render_types" / "render_pipeline_io_types.h"
+)
+RENDER_PARAMS_GLSL =ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
 SHADER_ROOTS = (
     ROOT / "modules" / "gaussian_splatting" / "shaders",
     ROOT / "modules" / "gaussian_splatting" / "compute",
@@ -590,11 +593,13 @@ def _check_overflow_stats_mirror(failures: list[str]) -> None:
 # GPU-parameter corruption. Only all-scalar blocks are listed: their natural C++ layout equals
 # std430 byte-for-byte, so the existing std430 engine validates them exactly. Push-constant
 # blocks that pack a `vecN` over a host `float[N]` (viewport_blit BlitParams / ivec2,
-# gs_shadow_blit / vec4, painterly_composite CompositePush / vec2) are deferred: the host uses
-# a scalar array with 4-byte alignment while std430 gives the vecN 8/16-byte alignment, so the
-# std430 block rounds its trailing size up past the host struct's sizeof -- comparing them needs
-# host-side std430-alignment emulation this engine deliberately avoids. Those blocks also live
-# as function-local structs without a sizeof static_assert to anchor. Each spec is
+# gs_shadow_blit / vec4) are deferred: the host uses a scalar array with 4-byte alignment while
+# std430 gives the vecN 8/16-byte alignment, so the std430 block rounds its trailing size up past
+# the host struct's sizeof -- comparing them needs host-side std430-alignment emulation this
+# engine deliberately avoids. Those blocks also live as function-local structs without a sizeof
+# static_assert to anchor. painterly_composite's CompositePush was deferred for the same reason
+# until #986: padding both sides to the 16-byte block multiple required below makes the two
+# layouts agree exactly, so it is now checked. Each spec is
 # (host_header, host_struct_name, ((shader_path, block_name), ...)).
 PUSH_CONSTANT_MIRRORS: tuple[tuple[Path, str, tuple[tuple[Path, str], ...]], ...] = (
     (
@@ -607,7 +612,25 @@ PUSH_CONSTANT_MIRRORS: tuple[tuple[Path, str, tuple[tuple[Path, str], ...]], ...
         "TilePrefixPass2ControlLayout",
         ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "PrefixPass2Control"),),
     ),
+    (
+        RENDER_PIPELINE_IO_TYPES_H,
+        "PainterlyCompositePushConstant",
+        ((ROOT / "modules" / "gaussian_splatting" / "shaders" / "painterly_composite.glsl", "CompositePush"),),
+    ),
 )
+
+# SPIR-V push-constant block alignment. SPIRV-Reflect sizes a block as
+# `last_member.offset + RoundUp(last_member.offset + last_member.size, 16) - last_member.offset`
+# (thirdparty/spirv-reflect/spirv_reflect.c:2785-2803, SPIRV_DATA_ALIGNMENT = 16), i.e. the block
+# size is always rounded UP to a multiple of 16. Godot adopts that reflected value as the
+# pipeline's required push-constant size (servers/rendering/rendering_device_commons.cpp:1292)
+# and then rejects any draw/dispatch that does not supply EXACTLY that many bytes
+# (servers/rendering/rendering_device.cpp:4745 and :5265). A host struct whose sizeof is not a
+# multiple of 16 therefore rejects EVERY draw at runtime, with no compile-time or link-time
+# signal -- that is #986 blocker B, which this guard's field-by-field comparison could not see
+# because its own std430 engine rounds to the block's max member alignment (8 for a vec2), not
+# to 16. Enforce the rule directly.
+PUSH_CONSTANT_BLOCK_ALIGNMENT = 16
 
 
 def _parse_push_constant_size_contract(text: str, struct_name: str) -> int | None:
@@ -654,6 +677,19 @@ def _check_push_constant_mirror(
             failures.append(
                 f"{host_header.relative_to(ROOT)}: {host_name}.{field_name} computed offset {actual_offset} != host contract {expected_offset}"
             )
+
+    # SPIR-V block alignment (see PUSH_CONSTANT_BLOCK_ALIGNMENT). Checked on the computed
+    # layout, not on the static_assert, so a struct that silently drifts off the 16-byte
+    # multiple fails here even if its sizeof contract was updated to match.
+    if host_layout.size % PUSH_CONSTANT_BLOCK_ALIGNMENT != 0:
+        failures.append(
+            f"{host_header.relative_to(ROOT)}: {host_name} is {host_layout.size} bytes, not a multiple of "
+            f"{PUSH_CONSTANT_BLOCK_ALIGNMENT}. SPIRV-Reflect rounds the shader push-constant block up to "
+            f"{PUSH_CONSTANT_BLOCK_ALIGNMENT}, and RenderingDevice requires the host to supply exactly the "
+            f"reflected size, so every draw/dispatch using this struct would be rejected at runtime (#986). "
+            f"Pad the struct and its GLSL mirror to "
+            f"{_round_up(host_layout.size, PUSH_CONSTANT_BLOCK_ALIGNMENT)} bytes."
+        )
 
     for shader_path, block_name in shader_mirrors:
         if not shader_path.exists():

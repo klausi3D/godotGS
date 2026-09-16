@@ -24,6 +24,17 @@ layout(set = 0, binding = 0) uniform sampler2D painterly_color;
 layout(set = 0, binding = 1) uniform sampler2D painterly_depth;
 layout(set = 0, binding = 2) uniform sampler2D scene_depth;
 
+#include "includes/gs_srgb.glsl"
+
+// Mirror of GaussianRenderPipeline::PainterlyCompositePushConstant
+// (renderer/render_types/render_pipeline_io_types.h). `pad` is NOT optional:
+// SPIRV-Reflect reports a push-constant block's size rounded UP to a 16-byte
+// multiple (spirv_reflect.c:2785-2803, SPIRV_DATA_ALIGNMENT = 16), Godot adopts
+// that as the pipeline's required size (rendering_device_commons.cpp:1292) and
+// then demands the host supply EXACTLY that many bytes
+// (rendering_device.cpp:4745). The nine payload floats are 36 bytes, so the
+// reflected requirement is 48; without the pad the host would push 36 and every
+// draw would be rejected (#986 blocker B). Keep this block a multiple of 16.
 layout(push_constant, std430) uniform CompositePush {
     vec2 inv_viewport_size;
     float depth_bias;
@@ -33,6 +44,7 @@ layout(push_constant, std430) uniform CompositePush {
     float proj_22;
     float proj_32;
     float proj_23;
+    float pad[3];
 } params;
 
 // Convert normalized scene depth to comparable view-space depth.
@@ -99,6 +111,13 @@ void main() {
         discard;
     }
 
-    float alpha_scale = painterly_sample.a > 0.0001 ? alpha / painterly_sample.a : 0.0;
-    out_color = vec4(painterly_sample.rgb * alpha_scale, alpha);
+    // Source-encoding contract (#930, interfaces/output_compositor_interfaces.h):
+    // the painterly raster output is PREMULTIPLIED, display-referred, sRGB-encoded
+    // LDR, while this pass always draws into render_buffers->get_internal_texture()
+    // -- the LINEAR pre-tonemap scene buffer. sRGB decode does not commute with
+    // alpha premultiplication, so unpremultiply, decode, re-premultiply, exactly as
+    // the compute composite does (viewport_blit.glsl, params.source_decode_srgb).
+    // The `painterly_sample.a <= 0.0001` early-out above guarantees the divisor.
+    vec3 straight_srgb = painterly_sample.rgb / painterly_sample.a;
+    out_color = vec4(srgb_to_linear_exact(straight_srgb) * alpha, alpha);
 }

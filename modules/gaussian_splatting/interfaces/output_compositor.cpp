@@ -1650,7 +1650,14 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
 
         bool composited = false;
         auto &subsystem_state = p_renderer->get_subsystem_state();
-        if (p_painterly_active && subsystem_state.painterly_renderer.is_valid()) {
+        // The painterly graphics composite draws into render_buffers->get_internal_texture()
+        // unconditionally (PainterlyRenderer::composite_painterly_output), so it is only
+        // correct at the pre-upscale seam, where that buffer is still ahead of every
+        // consumer. In the legacy post-scene phase (forward mobile / multiview /
+        // reflection probes) the internal buffer has already been consumed, so the write
+        // would be invisible; those paths keep the present-redirecting compute composite
+        // below. Same destination rule as `composite_target` above (#986, GPU-001 Option B).
+        if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid()) {
             RID depth_for_composite = p_renderer->get_painterly_depth_texture();
             if (!depth_for_composite.is_valid()) {
                 depth_for_composite = p_cached_depth;
