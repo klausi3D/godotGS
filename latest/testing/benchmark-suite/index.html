@@ -2294,8 +2294,9 @@ be stale:</p>
 <p class="admonition-title">Pass <code>--godot-binary</code> for benchmark collection</p>
 <p>Several fixtures — including <code>test_splats.ply</code>, which most lanes resolve to — are listed in
 <code>CPP_GENERATED_FILENAMES</code> and are produced by the engine's <code>[GeneratePLY]</code> test case when a
-binary is supplied. Without <code>--godot-binary</code> the script falls back to lightweight Python
-generators and writes <code>test_splats.ply</code> with <strong>1024</strong> splats instead of <strong>10000</strong>. Both forms
+binary is supplied. Without <code>--godot-binary</code> the script preserves an existing fixture that
+already meets the 10000-splat floor; if none exists, it falls back to lightweight Python
+generators and writes <code>test_splats.ply</code> with <strong>1024</strong> splats. Both forms
 are valid for smoke coverage, but they are different workloads and will not reproduce
 published benchmark numbers. Since #669 the benchmark harness enforces this rather than
 trusting it: a lane loading the 1024-splat fixture fails instead of reporting a number.</p>
@@ -2370,22 +2371,23 @@ result (<code>asset_variant</code>, <code>asset_splat_count</code>) and into a <
 <code>--require-asset-variant cpp_rich</code> turns the label into enforcement; lanes whose asset has no C++
 generator (<code>synthetic_spiral</code>, <code>synthetic_flower_field</code>) are exempt, because demanding a producer
 that does not exist is a gate that can never go green.</p>
-<div class="admonition warning">
-<p class="admonition-title">Only the benchmark evidence job preps with <code>--godot-binary</code></p>
-<p><code>tests/ci/run_module_tests.py</code>, <code>tests/ci/run_baseline_qa.py</code> and
-<code>tests/runtime/run_runtime_validation.py</code> deliberately do <strong>not</strong>. They share a workspace with
-the QA scene suite, whose committed expectations were measured against the Python-fallback
-fixture: <code>tests/ci/baselines/qa_results.json</code> records <code>source_splat_count: 1024</code>, and the
-committed <code>test_splats.gsplatworld</code> is a 1024-splat bake that the world-vs-instance A/B
-compares against the PLY. Regenerating at the C++ count there would break a blocking gate
-rather than improve a benchmark. Moving that corpus is a baseline change — rebake the world,
-re-measure the QA baseline, and forward the binary in one sequence.
-<code>tests/ci/test_benchmark_fixture_contract.py::FallbackPinnedCorpusTests</code> keeps the coupling
-enforced, and each runner states it at the point of prep.</p>
+<div class="admonition note">
+<p class="admonition-title">Which prep commands use <code>--godot-binary</code></p>
+<p>The benchmark evidence job, and the fixture consumers: <code>tests/ci/run_module_tests.py</code> and
+<code>tests/runtime/run_runtime_validation.py</code> pass their selected tests-enabled binary with
+<code>--require-asset-floors</code> and fail closed. <code>tests/ci/run_baseline_qa.py</code> preps the small corpus
+and states why (<code>FALLBACK_CORPUS_REASON</code>). The QA scene suite that shares those workspaces
+loads its own pinned <code>qa_splats_1024.ply</code>, so regenerating <code>test_splats.ply</code> at the C++ count
+no longer touches a QA baseline; <code>QaCorpusIsPinnedTest</code> in <code>tests/ci/test_baseline_qa_require_flag.py</code>
+holds that separation.</p>
 </div>
 <p>Before #669 such a lane instantiated zero splat nodes and reported an <em>implausibly high</em> FPS with
 a passing recommendation — the failure presented as a spectacular result rather than a broken one.
 Regression coverage lives in <code>tests/ci/test_benchmark_fixture_contract.py</code>.</p>
+<p>The full module-test and runtime-validation consumers additionally invoke preparation with their
+selected tests-enabled binary and <code>--require-asset-floors</code>. They refuse to start when either
+consumer copy is absent, unreadable, or below <code>ASSET_MIN_SPLAT_COUNTS</code>; direct PLY references in
+<code>tests/runtime/*.gd</code> are statically required to name an asset with a positive declared floor.</p>
 <p>Streaming-named lanes that still resolve to <code>test_splats.ply</code> are intentionally classified as
 <code>lightweight_smoke</code>; they are useful for proof-shape smoke coverage, but they are not chunked
 large-scene evidence.</p>
@@ -2720,7 +2722,7 @@ asset paths.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 16, 2026 06:32:59 UTC">September 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 16, 2026 15:15:33 UTC">September 16, 2026</span>
   </span>
 
     
