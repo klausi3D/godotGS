@@ -2,7 +2,6 @@
 
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
-#include "core/io/file_access.h"
 #include "core/math/math_defs.h"
 #include "core/string/ustring.h"
 #include "servers/rendering/rendering_device.h"

@@ -1669,7 +1669,19 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
                         p_renderer, p_render_data, p_final_output, depth_for_composite, viewport_size,
                         scene_depth_test_requested);
                 if (composited) {
+                    // This branch is the composite for the frame: the `!composited`
+                    // block below -- the only other place these are assigned -- is
+                    // skipped. Leaving them at their false defaults reported every
+                    // successful painterly composite as "no copy attempted", which
+                    // only read as clean because `copy_failed = attempted && !success`
+                    // short-circuits on the false attempt.
                     output_cache.last_viewport_copy_success = true;
+                    output_cache.last_output_copy_attempted = true;
+                    output_cache.last_output_copy_success = true;
+                    // The pass runs the same scene-depth guard the compute composite
+                    // runs, under the same setting, so the depth contract is honored
+                    // exactly when it was requested.
+                    output_cache.last_depth_test_honored = true;
                 }
             }
         }

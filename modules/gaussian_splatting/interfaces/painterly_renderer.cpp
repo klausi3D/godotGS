@@ -168,11 +168,20 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
     RenderingDevice *current_shared = manager ? manager->get_shared_submission_device() : nullptr;
     bool device_still_valid = (rd != nullptr) && (rd == current_shared);
 
+    // The composite samplers are created on the VIEWPORT device
+    // (_ensure_painterly_composite_resources), not on `rd`, and each carries its
+    // own RidOwner that _free_tracked_rid resolves independently. Freeing them
+    // inside the `device_still_valid` branch below would leak them on every
+    // teardown where `rd` is null or no longer the shared submission device --
+    // a window the composite now actually reaches, since it no longer bails out
+    // before creating them. The tail of this function clears both RIDs
+    // unconditionally, so a missed free here is a permanent leak.
+    _free_tracked_rid(painterly_depth_sampler, painterly_depth_sampler_owner, p_renderer, true);
+    _free_tracked_rid(painterly_color_sampler, painterly_color_sampler_owner, p_renderer, true);
+
     // Free GPU resources if device is still valid
     if (device_still_valid) {
         _free_tracked_rid(painterly_sampler, painterly_sampler_owner, p_renderer, false);
-        _free_tracked_rid(painterly_depth_sampler, painterly_depth_sampler_owner, p_renderer, true);
-        _free_tracked_rid(painterly_color_sampler, painterly_color_sampler_owner, p_renderer, true);
 
         // Free pipelines first (they depend on shaders)
         // Use device validity checks to avoid double-free from PR 103113 auto-free
@@ -188,13 +197,6 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
             }
             brush_pipeline = RID();
         }
-        if (composite_pipeline.is_valid()) {
-            if (rd->compute_pipeline_is_valid(composite_pipeline)) {
-                rd->free(composite_pipeline);
-            }
-            composite_pipeline = RID();
-        }
-
         // Free uniform sets
         if (sobel_uniform_set.is_valid() && rd->uniform_set_is_valid(sobel_uniform_set)) {
             rd->free(sobel_uniform_set);
@@ -224,7 +226,6 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
     brush_uniform_edge_input = RID();
     brush_uniform_stylized_texture = RID();
     painterly_sampler = RID();
-    composite_pipeline = RID();
     composite_shader = RID();
     painterly_sampler_owner.clear();
 
@@ -1169,7 +1170,7 @@ Error PainterlyRenderer::render_painterly_frame(GaussianSplatRenderer *p_rendere
     return OK;
 }
 
-void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer, RD::FramebufferFormatID p_framebuffer_format) {
+void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer) {
     if (!p_renderer) {
         return;
     }
@@ -1266,9 +1267,10 @@ void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRende
         }
     }
 
-    if (painterly_composite_pipeline_initialized) {
-        painterly_composite_pipeline.get_render_pipeline(RD::INVALID_ID, p_framebuffer_format);
-    }
+    // No pipeline warm-up here: composite_painterly_output() looks the pipeline up
+    // for the same framebuffer format immediately after calling this, so warming it
+    // was a second PipelineCacheRD lookup per composited frame. Harmless while this
+    // function could never get this far; now it runs every painterly frame.
 }
 
 bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
@@ -1333,7 +1335,7 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
     }
 
     RD::FramebufferFormatID fb_format = draw_device->framebuffer_get_format(framebuffer);
-    _ensure_painterly_composite_resources(p_renderer, fb_format);
+    _ensure_painterly_composite_resources(p_renderer);
 
     if (!painterly_composite_pipeline_initialized || !composite_shader.is_valid() ||
             !painterly_depth_sampler.is_valid() || !painterly_color_sampler.is_valid()) {
@@ -1388,25 +1390,37 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
 
     // Scene-depth linearization comes from the ONE host derivation
     // (gs_scene_depth_linearize.h) that OutputCompositor also feeds to
-    // viewport_blit.glsl. Prefer the frame's own scene_data; fall back to the
-    // cached view state when the render data has none.
+    // viewport_blit.glsl, and it is derived from the SAME inputs there: the
+    // frame's scene_data projection, its orthogonal flag and its z range.
+    // Mirrors output_compositor.cpp's block exactly -- deriving from anything
+    // else (e.g. the cached view projection with an assumed orthogonal=false)
+    // produces a pair that does not describe the depth buffer, which is what
+    // made this guard discard every fragment before (#986).
     const auto &view_state = p_renderer->get_view_state();
-    const Projection *projection = &view_state.last_camera_projection;
-    bool orthogonal = false;
     push_constant.z_near = view_state.last_camera_projection.get_z_near();
     push_constant.z_far = view_state.last_camera_projection.get_z_far();
+    push_constant.depth_is_orthogonal = 0;
+    push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;
     if (p_render_data->scene_data) {
-        projection = &p_render_data->scene_data->cam_projection;
-        orthogonal = p_render_data->scene_data->cam_orthogonal;
         push_constant.z_near = p_render_data->scene_data->z_near;
         push_constant.z_far = p_render_data->scene_data->z_far;
+        push_constant.depth_is_orthogonal = p_render_data->scene_data->cam_orthogonal ? 1 : 0;
+        const GSSceneDepthLinearize linearize = gs_derive_scene_depth_linearize(
+                p_render_data->scene_data->cam_projection,
+                p_render_data->scene_data->cam_orthogonal,
+                push_constant.z_near, push_constant.z_far);
+        push_constant.depth_linearize_mul = linearize.mul;
+        push_constant.depth_linearize_add = linearize.add;
+    } else {
+        // No scene_data means no trustworthy description of the scene depth
+        // buffer. The compute composite tolerates that because its depth test
+        // is already gated on `depth_test_enabled`; this pass must gate too,
+        // and it fails OPEN (composite without occlusion) rather than risk
+        // discarding the whole frame on a comparison against garbage.
+        push_constant.depth_linearize_mul = push_constant.z_near;
+        push_constant.depth_linearize_add = push_constant.z_far;
+        push_constant.depth_test_enabled = 0;
     }
-    const GSSceneDepthLinearize linearize = gs_derive_scene_depth_linearize(
-            *projection, orthogonal, push_constant.z_near, push_constant.z_far);
-    push_constant.depth_linearize_mul = linearize.mul;
-    push_constant.depth_linearize_add = linearize.add;
-    push_constant.depth_is_orthogonal = orthogonal ? 1 : 0;
-    push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;
 
     draw_device->draw_list_set_push_constant(draw_list, &push_constant, sizeof(GaussianSplatRenderer::PainterlyCompositePushConstant));
     draw_device->draw_list_draw(draw_list, false, 1, 3);

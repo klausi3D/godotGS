@@ -19,7 +19,7 @@ TILE_PREFIX_SCAN_UTILS_H = ROOT / "modules" / "gaussian_splatting" / "renderer" 
 RENDER_PIPELINE_IO_TYPES_H = (
     ROOT / "modules" / "gaussian_splatting" / "renderer" / "render_types" / "render_pipeline_io_types.h"
 )
-RENDER_PARAMS_GLSL =ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
+RENDER_PARAMS_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_render_params.glsl"
 SHADER_ROOTS = (
     ROOT / "modules" / "gaussian_splatting" / "shaders",
     ROOT / "modules" / "gaussian_splatting" / "compute",
@@ -630,6 +630,14 @@ PUSH_CONSTANT_MIRRORS: tuple[tuple[Path, str, tuple[tuple[Path, str], ...]], ...
 # signal -- that is #986 blocker B, which this guard's field-by-field comparison could not see
 # because its own std430 engine rounds to the block's max member alignment (8 for a vec2), not
 # to 16. Enforce the rule directly.
+#
+# KNOWN GAP: this runs only for the structs in PUSH_CONSTANT_MIRRORS above. The deferred
+# blocks (viewport_blit's ViewportBlitPushConstant, gs_shadow_blit's) are NOT covered, even
+# though the rule needs nothing but their computed sizeof. They are function-local structs
+# declared as `struct NAME { ... } params = {};`, which _parse_struct_definition cannot parse
+# (its `struct NAME {...};` pattern runs past the closing brace) and which carry no sizeof
+# static_assert to anchor against. Covering them needs parser work, not a list entry --
+# tracked separately rather than half-done here.
 PUSH_CONSTANT_BLOCK_ALIGNMENT = 16
 
 

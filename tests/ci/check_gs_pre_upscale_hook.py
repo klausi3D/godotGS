@@ -33,6 +33,13 @@ This checker asserts the source-level invariants that keep the fix alive:
      `depth_linearize_add`). The generic push-constant layout guard in
      check_gaussian_layout_sync.py defers viewport_blit's BlitParams (ivec2
      packing), so this positional anchor is the parity check for this field.
+  F. The `destination_has_alpha` push-constant field (#928) does the same, in
+     the former pad1 slot immediately after `source_decode_srgb`, is READ by the
+     shader, and is REQUESTED by the pre-upscale phase. Declaring it without
+     reading it, or dropping the request, silently restores the defect: every
+     composited texel forced to alpha=1.0, which flattens splat coverage on a
+     transparent_bg viewport and is invisible to every opaque-viewport oracle.
+
   G. The PAINTERLY viewport composite obeys the same phase contract (#986).
      It is a graphics pass that draws into render_buffers->get_internal_texture()
      unconditionally, so it is correct only at the pre-upscale seam and must stay
@@ -47,12 +54,10 @@ This checker asserts the source-level invariants that keep the fix alive:
      `source_decode_srgb` (#930) -- on UNPREMULTIPLIED values, with the exact
      piecewise EOTF. Dropping any one of the three is silent: the composite stops
      running, or runs in the wrong colour space, with no warning either way.
-  F. The `destination_has_alpha` push-constant field (#928) does the same, in
-     the former pad1 slot immediately after `source_decode_srgb`, is READ by the
-     shader, and is REQUESTED by the pre-upscale phase. Declaring it without
-     reading it, or dropping the request, silently restores the defect: every
-     composited texel forced to alpha=1.0, which flattens splat coverage on a
-     transparent_bg viewport and is invisible to every opaque-viewport oracle.
+     It must also take its scene-depth math from the SHARED guard include and the
+     one host derivation, use the shared depth epsilon, and gate the test on
+     composite/depth_test -- a private copy of any of those is what discarded
+     every painterly fragment while the composite looked like it was running.
 
 Every anchor is fail-closed: a missing file or a missing/reordered anchor is a
 FAILURE, never a skip. If a refactor legitimately moves an anchor, update the
@@ -337,6 +342,46 @@ def check_painterly_composite(failures: list[str]) -> None:
             "srgb_to_linear_exact must come from the shared include, not a local copy that "
             "can drift from the compute blit's decode"
         )
+    # The scene-depth guard must come from the shared include and must be GATED on
+    # composite/depth_test. Both reverts are silent: a local copy drifts from the
+    # compute blit (that divergence is what discarded every fragment, #986), and an
+    # ungated test ignores a setting the user set.
+    if '#include "includes/gs_scene_depth_guard.glsl"' not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: missing "
+            "`#include \"includes/gs_scene_depth_guard.glsl\"` — the scene-depth occlusion "
+            "math must be the one shared with viewport_blit.glsl, not a second copy (#986)"
+        )
+    if "if (params.depth_test_enabled != 0)" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not gate its scene-depth test "
+            "on params.depth_test_enabled — it would depth-test unconditionally and ignore "
+            "rendering/gaussian_splatting/composite/depth_test, which the compute composite honours"
+        )
+    if "gs_scene_depth_occludes(" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: shader never calls gs_scene_depth_occludes — "
+            "the shared guard is declared but dead"
+        )
+
+    # Host side of the same two contracts.
+    if "push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant does not use the shared "
+            "GS_COMPOSITE_DEPTH_EPSILON_VIEW. A private epsilon moves the painterly occlusion "
+            "silhouette away from the compute composite's with no other symptom (#986)"
+        )
+    if "gs_derive_scene_depth_linearize(" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant is not filled from "
+            "gs_derive_scene_depth_linearize — the ONE host derivation shared with the compute "
+            "composite. Deriving scene depth any other way is #986's blocker C"
+        )
+    if "push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant does not plumb "
+            "composite/depth_test through to the shader"
+        )
 
 
 def run_checks() -> list[str]:
@@ -505,6 +550,36 @@ def self_test() -> int:
         ("G5: shared sRGB include replaced by a local copy", "PAINTERLY_COMPOSITE_GLSL",
                 lambda t: t.replace('#include "includes/gs_srgb.glsl"',
                         "vec3 srgb_to_linear_exact(vec3 c) { return c * c; }", 1),
+                check_painterly_composite),
+        # G6: the scene-depth guard reverts to a second local copy — the exact
+        # shape that diverged from the compute blit and discarded every fragment.
+        ("G6: shared scene-depth guard include dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace('#include "includes/gs_scene_depth_guard.glsl"', "", 1),
+                check_painterly_composite),
+        # G7: the depth test stops being gated, so composite/depth_test=false is
+        # silently ignored on the painterly path only.
+        ("G7: depth-test gate dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("if (params.depth_test_enabled != 0)", "if (true)", 1),
+                check_painterly_composite),
+        # G8: the shared guard is included but never called — declared-and-dead,
+        # which no include check can see.
+        ("G8: shared guard included but never called", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("gs_scene_depth_occludes(", "false && occludes_disabled(", 1),
+                check_painterly_composite),
+        # G9: host reverts to the private 0.0005 epsilon, moving the painterly
+        # silhouette away from the compute composite's with no other symptom.
+        ("G9: shared depth epsilon replaced by a private literal", "PAINTERLY_RENDERER",
+                lambda t: t.replace("push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;",
+                        "push_constant.depth_epsilon = 0.0005f;", 1),
+                check_painterly_composite),
+        # G10: host stops using the ONE scene-depth derivation — blocker C.
+        ("G10: host drops the shared scene-depth derivation", "PAINTERLY_RENDERER",
+                lambda t: t.replace("gs_derive_scene_depth_linearize(", "legacy_projection_columns(", 1),
+                check_painterly_composite),
+        # G11: composite/depth_test stops reaching the shader.
+        ("G11: depth-test setting not plumbed to the shader", "PAINTERLY_RENDERER",
+                lambda t: t.replace("push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;",
+                        "push_constant.depth_test_enabled = 1;", 1),
                 check_painterly_composite),
     )
 

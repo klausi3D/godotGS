@@ -2037,6 +2037,18 @@ void GaussianSplatRenderer::_on_painterly_material_changed() {
         subsystem_state.painterly_renderer->mark_material_dirty();
         subsystem_state.painterly_renderer->update_painterly_gpu_resources(this);
     }
+    // The render-cache reuse signature covers camera, viewport, content
+    // generation and the cull/grading/lighting signatures, but nothing about the
+    // PainterlyMaterial. Painterly frames could not reuse the cache at all while
+    // the painterly raster left `raster_output.depth` invalid (#987), so this
+    // never mattered; now that they can, a material edit under a static camera
+    // would otherwise not reach the screen. Drop the cached render instead of
+    // adding a hash of a resource whose fields change one inspector drag at a
+    // time -- a painterly material edit is an editor-rate event, not a per-frame
+    // one, so re-rendering once is the cheap and obviously-correct answer.
+    if (subsystem_state.output_compositor.is_valid()) {
+        subsystem_state.output_compositor->invalidate_cached_render();
+    }
 }
 
 GaussianSplatRenderer::SortStageSummary GaussianSplatRenderer::sort_gaussians_for_view(

@@ -300,11 +300,10 @@ struct PainterlyCompositePushConstant {
 	float pad[2];
 };
 static_assert(sizeof(PainterlyCompositePushConstant) == 48,
-		"PainterlyCompositePushConstant must match the reflected CompositePush size "
-		"(payload rounded up to the 16-byte SPIR-V push-constant block alignment).");
-static_assert(sizeof(PainterlyCompositePushConstant) % 16 == 0,
-		"Push-constant structs must be a multiple of 16 bytes; SPIRV-Reflect rounds the "
-		"shader block up to 16 and RenderingDevice requires an exact size match.");
+		"PainterlyCompositePushConstant must match the reflected CompositePush size: the "
+		"payload rounded up to the 16-byte SPIR-V push-constant block alignment. The "
+		"multiple-of-16 rule itself is enforced for every registered push-constant struct "
+		"by tests/ci/check_gaussian_layout_sync.py.");
 
 /**
  * @struct RenderFramePlan

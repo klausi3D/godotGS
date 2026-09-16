@@ -166,7 +166,6 @@ private:
     class PainterlyCompositeShaderRD *composite_shader_source = nullptr;
     RID composite_shader_version;
     RID composite_shader;
-    RID composite_pipeline;
     bool composite_failed = false;
 
     // Shader pipelines (managed internally)
@@ -207,7 +206,7 @@ private:
     void _shutdown_internal(GaussianSplatRenderer *p_renderer);
     void _update_painterly_texture_tracking(GaussianSplatRenderer *p_renderer);
     void _forget_painterly_texture_tracking(GaussianSplatRenderer *p_renderer);
-    void _ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer, RD::FramebufferFormatID p_framebuffer_format);
+    void _ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer);
 };
 
 #endif // GS_PAINTERLY_RENDERER_H
