@@ -351,6 +351,98 @@ class ProbeDeadlineOrderingTests(unittest.TestCase):
         self.assertNotIn("var frame := -1", source)
 
 
+class ProbeRadianceTests(unittest.TestCase):
+    """The probe scene must be able to put a non-black pixel on screen (#992).
+
+    `test_project/project.godot` sets `indirect_sh_scale=0.0`, and the renderer
+    multiplies every splat's base colour by that value. The probe scene has no
+    light and a black background, so unless the probe pins the setting, a fully
+    working export draws black splats on black. The blocking CI job then fails on
+    every run and says nothing about the template. That happened on every master
+    run from #873 to #992.
+
+    **Mode:** source-ordering read. The probe only runs on the Windows GPU job,
+    which is skipped on pull requests, so without this read nothing in PR CI
+    notices the pin being removed. The runtime proof that the pin is what makes
+    the difference (blank without it, rendered with it, blank again with no splat
+    node) is recorded in #992, not here.
+    """
+
+    PIN_CALL = "ProjectSettings.set_setting(INDIRECT_SH_SCALE_SETTING, PROOF_INDIRECT_SH_SCALE)"
+    NODE_CREATION = 'ClassDB.instantiate("GaussianSplatNode3D")'
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lines = PROBE_FILE.read_text(encoding="utf-8").splitlines()
+
+    def _function_body(self, name: str) -> list[str]:
+        """Code lines (comments and blanks dropped) of the top-level `func name(`.
+
+        The body ends at the next non-indented line. A lexical position anywhere
+        in the file is NOT enough (#993 review): a pin moved into a helper that is
+        declared earlier but never called would still sit above the node creation.
+        """
+        start = next(
+            (offset for offset, line in enumerate(self.lines) if line.startswith(f"func {name}(")),
+            None,
+        )
+        if start is None:
+            self.fail(f"func {name}() not found in the probe")
+        body: list[str] = []
+        for line in self.lines[start + 1:]:
+            if line and not line[0].isspace():
+                break
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                body.append(stripped)
+        if not body:
+            self.fail(f"func {name}() has no code lines")
+        return body
+
+    def _only_index(self, body: list[str], needle: str, where: str) -> int:
+        hits = [offset for offset, line in enumerate(body) if needle in line]
+        if len(hits) != 1:
+            self.fail(f"expected exactly one {needle!r} in {where}, found {len(hits)}")
+        return hits[0]
+
+    def test_the_project_value_is_pinned_before_the_splat_node_exists(self) -> None:
+        source = "\n".join(self.lines)
+        self.assertIn(
+            'const INDIRECT_SH_SCALE_SETTING := "rendering/gaussian_splatting/lighting/indirect_sh_scale"',
+            source,
+        )
+        self.assertIn("const PROOF_INDIRECT_SH_SCALE := 1.0", source)
+        # Both in the SAME function, the one that creates the node.
+        setup = self._function_body("_setup_scene")
+        pin = self._only_index(setup, self.PIN_CALL, "_setup_scene()")
+        node = self._only_index(setup, self.NODE_CREATION, "_setup_scene()")
+        self.assertLess(
+            pin,
+            node,
+            "the splat node is created before indirect_sh_scale is pinned, so its first "
+            "frames render with the project's 0.0",
+        )
+
+    def test_the_pin_is_on_the_executed_path(self) -> None:
+        """_init defers _run, _run calls _setup_scene, and nothing else creates the node."""
+        self._only_index(self._function_body("_init"), 'call_deferred("_run")', "_init()")
+        self._only_index(self._function_body("_run"), "_setup_scene()", "_run()")
+        creation_sites = [
+            line for line in self.lines
+            if self.NODE_CREATION in line and not line.strip().startswith("#")
+        ]
+        self.assertEqual(
+            len(creation_sites),
+            1,
+            "the splat node is created somewhere other than _setup_scene(), so the pin "
+            "there no longer covers every node the probe renders",
+        )
+
+    def test_the_blank_readback_is_not_blamed_on_the_desktop(self) -> None:
+        source = "\n".join(line for line in self.lines if not line.strip().startswith("#"))
+        self.assertNotIn("Needs an interactive desktop session", source)
+
+
 class PresetStateTestCase(unittest.TestCase):
     """Repoints the module at a temp project dir so no real config is touched."""
 

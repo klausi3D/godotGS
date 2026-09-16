@@ -68,6 +68,23 @@ const BACKGROUND_LUMA_THRESHOLD := 0.03
 const ORBIT_RADIUS := 14.0
 const ORBIT_HEIGHT := 2.0
 const ORBIT_SPEED := 0.02
+# The fixture is drawn from its own DC colour, which this setting scales (#992).
+# This project sets it to 0.0 (project.godot), and in both lighting modes the
+# renderer multiplies every splat's base colour by it (tile_binning.glsl
+# `sh_base_scale`, tile_resolve.glsl `base_scale`). The scene below has no light
+# and a black background, so no direct or ambient term puts colour back. Unpinned,
+# a fully working export rasterises 2048 BLACK splats onto the black clear, and the
+# read-back is uniformly 0.0. That is what failed every export smoke run from #873
+# on, while the probe blamed a missing desktop. 1.0 is the module's registered
+# default, i.e. what an exported game gets when its project does not override it.
+# The QA scenes in this project pin the same setting for the same reason
+# (scenes/qa/qa_sort_depth_order.gd, scenes/qa/qa_composite_depth_occlusion.gd).
+#
+# This does NOT relax the visual check. The thresholds above are unchanged, the
+# only thing in the frame that can lift a pixel off the black background is still
+# the splat node, and a run with no splat node reads back blank and fails.
+const INDIRECT_SH_SCALE_SETTING := "rendering/gaussian_splatting/lighting/indirect_sh_scale"
+const PROOF_INDIRECT_SH_SCALE := 1.0
 
 # Distinct exit codes so the Python runner can name the failure mode instead of
 # reporting a generic non-zero exit.
@@ -91,6 +108,8 @@ var metrics: Dictionary = {
 	"missing_classes": [],
 	"asset_loaded": false,
 	"asset_splat_count": 0,
+	"indirect_sh_scale_project": null,
+	"indirect_sh_scale_used": null,
 	"frames": 0,
 	"renderer_available": false,
 	"visible_splats_max": 0,
@@ -133,8 +152,10 @@ func _fail(reason: String, code: int) -> void:
 
 func _fail_visual(reason: String) -> void:
 	# Everything except the on-screen pixel evidence held up. Reported under its
-	# own status + exit code so the runner can tell "this build renders nothing"
-	# apart from "this session has no composited window to read back from".
+	# own status + exit code so the runner can tell a pipeline failure apart from
+	# "the stages ran but no pixel left the background". The read-back is
+	# in-engine (viewport texture), not a desktop grab. A blank one with successful
+	# stages has so far meant a zero-radiance scene (#992), not a missing desktop.
 	push_error("%s %s" % [FAIL_MARKER, reason])
 	print("%s %s" % [FAIL_MARKER, reason])
 	_emit("failed_visual_evidence", reason)
@@ -320,10 +341,12 @@ func _run() -> void:
 		)
 		return
 	_fail_visual(
-		"Exported binary drove a successful GPU raster pass over %d splats but the window read back blank (%d captures, luma range %.5f). Needs an interactive desktop session; the in-repo Canonical Node Asset Render proof has the same requirement." % [
+		"Exported binary drove a successful GPU raster pass over %d splats but the window read back blank (%d captures, luma range %.5f, %d non-background samples). The read-back is in-engine; check the splats' radiance (indirect_sh_scale used=%s, lights, background) before suspecting the session (#992)." % [
 			int(metrics["visible_splats_max"]),
 			int(metrics["visual_capture_count"]),
 			float(metrics["visual_luma_range_max"]),
+			int(metrics["visual_non_background_samples_max"]),
+			str(metrics.get("indirect_sh_scale_used")),
 		]
 	)
 
@@ -365,6 +388,12 @@ func _setup_scene() -> bool:
 	if int(metrics["asset_splat_count"]) <= 0:
 		_fail("Exported asset %s carries no splats (imported cache is empty or stale)." % ASSET_PATH, EXIT_GENERIC_FAILURE)
 		return false
+
+	# Before the node exists, so no frame is ever rendered with the project value.
+	# Both values go into the metrics line, so an operator can see what was used.
+	metrics["indirect_sh_scale_project"] = ProjectSettings.get_setting(INDIRECT_SH_SCALE_SETTING, null)
+	ProjectSettings.set_setting(INDIRECT_SH_SCALE_SETTING, PROOF_INDIRECT_SH_SCALE)
+	metrics["indirect_sh_scale_used"] = ProjectSettings.get_setting(INDIRECT_SH_SCALE_SETTING, null)
 
 	splat_node = ClassDB.instantiate("GaussianSplatNode3D")
 	if splat_node == null:
