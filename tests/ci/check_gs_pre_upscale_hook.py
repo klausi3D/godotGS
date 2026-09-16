@@ -33,6 +33,20 @@ This checker asserts the source-level invariants that keep the fix alive:
      `depth_linearize_add`). The generic push-constant layout guard in
      check_gaussian_layout_sync.py defers viewport_blit's BlitParams (ivec2
      packing), so this positional anchor is the parity check for this field.
+  G. The PAINTERLY viewport composite obeys the same phase contract (#986).
+     It is a graphics pass that draws into render_buffers->get_internal_texture()
+     unconditionally, so it is correct only at the pre-upscale seam and must stay
+     gated on the phase; in the legacy post-scene phase the internal buffer has
+     already been consumed and the write would be invisible. Its shader must come
+     from the EMBEDDED PainterlyCompositeShaderRD, never from a runtime file load:
+     the file-load path could not compile (the two on-disk copies began with
+     ShaderRD stage delimiters, which are not GLSL) and its `res://modules/...`
+     paths do not exist in an exported project at all. And because its destination
+     is the LINEAR pre-tonemap buffer, the fragment must apply the same
+     sRGB->linear source decode the compute blit applies under
+     `source_decode_srgb` (#930) -- on UNPREMULTIPLIED values, with the exact
+     piecewise EOTF. Dropping any one of the three is silent: the composite stops
+     running, or runs in the wrong colour space, with no warning either way.
   F. The `destination_has_alpha` push-constant field (#928) does the same, in
      the former pad1 slot immediately after `source_decode_srgb`, is READ by the
      shader, and is REQUESTED by the pre-upscale phase. Declaring it without
@@ -59,6 +73,8 @@ SCENE_RENDER_RD = ROOT / "servers" / "rendering" / "renderer_rd" / "renderer_sce
 RENDER_DATA_RD_H = ROOT / "servers" / "rendering" / "renderer_rd" / "storage_rd" / "render_data_rd.h"
 OUTPUT_COMPOSITOR = ROOT / "modules" / "gaussian_splatting" / "interfaces" / "output_compositor.cpp"
 VIEWPORT_BLIT_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "viewport_blit.glsl"
+PAINTERLY_RENDERER = ROOT / "modules" / "gaussian_splatting" / "interfaces" / "painterly_renderer.cpp"
+PAINTERLY_COMPOSITE_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "painterly_composite.glsl"
 
 
 def _rel(path: Path) -> str:
@@ -259,6 +275,70 @@ def check_push_constant_mirror(failures: list[str]) -> None:
         )
 
 
+# G: the painterly viewport composite (#986). Anchors are literal because the
+# three invariants are each one line of intent, and each one is silent when lost.
+def check_painterly_composite(failures: list[str]) -> None:
+    compositor = _read(OUTPUT_COMPOSITOR, failures)
+    renderer = _read(PAINTERLY_RENDERER, failures)
+    shader = _read(PAINTERLY_COMPOSITE_GLSL, failures)
+    if compositor is None or renderer is None or shader is None:
+        return
+
+    _find(
+        _LINE_COMMENT.sub("", compositor),
+        "if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid())",
+        "G: painterly composite gated on the pre-upscale phase",
+        OUTPUT_COMPOSITOR,
+        failures,
+    )
+
+    renderer_code = _LINE_COMMENT.sub("", renderer)
+    _find(
+        renderer_code,
+        "_compile_composite_shader() != OK",
+        "G: painterly composite uses the embedded PainterlyCompositeShaderRD",
+        PAINTERLY_RENDERER,
+        failures,
+    )
+    # Fail closed on the RETURN of the runtime loader, not just on the absence of
+    # the embedded call: a reverted change would re-add a file load next to it.
+    for banned, why in (
+        ("load_graphics_shader", "the runtime GLSL file loader (#986 blocker A)"),
+        ("painterly_composite.vert.glsl", "an on-disk composite shader path"),
+        ("painterly_composite.frag.glsl", "an on-disk composite shader path"),
+    ):
+        if banned in renderer_code:
+            failures.append(
+                f"{_rel(PAINTERLY_RENDERER)}: reintroduces {why} (`{banned}`). The composite "
+                "shader must come from the embedded PainterlyCompositeShaderRD; a runtime "
+                "file load cannot compile the ShaderRD stage delimiters and its res:// paths "
+                "do not exist in an exported project."
+            )
+
+    shader_code = _LINE_COMMENT.sub("", shader)
+    # Decode on UNPREMULTIPLIED values, with the exact EOTF, re-premultiplied by
+    # the blend-modulated alpha. Anchoring the whole expression is what makes a
+    # partial revert (e.g. decoding the premultiplied sample) visible.
+    if "painterly_sample.rgb / painterly_sample.a" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not unpremultiply before "
+            "decoding — sRGB decode does not commute with alpha premultiplication (#930)"
+        )
+    if "srgb_to_linear_exact(straight_srgb) * alpha" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not decode its source with "
+            "srgb_to_linear_exact and re-premultiply — its destination is the LINEAR "
+            "pre-tonemap internal buffer, so the painterly frame lands in the wrong colour "
+            "space with no warning (#930)"
+        )
+    if '#include "includes/gs_srgb.glsl"' not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: missing `#include \"includes/gs_srgb.glsl\"` — "
+            "srgb_to_linear_exact must come from the shared include, not a local copy that "
+            "can drift from the compute blit's decode"
+        )
+
+
 def run_checks() -> list[str]:
     failures: list[str] = []
     check_forward_clustered(failures)
@@ -266,6 +346,7 @@ def run_checks() -> list[str]:
     check_render_data_rd(failures)
     check_output_compositor(failures)
     check_push_constant_mirror(failures)
+    check_painterly_composite(failures)
     return failures
 
 
@@ -392,6 +473,39 @@ def self_test() -> int:
                 lambda t: t.replace("params.destination_has_alpha = pre_upscale_phase;",
                         "params.destination_has_alpha = false;", 1),
                 check_output_compositor),
+        # G1: painterly composite loses its phase gate, so the legacy post-scene
+        # phase would draw into an already-consumed internal buffer (#986).
+        ("G1: painterly composite phase gate dropped", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace(
+                        "if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid())",
+                        "if (p_painterly_active && subsystem_state.painterly_renderer.is_valid())", 1),
+                check_painterly_composite),
+        # G2: the embedded ShaderRD call is replaced by the runtime file loader
+        # that could never compile — #986 blocker A restored verbatim.
+        ("G2: runtime GLSL file loader reintroduced", "PAINTERLY_RENDERER",
+                lambda t: t.replace("_compile_composite_shader() != OK",
+                        "!p_renderer->load_graphics_shader("
+                        "Vector<String>(), Vector<String>()).is_valid()", 1),
+                check_painterly_composite),
+        # G3: the composite decodes, but on the PREMULTIPLIED sample — the
+        # non-commuting case, which looks plausible and is wrong everywhere
+        # alpha < 1 (up to ~88% error; see the #930 colour round-trip proof).
+        ("G3: decode applied to premultiplied values", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("vec3 straight_srgb = painterly_sample.rgb / painterly_sample.a;",
+                        "vec3 straight_srgb = painterly_sample.rgb;", 1),
+                check_painterly_composite),
+        # G4: decode dropped entirely — the pre-fix expression, which writes
+        # sRGB-encoded values into the linear pre-tonemap buffer (#930).
+        ("G4: source decode dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("srgb_to_linear_exact(straight_srgb) * alpha",
+                        "straight_srgb * alpha", 1),
+                check_painterly_composite),
+        # G5: the shared include is replaced by a local copy, which is how the
+        # painterly decode would silently drift from the compute blit's.
+        ("G5: shared sRGB include replaced by a local copy", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace('#include "includes/gs_srgb.glsl"',
+                        "vec3 srgb_to_linear_exact(vec3 c) { return c * c; }", 1),
+                check_painterly_composite),
     )
 
     ok = True
@@ -415,7 +529,10 @@ def main(argv: list[str]) -> int:
         for line in failures:
             print(f"  - {line}")
         return 1
-    print("GS pre-upscale composite hook guard passed (ordering, phase gating, encoding mirror).")
+    print(
+        "GS pre-upscale composite hook guard passed (ordering, phase gating, encoding mirror, "
+        "painterly composite reachability + source decode)."
+    )
     return 0
 
 

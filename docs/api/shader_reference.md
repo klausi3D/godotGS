@@ -1397,40 +1397,6 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
-## painterly_composite.frag.glsl
-
-`modules/gaussian_splatting/shaders/painterly_composite.frag.glsl`
-
-### Functions
-
-<table>
-  <thead>
-    <tr>
-      <th>Function</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre><code>linearize_scene_depth(float raw_depth)</code></pre></td>
-      <td>Convert normalized scene depth to comparable view-space depth.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sanitize_view_depth(float depth_value)</code></pre></td>
-      <td>Clamp invalid depth values to a sentinel for comparisons.</td>
-    </tr>
-    <tr>
-      <td><pre><code>is_scene_background_depth(float raw_scene_depth, float scene_view_depth)</code></pre></td>
-      <td>Detect whether the sampled scene depth corresponds to the background clear value.</td>
-    </tr>
-    <tr>
-      <td><pre><code>main()</code></pre></td>
-      <td>Fragment entry point for the painterly composite pass.</td>
-    </tr>
-  </tbody>
-</table>
-
-
 ## painterly_composite.glsl
 
 `modules/gaussian_splatting/shaders/painterly_composite.glsl`
@@ -1464,28 +1430,6 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>main()</code></pre></td>
       <td>Fragment entry point for the fullscreen composite pass.</td>
-    </tr>
-  </tbody>
-</table>
-
-
-## painterly_composite.vert.glsl
-
-`modules/gaussian_splatting/shaders/painterly_composite.vert.glsl`
-
-### Functions
-
-<table>
-  <thead>
-    <tr>
-      <th>Function</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre><code>main()</code></pre></td>
-      <td>Vertex entry point for the fullscreen composite triangle.</td>
     </tr>
   </tbody>
 </table>
