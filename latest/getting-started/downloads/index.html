@@ -1927,7 +1927,7 @@
 <p>Public binaries for godotGS are published as nightly prereleases on GitHub. There is no stable <code>v*</code> release yet — see <a href="../../development/release-channels/">Release Channels</a> for the full publishing model.</p>
 <h2 id="latest-nightly">Latest Nightly<a class="headerlink" href="#latest-nightly" title="Permanent link">¶</a></h2>
 <p><a href="https://github.com/klausi3D/godotGS/releases"><strong>Open the Releases page</strong></a> and pick the most recent <code>nightly-YYYYMMDD</code> entry at the top. (There is no stable <code>v*</code> release yet, so GitHub's "latest release" shortcut does not resolve to a nightly; always use the list.)</p>
-<p>Each nightly contains the editor for both supported platforms plus integrity files:</p>
+<p>Each nightly contains the editor for both supported platforms, the Windows export template, and integrity files. The Windows assets are attached only when the Windows build and its export smoke test succeeded for that run:</p>
 <table>
 <thead>
 <tr>
@@ -1940,12 +1940,17 @@
 <tr>
 <td><code>godotgs-linux-x86_64-&lt;tag&gt;.tar.xz</code></td>
 <td>Linux x86_64</td>
-<td>Editor binary</td>
+<td>Editor binary (<code>dev_build=yes</code>, <code>-O0</code>)</td>
 </tr>
 <tr>
 <td><code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code></td>
 <td>Windows x86_64</td>
-<td>GUI editor (<code>.exe</code>) + console wrapper (<code>.console.exe</code>)</td>
+<td><strong>Editor</strong>, optimized: GUI editor (<code>.exe</code>) + console wrapper (<code>.console.exe</code>)</td>
+</tr>
+<tr>
+<td><code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code></td>
+<td>Windows x86_64</td>
+<td><strong>Export template</strong> for shipping a game: <code>windows_release_x86_64.exe</code> + <code>windows_release_x86_64.console.exe</code>. Not an editor. See <a href="../../development/export-templates/">Export Templates</a>.</td>
 </tr>
 <tr>
 <td><code>*.sha256</code></td>
@@ -1961,14 +1966,16 @@
 </table>
 <p>macOS is not yet covered by a published binary — <a href="../../BUILDING/">Build from Source</a>.</p>
 <div class="admonition warning">
-<p class="admonition-title">Nightly binaries are unoptimized <code>-O0</code> builds</p>
-<p>Every published nightly is compiled with <code>dev_build=yes</code>, which means <code>-O0</code> — no
-optimization at all. That inflates CPU-side frame cost by roughly an order of
-magnitude compared with an optimized build. The <code>.dev</code> segment in the binary
-names below is exactly this flag. <strong>Do not judge godotGS performance from a
-nightly download, and do not benchmark one.</strong> For representative speed, build
-from source with <code>target=editor optimize=speed_trace</code> — see
-<a href="../../BUILDING/#build-flavors">Build Flavors</a> — and read the
+<p class="admonition-title">The Linux nightly is an unoptimized <code>-O0</code> build</p>
+<p>The published Linux nightly editor is compiled with <code>dev_build=yes</code>, which means
+<code>-O0</code>: no optimization at all. That inflates CPU-side frame cost by roughly an
+order of magnitude compared with an optimized build. The <code>.dev</code> segment in its
+binary name is exactly this flag. <strong>Do not judge godotGS performance from the
+Linux nightly, and do not benchmark it.</strong> The Windows nightly editor is built
+without <code>dev_build</code>, with <code>optimize=speed_trace</code> (<code>/O2</code>), so its binary has no
+<code>.dev</code> segment. For representative speed on Linux, build from source with
+<code>target=editor optimize=speed_trace</code> (see
+<a href="../../BUILDING/#build-flavors">Build Flavors</a>), and read the
 <a href="../../performance/#measurement-environment">Performance Dashboard</a> for the
 numbers an optimized build actually produces.</p>
 </div>
@@ -1981,10 +1988,11 @@ chmod<span class="w"> </span>+x<span class="w"> </span>godot.linuxbsd.editor.dev
 <h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">¶</a></h3>
 <p>Unzip and pick the variant that fits how you want to run the editor:</p>
 <ul>
-<li><code>godot.windows.editor.dev.x86_64.exe</code> — GUI editor with no console window. Use this for the normal editor experience.</li>
-<li><code>godot.windows.editor.dev.x86_64.console.exe</code> — same editor with a console window attached for stdout/stderr. Use this when debugging or when a script needs to capture editor output.</li>
+<li><code>godot.windows.editor.x86_64.exe</code> — GUI editor with no console window. Use this for the normal editor experience.</li>
+<li><code>godot.windows.editor.x86_64.console.exe</code> — same editor with a console window attached for stdout/stderr. Use this when debugging or when a script needs to capture editor output.</li>
 </ul>
 <p>Both binaries ship in the same zip; you can keep just one or both side-by-side.</p>
+<p>To export a game, also download <code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code>. Unzip it and set <code>custom_template/release</code> in your export preset to the absolute path of <code>windows_release_x86_64.exe</code>. Keep the <code>.console.exe</code> next to it. Without that setting the export silently uses a stock template that renders no splats. See <a href="../../development/export-templates/">Export Templates</a>.</p>
 <h2 id="verify-the-download">Verify the Download<a class="headerlink" href="#verify-the-download" title="Permanent link">¶</a></h2>
 <p>Match the published checksum against your local file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># Linux / WSL / git-bash</span>
@@ -1996,15 +2004,16 @@ sha256sum<span class="w"> </span>godotgs-windows-x86_64-&lt;tag&gt;.zip
 </code></pre></div>
 <h2 id="stability-expectations">Stability Expectations<a class="headerlink" href="#stability-expectations" title="Permanent link">¶</a></h2>
 <p>Nightlies are prereleases by design — they may break at any time. They are intended for evaluation, prototypes, and contributor work, not production. See the <a href="../../development/release-channels/#channels">stability column in Release Channels</a> for the per-channel guarantees.</p>
-<p>They are also <strong>not performance-representative</strong>: every nightly is a <code>dev_build=yes</code>
-/ <code>-O0</code> binary, so anything you measure on one is an artifact of the build flavor
-rather than of godotGS. Build an optimized editor (<a href="../../BUILDING/#build-flavors">Build Flavors</a>)
-before drawing any conclusion about speed.</p>
+<p>The Linux nightly is also <strong>not performance-representative</strong>: it is a <code>dev_build=yes</code>
+/ <code>-O0</code> binary, so anything you measure on it is an artifact of the build flavor
+rather than of godotGS. Use the optimized Windows nightly, or build an optimized
+editor (<a href="../../BUILDING/#build-flavors">Build Flavors</a>), before drawing any conclusion
+about speed.</p>
 <h2 id="building-from-source">Building From Source<a class="headerlink" href="#building-from-source" title="Permanent link">¶</a></h2>
 <p>Use <a href="../../BUILDING/">Build from Source</a> when:</p>
 <ul>
 <li>you are on macOS,</li>
-<li>you want representative performance rather than an <code>-O0</code> nightly (see <a href="../../BUILDING/#build-flavors">Build Flavors</a>),</li>
+<li>you are on Linux and want representative performance rather than the <code>-O0</code> Linux nightly (see <a href="../../BUILDING/#build-flavors">Build Flavors</a>),</li>
 <li>you need a custom build flavor (release-stripped, different optimizer settings, debug symbols, etc.),</li>
 <li>or you want to reproduce a specific commit's binary.</li>
 </ul>
@@ -2028,7 +2037,7 @@ before drawing any conclusion about speed.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 16, 2026 06:29:44 UTC">September 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 16, 2026 06:32:51 UTC">September 16, 2026</span>
   </span>
 
     
