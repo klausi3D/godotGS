@@ -52,6 +52,24 @@ deliberately **not** a GDScript parser or a Godot scene loader:
    ``custom_icons/`` property prefixes, which Godot 4 renamed to
    ``theme_override_*`` and now discards silently. Enumerated policy: only
    these five prefixes.
+5. ``gdscript-unregistered-monitor`` -- a ``"gaussian_splatting/<name>"``
+   string literal in a shipped script whose ``<name>`` no monitor definition
+   in `modules/gaussian_splatting/core/performance_monitors.cpp` registers.
+   **Both sides are derived**: the read set from the literals in the scripts,
+   the registered set from the literals in
+   ``_register_monitor_definitions``, so neither is a hand-written list that
+   can drift. The starter template read 57 such ids and 18 had no producer
+   anywhere; `Performance.get_custom_monitor()` errors on an unregistered id
+   and returns null, and the null then aborted the whole refresh. Limit: a
+   script that builds the id at run time from a prefix constant is invisible
+   to this detector -- so ``gdscript-monitor-id-built-at-runtime`` closes that
+   hole: concatenating the bare ``"gaussian_splatting/"`` prefix is itself a
+   finding, because it makes every read in that file unverifiable. (Matching
+   the concatenation, not the bare literal, keeps
+   ``monitor_id.begins_with("gaussian_splatting/")`` -- which filters an
+   enumeration of the registered set -- legal.) Both overlays in this tree
+   spell every id out in full for exactly this reason, and say so at their
+   read helpers.
 
 It does not check semantics, it does not resolve `ext_resource` paths, and it
 does not prove a project starts. A project that passes this guard can still
@@ -128,6 +146,20 @@ GODOT3_THEME_PREFIXES = {
     "custom_icons/": "theme_override_icons/",
 }
 
+# The registry of custom monitors, and the function inside it that enumerates
+# them. Both are asserted to exist; a rename must fail the guard, not empty it.
+MONITOR_REGISTRY = ("modules", "gaussian_splatting", "core", "performance_monitors.cpp")
+MONITOR_REGISTRY_FUNCTION = "_register_monitor_definitions"
+MONITOR_PREFIX = "gaussian_splatting/"
+MONITOR_ID_RE = re.compile(r'"(gaussian_splatting/[A-Za-z0-9_./]+)"')
+# The bare prefix CONCATENATED with something: the script is building monitor
+# ids at run time, which hides every one of its reads from the closure check
+# above. Matching the concatenation and not merely the literal keeps the
+# legitimate use -- `monitor_id.begins_with("gaussian_splatting/")`, which
+# filters an enumeration of the registered set -- out of the finding set.
+MONITOR_PREFIX_CONCAT_RE = re.compile(
+    r'(\+\s*"gaussian_splatting/")|("gaussian_splatting/"\s*\+)')
+
 NODE_HEADER_RE = re.compile(r"^\[node\s+(?P<body>.*)\]\s*$")
 HEADER_KEY_RE = re.compile(r'(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=')
 # A double-quoted span inside a scene header, with `\"` escapes. Masked before
@@ -191,6 +223,59 @@ def strip_gdscript_strings_and_comments(source: str) -> list[str]:
         return "".join("\n" if ch == "\n" else filler for ch in token)
 
     return MASKABLE_SPAN_RE.sub(mask, source).split("\n")
+
+
+def read_registered_monitor_ids(root: Path) -> tuple[set[str], str | None]:
+    """Derive the registered monitor ids from the C++ registry.
+
+    Returns (ids, error). `error` is non-None when the registry, the
+    enumerating function, or a plausible number of ids could not be found --
+    in which case the caller must fail, not silently accept every read.
+    """
+    path = root.joinpath(*MONITOR_REGISTRY)
+    if not path.is_file():
+        return set(), "monitor registry not found at %s" % path.relative_to(root).as_posix()
+    text = path.read_text(encoding="utf-8")
+    start = text.find(MONITOR_REGISTRY_FUNCTION)
+    if start < 0:
+        return set(), ("%s() not found in %s -- the derivation is stale"
+                       % (MONITOR_REGISTRY_FUNCTION, path.name))
+    # The definitions live in one table inside that function; stop at the next
+    # top-level function so a later unrelated literal cannot widen the set.
+    end = text.find("\nvoid GaussianSplattingPerformanceMonitors::", start + 1)
+    body = text[start:end if end > 0 else len(text)]
+    ids = {m for m in MONITOR_ID_RE.findall(body)}
+    if len(ids) < 50:
+        return ids, ("only %d monitor ids parsed out of %s(); the table shape "
+                     "changed and the derivation can no longer see it"
+                     % (len(ids), MONITOR_REGISTRY_FUNCTION))
+    return ids, None
+
+
+def scan_gdscript_monitor_ids(rel_path: str, source: str,
+                              registered: set[str]) -> list[Finding]:
+    findings: list[Finding] = []
+    for lineno, line in enumerate(source.splitlines(), start=1):
+        if MONITOR_PREFIX_CONCAT_RE.search(line):
+            findings.append(Finding(
+                "gdscript-monitor-id-built-at-runtime", rel_path, lineno,
+                'concatenating the prefix "%s" builds monitor ids at run '
+                "time, so none of this script's reads can be checked against "
+                "the registered set. Spell the full id out at each call site."
+                % MONITOR_PREFIX,
+            ))
+            continue
+        for monitor_id in MONITOR_ID_RE.findall(line):
+            if monitor_id in registered:
+                continue
+            findings.append(Finding(
+                "gdscript-unregistered-monitor", rel_path, lineno,
+                "`%s` is not registered by %s(); "
+                "Performance.get_custom_monitor() errors on it and returns "
+                "null, and a null in a format string aborts the caller."
+                % (monitor_id, MONITOR_REGISTRY_FUNCTION),
+            ))
+    return findings
 
 
 def scan_gdscript(rel_path: str, source: str) -> list[Finding]:
@@ -308,6 +393,11 @@ def run(root: Path) -> tuple[int, list[str]]:
             % (gd_count, scene_count))
         return 2, messages
 
+    registered, registry_error = read_registered_monitor_ids(root)
+    if registry_error:
+        messages.append("guard failed: " + registry_error)
+        return 2, messages
+
     findings: list[Finding] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
@@ -319,6 +409,7 @@ def run(root: Path) -> tuple[int, list[str]]:
             continue
         if path.suffix in GDSCRIPT_SUFFIXES:
             findings.extend(scan_gdscript(rel, source))
+            findings.extend(scan_gdscript_monitor_ids(rel, source, registered))
         else:
             findings.extend(scan_scene(rel, source))
 
@@ -331,7 +422,8 @@ def run(root: Path) -> tuple[int, list[str]]:
 
     messages.append(
         "[shipped-project-scripts] clean: %d GDScript + %d scene file(s) "
-        "scanned, 4 detectors." % (gd_count, scene_count))
+        "scanned, 6 detectors, %d registered monitor ids derived from %s()."
+        % (gd_count, scene_count, len(registered), MONITOR_REGISTRY_FUNCTION))
     return 0, messages
 
 
