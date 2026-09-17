@@ -1,8 +1,8 @@
 # Shader Reference
 
-Last generated: 2026-07-21
+Last generated: 2026-09-16
 
-Coverage summary: `193` documented functions, `13` undocumented functions, `69` documented uniform fields, `120` undocumented uniform fields.
+Coverage summary: `185` documented functions, `13` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -878,6 +878,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
+## gs_scene_depth_guard.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_scene_depth_guard.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_sanitize_view_depth(float depth_value)</code></pre></td>
+      <td>Clamp invalid depth values to a sentinel the callers test with `>= 0.0`.</td>
+    </tr>
+  </tbody>
+</table>
+
+
 ## gs_sh_binning.glsl
 
 `modules/gaussian_splatting/shaders/includes/gs_sh_binning.glsl`
@@ -953,6 +975,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_pack_sort_key64(float depth, uint tie_break)</code></pre></td>
       <td>Pack depth and tie-break data into a 64-bit sort key.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_srgb.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_srgb.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>srgb_to_linear_exact(vec3 color)</code></pre></td>
+      <td>Shared sRGB transfer functions for the composite paths. EXACT piecewise sRGB EOTF (IEC 61966-2-1). Used by every composite that injects the splat raster/painterly output -- premultiplied, display-referred, sRGB-encoded LDR (contract in interfaces/output_compositor_interfaces.h) -- into the LINEAR pre-tonemap internal scene buffer. It must be the exact inverse of the engine tonemapper's linear_to_srgb encode (tonemap.glsl uses the exact piecewise OETF), so 8-bit source content round-trips bit-stably through decode -> linear tonemap -> encode. The fast polynomial srgb_to_linear in viewport_blit.glsl carries ~0.4% error (~1 LSB), which measurably eats 1-LSB margins on this round trip (QA tie-break margin), so the source decode must use this function and not the approximation. sRGB decode does NOT commute with alpha premultiplication: callers holding a premultiplied sample must unpremultiply, decode, then re-premultiply.</td>
     </tr>
   </tbody>
 </table>
@@ -1374,6 +1418,10 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Apply dithering to a color to reduce quantization banding Uses flat dithering (not scaled by color) for consistent banding reduction across all tones</td>
     </tr>
     <tr>
+      <td><pre><code>gs_projection_debug_color(vec2 frag_coord, vec2 viewport_size)</code></pre></td>
+      <td>#832: projection-issue diagnostic color. Shared by the fragment raster path (gs_rasterize_pixel below) and the compute raster path (tile_rasterizer_compute.glsl), which is the DEFAULT path and previously read only debug_flags.x/.z — so show_projection_issues reached the UBO and then rendered nothing. Keep this the single definition so the two paths cannot drift apart again.</td>
+    </tr>
+    <tr>
       <td><pre><code>gs_read_sorted_value(uint local_index, uint range_start)</code></pre></td>
       <td>Read a sorted splat index from shared memory or the backing buffer.</td>
     </tr>
@@ -1392,40 +1440,6 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_get_clamped_overlap_record_count()</code></pre></td>
       <td>The prefix scan should already clamp indirect_dispatch.element_count to the overlap buffer capacity, but the rasterizer must not trust a GPU-produced count blindly. Clamp again at the consumer so corrupt or stale indirect payloads cannot drive out-of-bounds reads from sorted_values.values[].</td>
-    </tr>
-  </tbody>
-</table>
-
-
-## painterly_composite.frag.glsl
-
-`modules/gaussian_splatting/shaders/painterly_composite.frag.glsl`
-
-### Functions
-
-<table>
-  <thead>
-    <tr>
-      <th>Function</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre><code>linearize_scene_depth(float raw_depth)</code></pre></td>
-      <td>Convert normalized scene depth to comparable view-space depth.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sanitize_view_depth(float depth_value)</code></pre></td>
-      <td>Clamp invalid depth values to a sentinel for comparisons.</td>
-    </tr>
-    <tr>
-      <td><pre><code>is_scene_background_depth(float raw_scene_depth, float scene_view_depth)</code></pre></td>
-      <td>Detect whether the sampled scene depth corresponds to the background clear value.</td>
-    </tr>
-    <tr>
-      <td><pre><code>main()</code></pre></td>
-      <td>Fragment entry point for the painterly composite pass.</td>
     </tr>
   </tbody>
 </table>
@@ -1450,42 +1464,8 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Vertex entry point for the fullscreen composite triangle.</td>
     </tr>
     <tr>
-      <td><pre><code>linearize_scene_depth(float raw_depth)</code></pre></td>
-      <td>Convert normalized scene depth to comparable view-space depth.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sanitize_view_depth(float depth_value)</code></pre></td>
-      <td>Clamp invalid depth values to a sentinel for comparisons.</td>
-    </tr>
-    <tr>
-      <td><pre><code>is_scene_background_depth(float raw_scene_depth, float scene_view_depth)</code></pre></td>
-      <td>Detect whether the sampled scene depth corresponds to the background clear value.</td>
-    </tr>
-    <tr>
       <td><pre><code>main()</code></pre></td>
       <td>Fragment entry point for the fullscreen composite pass.</td>
-    </tr>
-  </tbody>
-</table>
-
-
-## painterly_composite.vert.glsl
-
-`modules/gaussian_splatting/shaders/painterly_composite.vert.glsl`
-
-### Functions
-
-<table>
-  <thead>
-    <tr>
-      <th>Function</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre><code>main()</code></pre></td>
-      <td>Vertex entry point for the fullscreen composite triangle.</td>
     </tr>
   </tbody>
 </table>
@@ -1777,20 +1757,34 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Convert linear color to sRGB for final viewport output.</td>
     </tr>
     <tr>
-      <td><pre><code>linearize_scene_depth(float raw_depth)</code></pre></td>
-      <td>Convert raw scene depth to linear view-space depth.</td>
-    </tr>
-    <tr>
-      <td><pre><code>sanitize_view_depth(float depth_value)</code></pre></td>
-      <td>Clamp invalid depth values to a stable far-plane fallback.</td>
-    </tr>
-    <tr>
-      <td><pre><code>is_scene_background_depth(float raw_scene_depth, float scene_view_depth)</code></pre></td>
-      <td>Detect background depth samples near the far plane.</td>
-    </tr>
-    <tr>
       <td><pre><code>main()</code></pre></td>
       <td>Blit the rendered viewport into the final output target.</td>
+    </tr>
+  </tbody>
+</table>
+
+### Uniform Blocks
+
+#### BlitParams (params)
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>source_decode_srgb</code></pre></td>
+      <td><pre><code>int</code></pre></td>
+      <td>Occupies the former pad0 slot (same 4-byte size/alignment; all other offsets unchanged). Mirrors `int32_t source_decode_srgb` in the host ViewportBlitPushConstant (output_compositor.cpp). Non-zero when the destination is the LINEAR pre-tonemap scene buffer and the sRGB-encoded LDR splat source must be decoded to linear before blending (GPU-001 Option B source-encoding contract).</td>
+    </tr>
+    <tr>
+      <td><pre><code>destination_has_alpha</code></pre></td>
+      <td><pre><code>int</code></pre></td>
+      <td>Occupies the former pad1 slot (same 4-byte size/alignment; all other offsets and the total push-constant size unchanged). Mirrors `int32_t destination_has_alpha` in the host ViewportBlitPushConstant (output_compositor.cpp). Non-zero when the composite destination carries a MEANINGFUL alpha channel that must survive the blend (#928).</td>
     </tr>
   </tbody>
 </table>
@@ -1842,6 +1836,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     </tr>
   </thead>
   <tbody>
+    <tr>
+      <td><pre><code>consume_overflow_flag</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>Uses InstanceDepthParamsGPU slot; unused here (see instance_count_clamp.glsl).</td>
+    </tr>
     <tr>
       <td><pre><code>camera_position_ortho</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
@@ -1935,6 +1934,11 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td><pre><code>uint</code></pre></td>
       <td>Uses InstanceDepthParamsGPU.pad0 slot.</td>
     </tr>
+    <tr>
+      <td><pre><code>consume_overflow_flag</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>Uses InstanceDepthParamsGPU slot; unused here (see instance_count_clamp.glsl).</td>
+    </tr>
   </tbody>
 </table>
 
@@ -1956,6 +1960,27 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>main()</code></pre></td>
       <td>Clamp indirect instance counts to the configured dispatch budget.</td>
+    </tr>
+  </tbody>
+</table>
+
+### Uniform Blocks
+
+#### Params (params)
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>consume_overflow_flag</code></pre></td>
+      <td><pre><code>uint</code></pre></td>
+      <td>C4b (G4), Channel B: 1 => the CPU consumed the sticky overflow_flag on the previous run, so reset the accumulation this frame; 0 => accumulate (atomicMax). See below.</td>
     </tr>
   </tbody>
 </table>

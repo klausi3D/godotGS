@@ -5,6 +5,8 @@
 #include "overflow_auto_tuner.h"
 #include "painterly_material_manager.h"
 #include "gpu_sorting_pipeline.h"
+#include "gs_scene_depth_linearize.h"
+#include "output_compositor_interfaces.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include "../renderer/painterly_pass_graph.h"
@@ -166,14 +168,20 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
     RenderingDevice *current_shared = manager ? manager->get_shared_submission_device() : nullptr;
     bool device_still_valid = (rd != nullptr) && (rd == current_shared);
 
+    // The composite samplers are created on the VIEWPORT device
+    // (_ensure_painterly_composite_resources), not on `rd`, and each carries its
+    // own RidOwner that _free_tracked_rid resolves independently. Freeing them
+    // inside the `device_still_valid` branch below would leak them on every
+    // teardown where `rd` is null or no longer the shared submission device --
+    // a window the composite now actually reaches, since it no longer bails out
+    // before creating them. The tail of this function clears both RIDs
+    // unconditionally, so a missed free here is a permanent leak.
+    _free_tracked_rid(painterly_depth_sampler, painterly_depth_sampler_owner, p_renderer, true);
+    _free_tracked_rid(painterly_color_sampler, painterly_color_sampler_owner, p_renderer, true);
+
     // Free GPU resources if device is still valid
     if (device_still_valid) {
         _free_tracked_rid(painterly_sampler, painterly_sampler_owner, p_renderer, false);
-        _free_tracked_rid(composite_sampler, composite_sampler_owner, p_renderer, false);
-        _free_tracked_rid(composite_depth_sampler, composite_depth_sampler_owner, p_renderer, false);
-        _free_tracked_rid(painterly_depth_sampler, painterly_depth_sampler_owner, p_renderer, true);
-        _free_tracked_rid(painterly_color_sampler, painterly_color_sampler_owner, p_renderer, true);
-        _free_tracked_rid(painterly_composite_shader, painterly_composite_shader_owner, p_renderer, true);
 
         // Free pipelines first (they depend on shaders)
         // Use device validity checks to avoid double-free from PR 103113 auto-free
@@ -189,13 +197,6 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
             }
             brush_pipeline = RID();
         }
-        if (composite_pipeline.is_valid()) {
-            if (rd->compute_pipeline_is_valid(composite_pipeline)) {
-                rd->free(composite_pipeline);
-            }
-            composite_pipeline = RID();
-        }
-
         // Free uniform sets
         if (sobel_uniform_set.is_valid() && rd->uniform_set_is_valid(sobel_uniform_set)) {
             rd->free(sobel_uniform_set);
@@ -225,13 +226,8 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
     brush_uniform_edge_input = RID();
     brush_uniform_stylized_texture = RID();
     painterly_sampler = RID();
-    composite_pipeline = RID();
     composite_shader = RID();
-    composite_sampler = RID();
-    composite_depth_sampler = RID();
     painterly_sampler_owner.clear();
-    composite_sampler_owner.clear();
-    composite_depth_sampler_owner.clear();
 
     // Free shader versions and sources
     if (composite_shader_source) {
@@ -285,12 +281,9 @@ void PainterlyRenderer::_shutdown_internal(GaussianSplatRenderer *p_renderer) {
 
     rd = nullptr;
     shaders_compiled = false;
-    composite_initialized = false;
     painterly_composite_pipeline.clear();
     painterly_composite_pipeline_initialized = false;
     painterly_composite_failed = false;
-    painterly_composite_shader = RID();
-    painterly_composite_shader_owner.clear();
     painterly_depth_sampler = RID();
     painterly_depth_sampler_owner.clear();
     painterly_color_sampler = RID();
@@ -917,12 +910,11 @@ Ref<TileRasterizer> PainterlyRenderer::get_rasterizer() const {
     return internal_rasterizer;
 }
 
-// Phase 5: Composite shader compilation
+// Composite shader compilation. Deliberately does NOT gate on `rd`: ShaderRD
+// creates its variants on RD::get_singleton() (servers/rendering/renderer_rd/shader_rd.cpp:312),
+// which is the viewport device the composite draws into, not the module's
+// (possibly separate) shared-submission device held in `rd`.
 Error PainterlyRenderer::_compile_composite_shader() {
-    if (!rd) {
-        return ERR_UNCONFIGURED;
-    }
-
     if (composite_failed) {
         return ERR_COMPILATION_FAILED;
     }
@@ -959,63 +951,6 @@ Error PainterlyRenderer::_compile_composite_shader() {
     }
 
     return OK;
-}
-
-// Phase 5: Ensure composite resources
-void PainterlyRenderer::_ensure_composite_resources() {
-    if (!rd || composite_failed) {
-        return;
-    }
-
-    // Compile shader if needed
-    if (!composite_shader.is_valid()) {
-        if (_compile_composite_shader() != OK) {
-            return;
-        }
-    }
-
-    if (composite_sampler.is_valid() && !composite_sampler_owner.matches(rd)) {
-        _free_tracked_rid(composite_sampler, composite_sampler_owner, nullptr, false);
-    }
-
-    // Create composite sampler if needed
-    if (!composite_sampler.is_valid()) {
-        RD::SamplerState sampler_state;
-        sampler_state.mag_filter = RD::SAMPLER_FILTER_LINEAR;
-        sampler_state.min_filter = RD::SAMPLER_FILTER_LINEAR;
-        sampler_state.mip_filter = RD::SAMPLER_FILTER_LINEAR;
-        sampler_state.repeat_u = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        sampler_state.repeat_w = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        composite_sampler = rd->sampler_create(sampler_state);
-        if (composite_sampler.is_valid()) {
-            rd->set_resource_name(composite_sampler, "GS_PainterlyRenderer_CompositeSampler");
-            composite_sampler_owner.set(rd);
-        }
-    }
-
-    if (composite_depth_sampler.is_valid() && !composite_depth_sampler_owner.matches(rd)) {
-        _free_tracked_rid(composite_depth_sampler, composite_depth_sampler_owner, nullptr, false);
-    }
-
-    // Create depth sampler if needed
-    if (!composite_depth_sampler.is_valid()) {
-        RD::SamplerState sampler_state;
-        sampler_state.mag_filter = RD::SAMPLER_FILTER_NEAREST;
-        sampler_state.min_filter = RD::SAMPLER_FILTER_NEAREST;
-        sampler_state.mip_filter = RD::SAMPLER_FILTER_NEAREST;
-        sampler_state.repeat_u = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        sampler_state.repeat_v = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        sampler_state.repeat_w = RD::SAMPLER_REPEAT_MODE_CLAMP_TO_EDGE;
-        sampler_state.enable_compare = false;
-        composite_depth_sampler = rd->sampler_create(sampler_state);
-        if (composite_depth_sampler.is_valid()) {
-            rd->set_resource_name(composite_depth_sampler, "GS_PainterlyRenderer_CompositeDepthSampler");
-            composite_depth_sampler_owner.set(rd);
-        }
-    }
-
-    composite_initialized = true;
 }
 
 void PainterlyRenderer::_update_painterly_texture_tracking(GaussianSplatRenderer *p_renderer) {
@@ -1235,7 +1170,7 @@ Error PainterlyRenderer::render_painterly_frame(GaussianSplatRenderer *p_rendere
     return OK;
 }
 
-void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer, RD::FramebufferFormatID p_framebuffer_format) {
+void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer) {
     if (!p_renderer) {
         return;
     }
@@ -1248,31 +1183,22 @@ void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRende
         return;
     }
 
-    GaussianSplatRenderer::FrameStateProvider frame_provider(p_renderer);
-    const GaussianSplatRenderer::IFrameStateView &state_view = frame_provider;
-
-    if (!painterly_composite_shader.is_valid()) {
-        Vector<String> vertex_paths;
-        vertex_paths.push_back("res://modules/gaussian_splatting/shaders/painterly_composite.vert.glsl");
-        vertex_paths.push_back("modules/gaussian_splatting/shaders/painterly_composite.vert.glsl");
-
-        Vector<String> fragment_paths;
-        fragment_paths.push_back("res://modules/gaussian_splatting/shaders/painterly_composite.frag.glsl");
-        fragment_paths.push_back("modules/gaussian_splatting/shaders/painterly_composite.frag.glsl");
-
-        painterly_composite_shader = p_renderer->load_graphics_shader(vertex_paths, fragment_paths);
-        if (!painterly_composite_shader.is_valid()) {
-            WARN_PRINT_ONCE("[Painterly] Failed to load composite shader for fullscreen pass");
-            painterly_composite_failed = true;
-            return;
-        }
-    }
-    if (painterly_composite_shader.is_valid()) {
-        painterly_composite_shader_owner.set(
-                p_renderer->get_resource_owner(painterly_composite_shader, state_view.get_rendering_device()));
+    // #986 blocker A: this used to load painterly_composite.{vert,frag}.glsl from
+    // disk at runtime and hand the raw text to shader_compile_spirv_from_source().
+    // That could never work. Both files begin with a ShaderRD stage delimiter
+    // (`#[vertex]` / `#[fragment]`), which is not GLSL, so the compile produced
+    // empty SPIR-V; and in an exported project the `res://modules/...` paths do
+    // not exist at all. Use the embedded ShaderRD instead: painterly_composite.glsl
+    // is compiled into the binary as PainterlyCompositeShaderRD, understands the
+    // stage delimiters, and creates its shader on RD::get_singleton() -- the same
+    // device that owns the viewport framebuffer this pass draws into.
+    if (!composite_shader.is_valid() && _compile_composite_shader() != OK) {
+        WARN_PRINT_ONCE("[Painterly] Failed to compile embedded composite shader for fullscreen pass");
+        painterly_composite_failed = true;
+        return;
     }
 
-    if (!painterly_composite_pipeline_initialized && painterly_composite_shader.is_valid()) {
+    if (!painterly_composite_pipeline_initialized && composite_shader.is_valid()) {
         RD::PipelineRasterizationState raster_state;
         RD::PipelineMultisampleState multisample_state;
         RD::PipelineDepthStencilState depth_state;
@@ -1291,7 +1217,7 @@ void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRende
         attachment.alpha_blend_op = RD::BLEND_OP_ADD;
         blend_state.attachments.push_back(attachment);
 
-        painterly_composite_pipeline.setup(painterly_composite_shader, RD::RENDER_PRIMITIVE_TRIANGLES,
+        painterly_composite_pipeline.setup(composite_shader, RD::RENDER_PRIMITIVE_TRIANGLES,
                 raster_state, multisample_state, depth_state, blend_state);
         painterly_composite_pipeline_initialized = true;
     }
@@ -1341,13 +1267,14 @@ void PainterlyRenderer::_ensure_painterly_composite_resources(GaussianSplatRende
         }
     }
 
-    if (painterly_composite_pipeline_initialized) {
-        painterly_composite_pipeline.get_render_pipeline(RD::INVALID_ID, p_framebuffer_format);
-    }
+    // No pipeline warm-up here: composite_painterly_output() looks the pipeline up
+    // for the same framebuffer format immediately after calling this, so warming it
+    // was a second PipelineCacheRD lookup per composited frame. Harmless while this
+    // function could never get this far; now it runs every painterly frame.
 }
 
 bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
-        RID p_depth_texture, const Size2i &p_viewport_size) {
+        RID p_depth_texture, const Size2i &p_viewport_size, bool p_scene_depth_test_enabled) {
     if (!p_renderer || !p_renderer->ensure_rendering_device("_composite_painterly_output") || !p_render_data || !p_render_data->render_buffers.is_valid()) {
         return false;
     }
@@ -1408,9 +1335,9 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
     }
 
     RD::FramebufferFormatID fb_format = draw_device->framebuffer_get_format(framebuffer);
-    _ensure_painterly_composite_resources(p_renderer, fb_format);
+    _ensure_painterly_composite_resources(p_renderer);
 
-    if (!painterly_composite_pipeline_initialized || !painterly_composite_shader.is_valid() ||
+    if (!painterly_composite_pipeline_initialized || !composite_shader.is_valid() ||
             !painterly_depth_sampler.is_valid() || !painterly_color_sampler.is_valid()) {
         return false;
     }
@@ -1434,7 +1361,7 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
     scene_depth_uniform.append_id(scene_depth);
 
     RID uniform_set = uniform_cache->get_cache(
-            painterly_composite_shader, 0, color_uniform, painterly_depth_uniform, scene_depth_uniform);
+            composite_shader, 0, color_uniform, painterly_depth_uniform, scene_depth_uniform);
     if (!uniform_set.is_valid()) {
         return false;
     }
@@ -1451,18 +1378,49 @@ bool PainterlyRenderer::composite_painterly_output(GaussianSplatRenderer *p_rend
     draw_device->draw_list_bind_render_pipeline(draw_list, pipeline);
     draw_device->draw_list_bind_uniform_set(draw_list, uniform_set, 0);
 
-    GaussianSplatRenderer::PainterlyCompositePushConstant push_constant;
+    // Value-initialized: `pad` exists only to reach the reflected 48-byte block size
+    // and is never read by the shader, but it is uploaded, so keep it deterministic.
+    GaussianSplatRenderer::PainterlyCompositePushConstant push_constant = {};
     push_constant.inv_viewport_size[0] = p_viewport_size.x > 0 ? 1.0f / float(p_viewport_size.x) : 1.0f;
     push_constant.inv_viewport_size[1] = p_viewport_size.y > 0 ? 1.0f / float(p_viewport_size.y) : 1.0f;
-    push_constant.depth_bias = 0.0005f;
+    // Same shared constant the compute composite's depth guard uses, so the two
+    // paths draw the silhouette at the same place.
+    push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;
     push_constant.blend_strength = 1.0f;
+
+    // Scene-depth linearization comes from the ONE host derivation
+    // (gs_scene_depth_linearize.h) that OutputCompositor also feeds to
+    // viewport_blit.glsl, and it is derived from the SAME inputs there: the
+    // frame's scene_data projection, its orthogonal flag and its z range.
+    // Mirrors output_compositor.cpp's block exactly -- deriving from anything
+    // else (e.g. the cached view projection with an assumed orthogonal=false)
+    // produces a pair that does not describe the depth buffer, which is what
+    // made this guard discard every fragment before (#986).
     const auto &view_state = p_renderer->get_view_state();
-    push_constant.near_plane = view_state.last_camera_projection.get_z_near();
-    push_constant.far_plane = view_state.last_camera_projection.get_z_far();
-    const Projection &proj = view_state.last_camera_projection;
-    push_constant.proj_22 = proj.columns[2][2];
-    push_constant.proj_32 = proj.columns[3][2];
-    push_constant.proj_23 = proj.columns[2][3];
+    push_constant.z_near = view_state.last_camera_projection.get_z_near();
+    push_constant.z_far = view_state.last_camera_projection.get_z_far();
+    push_constant.depth_is_orthogonal = 0;
+    push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;
+    if (p_render_data->scene_data) {
+        push_constant.z_near = p_render_data->scene_data->z_near;
+        push_constant.z_far = p_render_data->scene_data->z_far;
+        push_constant.depth_is_orthogonal = p_render_data->scene_data->cam_orthogonal ? 1 : 0;
+        const GSSceneDepthLinearize linearize = gs_derive_scene_depth_linearize(
+                p_render_data->scene_data->cam_projection,
+                p_render_data->scene_data->cam_orthogonal,
+                push_constant.z_near, push_constant.z_far);
+        push_constant.depth_linearize_mul = linearize.mul;
+        push_constant.depth_linearize_add = linearize.add;
+    } else {
+        // No scene_data means no trustworthy description of the scene depth
+        // buffer. The compute composite tolerates that because its depth test
+        // is already gated on `depth_test_enabled`; this pass must gate too,
+        // and it fails OPEN (composite without occlusion) rather than risk
+        // discarding the whole frame on a comparison against garbage.
+        push_constant.depth_linearize_mul = push_constant.z_near;
+        push_constant.depth_linearize_add = push_constant.z_far;
+        push_constant.depth_test_enabled = 0;
+    }
 
     draw_device->draw_list_set_push_constant(draw_list, &push_constant, sizeof(GaussianSplatRenderer::PainterlyCompositePushConstant));
     draw_device->draw_list_draw(draw_list, false, 1, 3);

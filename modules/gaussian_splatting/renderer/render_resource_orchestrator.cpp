@@ -2,7 +2,6 @@
 
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
-#include "core/io/file_access.h"
 #include "core/math/math_defs.h"
 #include "core/string/ustring.h"
 #include "servers/rendering/rendering_device.h"
@@ -607,91 +606,6 @@ void RenderResourceOrchestrator::update_gpu_pass_metrics_from_tile_renderer() {
 	metrics.gpu_utilization = utilization * 100.0f;
 }
 
-RID RenderResourceOrchestrator::load_graphics_shader(const Vector<String> &p_vertex_paths,
-		const Vector<String> &p_fragment_paths) {
-	RenderingDevice *device = device_state->rd;
-	if (!device) {
-		if (GaussianSplatManager *manager = GaussianSplatManager::get_singleton()) {
-			device = manager->get_primary_rendering_device();
-		}
-	}
-	if (!device) {
-		return RID();
-	}
-
-	Vector<uint8_t> vertex_spirv;
-	const int vertex_path_count = p_vertex_paths.size();
-	for (int i = 0; i < vertex_path_count; i++) {
-		const String &path = p_vertex_paths[i];
-		if (path.is_empty()) {
-			continue;
-		}
-
-		Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
-		if (file.is_null()) {
-			continue;
-		}
-
-		String source = file->get_as_text();
-		if (source.is_empty()) {
-			continue;
-		}
-
-		vertex_spirv = device->shader_compile_spirv_from_source(RD::SHADER_STAGE_VERTEX, source);
-		if (!vertex_spirv.is_empty()) {
-			break;
-		}
-	}
-
-	if (vertex_spirv.is_empty()) {
-		return RID();
-	}
-
-	Vector<uint8_t> fragment_spirv;
-	const int fragment_path_count = p_fragment_paths.size();
-	for (int i = 0; i < fragment_path_count; i++) {
-		const String &path = p_fragment_paths[i];
-		if (path.is_empty()) {
-			continue;
-		}
-
-		Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
-		if (file.is_null()) {
-			continue;
-		}
-
-		String source = file->get_as_text();
-		if (source.is_empty()) {
-			continue;
-		}
-
-		fragment_spirv = device->shader_compile_spirv_from_source(RD::SHADER_STAGE_FRAGMENT, source);
-		if (!fragment_spirv.is_empty()) {
-			break;
-		}
-	}
-
-	if (fragment_spirv.is_empty()) {
-		return RID();
-	}
-
-	Vector<RD::ShaderStageSPIRVData> stages;
-	RD::ShaderStageSPIRVData stage;
-	stage.shader_stage = RD::SHADER_STAGE_VERTEX;
-	stage.spirv = vertex_spirv;
-	stages.push_back(stage);
-
-	stage.shader_stage = RD::SHADER_STAGE_FRAGMENT;
-	stage.spirv = fragment_spirv;
-	stages.push_back(stage);
-
-	RID shader = device->shader_create_from_spirv(stages);
-	if (shader.is_valid()) {
-		(renderer->*runtime_ports.track_resource_owner)(shader, device, true, nullptr);
-	}
-	return shader;
-}
-
 void GaussianSplatRenderer::_initialize_shaders() {
 	resource_orchestrator->initialize_shaders();
 }
@@ -708,7 +622,3 @@ void GaussianSplatRenderer::update_pipeline_features(RenderingDevice *p_device) 
 	resource_orchestrator->update_pipeline_features(p_device);
 }
 
-RID GaussianSplatRenderer::_load_graphics_shader(const Vector<String> &p_vertex_paths,
-		const Vector<String> &p_fragment_paths) {
-	return resource_orchestrator->load_graphics_shader(p_vertex_paths, p_fragment_paths);
-}

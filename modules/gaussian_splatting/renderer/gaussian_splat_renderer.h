@@ -756,7 +756,6 @@ public:
             const LocalVector<Transform3D> &p_instance_transforms);
     CullStageOutput _cull_for_view(const Transform3D &p_world_to_camera_transform, const Projection &p_projection, const Size2i &p_viewport_size);
     RID _get_painterly_depth_texture() const;
-    RID _load_graphics_shader(const Vector<String> &p_vertex_paths, const Vector<String> &p_fragment_paths);
     void _on_painterly_material_changed();
     void _synchronize_tile_submission(RenderingDevice *p_device, const char *p_context);
 
@@ -908,9 +907,6 @@ public:
     const Gaussian *get_streamed_gaussian(uint32_t p_index) const { return _get_streamed_gaussian(p_index); }
     void apply_debug_options_to_render_params(TileRenderer::RenderParams &r_params) const;
     RID get_painterly_depth_texture() const { return _get_painterly_depth_texture(); }
-    RID load_graphics_shader(const Vector<String> &p_vertex_paths, const Vector<String> &p_fragment_paths) {
-        return _load_graphics_shader(p_vertex_paths, p_fragment_paths);
-    }
     void synchronize_tile_submission(RenderingDevice *p_device, const char *p_context) { _synchronize_tile_submission(p_device, p_context); }
     bool ensure_sort_rendering_device(const char *p_context) override;
     RenderingDevice *get_sort_rendering_device() const override;

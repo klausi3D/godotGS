@@ -95,7 +95,7 @@ public:
     Error populate_painterly_gbuffer(GaussianSplatRenderer *p_renderer, const Size2i &p_internal_size,
             const Transform3D &p_view_transform, const Projection &p_projection, const Projection &p_render_projection);
     bool composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
-            RID p_depth_texture, const Size2i &p_viewport_size);
+            RID p_depth_texture, const Size2i &p_viewport_size, bool p_scene_depth_test_enabled);
     void free_painterly_resources(GaussianSplatRenderer *p_renderer);
     void clear_painterly_gpu_resources(GaussianSplatRenderer *p_renderer);
     void update_painterly_gpu_resources(GaussianSplatRenderer *p_renderer);
@@ -148,8 +148,8 @@ private:
     RID cached_stroke_density_buffer;
 
     // Final composite resources (owned by PainterlyRenderer).
-    RID painterly_composite_shader;
-    RidOwner painterly_composite_shader_owner;
+    // The composite shader itself is the embedded `composite_shader` below: it is
+    // owned by the ShaderRD version and must never be freed through _free_tracked_rid.
     PipelineCacheRD painterly_composite_pipeline;
     bool painterly_composite_pipeline_initialized = false;
     RID painterly_depth_sampler;
@@ -159,16 +159,13 @@ private:
     bool painterly_composite_failed = false;
     bool material_textures_dirty = false;
 
-    // Composite pipeline resources (Phase 1 extension)
+    // Composite pipeline resources. `composite_shader` is the embedded
+    // painterly_composite.glsl compiled into the binary via ShaderRD; it is what
+    // the viewport composite draws with (#986). It is created on
+    // RD::get_singleton(), the same device that owns the viewport framebuffer.
     class PainterlyCompositeShaderRD *composite_shader_source = nullptr;
     RID composite_shader_version;
     RID composite_shader;
-    RID composite_pipeline;
-    RID composite_sampler;
-    RidOwner composite_sampler_owner;
-    RID composite_depth_sampler;
-    RidOwner composite_depth_sampler_owner;
-    bool composite_initialized = false;
     bool composite_failed = false;
 
     // Shader pipelines (managed internally)
@@ -204,13 +201,12 @@ private:
     Error _compile_composite_shader();
     void _execute_sobel_pass(RID p_color_input);
     void _execute_brush_pass(RID p_color_input, RID p_edge_input);
-    void _ensure_composite_resources();
     RenderingDevice *_resolve_tracked_device(const RidOwner &p_owner, GaussianSplatRenderer *p_renderer) const;
     void _free_tracked_rid(RID &p_rid, RidOwner &p_owner, GaussianSplatRenderer *p_renderer, bool p_forget_renderer_owner);
     void _shutdown_internal(GaussianSplatRenderer *p_renderer);
     void _update_painterly_texture_tracking(GaussianSplatRenderer *p_renderer);
     void _forget_painterly_texture_tracking(GaussianSplatRenderer *p_renderer);
-    void _ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer, RD::FramebufferFormatID p_framebuffer_format);
+    void _ensure_painterly_composite_resources(GaussianSplatRenderer *p_renderer);
 };
 
 #endif // GS_PAINTERLY_RENDERER_H

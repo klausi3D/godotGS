@@ -40,6 +40,25 @@ This checker asserts the source-level invariants that keep the fix alive:
      composited texel forced to alpha=1.0, which flattens splat coverage on a
      transparent_bg viewport and is invisible to every opaque-viewport oracle.
 
+  G. The PAINTERLY viewport composite obeys the same phase contract (#986).
+     It is a graphics pass that draws into render_buffers->get_internal_texture()
+     unconditionally, so it is correct only at the pre-upscale seam and must stay
+     gated on the phase; in the legacy post-scene phase the internal buffer has
+     already been consumed and the write would be invisible. Its shader must come
+     from the EMBEDDED PainterlyCompositeShaderRD, never from a runtime file load:
+     the file-load path could not compile (the two on-disk copies began with
+     ShaderRD stage delimiters, which are not GLSL) and its `res://modules/...`
+     paths do not exist in an exported project at all. And because its destination
+     is the LINEAR pre-tonemap buffer, the fragment must apply the same
+     sRGB->linear source decode the compute blit applies under
+     `source_decode_srgb` (#930) -- on UNPREMULTIPLIED values, with the exact
+     piecewise EOTF. Dropping any one of the three is silent: the composite stops
+     running, or runs in the wrong colour space, with no warning either way.
+     It must also take its scene-depth math from the SHARED guard include and the
+     one host derivation, use the shared depth epsilon, and gate the test on
+     composite/depth_test -- a private copy of any of those is what discarded
+     every painterly fragment while the composite looked like it was running.
+
 Every anchor is fail-closed: a missing file or a missing/reordered anchor is a
 FAILURE, never a skip. If a refactor legitimately moves an anchor, update the
 anchor here in the same change — do not weaken it to a substring that would
@@ -59,6 +78,8 @@ SCENE_RENDER_RD = ROOT / "servers" / "rendering" / "renderer_rd" / "renderer_sce
 RENDER_DATA_RD_H = ROOT / "servers" / "rendering" / "renderer_rd" / "storage_rd" / "render_data_rd.h"
 OUTPUT_COMPOSITOR = ROOT / "modules" / "gaussian_splatting" / "interfaces" / "output_compositor.cpp"
 VIEWPORT_BLIT_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "viewport_blit.glsl"
+PAINTERLY_RENDERER = ROOT / "modules" / "gaussian_splatting" / "interfaces" / "painterly_renderer.cpp"
+PAINTERLY_COMPOSITE_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "painterly_composite.glsl"
 
 
 def _rel(path: Path) -> str:
@@ -259,6 +280,110 @@ def check_push_constant_mirror(failures: list[str]) -> None:
         )
 
 
+# G: the painterly viewport composite (#986). Anchors are literal because the
+# three invariants are each one line of intent, and each one is silent when lost.
+def check_painterly_composite(failures: list[str]) -> None:
+    compositor = _read(OUTPUT_COMPOSITOR, failures)
+    renderer = _read(PAINTERLY_RENDERER, failures)
+    shader = _read(PAINTERLY_COMPOSITE_GLSL, failures)
+    if compositor is None or renderer is None or shader is None:
+        return
+
+    _find(
+        _LINE_COMMENT.sub("", compositor),
+        "if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid())",
+        "G: painterly composite gated on the pre-upscale phase",
+        OUTPUT_COMPOSITOR,
+        failures,
+    )
+
+    renderer_code = _LINE_COMMENT.sub("", renderer)
+    _find(
+        renderer_code,
+        "_compile_composite_shader() != OK",
+        "G: painterly composite uses the embedded PainterlyCompositeShaderRD",
+        PAINTERLY_RENDERER,
+        failures,
+    )
+    # Fail closed on the RETURN of the runtime loader, not just on the absence of
+    # the embedded call: a reverted change would re-add a file load next to it.
+    for banned, why in (
+        ("load_graphics_shader", "the runtime GLSL file loader (#986 blocker A)"),
+        ("painterly_composite.vert.glsl", "an on-disk composite shader path"),
+        ("painterly_composite.frag.glsl", "an on-disk composite shader path"),
+    ):
+        if banned in renderer_code:
+            failures.append(
+                f"{_rel(PAINTERLY_RENDERER)}: reintroduces {why} (`{banned}`). The composite "
+                "shader must come from the embedded PainterlyCompositeShaderRD; a runtime "
+                "file load cannot compile the ShaderRD stage delimiters and its res:// paths "
+                "do not exist in an exported project."
+            )
+
+    shader_code = _LINE_COMMENT.sub("", shader)
+    # Decode on UNPREMULTIPLIED values, with the exact EOTF, re-premultiplied by
+    # the blend-modulated alpha. Anchoring the whole expression is what makes a
+    # partial revert (e.g. decoding the premultiplied sample) visible.
+    if "painterly_sample.rgb / painterly_sample.a" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not unpremultiply before "
+            "decoding — sRGB decode does not commute with alpha premultiplication (#930)"
+        )
+    if "srgb_to_linear_exact(straight_srgb) * alpha" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not decode its source with "
+            "srgb_to_linear_exact and re-premultiply — its destination is the LINEAR "
+            "pre-tonemap internal buffer, so the painterly frame lands in the wrong colour "
+            "space with no warning (#930)"
+        )
+    if '#include "includes/gs_srgb.glsl"' not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: missing `#include \"includes/gs_srgb.glsl\"` — "
+            "srgb_to_linear_exact must come from the shared include, not a local copy that "
+            "can drift from the compute blit's decode"
+        )
+    # The scene-depth guard must come from the shared include and must be GATED on
+    # composite/depth_test. Both reverts are silent: a local copy drifts from the
+    # compute blit (that divergence is what discarded every fragment, #986), and an
+    # ungated test ignores a setting the user set.
+    if '#include "includes/gs_scene_depth_guard.glsl"' not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: missing "
+            "`#include \"includes/gs_scene_depth_guard.glsl\"` — the scene-depth occlusion "
+            "math must be the one shared with viewport_blit.glsl, not a second copy (#986)"
+        )
+    if "if (params.depth_test_enabled != 0)" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: composite does not gate its scene-depth test "
+            "on params.depth_test_enabled — it would depth-test unconditionally and ignore "
+            "rendering/gaussian_splatting/composite/depth_test, which the compute composite honours"
+        )
+    if "gs_scene_depth_occludes(" not in shader_code:
+        failures.append(
+            f"{_rel(PAINTERLY_COMPOSITE_GLSL)}: shader never calls gs_scene_depth_occludes — "
+            "the shared guard is declared but dead"
+        )
+
+    # Host side of the same two contracts.
+    if "push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant does not use the shared "
+            "GS_COMPOSITE_DEPTH_EPSILON_VIEW. A private epsilon moves the painterly occlusion "
+            "silhouette away from the compute composite's with no other symptom (#986)"
+        )
+    if "gs_derive_scene_depth_linearize(" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant is not filled from "
+            "gs_derive_scene_depth_linearize — the ONE host derivation shared with the compute "
+            "composite. Deriving scene depth any other way is #986's blocker C"
+        )
+    if "push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;" not in renderer_code:
+        failures.append(
+            f"{_rel(PAINTERLY_RENDERER)}: composite push constant does not plumb "
+            "composite/depth_test through to the shader"
+        )
+
+
 def run_checks() -> list[str]:
     failures: list[str] = []
     check_forward_clustered(failures)
@@ -266,6 +391,7 @@ def run_checks() -> list[str]:
     check_render_data_rd(failures)
     check_output_compositor(failures)
     check_push_constant_mirror(failures)
+    check_painterly_composite(failures)
     return failures
 
 
@@ -392,6 +518,69 @@ def self_test() -> int:
                 lambda t: t.replace("params.destination_has_alpha = pre_upscale_phase;",
                         "params.destination_has_alpha = false;", 1),
                 check_output_compositor),
+        # G1: painterly composite loses its phase gate, so the legacy post-scene
+        # phase would draw into an already-consumed internal buffer (#986).
+        ("G1: painterly composite phase gate dropped", "OUTPUT_COMPOSITOR",
+                lambda t: t.replace(
+                        "if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid())",
+                        "if (p_painterly_active && subsystem_state.painterly_renderer.is_valid())", 1),
+                check_painterly_composite),
+        # G2: the embedded ShaderRD call is replaced by the runtime file loader
+        # that could never compile — #986 blocker A restored verbatim.
+        ("G2: runtime GLSL file loader reintroduced", "PAINTERLY_RENDERER",
+                lambda t: t.replace("_compile_composite_shader() != OK",
+                        "!p_renderer->load_graphics_shader("
+                        "Vector<String>(), Vector<String>()).is_valid()", 1),
+                check_painterly_composite),
+        # G3: the composite decodes, but on the PREMULTIPLIED sample — the
+        # non-commuting case, which looks plausible and is wrong everywhere
+        # alpha < 1 (up to ~88% error; see the #930 colour round-trip proof).
+        ("G3: decode applied to premultiplied values", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("vec3 straight_srgb = painterly_sample.rgb / painterly_sample.a;",
+                        "vec3 straight_srgb = painterly_sample.rgb;", 1),
+                check_painterly_composite),
+        # G4: decode dropped entirely — the pre-fix expression, which writes
+        # sRGB-encoded values into the linear pre-tonemap buffer (#930).
+        ("G4: source decode dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("srgb_to_linear_exact(straight_srgb) * alpha",
+                        "straight_srgb * alpha", 1),
+                check_painterly_composite),
+        # G5: the shared include is replaced by a local copy, which is how the
+        # painterly decode would silently drift from the compute blit's.
+        ("G5: shared sRGB include replaced by a local copy", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace('#include "includes/gs_srgb.glsl"',
+                        "vec3 srgb_to_linear_exact(vec3 c) { return c * c; }", 1),
+                check_painterly_composite),
+        # G6: the scene-depth guard reverts to a second local copy — the exact
+        # shape that diverged from the compute blit and discarded every fragment.
+        ("G6: shared scene-depth guard include dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace('#include "includes/gs_scene_depth_guard.glsl"', "", 1),
+                check_painterly_composite),
+        # G7: the depth test stops being gated, so composite/depth_test=false is
+        # silently ignored on the painterly path only.
+        ("G7: depth-test gate dropped", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("if (params.depth_test_enabled != 0)", "if (true)", 1),
+                check_painterly_composite),
+        # G8: the shared guard is included but never called — declared-and-dead,
+        # which no include check can see.
+        ("G8: shared guard included but never called", "PAINTERLY_COMPOSITE_GLSL",
+                lambda t: t.replace("gs_scene_depth_occludes(", "false && occludes_disabled(", 1),
+                check_painterly_composite),
+        # G9: host reverts to the private 0.0005 epsilon, moving the painterly
+        # silhouette away from the compute composite's with no other symptom.
+        ("G9: shared depth epsilon replaced by a private literal", "PAINTERLY_RENDERER",
+                lambda t: t.replace("push_constant.depth_epsilon = GS_COMPOSITE_DEPTH_EPSILON_VIEW;",
+                        "push_constant.depth_epsilon = 0.0005f;", 1),
+                check_painterly_composite),
+        # G10: host stops using the ONE scene-depth derivation — blocker C.
+        ("G10: host drops the shared scene-depth derivation", "PAINTERLY_RENDERER",
+                lambda t: t.replace("gs_derive_scene_depth_linearize(", "legacy_projection_columns(", 1),
+                check_painterly_composite),
+        # G11: composite/depth_test stops reaching the shader.
+        ("G11: depth-test setting not plumbed to the shader", "PAINTERLY_RENDERER",
+                lambda t: t.replace("push_constant.depth_test_enabled = p_scene_depth_test_enabled ? 1 : 0;",
+                        "push_constant.depth_test_enabled = 1;", 1),
+                check_painterly_composite),
     )
 
     ok = True
@@ -415,7 +604,10 @@ def main(argv: list[str]) -> int:
         for line in failures:
             print(f"  - {line}")
         return 1
-    print("GS pre-upscale composite hook guard passed (ordering, phase gating, encoding mirror).")
+    print(
+        "GS pre-upscale composite hook guard passed (ordering, phase gating, encoding mirror, "
+        "painterly composite reachability + source decode)."
+    )
     return 0
 
 

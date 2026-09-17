@@ -1648,23 +1648,44 @@ void OutputCompositor::integrate_final_output(GaussianSplatRenderer *p_renderer,
         }
         output_cache.last_render_target = composite_target;
 
+        const bool scene_depth_test_requested = gs_get_composite_depth_test_enabled();
+
         bool composited = false;
         auto &subsystem_state = p_renderer->get_subsystem_state();
-        if (p_painterly_active && subsystem_state.painterly_renderer.is_valid()) {
+        // The painterly graphics composite draws into render_buffers->get_internal_texture()
+        // unconditionally (PainterlyRenderer::composite_painterly_output), so it is only
+        // correct at the pre-upscale seam, where that buffer is still ahead of every
+        // consumer. In the legacy post-scene phase (forward mobile / multiview /
+        // reflection probes) the internal buffer has already been consumed, so the write
+        // would be invisible; those paths keep the present-redirecting compute composite
+        // below. Same destination rule as `composite_target` above (#986, GPU-001 Option B).
+        if (pre_upscale_phase && p_painterly_active && subsystem_state.painterly_renderer.is_valid()) {
             RID depth_for_composite = p_renderer->get_painterly_depth_texture();
             if (!depth_for_composite.is_valid()) {
                 depth_for_composite = p_cached_depth;
             }
             if (depth_for_composite.is_valid()) {
                 composited = subsystem_state.painterly_renderer->composite_painterly_output(
-                        p_renderer, p_render_data, p_final_output, depth_for_composite, viewport_size);
+                        p_renderer, p_render_data, p_final_output, depth_for_composite, viewport_size,
+                        scene_depth_test_requested);
                 if (composited) {
+                    // This branch is the composite for the frame: the `!composited`
+                    // block below -- the only other place these are assigned -- is
+                    // skipped. Leaving them at their false defaults reported every
+                    // successful painterly composite as "no copy attempted", which
+                    // only read as clean because `copy_failed = attempted && !success`
+                    // short-circuits on the false attempt.
                     output_cache.last_viewport_copy_success = true;
+                    output_cache.last_output_copy_attempted = true;
+                    output_cache.last_output_copy_success = true;
+                    // The pass runs the same scene-depth guard the compute composite
+                    // runs, under the same setting, so the depth contract is honored
+                    // exactly when it was requested.
+                    output_cache.last_depth_test_honored = true;
                 }
             }
         }
 
-        const bool scene_depth_test_requested = gs_get_composite_depth_test_enabled();
         const GSSceneCompositeDepthPolicy scene_depth_policy = gs_get_scene_composite_depth_policy();
         output_cache.last_strict_depth_contract_required =
                 scene_depth_test_requested && scene_depth_policy == GS_SCENE_COMPOSITE_DEPTH_POLICY_STRICT;

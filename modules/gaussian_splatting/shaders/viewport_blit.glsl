@@ -84,54 +84,22 @@ vec3 linear_to_srgb(vec3 color) {
     return clamp(0.662002687 * S1 + 0.684122060 * S2 - 0.323583601 * S3 - 0.0225411470 * linear, vec3(0.0), vec3(1.0));
 }
 
-// EXACT piecewise sRGB EOTF (IEC 61966-2-1), used ONLY for the pre-upscale
-// source decode (params.source_decode_srgb). It must be the exact inverse of
-// the engine tonemapper's linear_to_srgb encode (tonemap.glsl uses the exact
-// piecewise OETF), so that 8-bit source content round-trips bit-stably through
-// decode -> linear tonemap -> encode. The fast polynomial srgb_to_linear above
-// carries ~0.4% error (~1 LSB), which measurably eats 1-LSB margins on this
-// round trip (QA tie-break margin); the legacy destination decode/encode paths
-// keep the fast approximations so their output is unchanged.
-vec3 srgb_to_linear_exact(vec3 color) {
-    vec3 srgb = clamp(color, vec3(0.0), vec3(1.0));
-    vec3 low = srgb / 12.92;
-    vec3 high = pow((srgb + vec3(0.055)) / 1.055, vec3(2.4));
-    return mix(high, low, lessThan(srgb, vec3(0.04045)));
-}
+// srgb_to_linear_exact() -- the EXACT piecewise sRGB EOTF used for the
+// pre-upscale source decode (params.source_decode_srgb) -- is shared with the
+// painterly viewport composite, which performs the same decode into the same
+// linear destination. The legacy destination decode/encode paths keep the fast
+// approximations above so their output is unchanged.
+#include "includes/gs_srgb.glsl"
 
-// Convert raw scene depth to linear view-space depth.
-float linearize_scene_depth(float raw_depth) {
-    if (params.depth_is_orthogonal != 0) {
-        float ndc = raw_depth * 2.0 - 1.0;
-        return -(ndc * (params.z_far - params.z_near) - (params.z_far + params.z_near)) / 2.0;
-    }
-    return params.depth_linearize_mul / (params.depth_linearize_add - raw_depth);
-}
-
-// Clamp invalid depth values to a stable far-plane fallback.
-float sanitize_view_depth(float depth_value) {
-    if (isnan(depth_value) || isinf(depth_value)) {
-        return -1.0;
-    }
-    return abs(depth_value);
-}
-
-// Detect background depth samples near the far plane.
-bool is_scene_background_depth(float raw_scene_depth, float scene_view_depth) {
-    float scene_depth_from_zero = sanitize_view_depth(linearize_scene_depth(0.0));
-    float scene_depth_from_one = sanitize_view_depth(linearize_scene_depth(1.0));
-    if (scene_depth_from_zero < 0.0 || scene_depth_from_one < 0.0) {
-        return false;
-    }
-
-    float clear_raw_depth = scene_depth_from_zero >= scene_depth_from_one ? 0.0 : 1.0;
-    float far_view_depth = max(scene_depth_from_zero, scene_depth_from_one);
-    float far_tolerance = max(params.depth_epsilon * 2.0, 1e-3);
-
-    bool raw_matches_clear = abs(raw_scene_depth - clear_raw_depth) <= 1e-6;
-    bool view_matches_far = abs(scene_view_depth - far_view_depth) <= far_tolerance;
-    return raw_matches_clear || view_matches_far;
-}
+// The scene-depth linearization, background detection and occlusion predicate
+// are shared with the painterly viewport composite (#986). Two independently
+// written copies existed; the painterly one linearized from raw projection
+// columns instead of the host's single derivation, never recognised the
+// background clear value, and therefore discarded every splat fragment the
+// moment that composite became reachable. gs_scene_depth_occludes() is this
+// shader's previous logic with its inputs passed as arguments rather than read
+// from `params`, so both callers keep their own push-constant layouts.
+#include "includes/gs_scene_depth_guard.glsl"
 
 // Blit the rendered viewport into the final output target.
 void main() {
@@ -163,18 +131,11 @@ void main() {
                 ivec2(0), source_depth_size - 1);
         float gs_depth = texelFetch(u_source_depth, gs_depth_coord, 0).r;
         float scene_depth = destination_depth_in_bounds ? texelFetch(u_destination_depth, destination_coord, 0).r : 1.0;
-        bool depths_in_range = (gs_depth >= 0.0 && gs_depth <= 1.0 &&
-                scene_depth >= 0.0 && scene_depth <= 1.0);
 
-        if (depths_in_range && gs_depth < 0.999999) {
-            float scene_view_depth = sanitize_view_depth(linearize_scene_depth(scene_depth));
-            float gs_view_depth = sanitize_view_depth(mix(params.z_near, params.z_far, clamp(gs_depth, 0.0, 1.0)));
-            bool scene_is_background = is_scene_background_depth(scene_depth, scene_view_depth);
-
-            if (!scene_is_background && scene_view_depth >= 0.0 && gs_view_depth >= 0.0 &&
-                    scene_view_depth <= gs_view_depth - params.depth_epsilon) {
-                return;
-            }
+        if (gs_scene_depth_occludes(scene_depth, gs_depth, params.depth_is_orthogonal,
+                params.z_near, params.z_far, params.depth_linearize_mul, params.depth_linearize_add,
+                params.depth_epsilon)) {
+            return;
         }
     }
     vec4 source_color = texture(u_source_texture, source_uv);

@@ -2770,6 +2770,16 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::render_pain
 		return render_baseline_stage(p_input, r_output, painterly_failure, p_frame_start_usec);
 	}
 
+	// #987: the baseline path publishes its depth through render_tile_fallback()'s
+	// out-parameter, but the painterly path never did, so `raster_output.depth`
+	// stayed invalid on every painterly frame. Two consequences, both silent:
+	// the strict scene-depth contract in OutputCompositor saw no source depth and
+	// skipped the composite outright at the shipped `composite/depth_test=true`
+	// (painterly rendered nothing), and the render-cache signature below was
+	// invalidated every frame because `require_scene_depth` could never be met.
+	// Painterly's depth is the same normalized-linear texture the composite
+	// shaders sample as mix(z_near, z_far, d), so it is the correct source depth.
+	r_output.depth = renderer->get_painterly_depth_texture();
 	r_output.raster_path = "painterly";
 	performance_state.metrics.raster_path = "painterly";
 	frame_state.render_time_ms = painterly_render_time_ms;
