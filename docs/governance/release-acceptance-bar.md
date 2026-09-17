@@ -11,6 +11,16 @@ with none of those is not a claim, it is a hope.
 Recorded against base `de2cb8007ba` (2026-09-03). Code citations below were read
 at that commit; re-verify before relying on them.
 
+> **Amended 2026-09-17 at `b915afc51c5` (#1016).** The public-alpha envelope now
+> **includes streaming open worlds**. It previously excluded them, which put this
+> document in direct contradiction with the release-gate manifest — the alpha could
+> not pass its own gate, and no work on the alpha's declared scope would have changed
+> that. The decision, the options weighed and the full cost are recorded in
+> [ADR: widen the public-alpha envelope to streaming open
+> worlds](../architecture/adr-alpha-envelope-widened-to-streaming.md). §5, §6, §9.1,
+> §10 and §11 below are amended accordingly. **The gate was not narrowed and no
+> threshold was lowered**; the scope moved to meet the gate.
+
 ## 1. Release intent
 
 **v1.0 is production-ready**: someone can ship a commercial game with it.
@@ -110,6 +120,11 @@ Because streaming and multi-node are *inside* the envelope, their defects are
 user-visible-correctness blockers under §4.1 by definition. This is the most
 demanding of the envelope options and is a deliberate choice.
 
+**Streaming open worlds are now also inside the *alpha* envelope (§10.1).** The only
+scope the v1.0 envelope adds over the alpha's is **multi-node scenes**. Consequently
+every streaming defect is an alpha blocker under §4.1, not a v1.0 one — §11 lists which
+issues that moved.
+
 ## 6. Visual proof
 
 **Human eyes on real-scan content.** Synthetic CI fixtures (2k–30k splats) keep
@@ -120,6 +135,11 @@ QA pin masked it (#903, #921).
 Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.
+
+**The alpha's pass now has to cover streaming too** (§10.1). The procedure drafted on
+#1012 covers the resident and world routes and does **not** cover streaming; a streaming
+configuration must be added before it is executed, or the pass does not span the envelope
+it claims.
 
 **Binding:** a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
@@ -137,6 +157,26 @@ At the base commit the manifest
 settings of which **3** are marked `public`, **150** carry no `publicness` at
 all, and **139** are `inventory_only` — present in the inventory with nothing
 verifying they do anything.
+
+**Corrected 2026-09-17: those figures count only *literal* fields, and read alone they
+understate the public surface by a factor of about fifty.** `publicness` is inherited
+from the longest matching family prefix and only then overridden per setting
+(`modules/gaussian_splatting/tests/check_project_settings_manifest.py:313-331`), and 21
+of the 23 families default to `public` — including the root family. So the three numbers
+above are each true, and the number that describes the surface a user is exposed to is
+that **153 of the 193 settings resolve to `public`**, of which 139 are
+`inventory_only`. Only `…/debug/` (`debug_only`) and `…/lighting/` (`internal`) inherit
+anything else.
+
+**A consequence, recorded because it is a §4.2 shape.** §9's machine criterion
+"`publicness` is set on every setting in the manifest" **already passes today**, because
+the guard evaluates the *resolved* entry
+(`check_project_settings_manifest.py:377-378`). The §11 work item "Classify all 193
+settings; guard that `publicness` is always set" is therefore satisfied as written while
+150 settings remain unclassified in practice. If the intent is explicit per-key
+classification — and it is — the guard must check the **literal** field. That is a
+v1.0 item, not an alpha one, but the criterion should not be cited as evidence in the
+meantime.
 
 A promise over a surface that large is unkeepable; a small kept promise is worth
 more than a large broken one.
@@ -191,6 +231,78 @@ counts as SUCCESS against a required check — a silent total bypass. The gate m
 assert execution, not merely the absence of failure. See
 [evidence integrity](evidence-integrity.md).
 
+### 9.1 What the candidate evidence bundle must contain
+
+This is the specification #961 builds against. It was **derived by running**
+`tests/ci/check_renderer_release_gates.py --mode candidate` against the real
+`docs/reference/renderer_release_gate_manifest.json` until it returned
+`Renderer release gate candidate check passed`, not by reading the manifest — the two
+differ, because several required fields are enforced in the validator and named nowhere
+in the manifest. Re-derive it the same way if the validator changes.
+
+**Two files, never one.** The evidence bundle and the issue snapshot are passed
+separately (`--candidate-evidence`, `--issues-json`) and the gate refuses them if they
+are the same file: "an issue snapshot embedded in the candidate evidence cannot certify
+its own blocker set".
+
+**Top-level fields of the evidence bundle:**
+
+| Field | Requirement |
+| --- | --- |
+| `commit` | must equal the run's `--expected-commit` |
+| `commit_time_utc` | parseable; every artifact's mtime is checked against it |
+| `release_channel` | exactly `public-alpha` |
+| `release_tag` | must match `v*-alpha*` |
+| `artifacts` | object keyed by the ten group names below |
+| `gpu_harness_report` | repo-relative path to the GPU report JSON |
+| `benchmark_report` | repo-relative path to the benchmark report JSON |
+| `issue_classifications` | object; classifies each open P0/P1/release-blocker |
+| `resolved_manifest_issues` | proof rows for manifest-tracked blockers that are now closed |
+
+**Ten artifact groups**, each requiring `path`, `sha256`, `godot_binary_commit` and
+`godot_binary_mtime_utc`: `linux_release_archive`, `windows_release_archive`,
+`runtime_validation_report`, `gpu_harness_report`, `production_evidence_summary`,
+`benchmark_suite_report`, `compatibility_source_snapshot`,
+`docs_release_acceptance_report`, `known_limitations_page`, `open_world_proof`. Each
+path must resolve *inside* the repository, the file must exist, its re-hash must match
+`sha256`, its commit must not be stale and its mtime must not predate `commit_time_utc`.
+The workflow binds an eleventh group, `windows_export_template_archive`, via
+`--artifact-sha`.
+
+**GPU harness report.** `supervisor_exit` must be **present** and `0` — a report without
+it is refused outright, which closes the delete-the-field laundering path. If present,
+`totals_authoritative` must be `true`, and the run-verdict list/scalar fields must be
+empty/zero. `batches` must be a **list** of objects each carrying `name`. All eight
+`gpu_harness_policy.required_batches` must appear, each meeting its
+`minimum_test_cases`: `CompositorHazard` (1), `RendererPipeline` (4), `Lifetime` (4),
+`OutputCompositor` (4), `RendererSceneTree` (1), `WorldSceneTree` (5),
+`SceneDirectorSceneTree` (14), `GpuSorting` (1). Every batch additionally needs
+`test_cases` and `assertions` as **objects**, `summary_parse_ok: true`,
+`case_assert_audit_ok: true`, a `zero_assertion_cases` list, and a `zero_assert_reported`
+count that reconciles with that list's length. Zero RID leaks, no timeout, `rc` 0.
+
+**Benchmark report.** A row per lane in `benchmark_acceptance.candidate_required_lanes` —
+`static_baseline`, `streaming_corridor`, `city_flyover`, `instance_storm`,
+`integrity_sentinel`, `parity_fidelity` — each carrying all fifteen
+`required_fields_non_null`. GPU timing is checked by name: when
+`gpu_timing_available` is true, `gpu_time_frame_ms` must be a positive number; when it is
+not, the row must carry an explicit `gpu_frame_time_source`/`gpu_time_frame_source` of
+`"unavailable"`. Silence is a failure, not an exemption. A timed-out lane fails, and a
+CPU/fallback route fails unless the lane explicitly allows it.
+
+**Visual acceptance.** At least one capture; reference-match count equal to capture
+count; SSIM and PSNR non-null.
+
+**Issue snapshot.** Every open P0, P1 or release-blocker resolves to `blocking`,
+`accepted_alpha_limitation` (which requires a `docs_path` equal to the
+`known_limitations_page`) or `deferred` (which requires a rationale).
+
+> **A consequence worth stating separately: the three issues the manifest tracks as
+> `blocking` — #351, #352 and #360 — must be CLOSED before any candidate can pass.** A
+> tracked blocking issue that is still open fails the gate with "candidate issue #N is
+> still blocking", and one omitted from the snapshot fails with "missing manifest-tracked
+> blocking issue #N". There is no classification that lets an open one through.
+
 ## 10. Public Alpha — the reduced bar
 
 The alpha exists so that design errors are found early by users rather than late
@@ -198,7 +310,7 @@ by us, while the v1.0 program is still being built.
 
 | | Public Alpha | v1.0 Production |
 | --- | --- | --- |
-| Envelope | Single resident scene (see §10.1) | + multi-node + streaming |
+| Envelope | Resident scene + world node + **streaming open worlds** (see §10.1) | + multi-node |
 | Blocks | User-visible correctness only | + evidence integrity (§4.2) |
 | Visual proof | Real-scan human pass **required** | Same, across full envelope |
 | API stability | **No promise**, stated plainly | Bounded public surface (§7) |
@@ -220,8 +332,20 @@ envelope is:
   Mobile is a separate route. None of those are in the alpha envelope.
 - **`GaussianSplatNode3D` with an imported asset, and `GaussianSplatWorld3D`.**
   The world route is **in** the alpha envelope by maintainer decision, which
-  makes #862 an alpha blocker (see §11). Streaming *open worlds* remain out —
-  admitting the world node is not admitting the 50M chunked ladder.
+  makes #862 an alpha blocker (see §11).
+- **Streaming open worlds are IN, as of 2026-09-17 (#1016).** This reverses the
+  sentence that stood here, which read "Streaming *open worlds* remain out —
+  admitting the world node is not admitting the 50M chunked ladder." That exclusion
+  put this document in contradiction with the release-gate manifest, which requires
+  the `open_world_proof` artifact group and the `streaming_corridor` and
+  `city_flyover` benchmark lanes of **every** public-alpha candidate. Confirmed by
+  running `check_renderer_release_gates.py --mode candidate` against the real
+  manifest: an otherwise-complete bundle passes, and removing exactly those three
+  produces exactly three failures and no others. **The gate was kept and the envelope
+  widened**, not the reverse. The reasoning, the options weighed and the full cost are
+  in [the ADR](../architecture/adr-alpha-envelope-widened-to-streaming.md). The 50M
+  chunked ladder is therefore now an alpha item, not a v1.0 one.
+- **Multi-node scenes remain out.** The widening moved streaming and nothing else.
 - **Import preset and node quality pinned, not defaulted.** The import dialog's
   balanced fallback is the `desktop` preset: `max_splats = 750000`,
   `density_multiplier = 0.7`
@@ -236,6 +360,25 @@ envelope is:
 blocker. Triage had classified it out-of-envelope on the assumption that the
 world route was excluded; that assumption is now reversed, and the issue enters
 the blocker set by this decision rather than by a change in its severity.
+(#862 has since been **closed** — fixed on master by #1009.)
+
+**Decided 2026-09-17 (#1016):** the alpha also admits **streaming open worlds**, for
+the same kind of reason and with a larger consequence. Three gate requirements —
+`open_world_proof`, `streaming_corridor`, `city_flyover` — must now run and pass before
+a stable tag. Every streaming defect becomes an alpha blocker under §4.1, moving #318,
+#320, #786, #883 and the 50M chunked asset out of the v1.0 list below.
+
+**And a caveat that is part of the decision, not a footnote.** All three lanes exist,
+and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
+classifies `streaming_corridor` and `city_flyover` as `lightweight_smoke` and says in its
+own notes that each is "not representative chunked evidence"; it classifies
+`open_world_corridor_proof` as `chunked_open_world_candidate`, "not yet promoted
+real_chunked proof". Passing the three as currently classified would be a green gate over
+evidence this repository says does not support the claim — the §4.2 shape, and what
+`disallow_open_world_advisory_only: true` exists to forbid. **Before the alpha tag, either
+the backing content is promoted to `real_chunked`, or the alpha's streaming promise is
+explicitly bounded in words to what the lanes exercise.** That choice is open and is
+tracked on #1016.
 
 ## 11. Work items this bar creates
 
@@ -245,11 +388,13 @@ this document.
 **Blocking v1.0, from the full-scope envelope (§5):**
 
 - #842 — no benchmark lane varies node count; the hundreds-of-nodes target is
-  unproven, and GrandmasHouse was CPU-bound at 113 nodes.
-- #318, #320 — streaming performance.
-- #786 — `qa_stream_visual_smoke` never reaches visual readiness on a real GPU.
-- #883 — GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner.
-- The 50M chunked open-world asset must become a passing lane, not a contract.
+  unproven, and GrandmasHouse was CPU-bound at 113 nodes. **Stays v1.0**: it is a
+  multi-node item, and the #1016 widening moved streaming only.
+
+> The four streaming entries that stood here — #318, #320, #786, #883 and the 50M
+> chunked open-world asset — **moved to the Public Alpha list below on 2026-09-17**
+> (#1016). They are not resolved and nothing about them changed; the envelope moved
+> underneath them.
 
 **Blocking v1.0, from the bar itself:**
 
@@ -267,7 +412,10 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 12 identified, 4 fixed or closed, 7 open, 1 refuted.** Several were found
+**Status: 12 identified, 7 fixed or closed, 4 open, 1 refuted** (re-counted
+2026-09-17: #862, #986 and #987 have closed since this list was written, fixed on
+master by #1009 and #999). **Plus five streaming items admitted by the #1016
+widening — see the sub-list after item 10.** Several were found
 not by triage but by **verification conditions attached to a fix in flight** —
 #980 by the tooling built to demonstrate #586's reload path, #985 by the
 condition requiring #980's deferred triggers to be covered, and #986/#987 by the
@@ -324,6 +472,26 @@ rather than a ceiling.
 10. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
 
+**Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
+re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
+listed separately from 1–10 because their severity ranking against that set has not been
+done.
+
+11. **#318, #320** — streaming performance.
+12. **#786** — `qa_stream_visual_smoke` never reaches visual readiness on a real GPU
+    (luma variance 0.00009 against a 0.0002 gate, reproducibly). The scene is
+    quarantined.
+13. **#883** — GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner.
+14. The **50M chunked open-world asset** must become a passing lane, not a contract.
+
+**Streaming's QA coverage is entirely switched off.** All four streaming QA scenes are
+quarantined at `tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84`:
+`qa_stream_visual_smoke` (#786), `qa_stream_multi_asset` ("until the runtime surface can
+prove true resident/streaming coexistence"), `qa_stream_chunk_loading` and
+`qa_stream_eviction_churn` (both "streaming monitors not populated"). The last three carry
+no issue number. Un-quarantining them, or recording them as accepted alpha limitations
+under §8, is now alpha work rather than v1.0 work.
+
 **#928 is closed** by #988. What remains of its symptom is upstream and
 disclosed as #989 (§8.1).
 
@@ -367,8 +535,8 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.
 - `enable_direct_lighting` is the true master gate for the lighting path
   (`shaders/tile_binning.glsl:1306`), but it is hardcoded `true` at
   `renderer/render_pipeline_stages.cpp:2253` and
-  `renderer/tile_renderer.cpp:1376` and is exposed by no project setting; only a
-  unit test sets it false (`tests/tile_renderer_regression_test.cpp:927`). A game
+  `renderer/tile_renderer.cpp:1494` and is exposed by no project setting; only a
+  unit test sets it false (`tests/tile_renderer_regression_test.cpp:945`). A game
   shipping plain splat rendering with no lights cannot skip that path. Needs an
   issue.
 - Docs asserting behaviour the code contradicts (§8). Two confirmed at the base
