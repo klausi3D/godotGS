@@ -28,6 +28,9 @@
 // #839 round 10 (finding 1): ErrorHandlerList / add_error_handler, used by
 // ScopedEngineErrorCapture below to observe a refused Node::remove_child().
 #include "core/error/error_macros.h"
+// #862: MessageQueue::flush() is how the [SceneTree] cases below drive the
+// coalesced, deferred world-resource resubmit.
+#include "core/object/message_queue.h"
 #include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
@@ -4902,6 +4905,661 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] Two nodes with separate asset Re
 	root->remove_child(node_b);
 	memdelete(node_a);
 	memdelete(node_b);
+}
+
+// ── #862: an applied world's payload mutation must reach the director ─────────
+//
+// GaussianSplatWorld3D publishes its content to the director ONCE per apply, by
+// copying the fields out of the assigned GaussianSplatWorld *resource*
+// (nodes/gaussian_splat_world_3d.cpp, _register_shared_renderer()). The director
+// copies those Refs into its WorldSubmissionRecord
+// (core/gaussian_splat_scene_director.cpp:828-841) and from then on every consumer
+// reads the record, never the resource -- including the route gate
+// get_submission_residency_hint_for_renderer() at :2811-2827, which only lets the
+// world hint win when record_has_renderable_payload() (:843-851) is true of the
+// record.
+//
+// So the director's record is the thing that must move when the resource's payload
+// moves, and get_world_submission() (:2775) is how these cases observe it. That
+// observation is available headless: with no RenderingDevice no world ever gets a
+// renderer, so submit_world_submission()'s phase-2 dispatch is skipped and only the
+// record bookkeeping runs (the director states this at :2478-2481).
+//
+// The cases come in two directions, both required. The M-cases pin the defect: they
+// are RED at the base commit. The H-cases pin the states that must NOT start
+// registering. Measured, not assumed: replacing the fix's
+// `_resubmit_world_submission_if_registered()` guard with an unconditional
+// `_register_shared_renderer()` still passes every M-case and turns H1 and H2 RED.
+// (H3 and H4 survive that particular cheat because _register_shared_renderer()
+// carries its own is_inside_tree() guard and H4's mutator is the slot's owner; they
+// exist for the other two cheats -- breaking the #517 re-entry path, and
+// implementing the resubmit as release-then-resubmit.)
+
+namespace {
+
+// The director's CURRENT record for this world node, or false when it holds none.
+// `r_submission` is only written on success, so every caller below uses a FRESH
+// local: reusing one would let a failed lookup read as the previous value and turn
+// a regression into a pass.
+bool gs862_world_submission(GaussianSplatWorld3D *p_node,
+        GaussianSplatSceneDirector::WorldSubmission &r_submission) {
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (director == nullptr || p_node == nullptr) {
+        return false;
+    }
+    return director->get_world_submission(p_node->get_instance_id(), &r_submission);
+}
+
+bool gs862_is_registered(GaussianSplatWorld3D *p_node) {
+    GaussianSplatSceneDirector::WorldSubmission submission;
+    return gs862_world_submission(p_node, submission);
+}
+
+// The resident-data disjunct of SubmissionStore::record_has_renderable_payload()
+// (core/gaussian_splat_scene_director.cpp:845-846), which is the predicate the world
+// route gate applies to the record. Restated here because SubmissionStore is a
+// private nested type: a test cannot call it. Restated for the RESIDENT half only --
+// the file-backed half needs a ChunkPayloadSource, which these cases do not build --
+// so it is a strictly narrower claim than the gate, never a wider one.
+bool gs862_record_has_resident_payload(const GaussianSplatSceneDirector::WorldSubmission &p_submission) {
+    return p_submission.gaussian_data.is_valid() && p_submission.gaussian_data->get_count() > 0;
+}
+
+// How many of `p_world`'s `changed` connections point at `p_target`. Two is the
+// double-connect defect (one resource write would run the registration twice);
+// zero after the resource is replaced or the node is freed is the leak.
+int gs862_changed_connection_count(const Ref<GaussianSplatWorld> &p_world, Object *p_target) {
+    if (p_world.is_null() || p_target == nullptr) {
+        return -1;
+    }
+    List<Object::Connection> connections;
+    p_world->get_signal_connection_list(SNAME("changed"), &connections);
+    int count = 0;
+    for (const Object::Connection &connection : connections) {
+        if (connection.callable.get_object() == p_target) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int gs862_total_changed_connections(const Ref<GaussianSplatWorld> &p_world) {
+    if (p_world.is_null()) {
+        return -1;
+    }
+    List<Object::Connection> connections;
+    p_world->get_signal_connection_list(SNAME("changed"), &connections);
+    return connections.size();
+}
+
+} // namespace
+
+// M1 -- the stated defect: the payload of an already-applied world is replaced and
+// the director keeps the apply-time snapshot.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 Replacing an applied world's gaussian_data republishes it to the director") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    Ref<GaussianData> data_a = make_test_gaussian_data(1, 0.0f);
+    Ref<GaussianData> data_b = make_test_gaussian_data(3, 100.0f);
+    world_res->set_gaussian_data(data_a);
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission at_apply;
+    if (!gs862_world_submission(node.get(), at_apply)) {
+        FAIL("the world node registered no submission at apply time, so there is nothing for a "
+             "payload mutation to update -- the rest of this case would be vacuous");
+        return;
+    }
+    CHECK_MESSAGE(at_apply.gaussian_data == data_a, "apply must publish the resource's payload");
+
+    // The write under test. This is the bound, inspector- and script-settable
+    // `gaussian_data` property (core/gaussian_splat_world.cpp:31-32).
+    world_res->set_gaussian_data(data_b);
+
+    // Deferred by contract: the resubmit is queued on the MessageQueue rather than
+    // run from inside the property setter. Pinned here so the coalescing decision
+    // cannot be silently reverted to a synchronous per-emission resubmit.
+    GaussianSplatSceneDirector::WorldSubmission before_flush;
+    CHECK(gs862_world_submission(node.get(), before_flush));
+    CHECK_MESSAGE(before_flush.gaussian_data == data_a,
+            "the resubmit must be deferred, not run synchronously from the resource setter");
+
+    MessageQueue::get_singleton()->flush();
+
+    GaussianSplatSceneDirector::WorldSubmission after_flush;
+    CHECK(gs862_world_submission(node.get(), after_flush));
+    CHECK_MESSAGE(after_flush.gaussian_data == data_b,
+            "#862: the director must hold the resource's CURRENT payload, not the apply-time snapshot");
+    CHECK(gs862_record_has_resident_payload(after_flush));
+}
+
+// M2 -- the shape that renders nothing at all: applied while empty (a deferred
+// import, a streamed payload), filled afterwards.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world applied while empty becomes renderable when its payload arrives") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission at_apply;
+    if (!gs862_world_submission(node.get(), at_apply)) {
+        FAIL("an empty world must still register a submission; without one the fill below has "
+             "nothing to update and this case would prove nothing");
+        return;
+    }
+    CHECK_MESSAGE(!gs862_record_has_resident_payload(at_apply),
+            "an empty world must not look renderable to the route gate");
+    CHECK(at_apply.bounds == AABB());
+
+    Ref<GaussianData> arrived = make_test_gaussian_data(4, 0.0f);
+    world_res->set_gaussian_data(arrived);
+    MessageQueue::get_singleton()->flush();
+
+    GaussianSplatSceneDirector::WorldSubmission after_fill;
+    CHECK(gs862_world_submission(node.get(), after_fill));
+    CHECK_MESSAGE(after_fill.gaussian_data == arrived,
+            "#862: a payload that arrives after apply must reach the director");
+    CHECK_MESSAGE(gs862_record_has_resident_payload(after_fill),
+            "#862: record_has_renderable_payload must flip false -> true, or the world route is "
+            "never taken and the viewport stays empty");
+    // The record's bounds must travel with the payload, or the render instance keeps
+    // the zero AABB it was given at apply time.
+    CHECK(after_fill.bounds == arrived->get_aabb());
+}
+
+// H1 -- a node that was never applied must stay unregistered. Blocks a fix that
+// resubmits unconditionally instead of honouring the "already registered" guard.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world that was never applied stays unregistered when its payload changes") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    world_res->set_gaussian_data(make_test_gaussian_data(1, 0.0f));
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_auto_apply_on_ready(false);
+    // Assigned while outside the tree, so set_world() does not apply either.
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    if (gs862_is_registered(node.get())) {
+        FAIL("auto_apply_on_ready = false must leave the node unregistered; the mutation below "
+             "cannot test 'stays unregistered' if it never was");
+        return;
+    }
+
+    world_res->set_gaussian_data(make_test_gaussian_data(3, 100.0f));
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+
+    CHECK_FALSE_MESSAGE(gs862_is_registered(node.get()),
+            "a payload change must not apply a world the user never applied");
+}
+
+// H2 -- clear_world() leaves the resource assigned. Mutating it must not resurrect
+// the submission the user explicitly stopped.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A cleared world stays cleared when its payload changes") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    world_res->set_gaussian_data(make_test_gaussian_data(1, 0.0f));
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    if (!gs862_is_registered(node.get())) {
+        FAIL("the world must be registered before clear_world() can be shown to clear it");
+        return;
+    }
+
+    node->clear_world();
+    if (gs862_is_registered(node.get())) {
+        FAIL("clear_world() must release the submission");
+        return;
+    }
+    CHECK_MESSAGE(node->get_world() == world_res, "clear_world() leaves the resource assigned");
+
+    world_res->set_gaussian_data(make_test_gaussian_data(3, 100.0f));
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+
+    CHECK_FALSE_MESSAGE(gs862_is_registered(node.get()),
+            "a payload change must not undo an explicit clear_world()");
+}
+
+// H3 -- out of the tree stays out; re-entry restores the submission WITH the payload
+// that arrived while it was detached. Blocks a fix that breaks the #517 re-entry path.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A detached world node ignores payload changes and carries the new payload back on re-entry") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    Ref<GaussianData> data_a = make_test_gaussian_data(1, 0.0f);
+    Ref<GaussianData> data_b = make_test_gaussian_data(3, 100.0f);
+    world_res->set_gaussian_data(data_a);
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    if (!gs862_is_registered(node.get())) {
+        FAIL("the world must be registered before detaching can be shown to release it");
+        return;
+    }
+
+    root->remove_child(node.get());
+    tree->process(0.0);
+    if (gs862_is_registered(node.get())) {
+        FAIL("NOTIFICATION_EXIT_TREE must release the submission");
+        return;
+    }
+
+    world_res->set_gaussian_data(data_b);
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+    CHECK_FALSE_MESSAGE(gs862_is_registered(node.get()),
+            "a detached node must not register from a payload change");
+
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission after_reentry;
+    CHECK(gs862_world_submission(node.get(), after_reentry));
+    CHECK_MESSAGE(after_reentry.gaussian_data == data_b,
+            "#517 re-entry must republish, and must publish the CURRENT payload");
+}
+
+// H4 -- the scenario slot is never surrendered. A resubmit implemented as
+// release-then-resubmit would open a window in which the rejected peer takes the
+// scenario and the owner goes dark permanently.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A payload change does not hand the scenario slot to a rejected peer") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> owner_res;
+    owner_res.instantiate();
+    Ref<GaussianData> data_a = make_test_gaussian_data(1, 0.0f);
+    Ref<GaussianData> data_b = make_test_gaussian_data(3, 100.0f);
+    owner_res->set_gaussian_data(data_a);
+
+    Ref<GaussianSplatWorld> peer_res;
+    peer_res.instantiate();
+    Ref<GaussianData> data_peer = make_test_gaussian_data(2, -100.0f);
+    peer_res->set_gaussian_data(data_peer);
+
+    ScopedTestNode<GaussianSplatWorld3D> owner(memnew(GaussianSplatWorld3D));
+    ScopedTestNode<GaussianSplatWorld3D> peer(memnew(GaussianSplatWorld3D));
+    owner->set_world(owner_res);
+    peer->set_world(peer_res);
+    root->add_child(owner.get());
+    root->add_child(peer.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission owner_at_apply;
+    if (!gs862_world_submission(owner.get(), owner_at_apply) || owner_at_apply.gaussian_data != data_a) {
+        FAIL("the first world node must own the scenario slot before arbitration can be tested");
+        return;
+    }
+    if (gs862_is_registered(peer.get())) {
+        FAIL("the second world node in the same scenario must lose arbitration; without a rejected "
+             "peer this case cannot observe a surrendered slot");
+        return;
+    }
+
+    owner_res->set_gaussian_data(data_b);
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission owner_after;
+    CHECK(gs862_world_submission(owner.get(), owner_after));
+    CHECK_MESSAGE(owner_after.gaussian_data == data_b, "the owner keeps the slot, with the new payload");
+    CHECK_FALSE_MESSAGE(gs862_is_registered(peer.get()),
+            "the rejected peer must not acquire the slot through the owner's resubmit");
+}
+
+// Fan-out: one resource, two nodes. `changed` reaches both; each must resubmit only
+// its own submission, and the one that holds none must stay holding none.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world resource shared by two nodes resubmits only the owner's submission") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> shared_res;
+    shared_res.instantiate();
+    Ref<GaussianData> data_a = make_test_gaussian_data(1, 0.0f);
+    Ref<GaussianData> data_b = make_test_gaussian_data(3, 100.0f);
+    shared_res->set_gaussian_data(data_a);
+
+    ScopedTestNode<GaussianSplatWorld3D> owner(memnew(GaussianSplatWorld3D));
+    ScopedTestNode<GaussianSplatWorld3D> peer(memnew(GaussianSplatWorld3D));
+    owner->set_world(shared_res);
+    peer->set_world(shared_res);
+    root->add_child(owner.get());
+    root->add_child(peer.get());
+    tree->process(0.0);
+
+    CHECK_MESSAGE(gs862_changed_connection_count(shared_res, owner.get()) == 1,
+            "each node tracks the shared resource exactly once");
+    CHECK_MESSAGE(gs862_changed_connection_count(shared_res, peer.get()) == 1,
+            "each node tracks the shared resource exactly once");
+
+    if (!gs862_is_registered(owner.get()) || gs862_is_registered(peer.get())) {
+        FAIL("expected exactly one of the two nodes to own the scenario slot");
+        return;
+    }
+
+    shared_res->set_gaussian_data(data_b);
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission owner_after;
+    CHECK(gs862_world_submission(owner.get(), owner_after));
+    CHECK(owner_after.gaussian_data == data_b);
+    CHECK_FALSE_MESSAGE(gs862_is_registered(peer.get()),
+            "the peer observes the same `changed` but holds no submission of its own");
+}
+
+// Duplication. Node::duplicate() copies the exported `world` property through
+// set(), so the copy runs set_world() and takes its OWN connection; the
+// resource-side connection is not part of what DUPLICATE_SIGNALS copies (that
+// only re-creates connections whose emitter is inside the duplicated subtree).
+// Asserted rather than assumed, because the failure mode -- the copy inheriting
+// the original's connection and the resource ending up with two connections to one
+// node -- would make a single write resubmit twice and would be invisible
+// otherwise.
+// No [SceneTree] tag: this case never parents a node, and the strict
+// `GaussianSplatting [Node]` lane selects it on `][Node]` either way.
+TEST_CASE("[GaussianSplatting][Node] #862 A duplicated world node tracks the shared resource exactly once") {
+    Ref<GaussianSplatWorld> res;
+    res.instantiate();
+    res->set_gaussian_data(make_test_gaussian_data(1, 0.0f));
+    const int baseline = gs862_total_changed_connections(res);
+
+    GaussianSplatWorld3D *original = memnew(GaussianSplatWorld3D);
+    original->set_world(res);
+    if (gs862_changed_connection_count(res, original) != 1) {
+        FAIL("the original must hold exactly one connection before duplication is meaningful");
+        memdelete(original);
+        return;
+    }
+
+    Node *copy_node = original->duplicate();
+    GaussianSplatWorld3D *copy = Object::cast_to<GaussianSplatWorld3D>(copy_node);
+    if (copy == nullptr) {
+        FAIL("duplicate() must produce a GaussianSplatWorld3D");
+        if (copy_node != nullptr) {
+            memdelete(copy_node);
+        }
+        memdelete(original);
+        return;
+    }
+
+    CHECK_MESSAGE(copy->get_world() == res, "the duplicate shares the same resource Ref");
+    CHECK_MESSAGE(gs862_changed_connection_count(res, copy) == 1,
+            "the duplicate tracks the resource exactly once, on its own behalf");
+    CHECK_MESSAGE(gs862_changed_connection_count(res, original) == 1,
+            "and duplicating must not add a second connection for the original");
+
+    memdelete(copy);
+    CHECK_MESSAGE(gs862_changed_connection_count(res, original) == 1,
+            "freeing the duplicate must not disturb the original's connection");
+    memdelete(original);
+    CHECK_EQ(gs862_total_changed_connections(res), baseline);
+}
+
+#ifdef TESTS_ENABLED
+namespace {
+
+// Counts `changed` emissions so the coalescing case below can prove there was
+// something to coalesce. Without this the case could pass with the latch deleted
+// simply because the write emitted once.
+class GS862ChangedCounter : public Object {
+public:
+    int count = 0;
+    void on_changed() { count++; }
+};
+
+} // namespace
+
+// Coalescing. ONE user-visible content write emits `changed` more than once
+// (core/gaussian_splat_world.cpp: set_gaussian_data() emits at :120 and, via
+// set_payload_metadata() at :110, again at :214), and each emission would otherwise
+// re-run the whole registration -- whose phase 2 is a blocking render-thread
+// dispatch (core/gaussian_splat_scene_director.cpp:2425-2430).
+//
+// Both halves are load-bearing: the emission count proves the multiplicity is real,
+// the run count proves it collapsed. Delete the latch in
+// GaussianSplatWorld3D::_on_world_resource_changed() and the second CHECK reads 2.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 One payload write resubmits once even though the resource emits changed twice") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    world_res->set_gaussian_data(make_test_gaussian_data(1, 0.0f));
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    if (!gs862_is_registered(node.get())) {
+        FAIL("the world must be registered, or no resubmit would run at all and 'exactly one' "
+             "would be satisfied vacuously");
+        return;
+    }
+    MessageQueue::get_singleton()->flush();
+
+    GS862ChangedCounter *counter = memnew(GS862ChangedCounter);
+    world_res->connect(SNAME("changed"), callable_mp(counter, &GS862ChangedCounter::on_changed));
+
+    const uint64_t runs_before = node->get_world_resource_resubmit_run_count_for_testing();
+    world_res->set_gaussian_data(make_test_gaussian_data(3, 100.0f));
+    CHECK_MESSAGE(counter->count == 2,
+            "one set_gaussian_data() write must emit `changed` twice; if it emits once there is "
+            "nothing for the coalescing latch to do and the next assertion proves nothing");
+
+    MessageQueue::get_singleton()->flush();
+    CHECK_MESSAGE(node->get_world_resource_resubmit_run_count_for_testing() - runs_before == 1,
+            "the two emissions must coalesce into exactly one resubmit");
+
+    world_res->disconnect(SNAME("changed"), callable_mp(counter, &GS862ChangedCounter::on_changed));
+    memdelete(counter);
+}
+#endif // TESTS_ENABLED
+
+// The same empty-then-filled case as M2, but on a real RenderingDevice, so it
+// observes the end of the chain rather than the director's bookkeeping: the shared
+// renderer's payload, and the route gate
+// get_submission_residency_hint_for_renderer() (core/gaussian_splat_scene_director.cpp:2811-2827)
+// which only lets the world hint win once record_has_renderable_payload() is true.
+// That gate returning "world_submission" is the difference between the world route
+// being taken and the viewport staying empty.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] #862 A payload that arrives after apply reaches the shared renderer and wins the route gate") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (director == nullptr) {
+        FAIL("Scene director singleton required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = node->get_renderer();
+    if (renderer.is_null()) {
+        FAIL("this case needs a RenderingDevice-backed shared renderer; it must run in the GPU "
+             "harness, not in a headless lane");
+        return;
+    }
+    if (!gs862_is_registered(node.get())) {
+        FAIL("the world node lost scenario arbitration, so nothing downstream can be attributed to "
+             "the payload arriving");
+        return;
+    }
+
+    CHECK_FALSE_MESSAGE(renderer->get_gaussian_data().is_valid(),
+            "an empty world publishes no payload to the renderer");
+    CHECK_FALSE_MESSAGE(director->has_world_submission_for_renderer(renderer.ptr()),
+            "an empty record must not read as a renderable world submission");
+
+    Ref<GaussianData> arrived = make_test_gaussian_data(8, 0.0f);
+    world_res->set_gaussian_data(arrived);
+    MessageQueue::get_singleton()->flush();
+    tree->process(0.0);
+
+    CHECK_MESSAGE(renderer->get_gaussian_data() == arrived,
+            "#862: the renderer must receive a payload that arrived after apply");
+    CHECK_MESSAGE(director->has_world_submission_for_renderer(renderer.ptr()),
+            "#862: the record must now read as renderable");
+
+    int32_t hint = -1;
+    String hint_source;
+    CHECK_MESSAGE(director->get_submission_residency_hint_for_renderer(renderer.ptr(), &hint, &hint_source),
+            "#862: the route gate must now produce a hint");
+    CHECK_MESSAGE(hint_source == "world_submission",
+            "#862: the world hint must win the gate; anything else means the world route is not taken");
+}
+
+// Lifecycle of the connection itself. A connection that outlives its resource
+// assignment, or doubles on re-assignment, is a defect in its own right.
+// No [SceneTree] tag, same reason as the duplication case above.
+TEST_CASE("[GaussianSplatting][Node] #862 The world resource `changed` connection follows the assigned resource") {
+    Ref<GaussianSplatWorld> res_a;
+    res_a.instantiate();
+    Ref<GaussianSplatWorld> res_b;
+    res_b.instantiate();
+
+    GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
+    const int baseline_a = gs862_total_changed_connections(res_a);
+    const int baseline_b = gs862_total_changed_connections(res_b);
+
+    CHECK(gs862_changed_connection_count(res_a, node) == 0);
+
+    node->set_world(res_a);
+    CHECK_MESSAGE(gs862_changed_connection_count(res_a, node) == 1, "assignment connects");
+
+    node->set_world(res_a);
+    CHECK_MESSAGE(gs862_changed_connection_count(res_a, node) == 1,
+            "re-assigning the same resource must not double-connect");
+
+    node->set_world(res_b);
+    CHECK_MESSAGE(gs862_changed_connection_count(res_a, node) == 0, "replacement disconnects the old resource");
+    CHECK_MESSAGE(gs862_changed_connection_count(res_b, node) == 1, "replacement connects the new resource");
+
+    node->set_world(Ref<GaussianSplatWorld>());
+    CHECK_MESSAGE(gs862_changed_connection_count(res_b, node) == 0, "clearing the property disconnects");
+
+    node->set_world(res_a);
+    CHECK(gs862_changed_connection_count(res_a, node) == 1);
+    memdelete(node);
+    // NOT a proof of the explicit disconnect in NOTIFICATION_PREDELETE. ~Object()
+    // tears down every connection regardless, so deleting that line leaves this
+    // assertion green -- it is stated here so nobody reads it as pinning the line.
+    // What it does pin is the end state a future change could still break: that a
+    // freed world node leaves the resource with exactly the connections it started
+    // with, so a resource shared with other nodes is not left carrying a dead one.
+    CHECK_MESSAGE(gs862_total_changed_connections(res_a) == baseline_a,
+            "a freed node must leave no connection behind on a resource that outlives it");
+    CHECK(gs862_total_changed_connections(res_b) == baseline_b);
 }
 
 // --- Inspector surface contracts (#836 / #834) -------------------------------

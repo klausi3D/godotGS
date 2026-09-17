@@ -7,6 +7,10 @@
 #include "../core/gaussian_splat_world.h"
 #include "../renderer/gaussian_splat_renderer.h"
 
+// #862: the coalescing latch below is armed from whichever thread emitted
+// `changed` and cleared from the main thread, so it must be atomic.
+#include <atomic>
+
 class GaussianSplatWorld3D : public Node3D {
     GDCLASS(GaussianSplatWorld3D, Node3D);
 
@@ -43,6 +47,39 @@ private:
     // must be restored unconditionally -- see issue #517.
     bool was_world_submission_active = false;
 
+    // #862 coalescing latch. True from the moment a `changed` emission from the
+    // assigned GaussianSplatWorld has queued a deferred resubmit until that
+    // resubmit runs. Further emissions in the same frame fold into the pending
+    // run instead of queueing another one -- a single user-visible content write
+    // emits `changed` more than once (see _on_world_resource_changed()), and
+    // re-running the registration per emission would turn one property write into
+    // several render-thread round trips. It is also the re-entrancy guard: a
+    // `changed` emitted from inside the flush cannot nest a second registration.
+    //
+    // ATOMIC, not a plain bool, because the two accesses are not on the same
+    // thread. Resource::emit_changed() (core/io/resource.cpp:44-51) routes to
+    // ResourceLoader::resource_changed_emit() when a threaded load is running on a
+    // worker thread, and that calls the connected callable SYNCHRONOUSLY on the
+    // loader thread (core/io/resource_loader.cpp:965-974). So the arm can happen
+    // off the main thread while the disarm always happens on it. A plain
+    // read-then-write would be an unsynchronized read-modify-write on a shared
+    // object; the arm below uses exchange() so two concurrent emissions still
+    // queue exactly one flush.
+    std::atomic<bool> world_resource_resubmit_pending{ false };
+
+#ifdef TESTS_ENABLED
+    // Test-only witness for the coalescing contract above, compiled out of every
+    // build without TESTS_ENABLED (release templates included -- #725 shipped test
+    // hooks in a release build once). Counts RESUBMITS, not flushes: it is
+    // incremented past the already-registered guard, so a flush on a node that
+    // holds no submission leaves it alone and a test may read it as "this node
+    // resubmitted N times". How many `changed` emissions a resource write produced
+    // and how many resubmits they collapsed into is otherwise unobservable from
+    // outside the node, so a test asserting "one write, one resubmit" would have
+    // nothing to assert and the latch could be deleted with every test still green.
+    uint64_t world_resource_resubmit_run_count = 0;
+#endif
+
     AABB local_aabb;
     AABB world_aabb;
 
@@ -57,8 +94,27 @@ private:
 
     void _ensure_renderer();
     Dictionary _build_desired_renderer_overrides() const;
-    void _resubmit_world_submission_if_registered();
+    // Returns true when this node held a live director submission and the
+    // re-registration was therefore run. It does NOT report whether the director
+    // accepted the resubmission -- _register_shared_renderer() can still lose
+    // scenario arbitration -- only whether the "already registered" precondition
+    // held. Callers that must not act on an unregistered node key off this.
+    bool _resubmit_world_submission_if_registered();
     void _apply_world_internal();
+    // #862: keeps the assigned GaussianSplatWorld's `changed` signal connected for
+    // exactly as long as it is the assigned resource. A null Ref is a no-op, and
+    // both directions are idempotent for every call made on the main thread --
+    // which is every call this class makes in practice, because a
+    // GaussianSplatWorld3D is constructed by scene instantiation.
+    //
+    // NOT idempotent across a threaded load: Resource::connect_changed() called on
+    // a loader thread only queues the connection into the ThreadLoadTask
+    // (core/io/resource_loader.cpp:933-949) and a later disconnect_changed() from
+    // the MAIN thread takes the ordinary path, finds nothing connected, and leaves
+    // the queued entry to be honoured when the load completes at :894. See #1005.
+    void _set_world_resource_changed_connection(const Ref<GaussianSplatWorld> &p_world, bool p_connect);
+    void _on_world_resource_changed();
+    void _flush_world_resource_resubmit();
     void _register_shared_renderer();
     void _unregister_shared_renderer();
     void _update_bounds();
@@ -108,6 +164,13 @@ public:
     void clear_world();
 
     Ref<GaussianSplatRenderer> get_renderer() const { return renderer; }
+
+#ifdef TESTS_ENABLED
+    // See world_resource_resubmit_run_count above. Test-only.
+    uint64_t get_world_resource_resubmit_run_count_for_testing() const {
+        return world_resource_resubmit_run_count;
+    }
+#endif
 };
 
 #endif // GAUSSIAN_SPLAT_WORLD_3D_H

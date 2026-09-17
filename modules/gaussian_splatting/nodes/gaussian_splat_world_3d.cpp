@@ -7,6 +7,9 @@
 
 #include "core/config/project_settings.h"
 #include "core/math/math_funcs.h"
+// #862: the world-resource resubmit is posted to the MAIN message queue
+// explicitly, never to the thread-local override a threaded load installs.
+#include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/main/viewport.h"
@@ -178,6 +181,24 @@ void GaussianSplatWorld3D::_notification(int p_what) {
             // lingers across reload cycles holding the renderer/data
             // lifetime anchor, defeating the F6-reload-leak fix that
             // motivated the scenario-wide teardown originally.
+            //
+            // #862: drop the `changed` connection to the assigned resource.
+            //
+            // REDUNDANT WITH ~Object(), which tears down every connection this
+            // object participates in, and therefore NOT pinned by any test -- the
+            // lifecycle case in test_gaussian_splat_node.h says so explicitly
+            // rather than pretending to cover it. It is kept for the one window
+            // ~Object() does not cover: between this notification and the
+            // destructor the node is still in ObjectDB and still reachable from
+            // the resource, so a `changed` emitted in that window (a threaded load
+            // finishing on a worker thread, which calls connected callables
+            // synchronously -- core/io/resource_loader.cpp:965-974) would reach a
+            // node that has already released its director submission below.
+            //
+            // A resubmit already queued on the main MessageQueue needs no such
+            // care: flush() skips a call whose target object is gone
+            // (core/object/message_queue.cpp:260-270).
+            _set_world_resource_changed_connection(world, false);
             renderer.unref();
             _unregister_shared_renderer();
             if (GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton()) {
@@ -247,11 +268,127 @@ void GaussianSplatWorld3D::_notification_process() {
 }
 
 void GaussianSplatWorld3D::set_world(const Ref<GaussianSplatWorld> &p_world) {
+    // #862: the director stores a *snapshot* of the resource's payload. The Refs
+    // this node hands to submit_world_submission() in _register_shared_renderer()
+    // below are copied into the SharedWorld's WorldSubmissionRecord by
+    // SubmissionStore::store_submission()
+    // (../core/gaussian_splat_scene_director.cpp:828-841), and every consumer --
+    // record_has_renderable_payload() at :843-851, the route gate
+    // get_submission_residency_hint_for_renderer() at :2811-2827 -- reads that
+    // record, never the resource. So a mutation of a resource that is already
+    // assigned and already applied is invisible until something re-registers.
+    // Tracking `changed` is what makes it visible; the connection lives exactly as
+    // long as this resource is the assigned one.
+    if (world != p_world) {
+        _set_world_resource_changed_connection(world, false);
+    }
     world = p_world;
+    _set_world_resource_changed_connection(world, true);
     bounds_dirty = true;
     if (is_inside_tree()) {
         apply_world();
     }
+}
+
+void GaussianSplatWorld3D::_set_world_resource_changed_connection(const Ref<GaussianSplatWorld> &p_world, bool p_connect) {
+    if (p_world.is_null()) {
+        return;
+    }
+    // Resource::connect_changed / disconnect_changed rather than a bare
+    // connect("changed", ...): they are idempotent, and they route the call
+    // through ResourceLoader when a threaded load is in progress on a worker
+    // thread (core/io/resource.cpp:199-219), which is exactly the load-order case
+    // a GaussianSplatWorld deserialized off the main thread hits.
+    const Callable changed_callable = callable_mp(this, &GaussianSplatWorld3D::_on_world_resource_changed);
+    if (p_connect) {
+        p_world->connect_changed(changed_callable);
+    } else {
+        p_world->disconnect_changed(changed_callable);
+    }
+}
+
+void GaussianSplatWorld3D::_on_world_resource_changed() {
+    // DEFERRED AND COALESCED, deliberately. Three reasons, in order of weight:
+    //
+    // 1. One user-visible content write emits `changed` more than once.
+    //    GaussianSplatWorld::set_gaussian_data() (../core/gaussian_splat_world.cpp:107-121)
+    //    assigns the Ref at :108, calls set_payload_metadata() at :110 -- which
+    //    emits at :214 -- and only then fixes up `bounds` at :115-117 before
+    //    emitting again at :120. A synchronous handler would run the whole
+    //    registration twice per write, and the first of the two would read the
+    //    resource midway through its own setter.
+    // 2. submit_world_submission()'s phase 2 is a blocking render-thread dispatch
+    //    (../core/gaussian_splat_scene_director.cpp:2425-2430). Running it inline
+    //    from inside a property setter puts a render-thread round trip at an
+    //    arbitrary point in the writer's code, once per emission.
+    // 3. `changed` can arrive off the main thread. Resource::emit_changed()
+    //    (core/io/resource.cpp:44-51) hands the emission to
+    //    ResourceLoader::resource_changed_emit() while a threaded load is running
+    //    on a worker thread, and that calls the connected callable SYNCHRONOUSLY
+    //    on the loader thread (core/io/resource_loader.cpp:965-974).
+    //
+    // MessageQueue::get_main_singleton(), NOT Callable::call_deferred(). The
+    // latter posts to MessageQueue::get_singleton(), which is a `thread_local`
+    // override (core/object/message_queue.h:161-166) that
+    // ResourceLoader::_run_load_task installs for a loader thread and flushes on
+    // THAT thread before the load returns (core/io/resource_loader.cpp:380-398).
+    // Deferring through it would therefore run the whole registration -- and its
+    // blocking render-thread dispatch -- on a loader thread. Posting to the main
+    // queue explicitly is what actually makes point 3 true.
+    //
+    // WHICH EMISSIONS RESUBMIT: all of them, because filtering buys nothing here.
+    // Five of the resource's six emitters -- set_gaussian_data (:120), set_bounds
+    // (:129), set_metadata (:135), set_static_chunks (:141),
+    // set_chunk_payload_source (:158) -- write a field that store_submission()
+    // copies into the record (gaussian_data/payload_source/static_chunks/bounds/
+    // metadata, ../core/gaussian_splat_scene_director.cpp:831-835). The sixth,
+    // set_payload_metadata (:214), writes only the resource's scalar metadata
+    // mirrors, but it is emitted only from set_gaussian_data() at :110 and
+    // materialize_resident_gaussian_data() at :279 -- both of which are
+    // record-relevant writes -- so it never fires alone. With the coalescing
+    // below, the redundant emission costs one latch test.
+    //
+    // KNOWN GAP, not covered by this: GaussianSplatWorld::clear()
+    // (../core/gaussian_splat_world.cpp:305-319) is a bound, script-reachable
+    // payload mutator that emits NOTHING, so an emptied world still does not reach
+    // the director. Tracked as #1002; fixing it belongs on the resource, not here.
+    if (world_resource_resubmit_pending.exchange(true)) {
+        return;
+    }
+    MessageQueue::get_main_singleton()->push_callable(
+            callable_mp(this, &GaussianSplatWorld3D::_flush_world_resource_resubmit));
+}
+
+void GaussianSplatWorld3D::_flush_world_resource_resubmit() {
+    // Cleared first so a `changed` emitted by anything below re-arms rather than
+    // being swallowed. MessageQueue::flush() skips a queued call whose target has
+    // been freed (core/object/message_queue.cpp:260-270), so a node deleted with a
+    // resubmit in flight is not a hazard.
+    world_resource_resubmit_pending.store(false);
+
+    // Only touch this node's cached bounds and render instance when a resubmit
+    // actually happened. A node that was never applied (auto_apply_on_ready =
+    // false), was explicitly cleared, or is out of the tree must be left exactly
+    // as it is: this handler reacts to content changes on behalf of a live
+    // submission, it is not an implicit apply_world().
+    if (!_resubmit_world_submission_if_registered()) {
+        return;
+    }
+#ifdef TESTS_ENABLED
+    // Past the guard deliberately: this counts resubmits, not flushes. See the
+    // member's declaration.
+    world_resource_resubmit_run_count++;
+#endif
+
+    // The payload moved, so the cached AABB derived from it
+    // (world->get_bounds(), else the GaussianData's own AABB) is stale. Without
+    // this the render instance keeps the AABB it was given at apply time -- for
+    // the empty-then-filled case that is a zero AABB, which clears the custom
+    // AABB and leaves the instance culled even though the director now has the
+    // payload. Same tail as _apply_world_internal() below.
+    bounds_dirty = true;
+    _update_bounds();
+    _update_render_instance();
 }
 
 void GaussianSplatWorld3D::set_auto_apply_on_ready(bool p_enabled) {
@@ -396,22 +533,31 @@ Dictionary GaussianSplatWorld3D::_build_desired_renderer_overrides() const {
     return overrides;
 }
 
-void GaussianSplatWorld3D::_resubmit_world_submission_if_registered() {
+bool GaussianSplatWorld3D::_resubmit_world_submission_if_registered() {
     if (!is_inside_tree() || world.is_null()) {
-        return;
+        return false;
     }
 
     GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
     if (!director) {
-        return;
+        return false;
     }
 
+    // Keyed on THIS node's instance id, so a resource shared by several world
+    // nodes fans `changed` out to all of them and each one re-registers only its
+    // own submission. A peer that lost scenario arbitration holds no record and
+    // stops here; the owner's re-registration goes straight through
+    // submit_world_submission() as a same-owner overwrite
+    // (../core/gaussian_splat_scene_director.cpp:2391-2401) -- never a
+    // release-then-resubmit, so the scenario slot is not surrendered for a peer
+    // to take.
     GaussianSplatSceneDirector::WorldSubmission active_submission;
     if (!director->get_world_submission(get_instance_id(), &active_submission)) {
-        return;
+        return false;
     }
 
     _register_shared_renderer();
+    return true;
 }
 
 void GaussianSplatWorld3D::_apply_world_internal() {
