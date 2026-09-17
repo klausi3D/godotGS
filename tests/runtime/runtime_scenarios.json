@@ -32,6 +32,7 @@
         "World Streaming Gate",
         "Streaming Residency API",
         "Canonical Node Asset Render",
+        "Painterly Material Render",
         "Data Flow Recent Window",
         "Pipeline Trace Freshness",
         "Monitor Lifecycle Hardening"
@@ -50,6 +51,17 @@
       "godot_args": [],
       "fail_on_skip": true,
       "requires_renderer_proof": true
+    },
+    "painterly-gpu-ci": {
+      "description": "Focused GPU-backed proof that the painterly raster path actually runs when a PainterlyMaterial is authored on GaussianSplatNode3D, and that its frame is not the baseline's (#997, #851). Not directly wired to a workflow; its Painterly Material Render scenario is exercised nightly through the release-ci lane (release_ci_runtime.yml).",
+      "gd_mode": "windows-vulkan",
+      "cpp_tests": [],
+      "gd_tests": [
+        "Painterly Material Render"
+      ],
+      "godot_args": [],
+      "fail_on_skip": true,
+      "requires_renderer_proof": false
     },
     "streaming-gpu-ci": {
       "description": "Canonical blocking GPU-backed streaming validation gate for runtime residency and world-streaming regressions; benchmark proof surfaces live in the benchmark workflow.",

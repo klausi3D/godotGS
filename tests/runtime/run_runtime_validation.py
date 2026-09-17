@@ -213,6 +213,7 @@ GDS_TESTS: Dict[str, Path] = {
     "Streaming Residency API": RUNTIME_DIR / "test_streaming_residency_api.gd",
     "Streaming GPU Tier Budget Contract": RUNTIME_DIR / "test_streaming_gpu_tier_budget_contract.gd",
     "Canonical Node Asset Render": RUNTIME_DIR / "test_canonical_node_asset_render.gd",
+    "Painterly Material Render": RUNTIME_DIR / "test_painterly_material_render.gd",
     "Data Flow Recent Window": RUNTIME_DIR / "test_data_flow_recent_window.gd",
     "Pipeline Trace Freshness": RUNTIME_DIR / "test_pipeline_trace_freshness.gd",
     "Monitor Lifecycle Hardening": RUNTIME_DIR / "test_monitor_lifecycle_hardening.gd",
@@ -255,6 +256,10 @@ SCENARIO_FIXTURE_CONTRACTS: Dict[str, ScenarioFixtureContract] = {
     ),
     "GDScript: Canonical Node Asset Render": ScenarioFixtureContract(
         GDS_TESTS["Canonical Node Asset Render"],
+        ("res://tests/fixtures/test_splats.ply",),
+    ),
+    "GDScript: Painterly Material Render": ScenarioFixtureContract(
+        GDS_TESTS["Painterly Material Render"],
         ("res://tests/fixtures/test_splats.ply",),
     ),
     "GDScript: Data Flow Recent Window": ScenarioFixtureContract(

@@ -1993,6 +1993,19 @@ void GaussianSplatNodeRendererHelper::apply_renderer_settings() {
         owner.renderer->set_painterly_stroke_opacity(owner.stroke_opacity);
         owner.renderer->set_painterly_stroke_length(owner.stroke_width);
         owner.renderer->set_painterly_gamma(MAX(owner.temporal_blend, 0.01f));
+        // #997/#851: the material is the input that decides whether a painterly
+        // frame is painterly at all -- RasterStage falls back to the baseline
+        // with PAINTERLY_MATERIAL_UNAVAILABLE when the renderer has none. It
+        // rides the same P2 gate as the four knobs above.
+        //
+        // Guard the push on a real change: set_painterly_material() ends in
+        // update_painterly_gpu_resources(), which is not free, and
+        // _apply_renderer_settings() runs on every dirty reconcile. The
+        // renderer-side setter early-outs on an unchanged material only when a
+        // PainterlyRenderer already exists, so do not rely on it.
+        if (owner.renderer->get_painterly_material() != owner.painterly_material) {
+            owner.renderer->set_painterly_material(owner.painterly_material);
+        }
     }
     // Per-instance color grading — routed through the scene director. The director
     // stores grading on the node's InstanceRecord, then the director's build step

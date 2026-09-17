@@ -142,6 +142,17 @@ void GaussianSplatNode3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_painterly_seed"), &GaussianSplatNode3D::get_painterly_seed);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "painterly/seed", PROPERTY_HINT_RANGE, "0,65535,1"), "set_painterly_seed", "get_painterly_seed");
 
+    // #997/#851: `painterly/material` was authored in four places across the
+    // shipped demo scenes (tests/examples/godot/test_project/scenes/
+    // testlevel.tscn:405,553,558 and ancient_corinth.tscn:116) against a
+    // property that was never bound, so Godot discarded it at scene load and
+    // painterly silently rendered the baseline. Binding it repairs
+    // already-authored intent; it is not new API surface.
+    ClassDB::bind_method(D_METHOD("set_painterly_material", "material"), &GaussianSplatNode3D::set_painterly_material);
+    ClassDB::bind_method(D_METHOD("get_painterly_material"), &GaussianSplatNode3D::get_painterly_material);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "painterly/material", PROPERTY_HINT_RESOURCE_TYPE, "PainterlyMaterial"),
+            "set_painterly_material", "get_painterly_material");
+
     // Rendering settings
     ADD_GROUP("Rendering", "rendering/");
     ClassDB::bind_method(D_METHOD("set_update_mode", "mode"), &GaussianSplatNode3D::set_update_mode);
@@ -1184,6 +1195,26 @@ void GaussianSplatNode3D::set_painterly_seed(uint32_t p_seed) {
     painterly_seed = MIN(p_seed, (uint32_t)65535);
     _apply_painterly_settings();
     _update_quality_settings();
+    _mark_render_state_dirty();
+}
+
+void GaussianSplatNode3D::set_painterly_material(const Ref<PainterlyMaterial> &p_material) {
+    // Same P2 gate as every other painterly setter (set_edge_threshold etc.):
+    // painterly is a RENDERER-WIDE effect, so a non-owner peer of a shared
+    // renderer must not write it. Node-local state is deliberately still
+    // recorded so the peer-set convergence hook can re-apply it when the node
+    // is alone again -- but only when the write is allowed, matching the
+    // existing setters exactly.
+    if (_is_renderer_shared_with_other_content(renderer)) {
+        return;
+    }
+    if (painterly_material == p_material) {
+        return;
+    }
+    painterly_material = p_material;
+    if (renderer.is_valid()) {
+        _apply_renderer_settings();
+    }
     _mark_render_state_dirty();
 }
 

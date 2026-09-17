@@ -1,0 +1,38 @@
+[gd_resource type="PainterlyMaterial" format=3]
+
+; Shared PainterlyMaterial fixture (#997).
+;
+; A painterly frame with no material is NOT a painterly frame: RasterStage
+; rejects it with RenderFallbackReason::PAINTERLY_MATERIAL_UNAVAILABLE
+; (modules/gaussian_splatting/renderer/render_pipeline_stages.cpp:2561-2566)
+; and silently renders the baseline raster instead. Every painterly test in
+; this repo used to run that fallback, which is why they were all vacuous.
+;
+; This resource exists so a test can assert the painterly path actually ran.
+; It deliberately turns on all three shader-define switches
+; (PainterlyMaterial::get_shader_define_strings,
+; modules/gaussian_splatting/painterly/painterly_material.cpp:996-1010) so a
+; regression that silently drops one of them is visible in the capture, and
+; keeps painterly_mix_strength high so the delta against the baseline raster
+; is well above sampling noise.
+;
+; Do not add palette_textures / noise_luts / stroke_density_curve here: those
+; are the optional resources PainterlyMaterial::get_missing_resources() reports
+; (:1016-1028), and the fixture is deliberately the minimum that makes the
+; painterly path run, so a test that needs them has to say so.
+
+[resource]
+palette_quantization_enabled = true
+brush_modulation_enabled = true
+lighting_stylization_enabled = true
+palette_colors = PackedColorArray(0.945, 0.788, 0.623, 0.95, 0.423, 0.305, 0.196, 0.88, 0.741, 0.368, 0.239, 0.92, 0.196, 0.215, 0.298, 0.85)
+palette_blend_strength = 0.85
+shading_style = 1
+painterly_mix_strength = 0.85
+brush_texture_influence = 0.35
+brush_scale = 0.675
+brush_softness = 1.0
+diffuse_strength = 0.95
+specular_strength = 0.15
+rim_strength = 0.45
+rim_power = 2.0
