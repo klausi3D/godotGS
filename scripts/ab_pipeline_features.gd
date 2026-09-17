@@ -103,7 +103,7 @@ func _process(_delta: float) -> bool:
             _phase = "capture"
             _frames_left = _frames_total
             _capture_frames = 0
-            _capture_start_usec = int(OS.get_singleton().get_ticks_usec())
+            _capture_start_usec = int(Time.get_ticks_usec())
         return false
 
     if _phase == "capture":
@@ -144,9 +144,9 @@ func _apply_config(cfg: Dictionary) -> void:
     _renderer.call("reload_pipeline_feature_set")
 
 func _record_result() -> void:
-    var elapsed_usec: int = int(OS.get_singleton().get_ticks_usec()) - _capture_start_usec
+    var elapsed_usec: int = int(Time.get_ticks_usec()) - _capture_start_usec
     var elapsed_sec: float = float(elapsed_usec) / 1_000_000.0
-    var fps: float = elapsed_sec > 0.0 ? float(_capture_frames) / elapsed_sec : 0.0
+    var fps: float = (float(_capture_frames) / elapsed_sec) if elapsed_sec > 0.0 else 0.0
 
     var stats: Dictionary = _renderer.call("get_render_stats")
     var counters: Dictionary = _renderer.call("get_binning_debug_counters")
