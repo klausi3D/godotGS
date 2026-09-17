@@ -198,8 +198,21 @@ work items.
 ### 8.1 Disclosed, not blocking
 
 Defects that are real and reachable but do not block, each with the reason and a
-workaround. The generated list supersedes this one; these are recorded here
+workaround. The generated list (§8) supersedes this one; these are recorded here
 because they were decided before the generator exists.
+
+**This section and the known-limitations page are not two copies of one list.** This
+section is the **disposition record**: why a defect does not block, which §10.1 condition
+lets it stand, and the evidence behind that call.
+[Known Public Alpha Limitations](../development/known-public-alpha-limitations.md) is the
+**user-facing disclosure** — what a user hits and what to do about it — and it is the page
+the release-gate manifest binds to as `known_limitations_page`, so it is the only valid
+`docs_path` for an `accepted_alpha_limitation` (§9.1). Every row below has an entry there;
+a row marked *proposed* has its entry in that page's fenced "Proposed, not yet accepted"
+section, which is explicitly **not** citable as an accepted limitation. Keep the mechanism
+here and the symptom there, and do not let either grow a copy of the other. The wider
+version of this problem — one mechanism described across four documents, wrong twice in one
+week in opposite directions — is tracked as **#1036**.
 
 Most rows here are here because the defect is **outside** what §10.1 admits, is
 **not ours to fix**, or is **not reproduced** — none of which engages §10.1's
