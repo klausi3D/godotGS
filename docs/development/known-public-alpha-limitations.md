@@ -23,6 +23,22 @@ release. This page is for what we ship knowing about.
 nobody has seen it happen, not that it does not happen; the code reading that produced it
 is cited so you can check it yourself.
 
+### Disclosure here is not the same as admission by the gate
+
+The five bullets at the top of this page are the bar a limitation must clear to be cited
+by a release candidate as an `accepted_alpha_limitation` — including the last one,
+evidence that the limitation does not hide a renderer correctness failure. **Most entries
+below do not clear it yet**, because they are code-reading findings with no reproduction:
+#1018, #983 and #1005 say so in their own Status lines.
+
+Those two things are deliberately kept apart. This page's job as a *user* document is to
+disclose everything real that we know about, reproduced or not; an entry with no
+reproduction is still worth a user's time. Its job as a *gate* input is narrower, and an
+entry that has not been reproduced **must not** be pointed at by a candidate's
+`docs_path` until it has been. Nothing here should be read as having pre-cleared that
+check. Do not relax the criterion at the top of this page to make an entry admissible —
+produce the evidence, or leave the issue in the blocker set.
+
 Verified against `b915afc51c5` (2026-09-17).
 
 ## Rendering
@@ -36,23 +52,12 @@ cannot be fixed from this module.
 
 **Workaround:** do not combine `transparent_bg` with TAA or FSR2.
 
-### Splats swim relative to meshes under TAA or FSR2 ([#929](https://github.com/klausi3D/godotGS/issues/929))
-
-The pre-upscale composite writes splat colour into the buffer TAA/FSR2/MetalFX then
-consume, but the splat render projection is built from the raw camera projection and never
-has `taa_jitter` applied — while FSR2 is handed the jitter immediately below the hook.
-Ordinary geometry renders jittered; splats do not. The temporal pass is therefore told the
-frame is jittered while splat pixels sit at unjittered positions.
-
-**Status:** verified structurally in the code — the jitter FSR2 receives is set at
-`servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp:2713`
-(`params.jitter = jitter;`), and the splat render projection is copied from the raw
-`cam_projection` in `renderer/gaussian_splat_renderer.cpp` with only a flip-Y adjustment.
-The expected symptom is subpixel
-swimming or blur of splats against meshes; it has **not** been confirmed by a signed-off
-visual capture.
-
-**Workaround:** disable TAA and FSR2 if splat/mesh subpixel alignment matters to you.
+> **Not listed here: splats swimming relative to meshes under TAA or FSR2
+> ([#929](https://github.com/klausi3D/godotGS/issues/929)).** It shares the composite /
+> temporal seam with #989 above, so it belongs in this neighbourhood — but it is in the
+> **blocker** set (acceptance bar §11), not the accepted set, and this page does not list
+> blockers. It is named so that a reader who hits TAA/FSR2 trouble does not conclude #989
+> is the whole story.
 
 ### Painterly rendering has no automated coverage, and its material cannot be assigned from a scene ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
