@@ -550,8 +550,8 @@ func _section_visibility(lines: Array[String], stats: Dictionary) -> void:
 ## This replaces the old VRAM BUDGET block. That block reported the streaming
 ## regulator's budget model, which is structurally 0 on a resident scene, and
 ## three quantities -- reserved / allocated-chunks / pool size -- that no
-## producer in this engine computes at all. The pool/reservation model is
-## tracked separately; see the issue linked from #833.
+## producer in this engine computes at all. What building that pool/reservation
+## model would actually take is recorded in #1029.
 func _section_device_vram(lines: Array[String]) -> void:
 	lines.append("")
 	lines.append("[b]═══ DEVICE VRAM ═══[/b]")
