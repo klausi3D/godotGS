@@ -105,9 +105,18 @@ SKIPPED_DIR_NAMES = frozenset({
 
 # Keys Godot 4 accepts inside a `[node ...]` scene header. Everything else in a
 # header is discarded without a diagnostic.
+#
+# Derived from the vendored engine's own text-scene writer and reader, not from
+# memory: `scene/resources/resource_format_text.cpp` emits `name`, `type`,
+# `parent`, `index`, `instance` / `instance_placeholder`, `owner`, `groups` and
+# `node_paths` into the header, and its loader consumes the same set.
+# `node_paths` in particular is written by Godot itself the moment a shipped
+# script gains an exported `Node` reference wired in the editor -- flagging it
+# would be a false accusation against correct engine output, so it is listed
+# here even though nothing in this repository emits it today.
 LEGAL_NODE_HEADER_KEYS = frozenset({
     "name", "type", "parent", "index", "groups", "instance",
-    "instance_placeholder", "owner",
+    "instance_placeholder", "owner", "node_paths",
 })
 
 # Godot 3 theme-override property prefixes -> the Godot 4 spelling.

@@ -66,7 +66,10 @@ mesh = SubResource("BoxMesh_1")
 material_override = SubResource("StandardMaterial3D_1")
 cast_shadow = 0
 
+; `layer` belongs to CanvasLayer, not to the MarginContainer instanced under
+; it. It used to be set on the instance, where Godot discards it in silence --
+; the same defect class as the `script=` header above. 1 is CanvasLayer's
+; default anyway, so the correct value is simply not written.
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="PerformanceOverlay" parent="CanvasLayer" instance=ExtResource("3")]
-layer = 1

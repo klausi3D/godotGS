@@ -35,20 +35,31 @@ offset_top = 16.0
 mouse_filter = 2
 script = ExtResource("1")
 
+; mouse_filter = 2 (IGNORE) on every node in this panel. Control sets STOP by
+; default and PanelContainer/RichTextLabel set it explicitly in their
+; constructors; it does NOT inherit from the parent. A ~720x560 panel that
+; consumes mouse events kills RMB-orbit, MMB-pan and wheel-zoom over half the
+; viewport, because OrbitCameraRig listens on _unhandled_input, which never
+; sees an event the GUI has already eaten.
 [node name="Panel" type="PanelContainer" parent="."]
+mouse_filter = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_1")
 
 [node name="VBox" type="VBoxContainer" parent="Panel"]
+mouse_filter = 2
 
 [node name="TitleLabel" type="Label" parent="Panel/VBox"]
+mouse_filter = 2
 text = "Gaussian Splatting"
 label_settings = SubResource("LabelSettings_title")
 
 [node name="Columns" type="HBoxContainer" parent="Panel/VBox"]
+mouse_filter = 2
 theme_override_constants/separation = 16
 
 [node name="BodyLeft" type="RichTextLabel" parent="Panel/VBox/Columns"]
 custom_minimum_size = Vector2(340, 0)
+mouse_filter = 2
 theme_override_font_sizes/normal_font_size = 13
 theme_override_font_sizes/bold_font_size = 13
 bbcode_enabled = true
@@ -59,6 +70,7 @@ text = "Initializing..."
 
 [node name="BodyRight" type="RichTextLabel" parent="Panel/VBox/Columns"]
 custom_minimum_size = Vector2(340, 0)
+mouse_filter = 2
 theme_override_font_sizes/normal_font_size = 13
 theme_override_font_sizes/bold_font_size = 13
 bbcode_enabled = true
@@ -68,6 +80,7 @@ scroll_following = false
 text = ""
 
 [node name="Footer" type="Label" parent="Panel/VBox"]
+mouse_filter = 2
 text = ""
 autowrap_mode = 3
 label_settings = SubResource("LabelSettings_footer")

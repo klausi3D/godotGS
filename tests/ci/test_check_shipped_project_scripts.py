@@ -194,6 +194,26 @@ class ShippedProjectScriptGuardTests(unittest.TestCase):
         code, messages = self.fx.run()
         self.assertEqual(code, 0, messages)
 
+    def test_node_paths_written_by_godot_itself_is_clean(self) -> None:
+        # `scene/resources/resource_format_text.cpp:1989` emits ` node_paths=`
+        # into the header whenever a node has a deferred NodePath property --
+        # i.e. the moment a shipped script gains an exported Node reference
+        # wired in the editor. Flagging it would be a false accusation against
+        # correct engine output, and the finding's own advice would make the
+        # scene wrong.
+        self.fx.write("shipped/nodepaths.tscn", """[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://clean.gd" id="1"]
+
+[node name="Root" type="Node" node_paths=PackedStringArray("target")]
+script = ExtResource("1")
+target = NodePath("Child")
+
+[node name="Child" type="Node" parent="."]
+""")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
     # ---- detector 4: Godot 3 theme overrides ------------------------------
 
     def test_godot3_theme_override_is_flagged(self) -> None:
