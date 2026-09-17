@@ -47,11 +47,15 @@ Pending uploads keep their atlas slots reserved until retirement or failure roll
 
 ## Enabling streaming
 
-Streaming is enabled globally through a project setting and is active by default.
+There is **no** `streaming/enabled` project setting. An earlier revision of this page told
+you to confirm one was `true`; no such key exists anywhere in the module, so the
+instruction could not be followed. What selects the route is
+`rendering/gaussian_splatting/streaming/route_policy` (default `1` = streaming) together
+with the payload type of the content you assign.
 
 | Step | Action | Implementation reference |
 | --- | --- | --- |
-| 1 | Confirm `rendering/gaussian_splatting/streaming/enabled` is `true` in Project Settings. | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:933` |
+| 1 | Leave `rendering/gaussian_splatting/streaming/route_policy` at its default `1`, or set it explicitly. | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1008` |
 | 2 | Create a `GaussianStreamingSystem` instance (the node creates one automatically when streaming is enabled). | `modules/gaussian_splatting/core/gaussian_streaming.h:31` |
 | 3 | Call `initialize(data)` with a loaded `GaussianData` resource to partition splats into chunks. | `modules/gaussian_splatting/core/gaussian_streaming.cpp:927` |
 | 4 | Each frame, call `update_streaming(camera_transform, projection)` to drive chunk loading, culling, and eviction. | `modules/gaussian_splatting/core/gaussian_streaming.h:770` |
