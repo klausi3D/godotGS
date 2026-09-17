@@ -160,8 +160,12 @@ classification and says in its own `notes` what the lane is and is not:
 `docs/testing/benchmark-suite.md:306-310` states the rule directly: "No currently documented
 benchmark lane should be cited as representative chunked streaming evidence unless its
 manifest classification is upgraded to `real_chunked`." All three lanes are listed
-`Suite-only` there (`:298-300`), and `docs/performance/index.md:189-191` lists all three as
-"Defined in the benchmark suite, not yet published".
+`Suite-only` there (`:298-300`). `docs/performance/index.md` lists `streaming_corridor`
+(`:189`) and `open_world_corridor_proof` (`:191`) as "Defined in the benchmark suite, not
+yet published" — but **contradicts `benchmark-suite.md` about `city_flyover`**, which it
+calls "Published in `benchmark_latest.json`" at `:186` while `benchmark-suite.md:300` calls
+it `Suite-only`. One of those two pages is wrong about a lane this ADR depends on, and
+resolving it belongs with the §5.1 decision rather than here.
 
 **The consequence is the sharpest thing in this ADR.** Satisfying the gate with these three
 lanes *as they are classified today* would produce a green gate over evidence the repository's
@@ -199,17 +203,22 @@ They are recorded because the alpha would now be promising a capability whose en
 QA-scene coverage is switched off — including, in two cases, because the monitors that would
 observe it are not populated.
 
-### 5.3 Five v1.0 blockers become alpha blockers
+### 5.3 Four v1.0 blockers become alpha blockers
 
 Bar §4.1 makes any defect reachable inside the supported envelope a blocker. Widening the
-envelope therefore moves work, and this is mechanical rather than a judgement:
+envelope therefore moves work, and this is mechanical rather than a judgement. Issue
+states re-checked 2026-09-17 21:00 UTC:
 
 | Issue | State | What it is | Was | Now |
 | --- | --- | --- | --- | --- |
-| #318, #320 | OPEN | streaming performance | v1.0 | **alpha** |
+| #320 | OPEN | `O(total_chunks)` work in streaming visibility, LOD, eviction and atlas registry | v1.0 | **alpha** |
 | #786 | OPEN | `qa_stream_visual_smoke` never reaches visual readiness on a real GPU | v1.0 | **alpha** |
 | #883 | OPEN | GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner | v1.0 | **alpha** |
 | (no issue) | — | the 50M chunked open-world asset must become a passing lane, not a contract (bar `:252`) | v1.0 | **alpha** |
+
+**#318 is excluded because it CLOSED on 2026-09-17 at 20:42 UTC**, while this ADR was
+being written — it had been open at the base commit and the bar still lists it. Four
+items move, not the five the bar's v1.0 list implies.
 
 #842 (node-count benchmark) is **not** moved: it is multi-node, which §4.2 leaves outside
 the alpha.
@@ -254,7 +263,7 @@ not chosen, for four reasons.
    the date is better than moving the definition.
 
 **The honest counterpoint, recorded:** this decision makes the alpha strictly harder to reach,
-by an amount §5 does not fully quantify — #318 and #320 are open performance issues with no
+by an amount §5 does not fully quantify — #320 is an open performance issue with no
 estimate attached, and §5.1's classification question could turn into the 50M asset programme
 in full. If that proves out of proportion, the right response is to revisit *this* ADR in the
 open, not to quietly re-narrow the gate or mark a lane advisory.
@@ -275,7 +284,7 @@ open, not to quietly re-narrow the gate or mark a lane advisory.
 | Candidate bundle generator | #961 | Unblocked by this ADR; build against all ten groups and all six lanes |
 | Dry-run the candidate gate in CI | #960 | Should still land first; §2 is a local run, not a CI one |
 | Streaming configuration added to the visual-pass procedure | #1012 | §5.4 |
-| Streaming blockers re-labelled from v1.0 to alpha | #318, #320, #786, #883 | §5.3 |
+| Streaming blockers re-labelled from v1.0 to alpha | #320, #786, #883 | §5.3 |
 | Un-quarantine the streaming QA scenes, or record them as accepted alpha limitations | #786 + the three untracked reasons | §5.2 |
 
 ### 7.3 The `alpha-relevant` label is still inert
@@ -303,3 +312,9 @@ not less — there are more in-envelope P1s now than there were.
   defensible is the §5.1 decision itself.
 - **The 2.1 s resubmit cost, the #883 ratio and the #786 luma variance** are quoted from their
   issues and from the quarantine entry, not re-measured.
+- **Issue states are the one input here that is not pinned to a commit**, and they moved
+  during the writing of this document: #318 closed hours after §5.3 was first drafted
+  listing it as open, and #862, #986 and #987 had closed between the bar's base commit and
+  this one. Every state in §5.3 was re-checked at 2026-09-17 21:00 UTC, but a reader should
+  re-query rather than trust the column. This is the argument for #963 deriving the ledger
+  instead of hand-maintaining it.

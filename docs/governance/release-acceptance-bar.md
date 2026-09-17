@@ -164,9 +164,11 @@ from the longest matching family prefix and only then overridden per setting
 (`modules/gaussian_splatting/tests/check_project_settings_manifest.py:313-331`), and 21
 of the 23 families default to `public` — including the root family. So the three numbers
 above are each true, and the number that describes the surface a user is exposed to is
-that **153 of the 193 settings resolve to `public`**, of which 139 are
-`inventory_only`. Only `…/debug/` (`debug_only`) and `…/lighting/` (`internal`) inherit
-anything else.
+that **153 of the 193 settings resolve to `public`**, and that **106 of those 153 are
+also `test_coverage: inventory_only`** — public by inheritance with nothing verifying they
+do anything. (139 is the `inventory_only` count across all 193, not the public subset;
+the two figures are different and had been conflated.) Only `…/debug/` (`debug_only`) and
+`…/lighting/` (`internal`) inherit anything else.
 
 **A consequence, recorded because it is a §4.2 shape.** §9's machine criterion
 "`publicness` is set on every setting in the manifest" **already passes today**, because
@@ -365,8 +367,9 @@ the blocker set by this decision rather than by a change in its severity.
 **Decided 2026-09-17 (#1016):** the alpha also admits **streaming open worlds**, for
 the same kind of reason and with a larger consequence. Three gate requirements —
 `open_world_proof`, `streaming_corridor`, `city_flyover` — must now run and pass before
-a stable tag. Every streaming defect becomes an alpha blocker under §4.1, moving #318,
-#320, #786, #883 and the 50M chunked asset out of the v1.0 list below.
+a stable tag. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
+#786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set
+too and **closed on 2026-09-17**, so it moves nowhere.)
 
 **And a caveat that is part of the decision, not a footnote.** All three lanes exist,
 and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
@@ -391,10 +394,11 @@ this document.
   unproven, and GrandmasHouse was CPU-bound at 113 nodes. **Stays v1.0**: it is a
   multi-node item, and the #1016 widening moved streaming only.
 
-> The four streaming entries that stood here — #318, #320, #786, #883 and the 50M
-> chunked open-world asset — **moved to the Public Alpha list below on 2026-09-17**
-> (#1016). They are not resolved and nothing about them changed; the envelope moved
-> underneath them.
+> The streaming entries that stood here — #318, #320, #786, #883 and the 50M chunked
+> open-world asset — left this list on 2026-09-17 (#1016). **Four of them moved to the
+> Public Alpha list below**: #320, #786, #883 and the 50M asset. They are not resolved and
+> nothing about them changed; the envelope moved underneath them. **#318 closed** the same
+> day, so it moved nowhere.
 
 **Blocking v1.0, from the bar itself:**
 
@@ -414,8 +418,8 @@ against this base. Ranked by user impact.
 
 **Status: 12 identified, 7 fixed or closed, 4 open, 1 refuted** (re-counted
 2026-09-17: #862, #986 and #987 have closed since this list was written, fixed on
-master by #1009 and #999). **Plus five streaming items admitted by the #1016
-widening — see the sub-list after item 10.** Several were found
+master by #1009 and #999). **Plus four streaming items admitted by the #1016
+widening — see the table after item 10.** Several were found
 not by triage but by **verification conditions attached to a fix in flight** —
 #980 by the tooling built to demonstrate #586's reload path, #985 by the
 condition requiring #980's deferred triggers to be covered, and #986/#987 by the
@@ -474,15 +478,16 @@ rather than a ceiling.
 
 **Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
 re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
-listed separately from 1–10 because their severity ranking against that set has not been
-done.
+listed unranked, in a table rather than continuing the numbering above, because their
+severity against items 1–10 has not been assessed — and because a continued ordered list
+renumbers itself from 1 on the docs site.
 
-11. **#318, #320** — streaming performance.
-12. **#786** — `qa_stream_visual_smoke` never reaches visual readiness on a real GPU
-    (luma variance 0.00009 against a 0.0002 gate, reproducibly). The scene is
-    quarantined.
-13. **#883** — GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner.
-14. The **50M chunked open-world asset** must become a passing lane, not a contract.
+| Item | What it is |
+| --- | --- |
+| **#320** | `O(total_chunks)` work in streaming visibility, LOD, eviction and atlas registry. |
+| **#786** | `qa_stream_visual_smoke` never reaches visual readiness on a real GPU (luma variance 0.00009 against a 0.0002 gate, reproducibly). The scene is quarantined. |
+| **#883** | GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner. |
+| *(no issue)* | The **50M chunked open-world asset** must become a passing lane, not a contract. |
 
 **Streaming's QA coverage is entirely switched off.** All four streaming QA scenes are
 quarantined at `tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84`:
