@@ -328,6 +328,19 @@ theme_override_styles/panel = null
         self.assertEqual(code, 1, messages)
         self.assertIn("gdscript-unregistered-monitor", self.fx.detectors())
 
+    def test_monitor_id_quoted_in_a_comment_is_not_a_read(self) -> None:
+        # A doc comment that names an unregistered monitor is prose, not a
+        # read. Without comment masking the detector flagged it, which forced
+        # the comment to dodge with backticks -- the tell that the detector was
+        # scanning raw source.
+        self.fx.write(
+            "shipped/comment.gd",
+            'func f():\n'
+            '\t# was "gaussian_splatting/no_such_monitor", removed: no producer\n'
+            '\treturn Performance.get_custom_monitor("gaussian_splatting/registered_one")\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
     def test_monitor_id_built_by_concatenation_is_flagged(self) -> None:
         # The blind spot this closes: with the id assembled at run time, the
         # detector above sees no literal and reports nothing, so a file full of

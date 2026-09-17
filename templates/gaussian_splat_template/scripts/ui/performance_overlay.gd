@@ -187,6 +187,20 @@ func _flag(value: Variant) -> int:
 		return 0
 	return int(value)
 
+## Distinguishes "measured zero" from "no producer to ask" for the *registered*
+## monitors whose getters return a literal 0 when there is no renderer or no
+## RenderingDevice behind them -- `_get_cpu_setup_time_ms` and the three
+## `_get_vram_device_*_mb` (performance_monitors.cpp:617, :819-838). Those are
+## registered, so `_monitor()` hands back a real `0.0` that `n/a` handling
+## cannot catch. A host wall-clock stage that ran takes a non-zero number of
+## microseconds, and a live RenderingDevice never reports zero bytes total, so
+## exactly 0.0 from these four means "nothing answered".
+## @return The value, or `null` when it is the producer's no-renderer default.
+func _measured_time(value: Variant) -> Variant:
+	if value == null or float(value) <= 0.0:
+		return null
+	return value
+
 ## Assigns the Gaussian node used for statistics queries.
 ## @param node: GaussianSplatNode3D to monitor.
 func set_gaussian_node(node: GaussianSplatNode3D) -> void:
@@ -382,7 +396,8 @@ func _section_gpu_passes(lines: Array[String], stats: Dictionary) -> void:
 func _section_host_stages(lines: Array[String], stats: Dictionary) -> void:
 	lines.append("")
 	lines.append("[b]═══ HOST STAGES (CPU clock) ═══[/b]")
-	lines.append("TileRenderer setup: %s" % _fmt_ms(_monitor("gaussian_splatting/cpu_setup_time_ms")))
+	lines.append("TileRenderer setup: %s"
+		% _fmt_ms(_measured_time(_monitor("gaussian_splatting/cpu_setup_time_ms"))))
 	lines.append("Cull stage: %s" % _fmt_ms(_stat(stats, "cull_ms")))
 	var dispatch = null
 	if not stats.is_empty() and bool(stats.get("overlap_sort_cpu_dispatch_valid", false)):
@@ -454,10 +469,19 @@ func _section_visibility(lines: Array[String], stats: Dictionary) -> void:
 func _section_device_vram(lines: Array[String]) -> void:
 	lines.append("")
 	lines.append("[b]═══ DEVICE VRAM ═══[/b]")
-	lines.append("RenderingDevice total: %s MB" % _fmt_num(_monitor("gaussian_splatting/vram_device_total_mb"), "%.1f"))
-	lines.append("Buffers: %s MB | Textures: %s MB" % [
-		_fmt_num(_monitor("gaussian_splatting/vram_device_buffers_mb"), "%.1f"),
-		_fmt_num(_monitor("gaussian_splatting/vram_device_textures_mb"), "%.1f")])
+	# These three are REGISTERED monitors that return a literal 0.0 when there
+	# is no active TileRenderer or no RenderingDevice to ask
+	# (performance_monitors.cpp:819-838), so `_monitor()` cannot distinguish
+	# them from a measurement -- which is the exact shape this panel exists to
+	# stop. Total is the gate: a live device never reports zero bytes.
+	var device_total = _measured_time(_monitor("gaussian_splatting/vram_device_total_mb"))
+	if device_total == null:
+		lines.append("RenderingDevice: %s (no active device answered)" % UNAVAILABLE)
+	else:
+		lines.append("RenderingDevice total: %s MB" % _fmt_num(device_total, "%.1f"))
+		lines.append("Buffers: %s MB | Textures: %s MB" % [
+			_fmt_num(_monitor("gaussian_splatting/vram_device_buffers_mb"), "%.1f"),
+			_fmt_num(_monitor("gaussian_splatting/vram_device_textures_mb"), "%.1f")])
 
 	if not _streaming_ready():
 		lines.append("Streaming VRAM budget: %s (no streaming system attached)" % UNAVAILABLE)
@@ -546,15 +570,27 @@ func _section_streaming(lines: Array[String]) -> void:
 		lines.append("[color=orange]Pressure: %s[/color]" % ", ".join(cap_markers))
 
 	var stall = _monitor("gaussian_splatting/memory_stream_stall_percent")
-	lines.append("Pipeline stalls: %s" % _fmt_pct_colored(stall))
+	lines.append("Pipeline stalls: %s" % _fmt_stall_pct(stall))
 
-func _fmt_pct_colored(value: Variant) -> String:
+## A percentage where HIGHER is worse: pipeline stall time.
+func _fmt_stall_pct(value: Variant) -> String:
 	if value == null:
 		return UNAVAILABLE
 	var pct := float(value)
 	if pct > 5.0:
 		return "[color=orange]%.1f%%[/color]" % pct
 	return "%.1f%%" % pct
+
+## A percentage where HIGHER is better: SH compression ratio. Kept separate
+## from `_fmt_stall_pct` on purpose -- sharing one helper painted a healthy
+## 70 % compression ratio in the stall meter's warning colour.
+func _fmt_saving_pct(value: Variant) -> String:
+	if value == null:
+		return UNAVAILABLE
+	var pct := float(value)
+	if pct > 50.0:
+		return "[color=green]%.1f%%[/color]" % pct
+	return "[color=yellow]%.1f%%[/color]" % pct
 
 func _section_compression(lines: Array[String]) -> void:
 	lines.append("")
@@ -567,7 +603,7 @@ func _section_compression(lines: Array[String]) -> void:
 	var ratio = _monitor("gaussian_splatting/sh_compression_ratio_pct")
 	lines.append("Raw: %s MB → compressed: %s MB" % [
 		_fmt_num(raw, "%.2f"), _fmt_num(compressed, "%.2f")])
-	lines.append("Ratio: %s" % _fmt_pct_colored(ratio))
+	lines.append("Ratio: %s" % _fmt_saving_pct(ratio))
 
 func _section_node(lines: Array[String], stats: Dictionary) -> void:
 	if gaussian_node == null:
