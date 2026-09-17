@@ -54,6 +54,28 @@ script = ExtResource("1")
 """
 
 
+def _synthetic_registry() -> str:
+    """A minimal performance_monitors.cpp shaped like the real one.
+
+    The guard refuses to run on fewer than 50 parsed ids, so the fixture has to
+    carry a realistic table; `registered_one` is the id the "clean" test reads.
+    """
+    ids = ["registered_one"] + ["filler_monitor_%02d" % i for i in range(60)]
+    rows = "\n".join(
+        '        { "gaussian_splatting/%s", callable_mp(this, &X::_get_%s) },' % (i, i)
+        for i in ids)
+    return (
+        "void GaussianSplattingPerformanceMonitors::_register_monitor_definitions(Performance *p) {\n"
+        "    const MonitorDefinition monitor_definitions[] = {\n"
+        + rows + "\n"
+        "    };\n"
+        "}\n"
+        "\nvoid GaussianSplattingPerformanceMonitors::_something_else() {\n"
+        '    // "gaussian_splatting/not_in_the_table" must not widen the set.\n'
+        "}\n"
+    )
+
+
 class GuardFixture:
     """A synthetic repository root: one clean .gd, one clean .tscn, plus the
     upstream GDScript corpus that the guard must skip."""
@@ -69,6 +91,11 @@ class GuardFixture:
             "modules/gdscript/tests/scripts/parser/errors/invalid_ternary_operator.gd",
             'func t():\n\tvar x = 1 < 2 ? "yes" : "no"\n',
         )
+        # A stand-in monitor registry, shaped like the real one: the guard
+        # derives the registered-id set from the literals inside
+        # _register_monitor_definitions(), and refuses to run if it cannot
+        # parse a plausible number of them.
+        self.write("/".join(guard.MONITOR_REGISTRY), _synthetic_registry())
 
     def write(self, rel: str, text: str) -> None:
         path = self.root / rel
@@ -269,6 +296,75 @@ custom_styles/panel = null
 theme_override_styles/panel = null
 """)
         self.assertEqual(self.fx.run()[0], 0)
+
+    # ---- detectors 5 and 6: monitor-id closure -----------------------------
+
+    def test_unregistered_monitor_id_is_flagged(self) -> None:
+        self.fx.write(
+            "shipped/mon.gd",
+            'func f():\n'
+            '\treturn Performance.get_custom_monitor("gaussian_splatting/no_such_monitor")\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("gdscript-unregistered-monitor", self.fx.detectors())
+
+    def test_registered_monitor_id_is_clean(self) -> None:
+        self.fx.write(
+            "shipped/mon_ok.gd",
+            'func f():\n'
+            '\treturn Performance.get_custom_monitor("gaussian_splatting/registered_one")\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_id_outside_the_registration_table_does_not_widen_the_set(self) -> None:
+        # The fixture registry mentions "gaussian_splatting/not_in_the_table"
+        # in a LATER function. Parsing the whole file would accept it; the
+        # guard stops at the next top-level function, so it must not.
+        self.fx.write(
+            "shipped/outside.gd",
+            'func f():\n'
+            '\treturn Performance.get_custom_monitor("gaussian_splatting/not_in_the_table")\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("gdscript-unregistered-monitor", self.fx.detectors())
+
+    def test_monitor_id_built_by_concatenation_is_flagged(self) -> None:
+        # The blind spot this closes: with the id assembled at run time, the
+        # detector above sees no literal and reports nothing, so a file full of
+        # phantom reads would pass. The concatenation itself is the finding.
+        self.fx.write(
+            "shipped/concat.gd",
+            'func _m(name: String) -> float:\n'
+            '\treturn Performance.get_custom_monitor("gaussian_splatting/" + name)\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("gdscript-monitor-id-built-at-runtime", self.fx.detectors())
+
+    def test_prefix_used_to_filter_an_enumeration_is_clean(self) -> None:
+        # `begins_with(prefix)` over `get_custom_monitor_names()` is the
+        # legitimate use of the bare prefix and must not be flagged.
+        self.fx.write(
+            "shipped/enumerate.gd",
+            'func f() -> Array:\n'
+            '\tvar out := []\n'
+            '\tfor n in Performance.get_custom_monitor_names():\n'
+            '\t\tif str(n).begins_with("gaussian_splatting/"):\n'
+            '\t\t\tout.append(str(n))\n'
+            '\treturn out\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_unparseable_monitor_registry_is_an_error_not_a_pass(self) -> None:
+        registry = self.fx.root.joinpath(*guard.MONITOR_REGISTRY)
+        registry.write_text("// the table moved\n", encoding="utf-8")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 2, messages)
+        self.assertTrue(any("not found" in m or "derivation" in m for m in messages), messages)
+
+    def test_missing_monitor_registry_is_an_error_not_a_pass(self) -> None:
+        self.fx.root.joinpath(*guard.MONITOR_REGISTRY).unlink()
+        code, messages = self.fx.run()
+        self.assertEqual(code, 2, messages)
 
     # ---- the guard's own failure modes ------------------------------------
 
