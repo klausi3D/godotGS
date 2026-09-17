@@ -1916,6 +1916,15 @@ void GaussianSplatNodeRendererHelper::ensure_renderer() {
             // reference persists; only renderer-reference change should.)
             owner.grading_pushed_for_current_data = false;
             if (owner.renderer.is_valid()) {
+                // A new renderer reference has none of this node's painterly
+                // state, so an authored material has to be pushed once. Armed
+                // ONLY when the node actually holds one: arming unconditionally
+                // would push an empty Ref into a renderer this node may be
+                // joining as a peer, clearing a material another node or a
+                // script legitimately set.
+                if (owner.painterly_material.is_valid()) {
+                    owner.painterly_material_push_pending = true;
+                }
                 apply_renderer_settings();
                 owner._replay_color_grading_if_pending();
             }
@@ -1993,6 +2002,39 @@ void GaussianSplatNodeRendererHelper::apply_renderer_settings() {
         owner.renderer->set_painterly_stroke_opacity(owner.stroke_opacity);
         owner.renderer->set_painterly_stroke_length(owner.stroke_width);
         owner.renderer->set_painterly_gamma(MAX(owner.temporal_blend, 0.01f));
+        // #997/#851: the material is the input that decides whether a painterly
+        // frame is painterly at all -- RasterStage falls back to the baseline
+        // with PAINTERLY_MATERIAL_UNAVAILABLE when the renderer has none. It
+        // rides the same P2 gate as the four knobs above.
+        //
+        // EDGE-TRIGGERED, unlike those four knobs, and deliberately so. This
+        // function runs on EVERY frame (update_splats() calls it before the
+        // render_state_dirty check) and on every force_update(). An
+        // unconditional push -- or a push conditioned on "the renderer differs
+        // from me", which is the same thing whenever the node holds no material
+        // -- makes the node clear the renderer's material every frame for any
+        // node that never authored one. That breaks
+        // GaussianSplatRenderer.painterly_material, the script route that was
+        // the ONLY route before `painterly/material` was bound: the renderer is
+        // cleared one frame after the script sets it and painterly silently
+        // falls back to the baseline raster. Caught in independent review on
+        // #1028 by running both binaries, and now asserted by phase E of
+        // tests/runtime/test_painterly_material_render.gd.
+        //
+        // So the node writes only when the NODE changed something: an explicit
+        // set_painterly_material(), a newly acquired renderer reference, or the
+        // convergence hook releasing this node from non-owner-peer status.
+        // A renderer-set material survives untouched otherwise.
+        //
+        // Known asymmetry, not fixed here: the four scalars above are still
+        // unconditional, so a script calling set_painterly_edge_threshold() is
+        // still clobbered. Moving all five to edge-triggered pushes is a
+        // separate change with its own evidence (it changes #329's P2
+        // convergence contract for every painterly control at once).
+        if (owner.painterly_material_push_pending) {
+            owner.renderer->set_painterly_material(owner.painterly_material);
+            owner.painterly_material_push_pending = false;
+        }
     }
     // Per-instance color grading — routed through the scene director. The director
     // stores grading on the node's InstanceRecord, then the director's build step
