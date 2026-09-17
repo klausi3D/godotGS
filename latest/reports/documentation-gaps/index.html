@@ -4523,17 +4523,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingnodesgaussian_splat_world_3dcpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4820,32 +4809,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_output_compositor_composite_hazardh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingteststest_gaussian_splat_nodeh" class="md-nav__link">
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/tests/test_gaussian_splat_node.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_output_compositor_composite_hazardh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h
       
     </span>
   </a>
@@ -5304,6 +5282,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingnodesgaussian_splat_world_3dcpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5594,6 +5583,17 @@
     <span class="md-ellipsis">
       
         tests/examples/godot/test_project/scenes/qa/qa_composite_depth_occlusion.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h
       
     </span>
   </a>
@@ -10559,37 +10559,6 @@
 <li>line 283: int ResourceImporterGSplatWorld::get_preset_count() const {...</li>
 <li>line 287: String ResourceImporterGSplatWorld::get_preset_name(int p_id...</li>
 </ul>
-<h2 id="modulesgaussian_splattingnodesgaussian_splat_world_3dcpp">modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_world_3dcpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 18: static bool _is_world_debug_enabled() {...</li>
-<li>line 25: void GaussianSplatWorld3D::_bind_methods() {...</li>
-<li>line 73: void GaussianSplatWorld3D::_notification(int p_what) {...</li>
-<li>line 218: void GaussianSplatWorld3D::_notification_process() {...</li>
-<li>line 249: void GaussianSplatWorld3D::set_world(const Ref&lt;GaussianSplat...</li>
-<li>line 257: void GaussianSplatWorld3D::set_auto_apply_on_ready(bool p_en...</li>
-<li>line 261: void GaussianSplatWorld3D::set_cast_shadow(bool p_enabled) {...</li>
-<li>line 266: void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {...</li>
-<li>line 271: void GaussianSplatWorld3D::set_lod_bias(float p_bias) {...</li>
-<li>line 276: void GaussianSplatWorld3D::set_max_render_distance(float p_d...</li>
-<li>line 281: void GaussianSplatWorld3D::set_max_splat_count(int p_count) ...</li>
-<li>line 286: void GaussianSplatWorld3D::set_use_frustum_culling(bool p_en...</li>
-<li>line 291: void GaussianSplatWorld3D::set_async_upload_enabled(bool p_e...</li>
-<li>line 296: void GaussianSplatWorld3D::set_opacity(float p_opacity) {...</li>
-<li>line 301: void GaussianSplatWorld3D::apply_world() {...</li>
-<li>line 306: void GaussianSplatWorld3D::clear_world() {...</li>
-<li>line 319: void GaussianSplatWorld3D::_ensure_renderer() {...</li>
-<li>line 341: Dictionary GaussianSplatWorld3D::_build_desired_renderer_ove...</li>
-<li>line 399: void GaussianSplatWorld3D::_resubmit_world_submission_if_reg...</li>
-<li>line 417: void GaussianSplatWorld3D::_apply_world_internal() {...</li>
-<li>line 474: void GaussianSplatWorld3D::_register_shared_renderer() {...</li>
-<li>line 528: void GaussianSplatWorld3D::_unregister_shared_renderer() {...</li>
-<li>line 536: void GaussianSplatWorld3D::_update_bounds() {...</li>
-<li>line 557: void GaussianSplatWorld3D::_update_render_instance() {...</li>
-<li>line 599: void GaussianSplatWorld3D::_ensure_gaussian_base() {...</li>
-<li>line 618: void GaussianSplatWorld3D::_release_gaussian_base() {...</li>
-<li>line 636: void GaussianSplatWorld3D::_sync_gaussian_storage() {...</li>
-<li>line 653: void GaussianSplatWorld3D::_set_instance_base(const RID &amp;p_b...</li>
-</ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_node_helperscpp">modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 65: static void _prune_dead_debug_overlay_push_records() {...</li>
@@ -11117,6 +11086,33 @@
 <li>line 3124: bool GaussianSplatNode3D::<em>can_drop_data_fw(const Point2 &amp;p</em>...</li>
 <li>line 3143: void GaussianSplatNode3D::_drop_data_fw(const Point2 &amp;p_poin...</li>
 </ul>
+<h2 id="modulesgaussian_splattingteststest_gaussian_splat_nodeh">modules/gaussian_splatting/tests/test_gaussian_splat_node.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_nodeh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 52: Ref<gaussiandata> make_test_gaussian_data(int p_count, float...</gaussiandata></li>
+<li>line 68: Ref<gaussiansplatasset> make_single_splat_asset(float p_x_of...</gaussiansplatasset></li>
+<li>line 142: int find_instance_index_by_translation_x(const LocalVector&lt;I...</li>
+<li>line 151: int count_instances_by_translation_x(const LocalVector&lt;Insta...</li>
+<li>line 161: uint32_t decode_scene_effector_mask(const InstanceDataGPU &amp;p...</li>
+<li>line 167: bool is_property_editor_exposed(Object *p_object, const Stri...</li>
+<li>line 188: bool node_has_debug_hud_control(GaussianSplatNode3D *p_node)...</li>
+<li>line 207: int count_debug_hud_controls_in_viewport(Node *p_search_root...</li>
+<li>line 256: int count_node_canvas_layers_in_viewport(Node *p_search_root...</li>
+<li>line 322: String joined() const {...</li>
+<li>line 334: Ref<colorgradingresource> make_color_grading_resource() {...</colorgradingresource></li>
+<li>line 359: void set_single_splat_position(const Ref<gaussiansplatasset>...</gaussiansplatasset></li>
+<li>line 371: void set_single_splat_scale(const Ref<gaussiansplatasset> &amp;p...</gaussiansplatasset></li>
+<li>line 383: void set_single_splat_rotation(const Ref<gaussiansplatasset>...</gaussiansplatasset></li>
+<li>line 439: explicit operator bool() const { return node != nullptr; }...</li>
+<li>line 448: void reset() {...</li>
+<li>line 488: ScopedTestNodeExitObservation take_scoped_test_node_setup_fa...</li>
+<li>line 4953: bool gs862_is_registered(GaussianSplatWorld3D *p_node) {...</li>
+<li>line 4964: bool gs862_record_has_resident_payload(const GaussianSplatSc...</li>
+<li>line 4971: int gs862_changed_connection_count(const Ref&lt;GaussianSplatWo...</li>
+<li>line 4986: int gs862_total_changed_connections(const Ref&lt;GaussianSplatW...</li>
+<li>line 5395: void on_changed() { count++; }...</li>
+<li>line 5573: bool find_property_info(Object *p_object, const StringName &amp;...</li>
+<li>line 5679: void collect_debug_replacement_controls(Node *p_control, Has...</li>
+</ul>
 <h2 id="modulesgaussian_splattingteststest_output_compositor_composite_hazardh">modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h<a class="headerlink" href="#modulesgaussian_splattingteststest_output_compositor_composite_hazardh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 26: static Vector<uint8_t> _build_destination_gradient_256() {...</uint8_t></li>
@@ -11125,42 +11121,6 @@
 <li>line 761: static Vector<uint8_t> _build_source_premultiplied_alpha_ram...</uint8_t></li>
 <li>line 782: static Vector<uint8_t> _build_destination_rgba16f_64(float p...</uint8_t></li>
 <li>line 798: static float _rgba16f_alpha_at(const Vector<uint8_t> &amp;p_data...</uint8_t></li>
-</ul>
-<h2 id="modulesgaussian_splattingnodesgaussian_splat_world_3dh">modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 78: Ref<gaussiansplatworld> get_world() const { return world; }...</gaussiansplatworld></li>
-<li>line 81: bool is_auto_apply_on_ready() const { return auto_apply_on_r...</li>
-<li>line 84: bool is_cast_shadow() const { return cast_shadow; }...</li>
-<li>line 87: bool is_lod_enabled() const { return lod_enabled; }...</li>
-<li>line 90: float get_lod_bias() const { return lod_bias; }...</li>
-<li>line 93: float get_max_render_distance() const { return max_render_di...</li>
-<li>line 96: int get_max_splat_count() const { return max_splat_count; }...</li>
-<li>line 99: bool is_frustum_culling_enabled() const { return use_frustum...</li>
-<li>line 102: bool is_async_upload_enabled() const { return async_upload_e...</li>
-<li>line 105: float get_opacity() const { return opacity; }...</li>
-<li>line 110: Ref<gaussiansplatrenderer> get_renderer() const { return ren...</gaussiansplatrenderer></li>
-</ul>
-<h2 id="modulesgaussian_splattingteststest_gaussian_splat_nodeh">modules/gaussian_splatting/tests/test_gaussian_splat_node.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_nodeh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 49: Ref<gaussiandata> make_test_gaussian_data(int p_count, float...</gaussiandata></li>
-<li>line 65: Ref<gaussiansplatasset> make_single_splat_asset(float p_x_of...</gaussiansplatasset></li>
-<li>line 139: int find_instance_index_by_translation_x(const LocalVector&lt;I...</li>
-<li>line 148: int count_instances_by_translation_x(const LocalVector&lt;Insta...</li>
-<li>line 158: uint32_t decode_scene_effector_mask(const InstanceDataGPU &amp;p...</li>
-<li>line 164: bool is_property_editor_exposed(Object *p_object, const Stri...</li>
-<li>line 185: bool node_has_debug_hud_control(GaussianSplatNode3D *p_node)...</li>
-<li>line 204: int count_debug_hud_controls_in_viewport(Node *p_search_root...</li>
-<li>line 253: int count_node_canvas_layers_in_viewport(Node *p_search_root...</li>
-<li>line 319: String joined() const {...</li>
-<li>line 331: Ref<colorgradingresource> make_color_grading_resource() {...</colorgradingresource></li>
-<li>line 356: void set_single_splat_position(const Ref<gaussiansplatasset>...</gaussiansplatasset></li>
-<li>line 368: void set_single_splat_scale(const Ref<gaussiansplatasset> &amp;p...</gaussiansplatasset></li>
-<li>line 380: void set_single_splat_rotation(const Ref<gaussiansplatasset>...</gaussiansplatasset></li>
-<li>line 436: explicit operator bool() const { return node != nullptr; }...</li>
-<li>line 445: void reset() {...</li>
-<li>line 485: ScopedTestNodeExitObservation take_scoped_test_node_setup_fa...</li>
-<li>line 4915: bool find_property_info(Object *p_object, const StringName &amp;...</li>
-<li>line 5021: void collect_debug_replacement_controls(Node *p_control, Has...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorestreaming_chunk_payload_sourcecpp">modules/gaussian_splatting/core/streaming_chunk_payload_source.cpp<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_chunk_payload_sourcecpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11593,6 +11553,40 @@
 <ul>
 <li>line 32: void test() {...</li>
 </ul>
+<h2 id="modulesgaussian_splattingnodesgaussian_splat_world_3dcpp">modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_world_3dcpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 21: static bool _is_world_debug_enabled() {...</li>
+<li>line 28: void GaussianSplatWorld3D::_bind_methods() {...</li>
+<li>line 76: void GaussianSplatWorld3D::_notification(int p_what) {...</li>
+<li>line 239: void GaussianSplatWorld3D::_notification_process() {...</li>
+<li>line 270: void GaussianSplatWorld3D::set_world(const Ref&lt;GaussianSplat...</li>
+<li>line 293: void GaussianSplatWorld3D::_set_world_resource_changed_conne...</li>
+<li>line 310: void GaussianSplatWorld3D::_on_world_resource_changed() {...</li>
+<li>line 362: void GaussianSplatWorld3D::_flush_world_resource_resubmit() ...</li>
+<li>line 394: void GaussianSplatWorld3D::set_auto_apply_on_ready(bool p_en...</li>
+<li>line 398: void GaussianSplatWorld3D::set_cast_shadow(bool p_enabled) {...</li>
+<li>line 403: void GaussianSplatWorld3D::set_lod_enabled(bool p_enabled) {...</li>
+<li>line 408: void GaussianSplatWorld3D::set_lod_bias(float p_bias) {...</li>
+<li>line 413: void GaussianSplatWorld3D::set_max_render_distance(float p_d...</li>
+<li>line 418: void GaussianSplatWorld3D::set_max_splat_count(int p_count) ...</li>
+<li>line 423: void GaussianSplatWorld3D::set_use_frustum_culling(bool p_en...</li>
+<li>line 428: void GaussianSplatWorld3D::set_async_upload_enabled(bool p_e...</li>
+<li>line 433: void GaussianSplatWorld3D::set_opacity(float p_opacity) {...</li>
+<li>line 438: void GaussianSplatWorld3D::apply_world() {...</li>
+<li>line 443: void GaussianSplatWorld3D::clear_world() {...</li>
+<li>line 456: void GaussianSplatWorld3D::_ensure_renderer() {...</li>
+<li>line 478: Dictionary GaussianSplatWorld3D::_build_desired_renderer_ove...</li>
+<li>line 536: bool GaussianSplatWorld3D::_resubmit_world_submission_if_reg...</li>
+<li>line 563: void GaussianSplatWorld3D::_apply_world_internal() {...</li>
+<li>line 620: void GaussianSplatWorld3D::_register_shared_renderer() {...</li>
+<li>line 674: void GaussianSplatWorld3D::_unregister_shared_renderer() {...</li>
+<li>line 682: void GaussianSplatWorld3D::_update_bounds() {...</li>
+<li>line 703: void GaussianSplatWorld3D::_update_render_instance() {...</li>
+<li>line 745: void GaussianSplatWorld3D::_ensure_gaussian_base() {...</li>
+<li>line 764: void GaussianSplatWorld3D::_release_gaussian_base() {...</li>
+<li>line 782: void GaussianSplatWorld3D::_sync_gaussian_storage() {...</li>
+<li>line 799: void GaussianSplatWorld3D::_set_instance_base(const RID &amp;p_b...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderertile_render_async_readbackcpp">modules/gaussian_splatting/renderer/tile_render_async_readback.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_async_readbackcpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 8: void TileRenderer::TileAsyncReadback::on_overflow_flag_readb...</li>
@@ -11831,6 +11825,21 @@
 <li>line 563: func _on_test_complete():...</li>
 <li>line 754: func _restore_settings() -&gt; void:...</li>
 </ul>
+<h2 id="modulesgaussian_splattingnodesgaussian_splat_world_3dh">modules/gaussian_splatting/nodes/gaussian_splat_world_3d.h<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_world_3dh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 134: Ref<gaussiansplatworld> get_world() const { return world; }...</gaussiansplatworld></li>
+<li>line 137: bool is_auto_apply_on_ready() const { return auto_apply_on_r...</li>
+<li>line 140: bool is_cast_shadow() const { return cast_shadow; }...</li>
+<li>line 143: bool is_lod_enabled() const { return lod_enabled; }...</li>
+<li>line 146: float get_lod_bias() const { return lod_bias; }...</li>
+<li>line 149: float get_max_render_distance() const { return max_render_di...</li>
+<li>line 152: int get_max_splat_count() const { return max_splat_count; }...</li>
+<li>line 155: bool is_frustum_culling_enabled() const { return use_frustum...</li>
+<li>line 158: bool is_async_upload_enabled() const { return async_upload_e...</li>
+<li>line 161: float get_opacity() const { return opacity; }...</li>
+<li>line 166: Ref<gaussiansplatrenderer> get_renderer() const { return ren...</gaussiansplatrenderer></li>
+<li>line 170: uint64_t get_world_resource_resubmit_run_count_for_testing()...</li>
+</ul>
 <h2 id="modulesgaussian_splattingcorethread_owned_mutexh">modules/gaussian_splatting/core/thread_owned_mutex.h<a class="headerlink" href="#modulesgaussian_splattingcorethread_owned_mutexh" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 40: <em>ALWAYS_INLINE</em> void lock() const {...</li>
@@ -12068,7 +12077,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 16, 2026 15:15:31 UTC">September 16, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 17, 2026 15:18:33 UTC">September 17, 2026</span>
   </span>
 
     
