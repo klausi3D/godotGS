@@ -202,22 +202,37 @@ MASKABLE_SPAN_RE = re.compile(
 )
 
 
-def strip_gdscript_strings_and_comments(source: str) -> list[str]:
-    """Mask string literals and `#` comments, preserving line and column structure.
+def strip_gdscript_strings_and_comments(source: str,
+                                        string_filler: str | None = STRING_FILLER
+                                        ) -> list[str]:
+    """Mask `#` comments, and optionally string literals, preserving structure.
 
-    Returns one string per source line. Comment characters become spaces;
-    string characters -- delimiters included -- become `_`, never whitespace,
-    so a call whose only argument is a string literal still reads as a call
-    with an argument (blanking `Engine.get_singleton("X")` to spaces would make
-    it look like the zero-argument form this guard flags). Column indices in
-    the result still map to the same column in the original. Handles `"`, `'`,
-    `\"\"\"`, `'''`, backslash escapes, and the `r` / `&` / `^` string prefixes
-    (the prefix is an ordinary identifier character, so it needs no special
-    handling -- the quote after it opens the literal as usual).
+    Returns one string per source line, same length and same column offsets as
+    the input, so a column index in the result still maps to the original.
+
+    Comment characters always become spaces. String characters -- delimiters
+    included -- become `string_filler`, which is `_` and never whitespace: a
+    call whose only argument is a string literal must still read as a call with
+    an argument, since blanking `Engine.get_singleton("X")` to spaces makes it
+    indistinguishable from the zero-argument form this guard flags.
+
+    Pass ``string_filler=None`` to keep string literals verbatim while still
+    removing comments. The monitor-id detector needs that: the ids it looks for
+    *are* string literals, but an id quoted inside a doc comment is prose, not
+    a read, and flagging it would be a false positive.
+
+    Handles `"`, `'`, `\"\"\"`, `'''`, backslash escapes, and the `r` / `&` /
+    `^` string prefixes (the prefix is an ordinary identifier character, so it
+    needs no special handling -- the quote after it opens the literal as usual).
     """
     def mask(match: re.Match[str]) -> str:
         token = match.group(0)
-        filler = COMMENT_FILLER if token.startswith("#") else STRING_FILLER
+        if token.startswith("#"):
+            filler = COMMENT_FILLER
+        elif string_filler is None:
+            return token  # keep the literal verbatim; only comments are masked
+        else:
+            filler = string_filler
         # Newlines survive so the line count and every column offset are
         # unchanged; everything else in the span becomes filler.
         return "".join("\n" if ch == "\n" else filler for ch in token)
@@ -255,7 +270,11 @@ def read_registered_monitor_ids(root: Path) -> tuple[set[str], str | None]:
 def scan_gdscript_monitor_ids(rel_path: str, source: str,
                               registered: set[str]) -> list[Finding]:
     findings: list[Finding] = []
-    for lineno, line in enumerate(source.splitlines(), start=1):
+    # Comments masked, string literals kept verbatim: the ids this detector
+    # looks for ARE string literals, but an id quoted inside a doc comment is
+    # prose describing a monitor, not a read of one.
+    for lineno, line in enumerate(
+            strip_gdscript_strings_and_comments(source, string_filler=None), start=1):
         if MONITOR_PREFIX_CONCAT_RE.search(line):
             findings.append(Finding(
                 "gdscript-monitor-id-built-at-runtime", rel_path, lineno,
