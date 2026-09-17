@@ -105,6 +105,14 @@ public:
         bool cached_render_valid = false;
         Transform3D cached_render_camera_to_world_transform;
         Projection cached_render_camera_projection;
+        // The matrix the cached image was actually RASTERIZED with
+        // (GaussianSplatRenderer::build_render_projection(): flip_y + taa_jitter).
+        // Keying only on cached_render_camera_projection above is not sufficient:
+        // the engine's temporal jitter appears nowhere else, so a static camera
+        // under TAA/FSR2 would re-composite one frozen jitter phase forever and
+        // silently neuter the #929 fix. Compared exactly, like the camera
+        // projection beside it.
+        Projection cached_render_gpu_projection;
         Size2i cached_render_viewport_size = Size2i();
         Size2i cached_render_internal_size = Size2i();
         RID cached_render_depth;
@@ -131,13 +139,20 @@ public:
     }
     bool is_cached_render_reuse_enabled() const { return cached_render_reuse_enabled; }
     void invalidate_cached_render();
+    // p_gpu_projection is the matrix the raster stage uploads
+    // (RenderFrameContext::render_projection). It is REQUIRED and has no default
+    // on purpose: it is the only place the engine's per-frame taa_jitter reaches
+    // the reuse key, and a caller that could omit it would reintroduce #929's
+    // silent-reuse trap by forgetting one argument.
     bool can_reuse_cached_render(const Transform3D &p_view_transform, const Projection &p_projection,
+            const Projection &p_gpu_projection,
             const Size2i &p_viewport_size, bool p_painterly_active, const RID &p_final_render_texture,
             uint64_t p_content_generation = 0,
             uint64_t p_cull_config_signature = 0,
             uint64_t p_color_grading_signature = 0, uint64_t p_lighting_signature = 0,
             bool p_require_valid_depth = false) const;
     void update_render_cache_signature(const Transform3D &p_view_transform, const Projection &p_projection,
+            const Projection &p_gpu_projection,
             const Size2i &p_viewport_size, bool p_painterly_active, const RID &p_cached_depth,
             const Size2i &p_internal_size, const RID &p_final_render_texture,
             uint64_t p_content_generation = 0,

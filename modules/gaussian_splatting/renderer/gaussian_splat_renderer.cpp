@@ -594,6 +594,32 @@ Projection GaussianSplatRenderer::build_cull_projection(RenderDataRD *p_render_d
 	return cull_projection;
 }
 
+Projection GaussianSplatRenderer::build_render_projection(const Projection &p_projection, bool p_flip_y,
+		const Vector2 &p_taa_jitter) {
+	Projection render_projection = p_projection;
+	if (p_flip_y) {
+		// Same flip convention as build_cull_projection(); the gaussian pipeline
+		// deliberately skips the engine's depth correction because it carries
+		// linear view-space depth.
+		render_projection.columns[1][1] = -render_projection.columns[1][1];
+	}
+	if (p_taa_jitter == Vector2()) {
+		// The overwhelmingly common case (no temporal stage active). Returning
+		// here rather than multiplying by an identity keeps the non-temporal
+		// path bit-identical to the pre-#929 matrix by construction instead of
+		// by a floating-point argument.
+		return render_projection;
+	}
+	// Left-multiplied translation, exactly as RenderSceneDataRD::get_cam_projection()
+	// applies it to ordinary geometry (render_scene_data_rd.cpp:40-45). It offsets
+	// NDC by +taa_jitter at every depth and leaves columns[0][0]/columns[1][1] --
+	// the entries the tile binning shader derives focal_x/focal_y from
+	// (shaders/tile_binning.glsl:567-568) -- untouched.
+	Projection jitter_correction;
+	jitter_correction.add_jitter_offset(p_taa_jitter);
+	return jitter_correction * render_projection;
+}
+
 bool GaussianSplatRenderer::validate_cull_projection_contract(RenderDataRD *p_render_data, const Projection &p_projection,
 		const Projection &p_cull_projection, const char *p_context) {
 	const Projection expected = build_cull_projection(p_render_data, p_projection);
@@ -2396,11 +2422,16 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
 
     // Always derive a view-space transform (world -> camera) once and reuse it throughout the frame.
     Transform3D view_transform = cam_transform.affine_inverse();
-    // Apply flip_y only; gaussian pipeline uses linear view-space depth.
-    Projection render_projection = cam_projection;
-    if (get_view_state().using_scene_data && p_render_data && p_render_data->scene_data && p_render_data->scene_data->flip_y) {
-        render_projection.columns[1][1] = -render_projection.columns[1][1];
-    }
+    // Flip_y plus the engine's temporal jitter; see build_render_projection().
+    // taa_jitter must come from scene_data verbatim -- the composite depth test
+    // compares GS depth against the engine's (jittered) scene depth, so a
+    // differently scaled or opposite-signed value would misregister silhouettes
+    // rather than fix them (#929).
+    const bool scene_data_available =
+            get_view_state().using_scene_data && p_render_data && p_render_data->scene_data;
+    const Vector2 taa_jitter = scene_data_available ? p_render_data->scene_data->taa_jitter : Vector2();
+    const Projection render_projection = build_render_projection(cam_projection,
+            scene_data_available && p_render_data->scene_data->flip_y, taa_jitter);
 #if defined(DEBUG_ENABLED) || kLogFrameDebug
     // DEBUG: Log camera source at the configured frame-log interval (and frame 0)
     if (should_log_frame) {

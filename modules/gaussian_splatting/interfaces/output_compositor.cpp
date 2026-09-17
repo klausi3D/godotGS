@@ -156,6 +156,7 @@ bool OutputCompositor::_is_depth_texture_valid(const RID &p_depth_texture) const
 }
 
 bool OutputCompositor::can_reuse_cached_render(const Transform3D &p_world_to_camera_to_world_transform, const Projection &p_projection,
+        const Projection &p_gpu_projection,
         const Size2i &p_viewport_size, bool p_painterly_active, const RID &p_final_render_texture,
         uint64_t p_content_generation,
         uint64_t p_cull_config_signature,
@@ -174,6 +175,12 @@ bool OutputCompositor::can_reuse_cached_render(const Transform3D &p_world_to_cam
         return false;
     }
     if (output_cache.cached_render_camera_projection != p_projection) {
+        return false;
+    }
+    // #929: the jitter lives ONLY in the GPU projection. Without this compare a
+    // static camera under TAA/FSR2 keeps re-compositing the first jitter phase
+    // it rastered.
+    if (output_cache.cached_render_gpu_projection != p_gpu_projection) {
         return false;
     }
     if (!output_cache.cached_render_camera_to_world_transform.is_equal_approx(p_world_to_camera_to_world_transform)) {
@@ -198,6 +205,7 @@ bool OutputCompositor::can_reuse_cached_render(const Transform3D &p_world_to_cam
 }
 
 void OutputCompositor::update_render_cache_signature(const Transform3D &p_world_to_camera_to_world_transform, const Projection &p_projection,
+        const Projection &p_gpu_projection,
         const Size2i &p_viewport_size, bool p_painterly_active, const RID &p_cached_depth,
         const Size2i &p_internal_size, const RID &p_final_render_texture,
         uint64_t p_content_generation,
@@ -207,6 +215,7 @@ void OutputCompositor::update_render_cache_signature(const Transform3D &p_world_
     const bool cached_depth_valid = _is_depth_texture_valid(p_cached_depth);
     output_cache.cached_render_camera_to_world_transform = p_world_to_camera_to_world_transform;
     output_cache.cached_render_camera_projection = p_projection;
+    output_cache.cached_render_gpu_projection = p_gpu_projection;
     output_cache.cached_render_viewport_size = p_viewport_size;
     output_cache.cached_render_internal_size = p_internal_size;
     output_cache.cached_render_painterly = p_painterly_active;

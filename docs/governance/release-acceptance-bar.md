@@ -163,6 +163,7 @@ because they were decided before the generator exists.
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+| **#929 residual** | With TAA or FSR2 on, splat regions **ghost while the camera or the content moves**. Static-camera swimming is fixed; this is the motion half only. | **Scoped down, not waived.** The jitter half is fixed and gated (`build_render_projection()` + the QA temporal-stability phase). What remains needs per-pixel **motion vectors**, which the module does not write: of the four inputs the temporal stages take — colour, depth, velocity, reactive mask — splats supply colour. Velocity requires caching the previous view-projection and reprojecting GS depth per pixel, and depth write-back means new attachments at the `render_forward_clustered.cpp` seam, i.e. an **engine-boundary (R3)** change with an ADR, two independent reviews and CODEOWNER sign-off. A *wrong* velocity is worse than none — it smears confidently. Tracked as **#1025** (`needs-adr`), which also records that the moving-camera case has never been measured in this repo and that measuring it is its first task. | Use `scaling_3d_mode = bilinear` at scale 1.0 with `use_taa = false` (Godot's own defaults) for content with a moving camera, or accept the ghosting. Still cameras are unaffected. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why
@@ -231,6 +232,15 @@ envelope is:
   therefore signs off a scene thinned roughly fourfold. The pass **must** state
   the import preset and node quality it ran at, or it proves nothing about the
   splat count it claims.
+
+- **TAA and FSR2 are IN the alpha envelope.** This list previously said
+  "Forward+, single view" and was silent on the temporal stages, which left the
+  #929 disposition undecidable — an in-envelope defect must be fixed, an
+  out-of-envelope one may be disclosed. **Decided: in.** The consequence is that
+  the unjittered-projection half of #929 was fixed rather than disclosed, and
+  that the moving-camera ghosting that remains needs an explicit §8.1 row with a
+  workaround rather than silence. MetalFX-temporal is macOS-only and therefore
+  outside the alpha's platforms (§2), not inside this decision.
 
 **Decided:** the alpha admits `GaussianSplatWorld3D`, so #862 is an alpha
 blocker. Triage had classified it out-of-envelope on the assumption that the
@@ -307,8 +317,19 @@ rather than a ceiling.
    parameters change, so edits silently do not apply. Enters this set by the
    §10.1 envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. **#929** — splats swim under TAA/FSR2. Blocked on the #921 disposition; both
-   concern the same composite/temporal seam, as does #989.
+5. **#929** — splats swim under FSR2. **Re-decided and split.** The entry
+   previously read "Blocked on the #921 disposition"; that disposition was made
+   and landed (Option B pre-upscale hook, #924), so the block no longer exists.
+   Measurement then narrowed the claim: under **TAA** splats do not swim at all
+   — they are bit-stable and simply never antialiased, because Godot's
+   `taa_resolve.glsl` is never handed the jitter and only accumulates. Under
+   **FSR2** they do swim, because FSR2 *is* handed the jitter and un-jitters an
+   input that was never jittered. The cause is that the splat projection ignored
+   `scene_data->taa_jitter`. **That half is fixed**, with a QA oracle that was
+   red on the unfixed tree. The **moving-camera ghosting half is not**, and is
+   disclosed under §8.1 and tracked as **#1025**, because it needs motion
+   vectors and a depth write-back at the engine boundary (R3, ADR first). Same
+   composite/temporal seam as #989.
 6. **#986** — **the painterly root cause.** Painterly's own viewport composite
    can never load (a malformed `#[vertex]` marker and a 36-vs-48 push-constant
    mismatch), so painterly falls through to the standard composite.

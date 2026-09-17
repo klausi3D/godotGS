@@ -146,11 +146,40 @@ rather than by the six-config visual matrix.
   `render_data.gaussian_composite_pre_upscale` so the two phases can never
   double-composite.
 
-**Residual risk (named, not covered by the six-config oracle).** Splats publish
-no motion vectors, no FSR2 reactive-mask contribution, and no depth write-back
-(`viewport_blit.glsl` writes color only), so FSR2/TAA/MetalFX-temporal may
-ghost splat regions under motion — this is invisible to still-frame diffs and
-requires human eyes on motion captures.
+**What splats supply to the temporal stages.** `render_forward_clustered.cpp`
+feeds FSR2 four inputs — colour, depth, velocity, reactive mask — and TAA three.
+Splats supply **colour only**.
+
+- **Jitter — supplied since #929.** The projection uploaded to the splat pipeline
+  is built by `GaussianSplatRenderer::build_render_projection()`, which applies
+  the module's pre-existing `flip_y` *and* the engine's `scene_data->taa_jitter`.
+  The jitter term is the engine's exactly — the same left-multiplied translation
+  `RenderSceneDataRD::get_cam_projection()` gives ordinary geometry, for every
+  projection type, because it depends only on the matrix's w row. (The *flip*
+  is not the engine's: GS negates `columns[1][1]` while the engine negates the
+  whole y row. The two coincide for a symmetric perspective and diverge for an
+  off-axis frustum offset. That predates the jitter work and is unchanged by it;
+  see `build_render_projection()`'s docblock.)
+  Before #929 it applied the flip only, so FSR2 — which un-jitters its input by
+  exactly that vector — reconstructed the splat layer displaced by +jitter every
+  frame and it visibly swam against the meshes beside it. The value must come
+  from `scene_data` verbatim: the composite depth test compares GS depth against
+  the engine's (jittered) scene depth, so a rescaled or negated jitter would
+  misregister silhouettes rather than fix them. It is self-gating — `taa_jitter`
+  is exactly `(0,0)` unless a temporal stage is active — and the reuse key in
+  `OutputCompositor::can_reuse_cached_render()` carries the GPU projection so a
+  static camera cannot re-composite one frozen jitter phase forever.
+- **Residual risk (named, not covered by the six-config oracle).** Splats still
+  publish no motion vectors, no FSR2 reactive-mask contribution, and no depth
+  write-back (`viewport_blit.glsl` writes color only), so FSR2/TAA/MetalFX-temporal
+  ghost splat regions under **camera or object motion** — this is invisible to
+  still-frame diffs and requires human eyes on motion captures. Disclosed under
+  §8.1 of the release acceptance bar and tracked as #1025. Note that
+  `raster_output.depth` is the tile
+  rasterizer's *GS-internal* depth texture
+  (`render_pipeline_stages.cpp` → `get_painterly_depth_texture()`); it is what the
+  composite tests against the scene depth and is **not** written back into
+  `rb->get_depth_texture()`, so FSR2 never sees it.
 
 The ordering, phase gating, and encoding mirror are guarded by
 [`tests/ci/check_gs_pre_upscale_hook.py`](../../tests/ci/check_gs_pre_upscale_hook.py)
