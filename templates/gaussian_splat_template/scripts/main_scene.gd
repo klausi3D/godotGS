@@ -2,7 +2,16 @@ extends Node3D
 class_name GaussianTemplateRoot
 
 @export var default_splat_asset: GaussianSplatAsset
-@export var enable_demo_painterly: bool = true
+## Matches `painterly/enabled = false` in `scenes/main.tscn`. It used to default
+## to `true`, which was invisible only because this script never ran: the moment
+## it does, `_configure_gaussian_node()` overrides the scene's own value. Two
+## sources of truth for the same setting is a defect; the scene wins.
+@export var enable_demo_painterly: bool = false
+
+## How long `_focus_camera()` waits for the asset's bounds to become usable
+## before giving up and saying so. A wall-clock deadline, not a frame count:
+## import and upload cost is machine-dependent.
+const FOCUS_TIMEOUT_MS := 5000
 
 @onready var gaussian_node: GaussianSplatNode3D = $GaussianSplatNode3D
 @onready var performance_overlay: GaussianPerformanceOverlay = $CanvasLayer/PerformanceOverlay
@@ -60,8 +69,38 @@ func _wire_overlay() -> void:
         performance_overlay.set_camera_node(camera_rig)
 
 ## Centers the orbit camera on the current Gaussian bounds.
+##
+## Two reasons this is not the one-liner it looks like:
+##
+## 1. `GaussianSplatNode3D::get_aabb()` exists in C++ but is NOT bound to
+##    ClassDB, so calling it from GDScript raises "Invalid call. Nonexistent
+##    function 'get_aabb'". The bounds are reachable from GDScript only as
+##    `get_statistics()["bounds"]`, which is bound.
+## 2. The bounds are not final at `_ready()`: they are computed when the asset
+##    payload is uploaded, one or more frames later. Focusing once in `_ready()`
+##    frames nothing and leaves the shipped camera transform in place with no
+##    diagnostic -- which is why the template opened on an unframed blob.
+##
+## So: read the bound accessor, and retry to a wall-clock deadline (never a
+## fixed frame count -- import and upload cost is machine-dependent). If the
+## bounds never arrive, say so rather than failing silently.
 func _focus_camera() -> void:
-    if camera_rig and gaussian_node:
-        var bounds: AABB = gaussian_node.get_aabb()
-        if bounds.size.length() > 0.0:
+    if camera_rig == null or gaussian_node == null:
+        return
+    var deadline: int = Time.get_ticks_msec() + FOCUS_TIMEOUT_MS
+    var last_bounds: AABB = AABB()
+    var last_count: int = 0
+    while Time.get_ticks_msec() < deadline:
+        var stats: Dictionary = gaussian_node.get_statistics()
+        var bounds: AABB = stats.get("bounds", AABB())
+        last_count = int(stats.get("total_splats", 0))
+        if bounds.size.length() > 0.0 and last_count > 0:
             camera_rig.focus(bounds)
+            return
+        last_bounds = bounds
+        if not is_inside_tree():
+            return
+        await get_tree().process_frame
+    push_warning(
+        "GaussianTemplateRoot: splat bounds stayed unusable for %d ms (last %s, %d splats); camera left at its scene transform."
+        % [FOCUS_TIMEOUT_MS, last_bounds, last_count])
