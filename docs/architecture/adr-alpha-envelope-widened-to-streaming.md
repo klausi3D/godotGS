@@ -34,8 +34,11 @@ is not admitting the 50M chunked ladder"), and §11 listed the 50M open-world as
 There is no second publishing route. `public_alpha_predicate.not_satisfied_by` rules out
 `nightly`, `stable`, `manual workflow intent` and `advisory evidence` (`:14-19`), and
 `disallow_manual_downgrade: true` (`:22`) forecloses adding a channel that skips the gate.
-`disallow_open_world_advisory_only: true` (`:24`) specifically forbids satisfying the
-open-world requirement with an advisory signal.
+`disallow_open_world_advisory_only: true` (`:24`) **states an intent** that the open-world
+requirement not be satisfied by an advisory signal — but it is a declaration, not a check:
+contract mode only asserts the boolean is `true`
+(`tests/ci/check_renderer_release_gates.py:220-224`), and no candidate-mode path reads it.
+§4.3 shows what that costs.
 
 So the alpha could not pass its own gate, and no amount of work on the alpha's declared
 scope would have changed that.
@@ -157,7 +160,7 @@ of this ADR got that wrong by claiming all three must "run and pass".**
 | --- | --- | --- | --- |
 | `streaming_corridor` | benchmark lane | **Content.** All 15 `required_fields_non_null`, execution status, GPU timing, route, timeout. | `lane_streaming_corridor.tscn` |
 | `city_flyover` | benchmark lane | **Content**, same checks. | `lane_city_flyover.tscn` |
-| `open_world_proof` | artifact group | **Integrity only** — presence, four fields, in-repo path, SHA-256, non-stale commit and mtime. **Nothing reads the file.** | *nominally* `lane_open_world_corridor_proof.tscn` / `benchmark_open_world_proof_lane.gd` |
+| `open_world_proof` | artifact group | **Integrity only** — presence, four fields, in-repo path, SHA-256, commit, and mtime *when it parses*. The bytes are read, but only to hash them: **no validator inspects what the file says.** | *nominally* `lane_open_world_corridor_proof.tscn` / `benchmark_open_world_proof_lane.gd` |
 
 `_validate_candidate_artifact_group` (`tests/ci/check_renderer_release_gates.py:1050-1065`)
 calls only the required-field, integrity, commit and mtime checks; there is no content
@@ -293,6 +296,14 @@ manifest `:26-30`). For each one, `_validate_candidate_issues` allows exactly on
 So the bundle cannot classify anything. **The only passing route for an open relevant issue
 is an entry in the manifest — an R3 edit requiring an ADR, two reviews and CODEOWNER
 approval — or closing the issue.**
+
+**With one large caveat: the gate cannot tell whether the issue snapshot is complete.** It
+parses `--issues-json` as supplied and never queries GitHub, so an empty snapshot passes
+everything except the manifest-tracked `blocking` entries — which is the only reason Run B
+in §2 got past the issue machinery. Separate files stop a bundle certifying *itself*; they
+do nothing about omission. The requirement below is therefore a property of an honest
+snapshot, and #961 must generate one from a live query in-workflow for the check to mean
+anything.
 
 Measured against the live issue set on **2026-09-19**: **2 open P0** (#182, #184), **36 open
 P1**, and **4 carrying `release blocker`** (#1010, #1011, #1012, #1016) — **38 distinct

@@ -267,14 +267,20 @@ its own blocker set".
 `benchmark_suite_report`, `compatibility_source_snapshot`,
 `docs_release_acceptance_report`, `known_limitations_page`, `open_world_proof`. Each
 path must resolve *inside* the repository, the file must exist, its re-hash must match
-`sha256`, its commit must not be stale and its mtime must not predate `commit_time_utc`.
-The workflow binds an eleventh group, `windows_export_template_archive`, via
-`--artifact-sha`.
+`sha256`, and its commit must not be stale. Its mtime must not predate `commit_time_utc` —
+but note that check is **conditional**: `_candidate_artifact_mtime_failures` (`:1127-1137`)
+compares only when *both* timestamps parse, and `_parse_time` (`:862-866`) returns `None`
+on anything malformed, so an unparseable `godot_binary_mtime_utc` skips the comparison
+silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch a
+malformed one. The workflow binds an eleventh group, `windows_export_template_archive`,
+via `--artifact-sha`.
 
 > **Artifact groups are integrity-checked, never content-checked, and that is load-bearing
 > for `open_world_proof`.** `_validate_candidate_artifact_group`
 > (`tests/ci/check_renderer_release_gates.py:1050-1065`) runs the required-field, hash,
-> commit and mtime checks and nothing else; no validator opens any artifact. Demonstrated:
+> commit and mtime checks and nothing else. The bytes *are* read — `:1100-1112` hashes
+> them — but **no validator inspects what the file says**; any byte string with a matching
+> digest satisfies the group. Demonstrated:
 > a bundle that is otherwise complete but points `open_world_proof` at the repository's
 > `README.md`, with a correct digest, **exits 0 with no failures**. The manifest says as
 > much about itself — `workflow_blocking_behavior_machine_enforced: false` (`:320-324`) and
@@ -328,6 +334,18 @@ each, exactly one outcome passes:
 So `issue_classifications` in the bundle cannot admit anything the manifest has not already
 admitted. **The only two passing routes for an open relevant issue are: close it, or add it
 to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER approval.**
+
+> **But the gate cannot tell whether the snapshot is complete, and that is a §4.2 gap in the
+> machinery itself.** `--issues-json` is parsed as supplied (`:1729-1737`, `:1883-1927`); the
+> validator never queries GitHub and has no notion of what the open issue set actually is.
+> An **empty** snapshot passes, except that manifest-tracked `blocking` entries must still be
+> accounted for (`:1851-1880`) — which is the one thing that saved Run B in the ADR. Keeping
+> the snapshot in a separate file from the evidence prevents a bundle from *certifying
+> itself*; it does nothing about an omitted or fabricated row. **So "every open P0/P1/
+> release-blocker is closed or ledgered" is a property of an honest snapshot, not something
+> this gate establishes.** Whoever builds #961 must generate the snapshot from a live query
+> in-workflow and bind it to the run, or the issue check is decorative. Recorded here rather
+> than left implicit, because a criterion that cannot fail is not a criterion.
 
 > **The real precondition, and the single largest cost of the public alpha: every open P0,
 > P1 and release-blocker must be closed or ledgered.** Measured **2026-09-19**: **2 open P0**
@@ -424,9 +442,12 @@ the blocker set by this decision rather than by a change in its severity.
 (#862 has since been **closed** — fixed on master by #1009.)
 
 **Decided 2026-09-17 (#1016):** the alpha also admits **streaming open worlds**, for
-the same kind of reason and with a larger consequence. Three gate requirements —
-`open_world_proof`, `streaming_corridor`, `city_flyover` — must now run and pass before
-a stable tag. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
+the same kind of reason and with a larger consequence. Three gate requirements must now be
+satisfied before a stable tag: the **benchmark lanes** `streaming_corridor` and
+`city_flyover`, whose rows are content-checked, and the **artifact group**
+`open_world_proof`, which is only integrity-checked — see §9.1. Note the gate runs no lane
+itself; it reads a supplied report. "Must run and pass" is a statement about the release
+process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
 #786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set
 too and **closed on 2026-09-17**, so it moves nowhere.)
 
