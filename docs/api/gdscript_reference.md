@@ -1,6 +1,6 @@
 # GDScript API Reference
 
-Last generated: 2026-09-18
+Last generated: 2026-09-19
 
 Scope: `public`
 
@@ -175,7 +175,7 @@ GaussianTemplateRoot
     </tr>
     <tr>
       <td><pre><code>_focus_camera()</code></pre></td>
-      <td>Centers the orbit camera on the current Gaussian bounds.  Two reasons this is not the one-liner it looks like:  1. `GaussianSplatNode3D::get_aabb()` exists in C++ but is NOT bound to ClassDB, so calling it from GDScript raises "Invalid call. Nonexistent function 'get_aabb'". The bounds are reachable from GDScript only as `get_statistics()["bounds"]`, which is bound. 2. The bounds are not final at `_ready()`: they are computed when the asset payload is uploaded, one or more frames later. Focusing once in `_ready()` frames nothing and leaves the shipped camera transform in place with no diagnostic -- which is why the template opened on an unframed blob.  So: read the bound accessor, and retry to a wall-clock deadline (never a fixed frame count -- import and upload cost is machine-dependent). If the bounds never arrive, say so rather than failing silently.</td>
+      <td>Centers the orbit camera on the current Gaussian bounds.  Two reasons this is not the one-liner it looks like:  1. `GaussianSplatNode3D::get_aabb()` exists in C++ but is NOT bound to ClassDB, so calling it from GDScript raises "Invalid call. Nonexistent function 'get_aabb'". The bounds are reachable from GDScript only as `get_statistics()["bounds"]`, which is bound. 2. The bounds are not final at `_ready()`: they are computed when the asset payload is uploaded, one or more frames later. Focusing once in `_ready()` frames nothing and leaves the shipped camera transform in place with no diagnostic -- which is why the template opened on an unframed blob. 3. `stats["bounds"]` is the node's LOCAL aabb (`gaussian_splat_node_3d.cpp:1465`), while `OrbitCameraRig.focus()` puts the rig at the centre it is handed, in world space. Passing the local box straight through aimed the camera at the node's local origin: with the template's `GaussianSplatNode3D` at y = 1.5 the rig landed at y = 0.04 and the cloud sat in the upper half of the frame. Transform it first.  So: read the bound accessor, put it in world space, and retry to a wall-clock deadline (never a fixed frame count -- import and upload cost is machine-dependent). If the bounds never arrive, say so rather than failing silently.</td>
     </tr>
     <tr>
       <td><pre><code>_ready()</code></pre></td>
@@ -241,12 +241,12 @@ GaussianPerformanceOverlay
       <td>Formats large numbers with K/M suffixes for readability</td>
     </tr>
     <tr>
-      <td><pre><code>_measured_time(value: Variant)</code></pre></td>
-      <td>Distinguishes "measured zero" from "no producer to ask" for the *registered* monitors whose getters return a literal 0 when there is no renderer or no RenderingDevice behind them -- `_get_cpu_setup_time_ms` and the three `_get_vram_device_*_mb` (performance_monitors.cpp:617, :819-838). Those are registered, so `_monitor()` hands back a real `0.0` that `n/a` handling cannot catch. A host wall-clock stage that ran takes a non-zero number of microseconds, and a live RenderingDevice never reports zero bytes total, so exactly 0.0 from these four means "nothing answered". @return The value, or `null` when it is the producer's no-renderer default.</td>
-    </tr>
-    <tr>
       <td><pre><code>_monitor(id: String)</code></pre></td>
       <td>Reads one custom monitor.  Call sites pass the FULL id, `gaussian_splatting/...`, spelled out. That is deliberate and not verbosity: `tests/ci/check_shipped_project_scripts.py` checks every monitor id a shipped script reads against the ids `performance_monitors.cpp` actually registers, and it derives both sides from string literals. Building the id from a prefix constant at run time would hide every read from that check -- a guard that can find nothing to check is not a guard. This file is the reason the check exists.  @param id: Full monitor id, e.g. `gaussian_splatting/cpu_setup_time_ms`. @return The monitor value, or `null` when this build registers no such monitor. `null` renders as `n/a`; it is never coerced to 0. `Performance` is the engine singleton object itself -- `Performance.get_singleton()` is not bound to ClassDB and does not parse.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_nonzero_or_null(value: Variant)</code></pre></td>
+      <td>Distinguishes "measured zero" from "no producer to ask" for the *registered* monitors whose getters return a literal 0 when there is no renderer or no RenderingDevice behind them -- `_get_cpu_setup_time_ms` and the three `_get_vram_device_*_mb` (performance_monitors.cpp:617, :819-838). Those are registered, so `_monitor()` hands back a real `0.0` that `n/a` handling cannot catch. A host wall-clock stage that ran takes a non-zero number of microseconds, and a live RenderingDevice never reports zero bytes total, so exactly 0.0 from these four means "nothing answered". @return The value, or `null` when it is the producer's no-renderer default.</td>
     </tr>
     <tr>
       <td><pre><code>_process(delta: float)</code></pre></td>
@@ -270,11 +270,11 @@ GaussianPerformanceOverlay
     </tr>
     <tr>
       <td><pre><code>_section_global(lines: Array[String])</code></pre></td>
-      <td>Process-global manager state.  `GaussianSplatManager.get_global_stats()` reports totals over buffers registered with the manager. The node/renderer route used by this template registers none, so `total_gaussians` / `total_memory_mb` / `buffer_count` are structurally 0 here -- printing them next to 768 rendered splats is the same lie as any other unmeasured 0, so the counts are shown only when the registry is non-empty. `gpu_sorting_enabled` is a configuration value and is always meaningful.</td>
+      <td>Process-global manager state.  `GaussianSplatManager.get_global_stats()` reports totals over buffers registered with the manager. The node/renderer route used by this template registers none, so `total_gaussians` / `total_memory_mb` / `buffer_count` are structurally 0 here -- printing them next to 768 rendered splats is the same lie as any other unmeasured 0, so the counts are shown only when the registry is non-empty.  `gpu_sorting_enabled` used to be printed here as `GPU sorting: enabled`. It is a DEPRECATED no-op: `gaussian_splat_manager.cpp:286-295` says it "is reported for compatibility ... but does NOT gate the sort path -- no renderer reads it; GPU sorting is always used when available". With the project setting false the row read `disabled` while the GPU sort ran, which is a displayed value that is not a measurement of what its label names -- this panel's own rule. The measured quantity is `sort_route_uid`, now shown in the GPU PASSES block.</td>
     </tr>
     <tr>
       <td><pre><code>_section_gpu_passes(lines: Array[String], stats: Dictionary)</code></pre></td>
-      <td>The six resolved GPU pass timestamps, plus the identity check.  Every row is gated on its own `gpu_*_valid` flag, so a pass that did not resolve this frame reads `n/a` rather than carrying the renderer's last-known-good value forward as if it were fresh.</td>
+      <td>The six resolved GPU pass timestamps, plus the identity check.  Every row is gated on its own `gpu_*_valid` flag. That flag is STICKY by design (`tile_renderer.cpp:2867-2873`): per-pass timestamps resolve only intermittently, so the renderer keeps the last resolved value and clears the flag only after 120 resolves without one (~2 s, `:2908-2927`). A green row is therefore the most recent resolved value, which may be several frames old -- so the staleness is printed, not denied.</td>
     </tr>
     <tr>
       <td><pre><code>_section_host_stages(lines: Array[String], stats: Dictionary)</code></pre></td>

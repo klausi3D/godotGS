@@ -290,6 +290,11 @@ def main() -> None:
             include_undocumented=args.include_undocumented,
         ),
         encoding="utf-8",
+        # LF on every platform. `write_text` uses the OS default, so on Windows
+        # a regeneration rewrote every line ending and `git diff` showed the
+        # whole file changed -- output that normalises to nothing on commit but
+        # reads as drift until you check. Refs #833.
+        newline="\n",
     )
     print(f"[docs] Wrote GDScript reference to {output}")
 
