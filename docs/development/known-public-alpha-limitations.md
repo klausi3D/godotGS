@@ -16,9 +16,16 @@ Every entry is a defect that is real, reachable in a supported configuration, an
 shipping anyway, with the reason and a workaround where one exists. An entry here is a
 decision, not an oversight.
 
-**Blocking defects are not listed here** — they are in the
+**Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
 what we ship knowing about.
+
+The one exception is the clearly-fenced **"Proposed, not yet accepted"** section at the
+bottom. A defect lands there when someone has proposed shipping it but no named human has
+accepted it yet, so it is **still a blocker**. It is written up in advance only so the
+disclosure and the disposition are drafted together and cannot drift; nothing in that
+section may be cited as an `accepted_alpha_limitation`. If you are looking for what the
+alpha actually ships with, read everything *above* that heading.
 
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
@@ -60,32 +67,6 @@ control shows identical loss with no splats present, so this is not splat-specif
 cannot be fixed from this module.
 
 **Workaround:** do not combine `transparent_bg` with TAA or FSR2.
-
-### Splats ghost under TAA or FSR2 while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
-
-> **Proposed accepted limitation — pending maintainer acceptance.** #1025 is in the alpha
-> envelope, so under bar §4.1 it is a **blocker** until a named human accepts it. The
-> acceptance-bar §8.1 disposition that proposes accepting it is itself marked *proposed*
-> for the same reason. It is written here now so the disclosure and the disposition cannot
-> drift apart; **do not read it as already accepted**, and do not cite it as an
-> `accepted_alpha_limitation` in a candidate bundle until both the human line exists and
-> #1025 has a `public_alpha_issue_ledger` entry — without the ledger entry the gate rejects
-> the classification regardless of what this page says.
-
-With a *static* camera this is fixed — the splat projection carries the engine's temporal
-jitter as of #929/#1026. In motion, splat regions smear, because the module publishes
-colour only: of the four inputs the temporal stages consume (colour, depth, velocity,
-reactive mask) it supplies none of the last three, so the resolve reprojects splat pixels
-with zero velocity.
-
-**Workaround:** keep Godot's defaults — `scaling_3d_mode = bilinear` at scale 1.0 and
-`use_taa = false` — for content with a moving camera, or accept the ghosting.
-
-**Status:** the static-camera half is measured fixed in #1026 — splat-layer sub-pixel
-displacement 0.2525 px → 0.0900 px at FSR2 scale 1.0, and 0.3603 px → 0.0927 px at scale
-0.5, on a real scan at 960×540. Those figures are #1026's, not re-measured here. The
-moving-camera residual is unfixed and is what this entry discloses; fixing it edits
-`render_forward_clustered.cpp` and needs its own ADR.
 
 ### Painterly rendering has no automated coverage, and its material cannot be assigned from a scene ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
@@ -182,6 +163,12 @@ Changing `gaussian_data`, `bounds`, `metadata`, `lod_bias`, `max_render_distance
 submission from scratch. There is no dirty-field tracking and no equality early-out, so a
 one-field nudge pays the whole cost: a blocking render-thread round trip, then
 `clear_gaussian_data()` followed by a full GPU re-upload of every splat buffer.
+
+**Two bounds on that.** The re-upload is the **resident** branch — a world whose payload is
+file-backed takes `set_file_backed_payload_source()` instead
+(`renderer/render_data_orchestrator.cpp:799-803`), which does not re-upload the splat
+buffers the same way. And a world that holds no registered submission resubmits nothing.
+The cost below is the resident path, which is the one the alpha's world route uses.
 
 Medians reported on the issue, on an RTX 3090 with an optimized build: 17 ms at 10k splats,
 259 ms at 100k, **2124 ms at 1M**. Those figures are from #1008 and have not been
@@ -304,3 +291,33 @@ release workflows. Windows SmartScreen will warn on the editor and on games expo
 the GodotGS template.
 
 **Workaround:** verify downloads against the published `.sha256` sidecars.
+
+---
+
+## Proposed, not yet accepted
+
+**Everything in this section is still a blocker.** These are defects someone has proposed
+shipping with, where no named human has accepted them yet. They are drafted here so the
+user-facing disclosure and the acceptance-bar disposition are written together and cannot
+drift apart. **Nothing here may be cited as an `accepted_alpha_limitation`** — a candidate
+bundle that does so is wrong twice over, because the acceptance does not exist and because
+the gate additionally requires a `public_alpha_issue_ledger` entry that does not exist
+either.
+
+### Splats ghost under TAA or FSR2 while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+
+With a *static* camera this is fixed — the splat projection carries the engine's temporal
+jitter as of #929/#1026. In motion, splat regions smear, because the module publishes
+colour only: of the four inputs the temporal stages consume (colour, depth, velocity,
+reactive mask) it supplies none of the last three, so the resolve reprojects splat pixels
+with zero velocity.
+
+**Workaround:** keep Godot's defaults — `scaling_3d_mode = bilinear` at scale 1.0 and
+`use_taa = false` — for content with a moving camera, or accept the ghosting.
+
+**Status:** the static-camera half is measured fixed in #1026 — splat-layer sub-pixel
+displacement 0.2525 px → 0.0900 px at FSR2 scale 1.0, and 0.3603 px → 0.0927 px at scale
+0.5, on a real scan at 960×540. Those figures are #1026's, not re-measured here. The
+moving-camera residual is unfixed and is what this entry discloses; fixing it edits
+`render_forward_clustered.cpp` and needs its own ADR. The acceptance-bar §8.1 row that
+proposes accepting it is itself marked *proposed*, for the same reason.
