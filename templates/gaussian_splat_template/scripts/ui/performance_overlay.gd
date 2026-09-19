@@ -435,7 +435,13 @@ func _section_host_stages(lines: Array[String], stats: Dictionary) -> void:
 	lines.append("[b]═══ HOST STAGES (CPU clock) ═══[/b]")
 	lines.append("TileRenderer setup: %s"
 		% _fmt_ms(_nonzero_or_null(_monitor("gaussian_splatting/cpu_setup_time_ms"))))
-	lines.append("Cull stage: %s" % _fmt_ms(_stat(stats, "cull_ms")))
+	# `cull_ms` is zero-initialised on both of its paths: the stage time when
+	# `stage_metrics_valid` is false, and `perf.culling_time_ms` -- the
+	# fallback `_resolve_production_stage_times()` takes in that case
+	# (`render_diagnostics_orchestrator.cpp`) -- before any cull has run. Same
+	# gate as the TileRenderer setup row: a host wall-clock stage that executed
+	# takes a non-zero number of microseconds.
+	lines.append("Cull stage: %s" % _fmt_ms(_nonzero_or_null(_stat(stats, "cull_ms"))))
 	var dispatch = null
 	if not stats.is_empty() and bool(stats.get("overlap_sort_cpu_dispatch_valid", false)):
 		dispatch = stats.get("overlap_sort_cpu_dispatch_ms")
