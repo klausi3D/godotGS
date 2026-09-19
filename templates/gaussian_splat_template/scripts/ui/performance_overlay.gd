@@ -9,11 +9,23 @@ class_name GaussianPerformanceOverlay
 ## * A quantity this build cannot measure renders as `n/a`, never as `0`. A
 ##   reader cannot tell a measured 0 from a missing producer, so a `0` in this
 ##   panel always means "measured, and it was zero".
-## * A GPU pass time is shown only when the renderer's own validity flag for
-##   that pass is set on the frame being reported. Those flags live in
-##   `GaussianSplatNode3D.get_statistics()` (`gpu_*_valid`); the custom-monitor
-##   layer drops them, which is why the pass rows are sourced from
-##   `get_statistics()` and not from `Performance.get_custom_monitor()`.
+## * A GPU pass time is shown only while the renderer's validity flag for that
+##   pass is set (`gpu_*_valid` in `GaussianSplatNode3D.get_statistics()`; the
+##   custom-monitor layer drops those flags, which is why the pass rows are
+##   sourced from `get_statistics()`).
+##
+##   **That flag is sticky, and the panel says so rather than pretending
+##   otherwise.** Per-pass timestamps resolve only intermittently -- the
+##   mid-frame `buffer_get_data` flush wipes most markers, so only the sort
+##   survives every frame (`tile_renderer.cpp:2867-2873`). The renderer
+##   deliberately keeps the last resolved value and its flag, expiring both
+##   after `GPU_PASS_STALE_FRAMES = 120` resolves, ~2 s (`:2908-2927`). So a
+##   green pass row is the most recent RESOLVED value, not necessarily this
+##   frame's, and the row below the pass total prints
+##   `gpu_timing_frames_behind` so the reader can see how far behind it is.
+##   What the gate does buy is real: it catches the pre-first-resolve window
+##   and the 120-resolve expiry, both of which otherwise show a plausible
+##   stale number or a zero.
 ## * Labels name the pass that is actually measured. The row this overlay used
 ##   to call "GPU binning" is the overlap-EMIT pass -- `gpu_binning_ms` and
 ##   `gpu_tile_overlap_emit_time_ms` are bit-identical (measured: equal on
@@ -196,7 +208,7 @@ func _flag(value: Variant) -> int:
 ## microseconds, and a live RenderingDevice never reports zero bytes total, so
 ## exactly 0.0 from these four means "nothing answered".
 ## @return The value, or `null` when it is the producer's no-renderer default.
-func _measured_time(value: Variant) -> Variant:
+func _nonzero_or_null(value: Variant) -> Variant:
 	if value == null or float(value) <= 0.0:
 		return null
 	return value
@@ -350,9 +362,12 @@ func _section_camera(lines: Array[String]) -> void:
 
 ## The six resolved GPU pass timestamps, plus the identity check.
 ##
-## Every row is gated on its own `gpu_*_valid` flag, so a pass that did not
-## resolve this frame reads `n/a` rather than carrying the renderer's
-## last-known-good value forward as if it were fresh.
+## Every row is gated on its own `gpu_*_valid` flag. That flag is STICKY by
+## design (`tile_renderer.cpp:2867-2873`): per-pass timestamps resolve only
+## intermittently, so the renderer keeps the last resolved value and clears the
+## flag only after 120 resolves without one (~2 s, `:2908-2927`). A green row
+## is therefore the most recent resolved value, which may be several frames
+## old -- so the staleness is printed, not denied.
 func _section_gpu_passes(lines: Array[String], stats: Dictionary) -> void:
 	lines.append("")
 	lines.append("[b]═══ GPU PASSES ═══[/b]")
@@ -362,11 +377,13 @@ func _section_gpu_passes(lines: Array[String], stats: Dictionary) -> void:
 
 	var sum_ms := 0.0
 	var all_valid := true
+	var any_valid := false
 	for entry in GPU_PASSES:
 		var value = _valid_ms(stats, entry[1], entry[2])
 		if value == null:
 			all_valid = false
 		else:
+			any_valid = true
 			sum_ms += float(value)
 		lines.append("%s: %s" % [entry[0], _fmt_ms(value)])
 
@@ -384,11 +401,31 @@ func _section_gpu_passes(lines: Array[String], stats: Dictionary) -> void:
 			lines.append("Pass total: %s | rows sum to %s | [color=orange]Δ %.4f ms[/color]"
 				% [_fmt_ms(reported), _fmt_plain_ms(sum_ms), delta])
 
+	# How stale the numbers above may be. The validity flags are sticky, so
+	# without this the panel would imply the pass times are this frame's.
+	# `gpu_timing_frames_behind` is itself zero-initialised, so before any pass
+	# has resolved it reads 0 -- "resolved this frame" beside six `n/a` rows
+	# would be the same unmeasured-zero defect one row down.
+	var behind = _stat(stats, "gpu_timing_frames_behind")
+	if not any_valid:
+		lines.append("Timing age: %s (no pass has resolved yet)" % UNAVAILABLE)
+	elif behind == null:
+		lines.append("Timing age: %s" % UNAVAILABLE)
+	elif int(behind) == 0:
+		lines.append("Timing age: resolved this frame")
+	else:
+		lines.append("Timing age: %d frame(s) behind (flags are sticky to ~2 s)" % int(behind))
+
 	var route = _stat(stats, "route_uid")
 	var source = _stat(stats, "data_source")
+	var sort_route = _stat(stats, "sort_route_uid")
 	lines.append("Route: %s | source: %s" % [
 		str(route) if route != null and str(route) != "" else UNAVAILABLE,
 		str(source) if source != null and str(source) != "" else UNAVAILABLE])
+	# The sort path that actually ran. Replaces the MANAGER block's
+	# `GPU sorting: enabled`, which echoed a setting no renderer reads.
+	lines.append("Sort route: %s" % [
+		str(sort_route) if sort_route != null and str(sort_route) != "" else UNAVAILABLE])
 
 ## Host-side wall-clock timings. Kept apart from the GPU pass block because
 ## they are measured with `OS::get_ticks_usec()` around a call, not with a GPU
@@ -397,7 +434,7 @@ func _section_host_stages(lines: Array[String], stats: Dictionary) -> void:
 	lines.append("")
 	lines.append("[b]═══ HOST STAGES (CPU clock) ═══[/b]")
 	lines.append("TileRenderer setup: %s"
-		% _fmt_ms(_measured_time(_monitor("gaussian_splatting/cpu_setup_time_ms"))))
+		% _fmt_ms(_nonzero_or_null(_monitor("gaussian_splatting/cpu_setup_time_ms"))))
 	lines.append("Cull stage: %s" % _fmt_ms(_stat(stats, "cull_ms")))
 	var dispatch = null
 	if not stats.is_empty() and bool(stats.get("overlap_sort_cpu_dispatch_valid", false)):
@@ -418,43 +455,86 @@ func _section_visibility(lines: Array[String], stats: Dictionary) -> void:
 	# the cull runs over chunk references (`stage_cull_visible_domain`), so it
 	# reports the whole atlas until the single chunk leaves the frustum. Name
 	# the domain instead of implying per-splat visibility.
-	var domain = _stat(stats, "stage_cull_visible_domain")
-	var domain_name := str(domain) if domain != null and str(domain) != "" else "unknown"
-	lines.append("Cull domain: %s — %s of %s visible" % [
-		domain_name,
-		_fmt_count(_stat(stats, "stage_cull_visible_count")),
-		_fmt_count(_stat(stats, "stage_cull_candidate_count"))])
-	lines.append("Culled: frustum %s | distance %s | screen %s | importance %s" % [
-		_fmt_count(_stat(stats, "culled_by_frustum")),
-		_fmt_count(_stat(stats, "culled_by_distance")),
-		_fmt_count(_stat(stats, "culled_by_screen")),
-		_fmt_count(_stat(stats, "culled_by_importance"))])
-	if domain_name != "splat":
-		lines.append("[i]Per-splat visibility is not measured on this route.[/i]")
+	# The cull counters are only meaningful once a cull stage has actually run.
+	# Before that, `stage_*` and `culled_by_*` are zero-initialised, and the
+	# panel would print "0 of 1 visible" with "frustum 0" beside it -- a
+	# candidate that is neither visible nor culled, which is not a state the
+	# renderer can be in. Measured on refresh #1 at t=0.305 s.
+	if not bool(_stat(stats, "stage_metrics_valid")):
+		lines.append("Cull: %s (no cull stage has run yet)" % UNAVAILABLE)
+	else:
+		# `visible_splats` is NOT a frustum-culled splat count on a resident
+		# scene: the cull runs over chunk references
+		# (`stage_cull_visible_domain`), so it reports the whole atlas until the
+		# single chunk leaves the frustum. Name the domain instead of implying
+		# per-splat visibility.
+		var domain = _stat(stats, "stage_cull_visible_domain")
+		var domain_name := str(domain) if domain != null and str(domain) != "" else "unknown"
+		var visible = _stat(stats, "stage_cull_visible_count")
+		var candidates = _stat(stats, "stage_cull_candidate_count")
+		lines.append("Cull domain: %s — %s of %s visible" % [
+			domain_name, _fmt_count(visible), _fmt_count(candidates)])
+		lines.append("Culled: frustum %s | distance %s | screen %s | importance %s" % [
+			_fmt_count(_stat(stats, "culled_by_frustum")),
+			_fmt_count(_stat(stats, "culled_by_distance")),
+			_fmt_count(_stat(stats, "culled_by_screen")),
+			_fmt_count(_stat(stats, "culled_by_importance"))])
+		# Every candidate is either visible or culled for a stated reason. On
+		# the first refreshes the counters are populated out of step and the
+		# panel showed "0 of 1 visible" with every cull bucket at 0 -- a
+		# candidate that is neither, which is not a state the renderer can be
+		# in. Print the discrepancy instead of letting the reader add it up and
+		# conclude the numbers are a measurement.
+		if visible != null and candidates != null:
+			var accounted := int(visible) \
+				+ _flag(_stat(stats, "culled_by_frustum")) \
+				+ _flag(_stat(stats, "culled_by_distance")) \
+				+ _flag(_stat(stats, "culled_by_screen")) \
+				+ _flag(_stat(stats, "culled_by_importance"))
+			if accounted != int(candidates):
+				lines.append("[color=orange]Cull accounting incomplete this frame: "
+					+ "%d of %d candidates accounted for[/color]"
+					% [accounted, int(candidates)])
+		if domain_name != "splat":
+			lines.append("[i]Per-splat visibility is not measured on this route.[/i]")
 
-	# Tile-projection reject buckets. These are the registered counters; the
-	# `projection_near_clamp_count` / `projection_behind_camera_count` /
-	# `projection_screen_culled_count` names the old panel read have no
-	# producer anywhere and are not synonyms for these.
-	lines.append("Tile rejects: clip %s | radius %s | viewport %s | aspect %s" % [
-		_fmt_count(_monitor("gaussian_splatting/clip_reject_count")),
-		_fmt_count(_monitor("gaussian_splatting/radius_reject_count")),
-		_fmt_count(_monitor("gaussian_splatting/viewport_reject_count")),
-		_fmt_count(_monitor("gaussian_splatting/extreme_aspect_count"))])
-	lines.append("Tiles: %s | aggregated: %s | overflow: %s" % [
-		_fmt_count(_monitor("gaussian_splatting/tile_count")),
-		_fmt_count(_monitor("gaussian_splatting/aggregated_count")),
-		_fmt_count(_monitor("gaussian_splatting/overflow_tile_count"))])
+	# Tile-projection reject buckets and tile counts. These are the registered
+	# counters; the `projection_near_clamp_count` /
+	# `projection_behind_camera_count` / `projection_screen_culled_count` names
+	# the old panel read have no producer anywhere and are not synonyms.
+	#
+	# Their getters are `active_renderer ? cached_debug_counters.x : 0`
+	# (`performance_monitors.cpp:748-809`), so before the tile pass has run they
+	# are zero-initialised and indistinguishable from a measurement -- the same
+	# shape `_nonzero_or_null()` exists for, one section over. `total_processed`
+	# is the liveness test `_get_projection_success_rate_pct` itself uses
+	# (`performance_monitors.cpp:714`).
+	var processed = _monitor("gaussian_splatting/total_processed")
+	if processed == null or int(processed) <= 0:
+		lines.append("Tile rejects / tiles: %s (no tile pass yet)" % UNAVAILABLE)
+	else:
+		lines.append("Tile rejects: clip %s | radius %s | viewport %s | aspect %s" % [
+			_fmt_count(_monitor("gaussian_splatting/clip_reject_count")),
+			_fmt_count(_monitor("gaussian_splatting/radius_reject_count")),
+			_fmt_count(_monitor("gaussian_splatting/viewport_reject_count")),
+			_fmt_count(_monitor("gaussian_splatting/extreme_aspect_count"))])
+		lines.append("Tiles: %s | processed: %s | aggregated: %s | overflow: %s" % [
+			_fmt_count(_monitor("gaussian_splatting/tile_count")),
+			_fmt_count(processed),
+			_fmt_count(_monitor("gaussian_splatting/aggregated_count")),
+			_fmt_count(_monitor("gaussian_splatting/overflow_tile_count"))])
 
 	# Overlap accounting is only populated when the rasterizer configures a
 	# record budget. A configured budget of 0 means the accounting is not
 	# running on this route, which is not the same as "0 records used".
 	var used = _stat(stats, "overlap_records")
 	var budget = _stat(stats, "overlap_record_budget")
-	if budget == null or int(budget) <= 0:
+	if budget == null or int(budget) <= 0 or used == null:
+		# `used == null` matters too: substituting 0 for it would print a
+		# percentage computed from a value that was never read.
 		lines.append("Overlap records: %s (no record budget configured on this route)" % UNAVAILABLE)
 	else:
-		var pct := float(used if used != null else 0) / float(budget) * 100.0
+		var pct := float(used) / float(budget) * 100.0
 		lines.append("Overlap records: %s / %s (%s)" % [
 			_fmt_count(used), _fmt_count(budget),
 			_colorize_buffer_percent(pct, "%.1f%%" % pct)])
@@ -474,7 +554,7 @@ func _section_device_vram(lines: Array[String]) -> void:
 	# (performance_monitors.cpp:819-838), so `_monitor()` cannot distinguish
 	# them from a measurement -- which is the exact shape this panel exists to
 	# stop. Total is the gate: a live device never reports zero bytes.
-	var device_total = _measured_time(_monitor("gaussian_splatting/vram_device_total_mb"))
+	var device_total = _nonzero_or_null(_monitor("gaussian_splatting/vram_device_total_mb"))
 	if device_total == null:
 		lines.append("RenderingDevice: %s (no active device answered)" % UNAVAILABLE)
 	else:
@@ -624,8 +704,16 @@ func _section_node(lines: Array[String], stats: Dictionary) -> void:
 ## registers none, so `total_gaussians` / `total_memory_mb` / `buffer_count`
 ## are structurally 0 here -- printing them next to 768 rendered splats is the
 ## same lie as any other unmeasured 0, so the counts are shown only when the
-## registry is non-empty. `gpu_sorting_enabled` is a configuration value and is
-## always meaningful.
+## registry is non-empty.
+##
+## `gpu_sorting_enabled` used to be printed here as `GPU sorting: enabled`. It
+## is a DEPRECATED no-op: `gaussian_splat_manager.cpp:286-295` says it "is
+## reported for compatibility ... but does NOT gate the sort path -- no
+## renderer reads it; GPU sorting is always used when available". With the
+## project setting false the row read `disabled` while the GPU sort ran, which
+## is a displayed value that is not a measurement of what its label names --
+## this panel's own rule. The measured quantity is `sort_route_uid`, now shown
+## in the GPU PASSES block.
 func _section_global(lines: Array[String]) -> void:
 	var bootstrap = get_tree().get_root().get_node_or_null("GaussianBootstrap")
 	if bootstrap == null or not bootstrap.is_ready:
@@ -635,7 +723,6 @@ func _section_global(lines: Array[String]) -> void:
 		return
 	lines.append("")
 	lines.append("[b]═══ MANAGER ═══[/b]")
-	lines.append("GPU sorting: %s" % ("enabled" if global_stats.get("gpu_sorting_enabled", false) else "disabled"))
 	var buffer_count := int(global_stats.get("buffer_count", 0))
 	if buffer_count > 0:
 		lines.append("Registered buffers: %d | gaussians: %s | %s MB" % [
