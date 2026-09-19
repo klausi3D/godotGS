@@ -62,11 +62,19 @@ These values mirror the guidance in the Gaussian Splatting inspector documentati
    `templates/gaussian_splat_template/assets/template_splats.ply`.
 
    > Note: that command regenerates the **whole** synthetic fixture corpus, not
-   > just this asset, and rewrites five tracked manifests
-   > (`tests/fixtures/benchmark_asset_manifest.json`, the `test_project` copy of
-   > it, and three `open_world/*.stage_manifest.json`). They are deterministic
-   > regenerations; `git restore tests` puts them back. Giving the generator a
-   > per-asset filter is tracked separately.
+   > just this asset, and rewrites five tracked manifests. Check `git status`
+   > afterwards; they are deterministic regenerations, so you can restore
+   > exactly those five and nothing else with:
+   >
+   > ```bash
+   > git restore tests/fixtures/benchmark_asset_manifest.json \
+   >   tests/examples/godot/test_project/tests/fixtures/benchmark_asset_manifest.json \
+   >   "tests/examples/godot/test_project/tests/fixtures/open_world/*/*.stage_manifest.json"
+   > ```
+   >
+   > (A blanket `git restore tests` would also throw away any unrelated edits
+   > you have in that tree.) Giving the generator a per-asset filter is tracked
+   > separately.
 2. Open the Godot project manager and import `project.godot` from this folder.
 3. Press **F5** to run the template scene. The camera frames the splat cloud on
    load and the performance overlay begins updating at 4 Hz.
