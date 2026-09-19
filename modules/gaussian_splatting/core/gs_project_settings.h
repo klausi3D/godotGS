@@ -211,6 +211,65 @@ struct GSSphereEffectorSettings {
 	float target_opacity = 0.0f;
 };
 
+/**
+ * @brief The eight `rendering/gaussian_splatting/animation/wind_*` settings.
+ *
+ * THE reader for the group. It used to be read in three places with three
+ * hand-kept copies of the same StringName list -- the baseline parameter
+ * producer and the cull/lighting signature hash (both in
+ * renderer/render_pipeline_stages.cpp) and the depth/sort pass uniform fill
+ * (interfaces/gpu_sorting_pipeline.cpp) -- and in **zero** places by the
+ * painterly producer, which is #1018: painterly left `wind_time_seconds` at its
+ * struct default `0.0f` forever, so per-node wind rendered frozen mid-sway
+ * instead of animating.
+ *
+ * All three copies are gone. tests/ci/check_render_param_family_producers.py
+ * rule 8 fails the build if a second file reads
+ * `rendering/gaussian_splatting/animation/wind_*` again -- the sort-pass copy
+ * survived the first version of that guard because it inspects TileRenderParams
+ * producers and the sort pass fills InstanceDepthParamsGPU instead.
+ *
+ * Read it with get_wind_settings() and write it with
+ * apply_wind_to_render_params() so a producer cannot populate half the group.
+ */
+struct GSWindSettings {
+	bool enabled = false;
+	Vector3 direction = Vector3(1.0f, 0.0f, 0.0f);
+	float strength = 0.0f;
+	float frequency = 1.0f;
+	float spatial_frequency = 0.1f;
+	float time_scale = 1.0f;
+};
+
+static inline GSWindSettings get_wind_settings(ProjectSettings *p_ps) {
+	GSWindSettings settings;
+	if (!p_ps) {
+		return settings;
+	}
+	settings.enabled = get_bool(p_ps, "rendering/gaussian_splatting/animation/wind_enabled", settings.enabled);
+	settings.direction.x = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_x", settings.direction.x);
+	settings.direction.y = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_y", settings.direction.y);
+	settings.direction.z = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_direction_z", settings.direction.z);
+	settings.strength = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_strength", settings.strength);
+	settings.frequency = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_frequency", settings.frequency);
+	settings.spatial_frequency = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_spatial_frequency", settings.spatial_frequency);
+	settings.time_scale = get_float(p_ps, "rendering/gaussian_splatting/animation/wind_time_scale", settings.time_scale);
+	return settings;
+}
+
+/**
+ * @brief The wind phase for a frame, in the one form every pass must agree on.
+ *
+ * @param p_animation_time_seconds FrameState::animation_time_seconds, sampled
+ *        once per frame by RenderFrameContextManager. Every pass in a frame
+ *        must be handed the SAME sample: a pass that re-reads the clock gets a
+ *        different phase and the splat it deforms lands somewhere the depth
+ *        sort did not put it.
+ */
+static inline float compute_wind_time_seconds(const GSWindSettings &p_settings, double p_animation_time_seconds) {
+	return float(p_animation_time_seconds * double(MAX(p_settings.time_scale, 0.0f)));
+}
+
 static inline const char *get_streaming_route_policy_token(int p_policy) {
 	switch (p_policy) {
 		case GS_ROUTE_RESIDENT:

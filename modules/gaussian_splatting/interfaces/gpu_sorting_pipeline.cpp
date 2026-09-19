@@ -2511,29 +2511,34 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
     const bool scene_effector_payload_applied = _build_effector_payload_from_scene_bindings(inputs.owner_renderer, params.effector_meta,
             params.effector_spheres, params.effector_configs, params.effector_opacity_configs);
     if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
-        static const StringName wind_enabled_path("rendering/gaussian_splatting/animation/wind_enabled");
-        static const StringName wind_direction_x_path("rendering/gaussian_splatting/animation/wind_direction_x");
-        static const StringName wind_direction_y_path("rendering/gaussian_splatting/animation/wind_direction_y");
-        static const StringName wind_direction_z_path("rendering/gaussian_splatting/animation/wind_direction_z");
-        static const StringName wind_strength_path("rendering/gaussian_splatting/animation/wind_strength");
-        static const StringName wind_frequency_path("rendering/gaussian_splatting/animation/wind_frequency");
-        static const StringName wind_spatial_frequency_path("rendering/gaussian_splatting/animation/wind_spatial_frequency");
-        static const StringName wind_time_scale_path("rendering/gaussian_splatting/animation/wind_time_scale");
-        const bool wind_enabled = _get_bool_setting(ps, wind_enabled_path, false);
-        const float wind_time_scale = MAX(_get_float_setting(ps, wind_time_scale_path, 1.0f), 0.0f);
-        params.wind_dir_strength[0] = _get_float_setting(ps, wind_direction_x_path, 1.0f);
-        params.wind_dir_strength[1] = _get_float_setting(ps, wind_direction_y_path, 0.0f);
-        params.wind_dir_strength[2] = _get_float_setting(ps, wind_direction_z_path, 0.0f);
-        params.wind_dir_strength[3] = MAX(_get_float_setting(ps, wind_strength_path, 0.0f), 0.0f);
+        // #1018: the depth/sort pass reads the wind group through the SAME
+        // shared reader as the raster producers. It used to keep its own copy of
+        // all eight StringName paths here -- a third hand-kept list. It agreed
+        // with the others, so there was no wrong image, but nothing made it
+        // agree: a divergence would put the sort's deformation at a different
+        // phase from the raster's, which is a sort computed against positions
+        // the raster does not draw. Found by independent review on #1033.
+        //
+        // The applier (apply_wind_to_render_params) is not used here: this pass
+        // fills InstanceDepthParamsGPU, not TileRenderParams. Sharing the READER
+        // is what matters -- the values, clamps and time derivation are now one
+        // definition. check_render_param_family_producers.py's reader rule
+        // enforces that no second copy reappears.
+        const gs::settings::GSWindSettings wind_settings = gs::settings::get_wind_settings(ps);
+        params.wind_dir_strength[0] = wind_settings.direction.x;
+        params.wind_dir_strength[1] = wind_settings.direction.y;
+        params.wind_dir_strength[2] = wind_settings.direction.z;
+        params.wind_dir_strength[3] = MAX(wind_settings.strength, 0.0f);
         // Wall-clock animation time for this frame, shared with the tile
         // pass uniform fill (see FrameState::animation_time_seconds in
         // render_frame_context_manager.h). Replaces a prior
         // `frame_counter / 60` derivation that drifted against script-side
         // real-time animation on non-60Hz frames.
-        params.wind_time_config[0] = float(sort_ctx.runtime.animation_time_seconds * double(wind_time_scale));
-        params.wind_time_config[1] = MAX(_get_float_setting(ps, wind_frequency_path, 1.0f), 0.0f);
-        params.wind_time_config[2] = _get_float_setting(ps, wind_spatial_frequency_path, 0.1f);
-        params.wind_time_config[3] = wind_enabled ? 1.0f : 0.0f;
+        params.wind_time_config[0] = gs::settings::compute_wind_time_seconds(
+                wind_settings, sort_ctx.runtime.animation_time_seconds);
+        params.wind_time_config[1] = MAX(wind_settings.frequency, 0.0f);
+        params.wind_time_config[2] = wind_settings.spatial_frequency;
+        params.wind_time_config[3] = wind_settings.enabled ? 1.0f : 0.0f;
 
         if (!scene_effector_payload_applied) {
             const gs::settings::GSSphereEffectorSettings sphere_effector_settings = gs::settings::get_sphere_effector_settings(ps, true);

@@ -1734,6 +1734,21 @@ Error PainterlyRenderer::populate_painterly_gbuffer(GaussianSplatRenderer *p_ren
     }
     render_params.low_pass_filter = CLAMP(low_pass_filter, 0.05f, 2.0f);
 
+    // #1018: painterly assigned NONE of the six wind fields, so
+    // wind_time_seconds stayed at its struct default 0.0f on every painterly
+    // frame -- a frozen clock. A node with rendering/wind_override_enabled then
+    // rendered a STATIC displacement rather than nothing, because
+    // gs_deformation.glsl substitutes strength = 1.0 when the pass-global
+    // strength is zero (includes/gs_deformation.glsl:210-217) while the phase at
+    // :239 never advanced. Wrong image, not a missing feature.
+    //
+    // Same reader and same applier the baseline producer uses, and the same
+    // once-per-frame clock sample, so the painterly binning pass and the
+    // depth/sort pass deform a splat to the same place in the same frame.
+    apply_wind_to_render_params(render_params,
+            gs::settings::get_wind_settings(ProjectSettings::get_singleton()),
+            frame_state.animation_time_seconds);
+
     // Jacobian diagnostic toggles for radial stretching investigation
     render_params.jacobian_bypass_radius_depth_floor = jacobian_debug.bypass_radius_depth_floor;
     render_params.jacobian_bypass_j_col2_clamp = jacobian_debug.bypass_j_col2_clamp;

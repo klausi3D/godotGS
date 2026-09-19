@@ -77,6 +77,14 @@ const SAMPLE_STRIDE := 2
 const BACKGROUND_DELTA_TOLERANCE := 2
 const VIEWPORT_WIDTH := 960
 const VIEWPORT_HEIGHT := 540
+# #1018 wind animation. The control floor only has to prove animation is
+# observable at all in this run; the real assertion is the painterly/baseline
+# ratio below it. Measured at the base of this stack on a real scan: painterly
+# 989 px vs baseline 342,792 px = ratio 0.0029, so the 0.10 floor fails the
+# frozen clock with two orders of magnitude to spare, while the fixed path
+# measured 335,356 vs 357,345 = ratio 0.94.
+const MIN_WIND_CONTROL_DIFFER_PX := 200
+const MIN_WIND_PAINTERLY_RATIO := 0.10
 
 var _report := GsRuntimeReport.new("Painterly Material Render")
 
@@ -121,6 +129,10 @@ var metrics: Dictionary = {
 	"painterly_over_standard_luma": 0.0,
 	"capture_width": 0,
 	"capture_height": 0,
+	# Fail-safe defaults: an unset wind measurement must not read as a pass.
+	"wind_baseline_frames_differ_px": -1,
+	"wind_painterly_frames_differ_px": -1,
+	"wind_painterly_over_baseline_ratio": 0.0,
 	"renderer_route_valid_immediately": false,
 	"renderer_route_valid_after_frames": false,
 	"renderer_route_painterly_active": false,
@@ -565,21 +577,52 @@ func _run() -> void:
 		return
 	_report.ok()
 
+	# Phase D -- #1018. Does painterly's wind clock advance?
+	#
+	# This is measured RELATIVE TO THE BASELINE PATH, not against a fixed floor.
+	# Measured on a real scan at the base of this stack, painterly moved 989 of
+	# 518,400 pixels between two time-separated frames while the baseline moved
+	# 342,792 -- so "did any pixel change?" is satisfied by residual noise and
+	# would have passed on the frozen clock. The baseline capture in the same
+	# run is the control: it establishes what animation looks like on this
+	# machine, this scene and this frame spacing, and painterly has to reach a
+	# fraction of it.
+	if not await _measure_wind_animation():
+		return
 
 	# Phase E -- the renderer-API route must survive the node.
 	if not await _check_renderer_route_survives():
 		return
 
 	_pass(
-		"Painterly rendered with an authored PainterlyMaterial: %d/%d covered px, delta %d px (%.4f), painterly/standard luma %.4f."
+		"Painterly rendered with an authored PainterlyMaterial: %d/%d covered px, delta %d px (%.4f), painterly/standard luma %.4f; wind moved %d px vs baseline %d px."
 		% [
 			int(metrics["covered_px_painterly_on"]),
 			int(metrics["sample_count"]),
 			int(metrics["delta_px_painterly_vs_baseline"]),
 			float(metrics["delta_ratio_painterly_vs_baseline"]),
 			float(metrics["painterly_over_standard_luma"]),
+			int(metrics["wind_painterly_frames_differ_px"]),
+			int(metrics["wind_baseline_frames_differ_px"]),
 		]
 	)
+
+
+# Two captures of one configuration, separated in time. Returns the number of
+# sampled pixels that changed.
+func _capture_animation_delta() -> int:
+	var first: Dictionary = await _settle_and_capture()
+	var second: Dictionary = await _settle_and_capture()
+	var a: Image = first.get("image")
+	var b: Image = second.get("image")
+	if a == null or b == null:
+		return -1
+	var changed := 0
+	for y in range(0, a.get_height(), SAMPLE_STRIDE):
+		for x in range(0, a.get_width(), SAMPLE_STRIDE):
+			if _channel_delta(a.get_pixel(x, y), b.get_pixel(x, y)) > CHANNEL_DELTA_TOLERANCE:
+				changed += 1
+	return changed
 
 
 # Phase E -- regression guard for the P1 found by independent review on #1028.
@@ -629,6 +672,52 @@ func _check_renderer_route_survives() -> bool:
 		_fail(
 			"The renderer still holds the material but the frame ran the baseline raster (reason='%s')."
 			% metrics["renderer_route_stage_raster_reason"]
+		)
+		return false
+	_report.ok()
+	return true
+
+
+func _measure_wind_animation() -> bool:
+	ProjectSettings.set_setting("rendering/gaussian_splatting/animation/wind_enabled", true)
+	ProjectSettings.set_setting("rendering/gaussian_splatting/animation/wind_strength", 0.75)
+	ProjectSettings.set_setting("rendering/gaussian_splatting/animation/wind_frequency", 2.0)
+	ProjectSettings.set_setting("rendering/gaussian_splatting/animation/wind_spatial_frequency", 0.5)
+	ProjectSettings.set_setting("rendering/gaussian_splatting/animation/wind_time_scale", 1.0)
+
+	# Control first: the baseline path must be seen animating, or a "painterly
+	# does not animate" verdict would be unattributable -- it could equally mean
+	# the two captures are simply not separated in time on this runner.
+	splat_node.set_enable_painterly(false)
+	var baseline_changed: int = await _capture_animation_delta()
+	metrics["wind_baseline_frames_differ_px"] = baseline_changed
+	if baseline_changed < 0:
+		_fail("Wind animation control capture returned no image.")
+		return false
+	if baseline_changed < MIN_WIND_CONTROL_DIFFER_PX:
+		_fail(
+			"Baseline path moved only %d of %d sampled px between two time-separated frames (floor %d). "
+			% [baseline_changed, int(metrics["sample_count"]), MIN_WIND_CONTROL_DIFFER_PX]
+			+ "Wind animation is not observable in this run at all, so nothing can be concluded about painterly."
+		)
+		return false
+	_report.ok()
+
+	splat_node.set_enable_painterly(true)
+	var painterly_changed: int = await _capture_animation_delta()
+	metrics["wind_painterly_frames_differ_px"] = painterly_changed
+	if painterly_changed < 0:
+		_fail("Wind animation painterly capture returned no image.")
+		return false
+	metrics["wind_painterly_over_baseline_ratio"] = float(painterly_changed) / float(max(baseline_changed, 1))
+	if float(metrics["wind_painterly_over_baseline_ratio"]) < MIN_WIND_PAINTERLY_RATIO:
+		_fail(
+			"Painterly moved %d of %d sampled px between two time-separated frames while the baseline moved %d (ratio %.4f, floor %.4f). "
+			% [
+				painterly_changed, int(metrics["sample_count"]), baseline_changed,
+				float(metrics["wind_painterly_over_baseline_ratio"]), MIN_WIND_PAINTERLY_RATIO,
+			]
+			+ "Painterly's wind clock is not advancing (#1018)."
 		)
 		return false
 	_report.ok()
