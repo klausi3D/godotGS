@@ -549,12 +549,11 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 	float shadow_receiver_bias_scale = 0.2f;
 	float shadow_receiver_bias_min = 0.0f;
 	float shadow_receiver_bias_max = 0.0f;
-	bool wind_enabled = false;
-	float wind_strength = 0.0f;
-	float wind_frequency = 1.0f;
-	float wind_spatial_frequency = 0.1f;
-	float wind_time_scale = 1.0f;
-	Vector3 wind_direction = Vector3(1.0f, 0.0f, 0.0f);
+	// Same shared wind reader the parameter producer uses (#1018). The hash and
+	// the parameters MUST see identical values: a signature computed from a
+	// second, hand-kept copy of these settings goes stale silently the moment
+	// the two lists diverge, and a stale signature serves a cached render.
+	gs::settings::GSWindSettings wind_settings;
 	gs::settings::GSSphereEffectorSettings sphere_effector_settings;
 	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
 		static const StringName direct_path("rendering/gaussian_splatting/lighting/direct_light_scale");
@@ -563,14 +562,6 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 		static const StringName shadow_bias_scale_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_scale");
 		static const StringName shadow_bias_min_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_min");
 		static const StringName shadow_bias_max_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_max");
-		static const StringName wind_enabled_path("rendering/gaussian_splatting/animation/wind_enabled");
-		static const StringName wind_direction_x_path("rendering/gaussian_splatting/animation/wind_direction_x");
-		static const StringName wind_direction_y_path("rendering/gaussian_splatting/animation/wind_direction_y");
-		static const StringName wind_direction_z_path("rendering/gaussian_splatting/animation/wind_direction_z");
-		static const StringName wind_strength_path("rendering/gaussian_splatting/animation/wind_strength");
-		static const StringName wind_frequency_path("rendering/gaussian_splatting/animation/wind_frequency");
-		static const StringName wind_spatial_frequency_path("rendering/gaussian_splatting/animation/wind_spatial_frequency");
-		static const StringName wind_time_scale_path("rendering/gaussian_splatting/animation/wind_time_scale");
 		direct_light_scale = _get_float_setting(ps, direct_path, direct_light_scale);
 		indirect_sh_scale = _get_float_setting(ps, indirect_path, indirect_sh_scale);
 		shadow_strength = _get_float_setting(ps, shadow_path, shadow_strength);
@@ -578,15 +569,7 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 		shadow_receiver_bias_min = _get_float_setting(ps, shadow_bias_min_path, shadow_receiver_bias_min);
 		shadow_receiver_bias_max = _get_float_setting(ps, shadow_bias_max_path, shadow_receiver_bias_max);
 
-		wind_enabled = _get_bool_setting(ps, wind_enabled_path, wind_enabled);
-		wind_direction.x = _get_float_setting(ps, wind_direction_x_path, wind_direction.x);
-		wind_direction.y = _get_float_setting(ps, wind_direction_y_path, wind_direction.y);
-		wind_direction.z = _get_float_setting(ps, wind_direction_z_path, wind_direction.z);
-		wind_strength = _get_float_setting(ps, wind_strength_path, wind_strength);
-		wind_frequency = _get_float_setting(ps, wind_frequency_path, wind_frequency);
-		wind_spatial_frequency = _get_float_setting(ps, wind_spatial_frequency_path, wind_spatial_frequency);
-		wind_time_scale = _get_float_setting(ps, wind_time_scale_path, wind_time_scale);
-
+		wind_settings = gs::settings::get_wind_settings(ps);
 		sphere_effector_settings = gs::settings::get_sphere_effector_settings(ps, true);
 	}
 	seed = _hash_float_bits(direct_light_scale, seed);
@@ -595,12 +578,12 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 	seed = _hash_float_bits(shadow_receiver_bias_scale, seed);
 	seed = _hash_float_bits(shadow_receiver_bias_min, seed);
 	seed = _hash_float_bits(shadow_receiver_bias_max, seed);
-	seed = _hash_bool(wind_enabled, seed);
-	seed = _hash_vector3(wind_direction, seed);
-	seed = _hash_float_bits(wind_strength, seed);
-	seed = _hash_float_bits(wind_frequency, seed);
-	seed = _hash_float_bits(wind_spatial_frequency, seed);
-	seed = _hash_float_bits(wind_time_scale, seed);
+	seed = _hash_bool(wind_settings.enabled, seed);
+	seed = _hash_vector3(wind_settings.direction, seed);
+	seed = _hash_float_bits(wind_settings.strength, seed);
+	seed = _hash_float_bits(wind_settings.frequency, seed);
+	seed = _hash_float_bits(wind_settings.spatial_frequency, seed);
+	seed = _hash_float_bits(wind_settings.time_scale, seed);
 	const uint32_t total_scene_effectors = _populate_scene_effector_payload_for_renderer(p_renderer, nullptr, &seed);
 	if (total_scene_effectors == 0u) {
 		const uint32_t capped_effectors = MIN<uint32_t>(MAX(sphere_effector_settings.max_effectors, 0), GS_MAX_SPHERE_EFFECTORS);
@@ -623,9 +606,15 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 		WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] Scene matched %d sphere effectors, but this runtime binds at most %d per pass. Highest-priority deterministic entries are used.",
 				total_scene_effectors, GS_MAX_SPHERE_EFFECTORS));
 	}
-	if (wind_enabled && wind_strength > 0.0f) {
-		const float wind_time_seconds = float(double(p_frame_id) * (1.0 / 60.0) * double(MAX(wind_time_scale, 0.0f)));
-		seed = _hash_float_bits(wind_time_seconds, seed);
+	if (wind_settings.enabled && wind_settings.strength > 0.0f) {
+		// Note: this is the SIGNATURE's own phase estimate from the frame id, not
+		// the render phase. The render phase comes from
+		// FrameState::animation_time_seconds via compute_wind_time_seconds(); this
+		// only has to change when the render phase changes, which a frame-id
+		// proxy does. Kept deliberately distinct.
+		const float signature_wind_phase = float(double(p_frame_id) * (1.0 / 60.0) *
+				double(MAX(wind_settings.time_scale, 0.0f)));
+		seed = _hash_float_bits(signature_wind_phase, seed);
 	}
 
 	if (RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton()) {
@@ -2206,12 +2195,10 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	float shadow_receiver_bias_scale = 0.2f;
 	float shadow_receiver_bias_min = 0.0f;
 	float shadow_receiver_bias_max = 0.0f;
-	bool wind_enabled = false;
-	Vector3 wind_direction(1.0f, 0.0f, 0.0f);
-	float wind_strength = 0.0f;
-	float wind_frequency = 1.0f;
-	float wind_spatial_frequency = 0.1f;
-	float wind_time_scale = 1.0f;
+	// #1018: the wind group is read through the ONE shared reader and written
+	// through the ONE shared applier, so the painterly producer cannot get a
+	// different answer -- or, as it did, no answer at all.
+	gs::settings::GSWindSettings wind_settings;
 	gs::settings::GSSphereEffectorSettings sphere_effector_settings;
 	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
 		static const StringName direct_path("rendering/gaussian_splatting/lighting/direct_light_scale");
@@ -2220,28 +2207,13 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 		static const StringName shadow_bias_scale_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_scale");
 		static const StringName shadow_bias_min_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_min");
 		static const StringName shadow_bias_max_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_max");
-		static const StringName wind_enabled_path("rendering/gaussian_splatting/animation/wind_enabled");
-		static const StringName wind_direction_x_path("rendering/gaussian_splatting/animation/wind_direction_x");
-		static const StringName wind_direction_y_path("rendering/gaussian_splatting/animation/wind_direction_y");
-		static const StringName wind_direction_z_path("rendering/gaussian_splatting/animation/wind_direction_z");
-		static const StringName wind_strength_path("rendering/gaussian_splatting/animation/wind_strength");
-		static const StringName wind_frequency_path("rendering/gaussian_splatting/animation/wind_frequency");
-		static const StringName wind_spatial_frequency_path("rendering/gaussian_splatting/animation/wind_spatial_frequency");
-		static const StringName wind_time_scale_path("rendering/gaussian_splatting/animation/wind_time_scale");
 		direct_light_scale = _get_float_setting(ps, direct_path, direct_light_scale);
 		indirect_sh_scale = _get_float_setting(ps, indirect_path, indirect_sh_scale);
 		shadow_strength = _get_float_setting(ps, shadow_path, shadow_strength);
 		shadow_receiver_bias_scale = _get_float_setting(ps, shadow_bias_scale_path, shadow_receiver_bias_scale);
 		shadow_receiver_bias_min = _get_float_setting(ps, shadow_bias_min_path, shadow_receiver_bias_min);
 		shadow_receiver_bias_max = _get_float_setting(ps, shadow_bias_max_path, shadow_receiver_bias_max);
-		wind_enabled = _get_bool_setting(ps, wind_enabled_path, wind_enabled);
-		wind_direction.x = _get_float_setting(ps, wind_direction_x_path, wind_direction.x);
-		wind_direction.y = _get_float_setting(ps, wind_direction_y_path, wind_direction.y);
-		wind_direction.z = _get_float_setting(ps, wind_direction_z_path, wind_direction.z);
-		wind_strength = _get_float_setting(ps, wind_strength_path, wind_strength);
-		wind_frequency = _get_float_setting(ps, wind_frequency_path, wind_frequency);
-		wind_spatial_frequency = _get_float_setting(ps, wind_spatial_frequency_path, wind_spatial_frequency);
-		wind_time_scale = _get_float_setting(ps, wind_time_scale_path, wind_time_scale);
+		wind_settings = gs::settings::get_wind_settings(ps);
 		sphere_effector_settings = gs::settings::get_sphere_effector_settings(ps, true);
 	}
 	render_params.direct_light_scale = CLAMP(direct_light_scale, 0.0f, 4.0f);
@@ -2253,17 +2225,12 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.enable_direct_lighting = true;
 	render_params.normal_mode = 0;
 	render_params.direct_lighting_mode = 1;
-	render_params.wind_enabled = wind_enabled;
-	render_params.wind_direction = wind_direction;
-	render_params.wind_strength = MAX(0.0f, wind_strength);
-	render_params.wind_frequency = MAX(0.0f, wind_frequency);
-	render_params.wind_spatial_frequency = wind_spatial_frequency;
 	// Wall-clock time sampled once per frame in prepare_render_frame_context()
 	// (see RenderFrameContextManager::sample_render_animation_time_seconds).
 	// Shared with the depth/sort pass uniform fill below so both stages see
 	// the same phase this frame.
-	render_params.wind_time_seconds = float(state_view.get_frame_state_view().animation_time_seconds *
-			double(MAX(wind_time_scale, 0.0f)));
+	apply_wind_to_render_params(render_params, wind_settings,
+			state_view.get_frame_state_view().animation_time_seconds);
 	render_params.sphere_effector_count = 0u;
 	const uint32_t total_scene_effectors = _populate_scene_effector_payload_for_renderer(renderer, &render_params, nullptr);
 	if (total_scene_effectors == 0u) {
