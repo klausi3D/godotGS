@@ -10,6 +10,7 @@
 #include "gaussian_gpu_layout.h"
 #include "servers/rendering/rendering_device.h"
 
+#include "../core/gs_project_settings.h"
 #include "../interfaces/gs_raster_thresholds.h"
 #include "../resources/color_grading_resource.h"
 
@@ -560,6 +561,41 @@ struct TileRenderParams {
 
 	TileRenderParams();
 };
+
+/**
+ * @brief Write the whole wind field family into TileRenderParams. #1018.
+ *
+ * THE ONLY supported way to populate these six TileRenderParams fields. (The
+ * depth/sort pass fills a different struct, InstanceDepthParamsGPU, so it does
+ * not call this -- but it does share the READER,
+ * gs::settings::get_wind_settings, which is what keeps the two passes at the
+ * same phase.) They were previously
+ * assigned member-by-member by the baseline producer and by NOTHING on the
+ * painterly path, so painterly shipped `wind_time_seconds = 0.0f` — a frozen
+ * clock. A node with `rendering/wind_override_enabled` then rendered a static
+ * displacement instead of animated wind, because gs_deformation.glsl
+ * substitutes `strength = 1.0` when the pass-global strength is zero and the
+ * phase never advanced.
+ *
+ * Writing the group through one function is what makes that class of gap
+ * mechanical rather than a matter of remembering: a producer either calls this
+ * and gets all six, or does not call it and is caught by
+ * tests/ci/check_render_param_family_producers.py.
+ *
+ * @param p_animation_time_seconds FrameState::animation_time_seconds — the
+ *        ONE per-frame clock sample. Do not pass a freshly-read clock: the
+ *        binning/raster pass and the depth/sort pass must deform a splat to the
+ *        same place in the same frame.
+ */
+inline void apply_wind_to_render_params(TileRenderParams &r_params,
+		const gs::settings::GSWindSettings &p_settings, double p_animation_time_seconds) {
+	r_params.wind_enabled = p_settings.enabled;
+	r_params.wind_direction = p_settings.direction;
+	r_params.wind_strength = MAX(0.0f, p_settings.strength);
+	r_params.wind_frequency = MAX(0.0f, p_settings.frequency);
+	r_params.wind_spatial_frequency = p_settings.spatial_frequency;
+	r_params.wind_time_seconds = gs::settings::compute_wind_time_seconds(p_settings, p_animation_time_seconds);
+}
 
 struct BufferOwnership {
 	RenderingDevice *device = nullptr;
