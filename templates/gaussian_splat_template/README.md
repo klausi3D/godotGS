@@ -60,6 +60,13 @@ These values mirror the guidance in the Gaussian Splatting inspector documentati
 
    from the repository root. This writes
    `templates/gaussian_splat_template/assets/template_splats.ply`.
+
+   > Note: that command regenerates the **whole** synthetic fixture corpus, not
+   > just this asset, and rewrites five tracked manifests
+   > (`tests/fixtures/benchmark_asset_manifest.json`, the `test_project` copy of
+   > it, and three `open_world/*.stage_manifest.json`). They are deterministic
+   > regenerations; `git restore tests` puts them back. Giving the generator a
+   > per-asset filter is tracked separately.
 2. Open the Godot project manager and import `project.godot` from this folder.
 3. Press **F5** to run the template scene. The camera frames the splat cloud on
    load and the performance overlay begins updating at 4 Hz.
@@ -81,10 +88,16 @@ In practice:
 
 - A quantity this build cannot measure renders as `n/a`, never as `0`. A `0` in
   this panel always means "measured, and it was zero".
-- Each GPU pass time is shown only when the renderer's validity flag for that
-  pass is set on the frame being reported (`gpu_frame_valid`,
-  `gpu_prefix_valid`, …). A pass that did not resolve reads `n/a` rather than
-  repeating the last known value.
+- Each GPU pass time is shown only while the renderer's validity flag for that
+  pass is set (`gpu_frame_valid`, `gpu_prefix_valid`, …). **That flag is sticky,
+  and the panel says so.** Per-pass GPU timestamps resolve only intermittently,
+  so the renderer deliberately keeps the last resolved value and its flag,
+  expiring both after 120 resolves (~2 s) — see `tile_renderer.cpp:2867-2873`
+  and `:2908-2927`. A green pass row is therefore the most recent *resolved*
+  value, not necessarily this frame's, and the **Timing age** row beneath the
+  pass total prints how many frames behind it is. What the gate does buy is
+  real: before the first resolve, and after the 120-resolve expiry, the rows
+  read `n/a` instead of a plausible stale number or a zero.
 - The six resolved GPU passes — overlap count, prefix scan, overlap emit,
   overlap sort, rasterize, resolve — sum to the pass total, and the panel says
   so. If the identity ever fails, the difference is printed.
