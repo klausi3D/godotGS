@@ -16,7 +16,7 @@ From a raw capture to a running scene, godotGS keeps the whole splatting workflo
 
     ---
 
-    Load `.ply` and `.spz` files. They land as a `GaussianSplatNode3D` node in your scene tree, ready to orbit.
+    Load `.ply` and `.spz` files. They import as a `GaussianSplatAsset` resource, which you assign to a `GaussianSplatNode3D` in your scene, ready to orbit.
 
     [PLY loader technical details →](ply-loader.md)
 
