@@ -4,9 +4,13 @@ GodotGS is an alpha. **There is no API stability promise.**
 
 Every GDScript-facing name this module registers may change or be removed in any
 release, including a patch release, with no deprecation period and no migration shim.
-That covers the **33 registered classes**, their methods, properties and signals, the
-**two engine singletons** (`GaussianSplatManager` and `GaussianSplatSceneDirector`), and
-all **193 project settings** under `rendering/gaussian_splatting/`.
+That covers **every class this module registers** with Godot's ClassDB (33 at the time of
+writing), their methods, properties and signals, the **two engine singletons**
+(`GaussianSplatManager` and `GaussianSplatSceneDirector`), and **every project setting**
+under `rendering/gaussian_splatting/`. Counts in this page are as of `b915afc51c5` and are
+hand-copied; the authority is
+`modules/gaussian_splatting/config/project_settings_manifest.json` and
+`register_types.cpp`, not this sentence.
 
 It also covers the on-disk formats. A project saved or imported with one release may not
 open, may not import, or may not render the same way under the next.

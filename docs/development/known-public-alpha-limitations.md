@@ -16,8 +16,17 @@ Every entry is a defect that is real, reachable in a supported configuration, an
 shipping anyway, with the reason and a workaround where one exists. An entry here is a
 decision, not an oversight.
 
-**Blocking defects are not listed here** — they are in the blocker set and stop the
-release. This page is for what we ship knowing about.
+**Blocking defects are not listed here** — they are in the
+[acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
+what we ship knowing about.
+
+> That list is **human-maintained, and today the machine gate cannot see most of it.** The
+> candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
+> `release blocker`; the §11 alpha blockers #929, #851, #833 and #54 carry none of those
+> (#929 has no priority label; the other three are `priority:P2`), so nothing automated
+> stops a release on them. Read "it is in the blocker set" as "a human has to hold the
+> release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
+> an obligation on the bar.
 
 **Where an entry has not been reproduced on hardware, it says so.** "Unproven" means
 nobody has seen it happen, not that it does not happen; the code reading that produced it
@@ -52,12 +61,31 @@ cannot be fixed from this module.
 
 **Workaround:** do not combine `transparent_bg` with TAA or FSR2.
 
-> **Not listed here: splats swimming relative to meshes under TAA or FSR2
-> ([#929](https://github.com/klausi3D/godotGS/issues/929)).** It shares the composite /
-> temporal seam with #989 above, so it belongs in this neighbourhood — but it is in the
-> **blocker** set (acceptance bar §11), not the accepted set, and this page does not list
-> blockers. It is named so that a reader who hits TAA/FSR2 trouble does not conclude #989
-> is the whole story.
+### Splats ghost under TAA or FSR2 while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+
+> **Proposed accepted limitation — pending maintainer acceptance.** #1025 is in the alpha
+> envelope, so under bar §4.1 it is a **blocker** until a named human accepts it. The
+> acceptance-bar §8.1 disposition that proposes accepting it is itself marked *proposed*
+> for the same reason. It is written here now so the disclosure and the disposition cannot
+> drift apart; **do not read it as already accepted**, and do not cite it as an
+> `accepted_alpha_limitation` in a candidate bundle until both the human line exists and
+> #1025 has a `public_alpha_issue_ledger` entry — without the ledger entry the gate rejects
+> the classification regardless of what this page says.
+
+With a *static* camera this is fixed — the splat projection carries the engine's temporal
+jitter as of #929/#1026. In motion, splat regions smear, because the module publishes
+colour only: of the four inputs the temporal stages consume (colour, depth, velocity,
+reactive mask) it supplies none of the last three, so the resolve reprojects splat pixels
+with zero velocity.
+
+**Workaround:** keep Godot's defaults — `scaling_3d_mode = bilinear` at scale 1.0 and
+`use_taa = false` — for content with a moving camera, or accept the ghosting.
+
+**Status:** the static-camera half is measured fixed in #1026 — splat-layer sub-pixel
+displacement 0.2525 px → 0.0900 px at FSR2 scale 1.0, and 0.3603 px → 0.0927 px at scale
+0.5, on a real scan at 960×540. Those figures are #1026's, not re-measured here. The
+moving-camera residual is unfixed and is what this entry discloses; fixing it edits
+`render_forward_clustered.cpp` and needs its own ADR.
 
 ### Painterly rendering has no automated coverage, and its material cannot be assigned from a scene ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
@@ -105,8 +133,11 @@ are the ones found so far rather than the complete set.
   observed, because nothing in the repo can put the renderer on the painterly path from a
   scene file.
 - **Lighting-mode fields** are tracked as
-  [#851](https://github.com/klausi3D/godotGS/issues/851), which is in the **blocker** set
-  rather than here; it is named so this entry is not read as the whole picture.
+  [#851](https://github.com/klausi3D/godotGS/issues/851): with painterly enabled you get
+  **black contour lines**, and `shadow_strength` is **inert** — resolve-time lighting
+  (mode 0) does not receive what the baseline stage assigns it. That one is in the
+  **blocker** set rather than here, but its symptom is named so a user who sees it can
+  find the issue.
 
 **Workaround:** none. Do not rely on wind, or on any per-pass control, while painterly is
 active.
@@ -122,6 +153,25 @@ This is unrelated to `PainterlyMaterial.palette_blend_strength`, which is a diff
 quantity and does work.
 
 **Workaround:** none needed; there is nothing to set. Do not expect a blend control.
+
+## Scripting API
+
+### `get_statistics()` can crash the engine when polled every frame ([#1030](https://github.com/klausi3D/godotGS/issues/1030))
+
+`GaussianSplatNode3D.get_statistics()` is ClassDB-bound
+(`nodes/gaussian_splat_node_3d.cpp:233`) and is the natural call for a per-node HUD. Called
+**once per rendered frame** from GDScript it intermittently takes the process down with a
+`CrashHandlerException` inside the call. It builds a large `Dictionary` out of live
+metrics structures (`:1460` → `render_diagnostics_orchestrator.cpp`) that the render
+thread is mutating concurrently under the default multi-threaded
+`rendering/driver/threads/thread_model=2`.
+
+**Workaround:** poll it at **4 Hz or slower** — roughly every 15th frame, which is the rate
+the shipped overlay itself refreshes at. A 444-frame run at that rate did not crash.
+
+**Status:** **reproduced, not diagnosed** — 2 crashes in 5 runs on an optimized editor
+build; the C++ backtrace was unsymbolized, so the faulting function is not named and no
+root cause is established. 2-of-5 is a rate, not a mechanism.
 
 ## GaussianSplatWorld3D
 
