@@ -159,10 +159,19 @@ Defects that are real and reachable but do not block, each with the reason and a
 workaround. The generated list supersedes this one; these are recorded here
 because they were decided before the generator exists.
 
+Most rows here are here because the defect is **outside** what §10.1 admits, is
+**not ours to fix**, or is **not reproduced** — none of which engages §10.1's
+"an in-envelope defect is a blocker" rule. A row for a defect that *is* in
+envelope and *is* reproduced engages that rule head-on, and may stand only under
+the narrow exception §10.1 states, with all four of its conditions met. Such a
+row must say so in its `Why it does not block` cell, so the two sections cannot
+drift apart. Exactly one row does that today: `#929 residual`.
+
 | Issue | Symptom | Why it does not block | Workaround |
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With TAA or FSR2 on, splat regions **ghost while the camera or the content moves**. Static-camera swimming is fixed; this is the motion half only. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; remainder is R3/ADR; workaround exists). **Scoped down, not waived.** The jitter half is fixed and gated (`build_render_projection()` + the QA temporal-stability phase). What remains needs per-pixel **motion vectors**, which the module does not write: of the four inputs the temporal stages take — colour, depth, velocity, reactive mask — splats supply colour. Velocity requires caching the previous view-projection and reprojecting GS depth per pixel, and depth write-back means new attachments at the `render_forward_clustered.cpp` seam, i.e. an **engine-boundary (R3)** change with an ADR, two independent reviews and CODEOWNER sign-off. A *wrong* velocity is worse than none — it smears confidently. Tracked as **#1025** (`priority:P1`, `needs-adr`), which also records that the moving-camera case has never been measured in this repo and that measuring it is its first task. Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` the §9 gate requires; that page currently records no accepted limitations. | Use `scaling_3d_mode = bilinear` at scale 1.0 with `use_taa = false` (Godot's own defaults) for content with a moving camera, or accept the ghosting. Still cameras are unaffected. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why
@@ -231,6 +240,85 @@ envelope is:
   therefore signs off a scene thinned roughly fourfold. The pass **must** state
   the import preset and node quality it ran at, or it proves nothing about the
   splat count it claims.
+
+- **TAA and FSR2 are IN the alpha envelope.** This list previously said
+  "Forward+, single view" and was silent on the temporal stages, which left the
+  #929 disposition undecidable. **Decided: in** — relayed from the maintainer
+  through the #929 coordination thread and written down here so the rule below
+  has something to stand on. **The maintainer's own line on #929 or #1026 is the
+  authoritative record**; this bullet is a transcription by an agent and should
+  be reconciled against it, not treated as the decision itself. MetalFX-temporal
+  is macOS-only and therefore outside the alpha's platforms (§2), not inside
+  this decision.
+
+  The rule this engages: **an in-envelope defect is a blocker and must be fixed;
+  an out-of-envelope one may be disclosed under §8.** The consequence for #929
+  was that the unjittered-projection half was fixed rather than disclosed.
+
+  **The one exception, and its conditions.** An in-envelope defect may be
+  disclosed under §8.1 instead of blocking only when *all four* hold, and the
+  §8.1 row says so:
+
+  1. the defect is a **residual** of something already fixed, i.e. the shipped
+     behaviour is strictly better than before, not merely documented;
+  2. closing it requires work of a **higher risk class than the fix itself** —
+     in practice R3 at the engine boundary, needing an ADR — so bundling it
+     would trade a measured small change for an unreviewed large one;
+  3. a **workaround exists and is stated**, reachable from default settings; and
+  4. a **named human has accepted it as an alpha limitation**, recorded on the
+     issue or the PR. Absent that acceptance the row is not valid and the defect
+     stays in the §4 blocker query.
+
+  This exception is deliberately narrow. It is not "we ran out of time"; it is
+  "the remainder is a different, larger, riskier piece of work, the user has a
+  way through in the meantime, and a human said yes". A residual that meets 1-3
+  but not 4 is still a blocker.
+
+  **Applied to #929:** conditions 1-3 hold — the static-camera swimming is fixed
+  and measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround
+  is Godot's own default settings. Condition 4 is **outstanding at the time of
+  writing**: the envelope decision above came from the maintainer, but it is a
+  decision about the *envelope*, not about this residual, and no human line yet
+  accepts the moving-camera ghosting as an alpha limitation. The two are separate
+  calls and only the first has been made. Until the second exists, treat the §8.1
+  `#929 residual` row as **proposed**, and #1025 as a §4 blocker.
+
+  **A §8.1 row is not by itself a machine-visible disclosure.** For the §9 gate
+  to classify an issue `accepted_alpha_limitation` rather than blocking, three
+  separate things must be true, and a row in this table is none of them:
+  the issue must carry a label from `required_issue_query.classification_labels_any`
+  (`docs/reference/renderer_release_gate_manifest.json`, today `priority:P0` /
+  `priority:P1` / `release blocker`) or the gate never asks about it at all
+  (`tests/ci/check_renderer_release_gates.py`, `_candidate_issue_is_relevant`);
+  the classification must carry a `docs_path` string-equal to the manifest's
+  `known_limitations_page`
+  ([`docs/development/known-public-alpha-limitations.md`](../development/known-public-alpha-limitations.md),
+  checked in `_candidate_issue_accepted_limitation_failures`); and the issue must
+  appear in `public_alpha_issue_ledger.tracked_issues`, which is an R3 manifest
+  edit. #1025 now carries `priority:P1`; **it is not yet in the ledger**, so as of
+  this writing it cannot be classified as an accepted limitation even if a human
+  accepts it. That is the fail-closed direction, and the ledger mechanism is
+  being recorded with the rest of the envelope-widening work rather than here.
+
+  **And a fourth thing, which the three above quietly depend on: the gate cannot
+  tell whether it was shown every issue.** `_validate_candidate_issues` iterates
+  only the rows handed to it in `--issues-json`, and nothing in
+  `tests/ci/check_renderer_release_gates.py` queries GitHub — its entire import
+  list is argparse, datetime, fnmatch, hashlib, importlib.util, json, math, re,
+  subprocess, sys, pathlib and typing, so a live query is not merely absent, it
+  cannot happen without adding a dependency. That constrains the fix: the
+  snapshot has to be generated in-workflow and bound to the run, not validated
+  after the fact. The one omission check,
+  `_validate_omitted_manifest_blockers`, iterates `manifest_classifications`, so
+  it catches a *manifest-tracked* `blocking` entry that went missing and nothing
+  else. An issue that is neither in the manifest nor in the supplied snapshot is
+  never examined, so a truncated or empty snapshot passes. Requiring
+  `--issues-json` to be a different file from the evidence bundle stops a bundle
+  certifying itself; it does not detect omission. Until #961 generates that
+  snapshot from a live in-workflow query, a classification for #1025 — or for
+  anything else — means "the gate was shown this and accepted it", never "the
+  gate saw everything". Found during the #1020 review; recorded here because it
+  bounds what the row above is worth.
 
 **Decided:** the alpha admits `GaussianSplatWorld3D`, so #862 is an alpha
 blocker. Triage had classified it out-of-envelope on the assumption that the
@@ -307,8 +395,54 @@ rather than a ceiling.
    parameters change, so edits silently do not apply. Enters this set by the
    §10.1 envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. **#929** — splats swim under TAA/FSR2. Blocked on the #921 disposition; both
-   concern the same composite/temporal seam, as does #989.
+5. **#929** — splats swim under FSR2. **Re-decided and split.** The entry
+   previously read "Blocked on the #921 disposition"; that disposition was made
+   and landed (Option B pre-upscale hook, #924), so the block no longer exists.
+   Measurement then narrowed the claim: under **TAA** splats do not swim at all
+   — they are bit-stable and simply never antialiased, because Godot's
+   `taa_resolve.glsl` is never handed the jitter and only accumulates. Under
+   **FSR2** they do swim, because FSR2 *is* handed the jitter and un-jitters an
+   input that was never jittered. The cause is that the splat projection ignored
+   `scene_data->taa_jitter`. **That half is fixed**, with a QA oracle that was
+   red on the unfixed tree. The **moving-camera ghosting half is not**, and is
+   tracked as **#1025**, because it needs motion vectors and a depth write-back
+   at the engine boundary (R3, ADR first). Same composite/temporal seam as #989.
+
+   **What happens to this entry on merge.** The PR that fixes the jitter says
+   `Refs #929`, never a closing keyword, so nothing closes automatically — a
+   closing keyword has already closed a live issue once in this repo. The
+   disposition a human owes, in one line on #929 or on that PR, is the §10.1
+   condition-4 acceptance:
+   - **Accepted** — #1025 is an alpha limitation. Then #929 is closed by hand on
+     merge, this item 5 is struck, the §8.1 `#929 residual` row loses its
+     *proposed* marker, and the limitation is listed on the known-limitations
+     page (which currently says the opposite; see the note below).
+   - **Not accepted** — then **#1025 replaces #929 as item 5** and stays in the
+     §4 blocker query, the §8.1 row is deleted, and #929 is closed by hand only
+     once #1025 lands.
+
+   Either way #929 itself carries no remaining work: the residual lives in
+   #1025. Until the line exists, count #929 as **open**, which is what the
+   status line above assumes.
+
+   **One consequence of the not-accepted branch that nothing else tracks.** #929
+   carries only `program:prod-ready`, so it is not in
+   `required_issue_query.classification_labels_any` and the §9 gate never asks
+   about it. Under the *accepted* branch that resolves itself — the issue closes
+   and drops out of the population. Under the *not accepted* branch #929 stays
+   open and stays invisible, and **#1025 is not a substitute for it**: they are
+   separate issues and the gate sees only the one carrying the label. So if the
+   maintainer declines the acceptance, #929 needs a
+   `priority:P0` / `priority:P1` / `release blocker` label at the same time as
+   the decision, or the blocker it becomes is one the machine cannot see. #1025
+   already carries `priority:P1`.
+
+   **Cross-document note.** `docs/development/known-public-alpha-limitations.md`
+   (introduced separately) currently states that #929 "is in the blocker set,
+   not the accepted set". Under the *accepted* branch that sentence becomes
+   false and must be replaced by the #1025 limitation; under the *not accepted*
+   branch it stays true but should name #1025 rather than #929. Whichever change
+   lands second owns reconciling the two.
 6. **#986** — **the painterly root cause.** Painterly's own viewport composite
    can never load (a malformed `#[vertex]` marker and a 36-vs-48 push-constant
    mismatch), so painterly falls through to the standard composite.
