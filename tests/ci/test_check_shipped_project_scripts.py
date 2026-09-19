@@ -194,6 +194,40 @@ class ShippedProjectScriptGuardTests(unittest.TestCase):
         code, messages = self.fx.run()
         self.assertEqual(code, 0, messages)
 
+    def test_equals_inside_a_quoted_node_name_is_clean(self) -> None:
+        # `=` is legal in a node name (the invalid set is `. : @ / " %`,
+        # core/string/ustring.cpp:5338). Scanning the raw header body read it
+        # as an attribute boundary and rejected correct engine output.
+        self.fx.write("shipped/eqname.tscn", """[gd_scene load_steps=1 format=3]
+
+[node name="Speed=Fast" type="Label"]
+""")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_equals_inside_a_quoted_group_name_is_clean(self) -> None:
+        self.fx.write("shipped/eqgroup.tscn", """[gd_scene load_steps=1 format=3]
+
+[node name="Root" type="Node" groups=["kind=enemy"]]
+""")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_unknown_attribute_after_a_quoted_value_is_still_flagged(self) -> None:
+        # Masking quoted spans must not blind the detector to a real unknown
+        # key that follows one -- otherwise the false-positive fix would be a
+        # false-negative fix.
+        self.fx.write("shipped/eqmixed.tscn", """[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://clean.gd" id="1"]
+
+[node name="A=B" type="Node" script=ExtResource("1")]
+""")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("scene-unknown-node-header-attribute", self.fx.detectors())
+        self.assertTrue(any("`script=`" in m for m in messages), messages)
+
     def test_node_paths_written_by_godot_itself_is_clean(self) -> None:
         # `scene/resources/resource_format_text.cpp:1989` emits ` node_paths=`
         # into the header whenever a node has a deferred NodePath property --

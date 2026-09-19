@@ -80,10 +80,17 @@ func _wire_overlay() -> void:
 ##    payload is uploaded, one or more frames later. Focusing once in `_ready()`
 ##    frames nothing and leaves the shipped camera transform in place with no
 ##    diagnostic -- which is why the template opened on an unframed blob.
+## 3. `stats["bounds"]` is the node's LOCAL aabb
+##    (`gaussian_splat_node_3d.cpp:1465`), while `OrbitCameraRig.focus()` puts
+##    the rig at the centre it is handed, in world space. Passing the local box
+##    straight through aimed the camera at the node's local origin: with the
+##    template's `GaussianSplatNode3D` at y = 1.5 the rig landed at y = 0.04 and
+##    the cloud sat in the upper half of the frame. Transform it first.
 ##
-## So: read the bound accessor, and retry to a wall-clock deadline (never a
-## fixed frame count -- import and upload cost is machine-dependent). If the
-## bounds never arrive, say so rather than failing silently.
+## So: read the bound accessor, put it in world space, and retry to a
+## wall-clock deadline (never a fixed frame count -- import and upload cost is
+## machine-dependent). If the bounds never arrive, say so rather than failing
+## silently.
 func _focus_camera() -> void:
     if camera_rig == null or gaussian_node == null:
         return
@@ -92,7 +99,8 @@ func _focus_camera() -> void:
     var last_count: int = 0
     while Time.get_ticks_msec() < deadline:
         var stats: Dictionary = gaussian_node.get_statistics()
-        var bounds: AABB = stats.get("bounds", AABB())
+        var local_bounds: AABB = stats.get("bounds", AABB())
+        var bounds: AABB = gaussian_node.global_transform * local_bounds
         last_count = int(stats.get("total_splats", 0))
         if bounds.size.length() > 0.0 and last_count > 0:
             camera_rig.focus(bounds)

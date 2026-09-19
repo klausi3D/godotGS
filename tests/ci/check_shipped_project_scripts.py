@@ -130,6 +130,12 @@ GODOT3_THEME_PREFIXES = {
 
 NODE_HEADER_RE = re.compile(r"^\[node\s+(?P<body>.*)\]\s*$")
 HEADER_KEY_RE = re.compile(r'(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=')
+# A double-quoted span inside a scene header, with `\"` escapes. Masked before
+# the key scan: `=` is legal inside a node or group NAME -- the invalid set is
+# only `. : @ / " %` (`core/string/ustring.cpp:5338`) -- so a header like
+# `[node name="Speed=Fast"]` or `groups=["kind=enemy"]` is correct output that
+# an unmasked key scan reads as an unknown `Speed=` / `kind=` attribute.
+HEADER_QUOTED_SPAN_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
 GET_SINGLETON_RE = re.compile(r"\bget_singleton\s*\(\s*\)")
 PROPERTY_LINE_RE = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_/]*)\s*=")
 
@@ -249,13 +255,32 @@ def scan_gdscript(rel_path: str, source: str) -> list[Finding]:
     return findings
 
 
+def mask_header_quoted_spans(body: str) -> str:
+    """Blank the contents of double-quoted spans in a `[node ...]` header body.
+
+    Length-preserving, so a column offset still maps back. Only the *contents*
+    of a scan matter here, not its columns, but keeping the length makes the
+    masking obviously non-destructive.
+
+    Without this the key scan reads `=` inside a quoted value as an attribute
+    boundary and rejects correct engine output: `=` is legal in a node name and
+    in a group name (the invalid set is `. : @ / " %`,
+    `core/string/ustring.cpp:5338`), so `[node name="Speed=Fast"]` and
+    `groups=["kind=enemy"]` are both things Godot writes and reads back. That
+    is the same false-accusation class as the missing `node_paths` key: the
+    finding's own advice would have made the scene wrong.
+    """
+    return HEADER_QUOTED_SPAN_RE.sub(lambda m: '"' + "_" * (len(m.group(0)) - 2) + '"', body)
+
+
 def scan_scene(rel_path: str, source: str) -> list[Finding]:
     findings: list[Finding] = []
     for lineno, raw in enumerate(source.splitlines(), start=1):
         line = raw.strip()
         header = NODE_HEADER_RE.match(line)
         if header:
-            for key in HEADER_KEY_RE.findall(header.group("body")):
+            body = mask_header_quoted_spans(header.group("body"))
+            for key in HEADER_KEY_RE.findall(body):
                 if key in LEGAL_NODE_HEADER_KEYS:
                     continue
                 extra = ""
