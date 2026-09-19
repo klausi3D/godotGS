@@ -75,6 +75,26 @@ otherwise-complete alpha candidate and a green gate. The enforcement points are
 `_validate_candidate_artifacts` (`tests/ci/check_renderer_release_gates.py:1150-1152`) and
 the lane loop at `:1720-1724`.
 
+**Two honest qualifications on Run B, both found by independent review.**
+
+- **Run B's artifacts were synthetic files with correct digests, and that was enough**,
+  because no artifact group is content-validated (§4.3). Run B therefore proves the gate's
+  *structural* demands are satisfiable; it proves nothing about whether real evidence
+  exists. Read it only as "these three are what the gate asks for", never as "the alpha is
+  three lanes away from passing" — §5 is the real distance.
+- **Run B's issue snapshot was empty**, which is why the issue machinery did not fire.
+  Against the live issue set it would not pass; §5.5 is that consequence and it is the
+  largest single cost in this document.
+
+**The bundles are not attached to this ADR**, so "exactly three failures" is reproducible
+only by rebuilding them. The recipe: synthesise a bundle carrying every group in
+`artifact_requirements.required_groups` and every lane in
+`benchmark_acceptance.candidate_required_lanes`, with real in-repo files, correct SHA-256s,
+`release_channel: public-alpha`, a `v*-alpha*` tag, and `resolved_manifest_issues` rows for
+the ledger's `blocking` entries; run `--mode candidate --expected-commit`; then delete the
+three and re-run. Committing that pair as a fixture is what #960 should do, and this ADR
+recommends it land first for exactly this reason.
+
 **A note on why nothing had caught this.** The gate's own test suite builds a stub manifest
 with `"required_groups": ["linux_release_archive", "known_limitations_page"]` and
 `"candidate_required_lanes": ["static_baseline"]`
@@ -126,20 +146,38 @@ The widening is to streaming, and to nothing else. Still outside the alpha envel
 - **A performance promise on the streaming route.** The alpha's bar is user-visible
   correctness (§10); the peer comparison in §3 remains v1.0-only.
 
-### 4.3 Three evidence lanes must now run and pass before a stable tag
+### 4.3 Three evidence requirements — but only two of them are machine-checked
 
-Stated plainly, because it is the whole cost of this decision: a `v*` tag cannot publish
-until **all three** of the following exist and pass in the release run. Until this ADR they
-were required by the gate and disowned by the bar; now they are owned.
+A `v*` tag cannot publish until all three of the following are in the candidate bundle.
+Until this ADR they were required by the gate and disowned by the bar; now they are owned.
+**What the machine actually verifies differs sharply between them, and an earlier revision
+of this ADR got that wrong by claiming all three must "run and pass".**
 
-| # | Requirement | Kind | Produced by |
+| Requirement | Kind | What the gate enforces | Produced by |
 | --- | --- | --- | --- |
-| 1 | `open_world_proof` | artifact group | `lane_open_world_corridor_proof.tscn` / `benchmark_open_world_proof_lane.gd` |
-| 2 | `streaming_corridor` | benchmark lane | `lane_streaming_corridor.tscn` |
-| 3 | `city_flyover` | benchmark lane | `lane_city_flyover.tscn` |
+| `streaming_corridor` | benchmark lane | **Content.** All 15 `required_fields_non_null`, execution status, GPU timing, route, timeout. | `lane_streaming_corridor.tscn` |
+| `city_flyover` | benchmark lane | **Content**, same checks. | `lane_city_flyover.tscn` |
+| `open_world_proof` | artifact group | **Integrity only** — presence, four fields, in-repo path, SHA-256, non-stale commit and mtime. **Nothing reads the file.** | *nominally* `lane_open_world_corridor_proof.tscn` / `benchmark_open_world_proof_lane.gd` |
 
-All three lanes exist in the benchmark suite today. None of them is release evidence today —
-§5 is about the distance between those two statements.
+`_validate_candidate_artifact_group` (`tests/ci/check_renderer_release_gates.py:1050-1065`)
+calls only the required-field, integrity, commit and mtime checks; there is no content
+validator for any artifact group. The manifest states this about itself:
+`workflow_policy.open_world_proof.workflow_blocking_behavior_machine_enforced: false`
+(`:320-324`), and "open-world proof must be blocking rather than advisory" is listed under
+`documented_non_enforced_rules` (`:260-264`). `open_world_corridor_proof` is **not** in
+`candidate_required_lanes`.
+
+**Demonstrated, not inferred.** A candidate bundle identical to §2's passing Run B except
+that `open_world_proof` points at the repository's `README.md`, with a correct digest,
+exits **0** with **no failures at all**. README.md is accepted as open-world proof.
+
+**So the open-world obligation is human-enforced, not machine-enforced.** Whoever builds
+#961 must make the bundle point that group at real corridor-proof output, and whoever signs
+the release must confirm it did — the gate will not catch a substitution. This is itself
+the §4.2 shape the bar makes blocking ("a lane that passes without executing"), and it is
+recorded here rather than papered over. Closing it means either a content validator for
+that group or promoting `open_world_corridor_proof` into `candidate_required_lanes`; both
+are R3 manifest/validator work and neither is done by this ADR.
 
 ## 5. What this costs
 
@@ -164,8 +202,12 @@ manifest classification is upgraded to `real_chunked`." All three lanes are list
 (`:189`) and `open_world_corridor_proof` (`:191`) as "Defined in the benchmark suite, not
 yet published" — but **contradicts `benchmark-suite.md` about `city_flyover`**, which it
 calls "Published in `benchmark_latest.json`" at `:186` while `benchmark-suite.md:300` calls
-it `Suite-only`. One of those two pages is wrong about a lane this ADR depends on, and
-resolving it belongs with the §5.1 decision rather than here.
+it `Suite-only`. **`performance/index.md` is the correct one**: `city_flyover` does carry a
+row in `docs/assets/data/benchmark_latest.json:25`, so `benchmark-suite.md:300` is the
+stale line. That resolves which page is wrong and changes nothing about the substance —
+the lane is still classified `lightweight_smoke`, and the manifest still sets
+`benchmark_acceptance.authoritative_public_snapshot: false`, so being published is not the
+same as being proof.
 
 **The consequence is the sharpest thing in this ADR.** Satisfying the gate with these three
 lanes *as they are classified today* would produce a green gate over evidence the repository's
@@ -230,7 +272,46 @@ both stages. Widening the envelope widens the pass: it must now include the stre
 The procedure drafted on #1012 covers six configurations on the resident and world routes and
 does not cover streaming; it needs a streaming configuration added before it is executed.
 
-### 5.5 What it does not cost
+### 5.5 The largest cost: every open P0, P1 and release-blocker must close or be ledgered
+
+This is bigger than everything above it and an earlier revision of this ADR omitted it
+entirely, naming "#351, #352 and #360 must be closed" instead — a claim that was wrong in
+both directions: #351 and #352 have been closed since June, and the real requirement is not
+about three issues.
+
+The gate's population is every **open** issue carrying `priority:P0`, `priority:P1` or
+`release blocker` (`public_alpha_predicate.required_issue_query.classification_labels_any`,
+manifest `:26-30`). For each one, `_validate_candidate_issues` allows exactly one outcome:
+
+- `blocking` — **always fails** (`check_renderer_release_gates.py:1793-1799`).
+- `accepted_alpha_limitation` or `deferred` **supplied by the bundle** — fails with
+  "classification must be tracked in `public_alpha_issue_ledger`" (`:1918-1926`).
+- `accepted_alpha_limitation` or `deferred` **present in the manifest's own ledger** —
+  passes, if it also carries `evidence_required` and, for an accepted limitation, a
+  `docs_path` equal to `known_limitations_page`.
+
+So the bundle cannot classify anything. **The only passing route for an open relevant issue
+is an entry in the manifest — an R3 edit requiring an ADR, two reviews and CODEOWNER
+approval — or closing the issue.**
+
+Measured against the live issue set on **2026-09-19**: **2 open P0** (#182, #184), **35 open
+P1**, and **4 carrying `release blocker`** (#1010, #1011, #1012, #1016) — **37 distinct
+issues** after overlap. Every one must be closed or ledgered before any candidate passes.
+The ledger holds **four** entries today (#351, #352, #360, #369).
+
+Widening does not create this requirement — it predates the decision — but it makes it much
+heavier, because most of those 35 P1s are streaming- or renderer-related and are in-envelope
+now that streaming is in. It belongs in the cost of this decision and is the reason #963
+(derive the ledger) is on the critical path rather than beside it.
+
+A directly related gap, recorded because it cuts the other way: **the four defects bar §11
+still lists as alpha blockers are invisible to that population.** #929 carries only
+`program:prod-ready`, and #851, #833 and #54 are `priority:P2`, so none is ever presented to
+the gate. #1025 and #1030 are unlabelled too. The bar's hand-derived blocker set and the
+machine's are disjoint sets — labelling them is a prerequisite for the gate to mean what the
+bar says it means.
+
+### 5.6 What it does not cost
 
 The `deferred_requires_gpu_waivers` expiry of **2026-10-31** is unchanged by this decision —
 it was already binding. It is noted only so nobody attributes it to the widening.
@@ -240,12 +321,17 @@ it was already binding. It is noted only so nobody attributes it to the widening
 Narrowing (option 1) was the option #1016 itself leaned toward, and it is defensible. It was
 not chosen, for four reasons.
 
-1. **The gate's requirements were not arbitrary.** `open_world_proof`, `streaming_corridor`
-   and `city_flyover` were put in `required_groups` and `candidate_required_lanes`
-   deliberately, alongside `disallow_open_world_advisory_only: true` — a flag whose only
-   purpose is to stop exactly the kind of scoping-down that option 1 performs. Removing the
-   requirement and keeping the flag that guards it would be incoherent; removing both would
-   discard a guard to make a check pass, which `AGENTS.md` forbids.
+1. **The gate's requirements were not arbitrary, even where they are not yet enforced.**
+   `open_world_proof`, `streaming_corridor` and `city_flyover` were put in
+   `required_groups` and `candidate_required_lanes` deliberately, and
+   `disallow_open_world_advisory_only: true` records an intent to stop exactly the kind of
+   scoping-down option 1 performs. **That flag is a documented-not-enforced rule, not a
+   check** — §4.3 shows the open-world group is integrity-only — so it cannot be cited as
+   machinery that option 1 would have to defeat. What it is, is a written statement of
+   intent by whoever built the gate, and deleting the requirement it guards would be
+   overruling that intent in order to make a check pass. Two of the three requirements
+   (`streaming_corridor`, `city_flyover`) *are* content-checked, and removing those would
+   discard live coverage, which `AGENTS.md` forbids outright.
 2. **A profile mechanism is new machinery on the critical path.** Option 1 means adding
    channel-scoped profiles to the manifest, teaching `check_renderer_release_gates.py` to
    select between them, and testing that selection — R3 work, on the one file whose job is to
@@ -272,9 +358,11 @@ open, not to quietly re-narrow the gate or mark a lane advisory.
 
 ### 7.1 Landing with this ADR
 
-- `docs/governance/release-acceptance-bar.md`: §5, §8.1, §10 and §10.1 amended so the bar and
-  the manifest agree, plus an explicit specification of the candidate bundle (§9.1) so #961
-  has something to build against rather than a guess.
+- `docs/governance/release-acceptance-bar.md`: **§5, §6, §7, §10, §10.1 and §11** amended so
+  the bar and the manifest agree, plus an explicit specification of the candidate bundle
+  (**new §9.1**) so #961 has something to build against rather than a guess. §8.1 is **not**
+  touched by this change — replacing it with a pointer to the known-limitations page belongs
+  to the stacked user-facing-docs PR, which is what makes that page real.
 
 ### 7.2 Work this creates or re-prioritises
 
@@ -285,6 +373,9 @@ open, not to quietly re-narrow the gate or mark a lane advisory.
 | Dry-run the candidate gate in CI | #960 | Should still land first; §2 is a local run, not a CI one |
 | Streaming configuration added to the visual-pass procedure | #1012 | §5.4 |
 | Streaming blockers re-labelled from v1.0 to alpha | #320, #786, #883 | §5.3 |
+| Close or manifest-ledger all 37 open P0/P1/release-blocker issues | #963 | §5.5 — the largest item |
+| Give the gate-invisible blockers a `priority:P0`/`P1`/`release blocker` label | #929, #851, #833, #54, #1025, #1030 | §5.5 — without this the gate never sees them |
+| Content-validate `open_world_proof`, or promote `open_world_corridor_proof` into `candidate_required_lanes` | #1016 / #961 | §4.3 — R3; until then the obligation is human |
 | Un-quarantine the streaming QA scenes, or record them as accepted alpha limitations | #786 + the three untracked reasons | §5.2 |
 
 ### 7.3 The `alpha-relevant` label is still inert
