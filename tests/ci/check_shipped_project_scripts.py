@@ -154,6 +154,21 @@ class Finding:
 STRING_FILLER = "_"
 COMMENT_FILLER = " "
 
+# Everything that must be masked before GDScript is scanned, longest delimiter
+# first so `"""` wins over `"`. A `#` inside a string is consumed by the string
+# alternative, and a quote inside a comment by the comment alternative, because
+# the scan is left-to-right from whichever opens first. The optional closing
+# quote on the single-delimiter forms tolerates an unterminated literal without
+# swallowing the rest of the file.
+MASKABLE_SPAN_RE = re.compile(
+    r'"""(?:[^\\]|\\.)*?"""'
+    r"|'''(?:[^\\]|\\.)*?'''"
+    r'|"(?:[^"\\\n]|\\.)*"?'
+    r"|'(?:[^'\\\n]|\\.)*'?"
+    r"|#[^\n]*",
+    re.S,
+)
+
 
 def strip_gdscript_strings_and_comments(source: str) -> list[str]:
     """Mask string literals and `#` comments, preserving line and column structure.
@@ -168,67 +183,14 @@ def strip_gdscript_strings_and_comments(source: str) -> list[str]:
     (the prefix is an ordinary identifier character, so it needs no special
     handling -- the quote after it opens the literal as usual).
     """
-    out: list[list[str]] = [[]]
-    i = 0
-    n = len(source)
-    in_string: str | None = None  # the closing delimiter we are looking for
-    in_comment = False
+    def mask(match: re.Match[str]) -> str:
+        token = match.group(0)
+        filler = COMMENT_FILLER if token.startswith("#") else STRING_FILLER
+        # Newlines survive so the line count and every column offset are
+        # unchanged; everything else in the span becomes filler.
+        return "".join("\n" if ch == "\n" else filler for ch in token)
 
-    def emit(ch: str, filler: str | None) -> None:
-        if ch == "\n":
-            out.append([])
-        else:
-            out[-1].append(ch if filler is None else filler)
-
-    while i < n:
-        ch = source[i]
-        if in_comment:
-            if ch == "\n":
-                in_comment = False
-                emit(ch, None)
-            else:
-                emit(ch, COMMENT_FILLER)
-            i += 1
-            continue
-        if in_string is not None:
-            if ch == "\n":
-                # An unterminated single-quoted literal cannot span lines; a
-                # triple-quoted one can. Keep the line structure either way.
-                emit(ch, None)
-                if in_string in ('"', "'"):
-                    in_string = None
-                i += 1
-                continue
-            if ch == "\\" and i + 1 < n:
-                emit(ch, STRING_FILLER)
-                emit(source[i + 1], STRING_FILLER)
-                i += 2
-                continue
-            if source.startswith(in_string, i):
-                for c in in_string:
-                    emit(c, STRING_FILLER)
-                i += len(in_string)
-                in_string = None
-                continue
-            emit(ch, STRING_FILLER)
-            i += 1
-            continue
-        if ch == "#":
-            in_comment = True
-            emit(ch, COMMENT_FILLER)
-            i += 1
-            continue
-        for delim in ('"""', "'''", '"', "'"):
-            if source.startswith(delim, i):
-                in_string = delim
-                for c in delim:
-                    emit(c, STRING_FILLER)
-                i += len(delim)
-                break
-        else:
-            emit(ch, None)
-            i += 1
-    return ["".join(line) for line in out]
+    return MASKABLE_SPAN_RE.sub(mask, source).split("\n")
 
 
 def scan_gdscript(rel_path: str, source: str) -> list[Finding]:
