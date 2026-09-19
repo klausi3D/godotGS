@@ -208,11 +208,12 @@ classifications must point at, and the one a user can actually reach. Keeping a 
 copy in this document is how the two drift, and they had: this table recorded two entries
 while the page said none were recorded at all.
 
-Two entries were decided here before that page existed — **#989** (`transparent_bg`
-viewports opaque under TAA or FSR2; upstream Godot, not ours) and **#983** (a failed
-tile-sorter grow loses both sorters; a code-reading finding not reproduced on NVIDIA).
-Both now live on that page with their reasoning and workarounds intact, alongside the
-rest.
+The entries that were decided here before that page existed — **#989** (`transparent_bg`
+viewports opaque under TAA or FSR2; upstream Godot, not ours), **#983** (a failed
+tile-sorter grow loses both sorters; a code-reading finding not reproduced on NVIDIA), and
+any disposition recorded in this section since — live on that page with their reasoning and
+workarounds intact, alongside the rest. **No count is given here on purpose**: an
+enumeration in this section is exactly what drifted from the page last time.
 
 The generated disclosure (§8) supersedes the page in turn, once it exists.
 

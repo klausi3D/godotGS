@@ -56,7 +56,7 @@ with the payload type of the content you assign.
 | Step | Action | Implementation reference |
 | --- | --- | --- |
 | 1 | Leave `rendering/gaussian_splatting/streaming/route_policy` at its default `1`, or set it explicitly. | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1008` |
-| 2 | Create a `GaussianStreamingSystem` instance (the node creates one automatically when streaming is enabled). | `modules/gaussian_splatting/core/gaussian_streaming.h:31` |
+| 2 | Create a `GaussianStreamingSystem` instance (the node creates one automatically when the route policy selects streaming and the assigned payload is streamable). | `modules/gaussian_splatting/core/gaussian_streaming.h:31` |
 | 3 | Call `initialize(data)` with a loaded `GaussianData` resource to partition splats into chunks. | `modules/gaussian_splatting/core/gaussian_streaming.cpp:927` |
 | 4 | Each frame, call `update_streaming(camera_transform, projection)` to drive chunk loading, culling, and eviction. | `modules/gaussian_splatting/core/gaussian_streaming.h:770` |
 
