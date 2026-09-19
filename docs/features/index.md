@@ -16,11 +16,11 @@ From a raw capture to a running scene, godotGS keeps the whole splatting workflo
 
     ---
 
-    Load `.ply` / `.splat` files and COLMAP camera poses. They land as a `GaussianSplat3D` node in your scene tree, ready to orbit.
+    Load `.ply` and `.spz` files. They import as a `GaussianSplatAsset` resource, which you assign to a `GaussianSplatNode3D` in your scene, ready to orbit.
 
     [PLY loader technical details →](ply-loader.md)
 
-    <span class="gs-card-meta">ply · splat · colmap</span>
+    <span class="gs-card-meta">ply · spz</span>
 
 -   __Grade in the editor__
 

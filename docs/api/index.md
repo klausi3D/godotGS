@@ -41,7 +41,7 @@ Use this folder for Gaussian Splatting API references and regeneration scripts.
     <tr>
       <td>Read the GaussianSplatWorld3D API reference.</td>
       <td><a href="gaussian_splat_world3d.md"><code>gaussian_splat_world3d.md</code></a></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world3d.cpp</code></td>
+      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp</code></td>
     </tr>
     <tr>
       <td>Read the GaussianSplatContainer API reference.</td>

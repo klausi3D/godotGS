@@ -198,13 +198,24 @@ work items.
 ### 8.1 Disclosed, not blocking
 
 Defects that are real and reachable but do not block, each with the reason and a
-workaround. The generated list supersedes this one; these are recorded here
-because they were decided before the generator exists.
+workaround.
 
-| Issue | Symptom | Why it does not block | Workaround |
-| --- | --- | --- | --- |
-| **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
-| **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+**The list lives on
+[Known Public Alpha Limitations](../development/known-public-alpha-limitations.md), not
+here.** That page is the one the release-gate manifest binds to
+(`known_limitations_page`), the one a candidate's `accepted_alpha_limitation`
+classifications must point at, and the one a user can actually reach. Keeping a second
+copy in this document is how the two drift, and they had: this table recorded two entries
+while the page said none were recorded at all.
+
+The entries that were decided here before that page existed — **#989** (`transparent_bg`
+viewports opaque under TAA or FSR2; upstream Godot, not ours), **#983** (a failed
+tile-sorter grow loses both sorters; a code-reading finding not reproduced on NVIDIA), and
+any disposition recorded in this section since — live on that page with their reasoning and
+workarounds intact, alongside the rest. **No count is given here on purpose**: an
+enumeration in this section is exactly what drifted from the page last time.
+
+The generated disclosure (§8) supersedes the page in turn, once it exists.
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why

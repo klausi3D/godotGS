@@ -40,7 +40,7 @@ Use `ColorGradingResource` on `GaussianSplatNode3D` for real-time grading and op
 
 | Pipeline step | Behavior | Implementation reference |
 | --- | --- | --- |
-| Resource registration | `ColorGradingResource` is already registered at module init. | `modules/gaussian_splatting/register_types.cpp:94` |
+| Resource registration | `ColorGradingResource` is already registered at module init. | `modules/gaussian_splatting/register_types.cpp:123` |
 | Build inclusion | `resources/*.cpp` is already compiled by module `SCsub`. | `modules/gaussian_splatting/SCsub:33`, `modules/gaussian_splatting/SCsub:47` |
 | Renderer upload | Renderer writes grading values into render params each frame. | `modules/gaussian_splatting/renderer/tile_render_stages.cpp:321` |
 | GPU layout | Render params include two `vec4` grading fields. | `modules/gaussian_splatting/renderer/gaussian_gpu_layout.h:353`, `modules/gaussian_splatting/shaders/includes/gs_render_params.glsl:58` |

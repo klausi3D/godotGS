@@ -23,6 +23,8 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 | Public binaries | Linux nightly editor (`dev_build=yes` / `-O0`, not performance-representative). When the Windows lane succeeds: an optimized Windows nightly editor and the Windows export template. |
 | macOS | Source build first |
 | Stable release | Not yet published |
+| API stability | **No promise.** Any registered class, method, property, setting or on-disk format may change or be removed in any release — see [API Stability](docs/development/api-stability.md) |
+| Known limitations | [Known Public Alpha Limitations](docs/development/known-public-alpha-limitations.md) — what ships broken, deliberately |
 | Compatibility truth | [Compatibility Matrix](docs/reference/compatibility-matrix.md) |
 | Performance truth | [Performance Dashboard](docs/performance/index.md) |
 
