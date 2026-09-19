@@ -294,10 +294,15 @@ So the bundle cannot classify anything. **The only passing route for an open rel
 is an entry in the manifest — an R3 edit requiring an ADR, two reviews and CODEOWNER
 approval — or closing the issue.**
 
-Measured against the live issue set on **2026-09-19**: **2 open P0** (#182, #184), **35 open
-P1**, and **4 carrying `release blocker`** (#1010, #1011, #1012, #1016) — **37 distinct
+Measured against the live issue set on **2026-09-19**: **2 open P0** (#182, #184), **36 open
+P1**, and **4 carrying `release blocker`** (#1010, #1011, #1012, #1016) — **38 distinct
 issues** after overlap. Every one must be closed or ledgered before any candidate passes.
 The ledger holds **four** entries today (#351, #352, #360, #369).
+
+That figure moves, and it moved while this ADR was being written: it was 37 until #1025 was
+given `priority:P1`, which is a *good* change — it made a real in-envelope defect visible to
+the gate — and it still raised the count. **Re-query before quoting it**; the number is an
+illustration of scale, and the requirement is the rule above it, not the integer.
 
 Widening does not create this requirement — it predates the decision — but it makes it much
 heavier, because most of those 35 P1s are streaming- or renderer-related and are in-envelope
@@ -307,9 +312,13 @@ now that streaming is in. It belongs in the cost of this decision and is the rea
 A directly related gap, recorded because it cuts the other way: **the four defects bar §11
 still lists as alpha blockers are invisible to that population.** #929 carries only
 `program:prod-ready`, and #851, #833 and #54 are `priority:P2`, so none is ever presented to
-the gate. #1025 and #1030 are unlabelled too. The bar's hand-derived blocker set and the
-machine's are disjoint sets — labelling them is a prerequisite for the gate to mean what the
-bar says it means.
+the gate. **#1030 is unlabelled** and so is invisible in the same way. The bar's hand-derived
+blocker set and the machine's are disjoint sets — labelling them is a prerequisite for the
+gate to mean what the bar says it means.
+
+**#1025 was in that list and no longer is**: it was given `priority:P1` on 2026-09-19 by the
+author of the TAA-jitter fix, precisely so the gate would see it. That is the fix this
+paragraph asks for, applied once; the other five still need it.
 
 ### 5.6 What it does not cost
 

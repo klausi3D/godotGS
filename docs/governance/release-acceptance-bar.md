@@ -331,8 +331,10 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 
 > **The real precondition, and the single largest cost of the public alpha: every open P0,
 > P1 and release-blocker must be closed or ledgered.** Measured **2026-09-19**: **2 open P0**
-> (#182, #184), **35 open P1**, **4 carrying `release blocker`** (#1010, #1011, #1012,
-> #1016) — **37 distinct issues**. The ledger holds four entries (#351, #352, #360, #369).
+> (#182, #184), **36 open P1**, **4 carrying `release blocker`** (#1010, #1011, #1012,
+> #1016) — **38 distinct issues**. The ledger holds four entries (#351, #352, #360, #369).
+> The figure moves — it was 37 hours earlier, before #1025 gained `priority:P1` — so
+> re-query it rather than quoting this line; the rule above is what binds.
 > An earlier revision of this section said the precondition was "#351, #352 and #360 must be
 > closed"; that was wrong twice over — #351 and #352 closed in June, and the requirement was
 > never about three issues.
@@ -343,9 +345,10 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 >
 > **A gap in the other direction.** The four defects §11 still calls alpha blockers are
 > invisible to this population: #929 carries only `program:prod-ready`, and #851, #833 and
-> #54 are `priority:P2`. #1025 and #1030 are unlabelled. The bar's hand-derived blocker set
+> #54 are `priority:P2`, and **#1030 is unlabelled**. The bar's hand-derived blocker set
 > and the machine's are disjoint; labelling them is a prerequisite for this gate to mean
-> what §11 says it means.
+> what §11 says it means. #1025 was in this list until 2026-09-19, when it was given
+> `priority:P1` for exactly this reason — the remedy, demonstrated once.
 
 ## 10. Public Alpha — the reduced bar
 
