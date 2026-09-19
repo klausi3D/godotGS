@@ -44,6 +44,8 @@ SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_test
 LANE_LEDGER_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_lane_ledger.py"
 ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
 
+SHIPPED_PROJECT_SCRIPTS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_shipped_project_scripts.py"
+SHIPPED_PROJECT_SCRIPTS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_shipped_project_scripts.py"
 UNCHECKED_RESIZE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_unchecked_resize.py"
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
@@ -1126,6 +1128,37 @@ def _run_unchecked_resize_guard() -> tuple[bool, list[str]]:
             output_lines = [f"Unchecked-resize guard failed with exit code {code}."]
         return False, output_lines
     return True, [f"Unchecked-resize guard self-test passed ({case_count})."] + output_lines
+
+
+def _run_shipped_project_scripts_guard() -> tuple[bool, list[str]]:
+    """#833/#1019: a shipped GDScript that cannot parse, or a scene whose
+    `script=` is silently discarded, must fail CI.
+
+    The starter template under `templates/` shipped for months with a C ternary
+    in `scripts/ui/performance_overlay.gd` (so the overlay never compiled) and
+    `script=ExtResource(...)` inside a `[node ...]` header in
+    `scenes/main.tscn` (so no script attached, with no error at all). No lane
+    loaded any project under `templates/`, which is how both survived.
+
+    Runs the guard's own discrimination tests first -- each detector has a
+    defect half and a correct-spelling half -- so a regex that stops
+    discriminating is caught in the fast, GPU-free `--guard-only` lane even if
+    the committed tree happens to contain no instance of the defect.
+    """
+    output_lines: list[str] = []
+    for label, script in (
+        ("Shipped-project script guard unit test", SHIPPED_PROJECT_SCRIPTS_TEST_SCRIPT),
+        ("Shipped-project script guard", SHIPPED_PROJECT_SCRIPTS_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+    return True, output_lines
 
 
 def _run_require_null_deref_guard() -> tuple[bool, list[str]]:
@@ -3411,6 +3444,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_require_null_deref_guard,
             "REQUIRE null-deref guard failed.",
             "REQUIRE null-deref guard passed.",
+        ),
+        (
+            True,
+            _run_shipped_project_scripts_guard,
+            "Shipped-project script guard failed.",
+            "Shipped-project script guard passed.",
         ),
         (
             True,
