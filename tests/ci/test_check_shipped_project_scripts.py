@@ -341,6 +341,63 @@ theme_override_styles/panel = null
         code, messages = self.fx.run()
         self.assertEqual(code, 0, messages)
 
+    def test_every_runtime_id_spelling_the_review_found_is_flagged(self) -> None:
+        # An independent review carried a phantom id through the `+`-only
+        # detector with all four of these. Each is its own fixture file so a
+        # regression names the spelling that came back.
+        spellings = {
+            "const_prefix": (
+                'const MONITOR_PREFIX := "gaussian_splatting/"\n'
+                "func f(name: String):\n"
+                "\treturn Performance.get_custom_monitor(MONITOR_PREFIX + name)\n"),
+            "percent_format": (
+                "func f(name: String):\n"
+                '\treturn Performance.get_custom_monitor("gaussian_splatting/%s" % name)\n'),
+            "path_join": (
+                "func f(name: String):\n"
+                '\treturn Performance.get_custom_monitor("gaussian_splatting/".path_join(name))\n'),
+            "str_concat": (
+                "func f(name: String):\n"
+                '\treturn Performance.get_custom_monitor(str("gaussian_splatting/", name))\n'),
+        }
+        for label, body in spellings.items():
+            with self.subTest(spelling=label):
+                fixture = GuardFixture()
+                self.addCleanup(fixture.close)
+                fixture.write("shipped/%s.gd" % label, body)
+                code, messages = fixture.run()
+                self.assertEqual(code, 1, messages)
+                self.assertIn("gdscript-monitor-id-built-at-runtime",
+                              fixture.detectors())
+
+    def test_central_helper_forwarding_a_parameter_is_clean(self) -> None:
+        # The correct shape: call sites pass complete literals, one helper
+        # forwards its parameter. Flagging this would make the rule
+        # unimplementable rather than strict.
+        self.fx.write(
+            "shipped/helper.gd",
+            "func _monitor(id: String):\n"
+            "\tif not Performance.has_custom_monitor(id):\n"
+            "\t\treturn null\n"
+            "\treturn Performance.get_custom_monitor(id)\n"
+            "func f():\n"
+            '\treturn _monitor("gaussian_splatting/registered_one")\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_trim_prefix_recovering_a_short_name_is_clean(self) -> None:
+        # `trim_prefix` removes the prefix from a complete id; it cannot build
+        # one. Same exemption class as `begins_with`.
+        self.fx.write(
+            "shipped/trim.gd",
+            'const IDS := ["gaussian_splatting/registered_one"]\n'
+            "func f():\n"
+            "\tfor monitor_id in IDS:\n"
+            '\t\tvar key := monitor_id.trim_prefix("gaussian_splatting/")\n'
+            "\t\tprint(key, Performance.get_custom_monitor(monitor_id))\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
     def test_monitor_id_built_by_concatenation_is_flagged(self) -> None:
         # The blind spot this closes: with the id assembled at run time, the
         # detector above sees no literal and reports nothing, so a file full of
