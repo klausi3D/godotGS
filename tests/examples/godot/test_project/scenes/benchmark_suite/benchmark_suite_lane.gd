@@ -19,27 +19,27 @@ const ABORT_EXIT_CODE := 3
 const STREAMING_VRAM_CHUNK_CAP_MONITOR := "gaussian_splatting/streaming_vram_chunk_cap_hit"
 
 const MONITOR_KEYS := [
-	"gpu_time_frame_ms",
-	"gpu_time_cull_ms",
-	"gpu_time_raster_ms",
-	"visible_splats",
-	"overflow_tile_count",
-	"streaming_total_chunks",
-	"streaming_visible_chunks",
-	"streaming_loaded_chunks",
-	"streaming_resident_chunks",
-	"streaming_atlas_published_chunks",
-	"streaming_vram_usage_mb",
-	"streaming_chunks_loaded_this_frame",
-	"streaming_chunks_evicted_this_frame",
-	"streaming_visible_count",
-	"streaming_visible_change_ratio",
-	"streaming_upload_bandwidth_cap_hit",
-	"streaming_chunk_load_cap_hit",
-	"streaming_queue_pressure_active",
-	"lod_current_level",
-	"lod_transitions_this_frame",
-	"lod_reduction_ratio_pct",
+	"gaussian_splatting/gpu_time_frame_ms",
+	"gaussian_splatting/gpu_time_cull_ms",
+	"gaussian_splatting/gpu_time_raster_ms",
+	"gaussian_splatting/visible_splats",
+	"gaussian_splatting/overflow_tile_count",
+	"gaussian_splatting/streaming_total_chunks",
+	"gaussian_splatting/streaming_visible_chunks",
+	"gaussian_splatting/streaming_loaded_chunks",
+	"gaussian_splatting/streaming_resident_chunks",
+	"gaussian_splatting/streaming_atlas_published_chunks",
+	"gaussian_splatting/streaming_vram_usage_mb",
+	"gaussian_splatting/streaming_chunks_loaded_this_frame",
+	"gaussian_splatting/streaming_chunks_evicted_this_frame",
+	"gaussian_splatting/streaming_visible_count",
+	"gaussian_splatting/streaming_visible_change_ratio",
+	"gaussian_splatting/streaming_upload_bandwidth_cap_hit",
+	"gaussian_splatting/streaming_chunk_load_cap_hit",
+	"gaussian_splatting/streaming_queue_pressure_active",
+	"gaussian_splatting/lod_current_level",
+	"gaussian_splatting/lod_transitions_this_frame",
+	"gaussian_splatting/lod_reduction_ratio_pct",
 ]
 
 const PROJECT_SETTING_KEYS := [
@@ -1062,8 +1062,11 @@ func _sample_metrics(delta: float) -> void:
 		_steady_frame_ms.append(frame_ms)
 		_steady_fps.append(fps)
 
-	for key in MONITOR_KEYS:
-		var monitor_id := "gaussian_splatting/%s" % key
+	# MONITOR_KEYS carries FULL ids so tests/ci/check_shipped_project_scripts.py
+	# can check each one against the registered set; the short name is derived
+	# back here, so the result dictionary keys are unchanged. Refs #833.
+	for monitor_id in MONITOR_KEYS:
+		var key := monitor_id.trim_prefix("gaussian_splatting/")
 		if not Performance.has_custom_monitor(monitor_id):
 			continue
 		var value := float(Performance.get_custom_monitor(monitor_id))
