@@ -13,7 +13,8 @@ albedo_color = Color(0.08, 0.09, 0.12, 1)
 roughness = 0.5
 metallic = 0.0
 
-[node name="GaussianTemplate" type="Node3D" script=ExtResource("1")]
+[node name="GaussianTemplate" type="Node3D"]
+script = ExtResource("1")
 
 [node name="GaussianSplatNode3D" type="GaussianSplatNode3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
@@ -45,8 +46,9 @@ debug/debug_draw_mode = 2
 debug/runtime_preview = false
 debug/show_residency_hud = false
 
-[node name="CameraRig" type="Node3D" parent="." script=ExtResource("2")]
+[node name="CameraRig" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 10)
+script = ExtResource("2")
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig"]
 transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 2, 8)
@@ -64,7 +66,10 @@ mesh = SubResource("BoxMesh_1")
 material_override = SubResource("StandardMaterial3D_1")
 cast_shadow = 0
 
+; `layer` belongs to CanvasLayer, not to the MarginContainer instanced under
+; it. It used to be set on the instance, where Godot discards it in silence --
+; the same defect class as the `script=` header above. 1 is CanvasLayer's
+; default anyway, so the correct value is simply not written.
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="PerformanceOverlay" parent="CanvasLayer" instance=ExtResource("3")]
-layer = 1
