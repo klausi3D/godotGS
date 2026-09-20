@@ -65,15 +65,20 @@ tracked as [#1038](https://github.com/klausi3D/godotGS/issues/1038). Until it la
 disclosure is real for a reader and invisible to the machine — recorded here rather than
 left to be discovered at tag time.
 
-Verified against `b915afc51c5` (2026-09-17).
+Verified against `b915afc51c5` (2026-09-17), **except where an entry names its own commit**.
+The #1025 entry below is verified against `bc77ce31e9c` (2026-09-20): the behaviour it
+describes postdates `b915afc51c5`, because #1026 landed after it, and checking that entry out
+at the page-wide anchor would show the opposite.
 
 ## Rendering
 
 ### Splats trail by about 1.5 px under TAA while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
 
 With TAA enabled and the camera or the content in motion, splat detail is drawn behind its
-true position by **≈1.5 px** — 0.27–0.87 frames stale, 6–26× an in-frame geometry control
-measured in the same frames. The trail does **not** grow with camera speed: **1.48 px** at a
+true position by **≈1.5 px** — 0.27–0.87 frames stale, and 6–26× an in-frame geometry control
+measured in the same frames on the two pans. (On a forward dolly it is smaller than that:
+2× the control in frames, and 0.36 px against the control's 0.54 px.) The trail does **not**
+grow with camera speed: **1.48 px** at a
 15°/s pan and **1.65 px** at 56°/s, because TAA's variance clip is computed from the current
 frame. With a *static* camera there is nothing to see — the splat projection has carried the
 engine's temporal jitter since #929/#1026.
@@ -109,6 +114,14 @@ region relative to the no-temporal capture**, so a viewport that had silently re
 FSR2 could not have been reported as a clean result. That last gate is what this page's fifth
 admission bullet asks for — evidence that the limitation is not hiding a renderer correctness
 failure rather than merely not showing one.
+
+**The determinism gate was clean in the matrix these figures come from, and not always.** An
+earlier matrix on the same binaries failed it in 5 of 6 runs, by 3–9 LSB over 49–963 of those
+16,588,800 pixels — four to five orders of magnitude below the signal, and it moves none of
+the numbers above, but it means the GS pipeline is very nearly, and not exactly,
+frame-deterministic under a moving camera. Anyone extending #1026's **exact-zero**
+determinism assertion to a moving camera should expect it to be flaky, and decide what to do
+about that before landing it rather than after.
 
 **One honest caveat.** The trail is ≈1.5 px whatever the content, but its *visibility* is not
 content-independent. On the soft real scan measured it is not visible without roughly 10×

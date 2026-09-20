@@ -383,10 +383,12 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > #351 and #352 are closed and must appear in `resolved_manifest_issues` with
 > `state: CLOSED`, because an open-only snapshot will not contain them.
 >
-> **A gap in the other direction.** The three defects §11 still calls alpha blockers are
-> invisible to this population: #851, #833 and #54 are `priority:P2`, and **#1030 is
-> unlabelled**. (#929 was a fourth until it closed on 2026-09-20; it carried only
-> `program:prod-ready` and was never visible here either.) The bar's hand-derived blocker set
+> **A gap in the other direction.** All three defects §11 still calls alpha blockers are
+> invisible to this population: #851, #833 and #54 are `priority:P2`. (#929 was a fourth
+> until it closed on 2026-09-20; it carried only `program:prod-ready` and was never visible
+> here either.) **#1030 is unlabelled** and invisible the same way — §11 does not list it as
+> a blocker, but the known-limitations page discloses it, so it is in neither population.
+> The bar's hand-derived blocker set
 > and the machine's are disjoint; labelling them is a prerequisite for this gate to mean
 > what §11 says it means. #1025 was in this list until 2026-09-19, when it was given
 > `priority:P1` for exactly this reason — the remedy, demonstrated once.
@@ -508,14 +510,19 @@ in the meantime, and a human said yes". A residual that meets 1-3 but not 4 is
 still a blocker.
 
 **Applied to #929:** conditions 1-3 hold — the static-camera swimming is fixed and
-measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround is
+measured, the remainder (#1025) is *warranted* R3 and carries `needs-adr` (read condition 2
+with the paragraph below it, not on its own), and the workaround is
 Godot's own default settings. **Condition 4 was met on 2026-09-20**, by the maintainer,
 recorded at
 [#1025 comment 5752837553](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553):
 asked whether to accept the residual or keep it a blocker, they accepted it as a
 disclosed alpha limitation. That comment is an agent's transcription of the
 maintainer's instruction in session and says so; **the maintainer's own line, if they
-add one, supersedes it**. Note what the acceptance is *of*: it is a call about this
+add one, supersedes it**. Hold it to the same standard this section sets for the envelope
+transcription above: it is the standing record and not the decision itself, so the §9
+human sign-off — which already covers "the accuracy of the known-issue disclosure" — is
+where a first-hand confirmation belongs if no maintainer-authored line appears before the
+tag. **Confirmed there, not assumed there.** Note what the acceptance is *of*: it is a call about this
 residual, which the envelope decision above was not — the two are separate calls and
 both have now been made. The acceptance also rests on a measurement that postdates the
 wording it replaced: the trail is **TAA-only and ≈1.5 px**, and under FSR2 there is no
@@ -524,6 +531,22 @@ ghosting at all.
 All four conditions therefore hold, so the §8.1 `#929 residual` row is a **disclosure,
 not a proposal**, and #1025 is **not** in the §4 blocker query. #929 is closed by hand
 (§11 item 5); #1025 stays open as the tracking issue for the velocity write-back.
+
+**One of the four is read, not self-evident, and it is named here rather than left to be
+noticed.** Condition 2 says the remaining work must be of a *higher risk class than the fix
+itself*, "in practice R3 at the engine boundary". The §8.1 row says the opposite-sounding
+thing — that the velocity write-back is *not* an engine-boundary R3 change — and both are
+true of different questions. `modules/gaussian_splatting/{renderer,shaders}/**` classifies
+**R2** by path glob (`.agentic/policy.json`), and #1026's landed fix was R2 as well; what
+makes the remainder higher is its *behaviour* — it writes an engine-owned render target that
+engine stages consume — which is why #1025's own step plan classes it "R2 by path, treat as
+R3", why it carries `needs-adr`, and why it would need two independent reviews and a
+CODEOWNER. That is **class follows the design, not the cheaper glob**, the rule this
+repository already applies in the other direction. Condition 2 is satisfied on that reading
+and on no other: **if a maintainer reads "R3 at the engine boundary" literally, as requiring
+an edit outside the module, condition 2 fails and #1025 returns to the §4 blocker query.**
+Nothing here re-reads the condition to fit the instance; the two readings are written down so
+the choice between them is visible.
 
 **And a §8.1 row is not by itself a machine-visible disclosure** — §9.1 sets out
 what the gate actually requires (a label in `classification_labels_any`, a
@@ -634,7 +657,9 @@ rather than a ceiling.
    changed, so edits silently did not apply. It entered this set by the §10.1
    envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. ~~**#929** — splats swim under FSR2.~~ **Struck on 2026-09-20: closed by hand,
+5. ~~**#929** — splats swim under FSR2~~ — the **static-camera** jitter defect, **fixed**
+   in #1026; the residual that remains is **TAA-only** and FSR2 does not ghost at all.
+   **Struck on 2026-09-20: closed by hand,
    with its residual accepted under the §10.1 exception.** The entry is kept struck
    rather than deleted so the disposition it was waiting on stays readable. **Re-decided
    and split.** This entry
