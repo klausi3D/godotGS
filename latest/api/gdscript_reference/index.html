@@ -2230,31 +2230,27 @@
     </tr>
     <tr>
       <td><pre><code>_flag(value: Variant)</code></pre></td>
-      <td>Coerces a monitor value to int; unavailable reads count as 0 for the purpose of *branching only* (never for display).</td>
+      <td>Coerces a monitor value to int for BRANCHING only, never for display.</td>
     </tr>
     <tr>
-      <td><pre><code>_fmt_count(value: Variant)</code></pre></td>
-      <td>Formats a monitor value as a count, or `n/a` when unavailable.</td>
+      <td><pre><code>_fmt_saving_pct(value: Variant)</code></pre></td>
+      <td>A percentage where HIGHER is better: SH compression ratio. Kept separate from `_fmt_stall_pct` on purpose -- sharing one helper painted a healthy 70 % compression ratio in the stall meter's warning colour.</td>
     </tr>
     <tr>
-      <td><pre><code>_fmt_ms(value: Variant)</code></pre></td>
-      <td>Formats a monitor value in milliseconds, or `n/a` when unavailable.</td>
-    </tr>
-    <tr>
-      <td><pre><code>_fmt_num(value: Variant, spec: String)</code></pre></td>
-      <td>Formats a monitor value with the given printf spec, or `n/a` when unavailable.</td>
-    </tr>
-    <tr>
-      <td><pre><code>_fmt_pct(value: Variant)</code></pre></td>
-      <td>Formats a monitor value as a percentage, or `n/a` when unavailable.</td>
+      <td><pre><code>_fmt_stall_pct(value: Variant)</code></pre></td>
+      <td>A percentage where HIGHER is worse: pipeline stall time.</td>
     </tr>
     <tr>
       <td><pre><code>_format_number(value: int)</code></pre></td>
       <td>Formats large numbers with K/M suffixes for readability</td>
     </tr>
     <tr>
-      <td><pre><code>_monitor(name: String)</code></pre></td>
-      <td>Reads one custom monitor. @param name: Monitor id without the `gaussian_splatting/` prefix. @return The monitor value, or `null` when this build registers no such monitor. `null` is rendered as `n/a` by the formatters below; it is never coerced to 0, because a reader cannot distinguish a measured 0 from a missing producer. `Performance` is the engine singleton object itself -- `Performance.get_singleton()` is not bound to ClassDB and does not parse.</td>
+      <td><pre><code>_monitor(id: String)</code></pre></td>
+      <td>Reads one custom monitor.  Call sites pass the FULL id, `gaussian_splatting/...`, spelled out. That is deliberate and not verbosity: `tests/ci/check_shipped_project_scripts.py` checks every monitor id a shipped script reads against the ids `performance_monitors.cpp` actually registers, and it derives both sides from string literals. Building the id from a prefix constant at run time would hide every read from that check -- a guard that can find nothing to check is not a guard. This file is the reason the check exists.  @param id: Full monitor id, e.g. `gaussian_splatting/cpu_setup_time_ms`. @return The monitor value, or `null` when this build registers no such monitor. `null` renders as `n/a`; it is never coerced to 0. `Performance` is the engine singleton object itself -- `Performance.get_singleton()` is not bound to ClassDB and does not parse.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_nonzero_or_null(value: Variant)</code></pre></td>
+      <td>Distinguishes "measured zero" from "no producer to ask" for the *registered* monitors whose getters return a literal 0 when there is no renderer or no RenderingDevice behind them -- `_get_cpu_setup_time_ms` and the three `_get_vram_device_*_mb` (performance_monitors.cpp:617, :819-838). Those are registered, so `_monitor()` hands back a real `0.0` that `n/a` handling cannot catch. A host wall-clock stage that ran takes a non-zero number of microseconds, and a live RenderingDevice never reports zero bytes total, so exactly 0.0 from these four means "nothing answered". @return The value, or `null` when it is the producer's no-renderer default.</td>
     </tr>
     <tr>
       <td><pre><code>_process(delta: float)</code></pre></td>
@@ -2266,15 +2262,51 @@
     </tr>
     <tr>
       <td><pre><code>_refresh_overlay()</code></pre></td>
-      <td>Rebuilds the overlay text with the latest renderer statistics using Custom Performance Monitors.</td>
+      <td>Rebuilds the overlay text from the renderer's per-frame statistics and the registered custom monitors.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_device_vram(lines: Array[String])</code></pre></td>
+      <td>Real device allocation, from `RenderingDevice::get_memory_usage`.  This replaces the old VRAM BUDGET block. That block reported the streaming regulator's budget model, which is structurally 0 on a resident scene, and three quantities -- reserved / allocated-chunks / pool size -- that no producer in this engine computes at all. What building that pool/reservation model would actually take is recorded in #1029.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_frame(lines: Array[String])</code></pre></td>
+      <td>Frame pacing. Engine-side values; not renderer telemetry.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_global(lines: Array[String])</code></pre></td>
+      <td>Process-global manager state.  `GaussianSplatManager.get_global_stats()` reports totals over buffers registered with the manager. The node/renderer route used by this template registers none, so `total_gaussians` / `total_memory_mb` / `buffer_count` are structurally 0 here -- printing them next to 768 rendered splats is the same lie as any other unmeasured 0, so the counts are shown only when the registry is non-empty.  `gpu_sorting_enabled` used to be printed here as `GPU sorting: enabled`. It is a DEPRECATED no-op: `gaussian_splat_manager.cpp:286-295` says it "is reported for compatibility ... but does NOT gate the sort path -- no renderer reads it; GPU sorting is always used when available". With the project setting false the row read `disabled` while the GPU sort ran, which is a displayed value that is not a measurement of what its label names -- this panel's own rule. The measured quantity is `sort_route_uid`, now shown in the GPU PASSES block.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_gpu_passes(lines: Array[String], stats: Dictionary)</code></pre></td>
+      <td>The six resolved GPU pass timestamps, plus the identity check.  Every row is gated on its own `gpu_*_valid` flag. That flag is STICKY by design (`tile_renderer.cpp:2867-2873`): per-pass timestamps resolve only intermittently, so the renderer keeps the last resolved value and clears the flag only after 120 resolves without one (~2 s, `:2908-2927`). A green row is therefore the most recent resolved value, which may be several frames old -- so the staleness is printed, not denied.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_host_stages(lines: Array[String], stats: Dictionary)</code></pre></td>
+      <td>Host-side wall-clock timings. Kept apart from the GPU pass block because they are measured with `OS::get_ticks_usec()` around a call, not with a GPU timestamp -- the old panel filed the cull time under "GPU".</td>
+    </tr>
+    <tr>
+      <td><pre><code>_section_visibility(lines: Array[String], stats: Dictionary)</code></pre></td>
+      <td>What is on screen, named by the domain the renderer actually culls in.</td>
     </tr>
     <tr>
       <td><pre><code>_split_columns(lines: Array[String])</code></pre></td>
-      <td>Splits the rendered rows across the panel's two columns on section boundaries, balancing the two by line count.  The whole panel is ~50 lines; a single column of that is taller than a 720 px viewport, and the shipped 120 px auto-scrolling box showed the user only its last five lines. Sections are kept whole -- a header is never separated from its rows -- and the split point is chosen so that neither column is more than half the total plus one section. @param lines: The rendered rows, section headers included. @return [left_text, right_text].</td>
+      <td>Splits the rendered rows across the panel's two columns on section boundaries, balancing the two by line count.  The whole panel is ~50 lines; a single column of that is taller than a 720 px viewport, and the shipped 120 px auto-scrolling box showed the user only its last five lines. Sections are kept whole -- a header is never separated from its rows -- and once a section spills into the right column every later section follows it, so the panel reads top-left then top-right. @param lines: The rendered rows, section headers included. @return [left_text, right_text].</td>
+    </tr>
+    <tr>
+      <td><pre><code>_stat(stats: Dictionary, key: String)</code></pre></td>
+      <td>Reads one `get_statistics()` entry, or `null` when the key is absent.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_streaming_ready()</code></pre></td>
+      <td>True when a streaming system is attached AND reporting. Every streaming, LOD and SH-compression monitor is gated behind `_get_active_splat_renderer(true)` in `performance_monitors.cpp`, so on a resident-only scene they all return a default -- 0 for most, but 1 and 1.0 for `lod_splat_skip_factor` and `lod_opacity_multiplier`, which is indistinguishable from a live reading. This flag is what makes those rows say `n/a` instead.</td>
     </tr>
     <tr>
       <td><pre><code>_try_resolve_camera()</code></pre></td>
       <td>Resolves the camera from the configured NodePath when missing.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_valid_ms(stats: Dictionary, time_key: String, valid_key: String)</code></pre></td>
+      <td>Reads a GPU pass time, gated on that pass's own validity flag. @return The time in ms, or `null` when the pass did not resolve this frame.</td>
     </tr>
     <tr>
       <td><pre><code>set_camera_node(node: Node3D)</code></pre></td>
@@ -2310,7 +2342,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 20:13:57 UTC">September 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 21:27:03 UTC">September 20, 2026</span>
   </span>
 
     
