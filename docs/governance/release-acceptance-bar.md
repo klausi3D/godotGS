@@ -201,10 +201,19 @@ Defects that are real and reachable but do not block, each with the reason and a
 workaround. The generated list supersedes this one; these are recorded here
 because they were decided before the generator exists.
 
+Most rows here are here because the defect is **outside** what §10.1 admits, is
+**not ours to fix**, or is **not reproduced** — none of which engages §10.1's
+"an in-envelope defect is a blocker" rule. A row for a defect that *is* in
+envelope and *is* reproduced engages that rule head-on, and may stand only under
+the narrow exception §10.1 states, with all four of its conditions met. Such a
+row must say so in its `Why it does not block` cell, so the two sections cannot
+drift apart. Exactly one row does that today: `#929 residual`.
+
 | Issue | Symptom | Why it does not block | Workaround |
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With **TAA** on, splat detail trails its true position by **≈1.5 px** while the camera or the content moves — 0.27–0.87 frames stale, 6–26× an in-frame geometry control. The trail does **not** grow with camera speed (1.48 px at 15°/s, 1.65 px at 56°/s). **Under FSR2 there is no ghosting**: 0.000 frames of staleness at scale 1.0 on both pans, 0.04 px on a dolly, i.e. at the control's floor; at scale 0.5 the splat trail is at or below the control's in two of three motions. Static-camera swimming is fixed separately. Measured for the first time in [#1025](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5751997279) — an earlier revision of this row said “TAA or FSR2”, which the measurement refuted. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; a wrong fix is worse than the defect; workaround exists). TAA reprojects splat pixels with `velocity == 0` (`taa_resolve.glsl:315`) *and* widens its variance clip when velocity reads zero (`:276`), so the one missing input costs twice. FSR2 escapes both: it detects the `(-1,-1)` velocity sentinel and derives a camera motion vector from depth, and the composite already feeds its reactive mask through the destination alpha (`viewport_blit.glsl:206-208` → `params.reactive`), which suppresses history on splat pixels. **Two claims this cell previously made are withdrawn as refuted by #1025:** velocity write-back does *not* require depth write-back — the dependency runs the other way — and it is *not* an engine-boundary R3 change: the module already holds the `RenderSceneBuffersRD *` (`gaussian_splat_renderer.cpp:2409`), already caches the previous-frame camera (`:2420-2421`), and the velocity target is RG16F carrying the storage bit, so the addition measures as one `imageStore` in a dispatch that already runs. (Depth write-back *is* separately blocked: `RB_TEX_DEPTH` has no `STORAGE` bit off the MSAA path, so it needs its own raster pass — and it buys nothing for ghosting.) What keeps this out of the alpha is not cost but risk: **a wrong velocity smears confidently**, which is worse than a bounded 1.5 px trail on one stage that is off by default. Tracked as **#1025** (`priority:P1`, `needs-adr`). Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` §9.1 requires. | `use_taa = false` — Godot's own default — for content with a moving camera. **FSR2 needs no workaround at either scale**, and neither does a still camera. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why
@@ -425,6 +434,9 @@ envelope is:
   in [the ADR](../architecture/adr-alpha-envelope-widened-to-streaming.md). The 50M
   chunked ladder is therefore now an alpha item, not a v1.0 one.
 - **Multi-node scenes remain out.** The widening moved streaming and nothing else.
+- **TAA and FSR2 are IN.** This list was silent on the temporal stages, which
+  left the #929 disposition undecidable. See the decision below for the rule it
+  engages and the one exception to it.
 - **Import preset and node quality pinned, not defaulted.** The import dialog's
   balanced fallback is the `desktop` preset: `max_splats = 750000`,
   `density_multiplier = 0.7`
@@ -450,6 +462,53 @@ itself; it reads a supplied report. "Must run and pass" is a statement about the
 process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
 #786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set
 too and **closed on 2026-09-17**, so it moves nowhere.)
+
+**Decided: TAA and FSR2 are in the alpha envelope** — relayed from the maintainer
+through the #929 coordination thread and written down here so the rule below has
+something to stand on. **The maintainer's own line on #929 or #1026 is the
+authoritative record**; this paragraph is a transcription by an agent and should be
+reconciled against it, not treated as the decision itself. MetalFX-temporal is
+macOS-only and therefore outside the alpha's platforms (§2), not inside this
+decision.
+
+The rule this engages: **an in-envelope defect is a blocker and must be fixed; an
+out-of-envelope one may be disclosed under §8.** The consequence for #929 was that
+the unjittered-projection half was fixed rather than disclosed.
+
+**The one exception, and its conditions.** An in-envelope defect may be disclosed
+under §8.1 instead of blocking only when *all four* hold, and the §8.1 row says so:
+
+1. the defect is a **residual** of something already fixed, i.e. the shipped
+   behaviour is strictly better than before, not merely documented;
+2. closing it requires work of a **higher risk class than the fix itself** — in
+   practice R3 at the engine boundary, needing an ADR — so bundling it would trade
+   a measured small change for an unreviewed large one;
+3. a **workaround exists and is stated**, reachable from default settings; and
+4. a **named human has accepted it as an alpha limitation**, recorded on the issue
+   or the PR. Absent that acceptance the row is not valid and the defect stays in
+   the §4 blocker query.
+
+This exception is deliberately narrow. It is not "we ran out of time"; it is "the
+remainder is a different, larger, riskier piece of work, the user has a way through
+in the meantime, and a human said yes". A residual that meets 1-3 but not 4 is
+still a blocker.
+
+**Applied to #929:** conditions 1-3 hold — the static-camera swimming is fixed and
+measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround is
+Godot's own default settings. Condition 4 is **outstanding at the time of writing**:
+the envelope decision above came from the maintainer, but it is a decision about the
+*envelope*, not about this residual, and no human line yet accepts the TAA
+moving-camera trail as an alpha limitation. The two are separate calls and only the first has
+been made. Until the second exists, treat the §8.1 `#929 residual` row as
+**proposed**, and #1025 as a §4 blocker.
+
+**And a §8.1 row is not by itself a machine-visible disclosure** — §9.1 sets out
+what the gate actually requires (a label in `classification_labels_any`, a
+`docs_path` equal to `known_limitations_page`, an entry in the manifest ledger, and
+a snapshot the gate cannot verify is complete). Concretely for this row: #1025 now
+carries `priority:P1`, so the gate asks about it, but **it is not in the ledger**, so
+as of this writing it cannot be classified as an accepted limitation even if a human
+accepts it. That is the fail-closed direction.
 
 **And a caveat that is part of the decision, not a footnote.** All three lanes exist,
 and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
@@ -544,8 +603,43 @@ rather than a ceiling.
    changed, so edits silently did not apply. It entered this set by the §10.1
    envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. **#929** — splats swim under TAA/FSR2. Blocked on the #921 disposition; both
-   concern the same composite/temporal seam, as does #989.
+5. **#929** — splats swim under FSR2. **Re-decided and split.** This entry
+   previously read "Blocked on the #921 disposition"; that disposition was made
+   and landed (Option B pre-upscale hook, #924), so the block no longer exists.
+   Measurement then narrowed the claim: under **TAA** splats do not swim at all
+   — they are bit-stable and simply never antialiased, because Godot's
+   `taa_resolve.glsl` is never handed the jitter and only accumulates. Under
+   **FSR2** they do swim, because FSR2 *is* handed the jitter and un-jitters an
+   input that was never jittered. The cause is that the splat projection ignored
+   `scene_data->taa_jitter`. **That half is fixed**, with a QA oracle that was
+   red on the unfixed tree. The moving-camera half is **not** fixed, and is
+   tracked as **#1025** — but #1025's own measurement narrowed it again: the trail
+   is **TAA-only and ≈1.5 px**, and under FSR2 there is no ghosting at all. It
+   needs a velocity write-back, which that investigation measured as module-side
+   and near-free rather than the engine-boundary R3 change assumed here; what
+   holds it out of the alpha is that a *wrong* velocity smears confidently. Same
+   composite/temporal seam as #989 — which touches the very destination alpha that
+   is silently feeding FSR2's reactive mask.
+
+   **What happens to this entry on merge.** The PR that fixes the jitter says
+   `Refs #929`, never a closing keyword, so nothing closes automatically. The
+   disposition a human owes, in one line on #929 or on that PR, is the §10.1
+   condition-4 acceptance — which is the same open question the status line
+   above already flags:
+   - **Accepted** — #1025 is an alpha limitation. Then #929 is closed by hand on
+     merge, this item 5 is struck, the §8.1 `#929 residual` row loses its
+     *proposed* marker, the limitation is listed on the known-limitations page,
+     and the status line is re-counted to 9 fixed or closed / 3 open.
+   - **Not accepted** — then **#1025 replaces #929 as item 5** and stays in the
+     §4 blocker query, the §8.1 row is deleted, and #929 is closed by hand only
+     once #1025 lands. In that branch #929 also needs a
+     `priority:P0` / `priority:P1` / `release blocker` label applied at the same
+     time — §9.1 records that it carries only `program:prod-ready` and is
+     therefore invisible to the gate, and **#1025 is not a substitute for it**:
+     they are separate issues and the gate sees only the labelled one.
+
+   Either way #929 itself carries no remaining work: the residual lives in
+   #1025, which already carries `priority:P1`.
 6. **#986** — **fixed on master** by #999, and the issue is closed. It was the
    painterly root cause: painterly's own viewport composite could never load (a
    malformed `#[vertex]` marker and a 36-vs-48 push-constant mismatch), so

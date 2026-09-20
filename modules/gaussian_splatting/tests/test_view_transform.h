@@ -7,6 +7,9 @@
 #include "core/math/transform_3d.h"
 #include "core/math/basis.h"
 #include "core/math/quaternion.h"
+#include "core/math/vector2.h"
+
+#include "../renderer/gaussian_splat_renderer.h"
 
 namespace TestGaussianSplatting {
 
@@ -316,6 +319,170 @@ TEST_CASE("[GaussianSplatting][ViewTransform] GPU matrix packing") {
 TEST_CASE("[GaussianSplatting][ViewTransform] Full pipeline simulation") {
 	auto result = test_full_pipeline_simulation();
 	CHECK_MESSAGE(result.passed, result.error_message.utf8().get_data());
+}
+
+// #929: the projection uploaded to the splat GPU pipeline must carry the same
+// temporal jitter every other piece of geometry in the frame is rendered with.
+//
+// Until this landed, `render_projection` was `cam_projection` with `flip_y`
+// applied and nothing else, while FSR2 -- handed `taa_jitter` immediately below
+// the splat composite hook -- un-jitters the whole internal buffer by that
+// vector (`thirdparty/amd-fsr2/shaders/ffx_fsr2_common.h:431-437`). The splat
+// layer was therefore reconstructed displaced by +jitter, changing every frame
+// along the Halton sequence: measured as splat-region swimming locked to the
+// engine's jitter phase (autocorrelation +1.00 at lag 8 at scale 1.0).
+//
+// The three properties asserted here are exactly the three the rest of the
+// pipeline depends on:
+//
+//   1. Zero jitter is BIT-IDENTICAL to the old matrix. Every non-temporal
+//      configuration -- which is the Godot default -- must be untouched, and
+//      "untouched" has to be exact, not approximate.
+//   2. A non-zero jitter enters as `J * (flip * P)` with
+//      `J = identity + add_jitter_offset`, the same left-multiplied translation
+//      `RenderSceneDataRD::get_cam_projection()` applies
+//      (`render_scene_data_rd.cpp:40-45`). The JITTER TERM is the engine's
+//      exactly, for every projection type -- the last subcase pins that on an
+//      off-axis frustum. The FLIP beside it is the module's own single-entry
+//      one and is NOT the engine's; see build_render_projection()'s docblock.
+//      Taking the jitter value verbatim is what
+//      makes the composite depth test compare GS depth against the engine's
+//      scene depth in the SAME subpixel frame; a rescaled or negated jitter
+//      would misregister silhouettes instead of fixing them.
+//   3. It is a pure NDC translation of exactly +jitter at every depth, and it
+//      leaves `columns[0][0]` / `columns[1][1]` alone -- the two entries
+//      `shaders/tile_binning.glsl:567-568` derives focal_x/focal_y from, and
+//      hence the conic, the Jacobian and the subpixel-cull hysteresis.
+TEST_CASE("[GaussianSplatting][ViewTransform] Render projection carries the engine TAA jitter") {
+	Projection cam;
+	cam.set_perspective(75.0f, 16.0f / 9.0f, 0.05f, 200.0f);
+
+	// The pre-#929 construction, written out rather than referenced, so this case
+	// keeps meaning what it says if build_render_projection() is refactored.
+	Projection flipped_only = cam;
+	flipped_only.columns[1][1] = -flipped_only.columns[1][1];
+
+	SUBCASE("zero jitter is bit-identical to the flip-only matrix") {
+		const Projection built = GaussianSplatRenderer::build_render_projection(cam, true, Vector2());
+		for (int c = 0; c < 4; c++) {
+			for (int r = 0; r < 4; r++) {
+				CHECK(built.columns[c][r] == flipped_only.columns[c][r]);
+			}
+		}
+		const Projection unflipped = GaussianSplatRenderer::build_render_projection(cam, false, Vector2());
+		for (int c = 0; c < 4; c++) {
+			for (int r = 0; r < 4; r++) {
+				CHECK(unflipped.columns[c][r] == cam.columns[c][r]);
+			}
+		}
+	}
+
+	SUBCASE("a non-zero jitter is the engine's own left-multiplied translation") {
+		// A real Halton sample at 960x540: camera_jitter_array[i] / viewport_size
+		// (renderer_scene_cull.cpp:2695).
+		const Vector2 jitter(0.5f / 960.0f, -0.25f / 540.0f);
+
+		Projection correction;
+		correction.add_jitter_offset(jitter);
+		const Projection expected = correction * flipped_only;
+		const Projection built = GaussianSplatRenderer::build_render_projection(cam, true, jitter);
+
+		// Exact, not approximate: the two sides perform the identical sequence of
+		// operations on identical inputs, so anything but bit equality means the
+		// implementation composed something else.
+		CHECK(built == expected);
+
+		// Discrimination: the jitter must actually move the matrix, or every
+		// equality above would hold for a no-op implementation too.
+		bool differs = false;
+		for (int c = 0; c < 4 && !differs; c++) {
+			for (int r = 0; r < 4 && !differs; r++) {
+				differs = built.columns[c][r] != flipped_only.columns[c][r];
+			}
+		}
+		CHECK(differs);
+
+		// The focal-length entries the tile binning shader reads are untouched.
+		CHECK(built.columns[0][0] == flipped_only.columns[0][0]);
+		CHECK(built.columns[1][1] == flipped_only.columns[1][1]);
+
+		// Depth-independent NDC translation of exactly +jitter.
+		const Vector3 probes[3] = {
+			Vector3(0.3f, -0.2f, -0.5f),
+			Vector3(0.3f, -0.2f, -5.0f),
+			Vector3(0.3f, -0.2f, -100.0f),
+		};
+		//
+		// ABSOLUTE tolerance, not doctest::Approx's relative one: the jitter is
+		// ~5e-4 NDC and is recovered by subtracting two nearly equal quotients,
+		// so the relative error of the result is far larger than the relative
+		// error of its inputs. 2e-5 is 4% of the signal -- still two orders of
+		// magnitude below "the jitter was not applied at all", which is what
+		// this has to separate.
+		const double kNdcTolerance = 2.0e-5;
+		for (const Vector3 &view_pos : probes) {
+			const Vector4 clip_base = flipped_only.xform(Vector4(view_pos.x, view_pos.y, view_pos.z, 1.0f));
+			const Vector4 clip_jit = built.xform(Vector4(view_pos.x, view_pos.y, view_pos.z, 1.0f));
+			if (Math::abs(clip_base.w) < 1e-6f || Math::abs(clip_jit.w) < 1e-6f) {
+				FAIL("degenerate w in the probe projection; the test fixture is wrong");
+				continue;
+			}
+			// w is untouched by a translation in columns[2][0]/[2][1], so the two
+			// perspective divides use the same denominator.
+			CHECK(clip_jit.w == doctest::Approx(clip_base.w).epsilon(1e-6));
+			const double ndc_dx = double(clip_jit.x) / double(clip_jit.w) - double(clip_base.x) / double(clip_base.w);
+			const double ndc_dy = double(clip_jit.y) / double(clip_jit.w) - double(clip_base.y) / double(clip_base.w);
+			CHECK(Math::abs(ndc_dx - double(jitter.x)) < kNdcTolerance);
+			CHECK(Math::abs(ndc_dy - double(jitter.y)) < kNdcTolerance);
+		}
+	}
+
+	SUBCASE("different jitter phases produce different matrices") {
+		// The property the render-cache reuse key depends on (#929): two
+		// consecutive frames of a STATIC camera differ only here.
+		const Projection a = GaussianSplatRenderer::build_render_projection(cam, true, Vector2(0.5f / 960.0f, 0.0f));
+		const Projection b = GaussianSplatRenderer::build_render_projection(cam, true, Vector2(-0.25f / 960.0f, 0.0f));
+		CHECK(a != b);
+	}
+
+	SUBCASE("the jitter term is unchanged by an off-axis frustum") {
+		// The symmetric perspective above is exactly the case where the module's
+		// single-entry flip and the engine's whole-row flip agree, so on its own
+		// it cannot pin down what the jitter does for any other projection type.
+		//
+		// This is the case where they DIVERGE: set_frustum() with a vertical
+		// offset writes a non-zero columns[2][1] (core/math/projection.cpp),
+		// which the module's flip leaves positive and the engine's negates. That
+		// divergence predates #929 and this PR does not change it -- it is
+		// recorded in build_render_projection()'s docblock and is not asserted
+		// here, because asserting it would pin a behaviour nobody has decided on.
+		//
+		// What IS asserted, and what the fix actually claims, is that the JITTER
+		// contribution is the engine's own translation regardless of projection
+		// type: it depends only on the w row, which neither flip touches.
+		Projection frustum;
+		frustum.set_frustum(2.0f, 16.0f / 9.0f, Vector2(0.0f, 0.3f), 0.05f, 200.0f);
+		REQUIRE(frustum.columns[2][1] != 0.0f); // the divergent entry really is set
+
+		Projection frustum_flipped = frustum;
+		frustum_flipped.columns[1][1] = -frustum_flipped.columns[1][1];
+
+		const Vector2 jitter(0.5f / 960.0f, -0.25f / 540.0f);
+		const Projection built = GaussianSplatRenderer::build_render_projection(frustum, true, jitter);
+
+		// The per-entry delta the jitter introduces is exactly what
+		// add_jitter_offset() contributes through the w row, on every column.
+		for (int c = 0; c < 4; c++) {
+			const real_t w_row = frustum_flipped.columns[c][3];
+			CHECK(built.columns[c][0] == doctest::Approx(frustum_flipped.columns[c][0] + jitter.x * w_row));
+			CHECK(built.columns[c][1] == doctest::Approx(frustum_flipped.columns[c][1] + jitter.y * w_row));
+			CHECK(built.columns[c][2] == frustum_flipped.columns[c][2]);
+			CHECK(built.columns[c][3] == frustum_flipped.columns[c][3]);
+		}
+		// And zero jitter is still bit-identical for this projection type too.
+		const Projection unjittered = GaussianSplatRenderer::build_render_projection(frustum, true, Vector2());
+		CHECK(unjittered == frustum_flipped);
+	}
 }
 
 } // namespace TestGaussianSplatting

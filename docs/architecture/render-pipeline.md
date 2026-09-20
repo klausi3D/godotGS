@@ -146,11 +146,103 @@ rather than by the six-config visual matrix.
   `render_data.gaussian_composite_pre_upscale` so the two phases can never
   double-composite.
 
-**Residual risk (named, not covered by the six-config oracle).** Splats publish
-no motion vectors, no FSR2 reactive-mask contribution, and no depth write-back
-(`viewport_blit.glsl` writes color only), so FSR2/TAA/MetalFX-temporal may
-ghost splat regions under motion — this is invisible to still-frame diffs and
-requires human eyes on motion captures.
+**What splats supply to the temporal stages.** `render_forward_clustered.cpp`
+feeds FSR2 four inputs — colour, depth, velocity, reactive mask — and TAA three.
+Splats supply **colour only**.
+
+- **Jitter — supplied since #929.** The projection uploaded to the splat pipeline
+  is built by `GaussianSplatRenderer::build_render_projection()`, which applies
+  the module's pre-existing `flip_y` *and* the engine's `scene_data->taa_jitter`.
+  The jitter term is the engine's exactly — the same left-multiplied translation
+  `RenderSceneDataRD::get_cam_projection()` gives ordinary geometry, for every
+  projection type, because it depends only on the matrix's w row. (The *flip*
+  is not the engine's: GS negates `columns[1][1]` while the engine negates the
+  whole y row. The two coincide for a symmetric perspective and diverge for an
+  off-axis frustum offset. That predates the jitter work and is unchanged by it;
+  see `build_render_projection()`'s docblock.)
+  Before #929 it applied the flip only, so FSR2 — which un-jitters its input by
+  exactly that vector — reconstructed the splat layer displaced by +jitter every
+  frame and it visibly swam against the meshes beside it. The value must come
+  from `scene_data` verbatim: the composite depth test compares GS depth against
+  the engine's (jittered) scene depth, so a rescaled or negated jitter would
+  misregister silhouettes rather than fix them. It is self-gating — `taa_jitter`
+  is exactly `(0,0)` unless a temporal stage is active — and the reuse key in
+  `OutputCompositor::can_reuse_cached_render()` carries the GPU projection so a
+  static camera cannot re-composite one frozen jitter phase forever.
+
+  **Consequence for the static-camera render cache, stated because it is not
+  free everywhere.** Under any temporal stage the Halton phase changes the GPU
+  projection every frame, so the reuse key changes every frame and the raster
+  re-runs: **static-camera render reuse is unavailable while TAA or FSR2 is on.**
+  At shipped defaults this costs nothing, because `per_splat_depth_clip`
+  defaults `true` and `RasterStage::try_reuse_cached_render()` already refuses
+  reuse outright for non-painterly frames with a valid scene depth
+  (`render_pipeline_stages.cpp`) — measured, every capture in the #929 evidence
+  reported `raster_path = "other"`, never `cached`. It costs something only in
+  the configuration that turns the relief valve off, and that cost is measured:
+  on a 31,208-splat real scan at 960×540 with a static camera
+  (`optimize=speed_trace`, RTX 3090, vsync off, 240 timed frames per config, six
+  samples per side on an otherwise-idle machine), `per_splat_depth_clip = false`
+  under FSR2 @1.0 goes from **0.905 ms/frame mean with `cached` sampled 30/30**
+  (range 0.759–1.176; a sub-millisecond path, so noisy) to **2.772 ms/frame with
+  `cached` 0/30** (range 2.735–2.881) — **+1.87 ms**.
+  The cached figure is not a baseline to regret: it was the raster never re-running
+  while the Halton phase advanced, i.e. one frozen jitter phase re-composited every
+  frame. And it is not a new cost — the same scene at shipped defaults measures
+  2.758 ms (before) and 2.760 ms (after), within 0.5% of the figure above, so that
+  configuration now simply performs as the default already does. With no temporal
+  stage both binaries stay `cached` 30/30 and their frame times are
+  indistinguishable.
+  Painterly frames never bake the clip and keep reuse, so they are unaffected
+  either way. The alternative — leaving the jitter out of the key — is not a
+  cheaper cache, it is a wrong image: the same frozen jitter phase re-composited
+  every frame, which is the defect #929 fixed.
+- **The reactive mask IS already fed — implicitly, and nobody wrote it down until
+  #1025 measured the moving-camera case.** An earlier revision of this bullet said
+  splats publish "no FSR2 reactive-mask contribution". **That was false**, and it is
+  the single most load-bearing thing on this seam. Godot has no dedicated reactive
+  texture: `params.reactive` is an *alpha-swizzled view of the internal colour
+  buffer* (`render_forward_clustered.cpp:2707` →
+  `render_scene_buffers_rd.h:257-264`, all four swizzles set to
+  `TEXTURE_SWIZZLE_A`). On the upscaling path the engine zeroes that alpha
+  everywhere it draws, reserving the channel for coverage. The Gaussian composite
+  then writes splat coverage into exactly that channel —
+  `shaders/viewport_blit.glsl:206-208`, gated on `params.destination_has_alpha`,
+  which is set from `pre_upscale_phase` (`interfaces/output_compositor.cpp:1252`,
+  `:1644`) — i.e. true on precisely the path FSR2 reads. The painterly composite
+  does the same (`shaders/painterly_composite.glsl:97`). FSR2 clamps it to 0.9, so
+  a fully covered splat texel gets roughly a tenth of the normal history
+  accumulation.
+
+  **Consequence, and the warning:** this is why splats measure **zero** ghosting
+  under FSR2, and it very likely explains the residual static-camera displacement
+  the jitter fix left behind — FSR2 is deliberately not accumulating those pixels.
+  **Anyone changing that destination alpha changes FSR2 behaviour silently**, with
+  no test naming the coupling. #989 (`transparent_bg` under TAA/FSR2) touches
+  exactly this channel. Treat the alpha as a temporal-stage input, not just a
+  compositing detail.
+
+- **Residual risk (named, not covered by the six-config oracle).** Splats publish
+  no motion vectors and no depth write-back (`viewport_blit.glsl` writes colour and
+  coverage-alpha only). Measured on a real scan with a moving camera (#1025):
+  **under FSR2 this costs nothing** — 0.000 frames of staleness at scale 1.0 on
+  both a 15°/s and a 56°/s pan, because FSR2 detects the `(-1,-1)` velocity
+  sentinel and derives a camera motion vector from depth, and because the reactive
+  coupling above suppresses history anyway. **Under TAA it costs ≈1.5 px of trail**
+  (0.27–0.87 frames stale, 6–26× an in-frame control), because
+  `taa_resolve.glsl:315` reprojects with `velocity == 0` and its variance clip
+  *widens* when velocity reads zero (`:276`). The trail does not grow with camera
+  speed, because the clip box is computed from the current frame. Disclosed under
+  §8.1 of the release acceptance bar and tracked as #1025.
+
+  Note that `raster_output.depth` is the tile rasterizer's *GS-internal* depth
+  texture (`render_pipeline_stages.cpp` → `get_painterly_depth_texture()`); it is
+  what the composite tests against the scene depth and is **not** written back into
+  `rb->get_depth_texture()`, so FSR2 never sees it. Writing it back cannot be done
+  with one more `imageStore`: with MSAA off, `RB_TEX_DEPTH` is created with
+  `SAMPLING | DEPTH_STENCIL_ATTACHMENT` and **no `STORAGE` bit**
+  (`render_scene_buffers_rd.cpp`, `get_depth_usage_bits()` — only the resolve
+  target may be storage). It needs a separate depth-only raster pass.
 
 The ordering, phase gating, and encoding mirror are guarded by
 [`tests/ci/check_gs_pre_upscale_hook.py`](../../tests/ci/check_gs_pre_upscale_hook.py)

@@ -374,7 +374,12 @@ public:
         Transform3D world_to_camera_transform;
         Projection projection;
         Projection cull_projection; // Flip/depth-corrected projection for culling (no jitter).
-        Projection render_projection; // GPU projection with depth/jitter correction applied.
+        // GPU projection uploaded to the splat pipeline: flip_y plus the engine's
+        // taa_jitter, and deliberately NOT the engine depth correction (the gaussian
+        // pipeline carries linear view-space depth). Built by
+        // GaussianSplatRenderer::build_render_projection(). Until #929 this comment
+        // claimed a jitter correction the code never applied.
+        Projection render_projection;
         Size2i viewport_size;
         RD::DataFormat viewport_format = RD::DATA_FORMAT_MAX;
         bool defer_commit = false;
@@ -1750,6 +1755,52 @@ public:
     Projection build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const;
     bool validate_cull_projection_contract(RenderDataRD *p_render_data, const Projection &p_projection,
             const Projection &p_cull_projection, const char *p_context);
+
+    /**
+     * @brief Builds the projection actually uploaded to the splat GPU pipeline.
+     *
+     * Two corrections, and deliberately not a third:
+     *
+     * - `p_flip_y` negates `columns[1][1]`, matching every other GS path's flip
+     *   convention (see `build_cull_projection()`). NOTE, because the jitter
+     *   comment below must not be read as covering it: this is the module's
+     *   pre-existing single-entry flip, not the engine's. The engine's
+     *   `Projection::set_depth_correction(flip_y)` negates the whole y ROW of
+     *   the product, i.e. `columns[j][1]` for every j. The two coincide exactly
+     *   for a symmetric perspective projection, where `columns[0][1]`,
+     *   `columns[2][1]` and `columns[3][1]` are all zero, and diverge for an
+     *   off-axis frustum (`Projection::set_frustum` writes a non-zero
+     *   `columns[2][1]` when the vertical frustum offset is non-zero). That
+     *   divergence predates #929 and is unchanged by it.
+     * - `p_taa_jitter` is the engine's per-frame temporal jitter, applied as the
+     *   same left-multiplied translation `RenderSceneDataRD::get_cam_projection()`
+     *   uses (`servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.cpp:40-45`
+     *   -> `Projection::add_jitter_offset()`, `core/math/projection.cpp:932-935`).
+     *   The jitter TERM is the engine's exactly, for every projection type: the
+     *   engine adds it to `columns[3][0]`/`[3][1]` of a correction matrix whose
+     *   y entry is diagonal, so the contribution is `+jitter.x * columns[j][3]`
+     *   and `+jitter.y * columns[j][3]` either way, independent of the flip.
+     *   Ordinary geometry is rendered with that offset, and FSR2 is handed the
+     *   same vector and *un-jitters* by it (`thirdparty/amd-fsr2/shaders/
+     *   ffx_fsr2_common.h:431-437`). Splats rendered without it are therefore
+     *   reconstructed displaced by +jitter every frame -- issue #929.
+     * - NOT the engine's reverse-Z/remap depth correction: the gaussian pipeline
+     *   carries linear view-space depth, so `Projection::set_depth_correction()`
+     *   must stay out of this matrix.
+     *
+     * Self-gating: `scene_data->taa_jitter` is exactly `(0,0)` unless a temporal
+     * stage is active (`servers/rendering/renderer_scene_cull.cpp:2681-2696`
+     * only assigns it when the viewport's jitter phase count is non-zero, and
+     * `servers/rendering/renderer_viewport.cpp:252-260` leaves that at 0 unless
+     * temporal upscaling or TAA is on), and a zero jitter returns the flipped
+     * matrix bit-identically -- no matrix multiply is performed at all.
+     *
+     * Static and free of RenderData so the contract is unit-testable without a
+     * GPU; the shadow pass builds its own projections locally and must never be
+     * routed through a jittered value (a shadow map has no temporal resolve).
+     */
+    static Projection build_render_projection(const Projection &p_projection, bool p_flip_y,
+            const Vector2 &p_taa_jitter);
 
     /** @brief Returns the last camera transform. */
     Transform3D get_camera_transform() const override { return get_view_state().last_camera_to_world_transform; }

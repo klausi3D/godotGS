@@ -85,7 +85,10 @@ struct PainterlyRenderInput {
     Transform3D world_to_camera_transform;
     Transform3D camera_to_world_transform; // PERF (#659): Pre-computed inverse to avoid affine_inverse() in render()
     Projection projection;
-    Projection render_projection; // GPU projection with depth/jitter correction applied.
+    // flip_y + the engine's taa_jitter, and deliberately NOT the engine depth
+    // correction: GaussianSplatRenderer::build_render_projection(). Before #929
+    // this comment claimed a jitter correction that was never applied.
+    Projection render_projection;
     Vector2i viewport_size;
     RID interactive_state_uniform;  // Optional for interactive features
 };

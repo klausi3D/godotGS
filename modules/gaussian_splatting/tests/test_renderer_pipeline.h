@@ -33,6 +33,7 @@
 #include "../renderer/render_pipeline_stages.h"
 #include "../interfaces/gpu_sorting_pipeline.h"
 #include "../interfaces/output_compositor.h"
+#include "core/templates/rid_owner.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering_server.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
@@ -5298,25 +5299,107 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] Cached render reuse requires cached 
     Projection projection;
     projection.set_perspective(65.0f, 1.0f, 0.1f, 200.0f);
 
+    const Projection gpu_projection = GaussianSplatRenderer::build_render_projection(projection, true, Vector2());
+
     compositor->set_has_valid_render(true);
-    compositor->update_render_cache_signature(view_transform, projection, resolution, false,
+    compositor->update_render_cache_signature(view_transform, projection, gpu_projection, resolution, false,
             depth_texture, resolution, final_texture, 11, 19, 13, 17, true);
-    CHECK(compositor->can_reuse_cached_render(view_transform, projection, resolution, false,
+    CHECK(compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution, false,
             final_texture, 11, 19, 13, 17, true));
-    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, resolution, false,
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution, false,
             final_texture, 12, 19, 13, 17, true));
-    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, resolution, false,
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution, false,
             final_texture, 11, 23, 13, 17, true));
 
-    compositor->update_render_cache_signature(view_transform, projection, resolution, false,
+    compositor->update_render_cache_signature(view_transform, projection, gpu_projection, resolution, false,
             RID(), resolution, final_texture, 11, 19, 13, 17, true);
-    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, resolution, false,
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution, false,
             final_texture, 11, 19, 13, 17, true));
 
     local_rd->free(final_texture);
     local_rd->free(depth_texture);
     compositor->shutdown();
     memdelete(local_rd);
+}
+
+// Tagged [ViewTransform] on purpose, though it lives beside the other compositor
+// cases: it asserts a projection-identity contract and has to run in a STRICT
+// lane. The [Renderer] lane is advisory (`tests/ci/run_module_tests.py`,
+// strict=False), and a fail-closed proof that cannot fail CI is not a proof.
+//
+// WHAT IT GUARDS (#929). The splat render cache keys on the camera projection,
+// which is the UNJITTERED matrix. The engine's per-frame temporal jitter reaches
+// the GPU only through `RenderFrameContext::render_projection`. If the reuse key
+// does not carry that matrix, then wherever reuse is live -- a static camera --
+// the raster stage is skipped and one frozen jitter phase is re-composited every
+// frame, so the #929 fix silently does nothing while still looking correct to any
+// test that only inspects the projection the renderer built.
+//
+// NO GPU, DELIBERATELY. `can_reuse_cached_render()` / `update_render_cache_signature()`
+// touch the RenderingDevice only through `_is_depth_texture_valid()`, and only when
+// depth validation is requested; with `p_require_valid_depth = false` and a
+// never-initialized compositor (`rd == nullptr`) they are pure functions over the
+// cache state. The RIDs come from a local RID_Owner so `.is_valid()` holds without
+// allocating anything on a device. That keeps this case in the headless strict lane
+// instead of the GPU harness, where the sibling case above can only skip.
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused when only the GPU projection's jitter differs") {
+    Ref<OutputCompositor> compositor;
+    compositor.instantiate();
+    // Deliberately NOT initialize()d: no RenderingDevice is needed or wanted here.
+
+    struct CacheKeyRidTag {};
+    RID_Owner<CacheKeyRidTag> rid_owner;
+    const RID final_texture = rid_owner.make_rid();
+    REQUIRE(final_texture.is_valid());
+
+    const Transform3D view_transform(Basis(), Vector3(0.0f, 0.0f, 6.0f));
+    const Size2i resolution(16, 16);
+    Projection projection;
+    projection.set_perspective(65.0f, 1.0f, 0.1f, 200.0f);
+
+    // Two consecutive frames of a STATIC camera under a temporal stage: identical
+    // camera projection, different Halton phase. These are the two matrices the
+    // renderer would actually upload.
+    const Vector2 jitter_a(0.000520833f, -0.001234568f);
+    const Vector2 jitter_b(-0.000260417f, 0.000617284f);
+    const Projection gpu_unjittered = GaussianSplatRenderer::build_render_projection(projection, true, Vector2());
+    const Projection gpu_jitter_a = GaussianSplatRenderer::build_render_projection(projection, true, jitter_a);
+    const Projection gpu_jitter_b = GaussianSplatRenderer::build_render_projection(projection, true, jitter_b);
+
+    // Discrimination check before anything is asserted about reuse: if these three
+    // matrices were equal, every CHECK_FALSE below would pass for the wrong reason.
+    REQUIRE(gpu_jitter_a != gpu_unjittered);
+    REQUIRE(gpu_jitter_b != gpu_unjittered);
+    REQUIRE(gpu_jitter_a != gpu_jitter_b);
+
+    compositor->set_has_valid_render(true);
+    compositor->update_render_cache_signature(view_transform, projection, gpu_jitter_a, resolution, false,
+            RID(), resolution, final_texture, 11, 19, 13, 17, false);
+
+    // Same everything -> reuse. Without this the CHECK_FALSEs could be satisfied by
+    // a cache that never grants reuse at all.
+    CHECK(compositor->can_reuse_cached_render(view_transform, projection, gpu_jitter_a, resolution, false,
+            final_texture, 11, 19, 13, 17, false));
+
+    // Only the jitter moved. The camera projection, the transform, the viewport size
+    // and every signature are byte-for-byte what they were.
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_jitter_b, resolution, false,
+            final_texture, 11, 19, 13, 17, false));
+
+    // And the no-temporal matrix is likewise a different frame's content.
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_unjittered, resolution, false,
+            final_texture, 11, 19, 13, 17, false));
+
+    // The reverse direction: a cache written with no temporal stage must not be
+    // served to a jittered frame either.
+    compositor->update_render_cache_signature(view_transform, projection, gpu_unjittered, resolution, false,
+            RID(), resolution, final_texture, 11, 19, 13, 17, false);
+    CHECK(compositor->can_reuse_cached_render(view_transform, projection, gpu_unjittered, resolution, false,
+            final_texture, 11, 19, 13, 17, false));
+    CHECK_FALSE(compositor->can_reuse_cached_render(view_transform, projection, gpu_jitter_a, resolution, false,
+            final_texture, 11, 19, 13, 17, false));
+
+    rid_owner.free(final_texture);
 }
 
 TEST_CASE("[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch times out when callback never signals completion") {
