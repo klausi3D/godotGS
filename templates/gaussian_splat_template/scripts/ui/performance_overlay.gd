@@ -697,7 +697,11 @@ func _section_node(lines: Array[String], stats: Dictionary) -> void:
 	lines.append("")
 	lines.append("[b]═══ NODE ═══[/b]")
 	lines.append("Total splats: %s" % _fmt_count(_stat(stats, "total_splats")))
-	lines.append("Last update: %s" % _fmt_ms(_stat(stats, "update_time_ms")))
+	# `last_update_time_ms` is zero-initialised (`gaussian_splat_node_3d.h:197`)
+	# and only written at the end of `update_splats()` (`.cpp:1718`), so before
+	# the first update it is a 0 that reads as a measurement -- the same shape
+	# as the setup, device-VRAM and cull-stage rows.
+	lines.append("Last update: %s" % _fmt_ms(_nonzero_or_null(_stat(stats, "update_time_ms"))))
 	var renderer := gaussian_node.get_renderer()
 	if renderer and renderer.has_method("get_debug_compute_raster_policy"):
 		lines.append("Raster policy: %s (F8 to toggle)"
