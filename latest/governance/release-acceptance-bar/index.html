@@ -1767,45 +1767,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#7-api-and-settings-stability" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. API and settings stability
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#8-disclosure" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8. Disclosure
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="8. Disclosure">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#81-disclosed-not-blocking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        8.1 Disclosed, not blocking
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -1841,6 +1802,17 @@ must be backed by a lane, an evidence bundle, or a named human signer — a clai
 with none of those is not a claim, it is a hope.</p>
 <p>Recorded against base <code>de2cb8007ba</code> (2026-09-03). Code citations below were read
 at that commit; re-verify before relying on them.</p>
+<blockquote>
+<p><strong>Amended 2026-09-17 at <code>b915afc51c5</code> (#1016).</strong> The public-alpha envelope now
+<strong>includes streaming open worlds</strong>. It previously excluded them, which put this
+document in direct contradiction with the release-gate manifest — the alpha could
+not pass its own gate, and no work on the alpha's declared scope would have changed
+that. The decision, the options weighed and the full cost are recorded in
+<a href="../../architecture/adr-alpha-envelope-widened-to-streaming/">ADR: widen the public-alpha envelope to streaming open
+worlds</a>. §5, §6, §7, §9.1,
+§10 and §11 below are amended accordingly. <strong>The gate was not narrowed and no
+threshold was lowered</strong>; the scope moved to meet the gate.</p>
+</blockquote>
 <h2 id="1-release-intent">1. Release intent<a class="headerlink" href="#1-release-intent" title="Permanent link">¶</a></h2>
 <p><strong>v1.0 is production-ready</strong>: someone can ship a commercial game with it.</p>
 <p>This sets the height of everything else. Where a decision below looks expensive,
@@ -1940,6 +1912,10 @@ and streaming open worlds. Anything outside the envelope is not a promise.</p>
 <p>Because streaming and multi-node are <em>inside</em> the envelope, their defects are
 user-visible-correctness blockers under §4.1 by definition. This is the most
 demanding of the envelope options and is a deliberate choice.</p>
+<p><strong>Streaming open worlds are now also inside the <em>alpha</em> envelope (§10.1).</strong> The only
+scope the v1.0 envelope adds over the alpha's is <strong>multi-node scenes</strong>. Consequently
+every streaming defect is an alpha blocker under §4.1, not a v1.0 one — §11 lists which
+issues that moved.</p>
 <h2 id="6-visual-proof">6. Visual proof<a class="headerlink" href="#6-visual-proof" title="Permanent link">¶</a></h2>
 <p><strong>Human eyes on real-scan content.</strong> Synthetic CI fixtures (2k–30k splats) keep
 their regression role, but they do not carry the "looks right" claim — GPU-001
@@ -1948,6 +1924,10 @@ QA pin masked it (#903, #921).</p>
 <p>Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.</p>
+<p><strong>The alpha's pass now has to cover streaming too</strong> (§10.1). The procedure drafted on</p>
+<h1 id="1012-covers-the-resident-and-world-routes-and-does-not-cover-streaming-a-streaming">1012 covers the resident and world routes and does <strong>not</strong> cover streaming; a streaming<a class="headerlink" href="#1012-covers-the-resident-and-world-routes-and-does-not-cover-streaming-a-streaming" title="Permanent link">¶</a></h1>
+<p>configuration must be added before it is executed, or the pass does not span the envelope
+it claims.</p>
 <p><strong>Binding:</strong> a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
 referenced by hash and never committed.</p>
@@ -1961,6 +1941,26 @@ as subject to change.</p>
 settings of which <strong>3</strong> are marked <code>public</code>, <strong>150</strong> carry no <code>publicness</code> at
 all, and <strong>139</strong> are <code>inventory_only</code> — present in the inventory with nothing
 verifying they do anything.</p>
+<p><strong>Corrected 2026-09-17: those figures count only <em>literal</em> fields, and read alone they
+understate the public surface by a factor of about fifty.</strong> <code>publicness</code> is inherited
+from the longest matching family prefix and only then overridden per setting
+(<code>modules/gaussian_splatting/tests/check_project_settings_manifest.py:313-331</code>), and 21
+of the 23 families default to <code>public</code> — including the root family. So the three numbers
+above are each true, and the number that describes the surface a user is exposed to is
+that <strong>153 of the 193 settings resolve to <code>public</code></strong>, and that <strong>106 of those 153 are
+also <code>test_coverage: inventory_only</code></strong> — public by inheritance with nothing verifying they
+do anything. (139 is the <code>inventory_only</code> count across all 193, not the public subset;
+the two figures are different and had been conflated.) Only <code>…/debug/</code> (<code>debug_only</code>) and
+<code>…/lighting/</code> (<code>internal</code>) inherit anything else.</p>
+<p><strong>A consequence, recorded because it is a §4.2 shape.</strong> §9's machine criterion
+"<code>publicness</code> is set on every setting in the manifest" <strong>already passes today</strong>, because
+the guard evaluates the <em>resolved</em> entry
+(<code>check_project_settings_manifest.py:377-378</code>). The §11 work item "Classify all 193
+settings; guard that <code>publicness</code> is always set" is therefore satisfied as written while
+150 settings remain unclassified in practice. If the intent is explicit per-key
+classification — and it is — the guard must check the <strong>literal</strong> field. That is a
+v1.0 item, not an alpha one, but the criterion should not be cited as evidence in the
+meantime.</p>
 <p>A promise over a surface that large is unkeepable; a small kept promise is worth
 more than a large broken one.</p>
 <h2 id="8-disclosure">8. Disclosure<a class="headerlink" href="#8-disclosure" title="Permanent link">¶</a></h2>
@@ -2023,6 +2023,184 @@ query, which would block the release on someone else's repository. That is why</
 counts as SUCCESS against a required check — a silent total bypass. The gate must
 assert execution, not merely the absence of failure. See
 <a href="../evidence-integrity/">evidence integrity</a>.</p>
+<h3 id="91-what-the-candidate-evidence-bundle-must-contain">9.1 What the candidate evidence bundle must contain<a class="headerlink" href="#91-what-the-candidate-evidence-bundle-must-contain" title="Permanent link">¶</a></h3>
+<p>This is the specification #961 builds against. It was <strong>derived by running</strong>
+<code>tests/ci/check_renderer_release_gates.py --mode candidate</code> against the real
+<code>docs/reference/renderer_release_gate_manifest.json</code> until it returned
+<code>Renderer release gate candidate check passed</code>, not by reading the manifest — the two
+differ, because several required fields are enforced in the validator and named nowhere
+in the manifest. Re-derive it the same way if the validator changes.</p>
+<p><strong>Two files, never one.</strong> The evidence bundle and the issue snapshot are passed
+separately (<code>--candidate-evidence</code>, <code>--issues-json</code>) and the gate refuses them if they
+are the same file: "an issue snapshot embedded in the candidate evidence cannot certify
+its own blocker set".</p>
+<p><strong>Top-level fields of the evidence bundle:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>commit</code></td>
+<td>must equal the run's <code>--expected-commit</code></td>
+</tr>
+<tr>
+<td><code>commit_time_utc</code></td>
+<td>parseable; every artifact's mtime is checked against it</td>
+</tr>
+<tr>
+<td><code>release_channel</code></td>
+<td><code>public-alpha</code> — <strong>or</strong> a matching <code>release_tag</code>; the selector accepts <em>either</em> (<code>_candidate_selector_matches</code>, <code>:900-910</code>), it does not require both. Set both anyway.</td>
+</tr>
+<tr>
+<td><code>release_tag</code></td>
+<td>matches <code>v*-alpha*</code></td>
+</tr>
+<tr>
+<td><code>artifacts</code></td>
+<td>object keyed by the ten group names below</td>
+</tr>
+<tr>
+<td><code>gpu_harness_report</code></td>
+<td>repo-relative path to the GPU report JSON</td>
+</tr>
+<tr>
+<td><code>benchmark_report</code></td>
+<td>repo-relative path to the benchmark report JSON</td>
+</tr>
+<tr>
+<td><code>issue_classifications</code></td>
+<td>object; classifies each open P0/P1/release-blocker</td>
+</tr>
+<tr>
+<td><code>resolved_manifest_issues</code></td>
+<td>proof rows for manifest-tracked blockers that are now closed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Ten artifact groups</strong>, each requiring <code>path</code>, <code>sha256</code>, <code>godot_binary_commit</code> and
+<code>godot_binary_mtime_utc</code>: <code>linux_release_archive</code>, <code>windows_release_archive</code>,
+<code>runtime_validation_report</code>, <code>gpu_harness_report</code>, <code>production_evidence_summary</code>,
+<code>benchmark_suite_report</code>, <code>compatibility_source_snapshot</code>,
+<code>docs_release_acceptance_report</code>, <code>known_limitations_page</code>, <code>open_world_proof</code>. Each
+path must resolve <em>inside</em> the repository, the file must exist, its re-hash must match
+<code>sha256</code>, and its commit must not be stale. Its mtime must not predate <code>commit_time_utc</code> —
+but note that check is <strong>conditional</strong>: <code>_candidate_artifact_mtime_failures</code> (<code>:1127-1137</code>)
+compares only when <em>both</em> timestamps parse, and <code>_parse_time</code> (<code>:862-866</code>) returns <code>None</code>
+on anything malformed, so an unparseable <code>godot_binary_mtime_utc</code> skips the comparison
+silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch a
+malformed one. The workflow binds an eleventh group, <code>windows_export_template_archive</code>,
+via <code>--artifact-sha</code>.</p>
+<blockquote>
+<p><strong>Artifact groups are integrity-checked, never content-checked, and that is load-bearing
+for <code>open_world_proof</code>.</strong> <code>_validate_candidate_artifact_group</code>
+(<code>tests/ci/check_renderer_release_gates.py:1050-1065</code>) runs the required-field, hash,
+commit and mtime checks and nothing else. The bytes <em>are</em> read — <code>:1100-1112</code> hashes
+them — but <strong>no validator inspects what the file says</strong>; any byte string with a matching
+digest satisfies the group. Demonstrated:
+a bundle that is otherwise complete but points <code>open_world_proof</code> at the repository's
+<code>README.md</code>, with a correct digest, <strong>exits 0 with no failures</strong>. The manifest says as
+much about itself — <code>workflow_blocking_behavior_machine_enforced: false</code> (<code>:320-324</code>) and
+"open-world proof must be blocking rather than advisory" under
+<code>documented_non_enforced_rules</code> (<code>:260-264</code>). <strong>So pointing this group at genuine
+corridor-proof output is a #961 and human-signer obligation, not something the gate
+enforces.</strong> Treat it as §4.2's "a lane that passes without executing" until either a
+content validator exists for the group or <code>open_world_corridor_proof</code> is added to
+<code>candidate_required_lanes</code>.</p>
+</blockquote>
+<p><strong>GPU harness report.</strong> <code>supervisor_exit</code> must be <strong>present</strong> and <code>0</code> — a report without
+it is refused outright, which closes the delete-the-field laundering path. If present,
+<code>totals_authoritative</code> must be <code>true</code>, and the run-verdict list/scalar fields must be
+empty/zero. <code>batches</code> must be a <strong>list</strong> of objects each carrying <code>name</code>. All eight
+<code>gpu_harness_policy.required_batches</code> must appear, each meeting its
+<code>minimum_test_cases</code>: <code>CompositorHazard</code> (1), <code>RendererPipeline</code> (4), <code>Lifetime</code> (4),
+<code>OutputCompositor</code> (4), <code>RendererSceneTree</code> (1), <code>WorldSceneTree</code> (5),
+<code>SceneDirectorSceneTree</code> (14), <code>GpuSorting</code> (1). Every batch additionally needs
+<code>test_cases</code> and <code>assertions</code> as <strong>objects</strong>, <code>summary_parse_ok: true</code>,
+<code>case_assert_audit_ok: true</code>, a <code>zero_assertion_cases</code> list, and a <code>zero_assert_reported</code>
+count that reconciles with that list's length. Zero RID leaks, no timeout, <code>rc</code> 0.</p>
+<p><strong>Benchmark report.</strong> A row per lane in <code>benchmark_acceptance.candidate_required_lanes</code> —
+<code>static_baseline</code>, <code>streaming_corridor</code>, <code>city_flyover</code>, <code>instance_storm</code>,
+<code>integrity_sentinel</code>, <code>parity_fidelity</code> — each carrying all fifteen
+<code>required_fields_non_null</code>. GPU timing is checked by name: when
+<code>gpu_timing_available</code> is true, <code>gpu_time_frame_ms</code> must be a positive number; when it is
+not, the row must carry an explicit <code>gpu_frame_time_source</code>/<code>gpu_time_frame_source</code> of
+<code>"unavailable"</code>. Silence is a failure, not an exemption. A timed-out lane fails, and a
+CPU/fallback route fails unless the lane explicitly allows it.</p>
+<p><strong>Visual acceptance — evaluated per benchmark-lane row, not once per bundle.</strong> Every lane
+row carries its own capture fields and is checked independently
+(<code>_candidate_lane_visual_failures</code>, <code>:1598</code>): at least <code>capture_count_min</code> captures;
+reference-match count equal to capture count; SSIM and PSNR non-null. Two further
+conditions fire only when the field is present — <code>capture_threshold_pass_count</code> must equal
+<code>capture_count</code>, and <code>visual_reference_match</code> must not be <code>false</code>.</p>
+<p><strong>Issue snapshot — and the bundle cannot classify anything.</strong> This is the part of the gate
+that is easiest to get wrong, so it is stated as the validator behaves rather than as the
+field names suggest. The population is every <strong>open</strong> issue carrying <code>priority:P0</code>,
+<code>priority:P1</code> or <code>release blocker</code> (<code>classification_labels_any</code>, manifest <code>:26-30</code>). For
+each, exactly one outcome passes:</p>
+<table>
+<thead>
+<tr>
+<th>Classification</th>
+<th>Source</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>blocking</code></td>
+<td>anywhere</td>
+<td><strong>always fails</strong> — "candidate issue #N is still blocking" (<code>:1793-1799</code>)</td>
+</tr>
+<tr>
+<td><code>accepted_alpha_limitation</code> / <code>deferred</code></td>
+<td>the <strong>bundle</strong>'s <code>issue_classifications</code></td>
+<td><strong>fails</strong> — "must be tracked in <code>public_alpha_issue_ledger</code>" (<code>:1918-1926</code>)</td>
+</tr>
+<tr>
+<td><code>accepted_alpha_limitation</code> / <code>deferred</code></td>
+<td>the <strong>manifest</strong>'s <code>public_alpha_issue_ledger</code></td>
+<td>passes, if it carries a non-empty <code>evidence_required</code>, and for an accepted limitation a <code>docs_path</code> string-equal to <code>known_limitations_page</code></td>
+</tr>
+</tbody>
+</table>
+<p>So <code>issue_classifications</code> in the bundle cannot admit anything the manifest has not already
+admitted. <strong>The only two passing routes for an open relevant issue are: close it, or add it
+to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER approval.</strong></p>
+<blockquote>
+<p><strong>But the gate cannot tell whether the snapshot is complete, and that is a §4.2 gap in the
+machinery itself.</strong> <code>--issues-json</code> is parsed as supplied (<code>:1729-1737</code>, <code>:1883-1927</code>); the
+validator never queries GitHub and has no notion of what the open issue set actually is.
+An <strong>empty</strong> snapshot passes, except that manifest-tracked <code>blocking</code> entries must still be
+accounted for (<code>:1851-1880</code>) — which is the one thing that saved Run B in the ADR. Keeping
+the snapshot in a separate file from the evidence prevents a bundle from <em>certifying
+itself</em>; it does nothing about an omitted or fabricated row. <strong>So "every open P0/P1/
+release-blocker is closed or ledgered" is a property of an honest snapshot, not something
+this gate establishes.</strong> Whoever builds #961 must generate the snapshot from a live query
+in-workflow and bind it to the run, or the issue check is decorative. Recorded here rather
+than left implicit, because a criterion that cannot fail is not a criterion.</p>
+<p><strong>The real precondition, and the single largest cost of the public alpha: every open P0,
+P1 and release-blocker must be closed or ledgered.</strong> Measured <strong>2026-09-19</strong>: <strong>2 open P0</strong>
+(#182, #184), <strong>36 open P1</strong>, <strong>4 carrying <code>release blocker</code></strong> (#1010, #1011, #1012,</p>
+<h1 id="1016-38-distinct-issues-the-ledger-holds-four-entries-351-352-360-369">1016) — <strong>38 distinct issues</strong>. The ledger holds four entries (#351, #352, #360, #369).<a class="headerlink" href="#1016-38-distinct-issues-the-ledger-holds-four-entries-351-352-360-369" title="Permanent link">¶</a></h1>
+<p>The figure moves — it was 37 hours earlier, before #1025 gained <code>priority:P1</code> — so
+re-query it rather than quoting this line; the rule above is what binds.
+An earlier revision of this section said the precondition was "#351, #352 and #360 must be
+closed"; that was wrong twice over — #351 and #352 closed in June, and the requirement was
+never about three issues.</p>
+<p>Of the ledger's own <code>blocking</code> entries, <strong>#360 is still open</strong> and so fails the gate;</p>
+<h1 id="351-and-352-are-closed-and-must-appear-in-resolved_manifest_issues-with">351 and #352 are closed and must appear in <code>resolved_manifest_issues</code> with<a class="headerlink" href="#351-and-352-are-closed-and-must-appear-in-resolved_manifest_issues-with" title="Permanent link">¶</a></h1>
+<p><code>state: CLOSED</code>, because an open-only snapshot will not contain them.</p>
+<p><strong>A gap in the other direction.</strong> The four defects §11 still calls alpha blockers are
+invisible to this population: #929 carries only <code>program:prod-ready</code>, and #851, #833 and</p>
+<h1 id="54-are-priorityp2-and-1030-is-unlabelled-the-bars-hand-derived-blocker-set">54 are <code>priority:P2</code>, and <strong>#1030 is unlabelled</strong>. The bar's hand-derived blocker set<a class="headerlink" href="#54-are-priorityp2-and-1030-is-unlabelled-the-bars-hand-derived-blocker-set" title="Permanent link">¶</a></h1>
+<p>and the machine's are disjoint; labelling them is a prerequisite for this gate to mean
+what §11 says it means. #1025 was in this list until 2026-09-19, when it was given
+<code>priority:P1</code> for exactly this reason — the remedy, demonstrated once.</p>
+</blockquote>
 <h2 id="10-public-alpha-the-reduced-bar">10. Public Alpha — the reduced bar<a class="headerlink" href="#10-public-alpha-the-reduced-bar" title="Permanent link">¶</a></h2>
 <p>The alpha exists so that design errors are found early by users rather than late
 by us, while the v1.0 program is still being built.</p>
@@ -2037,13 +2215,13 @@ by us, while the v1.0 program is still being built.</p>
 <tbody>
 <tr>
 <td>Envelope</td>
-<td>Single resident scene (see §10.1)</td>
-<td>+ multi-node + streaming</td>
+<td>Resident scene + world node + <strong>streaming open worlds</strong> (see §10.1)</td>
+<td>+ multi-node</td>
 </tr>
 <tr>
 <td>Blocks</td>
-<td>User-visible correctness only</td>
-<td>+ evidence integrity (§4.2)</td>
+<td>User-visible correctness, <strong>plus evidence integrity (§4.2) wherever the candidate gate relies on the evidence</strong></td>
+<td>+ evidence integrity everywhere</td>
 </tr>
 <tr>
 <td>Visual proof</td>
@@ -2062,8 +2240,8 @@ by us, while the v1.0 program is still being built.</p>
 </tr>
 <tr>
 <td>Gate</td>
-<td>Human sign-off</td>
-<td>Fail-closed gate + sign-off (§9)</td>
+<td><strong>Fail-closed candidate gate (§9, §9.1) + human sign-off</strong></td>
+<td>Same, over the full bar</td>
 </tr>
 <tr>
 <td>Labelling</td>
@@ -2074,6 +2252,20 @@ by us, while the v1.0 program is still being built.</p>
 </table>
 <p>The real-scan visual pass is required at <strong>both</strong> stages. An alpha may ship with
 gaps; it may not ship with splats missing under its own default settings.</p>
+<p><strong>Two rows of that table changed on 2026-09-17 (#1016), and both were wrong before rather
+than relaxed now.</strong></p>
+<ul>
+<li><strong>Gate.</strong> The alpha's gate was recorded as "Human sign-off". That has not been true since
+  the candidate gate existed: <code>release_builds.yml</code> maps every <code>refs/tags/v*</code> to the stable
+  channel, which runs <code>release_candidate_gate</code>, and <code>public_alpha_predicate</code> forecloses
+  every other publishing route. A <code>v*-alpha*</code> tag must pass the machine gate <strong>and</strong> carry
+  the human sign-off.</li>
+<li><strong>Blocks.</strong> Evidence integrity (§4.2) was recorded as v1.0-only. An alpha that publishes
+  through a fail-closed evidence gate cannot also be exempt from the rule that the evidence
+  must mean something — the two are the same claim. §4.2 binds the alpha wherever the
+  candidate gate rests on the evidence in question. This is a <strong>correction, not a raised
+  bar</strong>: it makes the table agree with machinery that already ran.</li>
+</ul>
 <h3 id="101-the-alpha-envelope-stated-precisely">10.1 The alpha envelope, stated precisely<a class="headerlink" href="#101-the-alpha-envelope-stated-precisely" title="Permanent link">¶</a></h3>
 <p>"A single resident scene" is not self-explanatory, and an earlier draft of this
 document said "~2M splats", which the defaults do not produce. The alpha
@@ -2084,8 +2276,20 @@ envelope is:</p>
   Mobile is a separate route. None of those are in the alpha envelope.</li>
 <li><strong><code>GaussianSplatNode3D</code> with an imported asset, and <code>GaussianSplatWorld3D</code>.</strong>
   The world route is <strong>in</strong> the alpha envelope by maintainer decision, which
-  makes #862 an alpha blocker (see §11). Streaming <em>open worlds</em> remain out —
-  admitting the world node is not admitting the 50M chunked ladder.</li>
+  makes #862 an alpha blocker (see §11).</li>
+<li><strong>Streaming open worlds are IN, as of 2026-09-17 (#1016).</strong> This reverses the
+  sentence that stood here, which read "Streaming <em>open worlds</em> remain out —
+  admitting the world node is not admitting the 50M chunked ladder." That exclusion
+  put this document in contradiction with the release-gate manifest, which requires
+  the <code>open_world_proof</code> artifact group and the <code>streaming_corridor</code> and
+  <code>city_flyover</code> benchmark lanes of <strong>every</strong> public-alpha candidate. Confirmed by
+  running <code>check_renderer_release_gates.py --mode candidate</code> against the real
+  manifest: an otherwise-complete bundle passes, and removing exactly those three
+  produces exactly three failures and no others. <strong>The gate was kept and the envelope
+  widened</strong>, not the reverse. The reasoning, the options weighed and the full cost are
+  in <a href="../../architecture/adr-alpha-envelope-widened-to-streaming/">the ADR</a>. The 50M
+  chunked ladder is therefore now an alpha item, not a v1.0 one.</li>
+<li><strong>Multi-node scenes remain out.</strong> The widening moved streaming and nothing else.</li>
 <li><strong>Import preset and node quality pinned, not defaulted.</strong> The import dialog's
   balanced fallback is the <code>desktop</code> preset: <code>max_splats = 750000</code>,
   <code>density_multiplier = 0.7</code>
@@ -2099,7 +2303,28 @@ envelope is:</p>
 <p><strong>Decided:</strong> the alpha admits <code>GaussianSplatWorld3D</code>, so #862 is an alpha
 blocker. Triage had classified it out-of-envelope on the assumption that the
 world route was excluded; that assumption is now reversed, and the issue enters
-the blocker set by this decision rather than by a change in its severity.</p>
+the blocker set by this decision rather than by a change in its severity.
+(#862 has since been <strong>closed</strong> — fixed on master by #1009.)</p>
+<p><strong>Decided 2026-09-17 (#1016):</strong> the alpha also admits <strong>streaming open worlds</strong>, for
+the same kind of reason and with a larger consequence. Three gate requirements must now be
+satisfied before a stable tag: the <strong>benchmark lanes</strong> <code>streaming_corridor</code> and
+<code>city_flyover</code>, whose rows are content-checked, and the <strong>artifact group</strong>
+<code>open_world_proof</code>, which is only integrity-checked — see §9.1. Note the gate runs no lane
+itself; it reads a supplied report. "Must run and pass" is a statement about the release
+process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,</p>
+<h1 id="786-883-and-the-50m-chunked-asset-out-of-the-v10-list-below-318-stood-in-that-set">786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set<a class="headerlink" href="#786-883-and-the-50m-chunked-asset-out-of-the-v10-list-below-318-stood-in-that-set" title="Permanent link">¶</a></h1>
+<p>too and <strong>closed on 2026-09-17</strong>, so it moves nowhere.)</p>
+<p><strong>And a caveat that is part of the decision, not a footnote.</strong> All three lanes exist,
+and none of them is release evidence today. <code>tests/fixtures/benchmark_asset_manifest.json</code>
+classifies <code>streaming_corridor</code> and <code>city_flyover</code> as <code>lightweight_smoke</code> and says in its
+own notes that each is "not representative chunked evidence"; it classifies
+<code>open_world_corridor_proof</code> as <code>chunked_open_world_candidate</code>, "not yet promoted
+real_chunked proof". Passing the three as currently classified would be a green gate over
+evidence this repository says does not support the claim — the §4.2 shape, and what
+<code>disallow_open_world_advisory_only: true</code> exists to forbid. <strong>Before the alpha tag, either
+the backing content is promoted to <code>real_chunked</code>, or the alpha's streaming promise is
+explicitly bounded in words to what the lanes exercise.</strong> That choice is open and is
+tracked on #1016.</p>
 <h2 id="11-work-items-this-bar-creates">11. Work items this bar creates<a class="headerlink" href="#11-work-items-this-bar-creates" title="Permanent link">¶</a></h2>
 <p>Derived from the decisions above; each needs its own issue and none is closed by
 this document.</p>
@@ -2107,18 +2332,16 @@ this document.</p>
 <ul>
 <li>
 <h1 id="842-no-benchmark-lane-varies-node-count-the-hundreds-of-nodes-target-is">842 — no benchmark lane varies node count; the hundreds-of-nodes target is<a class="headerlink" href="#842-no-benchmark-lane-varies-node-count-the-hundreds-of-nodes-target-is" title="Permanent link">¶</a></h1>
-  unproven, and GrandmasHouse was CPU-bound at 113 nodes.</li>
-<li>
-<h1 id="318-320-streaming-performance">318, #320 — streaming performance.<a class="headerlink" href="#318-320-streaming-performance" title="Permanent link">¶</a></h1>
-</li>
-<li>
-<h1 id="786-qa_stream_visual_smoke-never-reaches-visual-readiness-on-a-real-gpu">786 — <code>qa_stream_visual_smoke</code> never reaches visual readiness on a real GPU.<a class="headerlink" href="#786-qa_stream_visual_smoke-never-reaches-visual-readiness-on-a-real-gpu" title="Permanent link">¶</a></h1>
-</li>
-<li>
-<h1 id="883-gpu-streaming-stress-frame_p95_to_avg_ratio-369-on-an-idle-runner">883 — GPU streaming stress <code>frame_p95_to_avg_ratio</code> 3.69 on an idle runner.<a class="headerlink" href="#883-gpu-streaming-stress-frame_p95_to_avg_ratio-369-on-an-idle-runner" title="Permanent link">¶</a></h1>
-</li>
-<li>The 50M chunked open-world asset must become a passing lane, not a contract.</li>
+  unproven, and GrandmasHouse was CPU-bound at 113 nodes. <strong>Stays v1.0</strong>: it is a
+  multi-node item, and the #1016 widening moved streaming only.</li>
 </ul>
+<blockquote>
+<p>The streaming entries that stood here — #318, #320, #786, #883 and the 50M chunked
+open-world asset — left this list on 2026-09-17 (#1016). <strong>Four of them moved to the
+Public Alpha list below</strong>: #320, #786, #883 and the 50M asset. They are not resolved and
+nothing about them changed; the envelope moved underneath them. <strong>#318 closed</strong> the same
+day, so it moved nowhere.</p>
+</blockquote>
 <p><strong>Blocking v1.0, from the bar itself:</strong></p>
 <ul>
 <li>Linux GPU lane, with the <code>qa</code> and <code>sorting</code> categories wired in (#596).</li>
@@ -2133,7 +2356,14 @@ this document.</p>
 <p><strong>Blocking the Public Alpha:</strong></p>
 <p>Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.</p>
-<p><strong>Status: 12 identified, 4 fixed or closed, 7 open, 1 refuted.</strong> Several were found
+<p><strong>Status: 12 identified, 8 fixed or closed, 4 open, 0 refuted</strong> (re-counted
+2026-09-19: #862, #986 and #987 have closed since this list was written, fixed on
+master by #1009 and #999; <strong>#930 closed FIXED by #999</strong> on 2026-09-17, so it is no longer
+"refuted" and moves into the fixed column. The four still open are #929, #851, #833 and</p>
+<h1 id="54-and-whether-929-closes-with-the-taa-jitter-fix-in-flight-is-a-human-disposition">54 — and whether #929 closes with the TAA-jitter fix in flight is a human disposition<a class="headerlink" href="#54-and-whether-929-closes-with-the-taa-jitter-fix-in-flight-is-a-human-disposition" title="Permanent link">¶</a></h1>
+<p>that has not been made, so this line will need re-counting again when it is.) <strong>Plus four
+streaming items admitted by the #1016 widening — see the table after item 10.</strong> Several
+were found
 not by triage but by <strong>verification conditions attached to a fix in flight</strong> —</p>
 <h1 id="980-by-the-tooling-built-to-demonstrate-586s-reload-path-985-by-the">980 by the tooling built to demonstrate #586's reload path, #985 by the<a class="headerlink" href="#980-by-the-tooling-built-to-demonstrate-586s-reload-path-985-by-the" title="Permanent link">¶</a></h1>
 <p>condition requiring #980's deferred triggers to be covered, and #986/#987 by the
@@ -2169,20 +2399,22 @@ rather than a ceiling.</p>
    That residual is pre-existing, narrower than what was fixed, and is a
    code-reading finding <strong>not reproduced on NVIDIA</strong> — unproven, not absent. It
    is disclosed under §8 rather than blocking.</li>
-<li><strong>#862</strong> — <code>GaussianSplatWorld3D</code> never resubmits when the assigned world's
-   parameters change, so edits silently do not apply. Enters this set by the
-   §10.1 envelope decision, not by triage ranking, which had classified it
+<li><strong>#862</strong> — <strong>fixed on master</strong> by #1009, and the issue is closed.
+   <code>GaussianSplatWorld3D</code> never resubmitted when the assigned world's parameters
+   changed, so edits silently did not apply. It entered this set by the §10.1
+   envelope decision, not by triage ranking, which had classified it
    out-of-envelope.</li>
 <li><strong>#929</strong> — splats swim under TAA/FSR2. Blocked on the #921 disposition; both
    concern the same composite/temporal seam, as does #989.</li>
-<li><strong>#986</strong> — <strong>the painterly root cause.</strong> Painterly's own viewport composite
-   can never load (a malformed <code>#[vertex]</code> marker and a 36-vs-48 push-constant
-   mismatch), so painterly falls through to the standard composite.</li>
-<li><strong>#987</strong> — painterly renders nothing at the shipped <code>composite/depth_test =
-   true</code> default. <strong>Downstream of #986, not independent:</strong> the standard
-   composite it falls through to demands <code>raster_output.depth</code>, which
-   <code>render_painterly_stage</code> never assigns. Fix #986 and this resolves; do not
-   fix it separately.</li>
+<li><strong>#986</strong> — <strong>fixed on master</strong> by #999, and the issue is closed. It was the
+   painterly root cause: painterly's own viewport composite could never load (a
+   malformed <code>#[vertex]</code> marker and a 36-vs-48 push-constant mismatch), so
+   painterly fell through to the standard composite.</li>
+<li><strong>#987</strong> — <strong>fixed on master</strong> by the same PR, and the issue is closed.
+   Painterly rendered nothing at the shipped <code>composite/depth_test = true</code>
+   default. It was <strong>downstream of #986, not independent:</strong> the standard
+   composite it fell through to demands <code>raster_output.depth</code>, which
+   <code>render_painterly_stage</code> never assigned, so repairing #986 resolved it.</li>
 <li><strong>#851</strong> — black contours and inert shadows with painterly enabled. Its
    premise ("ships today on both painterly paths") held only because the QA pin
    sets <code>depth_test=false</code>; re-test at the shipped default once #986 lands.</li>
@@ -2190,26 +2422,73 @@ rather than a ceiling.</p>
 <li><strong>#54</strong> — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.</li>
 </ol>
+<p><strong>Admitted by the #1016 widening (2026-09-17).</strong> These are not new defects and were not
+re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
+listed unranked, in a table rather than continuing the numbering above, because their
+severity against items 1–10 has not been assessed — and because a continued ordered list
+renumbers itself from 1 on the docs site.</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>#320</strong></td>
+<td><code>O(total_chunks)</code> work in streaming visibility, LOD, eviction and atlas registry.</td>
+</tr>
+<tr>
+<td><strong>#786</strong></td>
+<td><code>qa_stream_visual_smoke</code> never reaches visual readiness on a real GPU (luma variance 0.00009 against a 0.0002 gate, reproducibly). The scene is quarantined.</td>
+</tr>
+<tr>
+<td><strong>#883</strong></td>
+<td>GPU streaming stress <code>frame_p95_to_avg_ratio</code> 3.69 on an idle runner.</td>
+</tr>
+<tr>
+<td><em>(no issue)</em></td>
+<td>The <strong>50M chunked open-world asset</strong> must become a passing lane, not a contract.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Streaming's QA coverage is entirely switched off.</strong> All four streaming QA scenes are
+quarantined at <code>tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84</code>:
+<code>qa_stream_visual_smoke</code> (#786), <code>qa_stream_multi_asset</code> ("until the runtime surface can
+prove true resident/streaming coexistence"), <code>qa_stream_chunk_loading</code> and
+<code>qa_stream_eviction_churn</code> (both "streaming monitors not populated"). The last three carry
+no issue number. <strong>Un-quarantining them is now alpha work rather than v1.0 work.</strong></p>
+<p>Recording them as accepted alpha limitations under §8 is <strong>not</strong> an equivalent route, and
+an earlier revision of this section wrongly offered it as one. A switched-off scene is a
+coverage gap, not a user-facing defect: it has no symptom a user can hit and no workaround,
+and it cannot satisfy the limitations page's fifth admission bullet — evidence that the
+limitation does not hide a renderer correctness failure — because a disabled scene is
+exactly the thing that could be hiding one. The three unnumbered entries need issues first.</p>
 <p><strong>#928 is closed</strong> by #988. What remains of its symptom is upstream and
 disclosed as #989 (§8.1).</p>
-<p><strong>#930 is refuted only while #986 stands.</strong> Painterly is decoded today by
-accident: the standard composite it falls through to performs the sRGB decode
-painterly's own shader lacks. <strong>Repairing #986 makes #930 live.</strong> Whoever fixes</p>
-<h1 id="986-must-land-the-decode-with-it">986 must land the decode with it.<a class="headerlink" href="#986-must-land-the-decode-with-it" title="Permanent link">¶</a></h1>
+<p><strong>#930 is closed FIXED</strong> by #999 (2026-09-17). This paragraph used to read "#930 is
+refuted only while #986 stands … whoever fixes #986 must land the decode with it". That
+prediction was correct and has been discharged: the #986 repair landed the sRGB decode
+with it, so painterly is no longer decoded by accident through the standard composite's
+fallthrough. Recorded rather than deleted, because the mechanism is the reason the
+condition was attached to the fix in the first place.</p>
 <p><strong>Painterly's defects are one class, not four.</strong> <code>render_painterly_stage</code> does
 not populate fields <code>render_baseline_stage</code> does — <code>raster_output.depth</code> (#987)
 and <code>lighting_mode</code> (#851) are the two found so far, and there is no reason to
-believe they are the only two. The #986 repair must <strong>enumerate every field the
-baseline stage assigns and verify painterly assigns it</strong>, rather than
-discovering them one at a time. A secondary consequence already noted: invalid
+believe they are the only two — and there were not: #1018 (frozen per-node wind) and</p>
+<h1 id="1001-blend_strength-a-hard-wired-no-op-have-since-been-found-in-the-same-class-after">1001 (<code>blend_strength</code> a hard-wired no-op) have since been found in the same class, after<a class="headerlink" href="#1001-blend_strength-a-hard-wired-no-op-have-since-been-found-in-the-same-class-after" title="Permanent link">¶</a></h1>
+<h1 id="986-landed-the-enumeration-this-paragraph-demanded-every-field-the-baseline-stage">986 landed. The enumeration this paragraph demanded — **every field the baseline stage<a class="headerlink" href="#986-landed-the-enumeration-this-paragraph-demanded-every-field-the-baseline-stage" title="Permanent link">¶</a></h1>
+<p>assigns, verified present in painterly<strong> — was </strong>not** done by the #986 repair and is
+still outstanding. A secondary consequence already noted: invalid
 <code>raster_output.depth</code> makes the pipeline invalidate its cached render every
 frame, so painterly permanently defeats cached-render reuse — a silent cost, not
 a correctness defect, and it belongs with the same repair.</p>
-<p><strong>Do not "constrain painterly to <code>depth_test=false</code>".</strong> It appears to work there
-only because two defects cancel: #986 removes painterly's composite, and at that
-setting the missing-scene-depth check collapses so the fallthrough proceeds.
-Enshrining it would bake in an accident that breaks the moment either defect is
-repaired.</p>
+<p><strong>Do not "constrain painterly to <code>depth_test=false</code>".</strong> Before #999 it appeared to work
+there only because two defects cancelled: #986 removed painterly's composite, and at that
+setting the missing-scene-depth check collapsed so the fallthrough proceeded. Both are
+repaired now, which is precisely why the constraint must not be reintroduced — it would
+bake in an accident that no longer exists.</p>
 <p>Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.</p>
 <p><strong>#921 / GPU-001 is not in this list.</strong> The code fix landed in #924
 (<code>873025f5783</code>), an ancestor of this base: the composite now runs at the
@@ -2227,8 +2506,8 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
 <li><code>enable_direct_lighting</code> is the true master gate for the lighting path
   (<code>shaders/tile_binning.glsl:1306</code>), but it is hardcoded <code>true</code> at
   <code>renderer/render_pipeline_stages.cpp:2253</code> and
-  <code>renderer/tile_renderer.cpp:1376</code> and is exposed by no project setting; only a
-  unit test sets it false (<code>tests/tile_renderer_regression_test.cpp:927</code>). A game
+  <code>renderer/tile_renderer.cpp:1494</code> and is exposed by no project setting; only a
+  unit test sets it false (<code>tests/tile_renderer_regression_test.cpp:945</code>). A game
   shipping plain splat rendering with no lights cannot skip that path. Needs an
   issue.</li>
 <li>Docs asserting behaviour the code contradicts (§8). Two confirmed at the base
@@ -2260,7 +2539,7 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 17, 2026 15:25:20 UTC">September 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 07:57:49 UTC">September 20, 2026</span>
   </span>
 
     
