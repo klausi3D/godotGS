@@ -1819,12 +1819,12 @@
 <p>This document describes the runtime render pipeline in detail: frame entry, route selection, stage execution, and fallback behavior.</p>
 <h2 id="canonical-pipeline-entry-points">Canonical Pipeline Entry Points<a class="headerlink" href="#canonical-pipeline-entry-points" title="Permanent link">¶</a></h2>
 <ul>
-<li>Frame entry: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a> (<code>render_scene_instance</code>)</li>
-<li>Streaming path orchestration: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp</a></li>
-<li>Instancing execution mode decisions: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp</a></li>
-<li>Stage runner interface: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_pipeline_stages.h">../../modules/gaussian_splatting/renderer/render_pipeline_stages.h</a></li>
-<li>Stage implementations: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
-<li>Tile raster/resolve backend: <a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/tile_render_stages.cpp">../../modules/gaussian_splatting/renderer/tile_render_stages.cpp</a></li>
+<li>Frame entry: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a> (<code>render_scene_instance</code>)</li>
+<li>Streaming path orchestration: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp</a></li>
+<li>Instancing execution mode decisions: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp</a></li>
+<li>Stage runner interface: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_pipeline_stages.h">../../modules/gaussian_splatting/renderer/render_pipeline_stages.h</a></li>
+<li>Stage implementations: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
+<li>Tile raster/resolve backend: <a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/tile_render_stages.cpp">../../modules/gaussian_splatting/renderer/tile_render_stages.cpp</a></li>
 </ul>
 <h2 id="frame-execution-flow">Frame Execution Flow<a class="headerlink" href="#frame-execution-flow" title="Permanent link">¶</a></h2>
 <ol>
@@ -1855,8 +1855,8 @@ streaming backend. There is no separate "single-pass vs serial" execution-mode
 toggle — that control surface was removed by #326 (b153169114a, 2026-05-12).</p>
 <p>Related sources:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a> (<code>build_frame_backend_plan</code>, <code>should_prefer_resident_backend</code>)</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a> (<code>build_frame_backend_plan</code>, <code>should_prefer_resident_backend</code>)</li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp</a></li>
 </ul>
 <h2 id="stage-contracts">Stage Contracts<a class="headerlink" href="#stage-contracts" title="Permanent link">¶</a></h2>
 <h3 id="cull-stage">Cull Stage<a class="headerlink" href="#cull-stage" title="Permanent link">¶</a></h3>
@@ -1886,7 +1886,7 @@ pre-upscale seam: after the MSAA resolve and the SSIL framebuffer copy, before
 the FSR2/MetalFX-temporal/TAA block and before
 <code>_render_buffers_post_process_and_tonemap</code> (see the "Gaussian Splats
 Pre-Upscale" block in
-<a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp"><code>render_forward_clustered.cpp</code></a>,
+<a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp"><code>render_forward_clustered.cpp</code></a>,
 <code>RenderForwardClustered::_render_scene</code>). This places the write before <em>every</em>
 consumer of the internal color texture — FSR2 reads it as <code>params.color</code>,
 TAA processes it, tonemap consumes it last — which is what fixes
@@ -1897,13 +1897,13 @@ shipped default <code>composite/depth_test=true</code>).</p>
 internal scene color buffer; the historical present-target redirect and the
 present-framebuffer graphics blend are disabled for this phase
 (<code>OutputCompositor::integrate_final_output</code>, <code>pre_upscale_phase</code> in
-<a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/interfaces/output_compositor.cpp"><code>output_compositor.cpp</code></a>).
+<a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/interfaces/output_compositor.cpp"><code>output_compositor.cpp</code></a>).
 Depth compare runs at internal resolution on both sides, so no rescaled depth
 sampling is needed.</p>
 <p><strong>Source encoding.</strong> The splat raster output is treated as premultiplied,
 display-referred, sRGB-encoded LDR — the raster target format is coerced to
 RGBA8 UNORM by <code>_resolve_compute_friendly_raster_format</code>
-(<a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp"><code>render_pipeline_stages.cpp</code></a>).
+(<a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp"><code>render_pipeline_stages.cpp</code></a>).
 Ground truth for that definition is the shipped legacy composite: it wrote the
 raster bytes <em>unconverted</em> into the presented target (whose content is
 sRGB-encoded), and the raster/resolve shaders perform no color-space
@@ -1913,7 +1913,7 @@ legacy present-target composite is exactly the appearance the decode preserves.
 The pre-upscale destination is the <em>linear</em> pre-tonemap scene buffer, so the
 compute blit decodes the source sRGB→linear on straight (un-premultiplied)
 color before blending (<code>source_decode_srgb</code> in
-<a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/shaders/viewport_blit.glsl"><code>viewport_blit.glsl</code></a>
+<a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/shaders/viewport_blit.glsl"><code>viewport_blit.glsl</code></a>
 and its host mirror <code>ViewportBlitPushConstant</code>). Splats therefore pass through
 the same tonemap/exposure as meshes. If the compute composite cannot run, the
 graphics fallback composites <em>without</em> the decode and reports
@@ -1949,27 +1949,118 @@ rather than by the six-config visual matrix.</p>
   <code>render_data.gaussian_composite_pre_upscale</code> so the two phases can never
   double-composite.</li>
 </ul>
-<p><strong>Residual risk (named, not covered by the six-config oracle).</strong> Splats publish
-no motion vectors, no FSR2 reactive-mask contribution, and no depth write-back
-(<code>viewport_blit.glsl</code> writes color only), so FSR2/TAA/MetalFX-temporal may
-ghost splat regions under motion — this is invisible to still-frame diffs and
-requires human eyes on motion captures.</p>
+<p><strong>What splats supply to the temporal stages.</strong> <code>render_forward_clustered.cpp</code>
+feeds FSR2 four inputs — colour, depth, velocity, reactive mask — and TAA three.
+Splats supply <strong>colour only</strong>.</p>
+<ul>
+<li><strong>Jitter — supplied since #929.</strong> The projection uploaded to the splat pipeline
+  is built by <code>GaussianSplatRenderer::build_render_projection()</code>, which applies
+  the module's pre-existing <code>flip_y</code> <em>and</em> the engine's <code>scene_data-&gt;taa_jitter</code>.
+  The jitter term is the engine's exactly — the same left-multiplied translation
+  <code>RenderSceneDataRD::get_cam_projection()</code> gives ordinary geometry, for every
+  projection type, because it depends only on the matrix's w row. (The <em>flip</em>
+  is not the engine's: GS negates <code>columns[1][1]</code> while the engine negates the
+  whole y row. The two coincide for a symmetric perspective and diverge for an
+  off-axis frustum offset. That predates the jitter work and is unchanged by it;
+  see <code>build_render_projection()</code>'s docblock.)
+  Before #929 it applied the flip only, so FSR2 — which un-jitters its input by
+  exactly that vector — reconstructed the splat layer displaced by +jitter every
+  frame and it visibly swam against the meshes beside it. The value must come
+  from <code>scene_data</code> verbatim: the composite depth test compares GS depth against
+  the engine's (jittered) scene depth, so a rescaled or negated jitter would
+  misregister silhouettes rather than fix them. It is self-gating — <code>taa_jitter</code>
+  is exactly <code>(0,0)</code> unless a temporal stage is active — and the reuse key in
+  <code>OutputCompositor::can_reuse_cached_render()</code> carries the GPU projection so a
+  static camera cannot re-composite one frozen jitter phase forever.</li>
+</ul>
+<p><strong>Consequence for the static-camera render cache, stated because it is not
+  free everywhere.</strong> Under any temporal stage the Halton phase changes the GPU
+  projection every frame, so the reuse key changes every frame and the raster
+  re-runs: <strong>static-camera render reuse is unavailable while TAA or FSR2 is on.</strong>
+  At shipped defaults this costs nothing, because <code>per_splat_depth_clip</code>
+  defaults <code>true</code> and <code>RasterStage::try_reuse_cached_render()</code> already refuses
+  reuse outright for non-painterly frames with a valid scene depth
+  (<code>render_pipeline_stages.cpp</code>) — measured, every capture in the #929 evidence
+  reported <code>raster_path = "other"</code>, never <code>cached</code>. It costs something only in
+  the configuration that turns the relief valve off, and that cost is measured:
+  on a 31,208-splat real scan at 960×540 with a static camera
+  (<code>optimize=speed_trace</code>, RTX 3090, vsync off, 240 timed frames per config, six
+  samples per side on an otherwise-idle machine), <code>per_splat_depth_clip = false</code>
+  under FSR2 @1.0 goes from <strong>0.905 ms/frame mean with <code>cached</code> sampled 30/30</strong>
+  (range 0.759–1.176; a sub-millisecond path, so noisy) to <strong>2.772 ms/frame with
+  <code>cached</code> 0/30</strong> (range 2.735–2.881) — <strong>+1.87 ms</strong>.
+  The cached figure is not a baseline to regret: it was the raster never re-running
+  while the Halton phase advanced, i.e. one frozen jitter phase re-composited every
+  frame. And it is not a new cost — the same scene at shipped defaults measures
+  2.758 ms (before) and 2.760 ms (after), within 0.5% of the figure above, so that
+  configuration now simply performs as the default already does. With no temporal
+  stage both binaries stay <code>cached</code> 30/30 and their frame times are
+  indistinguishable.
+  Painterly frames never bake the clip and keep reuse, so they are unaffected
+  either way. The alternative — leaving the jitter out of the key — is not a
+  cheaper cache, it is a wrong image: the same frozen jitter phase re-composited
+  every frame, which is the defect #929 fixed.
+- <strong>The reactive mask IS already fed — implicitly, and nobody wrote it down until
+  #1025 measured the moving-camera case.</strong> An earlier revision of this bullet said
+  splats publish "no FSR2 reactive-mask contribution". <strong>That was false</strong>, and it is
+  the single most load-bearing thing on this seam. Godot has no dedicated reactive
+  texture: <code>params.reactive</code> is an <em>alpha-swizzled view of the internal colour
+  buffer</em> (<code>render_forward_clustered.cpp:2707</code> →
+  <code>render_scene_buffers_rd.h:257-264</code>, all four swizzles set to
+  <code>TEXTURE_SWIZZLE_A</code>). On the upscaling path the engine zeroes that alpha
+  everywhere it draws, reserving the channel for coverage. The Gaussian composite
+  then writes splat coverage into exactly that channel —
+  <code>shaders/viewport_blit.glsl:206-208</code>, gated on <code>params.destination_has_alpha</code>,
+  which is set from <code>pre_upscale_phase</code> (<code>interfaces/output_compositor.cpp:1252</code>,
+  <code>:1644</code>) — i.e. true on precisely the path FSR2 reads. The painterly composite
+  does the same (<code>shaders/painterly_composite.glsl:97</code>). FSR2 clamps it to 0.9, so
+  a fully covered splat texel gets roughly a tenth of the normal history
+  accumulation.</p>
+<p><strong>Consequence, and the warning:</strong> this is why splats measure <strong>zero</strong> ghosting
+  under FSR2, and it very likely explains the residual static-camera displacement
+  the jitter fix left behind — FSR2 is deliberately not accumulating those pixels.
+  <strong>Anyone changing that destination alpha changes FSR2 behaviour silently</strong>, with
+  no test naming the coupling. #989 (<code>transparent_bg</code> under TAA/FSR2) touches
+  exactly this channel. Treat the alpha as a temporal-stage input, not just a
+  compositing detail.</p>
+<ul>
+<li><strong>Residual risk (named, not covered by the six-config oracle).</strong> Splats publish
+  no motion vectors and no depth write-back (<code>viewport_blit.glsl</code> writes colour and
+  coverage-alpha only). Measured on a real scan with a moving camera (#1025):
+  <strong>under FSR2 this costs nothing</strong> — 0.000 frames of staleness at scale 1.0 on
+  both a 15°/s and a 56°/s pan, because FSR2 detects the <code>(-1,-1)</code> velocity
+  sentinel and derives a camera motion vector from depth, and because the reactive
+  coupling above suppresses history anyway. <strong>Under TAA it costs ≈1.5 px of trail</strong>
+  (0.27–0.87 frames stale, 6–26× an in-frame control), because
+  <code>taa_resolve.glsl:315</code> reprojects with <code>velocity == 0</code> and its variance clip
+  <em>widens</em> when velocity reads zero (<code>:276</code>). The trail does not grow with camera
+  speed, because the clip box is computed from the current frame. Disclosed under
+  §8.1 of the release acceptance bar and tracked as #1025.</li>
+</ul>
+<p>Note that <code>raster_output.depth</code> is the tile rasterizer's <em>GS-internal</em> depth
+  texture (<code>render_pipeline_stages.cpp</code> → <code>get_painterly_depth_texture()</code>); it is
+  what the composite tests against the scene depth and is <strong>not</strong> written back into
+  <code>rb-&gt;get_depth_texture()</code>, so FSR2 never sees it. Writing it back cannot be done
+  with one more <code>imageStore</code>: with MSAA off, <code>RB_TEX_DEPTH</code> is created with
+  <code>SAMPLING | DEPTH_STENCIL_ATTACHMENT</code> and <strong>no <code>STORAGE</code> bit</strong>
+  (<code>render_scene_buffers_rd.cpp</code>, <code>get_depth_usage_bits()</code> — only the resolve
+  target may be storage). It needs a separate depth-only raster pass.</p>
 <p>The ordering, phase gating, and encoding mirror are guarded by
-<a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/tests/ci/check_gs_pre_upscale_hook.py"><code>tests/ci/check_gs_pre_upscale_hook.py</code></a>
+<a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/tests/ci/check_gs_pre_upscale_hook.py"><code>tests/ci/check_gs_pre_upscale_hook.py</code></a>
 in the <code>--guard-only</code> lane.</p>
 <h2 id="fallback-and-failure-semantics">Fallback and Failure Semantics<a class="headerlink" href="#fallback-and-failure-semantics" title="Permanent link">¶</a></h2>
 <p>When prerequisites are missing (device, buffers, or readiness invariants), the renderer records explicit readiness state and avoids publishing invalid stage results.</p>
 <p>Relevant code:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/renderer/render_diagnostics_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_diagnostics_orchestrator.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/renderer/render_diagnostics_orchestrator.cpp">../../modules/gaussian_splatting/renderer/render_diagnostics_orchestrator.cpp</a></li>
 </ul>
 <h2 id="related-docs">Related Docs<a class="headerlink" href="#related-docs" title="Permanent link">¶</a></h2>
 <ul>
 <li><a href="../overview/">Architecture overview</a></li>
 <li><a href="../lighting-system/">Lighting details</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/4791564ad64c9289b06e0ee6898870b2ef16cd07/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory and residency design</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7c16775fe94c63eaa8240dbdbd1219c354428f6e/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory and residency design</a></li>
 </ul>
 
 
@@ -1991,7 +2082,7 @@ in the <code>--guard-only</code> lane.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 20:11:07 UTC">September 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 20:14:01 UTC">September 20, 2026</span>
   </span>
 
     
