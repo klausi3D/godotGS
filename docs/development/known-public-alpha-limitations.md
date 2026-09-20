@@ -158,9 +158,16 @@ root cause is established. 2-of-5 is a rate, not a mechanism.
 when a stray `godot.head.exe` left over from 2026-09-16 was holding this machine's GPU
 continuously; it was not killed until 2026-09-19. A crash the issue attributes to
 main-thread/render-thread contention is exactly the kind of defect a third process
-competing for the GPU would make *more* likely, so 2-of-5 may be an overestimate — and the
-clean 444-frame run at 4 Hz is correspondingly weaker evidence that the slower rate is
-safe. **The defect is real; the numbers around it need retaking on a quiet machine.**
+competing for the GPU would make *more* likely, so **2-of-5 is plausibly an overestimate**
+of what a user on a quiet machine would hit.
+
+The same premise cuts the *other* way for the workaround: a 444-frame run that stayed clean
+**while the hazard was elevated** is **stronger** evidence that 4 Hz is safe, not weaker.
+(An earlier revision of this entry said "correspondingly weaker", which was simply the wrong
+direction — both figures move the same way from the same premise.)
+
+**The defect is real either way, and both numbers still need retaking on a quiet machine** —
+an overestimate is not a measurement, and one clean run is not a safety proof.
 
 ## GaussianSplatWorld3D
 
