@@ -522,8 +522,8 @@ add one, supersedes it**. Hold it to the same standard this section sets for the
 transcription above: it is the standing record and not the decision itself, so the §9
 human sign-off — which already covers "the accuracy of the known-issue disclosure" — is
 where a first-hand confirmation belongs if no maintainer-authored line appears before the
-tag. **Confirmed there, not assumed there.** Note what the acceptance is *of*: it is a call about this
-residual, which the envelope decision above was not — the two are separate calls and
+tag. **Confirmed there, not assumed there.** Note what the acceptance is *of*: it is a call
+about this residual, which the envelope decision above was not — the two are separate calls and
 both have now been made. The acceptance also rests on a measurement that postdates the
 wording it replaced: the trail is **TAA-only and ≈1.5 px**, and under FSR2 there is no
 ghosting at all.
@@ -659,8 +659,8 @@ rather than a ceiling.
    out-of-envelope.
 5. ~~**#929** — splats swim under FSR2~~ — the **static-camera** jitter defect, **fixed**
    in #1026; the residual that remains is **TAA-only** and FSR2 does not ghost at all.
-   **Struck on 2026-09-20: closed by hand,
-   with its residual accepted under the §10.1 exception.** The entry is kept struck
+   **Struck on 2026-09-20: closed by hand, with its residual accepted under the §10.1
+   exception.** The entry is kept struck
    rather than deleted so the disposition it was waiting on stays readable. **Re-decided
    and split.** This entry
    previously read "Blocked on the #921 disposition"; that disposition was made
