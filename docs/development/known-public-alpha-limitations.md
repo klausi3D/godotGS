@@ -154,6 +154,14 @@ the shipped overlay itself refreshes at. A 444-frame run at that rate did not cr
 build; the C++ backtrace was unsymbolized, so the faulting function is not named and no
 root cause is established. 2-of-5 is a rate, not a mechanism.
 
+**And the rate itself is suspect.** Those runs were taken on 2026-09-17, inside a window
+when a stray `godot.head.exe` left over from 2026-09-16 was holding this machine's GPU
+continuously; it was not killed until 2026-09-19. A crash the issue attributes to
+main-thread/render-thread contention is exactly the kind of defect a third process
+competing for the GPU would make *more* likely, so 2-of-5 may be an overestimate — and the
+clean 444-frame run at 4 Hz is correspondingly weaker evidence that the slower rate is
+safe. **The defect is real; the numbers around it need retaking on a quiet machine.**
+
 ## GaussianSplatWorld3D
 
 ### Any payload change costs a full resubmit — about 2.1 s at 1M splats ([#1008](https://github.com/klausi3D/godotGS/issues/1008))
@@ -174,6 +182,15 @@ Medians reported on the issue, on an RTX 3090 with an optimized build: 17 ms at 
 259 ms at 100k, **2124 ms at 1M**. Those figures are from #1008 and have not been
 re-measured here; the code path is verified. It is not a per-frame cost — it is paid when
 the payload changes.
+
+**Treat the timings as an upper bound, not a measurement.** They were taken on 2026-09-17,
+inside a window when a stray `godot.head.exe` from 2026-09-16 was holding this machine's
+GPU continuously until it was killed on 2026-09-19. Another PR's figures taken in the same
+window moved by roughly 10% when retaken on the quiet machine. The *shape* of the finding
+does not depend on the numbers — a full rebuild with no dirty-field tracking and an
+unconditional re-upload is a code fact, and the ~2 s order of magnitude at 1M is not
+plausibly contention alone — but the three medians should be retaken before anyone quotes
+them as a baseline.
 
 **Workaround:** change world content at load boundaries, not during gameplay.
 
@@ -302,7 +319,9 @@ user-facing disclosure and the acceptance-bar disposition are written together a
 drift apart. **Nothing here may be cited as an `accepted_alpha_limitation`** — a candidate
 bundle that does so is wrong twice over, because the acceptance does not exist and because
 the gate additionally requires a `public_alpha_issue_ledger` entry that does not exist
-either.
+either. The machinery behind both conditions — and the reason a classification means less
+than it looks — is in the acceptance bar's
+[§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
 ### Splats ghost under TAA or FSR2 while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
 
