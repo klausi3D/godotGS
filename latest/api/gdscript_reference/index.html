@@ -2185,7 +2185,7 @@
     </tr>
     <tr>
       <td><pre><code>_focus_camera()</code></pre></td>
-      <td>Centers the orbit camera on the current Gaussian bounds.</td>
+      <td>Centers the orbit camera on the current Gaussian bounds.  Two reasons this is not the one-liner it looks like:  1. `GaussianSplatNode3D::get_aabb()` exists in C++ but is NOT bound to ClassDB, so calling it from GDScript raises "Invalid call. Nonexistent function 'get_aabb'". The bounds are reachable from GDScript only as `get_statistics()["bounds"]`, which is bound. 2. The bounds are not final at `_ready()`: they are computed when the asset payload is uploaded, one or more frames later. Focusing once in `_ready()` frames nothing and leaves the shipped camera transform in place with no diagnostic -- which is why the template opened on an unframed blob. 3. `stats["bounds"]` is the node's LOCAL aabb (`gaussian_splat_node_3d.cpp:1465`), while `OrbitCameraRig.focus()` puts the rig at the centre it is handed, in world space. Passing the local box straight through aimed the camera at the node's local origin: with the template's `GaussianSplatNode3D` at y = 1.5 the rig landed at y = 0.04 and the cloud sat in the upper half of the frame. Transform it first.  So: read the bound accessor, put it in world space, and retry to a wall-clock deadline (never a fixed frame count -- import and upload cost is machine-dependent). If the bounds never arrive, say so rather than failing silently.</td>
     </tr>
     <tr>
       <td><pre><code>_ready()</code></pre></td>
@@ -2229,8 +2229,32 @@
       <td>Returns color-coded string for VRAM usage percentage</td>
     </tr>
     <tr>
+      <td><pre><code>_flag(value: Variant)</code></pre></td>
+      <td>Coerces a monitor value to int; unavailable reads count as 0 for the purpose of *branching only* (never for display).</td>
+    </tr>
+    <tr>
+      <td><pre><code>_fmt_count(value: Variant)</code></pre></td>
+      <td>Formats a monitor value as a count, or `n/a` when unavailable.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_fmt_ms(value: Variant)</code></pre></td>
+      <td>Formats a monitor value in milliseconds, or `n/a` when unavailable.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_fmt_num(value: Variant, spec: String)</code></pre></td>
+      <td>Formats a monitor value with the given printf spec, or `n/a` when unavailable.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_fmt_pct(value: Variant)</code></pre></td>
+      <td>Formats a monitor value as a percentage, or `n/a` when unavailable.</td>
+    </tr>
+    <tr>
       <td><pre><code>_format_number(value: int)</code></pre></td>
       <td>Formats large numbers with K/M suffixes for readability</td>
+    </tr>
+    <tr>
+      <td><pre><code>_monitor(name: String)</code></pre></td>
+      <td>Reads one custom monitor. @param name: Monitor id without the `gaussian_splatting/` prefix. @return The monitor value, or `null` when this build registers no such monitor. `null` is rendered as `n/a` by the formatters below; it is never coerced to 0, because a reader cannot distinguish a measured 0 from a missing producer. `Performance` is the engine singleton object itself -- `Performance.get_singleton()` is not bound to ClassDB and does not parse.</td>
     </tr>
     <tr>
       <td><pre><code>_process(delta: float)</code></pre></td>
@@ -2243,6 +2267,10 @@
     <tr>
       <td><pre><code>_refresh_overlay()</code></pre></td>
       <td>Rebuilds the overlay text with the latest renderer statistics using Custom Performance Monitors.</td>
+    </tr>
+    <tr>
+      <td><pre><code>_split_columns(lines: Array[String])</code></pre></td>
+      <td>Splits the rendered rows across the panel's two columns on section boundaries, balancing the two by line count.  The whole panel is ~50 lines; a single column of that is taller than a 720 px viewport, and the shipped 120 px auto-scrolling box showed the user only its last five lines. Sections are kept whole -- a header is never separated from its rows -- and the split point is chosen so that neither column is more than half the total plus one section. @param lines: The rendered rows, section headers included. @return [left_text, right_text].</td>
     </tr>
     <tr>
       <td><pre><code>_try_resolve_camera()</code></pre></td>
@@ -2282,7 +2310,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 07:57:37 UTC">September 20, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 20, 2026 20:11:01 UTC">September 20, 2026</span>
   </span>
 
     
