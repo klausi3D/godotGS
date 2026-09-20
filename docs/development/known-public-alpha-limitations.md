@@ -68,6 +68,14 @@ cannot be fixed from this module.
 
 **Workaround:** do not combine `transparent_bg` with TAA or FSR2.
 
+> **A warning for whoever fixes this.** The destination alpha #989 is about is **not** just
+> an alpha channel — it is also, by accident, FSR2's reactive mask. Godot has no dedicated
+> reactive texture: `params.reactive` is an alpha-swizzled view of the internal colour
+> buffer, and the composite writes splat coverage into that alpha. That coupling is why
+> splats do **not** ghost under FSR2 (see #1025). **Changing this channel changes FSR2's
+> temporal behaviour silently**, with no test that would notice. Measure FSR2 ghosting
+> before and after any #989 fix.
+
 ### Painterly rendering has no automated coverage, and its material cannot be assigned from a scene ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
 Painterly needs two things, and `painterly/enabled` is only one of them: a valid
@@ -330,20 +338,31 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-### Splats ghost under TAA or FSR2 while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+### Splats trail under TAA while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
 
 With a *static* camera this is fixed — the splat projection carries the engine's temporal
-jitter as of #929/#1026. In motion, splat regions smear, because the module publishes
-colour only: of the four inputs the temporal stages consume (colour, depth, velocity,
-reactive mask) it supplies none of the last three, so the resolve reprojects splat pixels
-with zero velocity.
+jitter as of #929/#1026.
 
-**Workaround:** keep Godot's defaults — `scaling_3d_mode = bilinear` at scale 1.0 and
-`use_taa = false` — for content with a moving camera, or accept the ghosting.
+Under **TAA** in motion, splat detail trails its true position by **≈1.5 px** — 0.27–0.87
+frames stale, 6–26× an in-frame geometry control — and the trail does **not** grow with
+camera speed, because the variance clip is computed from the current frame.
 
-**Status:** the static-camera half is measured fixed in #1026 — splat-layer sub-pixel
-displacement 0.2525 px → 0.0900 px at FSR2 scale 1.0, and 0.3603 px → 0.0927 px at scale
-0.5, on a real scan at 960×540. Those figures are #1026's, not re-measured here. The
-moving-camera residual is unfixed and is what this entry discloses; fixing it edits
-`render_forward_clustered.cpp` and needs its own ADR. The acceptance-bar §8.1 row that
-proposes accepting it is itself marked *proposed*, for the same reason.
+**Under FSR2 there is no ghosting.** 0.000 frames of staleness at scale 1.0, at the floor
+set by the same in-frame control, across a slow pan, a normal pan and a dolly; at scale 0.5
+the splat trail is at or below the control's in two of three motions. The reason is a
+mechanism that had not been recorded anywhere: the composite already feeds FSR2's reactive
+mask, through the destination alpha, so FSR2 reconstructs splat pixels from the current
+frame rather than accumulating them.
+
+**Workaround:** `use_taa = false` — which is already Godot's own default. **FSR2 needs no
+workaround at either scale.**
+
+**Status: measured**, on a real scan with a moving camera, on both the base and the #1026
+binaries — which agree to within 0.01 frames, so the jitter fix neither causes nor cures
+this. An earlier revision of this entry said splats ghost under FSR2 too and told you to
+avoid it; that was a prediction, it has now been measured, and it was wrong in the
+direction that costs you a working feature. The remaining TAA defect is real and unfixed.
+Fixing it means the module publishing a velocity field — which is *not* an engine-boundary
+change, since the module already holds the buffers and the previous-frame camera — but a
+wrong velocity smears confidently and reads as a renderer bug, which is why it is not alpha
+work. The acceptance-bar §8.1 row proposing to accept it is marked *proposed*.
