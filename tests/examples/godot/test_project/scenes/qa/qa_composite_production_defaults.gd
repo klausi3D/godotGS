@@ -211,17 +211,27 @@ const SWIM_CROSSTALK_MAX_LSB := 0.5
 ## jitter-absent one. That is 1.61x above every passing measurement and 1.48x
 ## below every failing one.
 ##
-## Every observation, on one RTX 3090 / Vulkan 1.4.325, optimize=speed_trace:
-##   jitter ABSENT   fsr2_100: 0.3045 0.3066 0.3047 0.3052 0.3041  (spread 0.8%)
-##                   fsr2_050: 0.2444 0.2347 0.2252 0.2219
-##   jitter APPLIED  fsr2_100: 0.0929 0.0929 0.0929
-##                   fsr2_050: 0.0542 0.0569 0.0614
+## Every observation, on one RTX 3090 / Vulkan 1.4.325:
+##   jitter ABSENT   fsr2_100: 0.3045 0.3066 0.3047 0.3052 0.3041 0.3066 0.3047
+##                   fsr2_050: 0.2444 0.2347 0.2252 0.2219 0.2172 0.2403
+##   jitter APPLIED  fsr2_100: 0.0929 0.0929 0.0929 0.0929 0.09286
+##                   fsr2_050: 0.0542 0.0569 0.0614 0.0570 0.0545
 ## (the 0.3041 / 0.2252 pair is a mutation build that reverts ONLY the jitter, so
-## the defect population is not just "an older tree".)
+## the defect population is not just "an older tree"; the 0.09286 / 0.0545 pair is
+## a CI run on a DIFFERENT build configuration -- dev_build rather than
+## optimize=speed_trace -- which is why the pass side is quoted to five figures
+## there. The last two of each fsr2_100 row and the last of each fsr2_050 row were
+## taken after a stray GPU process that had been loading the machine since
+## 2026-09-16 was killed; they are indistinguishable from the ones taken under it,
+## which is the evidence that this metric does not respond to GPU contention.)
+##
+## Separation as measured: highest passing 0.0929, lowest failing 0.2172. 0.15 px
+## is 1.61x above the former and 1.45x below the latter, and within 6% of their
+## geometric midpoint.
 ##
 ## This is ONE GPU and one driver. A different FSR2 reconstruction could move the
 ## pass-side value, and 1.61x of headroom is the whole budget for that; if this
-## ever reds on a correct tree, widen it toward the 0.2219 px lower edge of the
+## ever reds on a correct tree, widen it toward the 0.2172 px lower edge of the
 ## defect population and record the new measurement here -- do not delete the gate.
 ##
 ## NOT a ratio against the mesh control. That was the first design and the
