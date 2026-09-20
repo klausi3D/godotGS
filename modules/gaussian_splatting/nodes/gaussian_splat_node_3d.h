@@ -14,6 +14,7 @@
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_quality_config.h"
 #include "../core/painterly_manager.h"
+#include "../painterly/painterly_material.h"
 #include "core/math/aabb.h"
 #include "core/math/vector2i.h"
 #include "core/object/object_id.h"
@@ -154,6 +155,26 @@ private:
     float color_variation = 0.05f; // Legacy serialized compatibility only (not an exposed node property).
     float temporal_blend = 0.9f;
     uint32_t painterly_seed = 1337;
+    // #997/#851: the authored PainterlyMaterial. Without this slot Godot
+    // silently discarded `painterly/material = SubResource(...)` at scene load
+    // and every painterly frame fell back to the baseline raster
+    // (render_pipeline_stages.cpp PAINTERLY_MATERIAL_UNAVAILABLE).
+    Ref<PainterlyMaterial> painterly_material;
+    // Push the material to the shared renderer only when the NODE changed it.
+    //
+    // apply_renderer_settings() runs every frame (update_splats() calls it
+    // before the render_state_dirty check), so an unconditional push would make
+    // the node overwrite the renderer's material on every frame -- with an
+    // empty Ref for any node that never authored one. That would break
+    // GaussianSplatRenderer.painterly_material, the script route that is the
+    // only one that existed before `painterly/material` was bound: the renderer
+    // would be cleared one frame after the script set it and painterly would
+    // silently fall back to the baseline raster.
+    //
+    // Armed by set_painterly_material(), by acquiring a renderer reference, and
+    // by the peer-set convergence hook when this node stops being a non-owner
+    // peer; cleared the moment the push happens.
+    bool painterly_material_push_pending = false;
     GaussianSplatting::PainterlyManager painterly_manager;
 
     // Rendering settings
@@ -588,6 +609,23 @@ public:
 
     /** @brief Returns the painterly seed. */
     uint32_t get_painterly_seed() const { return painterly_seed; }
+
+    /**
+     * @brief Sets the PainterlyMaterial this node renders with.
+     *
+     * The painterly raster path is renderer-wide, so the material is pushed to
+     * the shared GaussianSplatRenderer and, exactly like the other painterly
+     * controls, is refused while the renderer is shared with other content.
+     * A painterly frame without a valid material falls back to the baseline
+     * raster (RenderFallbackReason::PAINTERLY_MATERIAL_UNAVAILABLE), so this is
+     * a required input for painterly, not an optional decoration.
+     *
+     * @param p_material The material, or an empty Ref to clear it.
+     */
+    void set_painterly_material(const Ref<PainterlyMaterial> &p_material);
+
+    /** @brief Returns the node's authored PainterlyMaterial. */
+    Ref<PainterlyMaterial> get_painterly_material() const { return painterly_material; }
 
     /// @}
 

@@ -55,6 +55,7 @@ RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_rendere
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
 EDITOR_NODE_POINTER_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_editor_node_pointer_lifetime.py"
 GS_PRE_UPSCALE_HOOK_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gs_pre_upscale_hook.py"
+PAINTERLY_NON_VACUITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_painterly_test_non_vacuity.py"
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
@@ -913,6 +914,33 @@ def _run_gs_pre_upscale_hook_guard() -> tuple[bool, list[str]]:
         if code != 0:
             if not output_lines:
                 output_lines = [f"GS pre-upscale hook guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_painterly_non_vacuity_guard() -> tuple[bool, list[str]]:
+    """Painterly test non-vacuity guard (refs #997, #851): a GDScript test that
+    turns painterly on must read `stage_raster_painterly`, or carry a reasoned
+    allowlist entry. Without a PainterlyMaterial the painterly path silently
+    falls back to the baseline raster and produces a bit-identical frame, which
+    is how every painterly test in this repo came to assert nothing. Runs the
+    script's --self-test first so a guard that can no longer fail is itself a
+    failure."""
+    if not PAINTERLY_NON_VACUITY_GUARD_SCRIPT.is_file():
+        return False, [
+            f"Missing painterly non-vacuity guard script: {PAINTERLY_NON_VACUITY_GUARD_SCRIPT.relative_to(ROOT)}"
+        ]
+
+    for args in (
+        [sys.executable, str(PAINTERLY_NON_VACUITY_GUARD_SCRIPT), "--self-test"],
+        [sys.executable, str(PAINTERLY_NON_VACUITY_GUARD_SCRIPT)],
+    ):
+        code, out, err = _run_command(args)
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Painterly non-vacuity guard failed with exit code {code}."]
             return False, output_lines
 
     return True, output_lines
@@ -3480,6 +3508,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gs_pre_upscale_hook_guard,
             "GS pre-upscale composite hook guard failed.",
             "GS pre-upscale composite hook guard passed.",
+        ),
+        (
+            True,
+            _run_painterly_non_vacuity_guard,
+            "Painterly test non-vacuity guard failed.",
+            "Painterly test non-vacuity guard passed.",
         ),
         (
             True,

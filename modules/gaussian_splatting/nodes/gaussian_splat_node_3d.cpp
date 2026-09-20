@@ -142,6 +142,24 @@ void GaussianSplatNode3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_painterly_seed"), &GaussianSplatNode3D::get_painterly_seed);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "painterly/seed", PROPERTY_HINT_RANGE, "0,65535,1"), "set_painterly_seed", "get_painterly_seed");
 
+    // #997/#851: `painterly/material` was authored in four places across the
+    // shipped demo scenes (tests/examples/godot/test_project/scenes/
+    // testlevel.tscn:405,553,558 and ancient_corinth.tscn:116) against a
+    // property that was never bound, so Godot discarded it at scene load and
+    // painterly silently rendered the baseline. Binding it repairs
+    // already-authored intent; it is not new API surface.
+    //
+    // Only ancient_corinth.tscn starts rendering painterly as a result.
+    // testlevel.tscn's three GaussianSplatNode3D share one World3D, so
+    // _is_renderer_shared_with_other_content() is true there and
+    // apply_renderer_settings() forces painterly off and skips the material
+    // push entirely. That is #329's P2 contract, not a defect of this binding,
+    // and it is unchanged here.
+    ClassDB::bind_method(D_METHOD("set_painterly_material", "material"), &GaussianSplatNode3D::set_painterly_material);
+    ClassDB::bind_method(D_METHOD("get_painterly_material"), &GaussianSplatNode3D::get_painterly_material);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "painterly/material", PROPERTY_HINT_RESOURCE_TYPE, "PainterlyMaterial"),
+            "set_painterly_material", "get_painterly_material");
+
     // Rendering settings
     ADD_GROUP("Rendering", "rendering/");
     ClassDB::bind_method(D_METHOD("set_update_mode", "mode"), &GaussianSplatNode3D::set_update_mode);
@@ -1185,6 +1203,48 @@ void GaussianSplatNode3D::set_painterly_seed(uint32_t p_seed) {
     _apply_painterly_settings();
     _update_quality_settings();
     _mark_render_state_dirty();
+}
+
+void GaussianSplatNode3D::set_painterly_material(const Ref<PainterlyMaterial> &p_material) {
+    // Same P2 gate as every other painterly setter (set_edge_threshold,
+    // set_stroke_opacity, set_stroke_width, set_temporal_blend,
+    // set_painterly_seed): painterly is a RENDERER-WIDE effect, so a non-owner
+    // peer of a shared renderer must not write it.
+    //
+    // Note what this means, because it differs from set_enable_painterly():
+    // the assignment is dropped ENTIRELY while shared, node-local state
+    // included. get_painterly_material() keeps returning the previous value,
+    // and there is nothing for the peer-set convergence hook to re-apply when
+    // the node is alone again -- the user has to assign it a second time.
+    // That is the existing contract for the five painterly scalars and is
+    // matched deliberately rather than quietly diverged from; the inspector
+    // hides `painterly/*` on a shared renderer (_validate_property) so the
+    // editor path cannot hit it silently. Widening this is a separate change
+    // that should move all six together.
+    if (_is_renderer_shared_with_other_content(renderer)) {
+        return;
+    }
+    // An unchanged value still counts as an explicit node-side assignment: it
+    // is how a user takes authority back after a script wrote the renderer
+    // directly. It therefore arms AND delivers on exactly the same path as a
+    // changed value.
+    //
+    // Delivering matters, not just arming. An earlier revision armed the flag
+    // and returned, leaving delivery to the next apply_renderer_settings() --
+    // which UPDATE_MODE_MANUAL never runs, because it does not call
+    // update_splats(). "Take authority back" was then permanently a no-op in
+    // that mode until someone called force_update(). Found by Codex review.
+    const bool material_changed = painterly_material != p_material;
+    if (material_changed) {
+        painterly_material = p_material;
+    }
+    painterly_material_push_pending = true;
+    if (renderer.is_valid()) {
+        _apply_renderer_settings();
+    }
+    if (material_changed) {
+        _mark_render_state_dirty();
+    }
 }
 
 void GaussianSplatNode3D::set_update_mode(ViewportUpdateMode p_mode) {
@@ -2734,6 +2794,16 @@ void GaussianSplatNode3D::_converge_shared_renderer_state() {
     // part 2 removed from the per-frame path, re-entered through the world hook.
     // The memo compare in push_debug_overlay_union() writes when (and only when)
     // the union actually moves, which is the correct trigger here too.
+    //
+    // Painterly material: this node has just stopped being a non-owner peer, so
+    // it may write renderer-wide painterly state again. Its authored material
+    // was never pushed while shared (the P2 gate in apply_renderer_settings
+    // skipped it), so re-arm the edge-triggered push -- but only when the node
+    // holds one, so a node with no material does not clear a material a script
+    // set while this node was shared.
+    if (!shared_renderer_multi_instance && painterly_material.is_valid()) {
+        painterly_material_push_pending = true;
+    }
     _apply_renderer_settings();
     notify_property_list_changed();
 }
