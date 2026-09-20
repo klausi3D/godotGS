@@ -11,6 +11,16 @@ with none of those is not a claim, it is a hope.
 Recorded against base `de2cb8007ba` (2026-09-03). Code citations below were read
 at that commit; re-verify before relying on them.
 
+> **Amended 2026-09-17 at `b915afc51c5` (#1016).** The public-alpha envelope now
+> **includes streaming open worlds**. It previously excluded them, which put this
+> document in direct contradiction with the release-gate manifest — the alpha could
+> not pass its own gate, and no work on the alpha's declared scope would have changed
+> that. The decision, the options weighed and the full cost are recorded in
+> [ADR: widen the public-alpha envelope to streaming open
+> worlds](../architecture/adr-alpha-envelope-widened-to-streaming.md). §5, §6, §7, §9.1,
+> §10 and §11 below are amended accordingly. **The gate was not narrowed and no
+> threshold was lowered**; the scope moved to meet the gate.
+
 ## 1. Release intent
 
 **v1.0 is production-ready**: someone can ship a commercial game with it.
@@ -110,6 +120,11 @@ Because streaming and multi-node are *inside* the envelope, their defects are
 user-visible-correctness blockers under §4.1 by definition. This is the most
 demanding of the envelope options and is a deliberate choice.
 
+**Streaming open worlds are now also inside the *alpha* envelope (§10.1).** The only
+scope the v1.0 envelope adds over the alpha's is **multi-node scenes**. Consequently
+every streaming defect is an alpha blocker under §4.1, not a v1.0 one — §11 lists which
+issues that moved.
+
 ## 6. Visual proof
 
 **Human eyes on real-scan content.** Synthetic CI fixtures (2k–30k splats) keep
@@ -120,6 +135,11 @@ QA pin masked it (#903, #921).
 Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.
+
+**The alpha's pass now has to cover streaming too** (§10.1). The procedure drafted on
+#1012 covers the resident and world routes and does **not** cover streaming; a streaming
+configuration must be added before it is executed, or the pass does not span the envelope
+it claims.
 
 **Binding:** a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
@@ -137,6 +157,28 @@ At the base commit the manifest
 settings of which **3** are marked `public`, **150** carry no `publicness` at
 all, and **139** are `inventory_only` — present in the inventory with nothing
 verifying they do anything.
+
+**Corrected 2026-09-17: those figures count only *literal* fields, and read alone they
+understate the public surface by a factor of about fifty.** `publicness` is inherited
+from the longest matching family prefix and only then overridden per setting
+(`modules/gaussian_splatting/tests/check_project_settings_manifest.py:313-331`), and 21
+of the 23 families default to `public` — including the root family. So the three numbers
+above are each true, and the number that describes the surface a user is exposed to is
+that **153 of the 193 settings resolve to `public`**, and that **106 of those 153 are
+also `test_coverage: inventory_only`** — public by inheritance with nothing verifying they
+do anything. (139 is the `inventory_only` count across all 193, not the public subset;
+the two figures are different and had been conflated.) Only `…/debug/` (`debug_only`) and
+`…/lighting/` (`internal`) inherit anything else.
+
+**A consequence, recorded because it is a §4.2 shape.** §9's machine criterion
+"`publicness` is set on every setting in the manifest" **already passes today**, because
+the guard evaluates the *resolved* entry
+(`check_project_settings_manifest.py:377-378`). The §11 work item "Classify all 193
+settings; guard that `publicness` is always set" is therefore satisfied as written while
+150 settings remain unclassified in practice. If the intent is explicit per-key
+classification — and it is — the guard must check the **literal** field. That is a
+v1.0 item, not an alpha one, but the criterion should not be cited as evidence in the
+meantime.
 
 A promise over a surface that large is unkeepable; a small kept promise is worth
 more than a large broken one.
@@ -171,7 +213,7 @@ drift apart. Exactly one row does that today: `#929 residual`.
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
-| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With TAA or FSR2 on, splat regions **ghost while the camera or the content moves**. Static-camera swimming is fixed; this is the motion half only. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; remainder is R3/ADR; workaround exists). **Scoped down, not waived.** The jitter half is fixed and gated (`build_render_projection()` + the QA temporal-stability phase). What remains needs per-pixel **motion vectors**, which the module does not write: of the four inputs the temporal stages take — colour, depth, velocity, reactive mask — splats supply colour. Velocity requires caching the previous view-projection and reprojecting GS depth per pixel, and depth write-back means new attachments at the `render_forward_clustered.cpp` seam, i.e. an **engine-boundary (R3)** change with an ADR, two independent reviews and CODEOWNER sign-off. A *wrong* velocity is worse than none — it smears confidently. Tracked as **#1025** (`priority:P1`, `needs-adr`), which also records that the moving-camera case has never been measured in this repo and that measuring it is its first task. Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` the §9 gate requires; that page currently records no accepted limitations. | Use `scaling_3d_mode = bilinear` at scale 1.0 with `use_taa = false` (Godot's own defaults) for content with a moving camera, or accept the ghosting. Still cameras are unaffected. |
+| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With TAA or FSR2 on, splat regions **ghost while the camera or the content moves**. Static-camera swimming is fixed; this is the motion half only. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; remainder is R3/ADR; workaround exists). **Scoped down, not waived.** The jitter half is fixed and gated (`build_render_projection()` + the QA temporal-stability phase). What remains needs per-pixel **motion vectors**, which the module does not write: of the four inputs the temporal stages take — colour, depth, velocity, reactive mask — splats supply colour. Velocity requires caching the previous view-projection and reprojecting GS depth per pixel, and depth write-back means new attachments at the `render_forward_clustered.cpp` seam, i.e. an **engine-boundary (R3)** change with an ADR, two independent reviews and CODEOWNER sign-off. A *wrong* velocity is worse than none — it smears confidently. Tracked as **#1025** (`priority:P1`, `needs-adr`), which also records that the moving-camera case has never been measured in this repo and that measuring it is its first task. Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` §9.1 requires. | Use `scaling_3d_mode = bilinear` at scale 1.0 with `use_taa = false` (Godot's own defaults) for content with a moving camera, or accept the ghosting. Still cameras are unaffected. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why
@@ -200,6 +242,141 @@ counts as SUCCESS against a required check — a silent total bypass. The gate m
 assert execution, not merely the absence of failure. See
 [evidence integrity](evidence-integrity.md).
 
+### 9.1 What the candidate evidence bundle must contain
+
+This is the specification #961 builds against. It was **derived by running**
+`tests/ci/check_renderer_release_gates.py --mode candidate` against the real
+`docs/reference/renderer_release_gate_manifest.json` until it returned
+`Renderer release gate candidate check passed`, not by reading the manifest — the two
+differ, because several required fields are enforced in the validator and named nowhere
+in the manifest. Re-derive it the same way if the validator changes.
+
+**Two files, never one.** The evidence bundle and the issue snapshot are passed
+separately (`--candidate-evidence`, `--issues-json`) and the gate refuses them if they
+are the same file: "an issue snapshot embedded in the candidate evidence cannot certify
+its own blocker set".
+
+**Top-level fields of the evidence bundle:**
+
+| Field | Requirement |
+| --- | --- |
+| `commit` | must equal the run's `--expected-commit` |
+| `commit_time_utc` | parseable; every artifact's mtime is checked against it |
+| `release_channel` | `public-alpha` — **or** a matching `release_tag`; the selector accepts *either* (`_candidate_selector_matches`, `:900-910`), it does not require both. Set both anyway. |
+| `release_tag` | matches `v*-alpha*` |
+| `artifacts` | object keyed by the ten group names below |
+| `gpu_harness_report` | repo-relative path to the GPU report JSON |
+| `benchmark_report` | repo-relative path to the benchmark report JSON |
+| `issue_classifications` | object; classifies each open P0/P1/release-blocker |
+| `resolved_manifest_issues` | proof rows for manifest-tracked blockers that are now closed |
+
+**Ten artifact groups**, each requiring `path`, `sha256`, `godot_binary_commit` and
+`godot_binary_mtime_utc`: `linux_release_archive`, `windows_release_archive`,
+`runtime_validation_report`, `gpu_harness_report`, `production_evidence_summary`,
+`benchmark_suite_report`, `compatibility_source_snapshot`,
+`docs_release_acceptance_report`, `known_limitations_page`, `open_world_proof`. Each
+path must resolve *inside* the repository, the file must exist, its re-hash must match
+`sha256`, and its commit must not be stale. Its mtime must not predate `commit_time_utc` —
+but note that check is **conditional**: `_candidate_artifact_mtime_failures` (`:1127-1137`)
+compares only when *both* timestamps parse, and `_parse_time` (`:862-866`) returns `None`
+on anything malformed, so an unparseable `godot_binary_mtime_utc` skips the comparison
+silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch a
+malformed one. The workflow binds an eleventh group, `windows_export_template_archive`,
+via `--artifact-sha`.
+
+> **Artifact groups are integrity-checked, never content-checked, and that is load-bearing
+> for `open_world_proof`.** `_validate_candidate_artifact_group`
+> (`tests/ci/check_renderer_release_gates.py:1050-1065`) runs the required-field, hash,
+> commit and mtime checks and nothing else. The bytes *are* read — `:1100-1112` hashes
+> them — but **no validator inspects what the file says**; any byte string with a matching
+> digest satisfies the group. Demonstrated:
+> a bundle that is otherwise complete but points `open_world_proof` at the repository's
+> `README.md`, with a correct digest, **exits 0 with no failures**. The manifest says as
+> much about itself — `workflow_blocking_behavior_machine_enforced: false` (`:320-324`) and
+> "open-world proof must be blocking rather than advisory" under
+> `documented_non_enforced_rules` (`:260-264`). **So pointing this group at genuine
+> corridor-proof output is a #961 and human-signer obligation, not something the gate
+> enforces.** Treat it as §4.2's "a lane that passes without executing" until either a
+> content validator exists for the group or `open_world_corridor_proof` is added to
+> `candidate_required_lanes`.
+
+**GPU harness report.** `supervisor_exit` must be **present** and `0` — a report without
+it is refused outright, which closes the delete-the-field laundering path. If present,
+`totals_authoritative` must be `true`, and the run-verdict list/scalar fields must be
+empty/zero. `batches` must be a **list** of objects each carrying `name`. All eight
+`gpu_harness_policy.required_batches` must appear, each meeting its
+`minimum_test_cases`: `CompositorHazard` (1), `RendererPipeline` (4), `Lifetime` (4),
+`OutputCompositor` (4), `RendererSceneTree` (1), `WorldSceneTree` (5),
+`SceneDirectorSceneTree` (14), `GpuSorting` (1). Every batch additionally needs
+`test_cases` and `assertions` as **objects**, `summary_parse_ok: true`,
+`case_assert_audit_ok: true`, a `zero_assertion_cases` list, and a `zero_assert_reported`
+count that reconciles with that list's length. Zero RID leaks, no timeout, `rc` 0.
+
+**Benchmark report.** A row per lane in `benchmark_acceptance.candidate_required_lanes` —
+`static_baseline`, `streaming_corridor`, `city_flyover`, `instance_storm`,
+`integrity_sentinel`, `parity_fidelity` — each carrying all fifteen
+`required_fields_non_null`. GPU timing is checked by name: when
+`gpu_timing_available` is true, `gpu_time_frame_ms` must be a positive number; when it is
+not, the row must carry an explicit `gpu_frame_time_source`/`gpu_time_frame_source` of
+`"unavailable"`. Silence is a failure, not an exemption. A timed-out lane fails, and a
+CPU/fallback route fails unless the lane explicitly allows it.
+
+**Visual acceptance — evaluated per benchmark-lane row, not once per bundle.** Every lane
+row carries its own capture fields and is checked independently
+(`_candidate_lane_visual_failures`, `:1598`): at least `capture_count_min` captures;
+reference-match count equal to capture count; SSIM and PSNR non-null. Two further
+conditions fire only when the field is present — `capture_threshold_pass_count` must equal
+`capture_count`, and `visual_reference_match` must not be `false`.
+
+**Issue snapshot — and the bundle cannot classify anything.** This is the part of the gate
+that is easiest to get wrong, so it is stated as the validator behaves rather than as the
+field names suggest. The population is every **open** issue carrying `priority:P0`,
+`priority:P1` or `release blocker` (`classification_labels_any`, manifest `:26-30`). For
+each, exactly one outcome passes:
+
+| Classification | Source | Result |
+| --- | --- | --- |
+| `blocking` | anywhere | **always fails** — "candidate issue #N is still blocking" (`:1793-1799`) |
+| `accepted_alpha_limitation` / `deferred` | the **bundle**'s `issue_classifications` | **fails** — "must be tracked in `public_alpha_issue_ledger`" (`:1918-1926`) |
+| `accepted_alpha_limitation` / `deferred` | the **manifest**'s `public_alpha_issue_ledger` | passes, if it carries a non-empty `evidence_required`, and for an accepted limitation a `docs_path` string-equal to `known_limitations_page` |
+
+So `issue_classifications` in the bundle cannot admit anything the manifest has not already
+admitted. **The only two passing routes for an open relevant issue are: close it, or add it
+to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER approval.**
+
+> **But the gate cannot tell whether the snapshot is complete, and that is a §4.2 gap in the
+> machinery itself.** `--issues-json` is parsed as supplied (`:1729-1737`, `:1883-1927`); the
+> validator never queries GitHub and has no notion of what the open issue set actually is.
+> An **empty** snapshot passes, except that manifest-tracked `blocking` entries must still be
+> accounted for (`:1851-1880`) — which is the one thing that saved Run B in the ADR. Keeping
+> the snapshot in a separate file from the evidence prevents a bundle from *certifying
+> itself*; it does nothing about an omitted or fabricated row. **So "every open P0/P1/
+> release-blocker is closed or ledgered" is a property of an honest snapshot, not something
+> this gate establishes.** Whoever builds #961 must generate the snapshot from a live query
+> in-workflow and bind it to the run, or the issue check is decorative. Recorded here rather
+> than left implicit, because a criterion that cannot fail is not a criterion.
+
+> **The real precondition, and the single largest cost of the public alpha: every open P0,
+> P1 and release-blocker must be closed or ledgered.** Measured **2026-09-19**: **2 open P0**
+> (#182, #184), **36 open P1**, **4 carrying `release blocker`** (#1010, #1011, #1012,
+> #1016) — **38 distinct issues**. The ledger holds four entries (#351, #352, #360, #369).
+> The figure moves — it was 37 hours earlier, before #1025 gained `priority:P1` — so
+> re-query it rather than quoting this line; the rule above is what binds.
+> An earlier revision of this section said the precondition was "#351, #352 and #360 must be
+> closed"; that was wrong twice over — #351 and #352 closed in June, and the requirement was
+> never about three issues.
+>
+> Of the ledger's own `blocking` entries, **#360 is still open** and so fails the gate;
+> #351 and #352 are closed and must appear in `resolved_manifest_issues` with
+> `state: CLOSED`, because an open-only snapshot will not contain them.
+>
+> **A gap in the other direction.** The four defects §11 still calls alpha blockers are
+> invisible to this population: #929 carries only `program:prod-ready`, and #851, #833 and
+> #54 are `priority:P2`, and **#1030 is unlabelled**. The bar's hand-derived blocker set
+> and the machine's are disjoint; labelling them is a prerequisite for this gate to mean
+> what §11 says it means. #1025 was in this list until 2026-09-19, when it was given
+> `priority:P1` for exactly this reason — the remedy, demonstrated once.
+
 ## 10. Public Alpha — the reduced bar
 
 The alpha exists so that design errors are found early by users rather than late
@@ -207,16 +384,30 @@ by us, while the v1.0 program is still being built.
 
 | | Public Alpha | v1.0 Production |
 | --- | --- | --- |
-| Envelope | Single resident scene (see §10.1) | + multi-node + streaming |
-| Blocks | User-visible correctness only | + evidence integrity (§4.2) |
+| Envelope | Resident scene + world node + **streaming open worlds** (see §10.1) | + multi-node |
+| Blocks | User-visible correctness, **plus evidence integrity (§4.2) wherever the candidate gate relies on the evidence** | + evidence integrity everywhere |
 | Visual proof | Real-scan human pass **required** | Same, across full envelope |
 | API stability | **No promise**, stated plainly | Bounded public surface (§7) |
 | Peer comparison | Not required | Required (§3) |
-| Gate | Human sign-off | Fail-closed gate + sign-off (§9) |
+| Gate | **Fail-closed candidate gate (§9, §9.1) + human sign-off** | Same, over the full bar |
 | Labelling | "Alpha" stated prominently | — |
 
 The real-scan visual pass is required at **both** stages. An alpha may ship with
 gaps; it may not ship with splats missing under its own default settings.
+
+**Two rows of that table changed on 2026-09-17 (#1016), and both were wrong before rather
+than relaxed now.**
+
+- **Gate.** The alpha's gate was recorded as "Human sign-off". That has not been true since
+  the candidate gate existed: `release_builds.yml` maps every `refs/tags/v*` to the stable
+  channel, which runs `release_candidate_gate`, and `public_alpha_predicate` forecloses
+  every other publishing route. A `v*-alpha*` tag must pass the machine gate **and** carry
+  the human sign-off.
+- **Blocks.** Evidence integrity (§4.2) was recorded as v1.0-only. An alpha that publishes
+  through a fail-closed evidence gate cannot also be exempt from the rule that the evidence
+  must mean something — the two are the same claim. §4.2 binds the alpha wherever the
+  candidate gate rests on the evidence in question. This is a **correction, not a raised
+  bar**: it makes the table agree with machinery that already ran.
 
 ### 10.1 The alpha envelope, stated precisely
 
@@ -229,8 +420,23 @@ envelope is:
   Mobile is a separate route. None of those are in the alpha envelope.
 - **`GaussianSplatNode3D` with an imported asset, and `GaussianSplatWorld3D`.**
   The world route is **in** the alpha envelope by maintainer decision, which
-  makes #862 an alpha blocker (see §11). Streaming *open worlds* remain out —
-  admitting the world node is not admitting the 50M chunked ladder.
+  makes #862 an alpha blocker (see §11).
+- **Streaming open worlds are IN, as of 2026-09-17 (#1016).** This reverses the
+  sentence that stood here, which read "Streaming *open worlds* remain out —
+  admitting the world node is not admitting the 50M chunked ladder." That exclusion
+  put this document in contradiction with the release-gate manifest, which requires
+  the `open_world_proof` artifact group and the `streaming_corridor` and
+  `city_flyover` benchmark lanes of **every** public-alpha candidate. Confirmed by
+  running `check_renderer_release_gates.py --mode candidate` against the real
+  manifest: an otherwise-complete bundle passes, and removing exactly those three
+  produces exactly three failures and no others. **The gate was kept and the envelope
+  widened**, not the reverse. The reasoning, the options weighed and the full cost are
+  in [the ADR](../architecture/adr-alpha-envelope-widened-to-streaming.md). The 50M
+  chunked ladder is therefore now an alpha item, not a v1.0 one.
+- **Multi-node scenes remain out.** The widening moved streaming and nothing else.
+- **TAA and FSR2 are IN.** This list was silent on the temporal stages, which
+  left the #929 disposition undecidable. See the decision below for the rule it
+  engages and the one exception to it.
 - **Import preset and node quality pinned, not defaulted.** The import dialog's
   balanced fallback is the `desktop` preset: `max_splats = 750000`,
   `density_multiplier = 0.7`
@@ -241,89 +447,80 @@ envelope is:
   the import preset and node quality it ran at, or it proves nothing about the
   splat count it claims.
 
-- **TAA and FSR2 are IN the alpha envelope.** This list previously said
-  "Forward+, single view" and was silent on the temporal stages, which left the
-  #929 disposition undecidable. **Decided: in** — relayed from the maintainer
-  through the #929 coordination thread and written down here so the rule below
-  has something to stand on. **The maintainer's own line on #929 or #1026 is the
-  authoritative record**; this bullet is a transcription by an agent and should
-  be reconciled against it, not treated as the decision itself. MetalFX-temporal
-  is macOS-only and therefore outside the alpha's platforms (§2), not inside
-  this decision.
-
-  The rule this engages: **an in-envelope defect is a blocker and must be fixed;
-  an out-of-envelope one may be disclosed under §8.** The consequence for #929
-  was that the unjittered-projection half was fixed rather than disclosed.
-
-  **The one exception, and its conditions.** An in-envelope defect may be
-  disclosed under §8.1 instead of blocking only when *all four* hold, and the
-  §8.1 row says so:
-
-  1. the defect is a **residual** of something already fixed, i.e. the shipped
-     behaviour is strictly better than before, not merely documented;
-  2. closing it requires work of a **higher risk class than the fix itself** —
-     in practice R3 at the engine boundary, needing an ADR — so bundling it
-     would trade a measured small change for an unreviewed large one;
-  3. a **workaround exists and is stated**, reachable from default settings; and
-  4. a **named human has accepted it as an alpha limitation**, recorded on the
-     issue or the PR. Absent that acceptance the row is not valid and the defect
-     stays in the §4 blocker query.
-
-  This exception is deliberately narrow. It is not "we ran out of time"; it is
-  "the remainder is a different, larger, riskier piece of work, the user has a
-  way through in the meantime, and a human said yes". A residual that meets 1-3
-  but not 4 is still a blocker.
-
-  **Applied to #929:** conditions 1-3 hold — the static-camera swimming is fixed
-  and measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround
-  is Godot's own default settings. Condition 4 is **outstanding at the time of
-  writing**: the envelope decision above came from the maintainer, but it is a
-  decision about the *envelope*, not about this residual, and no human line yet
-  accepts the moving-camera ghosting as an alpha limitation. The two are separate
-  calls and only the first has been made. Until the second exists, treat the §8.1
-  `#929 residual` row as **proposed**, and #1025 as a §4 blocker.
-
-  **A §8.1 row is not by itself a machine-visible disclosure.** For the §9 gate
-  to classify an issue `accepted_alpha_limitation` rather than blocking, three
-  separate things must be true, and a row in this table is none of them:
-  the issue must carry a label from `required_issue_query.classification_labels_any`
-  (`docs/reference/renderer_release_gate_manifest.json`, today `priority:P0` /
-  `priority:P1` / `release blocker`) or the gate never asks about it at all
-  (`tests/ci/check_renderer_release_gates.py`, `_candidate_issue_is_relevant`);
-  the classification must carry a `docs_path` string-equal to the manifest's
-  `known_limitations_page`
-  ([`docs/development/known-public-alpha-limitations.md`](../development/known-public-alpha-limitations.md),
-  checked in `_candidate_issue_accepted_limitation_failures`); and the issue must
-  appear in `public_alpha_issue_ledger.tracked_issues`, which is an R3 manifest
-  edit. #1025 now carries `priority:P1`; **it is not yet in the ledger**, so as of
-  this writing it cannot be classified as an accepted limitation even if a human
-  accepts it. That is the fail-closed direction, and the ledger mechanism is
-  being recorded with the rest of the envelope-widening work rather than here.
-
-  **And a fourth thing, which the three above quietly depend on: the gate cannot
-  tell whether it was shown every issue.** `_validate_candidate_issues` iterates
-  only the rows handed to it in `--issues-json`, and nothing in
-  `tests/ci/check_renderer_release_gates.py` queries GitHub — its entire import
-  list is argparse, datetime, fnmatch, hashlib, importlib.util, json, math, re,
-  subprocess, sys, pathlib and typing, so a live query is not merely absent, it
-  cannot happen without adding a dependency. That constrains the fix: the
-  snapshot has to be generated in-workflow and bound to the run, not validated
-  after the fact. The one omission check,
-  `_validate_omitted_manifest_blockers`, iterates `manifest_classifications`, so
-  it catches a *manifest-tracked* `blocking` entry that went missing and nothing
-  else. An issue that is neither in the manifest nor in the supplied snapshot is
-  never examined, so a truncated or empty snapshot passes. Requiring
-  `--issues-json` to be a different file from the evidence bundle stops a bundle
-  certifying itself; it does not detect omission. Until #961 generates that
-  snapshot from a live in-workflow query, a classification for #1025 — or for
-  anything else — means "the gate was shown this and accepted it", never "the
-  gate saw everything". Found during the #1020 review; recorded here because it
-  bounds what the row above is worth.
-
 **Decided:** the alpha admits `GaussianSplatWorld3D`, so #862 is an alpha
 blocker. Triage had classified it out-of-envelope on the assumption that the
 world route was excluded; that assumption is now reversed, and the issue enters
 the blocker set by this decision rather than by a change in its severity.
+(#862 has since been **closed** — fixed on master by #1009.)
+
+**Decided 2026-09-17 (#1016):** the alpha also admits **streaming open worlds**, for
+the same kind of reason and with a larger consequence. Three gate requirements must now be
+satisfied before a stable tag: the **benchmark lanes** `streaming_corridor` and
+`city_flyover`, whose rows are content-checked, and the **artifact group**
+`open_world_proof`, which is only integrity-checked — see §9.1. Note the gate runs no lane
+itself; it reads a supplied report. "Must run and pass" is a statement about the release
+process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
+#786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set
+too and **closed on 2026-09-17**, so it moves nowhere.)
+
+**Decided: TAA and FSR2 are in the alpha envelope** — relayed from the maintainer
+through the #929 coordination thread and written down here so the rule below has
+something to stand on. **The maintainer's own line on #929 or #1026 is the
+authoritative record**; this paragraph is a transcription by an agent and should be
+reconciled against it, not treated as the decision itself. MetalFX-temporal is
+macOS-only and therefore outside the alpha's platforms (§2), not inside this
+decision.
+
+The rule this engages: **an in-envelope defect is a blocker and must be fixed; an
+out-of-envelope one may be disclosed under §8.** The consequence for #929 was that
+the unjittered-projection half was fixed rather than disclosed.
+
+**The one exception, and its conditions.** An in-envelope defect may be disclosed
+under §8.1 instead of blocking only when *all four* hold, and the §8.1 row says so:
+
+1. the defect is a **residual** of something already fixed, i.e. the shipped
+   behaviour is strictly better than before, not merely documented;
+2. closing it requires work of a **higher risk class than the fix itself** — in
+   practice R3 at the engine boundary, needing an ADR — so bundling it would trade
+   a measured small change for an unreviewed large one;
+3. a **workaround exists and is stated**, reachable from default settings; and
+4. a **named human has accepted it as an alpha limitation**, recorded on the issue
+   or the PR. Absent that acceptance the row is not valid and the defect stays in
+   the §4 blocker query.
+
+This exception is deliberately narrow. It is not "we ran out of time"; it is "the
+remainder is a different, larger, riskier piece of work, the user has a way through
+in the meantime, and a human said yes". A residual that meets 1-3 but not 4 is
+still a blocker.
+
+**Applied to #929:** conditions 1-3 hold — the static-camera swimming is fixed and
+measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround is
+Godot's own default settings. Condition 4 is **outstanding at the time of writing**:
+the envelope decision above came from the maintainer, but it is a decision about the
+*envelope*, not about this residual, and no human line yet accepts the moving-camera
+ghosting as an alpha limitation. The two are separate calls and only the first has
+been made. Until the second exists, treat the §8.1 `#929 residual` row as
+**proposed**, and #1025 as a §4 blocker.
+
+**And a §8.1 row is not by itself a machine-visible disclosure** — §9.1 sets out
+what the gate actually requires (a label in `classification_labels_any`, a
+`docs_path` equal to `known_limitations_page`, an entry in the manifest ledger, and
+a snapshot the gate cannot verify is complete). Concretely for this row: #1025 now
+carries `priority:P1`, so the gate asks about it, but **it is not in the ledger**, so
+as of this writing it cannot be classified as an accepted limitation even if a human
+accepts it. That is the fail-closed direction.
+
+**And a caveat that is part of the decision, not a footnote.** All three lanes exist,
+and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
+classifies `streaming_corridor` and `city_flyover` as `lightweight_smoke` and says in its
+own notes that each is "not representative chunked evidence"; it classifies
+`open_world_corridor_proof` as `chunked_open_world_candidate`, "not yet promoted
+real_chunked proof". Passing the three as currently classified would be a green gate over
+evidence this repository says does not support the claim — the §4.2 shape, and what
+`disallow_open_world_advisory_only: true` exists to forbid. **Before the alpha tag, either
+the backing content is promoted to `real_chunked`, or the alpha's streaming promise is
+explicitly bounded in words to what the lanes exercise.** That choice is open and is
+tracked on #1016.
 
 ## 11. Work items this bar creates
 
@@ -333,11 +530,14 @@ this document.
 **Blocking v1.0, from the full-scope envelope (§5):**
 
 - #842 — no benchmark lane varies node count; the hundreds-of-nodes target is
-  unproven, and GrandmasHouse was CPU-bound at 113 nodes.
-- #318, #320 — streaming performance.
-- #786 — `qa_stream_visual_smoke` never reaches visual readiness on a real GPU.
-- #883 — GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner.
-- The 50M chunked open-world asset must become a passing lane, not a contract.
+  unproven, and GrandmasHouse was CPU-bound at 113 nodes. **Stays v1.0**: it is a
+  multi-node item, and the #1016 widening moved streaming only.
+
+> The streaming entries that stood here — #318, #320, #786, #883 and the 50M chunked
+> open-world asset — left this list on 2026-09-17 (#1016). **Four of them moved to the
+> Public Alpha list below**: #320, #786, #883 and the 50M asset. They are not resolved and
+> nothing about them changed; the envelope moved underneath them. **#318 closed** the same
+> day, so it moved nowhere.
 
 **Blocking v1.0, from the bar itself:**
 
@@ -355,7 +555,14 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 12 identified, 4 fixed or closed, 7 open, 1 refuted.** Several were found
+**Status: 12 identified, 8 fixed or closed, 4 open, 0 refuted** (re-counted
+2026-09-19: #862, #986 and #987 have closed since this list was written, fixed on
+master by #1009 and #999; **#930 closed FIXED by #999** on 2026-09-17, so it is no longer
+"refuted" and moves into the fixed column. The four still open are #929, #851, #833 and
+#54 — and whether #929 closes with the TAA-jitter fix in flight is a human disposition
+that has not been made, so this line will need re-counting again when it is.) **Plus four
+streaming items admitted by the #1016 widening — see the table after item 10.** Several
+were found
 not by triage but by **verification conditions attached to a fix in flight** —
 #980 by the tooling built to demonstrate #586's reload path, #985 by the
 condition requiring #980's deferred triggers to be covered, and #986/#987 by the
@@ -391,11 +598,12 @@ rather than a ceiling.
    That residual is pre-existing, narrower than what was fixed, and is a
    code-reading finding **not reproduced on NVIDIA** — unproven, not absent. It
    is disclosed under §8 rather than blocking.
-4. **#862** — `GaussianSplatWorld3D` never resubmits when the assigned world's
-   parameters change, so edits silently do not apply. Enters this set by the
-   §10.1 envelope decision, not by triage ranking, which had classified it
+4. **#862** — **fixed on master** by #1009, and the issue is closed.
+   `GaussianSplatWorld3D` never resubmitted when the assigned world's parameters
+   changed, so edits silently did not apply. It entered this set by the §10.1
+   envelope decision, not by triage ranking, which had classified it
    out-of-envelope.
-5. **#929** — splats swim under FSR2. **Re-decided and split.** The entry
+5. **#929** — splats swim under FSR2. **Re-decided and split.** This entry
    previously read "Blocked on the #921 disposition"; that disposition was made
    and landed (Option B pre-upscale hook, #924), so the block no longer exists.
    Measurement then narrowed the claim: under **TAA** splats do not swim at all
@@ -409,48 +617,33 @@ rather than a ceiling.
    at the engine boundary (R3, ADR first). Same composite/temporal seam as #989.
 
    **What happens to this entry on merge.** The PR that fixes the jitter says
-   `Refs #929`, never a closing keyword, so nothing closes automatically — a
-   closing keyword has already closed a live issue once in this repo. The
+   `Refs #929`, never a closing keyword, so nothing closes automatically. The
    disposition a human owes, in one line on #929 or on that PR, is the §10.1
-   condition-4 acceptance:
+   condition-4 acceptance — which is the same open question the status line
+   above already flags:
    - **Accepted** — #1025 is an alpha limitation. Then #929 is closed by hand on
      merge, this item 5 is struck, the §8.1 `#929 residual` row loses its
-     *proposed* marker, and the limitation is listed on the known-limitations
-     page (which currently says the opposite; see the note below).
+     *proposed* marker, the limitation is listed on the known-limitations page,
+     and the status line is re-counted to 9 fixed or closed / 3 open.
    - **Not accepted** — then **#1025 replaces #929 as item 5** and stays in the
      §4 blocker query, the §8.1 row is deleted, and #929 is closed by hand only
-     once #1025 lands.
+     once #1025 lands. In that branch #929 also needs a
+     `priority:P0` / `priority:P1` / `release blocker` label applied at the same
+     time — §9.1 records that it carries only `program:prod-ready` and is
+     therefore invisible to the gate, and **#1025 is not a substitute for it**:
+     they are separate issues and the gate sees only the labelled one.
 
    Either way #929 itself carries no remaining work: the residual lives in
-   #1025. Until the line exists, count #929 as **open**, which is what the
-   status line above assumes.
-
-   **One consequence of the not-accepted branch that nothing else tracks.** #929
-   carries only `program:prod-ready`, so it is not in
-   `required_issue_query.classification_labels_any` and the §9 gate never asks
-   about it. Under the *accepted* branch that resolves itself — the issue closes
-   and drops out of the population. Under the *not accepted* branch #929 stays
-   open and stays invisible, and **#1025 is not a substitute for it**: they are
-   separate issues and the gate sees only the one carrying the label. So if the
-   maintainer declines the acceptance, #929 needs a
-   `priority:P0` / `priority:P1` / `release blocker` label at the same time as
-   the decision, or the blocker it becomes is one the machine cannot see. #1025
-   already carries `priority:P1`.
-
-   **Cross-document note.** `docs/development/known-public-alpha-limitations.md`
-   (introduced separately) currently states that #929 "is in the blocker set,
-   not the accepted set". Under the *accepted* branch that sentence becomes
-   false and must be replaced by the #1025 limitation; under the *not accepted*
-   branch it stays true but should name #1025 rather than #929. Whichever change
-   lands second owns reconciling the two.
-6. **#986** — **the painterly root cause.** Painterly's own viewport composite
-   can never load (a malformed `#[vertex]` marker and a 36-vs-48 push-constant
-   mismatch), so painterly falls through to the standard composite.
-7. **#987** — painterly renders nothing at the shipped `composite/depth_test =
-   true` default. **Downstream of #986, not independent:** the standard
-   composite it falls through to demands `raster_output.depth`, which
-   `render_painterly_stage` never assigns. Fix #986 and this resolves; do not
-   fix it separately.
+   #1025, which already carries `priority:P1`.
+6. **#986** — **fixed on master** by #999, and the issue is closed. It was the
+   painterly root cause: painterly's own viewport composite could never load (a
+   malformed `#[vertex]` marker and a 36-vs-48 push-constant mismatch), so
+   painterly fell through to the standard composite.
+7. **#987** — **fixed on master** by the same PR, and the issue is closed.
+   Painterly rendered nothing at the shipped `composite/depth_test = true`
+   default. It was **downstream of #986, not independent:** the standard
+   composite it fell through to demands `raster_output.depth`, which
+   `render_painterly_stage` never assigned, so repairing #986 resolved it.
 8. **#851** — black contours and inert shadows with painterly enabled. Its
    premise ("ships today on both painterly paths") held only because the QA pin
    sets `depth_test=false`; re-test at the shipped default once #986 lands.
@@ -458,29 +651,60 @@ rather than a ceiling.
 10. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
    scenes.
 
+**Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
+re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
+listed unranked, in a table rather than continuing the numbering above, because their
+severity against items 1–10 has not been assessed — and because a continued ordered list
+renumbers itself from 1 on the docs site.
+
+| Item | What it is |
+| --- | --- |
+| **#320** | `O(total_chunks)` work in streaming visibility, LOD, eviction and atlas registry. |
+| **#786** | `qa_stream_visual_smoke` never reaches visual readiness on a real GPU (luma variance 0.00009 against a 0.0002 gate, reproducibly). The scene is quarantined. |
+| **#883** | GPU streaming stress `frame_p95_to_avg_ratio` 3.69 on an idle runner. |
+| *(no issue)* | The **50M chunked open-world asset** must become a passing lane, not a contract. |
+
+**Streaming's QA coverage is entirely switched off.** All four streaming QA scenes are
+quarantined at `tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84`:
+`qa_stream_visual_smoke` (#786), `qa_stream_multi_asset` ("until the runtime surface can
+prove true resident/streaming coexistence"), `qa_stream_chunk_loading` and
+`qa_stream_eviction_churn` (both "streaming monitors not populated"). The last three carry
+no issue number. **Un-quarantining them is now alpha work rather than v1.0 work.**
+
+Recording them as accepted alpha limitations under §8 is **not** an equivalent route, and
+an earlier revision of this section wrongly offered it as one. A switched-off scene is a
+coverage gap, not a user-facing defect: it has no symptom a user can hit and no workaround,
+and it cannot satisfy the limitations page's fifth admission bullet — evidence that the
+limitation does not hide a renderer correctness failure — because a disabled scene is
+exactly the thing that could be hiding one. The three unnumbered entries need issues first.
+
 **#928 is closed** by #988. What remains of its symptom is upstream and
 disclosed as #989 (§8.1).
 
-**#930 is refuted only while #986 stands.** Painterly is decoded today by
-accident: the standard composite it falls through to performs the sRGB decode
-painterly's own shader lacks. **Repairing #986 makes #930 live.** Whoever fixes
-#986 must land the decode with it.
+**#930 is closed FIXED** by #999 (2026-09-17). This paragraph used to read "#930 is
+refuted only while #986 stands … whoever fixes #986 must land the decode with it". That
+prediction was correct and has been discharged: the #986 repair landed the sRGB decode
+with it, so painterly is no longer decoded by accident through the standard composite's
+fallthrough. Recorded rather than deleted, because the mechanism is the reason the
+condition was attached to the fix in the first place.
 
 **Painterly's defects are one class, not four.** `render_painterly_stage` does
 not populate fields `render_baseline_stage` does — `raster_output.depth` (#987)
 and `lighting_mode` (#851) are the two found so far, and there is no reason to
-believe they are the only two. The #986 repair must **enumerate every field the
-baseline stage assigns and verify painterly assigns it**, rather than
-discovering them one at a time. A secondary consequence already noted: invalid
+believe they are the only two — and there were not: #1018 (frozen per-node wind) and
+#1001 (`blend_strength` a hard-wired no-op) have since been found in the same class, after
+#986 landed. The enumeration this paragraph demanded — **every field the baseline stage
+assigns, verified present in painterly** — was **not** done by the #986 repair and is
+still outstanding. A secondary consequence already noted: invalid
 `raster_output.depth` makes the pipeline invalidate its cached render every
 frame, so painterly permanently defeats cached-render reuse — a silent cost, not
 a correctness defect, and it belongs with the same repair.
 
-**Do not "constrain painterly to `depth_test=false`".** It appears to work there
-only because two defects cancel: #986 removes painterly's composite, and at that
-setting the missing-scene-depth check collapses so the fallthrough proceeds.
-Enshrining it would bake in an accident that breaks the moment either defect is
-repaired.
+**Do not "constrain painterly to `depth_test=false`".** Before #999 it appeared to work
+there only because two defects cancelled: #986 removed painterly's composite, and at that
+setting the missing-scene-depth check collapsed so the fallthrough proceeded. Both are
+repaired now, which is precisely why the constraint must not be reintroduced — it would
+bake in an accident that no longer exists.
 
 Plus the real-scan visual pass on the §10.1 envelope, which is the gate itself.
 
@@ -501,8 +725,8 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.
 - `enable_direct_lighting` is the true master gate for the lighting path
   (`shaders/tile_binning.glsl:1306`), but it is hardcoded `true` at
   `renderer/render_pipeline_stages.cpp:2253` and
-  `renderer/tile_renderer.cpp:1376` and is exposed by no project setting; only a
-  unit test sets it false (`tests/tile_renderer_regression_test.cpp:927`). A game
+  `renderer/tile_renderer.cpp:1494` and is exposed by no project setting; only a
+  unit test sets it false (`tests/tile_renderer_regression_test.cpp:945`). A game
   shipping plain splat rendering with no lights cannot skip that path. Needs an
   issue.
 - Docs asserting behaviour the code contradicts (§8). Two confirmed at the base
