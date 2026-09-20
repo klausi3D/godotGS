@@ -26,6 +26,8 @@ nav:
       - api/gdscript_reference.md
       - api/shader_reference.md
       - reference/color-grading.md
+      - development/api-stability.md
+      - development/known-public-alpha-limitations.md
       - migration/index.md
   - Contribute:
       - contributor/index.md
@@ -37,6 +39,7 @@ nav:
       - testing/benchmark-suite.md
       - architecture/overview.md
       - governance/contribution-standards.md
+      - governance/release-acceptance-bar.md
       - development/export-templates.md
       - development/docs-site.md
       - style/documentation-style-guide.md

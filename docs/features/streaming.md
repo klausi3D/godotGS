@@ -47,12 +47,22 @@ Pending uploads keep their atlas slots reserved until retirement or failure roll
 
 ## Enabling streaming
 
-Streaming is enabled globally through a project setting and is active by default.
+There is **no** `streaming/enabled` project setting. An earlier revision of this page told
+you to confirm one was `true`; no such key exists anywhere in the module, so the
+instruction could not be followed.
+
+**Streaming is opt-in through `GaussianSplatWorld3D`, and only through it.** A direct
+`GaussianSplatNode3D` is resident by contract: it always pins
+`SUBMISSION_RESIDENCY_HINT_RESIDENT` and **deliberately ignores** `route_policy`
+(`modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:2626-2631`). So
+`rendering/gaussian_splatting/streaming/route_policy` selects the backend for **world
+submissions only**, and then only when the payload is actually streamable — see the
+residency table above.
 
 | Step | Action | Implementation reference |
 | --- | --- | --- |
-| 1 | Confirm `rendering/gaussian_splatting/streaming/enabled` is `true` in Project Settings. | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:933` |
-| 2 | Create a `GaussianStreamingSystem` instance (the node creates one automatically when streaming is enabled). | `modules/gaussian_splatting/core/gaussian_streaming.h:31` |
+| 1 | Use a `GaussianSplatWorld3D`. A bare `GaussianSplatNode3D` never streams, whatever the policy says. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:2626-2631` |
+| 2 | Leave `rendering/gaussian_splatting/streaming/route_policy` at its default `1`, or set it explicitly. | `modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1008` |
 | 3 | Call `initialize(data)` with a loaded `GaussianData` resource to partition splats into chunks. | `modules/gaussian_splatting/core/gaussian_streaming.cpp:927` |
 | 4 | Each frame, call `update_streaming(camera_transform, projection)` to drive chunk loading, culling, and eviction. | `modules/gaussian_splatting/core/gaussian_streaming.h:770` |
 

@@ -1,10 +1,21 @@
 # Internal Classes Index
 
 Classes listed below are registered with Godot's ClassDB but serve as internal
-infrastructure. They do not have dedicated API reference pages because they are
-either used exclusively by higher-level components, expose no scripting-facing
-methods, or are abstract base types. Each entry notes the registration site in
-`register_types.cpp` and a one-line purpose summary.
+infrastructure: they are either used exclusively by higher-level components, expose no
+scripting-facing methods, or are abstract base types. Each entry notes the registration
+site in `register_types.cpp` and a one-line purpose summary.
+
+> **Correction.** This page used to say these classes "do not have dedicated API reference
+> pages". That is no longer true — `modules/gaussian_splatting/doc_classes/` now holds 33
+> XML files, one per registered class, so every class here ships in-editor documentation.
+> "Internal" on this page means *not intended for use from your project*, not *undocumented*.
+>
+> **The registration line numbers in the table below have drifted and have not all been
+> re-verified.** Spot checks found several pointing at the wrong class — for example
+> `GaussianSplatAsset` is registered at `register_types.cpp:94`, not `:71`. Treat every
+> line number here as a hint and search `register_types.cpp` for the class name instead.
+> **Re-deriving the table is not currently tracked by any issue**, and it should be
+> generated from the registration block rather than re-typed, since that is how it drifted.
 
 ---
 

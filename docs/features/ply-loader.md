@@ -24,7 +24,7 @@ Load and inspect Gaussian PLY data with `PLYLoader`, or load and save PLY throug
 | --- | --- | --- | --- |
 | `GaussianData.load_from_file(path)` | Runtime method | Routes by extension and loads PLY through `PLYLoader` unless extension is `.spz`. | `modules/gaussian_splatting/io/gaussian_data_loader.cpp:9`, `modules/gaussian_splatting/io/gaussian_data_loader.cpp:29` |
 | `GaussianData.save_to_file(path)` | Runtime method | Writes PLY with position, SH DC, scale, rotation, opacity, and painterly fields. | `modules/gaussian_splatting/core/gaussian_data.cpp:1077`, `modules/gaussian_splatting/core/gaussian_data.cpp:1089`, `modules/gaussian_splatting/core/gaussian_data.cpp:1108` |
-| `PLYLoader.load_file(path)` | Runtime method | Parses header, optionally uses `.gsplatworld` cache, then parses binary or ASCII vertex data. | `modules/gaussian_splatting/io/ply_loader.cpp:69`, `modules/gaussian_splatting/io/ply_loader.cpp:97`, `modules/gaussian_splatting/io/ply_loader.cpp:112` |
+| `PLYLoader.load_file(path)` | Runtime method | Parses header, optionally uses the `.gsplatcache` sidecar, then parses binary or ASCII vertex data. | `modules/gaussian_splatting/io/ply_loader.cpp:69`, `modules/gaussian_splatting/io/ply_loader.cpp:97`, `modules/gaussian_splatting/io/ply_loader.cpp:112` |
 | `PLYLoader.get_property_deficiencies()` | Runtime method | Returns missing required and optional PLY properties. | `modules/gaussian_splatting/io/ply_loader.cpp:907` |
 | `PLYLoader.get_load_statistics()` | Runtime method | Returns count, format, property count, timings, cache-hit flag, and bounds. | `modules/gaussian_splatting/io/ply_loader.cpp:885` |
 
