@@ -181,15 +181,18 @@ Splats supply **colour only**.
   reported `raster_path = "other"`, never `cached`. It costs something only in
   the configuration that turns the relief valve off, and that cost is measured:
   on a 31,208-splat real scan at 960×540 with a static camera
-  (`optimize=speed_trace`, RTX 3090, vsync off, 240 timed frames per config),
-  `per_splat_depth_clip = false` under FSR2 @1.0 goes from **0.798 ms/frame with
-  `cached` sampled 30/30** to **2.912 ms/frame with `cached` 0/30** — +2.11 ms.
+  (`optimize=speed_trace`, RTX 3090, vsync off, 240 timed frames per config, six
+  samples per side on an otherwise-idle machine), `per_splat_depth_clip = false`
+  under FSR2 @1.0 goes from **0.905 ms/frame mean with `cached` sampled 30/30**
+  (range 0.759–1.176; a sub-millisecond path, so noisy) to **2.772 ms/frame with
+  `cached` 0/30** (range 2.735–2.881) — **+1.87 ms**.
   The cached figure is not a baseline to regret: it was the raster never re-running
   while the Halton phase advanced, i.e. one frozen jitter phase re-composited every
   frame. And it is not a new cost — the same scene at shipped defaults measures
-  2.916 ms (before) and 2.923 ms (after), so that configuration now simply performs
-  as the default already does. With no temporal stage both binaries stay `cached`
-  30/30 and their frame times are indistinguishable.
+  2.758 ms (before) and 2.760 ms (after), within 0.5% of the figure above, so that
+  configuration now simply performs as the default already does. With no temporal
+  stage both binaries stay `cached` 30/30 and their frame times are
+  indistinguishable.
   Painterly frames never bake the clip and keep reuse, so they are unaffected
   either way. The alternative — leaving the jitter out of the key — is not a
   cheaper cache, it is a wrong image: the same frozen jitter phase re-composited
