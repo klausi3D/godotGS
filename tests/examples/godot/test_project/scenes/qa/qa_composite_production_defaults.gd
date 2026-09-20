@@ -81,6 +81,23 @@ extends "res://scripts/qa_test_base.gd"
 ##   1. RIG DETERMINISM -- with no temporal stage, both regions must be bit
 ##      identical frame to frame (delta exactly 0). If the rig itself jitters,
 ##      nothing measured after it means anything.
+##
+##      TWO WARNINGS FOR ANYONE EXTENDING THIS SCENE TO A MOVING CAMERA, both
+##      found the hard way by #1025's investigation and neither affecting the
+##      static-camera gate here:
+##
+##      * **Exact-zero determinism would be flaky.** Under a moving camera the GS
+##        pipeline is very nearly but not exactly frame-deterministic: an earlier
+##        matrix measured 3-9 LSB over <=963 of 16.6M pixels in 5 of 6 runs
+##        (<=0.006%), intermittently. With a static camera it is exactly 0 in
+##        every run ever taken, which is why this gate can demand exact equality.
+##        A moving-camera variant needs a tolerance, and choosing one needs its
+##        own evidence.
+##      * **The checker control below is not usable under motion.** A 2 px checker
+##        is the right worst case for a static-camera jitter test and the wrong
+##        one here: at 6-8 px/frame it aliases, and a shift-mixture model explains
+##        only 52-68% of its variance (residual 0.32-0.48) against 0.03-0.11 for a
+##        band-limited smooth-noise box. Under motion, use band-limited content.
 ##   2. REGION DISCRIMINATION -- hiding the splat node must change the splat
 ##      rectangle and leave the mesh rectangle alone, and vice versa. Without
 ##      this the two rectangles could both be pointing at background, and every
@@ -236,10 +253,15 @@ const SWIM_CROSSTALK_MAX_LSB := 0.5
 ##
 ## NOT a ratio against the mesh control. That was the first design and the
 ## measurement rejected it: with the jitter applied the splat layer still sits
-## around 30x the control, because splats publish no depth write-back, no motion
-## vectors and no reactive mask (the #929 residual disclosed under release
-## acceptance bar §8.1), so FSR2 reconstructs them with less information than it
-## has about the mesh. Any ratio tight enough to catch the missing jitter would
+## around 30x the control. The reason is now measured rather than guessed, and it
+## is not the one first written here: an earlier revision blamed "no depth
+## write-back, no motion vectors and no reactive mask", but #1025 established that
+## the composite DOES feed FSR2's reactive mask -- splat coverage lands in the
+## destination alpha, which is literally what `params.reactive` samples
+## (`viewport_blit.glsl:206-208` -> `render_scene_buffers_rd.h:257-264`), clamped
+## to 0.9. FSR2 is therefore deliberately NOT accumulating history on splat pixels,
+## so they track the raw jittered frame instead of converging like the mesh does.
+## The residual is a consequence of that suppression, not of missing information. Any ratio tight enough to catch the missing jitter would
 ## also fail a correctly jittered layer. The control is still load-bearing --
 ## it is what proves the temporal stage ran at all -- and its displacement is
 ## reported beside every measurement; it is just not the threshold.

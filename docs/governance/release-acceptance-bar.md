@@ -213,7 +213,7 @@ drift apart. Exactly one row does that today: `#929 residual`.
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
-| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With TAA or FSR2 on, splat regions **ghost while the camera or the content moves**. Static-camera swimming is fixed; this is the motion half only. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; remainder is R3/ADR; workaround exists). **Scoped down, not waived.** The jitter half is fixed and gated (`build_render_projection()` + the QA temporal-stability phase). What remains needs per-pixel **motion vectors**, which the module does not write: of the four inputs the temporal stages take — colour, depth, velocity, reactive mask — splats supply colour. Velocity requires caching the previous view-projection and reprojecting GS depth per pixel, and depth write-back means new attachments at the `render_forward_clustered.cpp` seam, i.e. an **engine-boundary (R3)** change with an ADR, two independent reviews and CODEOWNER sign-off. A *wrong* velocity is worse than none — it smears confidently. Tracked as **#1025** (`priority:P1`, `needs-adr`), which also records that the moving-camera case has never been measured in this repo and that measuring it is its first task. Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` §9.1 requires. | Use `scaling_3d_mode = bilinear` at scale 1.0 with `use_taa = false` (Godot's own defaults) for content with a moving camera, or accept the ghosting. Still cameras are unaffected. |
+| **#929 residual** *(proposed — pending the §10.1 condition-4 human acceptance; until that exists this is a §4 blocker, not a disclosure)* | With **TAA** on, splat detail trails its true position by **≈1.5 px** while the camera or the content moves — 0.27–0.87 frames stale, 6–26× an in-frame geometry control. The trail does **not** grow with camera speed (1.48 px at 15°/s, 1.65 px at 56°/s). **Under FSR2 there is no ghosting**: 0.000 frames of staleness at scale 1.0 on both pans, 0.04 px on a dolly, i.e. at the control's floor; at scale 0.5 the splat trail is at or below the control's in two of three motions. Static-camera swimming is fixed separately. Measured for the first time in [#1025](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5751997279) — an earlier revision of this row said “TAA or FSR2”, which the measurement refuted. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; a wrong fix is worse than the defect; workaround exists). TAA reprojects splat pixels with `velocity == 0` (`taa_resolve.glsl:315`) *and* widens its variance clip when velocity reads zero (`:276`), so the one missing input costs twice. FSR2 escapes both: it detects the `(-1,-1)` velocity sentinel and derives a camera motion vector from depth, and the composite already feeds its reactive mask through the destination alpha (`viewport_blit.glsl:206-208` → `params.reactive`), which suppresses history on splat pixels. **Two claims this cell previously made are withdrawn as refuted by #1025:** velocity write-back does *not* require depth write-back — the dependency runs the other way — and it is *not* an engine-boundary R3 change: the module already holds the `RenderSceneBuffersRD *` (`gaussian_splat_renderer.cpp:2409`), already caches the previous-frame camera (`:2420-2421`), and the velocity target is RG16F carrying the storage bit, so the addition measures as one `imageStore` in a dispatch that already runs. (Depth write-back *is* separately blocked: `RB_TEX_DEPTH` has no `STORAGE` bit off the MSAA path, so it needs its own raster pass — and it buys nothing for ghosting.) What keeps this out of the alpha is not cost but risk: **a wrong velocity smears confidently**, which is worse than a bounded 1.5 px trail on one stage that is off by default. Tracked as **#1025** (`priority:P1`, `needs-adr`). Once condition 4 is met this limitation is also listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` §9.1 requires. | `use_taa = false` — Godot's own default — for content with a moving camera. **FSR2 needs no workaround at either scale**, and neither does a still camera. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why
@@ -497,8 +497,8 @@ still a blocker.
 measured, the remainder (#1025) is R3 with `needs-adr`, and the workaround is
 Godot's own default settings. Condition 4 is **outstanding at the time of writing**:
 the envelope decision above came from the maintainer, but it is a decision about the
-*envelope*, not about this residual, and no human line yet accepts the moving-camera
-ghosting as an alpha limitation. The two are separate calls and only the first has
+*envelope*, not about this residual, and no human line yet accepts the TAA
+moving-camera trail as an alpha limitation. The two are separate calls and only the first has
 been made. Until the second exists, treat the §8.1 `#929 residual` row as
 **proposed**, and #1025 as a §4 blocker.
 
@@ -612,9 +612,14 @@ rather than a ceiling.
    **FSR2** they do swim, because FSR2 *is* handed the jitter and un-jitters an
    input that was never jittered. The cause is that the splat projection ignored
    `scene_data->taa_jitter`. **That half is fixed**, with a QA oracle that was
-   red on the unfixed tree. The **moving-camera ghosting half is not**, and is
-   tracked as **#1025**, because it needs motion vectors and a depth write-back
-   at the engine boundary (R3, ADR first). Same composite/temporal seam as #989.
+   red on the unfixed tree. The moving-camera half is **not** fixed, and is
+   tracked as **#1025** — but #1025's own measurement narrowed it again: the trail
+   is **TAA-only and ≈1.5 px**, and under FSR2 there is no ghosting at all. It
+   needs a velocity write-back, which that investigation measured as module-side
+   and near-free rather than the engine-boundary R3 change assumed here; what
+   holds it out of the alpha is that a *wrong* velocity smears confidently. Same
+   composite/temporal seam as #989 — which touches the very destination alpha that
+   is silently feeding FSR2's reactive mask.
 
    **What happens to this entry on merge.** The PR that fixes the jitter says
    `Refs #929`, never a closing keyword, so nothing closes automatically. The

@@ -37,8 +37,10 @@ extends RefCounted
 ## and at scale 0.5, 0.3603 px vs 0.0046 px -> 78x. Under TAA and with no
 ## temporal stage the splat region measures exactly 0.0000 px. With the jitter
 ## applied the same rig measures 0.0900 px and 0.0927 px -- a clean separation
-## from the defect, and still well above the control, because splats publish no
-## depth write-back, no motion vectors and no reactive mask either.
+## from the defect, and still well above the control -- because the composite feeds
+## FSR2's reactive mask through the destination alpha (#1025), so FSR2 suppresses
+## history on splat pixels and they track the raw jittered frame rather than
+## converging the way the mesh control does.
 ##
 ## The caller decides the threshold; this file only measures. See
 ## `scenes/qa/qa_composite_production_defaults.gd` (SWIM_MAX_DISPLACEMENT_PX)
