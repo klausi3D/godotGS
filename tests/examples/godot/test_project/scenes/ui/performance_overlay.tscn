@@ -510,15 +510,6 @@ theme_override_font_sizes/font_size = 8
 text = "0.0 MB"
 horizontal_alignment = 2
 
-[node name="memory_stream_defrag_count_lbl" type="Label" parent="Panel/Columns/Left/MEM"]
-theme_override_font_sizes/font_size = 8
-text = "Defrags"
-
-[node name="memory_stream_defrag_count" type="Label" parent="Panel/Columns/Left/MEM"]
-theme_override_font_sizes/font_size = 8
-text = "0"
-horizontal_alignment = 2
-
 [node name="VSep" type="VSeparator" parent="Panel/Columns"]
 theme_override_styles/separator = SubResource("separator_style")
 

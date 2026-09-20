@@ -52,6 +52,36 @@ deliberately **not** a GDScript parser or a Godot scene loader:
    ``custom_icons/`` property prefixes, which Godot 4 renamed to
    ``theme_override_*`` and now discards silently. Enumerated policy: only
    these five prefixes.
+5. ``gdscript-unregistered-monitor`` -- a ``"gaussian_splatting/<name>"``
+   string literal in a shipped script whose ``<name>`` no monitor definition
+   in `modules/gaussian_splatting/core/performance_monitors.cpp` registers.
+   **Both sides are derived**: the read set from the literals in the scripts,
+   the registered set from the literals in
+   ``_register_monitor_definitions``, so neither is a hand-written list that
+   can drift. The starter template read 57 such ids and 18 had no producer
+   anywhere; `Performance.get_custom_monitor()` errors on an unregistered id
+   and returns null, and the null then aborted the whole refresh.
+6. ``gdscript-monitor-id-built-at-runtime`` -- an id the script assembles
+   instead of writing down, which makes every read in that file unverifiable
+   by detector 5. Two *property* rules, not a list of spellings:
+
+   * any literal starting with the prefix must be a COMPLETE id -- the bare
+     ``"gaussian_splatting/"`` and a template like ``"gaussian_splatting/%s"``
+     are the first half of an id being built. Exempt: the bare prefix as the
+     argument of ``begins_with()`` or ``trim_prefix()``, which test or remove
+     it and cannot produce one.
+   * ``get_custom_monitor(`` / ``has_custom_monitor(`` take one complete string
+     literal, or one bare identifier (a central helper forwarding its own
+     parameter -- the correct shape, which both overlays here use). Anything
+     composed in the call is flagged.
+
+   This detector was previously written as one spelling -- a literal adjacent
+   to ``+`` -- and an independent review walked a phantom id straight through
+   it four ways: ``const MONITOR_PREFIX := "…"`` plus ``MONITOR_PREFIX + name``
+   (the helper shape this repository itself shipped one PR earlier),
+   ``"…/%s" % name``, ``"…/".path_join(name)`` and ``str("…/", name)``. All
+   four are red under the rules above, and the ``%s`` form was live in three
+   benchmark scripts in this tree at the time.
 
 It does not check semantics, it does not resolve `ext_resource` paths, and it
 does not prove a project starts. A project that passes this guard can still
@@ -128,6 +158,36 @@ GODOT3_THEME_PREFIXES = {
     "custom_icons/": "theme_override_icons/",
 }
 
+# The registry of custom monitors, and the function inside it that enumerates
+# them. Both are asserted to exist; a rename must fail the guard, not empty it.
+MONITOR_REGISTRY = ("modules", "gaussian_splatting", "core", "performance_monitors.cpp")
+MONITOR_REGISTRY_FUNCTION = "_register_monitor_definitions"
+MONITOR_PREFIX = "gaussian_splatting/"
+# ANY literal that starts with the prefix, complete or not. Deliberately not
+# restricted to id-shaped tails: `"gaussian_splatting/%s"` and the bare
+# `"gaussian_splatting/"` are the two shapes a run-time-built id starts from,
+# and a tail-restricted pattern cannot see either.
+MONITOR_LITERAL_RE = re.compile(r'"(gaussian_splatting/[^"]*)"')
+# What a COMPLETE id's tail may contain. Anything else -- `%s`, `{0}`, a space
+# -- means the literal is a template the run time finishes.
+MONITOR_ID_TAIL_RE = re.compile(r"^[A-Za-z0-9_./]+$")
+# The bare prefix is legitimate only as the argument of a method that TESTS or
+# REMOVES it -- neither can produce an id. `begins_with` filters an enumeration
+# of the registered set; `trim_prefix` recovers the short name from a complete
+# id. Anything that joins the prefix to something else is what this detector is
+# for. Enumerated exemption, not a general escape hatch.
+MONITOR_PREFIX_CONSUMERS = ("begins_with", "trim_prefix")
+MONITOR_PREFIX_FILTER_RE = re.compile(
+    r'\b(?:%s)\s*\(\s*"gaussian_splatting/"\s*\)' % "|".join(MONITOR_PREFIX_CONSUMERS))
+# The two accessors an id can actually reach.
+MONITOR_ACCESSOR_RE = re.compile(r"\b(get_custom_monitor|has_custom_monitor)\s*\(")
+# What may be handed to them: one complete string literal, or one bare
+# identifier (a central helper forwarding its own parameter, which both
+# overlays in this tree use). Anything composed -- `+`, `%`, `path_join`,
+# `str()` -- is a run-time-built id.
+MONITOR_ARG_LITERAL_RE = re.compile(r'^\s*"[^"]*"\s*$')
+MONITOR_ARG_IDENTIFIER_RE = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*$")
+
 NODE_HEADER_RE = re.compile(r"^\[node\s+(?P<body>.*)\]\s*$")
 HEADER_KEY_RE = re.compile(r'(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=')
 # A double-quoted span inside a scene header, with `\"` escapes. Masked before
@@ -170,27 +230,173 @@ MASKABLE_SPAN_RE = re.compile(
 )
 
 
-def strip_gdscript_strings_and_comments(source: str) -> list[str]:
-    """Mask string literals and `#` comments, preserving line and column structure.
+def strip_gdscript_strings_and_comments(source: str,
+                                        string_filler: str | None = STRING_FILLER
+                                        ) -> list[str]:
+    """Mask `#` comments, and optionally string literals, preserving structure.
 
-    Returns one string per source line. Comment characters become spaces;
-    string characters -- delimiters included -- become `_`, never whitespace,
-    so a call whose only argument is a string literal still reads as a call
-    with an argument (blanking `Engine.get_singleton("X")` to spaces would make
-    it look like the zero-argument form this guard flags). Column indices in
-    the result still map to the same column in the original. Handles `"`, `'`,
-    `\"\"\"`, `'''`, backslash escapes, and the `r` / `&` / `^` string prefixes
-    (the prefix is an ordinary identifier character, so it needs no special
-    handling -- the quote after it opens the literal as usual).
+    Returns one string per source line, same length and same column offsets as
+    the input, so a column index in the result still maps to the original.
+
+    Comment characters always become spaces. String characters -- delimiters
+    included -- become `string_filler`, which is `_` and never whitespace: a
+    call whose only argument is a string literal must still read as a call with
+    an argument, since blanking `Engine.get_singleton("X")` to spaces makes it
+    indistinguishable from the zero-argument form this guard flags.
+
+    Pass ``string_filler=None`` to keep string literals verbatim while still
+    removing comments. The monitor-id detector needs that: the ids it looks for
+    *are* string literals, but an id quoted inside a doc comment is prose, not
+    a read, and flagging it would be a false positive.
+
+    Handles `"`, `'`, `\"\"\"`, `'''`, backslash escapes, and the `r` / `&` /
+    `^` string prefixes (the prefix is an ordinary identifier character, so it
+    needs no special handling -- the quote after it opens the literal as usual).
     """
     def mask(match: re.Match[str]) -> str:
         token = match.group(0)
-        filler = COMMENT_FILLER if token.startswith("#") else STRING_FILLER
+        if token.startswith("#"):
+            filler = COMMENT_FILLER
+        elif string_filler is None:
+            return token  # keep the literal verbatim; only comments are masked
+        else:
+            filler = string_filler
         # Newlines survive so the line count and every column offset are
         # unchanged; everything else in the span becomes filler.
         return "".join("\n" if ch == "\n" else filler for ch in token)
 
     return MASKABLE_SPAN_RE.sub(mask, source).split("\n")
+
+
+def read_registered_monitor_ids(root: Path) -> tuple[set[str], str | None]:
+    """Derive the registered monitor ids from the C++ registry.
+
+    Returns (ids, error). `error` is non-None when the registry, the
+    enumerating function, or a plausible number of ids could not be found --
+    in which case the caller must fail, not silently accept every read.
+    """
+    path = root.joinpath(*MONITOR_REGISTRY)
+    if not path.is_file():
+        return set(), "monitor registry not found at %s" % path.relative_to(root).as_posix()
+    text = path.read_text(encoding="utf-8")
+    start = text.find(MONITOR_REGISTRY_FUNCTION)
+    if start < 0:
+        return set(), ("%s() not found in %s -- the derivation is stale"
+                       % (MONITOR_REGISTRY_FUNCTION, path.name))
+    # The definitions live in one table inside that function; stop at the next
+    # top-level function so a later unrelated literal cannot widen the set.
+    end = text.find("\nvoid GaussianSplattingPerformanceMonitors::", start + 1)
+    body = text[start:end if end > 0 else len(text)]
+    ids = {m for m in MONITOR_LITERAL_RE.findall(body)}
+    if len(ids) < 50:
+        return ids, ("only %d monitor ids parsed out of %s(); the table shape "
+                     "changed and the derivation can no longer see it"
+                     % (len(ids), MONITOR_REGISTRY_FUNCTION))
+    return ids, None
+
+
+def _accessor_argument(line: str, open_paren: int) -> str | None:
+    """Text between an accessor's `(` and its matching `)`, or None if unclosed."""
+    depth = 0
+    for i in range(open_paren, len(line)):
+        if line[i] == "(":
+            depth += 1
+        elif line[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return line[open_paren + 1:i]
+    return None
+
+
+def scan_gdscript_monitor_ids(rel_path: str, source: str,
+                              registered: set[str]) -> list[Finding]:
+    """Two rules that together pin every monitor id to a complete literal.
+
+    A: every string literal beginning with the prefix must be a complete,
+       registered id. The bare `"gaussian_splatting/"` and a format template
+       like `"gaussian_splatting/%s"` are not ids -- they are the first half of
+       one being built at run time, which is what hides a read from this check.
+       The single exemption is the bare prefix as the argument of
+       `begins_with(`, which filters an enumeration of the registered set.
+
+    B: `get_custom_monitor(` / `has_custom_monitor(` take either one complete
+       string literal or one bare identifier. A bare identifier is the correct
+       shape for a central helper forwarding its parameter (both overlays in
+       this tree do that); anything *composed* -- `+`, `%`, `path_join()`,
+       `str()` -- builds the id in the expression and is flagged.
+
+    Neither rule is a spelling. The previous version matched only a literal
+    adjacent to `+`, and an independent review carried a phantom id straight
+    through it with `const MONITOR_PREFIX := "..."` plus `MONITOR_PREFIX + name`
+    -- the exact helper shape this repository shipped one PR earlier -- as well
+    as with `%`, `path_join` and `str()`. Rule A catches all four at the
+    literal, rule B catches them again at the call.
+
+    Limit, stated: an id assembled without any literal that starts with the
+    prefix (`"gaussian_" + "splatting/"`) defeats rule A, and rule B still
+    catches it only where it reaches an accessor directly.
+    """
+    findings: list[Finding] = []
+    # Comments masked, string literals kept verbatim: the ids this detector
+    # looks for ARE string literals, but an id quoted inside a doc comment is
+    # prose describing a monitor, not a read of one.
+    for lineno, line in enumerate(
+            strip_gdscript_strings_and_comments(source, string_filler=None), start=1):
+        # --- rule A ---------------------------------------------------------
+        filtered = MONITOR_PREFIX_FILTER_RE.search(line) is not None
+        for literal in MONITOR_LITERAL_RE.findall(line):
+            if literal in registered:
+                continue
+            tail = literal[len(MONITOR_PREFIX):]
+            if tail == "":
+                if filtered:
+                    continue
+                findings.append(Finding(
+                    "gdscript-monitor-id-built-at-runtime", rel_path, lineno,
+                    'the bare prefix "%s" is not a monitor id; a script that '
+                    "starts from it builds ids at run time, and none of its "
+                    "reads can be checked against the registered set. Spell "
+                    "the full id out at each call site. (Exempt: the prefix as "
+                    "the argument of %s, which test or remove it rather than "
+                    "building an id.)"
+                    % (MONITOR_PREFIX,
+                       " / ".join("`%s()`" % c for c in MONITOR_PREFIX_CONSUMERS)),
+                ))
+                continue
+            if not MONITOR_ID_TAIL_RE.match(tail):
+                findings.append(Finding(
+                    "gdscript-monitor-id-built-at-runtime", rel_path, lineno,
+                    '`%s` is a template, not a monitor id: the id is completed '
+                    "at run time, so it cannot be checked against the "
+                    "registered set." % literal,
+                ))
+                continue
+            findings.append(Finding(
+                "gdscript-unregistered-monitor", rel_path, lineno,
+                "`%s` is not registered by %s(); "
+                "Performance.get_custom_monitor() errors on it and returns "
+                "null, and a null in a format string aborts the caller."
+                % (literal, MONITOR_REGISTRY_FUNCTION),
+            ))
+
+        # --- rule B ---------------------------------------------------------
+        for match in MONITOR_ACCESSOR_RE.finditer(line):
+            argument = _accessor_argument(line, match.end() - 1)
+            if argument is None:
+                # The call spans lines; rule A still covers its literal.
+                continue
+            if MONITOR_ARG_LITERAL_RE.match(argument):
+                continue
+            if MONITOR_ARG_IDENTIFIER_RE.match(argument):
+                continue
+            findings.append(Finding(
+                "gdscript-monitor-id-built-at-runtime", rel_path, lineno,
+                "`%s(%s)` composes its monitor id in the call. Pass one "
+                "complete string literal, or one variable a helper was handed, "
+                "so the id can be checked against the registered set."
+                % (match.group(1), argument.strip()),
+            ))
+    return findings
 
 
 def scan_gdscript(rel_path: str, source: str) -> list[Finding]:
@@ -308,6 +514,11 @@ def run(root: Path) -> tuple[int, list[str]]:
             % (gd_count, scene_count))
         return 2, messages
 
+    registered, registry_error = read_registered_monitor_ids(root)
+    if registry_error:
+        messages.append("guard failed: " + registry_error)
+        return 2, messages
+
     findings: list[Finding] = []
     for path in files:
         rel = path.relative_to(root).as_posix()
@@ -319,6 +530,7 @@ def run(root: Path) -> tuple[int, list[str]]:
             continue
         if path.suffix in GDSCRIPT_SUFFIXES:
             findings.extend(scan_gdscript(rel, source))
+            findings.extend(scan_gdscript_monitor_ids(rel, source, registered))
         else:
             findings.extend(scan_scene(rel, source))
 
@@ -331,7 +543,8 @@ def run(root: Path) -> tuple[int, list[str]]:
 
     messages.append(
         "[shipped-project-scripts] clean: %d GDScript + %d scene file(s) "
-        "scanned, 4 detectors." % (gd_count, scene_count))
+        "scanned, 6 detectors, %d registered monitor ids derived from %s()."
+        % (gd_count, scene_count, len(registered), MONITOR_REGISTRY_FUNCTION))
     return 0, messages
 
 

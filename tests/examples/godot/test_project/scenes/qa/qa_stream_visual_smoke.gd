@@ -169,15 +169,25 @@ func _on_test_frame(_delta: float):
 	var chunk_load_cap_hit = get_custom_monitor_value("gaussian_splatting/streaming_chunk_load_cap_hit")
 	var queue_pressure_active = get_custom_monitor_value("gaussian_splatting/streaming_queue_pressure_active")
 	var streaming_monitor_ready = get_custom_monitor_value("gaussian_splatting/streaming_monitor_ready")
-	var sort_route_monitor = get_custom_monitor_value("gaussian_splatting/sort_route_uid")
 	var monitor_ready = streaming_monitor_ready != null and int(streaming_monitor_ready) > 0
 	var render_stats = _read_renderer_stats()
 	var route_uid = str(render_stats.get("route_uid", ""))
 	var sort_route_uid = str(render_stats.get("sort_route_uid", ""))
-	var sort_route_uid_monitor = "" if sort_route_monitor == null else str(sort_route_monitor)
-	if sort_route_uid.is_empty() and not sort_route_uid_monitor.is_empty():
-		sort_route_uid = sort_route_uid_monitor
-	var sort_route_monitor_matches_stats = sort_route_uid_monitor.is_empty() or sort_route_uid_monitor == sort_route_uid
+	# A read of "gaussian_splatting/sort_route_uid" used to sit here, together
+	# with a monitor-vs-stats cross-check whose result was reported as
+	# `sort_route_uid_monitor` / `sort_route_uid_monitor_matches_stats`. That
+	# monitor has a getter in performance_monitors.cpp (`_get_sort_route_uid`)
+	# but NO entry in `_register_monitor_definitions()`, so the read could only
+	# ever return null and the comparison could only ever pass -- on every run,
+	# without comparing anything.
+	#
+	# The read, the comparison and both reported fields are gone. Replacing the
+	# comparison with a hardcoded `true` would have kept the vacuous pass and
+	# only moved it into the results JSON, where a later consumer would read it
+	# as a verdict. `render_stats["sort_route_uid"]` is the source that is
+	# actually populated and is asserted below on its own. If the monitor is
+	# ever registered, wire the comparison back deliberately rather than
+	# leaving behind a probe that cannot fire. Refs #833.
 	var stats_visible_splats = int(render_stats.get("visible_splats", -1))
 	var stage_cull_status = str(render_stats.get("stage_cull_status", ""))
 	var stage_sort_status = str(render_stats.get("stage_sort_status", ""))
@@ -247,8 +257,11 @@ func _on_test_frame(_delta: float):
 	result_metrics["renderer_streaming_stats_seen"] = _had_renderer_streaming_stats
 	result_metrics["route_uid"] = route_uid
 	result_metrics["sort_route_uid"] = sort_route_uid
-	result_metrics["sort_route_uid_monitor"] = sort_route_uid_monitor
-	result_metrics["sort_route_uid_monitor_matches_stats"] = sort_route_monitor_matches_stats
+	# `sort_route_uid_monitor` / `_available` / `_matches_stats` used to be
+	# reported here. See the note above: the monitor they described is not
+	# registered, so they could only ever report "" / false / true. A field
+	# named `..._matches_stats` that is always true is a verdict that cannot
+	# fail. Removed rather than pinned to a constant.
 	result_metrics["stage_cull_status"] = stage_cull_status
 	result_metrics["stage_sort_status"] = stage_sort_status
 	result_metrics["stage_raster_status"] = stage_raster_status
