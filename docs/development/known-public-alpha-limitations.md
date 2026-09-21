@@ -29,9 +29,10 @@ alpha actually ships with, read everything *above* that heading.
 
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blockers #929, #851, #833 and #54 carry none of those
-> (#929 has no priority label; the other three are `priority:P2`), so nothing automated
-> stops a release on them. Read "it is in the blocker set" as "a human has to hold the
+> `release blocker`; the §11 alpha blockers #851, #833 and #54 carry none of those (all
+> three are `priority:P2`), so nothing automated stops a release on them. (#929 was a
+> fourth until it closed on 2026-09-20, carrying only `program:prod-ready`.) Read "it is in
+> the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
 
@@ -55,9 +56,81 @@ entry that has not been reproduced **must not** be pointed at by a candidate's
 check. Do not relax the criterion at the top of this page to make an entry admissible —
 produce the evidence, or leave the issue in the blocker set.
 
-Verified against `b915afc51c5` (2026-09-17).
+**And clearing it is still not sufficient.** #1025 is the one entry here with a named human
+acceptance and hardware evidence behind all five bullets, and a candidate bundle *still*
+cannot cite it: the gate additionally requires the issue to appear in the manifest's
+`public_alpha_issue_ledger`, and #1025 does not
+(`tests/ci/check_renderer_release_gates.py:1921-1924`). That entry is an R3 manifest edit,
+tracked as [#1038](https://github.com/klausi3D/godotGS/issues/1038). Until it lands, this
+disclosure is real for a reader and invisible to the machine — recorded here rather than
+left to be discovered at tag time.
+
+Verified against `b915afc51c5` (2026-09-17), **except where an entry names its own commit**.
+The #1025 entry below is verified against `bc77ce31e9c` (2026-09-20): the behaviour it
+describes postdates `b915afc51c5`, because #1026 landed after it, and checking that entry out
+at the page-wide anchor would show the opposite.
 
 ## Rendering
+
+### Splats trail by about 1.5 px under TAA while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+
+With TAA enabled and the camera or the content in motion, splat detail is drawn behind its
+true position by **≈1.5 px** — 0.27–0.87 frames stale, and 6–26× an in-frame geometry control
+measured in the same frames on the two pans. (On a forward dolly it is smaller than that:
+2× the control in frames, and 0.36 px against the control's 0.54 px.) The trail does **not**
+grow with camera speed: **1.48 px** at a
+15°/s pan and **1.65 px** at 56°/s, because TAA's variance clip is computed from the current
+frame. With a *static* camera there is nothing to see — the splat projection has carried the
+engine's temporal jitter since #929/#1026.
+
+**Under FSR2 there is no ghosting, at either scale.** **0.000 frames** of staleness at scale
+1.0 across a slow pan and a normal pan — exactly the floor the same in-frame control sets —
+and **0.04 px** on a dolly; at scale 0.5 the splat trail is at or below the control's in two
+of three motions. The reason is a mechanism nothing had written down: the composite already
+feeds FSR2's reactive mask through the destination alpha, so FSR2 reconstructs splat pixels
+from the current frame instead of accumulating them. **Do not avoid FSR2 on account of this
+entry.**
+
+**Affects:** Forward+, single view, with `use_taa = true`. Measured on Windows, RTX 3090,
+Vulkan 1.4.325, on a real scan at 960×540.
+
+**Workaround:** `use_taa = false` — already Godot's own default. FSR2 needs no workaround at
+either scale, and neither does a still camera.
+
+**Accepted** as a public-alpha limitation on 2026-09-20 under the acceptance bar's §10.1
+exception
+([disposition](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553)).
+The disposition record and the mechanism live in the bar's
+[§8.1](../governance/release-acceptance-bar.md); this entry is the user-facing half.
+
+**Status: measured, and the rig proved it could fail.** The
+[measurement](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5751997279) ran on
+both the pre-fix and post-#1026 binaries, which agree to within 0.01 frames in every cell, so
+the jitter fix neither causes nor cures this. Three gates ran before any figure was reported:
+two independent walks of each camera path with no temporal stage were bit-identical over all
+16,588,800 pixels; the region masks were re-derived per camera pose by hiding each subject, so
+they follow the content across the screen; and **every temporal config had to move a control
+region relative to the no-temporal capture**, so a viewport that had silently refused TAA or
+FSR2 could not have been reported as a clean result. That last gate is what this page's fifth
+admission bullet asks for — evidence that the limitation is not hiding a renderer correctness
+failure rather than merely not showing one.
+
+**The determinism gate was clean in the matrix these figures come from, and not always.** An
+earlier matrix on the same binaries failed it in 5 of 6 runs, by 3–9 LSB over 49–963 of those
+16,588,800 pixels — four to five orders of magnitude below the signal, and it moves none of
+the numbers above, but it means the GS pipeline is very nearly, and not exactly,
+frame-deterministic under a moving camera. Anyone extending #1026's **exact-zero**
+determinism assertion to a moving camera should expect it to be flaky, and decide what to do
+about that before landing it rather than after.
+
+**One honest caveat.** The trail is ≈1.5 px whatever the content, but its *visibility* is not
+content-independent. On the soft real scan measured it is not visible without roughly 10×
+amplification; a sharper, higher-contrast scan would show more, and that has not been
+measured.
+
+Fixing it means the module publishing a velocity field — which is *not* an engine-boundary
+change, since the module already holds the buffers and the previous-frame camera — but a wrong
+velocity smears confidently and reads as a renderer bug, which is why it is not alpha work.
 
 ### Transparent viewports are opaque under TAA or FSR2 ([#989](https://github.com/klausi3D/godotGS/issues/989))
 
@@ -338,31 +411,16 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-### Splats trail under TAA while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+**Nothing is proposed-but-unaccepted today.** The section is kept, empty, because the
+mechanism is the point: it is where a disclosure is drafted while its disposition is still
+open, and an empty section is a statement that no such draft is outstanding — not an
+invitation to skip the step.
 
-With a *static* camera this is fixed — the splat projection carries the engine's temporal
-jitter as of #929/#1026.
-
-Under **TAA** in motion, splat detail trails its true position by **≈1.5 px** — 0.27–0.87
-frames stale, 6–26× an in-frame geometry control — and the trail does **not** grow with
-camera speed, because the variance clip is computed from the current frame.
-
-**Under FSR2 there is no ghosting.** 0.000 frames of staleness at scale 1.0, at the floor
-set by the same in-frame control, across a slow pan, a normal pan and a dolly; at scale 0.5
-the splat trail is at or below the control's in two of three motions. The reason is a
-mechanism that had not been recorded anywhere: the composite already feeds FSR2's reactive
-mask, through the destination alpha, so FSR2 reconstructs splat pixels from the current
-frame rather than accumulating them.
-
-**Workaround:** `use_taa = false` — which is already Godot's own default. **FSR2 needs no
-workaround at either scale.**
-
-**Status: measured**, on a real scan with a moving camera, on both the base and the #1026
-binaries — which agree to within 0.01 frames, so the jitter fix neither causes nor cures
-this. An earlier revision of this entry said splats ghost under FSR2 too and told you to
-avoid it; that was a prediction, it has now been measured, and it was wrong in the
-direction that costs you a working feature. The remaining TAA defect is real and unfixed.
-Fixing it means the module publishing a velocity field — which is *not* an engine-boundary
-change, since the module already holds the buffers and the previous-frame camera — but a
-wrong velocity smears confidently and reads as a renderer bug, which is why it is not alpha
-work. The acceptance-bar §8.1 row proposing to accept it is marked *proposed*.
+The last entry here was **#1025** (splats trailing under TAA in motion). A named human
+accepted it on
+[2026-09-20](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553), which
+met the acceptance bar's §10.1 condition 4, so it moved up into
+[Rendering](#rendering) as a real limitation. An earlier revision of that entry said splats
+ghost under FSR2 too and told you to avoid it; that was a prediction, it was measured, and it
+was wrong in the direction that costs you a working feature — which is the reason this
+section exists at all.
