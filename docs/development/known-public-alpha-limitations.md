@@ -411,12 +411,66 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-**Nothing is proposed-but-unaccepted today.** The section is kept, empty, because the
-mechanism is the point: it is where a disclosure is drafted while its disposition is still
-open, and an empty section is a statement that no such draft is outstanding — not an
-invitation to skip the step.
+### The bottom of the frame goes empty if you lower the overlap-record budget below what your scene needs ([#54](https://github.com/klausi3D/godotGS/issues/54))
 
-The last entry here was **#1025** (splats trailing under TAA in motion). A named human
+Every splat that touches a tile costs one **overlap record**. If a frame needs more records
+than `rendering/gaussian_splatting/gpu_sorting/max_overlap_records` allows, the tiles with
+the highest tile index get nothing — and because tiles are numbered row by row, that is a
+**hard horizontal line across the frame with only background below it**, plus one
+partially-truncated tile row at the seam. The line sits wherever the budget ran out, so it
+moves as your camera moves.
+
+**You will almost certainly never see this at defaults.** The default budget is
+**100,000,000 records**, and it took forcing that setting 200–1000× lower to produce the
+measurements below.
+
+**Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
+binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
+demand **708,814 records**, 7.09 per splat. With `max_overlap_records` forced down:
+
+| `max_overlap_records` | Last lit scanline (of 512) | Empty tiles (of 1024) |
+| --- | --- | --- |
+| 100,000 | 95 | 837 |
+| 250,000 | 191 | 651 |
+| 500,000 | 351 | 340 |
+| 1,000,000 | 511 — nothing dropped | 0 |
+| 100,000,000 (default) | 511 — nothing dropped | 0 |
+
+**What this does *not* do, also measured.** The part of the image above the line is
+**pixel-identical** to a clean render of the same scene (0 differing pixels in all three
+overflowing cases), the line does **not** flicker — it sat on the same scanline across four
+consecutive frames of a static camera — and nothing crashes. Splats are not
+mis-sorted or mis-coloured; the ones that survive are exactly right, and the rest are
+simply absent.
+
+**You are told when it happens.** The log carries a one-shot warning
+(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) and the
+profiler monitor `gaussian_splatting/overflow_tile_count` reports the count of affected
+tiles. Both fired in the run above.
+
+**Below the cap, a spike fixes itself:** the renderer grows capacity to 1.5× the demand it
+measured and the next frame is whole. Truncation only persists if demand exceeds the
+100,000,000 hard cap, which the renderer will not grow past.
+
+**Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
+tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
+scene's demand. Raising it above the default costs VRAM (100M records is roughly 1.2 GB of
+key and value buffers), so prefer reducing density.
+
+**Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
+Scaling the numbers above to 1080p and the node's own 500,000-splats-per-frame cap gives
+roughly 28 million — about 3.6× of headroom — but that is arithmetic on a synthetic grid,
+not a capture of real content. If you hit the warning above at default settings, that is
+worth reporting on #54.
+
+---
+
+**One proposal is outstanding: #54, above.** The section is otherwise empty, and it is kept
+even when empty because the mechanism is the point: it is where a disclosure is drafted
+while its disposition is still open, and an empty section is a statement that no such draft
+is outstanding — not an invitation to skip the step.
+
+A previous entry here was **#1025** (splats trailing under TAA in motion). A named human
 accepted it on
 [2026-09-20](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553), which
 met the acceptance bar's §10.1 condition 4, so it moved up into
