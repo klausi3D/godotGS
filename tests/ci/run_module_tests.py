@@ -50,6 +50,7 @@ UNCHECKED_RESIZE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_unchecked_resize.
 TEST_LANE_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_lane_coverage.py"
 TEST_LANE_COVERAGE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_test_lane_coverage.py"
 GPU_SORTING_ORDER_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gpu_sorting_order_coverage.py"
+OVERFLOW_DROP_COVERAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_overflow_drop_coverage.py"
 RENDERER_RELEASE_GATE_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 RENDERER_CONTRACT_BOUNDARY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_renderer_contract_boundary.py"
 DEVICE_SUBMISSION_CONTRACT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_device_submission_contract.py"
@@ -2067,6 +2068,38 @@ def _run_gpu_sorting_order_coverage_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_overflow_drop_coverage_guard() -> tuple[bool, list[str]]:
+    """Guard (#54): the module's only on-GPU overlap-record drop proof stays wired.
+
+    Static, headless, no GPU: it imports run_gpu_harness.py's BATCHES and confirms the
+    `Overflow-record drop raises the C4b telemetry counter` case is still SELECTED by the
+    TileRenderer batch (matched by a filter, not subtracted by an exclude), still carries
+    [RequiresGPU], still calls test_overflow_drop_telemetry(), and that the method still holds
+    its forced-low overlap budget plus BOTH the control and overflow assertions. TileRenderer
+    is an advisory batch and the harness counts `0 tests matched` as success there, so without
+    this the proof could be retagged out of existence with the gate still green. Runs its own
+    --self-test discrimination cases first, like its sibling guards.
+    """
+    for label, args in (
+        ("Overflow-drop coverage guard self-test", ["--self-test"]),
+        ("Overflow-drop coverage guard", []),
+    ):
+        if not OVERFLOW_DROP_COVERAGE_GUARD_SCRIPT.is_file():
+            return False, [
+                f"Missing {label} script: "
+                f"{OVERFLOW_DROP_COVERAGE_GUARD_SCRIPT.relative_to(ROOT)}"
+            ]
+        code, out, err = _run_command(
+            [sys.executable, str(OVERFLOW_DROP_COVERAGE_GUARD_SCRIPT), *args]
+        )
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+    return True, output_lines
+
+
 def _run_quarantine_manifest_guard() -> tuple[bool, list[str]]:
     """Guard step (runs in the --guard-only lane): schema-validate the manifest
     and then run the mechanism's unit test. Fails on either."""
@@ -3601,6 +3634,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gpu_sorting_order_coverage_guard,
             "GPU sorting order-coverage guard failed.",
             "GPU sorting order-coverage guard passed.",
+        ),
+        (
+            True,
+            _run_overflow_drop_coverage_guard,
+            "Overflow-drop coverage guard failed.",
+            "Overflow-drop coverage guard passed.",
         ),
         (
             True,
