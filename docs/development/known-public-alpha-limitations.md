@@ -448,9 +448,19 @@ simply absent.
 profiler monitor `gaussian_splatting/overflow_tile_count` reports the count of affected
 tiles. Both fired in the run above.
 
-**Below the cap, a spike fixes itself:** the renderer grows capacity to 1.5× the demand it
-measured and the next frame is whole. Truncation only persists if demand exceeds the
-100,000,000 hard cap, which the renderer will not grow past.
+**Is it transient or permanent?** That depends on which side of the *setting* you are on, and
+the setting is the whole story. When the renderer sees a drop it grows its capacity toward 1.5×
+the demand it measured — but it will not grow past `max_overlap_records`, whatever you have set
+that to. So:
+
+- **Demand below your `max_overlap_records`, capacity merely behind it** — a spike, and it
+  fixes itself as the capacity catches up.
+- **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
+  the setting, and the band stays. Every measurement in the table above is this case: the frame
+  was still truncated on the 24th frame, on exactly the same scanline as the first.
+
+At the 100,000,000 default the second case needs a frame demanding more than 100 million
+records. The 100,000-splat scene above demands 708,814.
 
 **Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
 tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
