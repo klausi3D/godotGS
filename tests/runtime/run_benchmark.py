@@ -497,6 +497,85 @@ def _format_proof_issue(rule: dict[str, Any], observed: float) -> str:
     return f"{metric_name}={observed:.2f} {op} {threshold:.2f}"
 
 
+def _lane_declares_proof_evidence(evidence_role: Any) -> bool:
+    """Does this lane's manifest evidence_role claim to be streaming proof evidence?
+
+    Derived from the role string rather than a hand-kept lane list, so a new
+    ``proof_*`` lane is covered the day it is added (evidence-integrity practice 5:
+    derive coverage, enumerate only policy). Today this selects
+    ``proof_corridor_return_bootstrap``, ``proof_support_corridor_churn_smoke`` and
+    ``proof_support_boundary_crossing_smoke``, and deliberately does not select
+    ``low_noise_smoke_reference`` or ``published_baseline`` -- those lanes make no
+    streaming claim, so "not applicable" is the truth for them.
+    """
+    return str(evidence_role or "").startswith("proof")
+
+
+def _streaming_evidence_fail_closed(result: dict[str, Any], evidence_role: Any) -> None:
+    """Stop a lane that streamed nothing from reporting passing streaming evidence.
+
+    Two fields the candidate gate requires non-null are, on the two required streaming
+    lanes, non-null *structural constants* rather than measurements:
+
+    * ``queue_pressure`` -- ``render_diagnostics_orchestrator.cpp:615-625`` writes
+      ``streaming_queue_pressure_frames = 0`` in the branch taken when there is no
+      streaming state at all. A resident-only lane's zero is indistinguishable from a
+      streaming run that had no pressure.
+    * ``proof_status`` -- ``_evaluate_large_world_proof_contract`` returns
+      ``"not_applicable"`` for any lane with no contract, and only
+      ``open_world_corridor_proof`` has one. A lane whose manifest ``evidence_role``
+      claims it is proof evidence must not also claim the question does not apply to it.
+
+    Both are resolved against the availability flag the *producer* already computes --
+    ``proof_metrics.streaming_state_telemetry_available``, set by
+    ``benchmark_suite_lane.gd`` from whether a streaming state dictionary was present --
+    rather than by guessing at the reader whether a zero is real. Unmeasured means
+    ``None``, which the gate's ``required_fields_non_null`` check then rejects, exactly
+    as it already does for ``route_uid`` and ``stage_statuses`` (#351 E3).
+
+    Note this also introduces ``queue_pressure`` as an emitted key. The manifest has
+    always required it; the harness only ever emitted ``streaming_queue_pressure_frames``,
+    so no real benchmark row has ever carried the field the gate asks for.
+    """
+    report = result.get("report")
+    proof_metrics = report.get("proof_metrics") if isinstance(report, dict) else None
+    if not isinstance(proof_metrics, dict):
+        proof_metrics = {}
+
+    measured = proof_metrics.get("streaming_state_telemetry_available") is True
+    result["streaming_telemetry_measured"] = measured
+
+    if measured:
+        result["queue_pressure"] = {
+            "frames": proof_metrics.get("queue_pressure_frames"),
+            "candidate_frames": proof_metrics.get("queue_pressure_candidate_frames"),
+            "active": result.get("streaming_queue_pressure_active"),
+            "source": "streaming_state",
+        }
+        result["queue_pressure_reason"] = None
+    else:
+        # NOT "0". A lane with no streaming system has not measured zero pressure --
+        # it has measured nothing, and the gate must be able to tell the difference.
+        result["queue_pressure"] = None
+        result["queue_pressure_reason"] = (
+            "no streaming state was present in this lane's renderer telemetry, so "
+            "queue pressure was never measured; the 0 reported by "
+            "streaming_queue_pressure_frames is the no-streaming default, not a measurement"
+        )
+
+    if _lane_declares_proof_evidence(evidence_role) and result.get("proof_status") == "not_applicable":
+        result["proof_status"] = None
+        result["proof_valid"] = False
+        result["proof_status_reason"] = (
+            f"lane declares evidence_role={evidence_role!r}, which claims streaming proof "
+            "evidence, but no large-world proof contract evaluates it; 'not_applicable' "
+            "would let a lane that proves nothing satisfy the candidate gate's "
+            "proof_status requirement"
+        )
+    else:
+        result.setdefault("proof_status_reason", None)
+
+
 def _evaluate_large_world_proof_contract(lane_id: str, report: dict[str, Any] | None) -> dict[str, Any]:
     contract = LARGE_WORLD_PROOF_CONTRACTS.get(lane_id)
     if contract is None:
@@ -2360,6 +2439,9 @@ def main() -> int:
         result["asset_resource_kind"] = asset_policy.resource_kind
         result["asset_classification"] = asset_policy.asset_classification
         result["evidence_role"] = asset_policy.evidence_role
+        # Must run after evidence_role is attached: whether "not applicable" is an honest
+        # proof_status depends on whether this lane's manifest role claims to be proof.
+        _streaming_evidence_fail_closed(result, asset_policy.evidence_role)
         result["asset_policy_notes"] = asset_policy.notes
         # #790: carry the fixture's producer into the lane record, so a stored
         # number can still be attributed to a workload months later.

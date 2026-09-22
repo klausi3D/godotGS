@@ -1708,6 +1708,29 @@ def _run_benchmark_fixture_contract_guard() -> tuple[bool, list[str]]:
     return True, ["Benchmark fixture contract guard passed."]
 
 
+def _run_streaming_evidence_fail_closed_guard() -> tuple[bool, list[str]]:
+    """Guard (#1016): a lane that streamed nothing cannot report passing streaming evidence.
+
+    The candidate gate requires `queue_pressure` and `proof_status` non-null on both
+    required streaming lanes, and both were satisfied by structural constants -- a
+    hardcoded 0 written whenever no streaming state exists, and a "not_applicable"
+    returned for every lane without a proof contract. Pure static/unit coverage, no GPU
+    and no engine binary, so the defect is caught on every PR rather than at release.
+    """
+    script = ROOT / "tests" / "ci" / "test_streaming_evidence_fail_closed.py"
+    if not script.is_file():
+        return False, [f"Missing streaming evidence fail-closed test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Streaming evidence fail-closed guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Streaming evidence fail-closed guard passed."]
+
+
 def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
     """Guard (#329): every [RequiresGPU] test runs in a named GPU batch, is
     waived, or sits in the recorded unbatched backlog.
@@ -3607,6 +3630,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_benchmark_fixture_contract_guard,
             "Benchmark fixture contract guard failed.",
             "Benchmark fixture contract guard passed.",
+        ),
+        (
+            True,
+            _run_streaming_evidence_fail_closed_guard,
+            "Streaming evidence fail-closed guard failed.",
+            "Streaming evidence fail-closed guard passed.",
         ),
         (
             True,
