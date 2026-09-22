@@ -96,8 +96,56 @@ REQUIRED_METHOD_CONTENT: dict[str, str] = {
         r"drop_events\s*<=\s*baseline_drop_events",
 }
 
+# The two conditions above are the failure TESTS, and a text-presence check on them is not
+# enough on its own: keeping `if (control_after != control_baseline)` while turning its body
+# into `r.passed = true;` satisfies the regex and inverts the proof. So each condition's
+# braced block must also REPORT (assign `r.error_message`) and must not declare success, and
+# the method as a whole must contain exactly one `r.passed = true` -- the one at the end,
+# reached only when both phases behaved. Cheap structural facts, not semantics.
+REQUIRED_FAILURE_BRANCH_CONDITIONS: tuple[str, ...] = (
+    r"control_after\s*!=\s*control_baseline",
+    r"drop_events\s*<=\s*baseline_drop_events",
+)
+EXPECTED_PASSED_ASSIGNMENTS = 1
+_PASSED_ASSIGN_RE = re.compile(r"\br\.passed\s*=\s*true\s*;")
+
 _CASE_RE = re.compile(r'TEST_CASE\(\s*"((?:[^"\\]|\\.)*)"\s*\)\s*\{')
 _METHOD_RE_TEMPLATE = r"TileRendererRegressionTest::TestResult\s+TileRendererRegressionTest::{name}\s*\("
+_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+
+
+def _blank_comments(text: str) -> str:
+    """Replace every comment's characters with spaces, preserving length and newlines.
+
+    Without this, commenting out the call to the proof method --
+
+        result.passed = true;  // regression_test->test_overflow_drop_telemetry(local_device);
+
+    -- would still satisfy a substring check for the method name, and the guard would report
+    a case that exercises nothing. Offsets are preserved so positions stay meaningful."""
+
+    def blank(match: re.Match[str]) -> str:
+        return "".join("\n" if ch == "\n" else " " for ch in match.group(0))
+
+    return _LINE_COMMENT_RE.sub(blank, _BLOCK_COMMENT_RE.sub(blank, text))
+
+
+def _braced_block_after(text: str, index: int) -> str | None:
+    """Return the brace-matched `{ ... }` that starts at or after `index`, or None."""
+    open_brace = text.find("{", index)
+    if open_brace == -1:
+        return None
+    depth = 1
+    i = open_brace + 1
+    n = len(text)
+    while i < n and depth > 0:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+        i += 1
+    return text[open_brace + 1 : i]
 
 
 def _load_harness():
@@ -212,7 +260,9 @@ def analyze() -> list[str]:
         return [f"missing overflow-drop proof source: {PROOF_SOURCE.relative_to(ROOT)}"]
 
     harness = _load_harness()
-    text = PROOF_SOURCE.read_text(encoding="utf-8", errors="replace")
+    # Comments blanked before any parsing: a commented-out call or assertion must not be
+    # credited as live code (see _blank_comments).
+    text = _blank_comments(PROOF_SOURCE.read_text(encoding="utf-8", errors="replace"))
     cases = _iter_cases(text)
 
     matches = [(name, body) for (name, body) in cases if name.endswith(CASE_SUFFIX)]
@@ -273,6 +323,42 @@ def analyze() -> list[str]:
                     "case cannot discriminate a real overlap-record drop from no drop at all, and "
                     "passes vacuously."
                 )
+
+        # Each discriminating condition must still guard a FAILURE branch. Keeping the `if` and
+        # replacing its body with `r.passed = true;` satisfies the presence checks above while
+        # inverting the proof, so require the block to report and not to declare success.
+        for condition in REQUIRED_FAILURE_BRANCH_CONDITIONS:
+            match = re.search(condition, method_body)
+            if match is None:
+                continue  # already reported by the presence check above
+            block = _braced_block_after(method_body, match.end())
+            if block is None:
+                problems.append(
+                    f"{PROOF_METHOD}: the `{condition}` check is no longer followed by a braced "
+                    "block, so what it does on failure cannot be read."
+                )
+                continue
+            if "r.error_message" not in block:
+                problems.append(
+                    f"{PROOF_METHOD}: the branch taken when `{condition}` holds no longer sets "
+                    "`r.error_message`. That branch is the FAILURE path; a branch that reports "
+                    "nothing turns the discriminating check into a no-op."
+                )
+            if _PASSED_ASSIGN_RE.search(block) is not None:
+                problems.append(
+                    f"{PROOF_METHOD}: the branch taken when `{condition}` holds sets "
+                    "`r.passed = true`. That condition is the FAILURE condition; passing there "
+                    "inverts the proof while every presence check still matches."
+                )
+
+        passed_assignments = len(_PASSED_ASSIGN_RE.findall(method_body))
+        if passed_assignments != EXPECTED_PASSED_ASSIGNMENTS:
+            problems.append(
+                f"{PROOF_METHOD} contains {passed_assignments} `r.passed = true` assignment(s), "
+                f"expected exactly {EXPECTED_PASSED_ASSIGNMENTS}. The single one is the final "
+                "success, reached only when the control phase did NOT move the counter and the "
+                "overflow phase DID. An extra one is an early success that skips a phase."
+            )
 
     return problems
 
@@ -364,6 +450,66 @@ def _self_test() -> list[str]:
         )
     if _extract_method_body("int unrelated() { return 0; }", "test_overflow_drop_telemetry") is not None:
         problems.append("self-test: method-body extractor invented a body for an absent method.")
+
+    # (g) Comment blanking must hide commented-out code from every check, and only that.
+    commented = 'CHECK(x);  // regression_test->test_overflow_drop_telemetry(rd);\nCHECK(y);\n'
+    blanked = _blank_comments(commented)
+    if "test_overflow_drop_telemetry" in blanked:
+        problems.append(
+            "self-test: comment blanking left a commented-out method call visible; a case could "
+            "satisfy the call check while exercising nothing."
+        )
+    if len(blanked) != len(commented) or blanked.count("\n") != commented.count("\n"):
+        problems.append("self-test: comment blanking changed the text length or line count.")
+    if "CHECK(x);" not in blanked or "CHECK(y);" not in blanked:
+        problems.append("self-test: comment blanking destroyed live code.")
+    if "keep" not in _blank_comments("/* drop */ keep"):
+        problems.append("self-test: block-comment blanking destroyed live code.")
+    if "drop" in _blank_comments("/* drop */ keep"):
+        problems.append("self-test: block-comment blanking left the comment visible.")
+
+    # (h) The failure-branch arms must reject an inverted proof and accept the real shape.
+    good_branch = (
+        "if (control_after != control_baseline) {\n"
+        "    r.error_message = vformat(\"control moved\");\n    return r;\n}\n"
+        "if (drop_events <= baseline_drop_events) {\n"
+        "    r.error_message = vformat(\"no drop\");\n    return r;\n}\n"
+        "r.passed = true;\n"
+    )
+    inverted_branch = (
+        "if (control_after != control_baseline) {\n    r.passed = true;\n    return r;\n}\n"
+        "if (drop_events <= baseline_drop_events) {\n"
+        "    r.error_message = vformat(\"no drop\");\n    return r;\n}\n"
+        "r.passed = true;\n"
+    )
+    silent_branch = (
+        "if (control_after != control_baseline) {\n    return r;\n}\n"
+        "if (drop_events <= baseline_drop_events) {\n"
+        "    r.error_message = vformat(\"no drop\");\n    return r;\n}\n"
+        "r.passed = true;\n"
+    )
+    first = REQUIRED_FAILURE_BRANCH_CONDITIONS[0]
+    good_block = _braced_block_after(good_branch, re.search(first, good_branch).end())
+    inverted_block = _braced_block_after(inverted_branch, re.search(first, inverted_branch).end())
+    silent_block = _braced_block_after(silent_branch, re.search(first, silent_branch).end())
+    if good_block is None or "r.error_message" not in good_block or _PASSED_ASSIGN_RE.search(good_block):
+        problems.append("self-test: the real failure-branch shape was rejected by the branch arms.")
+    if inverted_block is None or _PASSED_ASSIGN_RE.search(inverted_block) is None:
+        problems.append(
+            "self-test: an inverted failure branch (`r.passed = true` on the failure condition) "
+            "was not detected; the branch arm is blind."
+        )
+    if silent_block is None or "r.error_message" in silent_block:
+        problems.append("self-test: a failure branch that reports nothing was not detected.")
+    if len(_PASSED_ASSIGN_RE.findall(inverted_branch)) == EXPECTED_PASSED_ASSIGNMENTS:
+        problems.append(
+            "self-test: the `r.passed = true` counter did not notice an extra early success."
+        )
+    if len(_PASSED_ASSIGN_RE.findall(good_branch)) != EXPECTED_PASSED_ASSIGNMENTS:
+        problems.append(
+            "self-test: the `r.passed = true` counter miscounts the real shape, so it would be "
+            "red on a clean tree."
+        )
 
     return problems
 
