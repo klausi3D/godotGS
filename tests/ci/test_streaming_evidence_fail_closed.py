@@ -227,5 +227,55 @@ class StreamingEvidenceFailClosedTests(unittest.TestCase):
         self.assertFalse(any("proof_status" in item for item in streaming_failures))
 
 
+class OpenWorldProofSurfaceReachabilityTests(unittest.TestCase):
+    """The lane that produces the open-world proof must be reachable without a human.
+
+    #1045: `open_world_corridor_proof` is the only lane in the repository that drives a
+    chunked `GaussianSplatWorld3D`, and the only step that runs it was gated on
+    `workflow_dispatch` plus an opt-in input. Every `workflow_dispatch` run of that
+    workflow is from March 2026, so the lane had never executed once -- inside a job
+    named "Open-World Proof Evidence" that runs weekly on a schedule.
+
+    An evidence surface nothing can trigger produces no evidence. This pins the trigger,
+    because the regression is invisible: the job stays green either way.
+    """
+
+    WORKFLOW = ROOT / ".github/workflows/gaussian_production_gates.yml"
+    PROOF_LANE = "open_world_corridor_proof"
+
+    def _proof_steps(self) -> list[dict[str, Any]]:
+        import yaml
+
+        workflow = yaml.safe_load(self.WORKFLOW.read_text(encoding="utf-8"))
+        steps = []
+        for job in workflow["jobs"].values():
+            for step in job.get("steps") or []:
+                if self.PROOF_LANE in str(step.get("run", "")):
+                    steps.append(step)
+        return steps
+
+    def test_a_step_actually_runs_the_corridor_proof_lane(self) -> None:
+        steps = self._proof_steps()
+        self.assertTrue(
+            steps,
+            f"no workflow step invokes --lane {self.PROOF_LANE}; the open_world_proof "
+            "artifact would have no producer at all",
+        )
+
+    def test_the_corridor_proof_lane_is_reachable_from_a_schedule(self) -> None:
+        """Not merely present -- reachable without somebody clicking a button."""
+        unreachable = [
+            step.get("name")
+            for step in self._proof_steps()
+            if "schedule" not in str(step.get("if", ""))
+        ]
+        self.assertFalse(
+            unreachable,
+            "these steps run the corridor proof lane but cannot be triggered by a "
+            f"scheduled run, so the lane only executes if a human dispatches it: {unreachable}. "
+            "That is how the lane went from March 2026 to September 2026 without running once.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
