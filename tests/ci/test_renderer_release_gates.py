@@ -3475,5 +3475,203 @@ class GpuHarnessCaseAssertAuditTests(unittest.TestCase):
         self.assertEqual(result.zero_assert_reported, len(result.zero_assertion_cases))
 
 
+def _honest_corridor_proof_report() -> dict[str, Any]:
+    """A lane report shaped as ``benchmark_suite_lane.gd`` writes it for the proof lane.
+
+    Values are illustrative, not a recorded run. The point of this fixture is the
+    *shape and the availability flags*, which is what the validator asserts; it must
+    never be cited as evidence that the lane passed on hardware.
+    """
+    return {
+        "lane_id": "open_world_corridor_proof",
+        "scene": "res://scenes/benchmark_suite/lane_open_world_corridor_proof.tscn",
+        "proof_metrics": {
+            "proof_window": "steady_overall",
+            "proof_window_sample_count": 1840,
+            "loaded_chunks": 46,
+            "atlas_published_chunks": 44,
+            "total_splats": 20000000,
+            "residency_ratio": 0.0711,
+            "queue_pressure_frames": 11,
+            "streaming_state_telemetry_available": True,
+            "atlas_published_telemetry_available": True,
+            "chunk_monitor_telemetry_available": True,
+            "queue_pressure_telemetry_available": True,
+        },
+    }
+
+
+class OpenWorldProofContentValidationTests(unittest.TestCase):
+    """The open-world proof group must be checked for what it SAYS, not just its hash.
+
+    Before this validator existed, a candidate bundle that pointed ``open_world_proof``
+    at the repository's ``README.md`` with a correct SHA-256 exited 0 with no failures
+    at all. Integrity checks cannot tell a corridor-proof report from a readme, and the
+    open-world obligation is the whole of the alpha's streaming promise.
+    """
+
+    PROOF_REL = "artifacts/open_world_corridor_proof.json"
+
+    def _manifest_with_proof_group(self, root: Path) -> dict[str, Any]:
+        manifest = _base_manifest(root)
+        artifact_requirements = manifest["artifact_requirements"]
+        artifact_requirements["required_groups"] = list(
+            artifact_requirements["required_groups"]
+        ) + ["open_world_proof"]
+        artifact_requirements["content_validators"] = {
+            "open_world_proof": {
+                "kind": "open_world_corridor_proof_lane_report",
+                "required_lane_id": "open_world_corridor_proof",
+                "required_telemetry_available": [
+                    "streaming_state_telemetry_available",
+                    "atlas_published_telemetry_available",
+                    "chunk_monitor_telemetry_available",
+                    "queue_pressure_telemetry_available",
+                ],
+                "minimum_values": {
+                    "loaded_chunks": 2,
+                    "total_splats": 5000000,
+                    "proof_window_sample_count": 1,
+                },
+            }
+        }
+        return manifest
+
+    def _evidence_with_proof(self, root: Path, rel_path: str, body: str) -> dict[str, Any]:
+        evidence = _valid_candidate_evidence(root)
+        _write(root / rel_path, body)
+        evidence["artifacts"]["open_world_proof"] = {
+            "path": rel_path,
+            "sha256": _sha256(root / rel_path),
+            "godot_binary_commit": "abc",
+            "godot_binary_mtime_utc": "2026-05-19T10:01:00Z",
+        }
+        return evidence
+
+    def _proof_failures(self, root: Path, rel_path: str, body: str) -> list[str]:
+        manifest = self._manifest_with_proof_group(root)
+        evidence = self._evidence_with_proof(root, rel_path, body)
+        return [
+            failure
+            for failure in checker._validate_candidate_artifacts(root, manifest, evidence)
+            if "open_world_proof" in failure
+        ]
+
+    def test_real_manifest_declares_an_open_world_proof_content_validator(self) -> None:
+        """Policy guard: the shipped manifest must actually configure this validator.
+
+        Every other test here builds its own manifest, so all of them would stay green
+        if the real manifest silently dropped the configuration. This is the test that
+        notices.
+        """
+        manifest = checker._load_json(ROOT / "docs/reference/renderer_release_gate_manifest.json")
+        validators = manifest["artifact_requirements"]["content_validators"]
+        self.assertIn("open_world_proof", validators)
+        self.assertEqual(
+            validators["open_world_proof"]["kind"],
+            "open_world_corridor_proof_lane_report",
+        )
+        self.assertIn(
+            "open_world_proof",
+            manifest["artifact_requirements"]["required_groups"],
+        )
+
+    def test_readme_is_rejected_as_open_world_proof(self) -> None:
+        failures = self._proof_failures(Path(self._tmp), "artifacts/readme.md", "# GodotGS\n")
+        self.assertTrue(
+            any("not readable as JSON" in failure for failure in failures),
+            f"a readme must not satisfy the open-world proof group; got {failures}",
+        )
+
+    def test_gdscript_source_is_rejected_as_open_world_proof(self) -> None:
+        failures = self._proof_failures(
+            Path(self._tmp),
+            "artifacts/materialize.gd",
+            "extends SceneTree\n\nfunc _init() -> void:\n\tquit(0)\n",
+        )
+        self.assertTrue(
+            any("not readable as JSON" in failure for failure in failures),
+            f"a GDScript source file must not satisfy the proof group; got {failures}",
+        )
+
+    def test_json_that_is_not_a_proof_report_is_rejected(self) -> None:
+        """Valid JSON is not the bar — being the corridor proof lane's report is."""
+        failures = self._proof_failures(
+            Path(self._tmp), self.PROOF_REL, json.dumps({"hello": "world"})
+        )
+        self.assertTrue(any("no proof_metrics block" in failure for failure in failures))
+        self.assertTrue(any("not the required" in failure for failure in failures))
+
+    def test_honest_corridor_proof_report_is_accepted(self) -> None:
+        """The legal route must still work, or the guard gets bypassed rather than obeyed."""
+        failures = self._proof_failures(
+            Path(self._tmp), self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        self.assertEqual(failures, [])
+
+    def test_defaulted_streaming_telemetry_is_rejected(self) -> None:
+        """A `false` availability flag means the numbers beside it were never measured.
+
+        This is the defect this whole validator exists for: a lane with no streaming
+        system reports `queue_pressure = 0`, which is indistinguishable from a streaming
+        run that had no pressure unless the availability flag is required to be true.
+        """
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["streaming_state_telemetry_available"] = False
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(
+            any("defaulted, not measured" in failure for failure in failures),
+            f"defaulted telemetry must be rejected; got {failures}",
+        )
+
+    def test_single_chunk_report_is_rejected(self) -> None:
+        """One chunk cannot stream — the committed `test_splats.gsplatworld` has exactly one."""
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["loaded_chunks"] = 1
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(any("loaded_chunks is 1" in failure for failure in failures))
+
+    def test_null_metric_is_rejected_rather_than_treated_as_zero(self) -> None:
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["loaded_chunks"] = None
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(any("not a number at or above" in failure for failure in failures))
+
+    def test_report_from_another_lane_is_rejected(self) -> None:
+        report = _honest_corridor_proof_report()
+        report["lane_id"] = "city_flyover"
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(any("not the required" in failure for failure in failures))
+
+    def test_unknown_validator_kind_fails_closed(self) -> None:
+        """A typo in the manifest must fail, not silently validate nothing."""
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        manifest["artifact_requirements"]["content_validators"]["open_world_proof"]["kind"] = "typo"
+        evidence = self._evidence_with_proof(
+            root, self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(any("unknown content validator kind" in failure for failure in failures))
+
+    def test_validator_configured_for_a_non_required_group_is_an_error(self) -> None:
+        """A validator on a group nobody requires would never run — wired to nothing."""
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        manifest["artifact_requirements"]["content_validators"]["not_a_required_group"] = {
+            "kind": "open_world_corridor_proof_lane_report"
+        }
+        evidence = self._evidence_with_proof(
+            root, self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(any("would never run" in failure for failure in failures))
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._tmp = self._tmpdir.name
+        self.addCleanup(self._tmpdir.cleanup)
+
+
 if __name__ == "__main__":
     unittest.main()

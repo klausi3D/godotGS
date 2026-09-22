@@ -1054,14 +1054,22 @@ def _validate_candidate_artifact_group(
     required_fields: Iterable[Any],
     commit: Any,
     commit_time: _dt.datetime | None,
+    content_validator: Any = None,
 ) -> list[str]:
     failures: list[str] = []
     if not isinstance(artifact, dict):
         return [f"candidate artifact group missing: {group}"]
     failures.extend(_candidate_artifact_required_field_failures(group, artifact, required_fields))
-    failures.extend(_candidate_artifact_integrity_failures(root, group, artifact))
+    integrity_failures = _candidate_artifact_integrity_failures(root, group, artifact)
+    failures.extend(integrity_failures)
     failures.extend(_candidate_artifact_commit_failures(group, artifact, commit))
     failures.extend(_candidate_artifact_mtime_failures(group, artifact, commit_time))
+    # Content validation is skipped only when integrity already failed: re-reading bytes
+    # whose digest did not match would report a second, confusing failure for one cause.
+    # A group with a declared validator and NO integrity failure is always content-checked,
+    # so "the file could not be read" can never be the reason a proof group goes unchecked.
+    if content_validator is not None and not integrity_failures:
+        failures.extend(_validate_candidate_artifact_content(root, group, artifact, content_validator))
     return failures
 
 
@@ -1137,6 +1145,120 @@ def _candidate_artifact_mtime_failures(
     return []
 
 
+# Known content-validator kinds. This is a closed policy set, not a derived list:
+# discovering a new kind means somebody must decide to implement it, so an unknown
+# kind in the manifest is a failure rather than a silently skipped validation.
+_CONTENT_VALIDATOR_KINDS = frozenset({"open_world_corridor_proof_lane_report"})
+
+
+def _validate_candidate_artifact_content(
+    root: Path,
+    group: Any,
+    artifact: dict[str, Any],
+    validator: Any,
+) -> list[str]:
+    """Assert what a required artifact SAYS, not merely that it hashes correctly.
+
+    Integrity validation proves the bytes are the bytes the bundle claims they are. It
+    cannot tell a corridor-proof report from ``README.md``: a candidate bundle pointing
+    ``open_world_proof`` at the repository README with a correct digest passed the gate
+    with no failures at all. Groups listed in
+    ``artifact_requirements.content_validators`` have their content asserted here.
+
+    Fails closed on every ambiguity. A malformed validator block, an unknown validator
+    kind, an unreadable or non-JSON artifact and a missing field are all failures, so a
+    typo in the manifest cannot quietly disable the check it was meant to configure.
+    """
+    if not isinstance(validator, dict):
+        return [f"candidate artifact {group} content validator must be a JSON object"]
+    kind = validator.get("kind")
+    if kind not in _CONTENT_VALIDATOR_KINDS:
+        return [
+            f"candidate artifact {group} declares unknown content validator kind {kind!r}; "
+            f"known kinds: {', '.join(sorted(_CONTENT_VALIDATOR_KINDS))}"
+        ]
+
+    raw_path = artifact.get("path")
+    artifact_path, path_failures = _candidate_artifact_path(root, raw_path, group)
+    if path_failures:
+        return path_failures
+    if artifact_path is None:
+        return [f"candidate artifact {group} path missing: {raw_path}"]
+    try:
+        document = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return [
+            f"candidate artifact {group} is not readable as JSON, so it cannot be the "
+            f"{kind} it is required to be: {raw_path} ({exc})"
+        ]
+    if not isinstance(document, dict):
+        return [
+            f"candidate artifact {group} must be a JSON object to be a {kind}, "
+            f"got {type(document).__name__}"
+        ]
+    return _open_world_corridor_proof_content_failures(group, document, validator)
+
+
+def _open_world_corridor_proof_content_failures(
+    group: Any,
+    document: dict[str, Any],
+    validator: dict[str, Any],
+) -> list[str]:
+    """Require the open-world proof to be a lane report that actually streamed.
+
+    Three things are asserted, and each one rejects a real way this group has been or
+    could be satisfied without evidence:
+
+    * the report is the corridor-proof lane's, not some other lane's or some other file;
+    * every declared telemetry-availability flag is ``true`` — a ``false`` flag means the
+      numbers beside it are defaults, and a defaulted zero must never read as a measured
+      zero;
+    * the declared minimums hold, so a single-chunk or empty-window run cannot pass as
+      chunked streaming evidence.
+    """
+    failures: list[str] = []
+
+    required_lane = validator.get("required_lane_id")
+    actual_lane = document.get("lane_id")
+    if required_lane and actual_lane != required_lane:
+        failures.append(
+            f"candidate artifact {group} reports lane_id {actual_lane!r}, not the required "
+            f"{required_lane!r}: this is not the lane that drives a chunked world"
+        )
+
+    metrics = document.get("proof_metrics")
+    if not isinstance(metrics, dict):
+        failures.append(
+            f"candidate artifact {group} has no proof_metrics block, so no streaming "
+            "measurement can be read out of it at all"
+        )
+        return failures
+
+    for flag in validator.get("required_telemetry_available", []):
+        if metrics.get(flag) is not True:
+            failures.append(
+                f"candidate artifact {group} proof_metrics.{flag} is {metrics.get(flag)!r}, "
+                "not true: the streaming numbers in this report were defaulted, not measured"
+            )
+
+    minimums = validator.get("minimum_values") or {}
+    for field in sorted(minimums):
+        minimum = minimums[field]
+        value = metrics.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            failures.append(
+                f"candidate artifact {group} proof_metrics.{field} is {value!r}, "
+                f"not a number at or above the required {minimum}"
+            )
+        elif value < minimum:
+            failures.append(
+                f"candidate artifact {group} proof_metrics.{field} is {value}, below the "
+                f"required minimum {minimum}"
+            )
+
+    return failures
+
+
 def _validate_candidate_artifacts(root: Path, manifest: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     artifacts = evidence.get("artifacts", {})
@@ -1146,10 +1268,35 @@ def _validate_candidate_artifacts(root: Path, manifest: dict[str, Any], evidence
     required_fields = manifest.get("artifact_requirements", {}).get("each_artifact_requires", [])
     commit = evidence.get("commit")
     commit_time = _parse_time(evidence.get("commit_time_utc", ""))
+    content_validators = manifest.get("artifact_requirements", {}).get("content_validators", {})
+    if not isinstance(content_validators, dict):
+        return ["manifest artifact_requirements.content_validators must be a JSON object"]
+
+    # A content validator configured for a group that is not required would never run.
+    # That is the "guard wired to nothing" shape, so it is an error rather than a no-op.
+    required_group_names = {str(group) for group in required_groups}
+    for configured in sorted(str(key) for key in content_validators):
+        if configured.startswith("_"):
+            continue
+        if configured not in required_group_names:
+            failures.append(
+                f"manifest declares a content validator for {configured!r}, which is not in "
+                "artifact_requirements.required_groups, so the validator would never run"
+            )
 
     for group in required_groups:
         artifact = artifacts.get(group)
-        failures.extend(_validate_candidate_artifact_group(root, group, artifact, required_fields, commit, commit_time))
+        failures.extend(
+            _validate_candidate_artifact_group(
+                root,
+                group,
+                artifact,
+                required_fields,
+                commit,
+                commit_time,
+                content_validator=content_validators.get(group),
+            )
+        )
 
     return failures
 

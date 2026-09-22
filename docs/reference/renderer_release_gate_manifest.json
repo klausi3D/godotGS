@@ -388,7 +388,26 @@
       "sha256",
       "godot_binary_commit",
       "godot_binary_mtime_utc"
-    ]
+    ],
+    "content_validators": {
+      "_rationale": "Integrity checks (path, sha256, commit, mtime) prove an artifact is the bytes it claims to be; they prove nothing about what those bytes say. A candidate bundle pointing open_world_proof at README.md with a correct digest passed the gate with zero failures. A group listed here is additionally content-validated by _validate_candidate_artifact_content. This is a policy enumeration, not a derived list: adding a group here is a deliberate decision, and _CONTENT_VALIDATOR_KINDS in tests/ci/check_renderer_release_gates.py rejects an unknown kind so a typo fails closed instead of silently validating nothing.",
+      "open_world_proof": {
+        "kind": "open_world_corridor_proof_lane_report",
+        "rationale": "The open-world obligation is the alpha's streaming promise. The artifact must be the benchmark lane report produced by the lane that actually drives a chunked GaussianSplatWorld3D, and it must show streaming telemetry that was measured rather than defaulted. See docs/architecture/adr-open-world-proof-content-validation.md.",
+        "required_lane_id": "open_world_corridor_proof",
+        "required_telemetry_available": [
+          "streaming_state_telemetry_available",
+          "atlas_published_telemetry_available",
+          "chunk_monitor_telemetry_available",
+          "queue_pressure_telemetry_available"
+        ],
+        "minimum_values": {
+          "loaded_chunks": 2,
+          "total_splats": 5000000,
+          "proof_window_sample_count": 1
+        }
+      }
+    }
   },
   "lifetime_accounting_proof": {
     "stdout_marker": "[GS-LIFETIME] ",
