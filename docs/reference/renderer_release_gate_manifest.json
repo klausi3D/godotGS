@@ -401,10 +401,13 @@
           "chunk_monitor_telemetry_available",
           "queue_pressure_telemetry_available"
         ],
+        "_axis": "STREAMING BEHAVIOUR ONLY. Everything in this validator asks whether chunks actually loaded, evicted and turned over during the run. Nothing in it asks what the world is made of. Content provenance is a separate axis carried by the benchmark asset manifest's asset_classification, and is deliberately not mixed in here: switching the proof from a generated world to captured scan content must be a content swap, not a rewrite of the behaviour criteria. tests/ci/test_renderer_release_gates.py asserts this separation rather than merely documenting it.",
         "minimum_values": {
           "loaded_chunks": 2,
           "total_splats": 5000000,
-          "proof_window_sample_count": 1
+          "proof_window_sample_count": 1,
+          "chunk_loads_total": 2,
+          "chunk_evictions_total": 1
         }
       }
     }

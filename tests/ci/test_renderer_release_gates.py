@@ -3493,6 +3493,8 @@ def _honest_corridor_proof_report() -> dict[str, Any]:
             "total_splats": 20000000,
             "residency_ratio": 0.0711,
             "queue_pressure_frames": 11,
+            "chunk_loads_total": 312.0,
+            "chunk_evictions_total": 266.0,
             "streaming_state_telemetry_available": True,
             "atlas_published_telemetry_available": True,
             "chunk_monitor_telemetry_available": True,
@@ -3532,6 +3534,8 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
                     "loaded_chunks": 2,
                     "total_splats": 5000000,
                     "proof_window_sample_count": 1,
+                    "chunk_loads_total": 2,
+                    "chunk_evictions_total": 1,
                 },
             }
         }
@@ -3642,6 +3646,57 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
         report["lane_id"] = "city_flyover"
         failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
         self.assertTrue(any("not the required" in failure for failure in failures))
+
+    def test_run_without_chunk_turnover_is_rejected(self) -> None:
+        """Loading chunks once and never evicting is a static scene, not streaming.
+
+        Per-frame avg/p95/max cannot express this: a world that loads its whole working
+        set in the first frames and then sits still has a perfectly healthy p95. Only a
+        run-cumulative eviction count distinguishes a traversal from a parked camera.
+        """
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["chunk_evictions_total"] = 0.0
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(
+            any("chunk_evictions_total" in failure for failure in failures),
+            f"a run with no evictions must not pass as chunked streaming; got {failures}",
+        )
+
+    def test_absent_turnover_field_is_rejected_rather_than_assumed(self) -> None:
+        """An older report that predates the cumulative counters must fail, not pass."""
+        report = _honest_corridor_proof_report()
+        del report["proof_metrics"]["chunk_loads_total"]
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(any("chunk_loads_total" in failure for failure in failures))
+
+    def test_behaviour_criteria_do_not_encode_content_provenance(self) -> None:
+        """Behaviour and provenance must stay separable, and this asserts it.
+
+        The maintainer's ruling on #1016 is that the alpha's streaming proof runs on a
+        deterministically generated synthetic world, and that the provenance must be
+        named wherever the evidence is claimed. Keeping the two axes apart is what makes
+        a later switch to captured content a content swap rather than a rewrite of these
+        criteria -- so this validator must never grow a content-origin condition.
+
+        Provenance lives in the benchmark asset manifest's `asset_classification`, and
+        enforcing a required value there belongs to the classification promotion, not
+        here. This test fails if somebody mixes the two.
+        """
+        manifest = checker._load_json(ROOT / "docs/reference/renderer_release_gate_manifest.json")
+        validator = manifest["artifact_requirements"]["content_validators"]["open_world_proof"]
+        provenance_words = ("provenance", "synthetic", "captured", "scan", "asset_classification")
+        for key in validator:
+            if key.startswith("_"):
+                continue  # explanatory prose is allowed to discuss the separation
+            self.assertFalse(
+                any(word in str(key).lower() for word in provenance_words),
+                f"content validator key {key!r} mixes provenance into the behaviour axis",
+            )
+        for field in validator.get("minimum_values", {}):
+            self.assertFalse(
+                any(word in str(field).lower() for word in provenance_words),
+                f"minimum_values field {field!r} mixes provenance into the behaviour axis",
+            )
 
     def test_unknown_validator_kind_fails_closed(self) -> None:
         """A typo in the manifest must fail, not silently validate nothing."""

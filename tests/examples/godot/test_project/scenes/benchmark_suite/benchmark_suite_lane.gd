@@ -1231,6 +1231,9 @@ func _proof_metric_summary(samples: Array) -> Dictionary:
 			"avg": null,
 			"p95": null,
 			"max": null,
+			# null, not 0: no samples means the run measured nothing, which must stay
+			# distinguishable from a run that measured zero chunk turnover (#1016).
+			"total": null,
 			"sample_count": 0,
 		}
 	var total := 0.0
@@ -1243,6 +1246,10 @@ func _proof_metric_summary(samples: Array) -> Dictionary:
 		"avg": total / float(samples.size()),
 		"p95": BenchmarkMetricsUtil.percentile(samples, 95.0),
 		"max": max_value,
+		# Run-cumulative, not per-frame. Chunk turnover over a whole traversal is the
+		# thing that distinguishes streaming from a static scene wearing a streaming
+		# label; per-frame avg/p95/max cannot express "the working set turned over once".
+		"total": total,
 		"sample_count": samples.size(),
 	}
 
@@ -1286,10 +1293,12 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"chunk_loads_per_frame_p95": chunk_loads_summary.get("p95"),
 		"chunk_loads_per_frame_max": chunk_loads_summary.get("max"),
 		"chunk_loads_per_frame_samples": chunk_loads_summary.get("sample_count"),
+		"chunk_loads_total": chunk_loads_summary.get("total"),
 		"chunk_evictions_per_frame_avg": chunk_evictions_summary.get("avg"),
 		"chunk_evictions_per_frame_p95": chunk_evictions_summary.get("p95"),
 		"chunk_evictions_per_frame_max": chunk_evictions_summary.get("max"),
 		"chunk_evictions_per_frame_samples": chunk_evictions_summary.get("sample_count"),
+		"chunk_evictions_total": chunk_evictions_summary.get("total"),
 		"uploaded_splats": _proof_last_uploaded_splats if _proof_residency_available else null,
 		"total_splats": _proof_last_total_splats if _proof_residency_available else null,
 		"visible_splats": _proof_last_visible_splats if _proof_visibility_metric_available else null,
