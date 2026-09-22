@@ -547,6 +547,301 @@ def _check_extra_mirror_struct(host_header: Path, host_name: str, shader_name: s
         _compare_layouts(host_layout, shader_layout, shader_path, shader_name, host_name, failures)
 
 
+# #54: the IndirectDispatch SSBO -- the 24-byte GPU-driven dispatch/count header produced by
+# the tile prefix scan and consumed by binning, both rasterizers and the instance-count clamp.
+# Its host mirror is `GaussianSplatting::IndirectDispatchLayout`
+# (renderer/pipeline_io_contracts.h), and until this check existed the ONLY pin on it was a
+# regex ABI contract in shaders/compile_shaders.py (key="indirect_dispatch_layout"), which
+# covers just TWO of the declarations -- tile_prefix_scan.glsl and
+# compute/instance_count_clamp.glsl's `IndirectDispatch`. The other six copies of the same
+# 24-byte layout could drift from the host struct with nothing failing: a reordered pair of
+# fields in one rasterizer would make it read `unclamped_total` as `overflow_flag` and
+# `element_count` as a dispatch dimension, i.e. it would rasterize a wrong record count off a
+# buffer the host wrote in the other order, with no compile-, link- or load-time signal.
+#
+# Two things are pinned per declaration, because both can drift independently:
+#
+#  1. FIELD LAYOUT, field-by-field against the host struct (names, std430 signatures, offsets,
+#     total size), exactly as OVERFLOW_STATS_SHADER_MIRRORS does for OverflowStats.
+#  2. The `layout(set = S, binding = B, std430)` QUALIFIERS. check_gaussian_layout_sync.py
+#     parses no binding qualifier anywhere else, and the reader-side binding numbers (6 in both
+#     rasterizers, 9 and 15 in tile_binning) are pinned nowhere at all. A binding number that
+#     drifts on one side binds a DIFFERENT buffer into the block -- the layout check would still
+#     pass, because the layout is not what changed.
+#
+# The host C++ that wires those same numbers into the uniform set is pinned too, by
+# INDIRECT_DISPATCH_HOST_BINDING_PINS below: a shader-only pin would let the C++ move instead.
+INDIRECT_DISPATCH_HOST_HEADER = ROOT / "modules" / "gaussian_splatting" / "renderer" / "pipeline_io_contracts.h"
+INDIRECT_DISPATCH_HOST_NAME = "IndirectDispatchLayout"
+
+# Shader declarations spell the leading dispatch triple in one of two ways: three scalars
+# (`uint dispatch_x; uint dispatch_y; uint dispatch_z;`, matching the host struct) or one
+# `uint dispatch_xyz[3]`. Both are the same 12 bytes at offsets 0/4/8 in std430. This alias is
+# expanded into the host's three scalar names before comparison, so it is a SPELLING
+# equivalence only -- a genuine reorder, retype, insertion or deletion still fails, including
+# one that swaps a dispatch component with `element_count`.
+INDIRECT_DISPATCH_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "dispatch_xyz": ("dispatch_x", "dispatch_y", "dispatch_z"),
+}
+
+# Every GLSL declaration of the 24-byte IndirectDispatchLayout, as
+# (shader_path, block_name, set, binding). All eight are the same host struct: the five
+# `IndirectDispatch`/`InstanceCount` blocks bound to buffers the host creates with
+# `sizeof(GaussianSplatting::IndirectDispatchLayout)`, plus the three `InstanceIndirectDispatch`
+# views of the instance-pipeline indirect-count buffer (created with that same sizeof at
+# renderer/render_streaming_orchestrator.cpp and
+# renderer/resident_instance_contract_publisher.cpp). Adding a ninth declaration without adding
+# it here leaves it unpinned, so INDIRECT_DISPATCH_DECLARATION_SWEEP below re-derives the set
+# from the tree and fails on any declaration this list does not mention.
+INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "IndirectDispatch", 0, 5),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer.glsl", "IndirectDispatch", 0, 6),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer_compute.glsl", "IndirectDispatch", 0, 6),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "IndirectDispatch", 0, 9),
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "InstanceIndirectDispatch", 0, 15),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "tile_raster_common.glsl",
+        "InstanceIndirectDispatch",
+        0,
+        15,
+    ),
+    (ROOT / "modules" / "gaussian_splatting" / "compute" / "instance_count_clamp.glsl", "IndirectDispatch", 0, 1),
+    (ROOT / "modules" / "gaussian_splatting" / "compute" / "instance_count_clamp.glsl", "InstanceCount", 0, 3),
+)
+
+# Host-side binding wiring: (cpp_path, buffer_expression_substring, expected_binding,
+# expected_occurrences). For every `X.append_id(<expr containing the substring>)` the checker
+# walks back to the nearest preceding `X.binding = N;` and requires N == expected_binding, so
+# the C++ uniform-set slot and the GLSL `binding =` qualifier are pinned to the same number
+# from both ends. The occurrence count is pinned as well: a new binding site that nobody
+# reviewed fails here rather than being silently accepted.
+#
+# NOT COVERED: compute/instance_count_clamp.glsl's bindings 1 and 3. Its host side goes through
+# a shared helper that takes the binding as a parameter
+# (interfaces/gpu_sorting_pipeline.cpp, `contract.binding = p_binding`), so there is no literal
+# to anchor at the append_id site. The GLSL side of both is still pinned above; only the C++
+# half of that one shader is unpinned, and it is called out here rather than left implicit.
+INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_prefix_scan.cpp",
+        "global_sort_resources.indirect_dispatch_buffer",
+        5,
+        1,
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_binning.cpp",
+        "global_sort_resources.indirect_dispatch_buffer",
+        9,
+        1,
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_rasterizer_stage.cpp",
+        "global_sort_resources.indirect_dispatch_buffer",
+        6,
+        2,  # fragment + compute rasterizer variants
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_binning.cpp",
+        "instance_pipeline_buffers.indirect_count_buffer",
+        15,
+        2,  # COUNT + EMIT passes
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_rasterizer_stage.cpp",
+        "instance_pipeline_buffers.indirect_count_buffer",
+        15,
+        2,  # fragment + compute rasterizer variants
+    ),
+)
+
+# Derived completeness sweep: any GLSL buffer block whose body declares the IndirectDispatch
+# field set must appear in INDIRECT_DISPATCH_SHADER_MIRRORS. This is the "derive coverage
+# lists" rule -- the mirror list above decides WHICH set/binding each declaration must use
+# (policy), but WHICH declarations exist is read out of the tree, so a ninth copy added to a
+# shader cannot quietly escape the pin.
+_INDIRECT_DISPATCH_BLOCK_RE = re.compile(
+    r"layout\s*\(([^)]*)\)\s*(?:readonly\s+|writeonly\s+|coherent\s+|restrict\s+|volatile\s+)*"
+    r"buffer\s+(?P<block>\w+)\s*\{(?P<body>[^{}]*?)\}\s*\w+\s*;",
+    re.DOTALL,
+)
+_INDIRECT_DISPATCH_MARKER_FIELDS = ("element_count", "overflow_flag", "unclamped_total")
+_LAYOUT_SET_RE = re.compile(r"\bset\s*=\s*(\d+)")
+_LAYOUT_BINDING_RE = re.compile(r"\bbinding\s*=\s*(\d+)")
+_UNIFORM_BINDING_ASSIGN_RE = re.compile(r"(?P<var>\w+)\s*\.\s*binding\s*=\s*(?P<binding>\d+)\s*;")
+
+
+def _parse_buffer_block_qualifiers(path: Path, block_name: str) -> tuple[int | None, int | None, str]:
+    """Return (set, binding, raw_layout_args) for `layout(...) [readonly] buffer NAME {...} x;`.
+
+    Fails closed: a declaration the regex cannot find raises, and a missing `set`/`binding`
+    comes back as None so the caller reports it rather than skipping the pin."""
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"layout\s*\((?P<args>[^)]*)\)\s*(?:readonly\s+|writeonly\s+|coherent\s+|restrict\s+|volatile\s+)*"
+        rf"buffer\s+{re.escape(block_name)}\s*\{{",
+    )
+    match = pattern.search(text)
+    if match is None:
+        raise RuntimeError(f"Could not find `layout(...) buffer {block_name} {{` in {path}")
+    args = match.group("args")
+    set_match = _LAYOUT_SET_RE.search(args)
+    binding_match = _LAYOUT_BINDING_RE.search(args)
+    return (
+        int(set_match.group(1)) if set_match else None,
+        int(binding_match.group(1)) if binding_match else None,
+        args.strip(),
+    )
+
+
+def _expand_indirect_dispatch_aliases(layout: LayoutSpec) -> tuple[tuple[str, str, int], ...]:
+    """Flatten a LayoutSpec into ((field_name, base_type, offset), ...), expanding the accepted
+    `dispatch_xyz[3]` spelling into the host's three scalar names at +0/+4/+8. Every other
+    array field is left as-is (and would therefore mismatch a scalar host field, which is the
+    intent -- only the one documented spelling is equivalent)."""
+    flat: list[tuple[str, str, int]] = []
+    for field in layout.fields:
+        base_offset = layout.offsets[field.name]
+        alias = INDIRECT_DISPATCH_FIELD_ALIASES.get(field.name)
+        if alias is not None and field.components == len(alias):
+            scalar_size = _SCALAR_BASE_TYPES[field.base_type][1] if field.base_type in _SCALAR_BASE_TYPES else 4
+            for index, alias_name in enumerate(alias):
+                flat.append((alias_name, field.base_type, base_offset + index * scalar_size))
+            continue
+        if field.components == 1:
+            flat.append((field.name, field.base_type, base_offset))
+        else:
+            flat.append((f"{field.name}[{field.components}]", field.base_type, base_offset))
+    return tuple(flat)
+
+
+def _check_indirect_dispatch_abi(failures: list[str]) -> None:
+    """Pin IndirectDispatchLayout across the host struct, every GLSL declaration of it, and the
+    host C++ that binds those declarations' slots. See INDIRECT_DISPATCH_SHADER_MIRRORS."""
+    host_text = INDIRECT_DISPATCH_HOST_HEADER.read_text(encoding="utf-8")
+    host_def = _parse_struct_definition(INDIRECT_DISPATCH_HOST_HEADER, INDIRECT_DISPATCH_HOST_NAME)
+    host_layout = _layout_struct({INDIRECT_DISPATCH_HOST_NAME: host_def}, INDIRECT_DISPATCH_HOST_NAME, "host")
+    host_rel = INDIRECT_DISPATCH_HOST_HEADER.relative_to(ROOT)
+
+    # (a) Host self-consistency against this struct's own static_asserts, so the contracts stay
+    #     the single source of truth. IndirectDispatchLayout spells its size as
+    #     `sizeof(uint32_t) * 6`, which _parse_push_constant_size_contract resolves (the plain
+    #     _parse_struct_size_contract only reads the literal form).
+    contract_size = _parse_push_constant_size_contract(host_text, INDIRECT_DISPATCH_HOST_NAME)
+    if contract_size is None:
+        failures.append(
+            f"{host_rel}: `{INDIRECT_DISPATCH_HOST_NAME}` has no `sizeof` static_assert to anchor the "
+            "IndirectDispatch shader mirrors against"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{host_rel}: computed {INDIRECT_DISPATCH_HOST_NAME} size {host_layout.size} != host contract {contract_size}"
+        )
+    offset_contracts = _parse_struct_offset_contracts(host_text, INDIRECT_DISPATCH_HOST_NAME)
+    if not offset_contracts:
+        failures.append(
+            f"{host_rel}: `{INDIRECT_DISPATCH_HOST_NAME}` has no `offsetof` static_asserts; the field "
+            "offsets the shaders are compared against would be unanchored"
+        )
+    for field_name, expected_offset in offset_contracts.items():
+        actual_offset = host_layout.offsets.get(field_name)
+        if actual_offset != expected_offset:
+            failures.append(
+                f"{host_rel}: {INDIRECT_DISPATCH_HOST_NAME}.{field_name} computed offset {actual_offset} "
+                f"!= host contract {expected_offset}"
+            )
+
+    host_flat = _expand_indirect_dispatch_aliases(host_layout)
+
+    # (b) Every declared GLSL mirror: field layout AND set/binding qualifiers.
+    for shader_path, block_name, expected_set, expected_binding in INDIRECT_DISPATCH_SHADER_MIRRORS:
+        shader_rel = shader_path.relative_to(ROOT)
+        if not shader_path.exists():
+            failures.append(f"{block_name}: expected IndirectDispatch mirror {shader_rel} not found")
+            continue
+        block_def = _parse_buffer_block_definition(shader_path, block_name)
+        block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
+        block_flat = _expand_indirect_dispatch_aliases(block_layout)
+
+        if block_flat != host_flat:
+            failures.append(
+                f"{shader_rel}: `buffer {block_name}` layout {list(block_flat)} != host "
+                f"{INDIRECT_DISPATCH_HOST_NAME} {list(host_flat)}. The host writes this buffer as "
+                f"{INDIRECT_DISPATCH_HOST_NAME}; a field that moved reads a different word on the GPU."
+            )
+        if block_layout.size != host_layout.size:
+            failures.append(
+                f"{shader_rel}: `buffer {block_name}` size {block_layout.size} != host "
+                f"{INDIRECT_DISPATCH_HOST_NAME} size {host_layout.size}"
+            )
+
+        actual_set, actual_binding, raw_args = _parse_buffer_block_qualifiers(shader_path, block_name)
+        if "std430" not in raw_args:
+            failures.append(
+                f"{shader_rel}: `buffer {block_name}` is declared `layout({raw_args})`, not std430. The "
+                "host writes a packed C++ struct; std140 would pad it."
+            )
+        if actual_set != expected_set:
+            failures.append(
+                f"{shader_rel}: `buffer {block_name}` is at set {actual_set}, pinned set {expected_set}"
+            )
+        if actual_binding != expected_binding:
+            failures.append(
+                f"{shader_rel}: `buffer {block_name}` is at binding {actual_binding}, pinned binding "
+                f"{expected_binding}. The host wires this slot in C++ (see "
+                "INDIRECT_DISPATCH_HOST_BINDING_PINS); a one-sided change binds a different buffer here "
+                "while every layout check still passes."
+            )
+
+    # (c) Completeness: no unpinned declaration of the same field set may exist in the tree.
+    pinned = {(path, block) for path, block, _, _ in INDIRECT_DISPATCH_SHADER_MIRRORS}
+    for root in SHADER_ROOTS:
+        for path in sorted(root.rglob("*.glsl")):
+            text = path.read_text(encoding="utf-8")
+            for match in _INDIRECT_DISPATCH_BLOCK_RE.finditer(text):
+                body = match.group("body")
+                if not all(f"uint {field};" in body for field in _INDIRECT_DISPATCH_MARKER_FIELDS):
+                    continue
+                block = match.group("block")
+                if (path, block) not in pinned:
+                    failures.append(
+                        f"{path.relative_to(ROOT)}: `buffer {block}` declares the IndirectDispatchLayout "
+                        "field set but is not in INDIRECT_DISPATCH_SHADER_MIRRORS, so its layout and "
+                        "set/binding are pinned by nothing. Add it (with its set/binding) to the list."
+                    )
+
+    # (d) Host C++ binding slots must equal the pinned GLSL binding numbers.
+    for cpp_path, buffer_expr, expected_binding, expected_occurrences in INDIRECT_DISPATCH_HOST_BINDING_PINS:
+        cpp_rel = cpp_path.relative_to(ROOT)
+        if not cpp_path.exists():
+            failures.append(f"{cpp_rel}: expected IndirectDispatch host binding site not found")
+            continue
+        text = cpp_path.read_text(encoding="utf-8")
+        append_sites = [m for m in re.finditer(rf"(?P<var>\w+)\s*\.\s*append_id\([^)]*{re.escape(buffer_expr)}", text)]
+        if len(append_sites) != expected_occurrences:
+            failures.append(
+                f"{cpp_rel}: found {len(append_sites)} `append_id(...{buffer_expr})` site(s), pinned "
+                f"{expected_occurrences}. A new or removed binding site for the IndirectDispatch buffer "
+                "must be reconciled with INDIRECT_DISPATCH_HOST_BINDING_PINS, not silently accepted."
+            )
+        for site in append_sites:
+            var = site.group("var")
+            assigns = [
+                m for m in _UNIFORM_BINDING_ASSIGN_RE.finditer(text, 0, site.start()) if m.group("var") == var
+            ]
+            if not assigns:
+                failures.append(
+                    f"{cpp_rel}: `{var}.append_id(...{buffer_expr})` has no preceding `{var}.binding = N;`, "
+                    "so the uniform slot it lands in cannot be pinned."
+                )
+                continue
+            actual = int(assigns[-1].group("binding"))
+            if actual != expected_binding:
+                failures.append(
+                    f"{cpp_rel}: `{var}` binds {buffer_expr} at binding {actual}, pinned {expected_binding} "
+                    "(the GLSL side declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
+                )
+
+
 # C4b: the binding-3 overlap-statistics SSBO is a GLSL `buffer` block (not a `struct`) and is
 # declared under two block type names across three shaders (all with identical fields and the
 # shared `overflow_stats` instance). Validate the host mirror TileOverflowStatsSnapshot against
@@ -1057,6 +1352,8 @@ def main() -> int:
 
     _check_overflow_stats_mirror(failures)
 
+    _check_indirect_dispatch_abi(failures)
+
     for host_header, host_name, shader_mirrors in PUSH_CONSTANT_MIRRORS:
         _check_push_constant_mirror(host_header, host_name, shader_mirrors, failures)
 
@@ -1078,6 +1375,12 @@ def main() -> int:
         "[gaussian-layout-check] OverflowStats binding-3 SSBO matches host TileOverflowStatsSnapshot across "
         + ", ".join(path.name for path, _ in OVERFLOW_STATS_SHADER_MIRRORS)
         + "."
+    )
+    print(
+        "[gaussian-layout-check] IndirectDispatchLayout is pinned across "
+        f"{len(INDIRECT_DISPATCH_SHADER_MIRRORS)} GLSL declaration(s) "
+        + ", ".join(f"{path.name}:{block}@set{s}/binding{b}" for path, block, s, b in INDIRECT_DISPATCH_SHADER_MIRRORS)
+        + f" and {sum(n for _, _, _, n in INDIRECT_DISPATCH_HOST_BINDING_PINS)} host binding site(s)."
     )
     print(
         "[gaussian-layout-check] Push-constant std430 blocks match their host structs: "
