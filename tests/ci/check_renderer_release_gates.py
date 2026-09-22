@@ -813,6 +813,56 @@ def validate_contract(root: Path, manifest: dict[str, Any]) -> list[str]:
     failures.extend(_validate_visual_acceptance(root, manifest))
     failures.extend(_validate_workflow_policy(root, manifest))
     failures.extend(_validate_lifetime_accounting_proof_schema(manifest))
+    failures.extend(_validate_content_validation_coverage(manifest))
+    return failures
+
+
+# Artifact groups whose content MUST be validated, held here in code rather than in the
+# manifest on purpose: a manifest that declared its own coverage requirement could have
+# both the requirement and the validator deleted in one edit and still pass, which is the
+# "compared against itself" shape. Keeping the requirement outside the document it checks
+# means deleting the validator fails contract mode.
+_CONTENT_VALIDATION_REQUIRED_GROUPS = frozenset({"open_world_proof"})
+
+
+def _validate_content_validation_coverage(manifest: dict[str, Any]) -> list[str]:
+    """Integrity-only checking must not silently return for a proof-bearing group.
+
+    Without this, deleting `artifact_requirements.content_validators.open_world_proof`
+    restores the state where a candidate bundle satisfies the open-world obligation with
+    `README.md` and a correct digest -- and nothing in contract mode notices, because a
+    group with no configured validator is simply not content-checked.
+    """
+    failures: list[str] = []
+    requirements = manifest.get("artifact_requirements", {})
+    if not isinstance(requirements, dict):
+        return ["artifact_requirements must be a JSON object"]
+    validators = requirements.get("content_validators", {})
+    if not isinstance(validators, dict):
+        return ["artifact_requirements.content_validators must be a JSON object"]
+    required_groups = {str(group) for group in requirements.get("required_groups", [])}
+
+    for group in sorted(_CONTENT_VALIDATION_REQUIRED_GROUPS):
+        # Only meaningful for a group this manifest actually demands. A manifest that
+        # does not require open_world_proof at all has nothing to content-validate; that
+        # the SHIPPED manifest requires it is asserted separately, against the real file,
+        # in tests/ci/test_renderer_release_gates.py.
+        if group not in required_groups:
+            continue
+        validator = validators.get(group)
+        if not isinstance(validator, dict):
+            failures.append(
+                f"artifact_requirements.content_validators is missing a validator for "
+                f"{group!r}; without it that group is integrity-checked only and any file "
+                "with a matching digest satisfies it"
+            )
+            continue
+        kind = validator.get("kind")
+        if kind not in _CONTENT_VALIDATOR_KINDS:
+            failures.append(
+                f"artifact_requirements.content_validators.{group}.kind is {kind!r}, "
+                f"which is not a known validator kind"
+            )
     return failures
 
 
@@ -1148,7 +1198,9 @@ def _candidate_artifact_mtime_failures(
 # Known content-validator kinds. This is a closed policy set, not a derived list:
 # discovering a new kind means somebody must decide to implement it, so an unknown
 # kind in the manifest is a failure rather than a silently skipped validation.
-_CONTENT_VALIDATOR_KINDS = frozenset({"open_world_corridor_proof_lane_report"})
+# Non-group keys allowed inside `content_validators`. Anything else starting with an
+# underscore is rejected, so a validator cannot be disabled by renaming its group key.
+_CONTENT_VALIDATOR_METADATA_KEYS = frozenset({"_rationale"})
 
 
 def _validate_candidate_artifact_content(
@@ -1196,7 +1248,11 @@ def _validate_candidate_artifact_content(
             f"candidate artifact {group} must be a JSON object to be a {kind}, "
             f"got {type(document).__name__}"
         ]
-    return _open_world_corridor_proof_content_failures(group, document, validator)
+    # Dispatch by kind rather than falling through to the corridor-proof checks. Adding a
+    # second kind to _CONTENT_VALIDATOR_KINDS without a handler would otherwise apply
+    # corridor semantics (lane_id, proof_metrics, chunk minimums) to an unrelated group
+    # and report confident failures about fields that group never had.
+    return _CONTENT_VALIDATOR_HANDLERS[kind](group, document, validator)
 
 
 def _open_world_corridor_proof_content_failures(
@@ -1216,6 +1272,26 @@ def _open_world_corridor_proof_content_failures(
     * the declared minimums hold, so a single-chunk or empty-window run cannot pass as
       chunked streaming evidence.
     """
+    # A spec key that is missing, renamed or the wrong type must FAIL, not fall back to
+    # a permissive default. Misspelling `minimum_values` as `minimums` previously let a
+    # report with zero chunk turnover through with no failure at all, which is the exact
+    # silent-disable this validator exists to prevent.
+    spec_failures: list[str] = []
+    for key, expected_type, type_label in (
+        ("required_lane_id", str, "a non-empty string"),
+        ("required_telemetry_available", list, "a non-empty list"),
+        ("minimum_values", dict, "a non-empty object"),
+    ):
+        value = validator.get(key)
+        if not isinstance(value, expected_type) or not value:
+            spec_failures.append(
+                f"candidate artifact {group} content validator key {key!r} must be "
+                f"{type_label}, got {value!r}; a missing or renamed key would silently "
+                "disable the check it configures"
+            )
+    if spec_failures:
+        return spec_failures
+
     failures: list[str] = []
 
     required_lane = validator.get("required_lane_id")
@@ -1250,6 +1326,16 @@ def _open_world_corridor_proof_content_failures(
                 f"candidate artifact {group} proof_metrics.{field} is {value!r}, "
                 f"not a number at or above the required {minimum}"
             )
+        elif not math.isfinite(value):
+            # `json.loads` accepts bare NaN and Infinity, and every comparison with NaN
+            # is False -- so a report whose metrics are all NaN satisfies every minimum
+            # below without reporting a single real measurement. Reject non-finite
+            # values explicitly rather than letting them fall through the `<` check.
+            failures.append(
+                f"candidate artifact {group} proof_metrics.{field} is {value!r}, which is "
+                "not a finite measurement; NaN and Infinity compare false against every "
+                "threshold and cannot back a release claim"
+            )
         elif value < minimum:
             failures.append(
                 f"candidate artifact {group} proof_metrics.{field} is {value}, below the "
@@ -1257,6 +1343,16 @@ def _open_world_corridor_proof_content_failures(
             )
 
     return failures
+
+
+# The single registry of content-validator kinds. `_CONTENT_VALIDATOR_KINDS` is DERIVED
+# from it so "this kind is known" and "this kind has an implementation" cannot diverge --
+# a kind listed as known but unimplemented would have fallen through to the corridor-proof
+# checks and reported confident failures about fields the artifact never had.
+_CONTENT_VALIDATOR_HANDLERS = {
+    "open_world_corridor_proof_lane_report": _open_world_corridor_proof_content_failures,
+}
+_CONTENT_VALIDATOR_KINDS = frozenset(_CONTENT_VALIDATOR_HANDLERS)
 
 
 def _validate_candidate_artifacts(root: Path, manifest: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
@@ -1277,6 +1373,15 @@ def _validate_candidate_artifacts(root: Path, manifest: dict[str, Any], evidence
     required_group_names = {str(group) for group in required_groups}
     for configured in sorted(str(key) for key in content_validators):
         if configured.startswith("_"):
+            # Only an explicit allowlist of metadata keys may be skipped. Skipping every
+            # underscore-prefixed key would let somebody disable a validator by renaming
+            # `open_world_proof` to `_open_world_proof` with nothing reported.
+            if configured not in _CONTENT_VALIDATOR_METADATA_KEYS:
+                failures.append(
+                    f"manifest content_validators key {configured!r} is not a known "
+                    f"metadata key ({', '.join(sorted(_CONTENT_VALIDATOR_METADATA_KEYS))}); "
+                    "an underscore-prefixed group name would disable its validator silently"
+                )
             continue
         if configured not in required_group_names:
             failures.append(

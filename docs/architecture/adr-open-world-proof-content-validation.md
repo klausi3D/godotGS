@@ -126,8 +126,17 @@ and `stage_statuses` (`:1824-1831`) — a pattern this repository adopted for #3
 
 ## 4. Consequences
 
-- **The gate gets stricter and nothing in CI breaks**, because the candidate gate has never
-  executed in CI (#960) and no workflow produces a bundle today.
+- **The candidate gate gets stricter without breaking CI** — but the two halves of that
+  sentence have different reasons, and an earlier revision of this ADR ran them together.
+  The *candidate gate* has never executed in CI (#960) and no workflow produces a bundle,
+  so tightening it cannot turn anything red. **`run_benchmark.py` is a different matter: it
+  does run in CI**, and an earlier draft of §3.2 set `proof_valid = False` alongside the
+  null `proof_status`. `proof_valid` feeds `lane_valid` and therefore the harness exit
+  code, so that draft would have failed `streaming_corridor`, `city_flyover`, `long_soak`
+  and `unified_composite` on every quick-profile and scheduled run — lanes that ran
+  perfectly well and merely have no proof contract. **Independent review caught it before
+  it landed.** The rule it produced: the lever for "this evidence is not usable" is the
+  candidate gate's `required_fields_non_null`, never the benchmark harness's exit code.
 - **A candidate bundle can no longer be satisfied by the two smoke lanes as they are backed
   today.** That is the intended effect and is exactly what #1016 §5.1 says the gate must not
   accept. It does not make the alpha reachable; it makes an unreachable alpha *visible*, which is

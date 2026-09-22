@@ -3669,6 +3669,56 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
         failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
         self.assertTrue(any("chunk_loads_total" in failure for failure in failures))
 
+    def test_nan_metrics_are_rejected(self) -> None:
+        """Codex review: `json.loads` accepts bare NaN, and NaN fails every comparison.
+
+        A report whose metrics are all NaN satisfied every `minimum_values` check without
+        carrying a single real measurement, because `NaN < minimum` is False.
+        """
+        report = _honest_corridor_proof_report()
+        for field in ("loaded_chunks", "total_splats", "chunk_loads_total"):
+            report["proof_metrics"][field] = float("nan")
+        body = json.dumps(report).replace("NaN", "NaN")  # json.dumps emits bare NaN
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, body)
+        self.assertTrue(
+            any("not a finite measurement" in failure for failure in failures),
+            f"NaN must not satisfy a numeric minimum; got {failures}",
+        )
+
+    def test_infinity_metrics_are_rejected(self) -> None:
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["total_splats"] = float("inf")
+        failures = self._proof_failures(
+            Path(self._tmp), self.PROOF_REL, json.dumps(report)
+        )
+        self.assertTrue(any("not a finite measurement" in failure for failure in failures))
+
+    def test_contract_mode_fails_if_the_proof_validator_is_removed(self) -> None:
+        """Codex review: deleting the manifest wiring must not silently restore the hole.
+
+        A group with no configured validator is simply not content-checked, so removing
+        `content_validators.open_world_proof` returns the gate to accepting README.md.
+        The requirement lives in the checker rather than the manifest on purpose: a
+        manifest that declared its own coverage requirement could lose both halves in one
+        edit and still pass.
+        """
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        self.assertEqual(checker._validate_content_validation_coverage(manifest), [])
+
+        del manifest["artifact_requirements"]["content_validators"]["open_world_proof"]
+        failures = checker._validate_content_validation_coverage(manifest)
+        self.assertTrue(
+            any("missing a validator for 'open_world_proof'" in item for item in failures),
+            f"contract mode must notice the validator going away; got {failures}",
+        )
+
+    def test_contract_mode_runs_the_coverage_check(self) -> None:
+        """Wiring: the coverage check must be reachable from validate_contract itself."""
+        source = (ROOT / "tests/ci/check_renderer_release_gates.py").read_text(encoding="utf-8")
+        contract_body = source.split("def validate_contract(")[1].split("\ndef ")[0]
+        self.assertIn("_validate_content_validation_coverage(manifest)", contract_body)
+
     def test_behaviour_criteria_do_not_encode_content_provenance(self) -> None:
         """Behaviour and provenance must stay separable, and this asserts it.
 
@@ -3708,6 +3758,73 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
         )
         failures = checker._validate_candidate_artifacts(root, manifest, evidence)
         self.assertTrue(any("unknown content validator kind" in failure for failure in failures))
+
+    def test_renamed_spec_key_fails_rather_than_defaulting(self) -> None:
+        """Review finding: every spec key was optional-with-silent-default.
+
+        Misspelling `minimum_values` as `minimums` left a report with zero chunk turnover
+        and zero splats passing with no failure at all -- the silent-disable this
+        validator exists to prevent, reintroduced by a typo.
+        """
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        spec = manifest["artifact_requirements"]["content_validators"]["open_world_proof"]
+        spec["minimums"] = spec.pop("minimum_values")
+        evidence = self._evidence_with_proof(
+            root, self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(
+            any("minimum_values" in item and "must be" in item for item in failures),
+            f"a renamed spec key must fail, not silently disable the check; got {failures}",
+        )
+
+    def test_empty_spec_collections_fail_rather_than_checking_nothing(self) -> None:
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        spec = manifest["artifact_requirements"]["content_validators"]["open_world_proof"]
+        spec["required_telemetry_available"] = []
+        evidence = self._evidence_with_proof(
+            root, self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(
+            any("required_telemetry_available" in item for item in failures),
+            f"an empty required list checks nothing and must fail; got {failures}",
+        )
+
+    def test_underscore_renaming_a_group_key_does_not_disable_its_validator(self) -> None:
+        """Review finding: the `_`-prefix skip was a silent-disable route.
+
+        Renaming `open_world_proof` to `_open_world_proof` moved it into the
+        metadata-skip branch, turning content validation off with nothing reported.
+        """
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        validators = manifest["artifact_requirements"]["content_validators"]
+        validators["_open_world_proof"] = validators.pop("open_world_proof")
+        evidence = self._evidence_with_proof(
+            root, self.PROOF_REL, json.dumps(_honest_corridor_proof_report())
+        )
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(
+            any("not a known metadata key" in item for item in failures),
+            f"an underscore-renamed group must fail, not be skipped; got {failures}",
+        )
+
+    def test_known_validator_kinds_are_derived_from_the_handler_registry(self) -> None:
+        """Review finding: a kind listed as known but unimplemented fell through.
+
+        It would have applied corridor-proof semantics to an unrelated artifact group and
+        reported confident failures about fields that group never had. Deriving the known
+        set from the registry makes that state unrepresentable.
+        """
+        self.assertEqual(
+            set(checker._CONTENT_VALIDATOR_KINDS),
+            set(checker._CONTENT_VALIDATOR_HANDLERS),
+        )
+        for kind, handler in checker._CONTENT_VALIDATOR_HANDLERS.items():
+            self.assertTrue(callable(handler), kind)
 
     def test_validator_configured_for_a_non_required_group_is_an_error(self) -> None:
         """A validator on a group nobody requires would never run — wired to nothing."""
