@@ -265,6 +265,7 @@ layout(set = 0, binding = 6, std430) buffer DebugCounters {
     uint tiny_splat_param_q8;          // params.tiny_splat_screen_radius (max across threads)
     uint min_allowed_radius_q8;        // max(MIN_SPLAT_RADIUS, tiny_splat) (max across threads)
     uint min_radius_min_q8_inv;        // inverted min(min_radius) across threads: 0xFFFFFFFF - q8
+    uint sh_unknown_encoding_count;    // #1054: splats whose SH encoding id is unsupported (rendered DC-only)
 } debug_counters;
 
 const uint GS_DEBUG_SPLAT_AUDIT_MAX_SAMPLES = 64u;
@@ -443,7 +444,7 @@ bool gs_tile_intersects_projected_ellipse(vec2 center, vec3 conic, float sigma2,
 uint gs_build_quantized_sh_metadata(uint encoded_total, bool dc_linear_rgb) {
     uint first_count = min(encoded_total, 3u);
     uint high_count = encoded_total > first_count ? (encoded_total - first_count) : 0u;
-    uint metadata = first_count | (high_count << 8u) | (encoded_total << 16u) | (SH_ENCODING_RGB9E5 << 24u);
+    uint metadata = first_count | (high_count << 8u) | (encoded_total << 16u) | (SH_ENCODING_SNORM10_SPLAT_SCALE << 24u);
     if (dc_linear_rgb) {
         metadata |= SH_METADATA_DC_ENCODING_MASK;
     }
@@ -1235,6 +1236,9 @@ void main() {
         }
     }
     if (update_sh) {
+        if (sh_band_level > 0u && gaussian_sh_encoding_unsupported(g.sh_metadata)) {
+            GS_DEBUG_INCREMENT(sh_unknown_encoding_count);
+        }
         sh_color = evaluate_sh_with_bands(g, view_dir_local, sh_band_level);
         sh_color = max(sh_color, vec3(0.0));
         // Cache ungraded SH color so color grading changes immediately affect all splats
@@ -1249,6 +1253,9 @@ void main() {
     // Apply color grading after cache logic so it affects both cached and fresh SH
     sh_color = apply_color_grading_binning(sh_color, splat_ref.instance_id);
 #else
+    if (sh_band_level > 0u && gaussian_sh_encoding_unsupported(g.sh_metadata)) {
+        GS_DEBUG_INCREMENT(sh_unknown_encoding_count);
+    }
     vec3 sh_color = evaluate_sh_with_bands(g, view_dir_local, sh_band_level);
     // Clamp SH color to non-negative after evaluation
     // SH basis functions can produce negative contributions but final color should not be negative

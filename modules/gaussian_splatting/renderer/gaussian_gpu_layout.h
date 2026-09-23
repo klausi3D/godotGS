@@ -17,7 +17,27 @@ static constexpr uint32_t GS_SH_METADATA_HIGH_ORDER_MASK = 0x0000FF00u;
 static constexpr uint32_t GS_SH_METADATA_ENCODED_COUNT_MASK = 0x00FF0000u;
 static constexpr uint32_t GS_SH_METADATA_ENCODING_MASK = 0x7F000000u;
 static constexpr uint32_t GS_SH_METADATA_DC_ENCODING_MASK = 0x80000000u;
+// Retired (#1054): unsigned shared-exponent RGB9E5 clamped every negative SH coefficient to
+// zero. Kept only so the id is never reused; no packer emits it and no shader decodes it.
 static constexpr uint32_t GS_SH_ENCODING_RGB9E5 = 1u;
+// Signed SH storage (docs/architecture/adr-splat-colour-encoding.md, option E): each
+// coefficient triplet is three 10-bit two's-complement integers in bits 0-9 / 10-19 / 20-29
+// (bits 30-31 zero), scaled by one per-splat magnitude stored in the sh_dc.w lane:
+// coeff = q * (scale / 511). Mirrored by decode_sh_snorm10() in shaders/includes/gs_sh_binning.glsl.
+static constexpr uint32_t GS_SH_ENCODING_SNORM10_SPLAT_SCALE = 2u;
+static constexpr int32_t GS_SH_SNORM10_MAX = 511;
+
+// C++ mirror of the GLSL decoder (host round-trip tests; the layout-sync guard pins both).
+inline Vector3 gs_decode_sh_snorm10(uint32_t p_packed, float p_scale) {
+    const auto extract = [](uint32_t p_word, uint32_t p_offset) -> int32_t {
+        const int32_t q = int32_t((p_word >> p_offset) & 0x3FFu);
+        return (q & 0x200) ? q - 0x400 : q; // sign-extend 10 bits
+    };
+    const float step = p_scale * (1.0f / float(GS_SH_SNORM10_MAX));
+    return Vector3(float(extract(p_packed, 0u)) * step,
+            float(extract(p_packed, 10u)) * step,
+            float(extract(p_packed, 20u)) * step);
+}
 static constexpr uint32_t GS_GPU_ASSET_FLAG_IS_2D = 1u << 0u;
 static constexpr uint32_t GS_GPU_ASSET_FLAG_DC_LINEAR_RGB = 1u << 1u;
 

@@ -106,7 +106,9 @@ TEST_CASE("[GaussianSplatting][Quantized] chunk_id, opacity, and sh_dc are store
 	CHECK(packed.sh_dc[0] == dc.r); // FP32, exact
 	CHECK(packed.sh_dc[1] == dc.g);
 	CHECK(packed.sh_dc[2] == dc.b);
-	CHECK(packed.sh_dc[3] == dc.a);
+	// #1054: the w lane carries the per-splat SH scale (no shader reads it as colour), not
+	// sh_dc.a. This splat stores no SH coefficients, so the scale is exactly 0.
+	CHECK(packed.sh_dc[3] == 0.0f);
 }
 
 TEST_CASE("[GaussianSplatting][Quantized] Scale quantizes only when the chunk enables it") {
@@ -172,7 +174,7 @@ TEST_CASE("[GaussianSplatting][Quantized] Higher-order SH fills the fixed 6-slot
 	SHCompressionMetrics metrics;
 	// 3 first-order coeffs, no higher-order: slots 0-2 encode, 3-5 stay zero.
 	pack_gaussian_quantized(g, chunk, 0, packed, metrics, nullptr, 3, 0);
-	CHECK(packed.sh_encoded[0] != 0u); // non-zero coeff -> non-zero RGB9E5
+	CHECK(packed.sh_encoded[0] != 0u); // non-zero coeff -> non-zero SNORM10 word
 	CHECK(packed.sh_encoded[1] != 0u);
 	CHECK(packed.sh_encoded[3] == 0u); // unused
 	CHECK(packed.sh_encoded[4] == 0u);

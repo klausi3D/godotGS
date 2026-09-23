@@ -587,6 +587,94 @@ def _check_overflow_stats_mirror(failures: list[str]) -> None:
         _compare_layouts(host_layout, block_layout, shader_path, block_name, OVERFLOW_STATS_HOST_NAME, failures)
 
 
+DEBUG_COUNTERS_HOST_NAME = "TileDebugCounterSnapshot"
+DEBUG_COUNTERS_SHADER_MIRRORS: tuple[tuple[Path, str], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl", "DebugCounters"),
+)
+
+
+def _check_debug_counters_mirror(failures: list[str]) -> None:
+    """The binning DebugCounters SSBO (binding 6) is sized from and read back into the host
+    TileDebugCounterSnapshot byte-for-byte (tile_render_debug_stats.cpp), so both must agree
+    field by field. #1054 appended sh_unknown_encoding_count; this pins the append."""
+    host_text = TILE_RENDER_TYPES_H.read_text(encoding="utf-8")
+    host_def = _parse_struct_definition(TILE_RENDER_TYPES_H, DEBUG_COUNTERS_HOST_NAME)
+    host_layout = _layout_struct({DEBUG_COUNTERS_HOST_NAME: host_def}, DEBUG_COUNTERS_HOST_NAME, "host")
+    contract_size = _parse_struct_size_contract(host_text, DEBUG_COUNTERS_HOST_NAME)
+    if contract_size is None:
+        failures.append(
+            f"{TILE_RENDER_TYPES_H.relative_to(ROOT)}: `{DEBUG_COUNTERS_HOST_NAME}` has no literal `sizeof` static_assert to anchor the DebugCounters mirror"
+        )
+    elif host_layout.size != contract_size:
+        failures.append(
+            f"{TILE_RENDER_TYPES_H.relative_to(ROOT)}: computed {DEBUG_COUNTERS_HOST_NAME} size {host_layout.size} != host contract {contract_size}"
+        )
+    for shader_path, block_name in DEBUG_COUNTERS_SHADER_MIRRORS:
+        if not shader_path.exists():
+            failures.append(f"{block_name}: expected DebugCounters shader mirror {shader_path.relative_to(ROOT)} not found")
+            continue
+        block_def = _parse_buffer_block_definition(shader_path, block_name)
+        block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
+        _compare_layouts(host_layout, block_layout, shader_path, block_name, DEBUG_COUNTERS_HOST_NAME, failures)
+
+
+SH_BINNING_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "includes" / "gs_sh_binning.glsl"
+TILE_BINNING_GLSL = ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_binning.glsl"
+HOST_LAYOUT_CPP = ROOT / "modules" / "gaussian_splatting" / "renderer" / "gaussian_gpu_layout.cpp"
+
+
+def _check_sh_snorm10_contract(failures: list[str]) -> None:
+    """#1054: pin the signed SH word format (docs/architecture/adr-splat-colour-encoding.md,
+    option E) between the host encoder/decoder mirror and the GLSL decoder. Fails closed: a
+    pattern that cannot be found is a failure, not a skip."""
+    host_h = HOST_LAYOUT.read_text(encoding="utf-8")
+    host_cpp = HOST_LAYOUT_CPP.read_text(encoding="utf-8")
+    sh_glsl = SH_BINNING_GLSL.read_text(encoding="utf-8")
+    binning = TILE_BINNING_GLSL.read_text(encoding="utf-8")
+
+    def _one(pattern: str, text: str, label: str) -> str | None:
+        found = re.findall(pattern, text)
+        if len(found) != 1:
+            failures.append(f"SH SNORM10 contract: expected exactly one {label}, found {len(found)}")
+            return None
+        return found[0]
+
+    host_id = _one(r"GS_SH_ENCODING_SNORM10_SPLAT_SCALE\s*=\s*(\d+)u\s*;", host_h, "host encoding id")
+    glsl_id = _one(r"SH_ENCODING_SNORM10_SPLAT_SCALE\s*=\s*(\d+)u\s*;", sh_glsl, "GLSL encoding id")
+    if host_id is not None and glsl_id is not None and host_id != glsl_id:
+        failures.append(f"SH SNORM10 contract: encoding id host {host_id} != GLSL {glsl_id}")
+    retired_id = _one(r"GS_SH_ENCODING_RGB9E5\s*=\s*(\d+)u\s*;", host_h, "retired RGB9E5 id")
+    if host_id is not None and retired_id is not None and host_id == retired_id:
+        failures.append("SH SNORM10 contract: new encoding id reuses the retired RGB9E5 id")
+
+    host_max = _one(r"GS_SH_SNORM10_MAX\s*=\s*(\d+)\s*;", host_h, "host SNORM10 max")
+    glsl_max = _one(r"SH_SNORM10_MAX\s*=\s*(\d+)\.0\s*;", sh_glsl, "GLSL SNORM10 max")
+    if host_max is not None and glsl_max is not None and host_max != glsl_max:
+        failures.append(f"SH SNORM10 contract: max host {host_max} != GLSL {glsl_max}")
+    if host_max is not None and int(host_max) != 511:
+        failures.append(f"SH SNORM10 contract: max {host_max} does not fit a 10-bit two's-complement field (expected 511)")
+
+    glsl_fields = re.findall(r"bitfieldExtract\(word,\s*(\d+),\s*(\d+)\)", sh_glsl)
+    if glsl_fields != [("0", "10"), ("10", "10"), ("20", "10")]:
+        failures.append(f"SH SNORM10 contract: GLSL decoder fields {glsl_fields} != [(0,10),(10,10),(20,10)]")
+    host_offsets = re.findall(r"extract\(p_packed,\s*(\d+)u\)", host_h)
+    if host_offsets != ["0", "10", "20"]:
+        failures.append(f"SH SNORM10 contract: host decoder mirror offsets {host_offsets} != [0,10,20]")
+    for token, label in (("0x3FFu", "10-bit mask"), ("0x200", "sign bit"), ("0x400", "sign extension")):
+        if token not in host_h:
+            failures.append(f"SH SNORM10 contract: host decoder mirror lacks the {label} `{token}`")
+    host_enc_shifts = re.findall(r"quantize\(c\.[xyz]\)(?:\s*<<\s*(\d+)u)?", host_cpp)
+    if host_enc_shifts != ["", "10", "20"]:
+        failures.append(f"SH SNORM10 contract: host encoder channel shifts {host_enc_shifts} != [0,10,20]")
+
+    if "GS_SH_ENCODING_RGB9E5" in host_cpp or "encode_rgb9e5" in host_cpp:
+        failures.append(f"{HOST_LAYOUT_CPP.relative_to(ROOT)}: still emits the retired RGB9E5 SH encoding")
+    if not re.search(r"gs_build_quantized_sh_metadata\(.*?SH_ENCODING_SNORM10_SPLAT_SCALE\s*<<\s*24u", binning, re.DOTALL):
+        failures.append(f"{TILE_BINNING_GLSL.relative_to(ROOT)}: quantized SH metadata does not use SH_ENCODING_SNORM10_SPLAT_SCALE")
+    if re.search(r"\bSH_ENCODING_RGB9E5\b", binning) or re.search(r"\bSH_ENCODING_RGB9E5\b", sh_glsl):
+        failures.append("SH SNORM10 contract: binning shaders still reference the retired SH_ENCODING_RGB9E5")
+
+
 # Push-constant ABI: each host struct is mirrored by a GLSL `layout(push_constant, std430)`
 # block whose block name differs from the host struct name (like OverflowStats' buffer blocks).
 # The host writes the struct verbatim via *_set_push_constant, so a silent field drift here is
@@ -1056,6 +1144,8 @@ def main() -> int:
         _check_extra_mirror_struct(host_header, host_name, shader_name, failures)
 
     _check_overflow_stats_mirror(failures)
+    _check_debug_counters_mirror(failures)
+    _check_sh_snorm10_contract(failures)
 
     for host_header, host_name, shader_mirrors in PUSH_CONSTANT_MIRRORS:
         _check_push_constant_mirror(host_header, host_name, shader_mirrors, failures)
@@ -1079,6 +1169,8 @@ def main() -> int:
         + ", ".join(path.name for path, _ in OVERFLOW_STATS_SHADER_MIRRORS)
         + "."
     )
+    print("[gaussian-layout-check] DebugCounters binding-6 SSBO matches host TileDebugCounterSnapshot (tile_binning.glsl).")
+    print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, sign extension) matches between host encoder/decoder mirror and GLSL decoder; RGB9E5 is not emitted.")
     print(
         "[gaussian-layout-check] Push-constant std430 blocks match their host structs: "
         + ", ".join(

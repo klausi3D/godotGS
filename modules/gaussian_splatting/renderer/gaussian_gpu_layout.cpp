@@ -23,39 +23,66 @@ static float bits_to_float(uint32_t bits) {
     return value;
 }
 
-static uint32_t encode_rgb9e5(const Vector3 &value) {
-    const float max_channel = 65408.0f; // Maximum representable value in RGB9E5
-    float r = CLAMP(value.x, 0.0f, max_channel);
-    float g = CLAMP(value.y, 0.0f, max_channel);
-    float b = CLAMP(value.z, 0.0f, max_channel);
+// #1054: SH coefficients are signed (trained SH has zero mean). They used to be stored as
+// unsigned RGB9E5, which clamped every negative channel to zero on every GPU path. They are
+// now stored as signed 10-bit integers scaled by one per-splat magnitude (see
+// GS_SH_ENCODING_SNORM10_SPLAT_SCALE and docs/architecture/adr-splat-colour-encoding.md).
+static inline float sanitize_sh_component(float p_value) {
+    return Math::is_finite(p_value) ? p_value : 0.0f;
+}
 
-    float max_component = MAX(MAX(r, g), b);
-    if (max_component < 1.5258789e-5f) { // 2^-16
-        return 0;
+// The SH coefficients a packer stores for one splat, in slot order: first-order (band 1)
+// coefficients, then higher-order ones, truncated to the layout's slot capacity. This is the
+// same selection both packers made before; the per-splat scale must cover exactly this set.
+struct SelectedSH {
+    Vector3 coeffs[PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS];
+    uint32_t stored_first = 0;
+    uint32_t stored_high = 0;
+    uint32_t total = 0;
+};
+
+static void select_sh_coefficients(const Gaussian &p_src, const Vector3 *p_higher_order_coeffs,
+        uint32_t p_first_order_count, uint32_t p_higher_order_count, uint32_t p_capacity, SelectedSH &r_sel) {
+    const uint32_t capacity = MIN<uint32_t>(p_capacity, PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
+    r_sel.stored_first = MIN<uint32_t>(MIN<uint32_t>(p_first_order_count, 3u), capacity);
+    for (uint32_t i = 0; i < r_sel.stored_first; i++) {
+        r_sel.coeffs[r_sel.total++] = p_src.sh_1[i];
     }
-
-    float exponent = Math::floor(Math::log(max_component) / Math::log(2.0f));
-    int exp_shared = int(exponent) + 1 + 15; // Bias of 15
-    exp_shared = CLAMP(exp_shared, 0, 31);
-
-    float denom = Math::pow(2.0f, float(exp_shared - 15 - 9));
-    int rm = int(Math::round(r / denom));
-    int gm = int(Math::round(g / denom));
-    int bm = int(Math::round(b / denom));
-
-    if (rm > 511 || gm > 511 || bm > 511) {
-        exp_shared = MIN(exp_shared + 1, 31);
-        denom = Math::pow(2.0f, float(exp_shared - 15 - 9));
-        rm = int(Math::round(r / denom));
-        gm = int(Math::round(g / denom));
-        bm = int(Math::round(b / denom));
+    if (p_higher_order_count > 0 && r_sel.total < capacity) {
+        r_sel.stored_high = MIN<uint32_t>(p_higher_order_count, capacity - r_sel.total);
+        for (uint32_t i = 0; i < r_sel.stored_high; i++) {
+            r_sel.coeffs[r_sel.total++] = p_higher_order_coeffs ? p_higher_order_coeffs[i] : Vector3();
+        }
     }
+}
 
-    rm = CLAMP(rm, 0, 511);
-    gm = CLAMP(gm, 0, 511);
-    bm = CLAMP(bm, 0, 511);
-
-    return (uint32_t(exp_shared) << 27) | (uint32_t(bm) << 18) | (uint32_t(gm) << 9) | uint32_t(rm);
+// Encodes the selected coefficients into r_words[0..total) and returns the per-splat scale
+// (largest finite |component|; 0 when every stored coefficient is zero or non-finite, in which
+// case every word is 0 and decodes to zero). Max absolute error per component: scale / 1022.
+static float encode_sh_snorm10(const SelectedSH &p_sel, uint32_t *r_words) {
+    float scale = 0.0f;
+    for (uint32_t i = 0; i < p_sel.total; i++) {
+        const Vector3 &c = p_sel.coeffs[i];
+        scale = MAX(scale, MAX(Math::abs(sanitize_sh_component(c.x)),
+                                   MAX(Math::abs(sanitize_sh_component(c.y)), Math::abs(sanitize_sh_component(c.z)))));
+    }
+    if (!(scale > 0.0f) || !Math::is_finite(scale)) {
+        for (uint32_t i = 0; i < p_sel.total; i++) {
+            r_words[i] = 0u;
+        }
+        return 0.0f;
+    }
+    const float inv_step = float(GS_SH_SNORM10_MAX) / scale;
+    const auto quantize = [inv_step](float p_value) -> uint32_t {
+        int32_t q = int32_t(Math::round(sanitize_sh_component(p_value) * inv_step));
+        q = CLAMP(q, -GS_SH_SNORM10_MAX, GS_SH_SNORM10_MAX);
+        return uint32_t(q) & 0x3FFu; // 10-bit two's complement
+    };
+    for (uint32_t i = 0; i < p_sel.total; i++) {
+        const Vector3 &c = p_sel.coeffs[i];
+        r_words[i] = quantize(c.x) | (quantize(c.y) << 10u) | (quantize(c.z) << 20u);
+    }
+    return scale;
 }
 
 } // namespace
@@ -109,27 +136,18 @@ void pack_gaussian(const Gaussian &src,
     dst.sh.dc[0] = src.sh_dc.r;
     dst.sh.dc[1] = src.sh_dc.g;
     dst.sh.dc[2] = src.sh_dc.b;
-    dst.sh.dc[3] = src.sh_dc.a;
 
-    uint32_t encoded_capacity = MIN<uint32_t>(coefficient_limit, PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
-    uint32_t first_count = MIN<uint32_t>(first_order_count, 3u);
-    uint32_t stored_first = MIN<uint32_t>(first_count, encoded_capacity);
-    uint32_t encoded_total = 0;
-
-    for (uint32_t i = 0; i < stored_first; i++) {
-        uint32_t packed = encode_rgb9e5(src.sh_1[i]);
-        dst.sh.encoded[encoded_total++] = bits_to_float(packed);
+    SelectedSH selected;
+    select_sh_coefficients(src, higher_order_coeffs, first_order_count, higher_order_count, coefficient_limit, selected);
+    uint32_t words[PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS];
+    // The w lane of the DC vec4 carries the per-splat SH scale; no shader reads sh_dc.w as colour.
+    dst.sh.dc[3] = encode_sh_snorm10(selected, words);
+    for (uint32_t i = 0; i < selected.total; i++) {
+        dst.sh.encoded[i] = bits_to_float(words[i]);
     }
-
-    uint32_t stored_high = 0;
-    if (higher_order_count > 0 && encoded_total < encoded_capacity) {
-        stored_high = MIN<uint32_t>(higher_order_count, encoded_capacity - encoded_total);
-        for (uint32_t i = 0; i < stored_high; i++) {
-            Vector3 coeff = higher_order_coeffs ? higher_order_coeffs[i] : Vector3();
-            uint32_t packed = encode_rgb9e5(coeff);
-            dst.sh.encoded[encoded_total++] = bits_to_float(packed);
-        }
-    }
+    const uint32_t stored_first = selected.stored_first;
+    const uint32_t stored_high = selected.stored_high;
+    const uint32_t encoded_total = selected.total;
 
     dst.normal[0] = src.normal.x;
     dst.normal[1] = src.normal.y;
@@ -150,7 +168,7 @@ void pack_gaussian(const Gaussian &src,
             stored_high,
             encoded_total,
             gaussian_get_dc_encoding(src.render_meta),
-            GS_SH_ENCODING_RGB9E5);
+            GS_SH_ENCODING_SNORM10_SPLAT_SCALE);
 
     if (_is_data_log_enabled() && !logged_once) {
         GS_LOG_RENDERER_DEBUG(vformat("[GPU Pack] sh_metadata = 0x%08X", dst.sh_metadata));
@@ -181,9 +199,9 @@ static inline Vector3 sanitize_finite_vec3(const Vector3 &v, const Vector3 &fall
 }
 } // namespace
 
-// Number of RGB9E5 higher-order SH slots in PackedGaussianQuantized.sh_encoded.
+// Number of SH slots in PackedGaussianQuantized.sh_encoded.
 // The GLSL side synthesizes sh_metadata as gs_build_quantized_sh_metadata(6u, ...),
-// so the layout is a fixed 6-slot array; unused slots are zeroed (RGB9E5(0) decodes
+// so the layout is a fixed 6-slot array; unused slots are zeroed (a zero word decodes
 // to vec3(0), contributing nothing, and the per-chunk sh_limit still gates bands).
 static constexpr uint32_t GS_QUANTIZED_SH_ENCODED_SLOTS = 6u;
 
@@ -241,29 +259,18 @@ void pack_gaussian_quantized(const Gaussian &src,
     dst.sh_dc[0] = sanitize_finite(src.sh_dc.r, 0.0f);
     dst.sh_dc[1] = sanitize_finite(src.sh_dc.g, 0.0f);
     dst.sh_dc[2] = sanitize_finite(src.sh_dc.b, 0.0f);
-    dst.sh_dc[3] = sanitize_finite(src.sh_dc.a, 0.0f);
 
-    // Higher-order SH: RGB9E5 into the fixed 6-slot array, same selection order as
+    // Higher-order SH: signed SNORM10 into the fixed 6-slot array, same selection order as
     // pack_gaussian (first-order coeffs then higher-order), stored as raw uint32 (the
-    // shader bitcasts these back via uintBitsToFloat). encode_rgb9e5 clamps internally.
+    // shader bitcasts these back via uintBitsToFloat). The per-splat scale goes to sh_dc[3].
     for (uint32_t i = 0; i < GS_QUANTIZED_SH_ENCODED_SLOTS; i++) {
         dst.sh_encoded[i] = 0u;
     }
-    const uint32_t encoded_capacity = MIN<uint32_t>(coefficient_limit, GS_QUANTIZED_SH_ENCODED_SLOTS);
-    const uint32_t first_count = MIN<uint32_t>(first_order_count, 3u);
-    const uint32_t stored_first = MIN<uint32_t>(first_count, encoded_capacity);
-    uint32_t encoded_total = 0;
-    for (uint32_t i = 0; i < stored_first; i++) {
-        dst.sh_encoded[encoded_total++] = encode_rgb9e5(src.sh_1[i]);
-    }
-    uint32_t stored_high = 0;
-    if (higher_order_count > 0 && encoded_total < encoded_capacity) {
-        stored_high = MIN<uint32_t>(higher_order_count, encoded_capacity - encoded_total);
-        for (uint32_t i = 0; i < stored_high; i++) {
-            const Vector3 coeff = higher_order_coeffs ? higher_order_coeffs[i] : Vector3();
-            dst.sh_encoded[encoded_total++] = encode_rgb9e5(coeff);
-        }
-    }
+    SelectedSH selected;
+    select_sh_coefficients(src, higher_order_coeffs, first_order_count, higher_order_count,
+            MIN<uint32_t>(coefficient_limit, GS_QUANTIZED_SH_ENCODED_SLOTS), selected);
+    dst.sh_dc[3] = encode_sh_snorm10(selected, dst.sh_encoded);
+    const uint32_t encoded_total = selected.total;
 
     // Normal + stroke_age: two half2 words (GLSL extract_normal / extract_stroke_age).
     const Vector3 safe_normal = sanitize_finite_vec3(src.normal, Vector3());

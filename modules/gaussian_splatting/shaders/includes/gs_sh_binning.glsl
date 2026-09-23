@@ -11,7 +11,12 @@ const uint SH_METADATA_HIGH_ORDER_MASK = 0x0000FF00u;
 const uint SH_METADATA_ENCODED_COUNT_MASK = 0x00FF0000u;
 const uint SH_METADATA_ENCODING_MASK = 0x7F000000u;
 const uint SH_METADATA_DC_ENCODING_MASK = 0x80000000u;
-const uint SH_ENCODING_RGB9E5 = 1u;
+// #1054: the unsigned RGB9E5 id (1) is retired; it clamped negative SH to zero.
+// Signed storage, mirrored by gs_decode_sh_snorm10() in renderer/gaussian_gpu_layout.h:
+// three 10-bit two's-complement integers (bits 0-9 / 10-19 / 20-29) times scale / 511,
+// with the per-splat scale in the w lane of the DC vec4 (g.sh_dc.w).
+const uint SH_ENCODING_SNORM10_SPLAT_SCALE = 2u;
+const float SH_SNORM10_MAX = 511.0;
 
 // Read the number of first-order SH coefficients encoded in metadata.
 uint gaussian_get_first_order_count(uint meta) {
@@ -37,15 +42,19 @@ bool gaussian_get_dc_is_linear_rgb(uint meta) {
     return (meta & SH_METADATA_DC_ENCODING_MASK) != 0u;
 }
 
-// Decode one RGB9E5-packed SH coefficient triplet to linear RGB.
-vec3 decode_rgb9e5(uint packed) {
-    uint exponent = (packed >> 27u) & 0x1Fu;
-    float scale = exp2(float(exponent) - 24.0);
-    vec3 mantissa = vec3(
-        float(packed & 0x1FFu),
-        float((packed >> 9u) & 0x1FFu),
-        float((packed >> 18u) & 0x1FFu));
-    return mantissa * scale;
+// Decode one signed SH coefficient triplet (bitfieldExtract on a signed int sign-extends).
+vec3 decode_sh_snorm10(uint packed, float splat_scale) {
+    int word = int(packed);
+    ivec3 q = ivec3(bitfieldExtract(word, 0, 10), bitfieldExtract(word, 10, 10), bitfieldExtract(word, 20, 10));
+    return vec3(q) * (splat_scale * (1.0 / SH_SNORM10_MAX));
+}
+
+// True when the splat carries SH words in a format this decoder does not understand.
+// evaluate_sh_with_bands() then falls back to DC only; callers count it (debug counter
+// sh_unknown_encoding_count) so the fallback is observable rather than silent.
+bool gaussian_sh_encoding_unsupported(uint meta) {
+    uint encoding = gaussian_get_sh_encoding(meta);
+    return encoding != 0u && encoding != SH_ENCODING_SNORM10_SPLAT_SCALE && gaussian_get_encoded_count(meta) > 0u;
 }
 
 // SH basis evaluation constants
@@ -153,9 +162,10 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
 
     // Check if SH encoding is present
     uint encoding = gaussian_get_sh_encoding(g.sh_metadata);
-    if (encoding != SH_ENCODING_RGB9E5) {
-        return color; // No SH data, just use DC
+    if (encoding != SH_ENCODING_SNORM10_SPLAT_SCALE) {
+        return color; // No SH data (or unsupported encoding, see gaussian_sh_encoding_unsupported), just use DC
     }
+    float splat_scale = g.sh_dc.w;
 
     uint first_count = gaussian_get_first_order_count(g.sh_metadata);
     uint high_count = gaussian_get_high_order_count(g.sh_metadata);
@@ -173,7 +183,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
     if (sh_band_level >= 1u) {
         uint max_first = min(first_count, 3u);
         for (uint i = 0u; i < max_first; i++) {
-            vec3 coeff = decode_rgb9e5(floatBitsToUint(g.sh_encoded[i]));
+            vec3 coeff = decode_sh_snorm10(floatBitsToUint(g.sh_encoded[i]), splat_scale);
             color += coeff * basis[1u + i];
         }
     }
@@ -189,7 +199,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
         max_high = min(max_high, coeff_limit);
 
         for (uint i = 0u; i < max_high; i++) {
-            vec3 coeff = decode_rgb9e5(floatBitsToUint(g.sh_encoded[first_count + i]));
+            vec3 coeff = decode_sh_snorm10(floatBitsToUint(g.sh_encoded[first_count + i]), splat_scale);
             color += coeff * basis[4u + i];  // Higher order starts at basis index 4
         }
     }

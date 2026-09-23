@@ -153,6 +153,10 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # hard-fails CI. [MalformedCorpus] aggregates the per-format malformed cases.
     ("GaussianSplatting [MalformedCorpus]", ("*GaussianSplatting*][MalformedCorpus]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [SPZ]", ("*GaussianSplatting*][SPZ]*",), ("*][RequiresGPU]*",), True),
+    # #1054: host round-trip proofs of the signed SH storage (test_sh_encoding.h). GPU-free and
+    # deterministic, and the only executable proof that negative SH survives both packers, so the
+    # lane is strict from the start: a proof that cannot fail CI is not a proof.
+    ("GaussianSplatting [SHEncoding]", ("*GaussianSplatting*][SHEncoding]*",), ("*][RequiresGPU]*",), True),
     ("GaussianSplatting [AtomicWrite]", ("*GaussianSplatting*][AtomicWrite]*",), ("*][RequiresGPU]*",), True),
     # #846: same promotion, same reason. The 11 [DataAuthority] cases ran only in
     # the advisory [untagged] lane, where _report_failed_lane() returns True
