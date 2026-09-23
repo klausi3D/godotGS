@@ -1,8 +1,9 @@
 # ADR: Explicit, signed splat colour encoding (SH sign + DC contract) (#1054, #1056)
 
-- **Status:** **Proposed**. This is a recommendation awaiting maintainer approval. Nothing
-  here is accepted until a maintainer says so, and no implementation PR may land before
-  that.
+- **Status:** **Accepted.** The maintainer approved the recommendation (§5) on 2026-09-23
+  (PR #1059). Review round 1 amended the versioning and migration plan (§4), the load-time
+  validation strategy (§3.4) and the test rule (§6), without changing the recommended
+  option. The amendments are listed in §9.
 - **Risk class:** this document is R0 (`docs/**`). The change it governs is **R3**
   (persistence/on-disk formats, `docs/governance/agentic-engineering.md:111`), which is why
   an ADR comes before any code. §7 gives the class of each implementation slice.
@@ -182,9 +183,10 @@ traced.** Slice 1 must either change it in lockstep or prove it is dead and dele
    `GAUSSIAN_DC_ENCODING_UNSET = 0`, which is invalid, and `GAUSSIAN_DC_ENCODING_SH_C0 = 1`.
    `SH_C0` keeps the numeric value of today's `LINEAR_RGB`, so every splat already tagged 1
    on disk keeps its meaning, and only 0 changes meaning. A zero tag is rejected
-   everywhere: by loaders and readers with a user-facing error naming the file, and by
-   both packers as defence in depth, where the chunk fails and nothing is uploaded. The
-   `void` range packers (`gaussian_gpu_layout.cpp:278`, `:363`, `:387`) become fallible.
+   everywhere except on the **versioned legacy read route** (§4): by loaders and readers
+   with a user-facing error naming the file, and by both packers as defence in depth, where
+   the chunk fails and nothing is uploaded. The `void` range packers
+   (`gaussian_gpu_layout.cpp:278`, `:363`, `:387`) become fallible.
 3. **The serialized metadata token stays `"linear_rgb"`.** It is documented as a
    historical name for `SH_C0`. Keeping it avoids reimporting every PLY asset for a
    rename. The resolvers stop defaulting: a missing key, `"legacy_bias"` or any unknown
@@ -201,7 +203,8 @@ traced.** Slice 1 must either change it in lockstep or prove it is dead and dele
    | `GaussianData.resize` | white becomes `sh_dc = (0.5, 0.5, 0.5)`, tagged |
    | `set_spherical_harmonics` | documented as `SH_C0` coefficients, tagged |
    | merge | requires tagged inputs, so the per-source tag lookup disappears |
-   | `.gsplatworld` / GSF readers | validate that every splat is tagged; any zero fails closed |
+   | `.gsplatworld` / GSF writers | write the new container versions (§4). The file-level encoding field is `SH_C0`, and every splat is tagged `SH_C0` |
+   | `.gsplatworld` / GSF readers | **new versions:** check the file-level field in the header, which is O(1) and keeps random access; each splat's tag is checked **lazily** as its chunk is decoded (streamed chunk read, or resident materialisation), and a mismatch fails that chunk closed, naming the file and chunk. **Old versions:** the legacy route in §4 |
    | CPU edit, bake and export paths | work in display space through two helpers, `gaussian_dc_to_display()` and `gaussian_display_to_dc()`, defined next to the enum |
 
 5. **`LEGACY_BIAS` does not survive**, for three reasons. (a) No in-tree producer emits
@@ -228,15 +231,36 @@ fails closed with a message naming the file.
 | SPZ import (`.res`) | `get_format_version() = 8` (`io/resource_importer_spz.h:61`) | **8 → 9**. The importer's output DC values change | Godot re-imports on the version mismatch (`io/resource_importer_ply.h:30-34`) |
 | `.gsplatworld` import | `get_format_version() = 2` (`io/resource_importer_gsplatworld.h:27`) | **2 → 3**, so the decode check at import (`io/resource_importer_gsplatworld.cpp:347`) runs again and reports untagged worlds in the editor instead of at scene load | re-imported; untagged worlds fail with a message |
 | PLY import (`.res`) | `get_format_version() = 11` (`io/resource_importer_ply.h:103`) | **no bump**. The output bytes and the `"linear_rgb"` token are unchanged, and a bump would reimport every PLY for no data change | unaffected |
-| `.gsplatworld` container | `kWorldVersion = 1`, strict equality (`io/gaussian_splat_world_io.cpp:24`, `:532-538`) | **no bump**. The layout is unchanged and tag 1 keeps its meaning; content validation on read rejects tag 0 | tagged files load; untagged files fail closed (`ERR_FILE_CORRUPT` + message) |
-| GSF scene | `GAUSSIAN_SCENE_VERSION = 2`, min reader 1 (`persistence/gaussian_scene_serializer.h:17`, `:20`) | **no bump**, same reasoning | same as `.gsplatworld` |
+| `.gsplatworld` container | `kWorldVersion = 1`, strict equality (`io/gaussian_splat_world_io.cpp:24`, `:532-538`) | **1 → 2.** v2 adds a required file-level DC-encoding field to the header (`SH_C0`; zero is invalid). The reader accepts **1 and 2**: v2 on the strict path; v1 on the legacy route below | v1 files load through the legacy route with a warning naming the file; nothing is invalidated under its original version number |
+| GSF scene | `GAUSSIAN_SCENE_VERSION = 2`, min reader 1 (`persistence/gaussian_scene_serializer.h:17`, `:20`) | **2 → 3**, with the same file-level field and the same two routes (v3 strict; v1/v2 legacy) | v1/v2 files load through the legacy route with a warning |
 | GSIF incremental | `INCREMENTAL_VERSION = 1` (`persistence/incremental_saver.h:46`) | **no bump**. Deltas carry `sh_dc` in the single canonical space, and the baseline carries the tag | a delta over a rejected baseline is rejected with it |
 | GPU layouts | SH encoding id 1 (`gaussian_gpu_layout.h:20`) | new id. GPU layouts are never persisted | n/a. The SPIR-V disk cache is keyed on source text (`renderer/spirv_disk_cache.cpp:222-241`) |
 
-**Alternative considered and rejected:** bumping `kWorldVersion` and GSF. The world reader
-uses strict equality, so a bump would reject correctly tagged v1 files unless the reader
-were relaxed to accept both versions. That leaves a version that changes nothing about how
-a file is read.
+**Legacy read route (`.gsplatworld` v1, GSF v1/v2).** A tag-0 splat in an old file cannot
+be told apart between C0-prebaked PLY data and display-colour data (§1.4, fixtures), so
+the route does not guess the *correct* colour. It **preserves today's appearance exactly**:
+
+- Each tag-0 splat is converted on the CPU, at read, from the legacy decode into the
+  canonical encoding: `sh_dc' = (1.5·sigmoid(sh_dc) − 0.25) − 0.5`, tagged `SH_C0`. Tag-1
+  splats pass through unchanged.
+- The GPU therefore never sees `LEGACY_BIAS`, and §3.5 still holds.
+- The conversion runs **where the payload is decoded**, never as a whole-file pre-scan:
+  - per streamed chunk, in the file-backed chunk source (`io/gaussian_splat_world_io.cpp:925-932`,
+    `core/streaming_chunk_payload_source.h:81-85`);
+  - or once during resident materialisation (`:695-697`).
+
+  Opening a file therefore stays O(header + chunk table), as it is today.
+- One warning per file names it and says that re-exporting from source gives correct
+  colours. Re-saving writes the new version.
+
+This is not a silent misread. The route is selected by the file's own version number and
+it reproduces exactly what that version rendered.
+
+**Previous draft, rejected in review round 1:** keeping `kWorldVersion = 1` and GSF 2
+while rejecting tag 0 on read. That turns previously valid files into errors under an
+unchanged version number, which is two incompatible contracts behind one number. It also
+forces a whole-file scan before the first chunk can stream: about 720 MB read for a
+5M-splat world at 144 B/splat.
 
 **Importer-bump rule.** An importer bump is required whenever the importer's *output*
 changes. Each bump adds a `vN:` line to the history comment
@@ -245,25 +269,34 @@ changes. Each bump adds a `vN:` line to the history comment
 shares the `PLY_CACHE_VERSION` bump and adds the PLY importer bump that it needs anyway,
 so users re-import only once.
 
-**Fixtures:** the 11 untagged fixtures (§1.4) are regenerated in the slice that adds read
-validation. Because their DC values look like display colours, regeneration has to decide
-each fixture's *intended* colour, not just re-tag it. Tests that encode the current
-contract are **replaced, not weakened**:
+**Fixtures:** the 11 untagged fixtures (§1.4) are not rejected.
+- The nine `.gsplatcache` sidecars are re-derived automatically by the `PLY_CACHE_VERSION`
+  bump.
+- The two v1 `.gsplatworld` fixtures load through the legacy route. They become the
+  inputs of the legacy-route tests (§6.4), so they are kept deliberately.
+- Separate v2 fixtures are generated for the strict-route tests. Because the old fixtures'
+  DC values look like display colours, v2 generation has to decide each fixture's
+  *intended* colour, not just re-tag it.
+
+Tests that encode the current contract are **replaced, not weakened**:
 
 - `tests/test_gaussian_importer.h:1902-1929`
 - `tests/test_gaussian_splat_container.h:160-172`, mixed-tag merge
 - `tests/test_gpu_streaming.h:64-72`, mixed-tag streaming
 - `tests/test_quantized_packing.h:164-179`, positive coefficients only
 
-## 5. Recommendation (awaiting maintainer approval)
+## 5. Decision (approved by the maintainer on 2026-09-23)
 
 **Recommended: Option E for SH, plus the explicit DC contract in §3, with `LEGACY_BIAS`
 removed.**
 
 - **Bytes per splat: +0** (128 B / 80 B unchanged). **VRAM at 5M: +0.**
-- No format bumps for SH, because the change is GPU-only. The DC contract bumps
-  `PLY_CACHE_VERSION` (3 → 4), the SPZ importer (8 → 9) and the `.gsplatworld` importer
-  (2 → 3).
+- No format bumps for SH, because the change is GPU-only. The DC contract bumps:
+  - `PLY_CACHE_VERSION` (3 → 4);
+  - the SPZ importer (8 → 9);
+  - the `.gsplatworld` importer (2 → 3);
+  - the `.gsplatworld` container (1 → 2) and GSF (2 → 3), each with an
+    appearance-preserving legacy read route for the old versions (§4).
 - **Pre-agreed escalation:** if the real-scan check (§6) shows error attributable to
   per-splat scaling, switch the SH slice to **Option C**, accepting +32/+16 B per splat.
   Option A is the fallback if the maintainer would rather keep each coefficient word
@@ -271,8 +304,15 @@ removed.**
 
 ## 6. Acceptance evidence required from the implementation PRs
 
-Every new test must **fail on the base commit** before the fix, shown by building and
-running it on the base, and pass after. A test that cannot fail is not evidence.
+A test that cannot fail is not evidence. The proof depends on the kind of test:
+
+- **Defect-reproduction tests** (items 1-3, and the strict-route rejections in item 4)
+  must **fail on the base commit** before the fix, shown by building and running them on
+  the base, and pass after.
+- **Preservation tests** (the legacy-route loads and the "tag-1 file still loads" cases in
+  item 4) pass on the base by design. Each is proven instead by a **mutation of the new
+  logic** that must turn it red. Examples: reject v1 outright, skip the legacy conversion,
+  or apply the conversion to tag-1 splats.
 
 1. **Host round-trip doctests** (GPU-free) for `pack_gaussian` and `pack_gaussian_quantized`.
    Inputs: negative, positive, mixed-sign, tiny (1e-4), zero and large (±4)
@@ -291,9 +331,21 @@ running it on the base, and pass after. A test that cannot fail is not evidence.
    synthetic writer, which is the loader's own inverse.
 4. **Cache and format migration tests:**
    - a v3 `.gsplatcache` is rejected and re-derived as tagged;
-   - a tagged v1 `.gsplatworld` and a tagged v2 GSF load;
-   - an untagged one fails closed with the file named, and nothing reaches the renderer;
+   - **Legacy route:** a v1 `.gsplatworld` (the two existing fixtures) and a v1/v2 GSF,
+     both tagged and untagged, load. Untagged splats render **exactly as the base
+     renders them**: a pixel-identical GPU readback against the base binary, resident
+     *and* streamed. The per-file warning is emitted once.
+   - **Strict route:**
+     - a v2 world or v3 GSF whose header field is 0, or with a splat whose tag mismatches
+       the header, fails closed, naming the file or chunk, and nothing reaches the
+       renderer;
+     - for a streamed v2 world, the failure happens at that chunk's read, not at open.
    - `"legacy_bias"`, missing and unknown metadata tokens are each rejected.
+   - **Open-time evidence:**
+     - opening an uncompressed 5M-splat v2 world, and the same content as v1, takes
+       time and bytes read independent of the splat payload: no whole-file scan;
+     - measured against the base with file-open timing and bytes read;
+     - the first-chunk latency is reported.
 5. **Real-scan visual check**, as `tests/AGENTS.md:23-24` requires for rendering-math
    changes. Render at least one SH-degree-3 real scan from fixed on-axis and off-axis
    cameras, before and after, next to a reference 3DGS renderer. Report the difference
@@ -311,7 +363,7 @@ order.
 | # | Slice | Class | Depends on |
 | --- | --- | --- | --- |
 | 1 | Signed SH encoder and decoders (both layouts, both GLSL decoders, metadata id, observable unknown-id fallback), with evidence items 1, 2, 5 and 6 | **R2** | ADR approval |
-| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; read validation for world and GSF; fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; fixture regeneration; evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
+| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
 | 3 | SPZ DC decode and SPZ importer bump; evidence 3 (SPZ rows) | **R3** | 2 |
 | 4 | Remove the `LEGACY_BIAS` decode, the `sh_metadata` DC bit, the asset flag, the splat-0 resolvers and the quantization DC-compatibility gate | **R2** | 2, 3 |
 | 5 | CPU consumers (PERS-016): brush, grading bake (no coefficient-space `MAX(0)`), animated colour, PLY export, all through the display helpers | **R1 by path**; evidence handled as R2 because it changes rendered colour | 2 |
@@ -339,10 +391,14 @@ it needs are defined here.
 - **Visible changes.** Raw-loaded PLYs gain contrast, and they become correct. SPZ assets
   change substantially. Scenes tuned against the wrong decode will look different, and
   the release notes must say so.
-- **Fail-closed rejections.** User `.gsplatworld` and GSF files saved from raw-loaded data
-  are untagged. They stop loading until they are regenerated from source. An explicit
-  re-tag tool is left out on purpose, because a re-tag cannot tell C0-prebaked data from
-  display-colour data (§1.4 fixtures).
+- **Old user files keep today's (possibly wrong) colours.** User `.gsplatworld` and GSF files
+  saved from raw-loaded data are untagged. They keep loading through the legacy route,
+  with exactly the appearance they have today and a per-file warning. Correct colours
+  require re-exporting from source. An automatic re-tag to "correct" colours is left out
+  on purpose, because it cannot tell C0-prebaked data from display-colour data
+  (§1.4 fixtures).
+- **Legacy-route cost:** one sigmoid per untagged splat, paid at chunk decode, measured by
+  §6.4's timing evidence. The route can be removed later, with its own version decision.
 - **Option E precision.** A splat with one outlier coefficient gets coarser steps for its
   other coefficients. Slice 1 must report the distribution of `s` on the real scan, and
   the escalation in §5 applies.
@@ -350,3 +406,30 @@ it needs are defined here.
   line and test against an official sample.
 - **Single-vendor evidence.** The audit probes ran on one NVIDIA RTX 3090 with a `-O0`
   build. Any other vendor that was not tested is a recorded blind spot.
+
+## 9. Amendments
+
+**Review round 1 (2026-09-23, Codex inline review on PR #1059)**, applied after the
+maintainer's approval of §5. The recommended option is unchanged.
+
+1. **Container versioning (P1).**
+   - The draft kept `.gsplatworld` v1 and GSF v2 while newly rejecting tag 0. That would
+     make valid files errors under an unchanged version number.
+   - Both containers now bump (world 1 → 2, GSF 2 → 3) and keep an explicit legacy read
+     route for the old versions (§4), as `modules/gaussian_splatting/AGENTS.md:37-39` requires.
+2. **Random-access loading (P1).**
+   - Per-splat tag validation at open would have forced a whole-payload scan of streamable
+     worlds, which the file-backed chunk source exists to avoid
+     (`io/gaussian_splat_world_io.cpp:695-697`, `:925-932`).
+   - Validation is now a header-level field checked at open, plus lazy per-chunk checks at
+     decode. The legacy conversion runs at the same point.
+   - Open-time and bytes-read evidence is required (§6.4).
+3. **Test rule (P2).** "Every new test must fail on the base" is now limited to
+   defect-reproduction tests. Preservation tests are proven by mutating the new logic
+   instead (§6).
+
+**Consequence for §3.5.**
+- The legacy route does reproduce the old *appearance* for old files, by converting on the
+  CPU at read.
+- This is deliberate and version-scoped. The #1056 fix applies to everything produced or
+  re-saved from now on, and the GPU never decodes `LEGACY_BIAS`.
