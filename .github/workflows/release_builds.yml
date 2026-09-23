@@ -31,6 +31,9 @@ on:
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
       - "tests/ci/runner_gpu_contention.py"
+      # The hash-locked SCons both Windows build jobs install (GAP-403); a pin
+      # change must build here, not wait for the nightly.
+      - "tests/ci/requirements-scons.txt"
       # export_smoke_windows runs run_export_smoke.py, which imports
       # run_runtime_validation.py at module scope for its mode arguments. Only
       # the first is an *execution*, so only the first is in
@@ -93,6 +96,7 @@ on:
       # change to it must not skip the workflow whose GPU job runs it.
       - "tests/ci/preflight_runner_gpu_environment.py"
       - "tests/ci/runner_gpu_contention.py"
+      - "tests/ci/requirements-scons.txt"
       - "tests/runtime/run_export_smoke.py"
       - "tests/runtime/run_runtime_validation.py"
       - "tests/runtime/export_smoke_preset.cfg.in"
@@ -248,7 +252,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -379,7 +382,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -516,7 +518,6 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          python -m pip install --upgrade pip
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
@@ -570,6 +571,13 @@ jobs:
         run: |
           set -uo pipefail
           bin="${{ steps.binary.outputs.path }}"
+          # The doctest harness creates OS cache_path/godot_test with the
+          # non-recursive DirAccess::make_dir_absolute (tests/test_utils.cpp,
+          # upstream Godot), so the cache root must already exist. It used to
+          # exist only as a side effect of `pip install --upgrade pip` writing
+          # ~/.cache/pip; with that step gone (GAP-403) the harness aborted
+          # before running any case. Create it explicitly instead.
+          mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}"
           # doctest returns 0 even when the filter matches ZERO cases, so we
           # must both check the exit code AND prove the case actually ran.
           out="$("${bin}" --headless --test \
@@ -624,11 +632,24 @@ jobs:
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
+      # GAP-403: this runner is the maintainer's workstation, so nothing is
+      # installed into its global interpreter. SCons goes into a per-job venv
+      # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
+      # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
+      # every later step), so each later `python`, including `python -m SCons`,
+      # runs in the venv. No repository script this job runs imports a
+      # third-party module, so SCons is the whole toolchain.
       - name: Install SCons
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install scons
+          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
+          python -m venv --clear $venv
+          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
+          $env:PATH = "$venv\Scripts;$env:PATH"
+          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
+          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
+          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build module-enabled Windows editor (optimized)
         shell: pwsh
@@ -847,11 +868,24 @@ jobs:
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
+      # GAP-403: this runner is the maintainer's workstation, so nothing is
+      # installed into its global interpreter. SCons goes into a per-job venv
+      # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
+      # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
+      # every later step), so each later `python`, including `python -m SCons`,
+      # runs in the venv. No repository script this job runs imports a
+      # third-party module, so SCons is the whole toolchain.
       - name: Install SCons
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install scons
+          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
+          python -m venv --clear $venv
+          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
+          $env:PATH = "$venv\Scripts;$env:PATH"
+          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
+          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
+          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Windows export template (release)
         shell: pwsh
