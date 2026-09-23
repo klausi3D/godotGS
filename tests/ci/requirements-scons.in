@@ -1,0 +1,12 @@
+# Input for tests/ci/requirements-scons.txt, the hash-locked SCons install used by
+# the self-hosted Windows build jobs (baseline_qa.yml, gaussian_production_gates.yml,
+# release_builds.yml, release_ci_runtime.yml). Those jobs need nothing else from
+# PyPI: no repository script they run imports a third-party module.
+#
+# Pinned to the SCons the self-hosted runner resolved before the lock existed.
+# To upgrade: change the pin here, then run the pip-tools command recorded in
+# the header of requirements-scons.txt from the repository root, with
+# PIP_CONFIG_FILE set to the null device so a local extra index is never
+# consulted. The lock lists the hash of every file PyPI publishes for the pin,
+# so it installs on both Windows and Linux.
+scons==4.10.1
