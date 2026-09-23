@@ -1356,9 +1356,11 @@ void main() {
                         diffuse_light, specular_light);
             }
 
+            // Fraction of the baked SH radiance that engine shadows remove from this splat.
+            float shadow_weight = 0.0;
             if (shadow_strength > 0.0 && sh_occlusion > 0.0) {
-                float sh_factor = 1.0 - shadow_strength * clamp(sh_occlusion, 0.0, 1.0);
-                final_color *= sh_factor;
+                shadow_weight = shadow_strength * clamp(sh_occlusion, 0.0, 1.0);
+                final_color *= 1.0 - shadow_weight;
             }
 
             // Match Godot's forward path: diffuse light is multiplied by albedo at the end.
@@ -1369,9 +1371,21 @@ void main() {
 
             // Blend engine ambient out as SH indirect approaches full strength to avoid
             // double-counting baked indirect from the SH DC term.
+            // #1055: the share of baked SH radiance that a shadow removed is replaced by
+            // engine ambient. Without this, a fully shadowed splat at the default
+            // indirect_sh_scale = 1 received neither SH nor ambient and rendered pure
+            // black. Unshadowed splats are unchanged (shadow_weight == 0).
+            // Limits: only the flat ambient colour (ambient_light_color_energy.rgb) is
+            // available here. With sky-sourced ambient the engine leaves that colour at
+            // its (default black) value and meshes sample the sky cubemap instead, which
+            // this pass does not bind, so a shadowed splat under sky ambient still goes
+            // dark. Like the pre-existing ambient term, the product mixes the splat's
+            // display-encoded colour with linear ambient. The weight clamps k to [0, 1]
+            // on purpose: ambient is not scaled by the SH gain when k > 1.
             SceneData scene_data = scene_data_block.data;
             if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT)) {
-                float ambient_blend = 1.0 - clamp(params.lighting_config.y, 0.0, 1.0);
+                float sh_indirect = clamp(params.lighting_config.y, 0.0, 1.0);
+                float ambient_blend = (1.0 - sh_indirect) + sh_indirect * shadow_weight;
                 if (ambient_blend > 0.0) {
                     vec3 ambient = scene_data.ambient_light_color_energy.rgb;
                     final_color += ambient * vec3(h_albedo) * ambient_blend;
