@@ -571,6 +571,13 @@ jobs:
         run: |
           set -uo pipefail
           bin="${{ steps.binary.outputs.path }}"
+          # The doctest harness creates OS cache_path/godot_test with the
+          # non-recursive DirAccess::make_dir_absolute (tests/test_utils.cpp,
+          # upstream Godot), so the cache root must already exist. It used to
+          # exist only as a side effect of `pip install --upgrade pip` writing
+          # ~/.cache/pip; with that step gone (GAP-403) the harness aborted
+          # before running any case. Create it explicitly instead.
+          mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}"
           # doctest returns 0 even when the filter matches ZERO cases, so we
           # must both check the exit code AND prove the case actually ran.
           out="$("${bin}" --headless --test \
