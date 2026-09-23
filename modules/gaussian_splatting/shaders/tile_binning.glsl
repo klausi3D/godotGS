@@ -1372,11 +1372,16 @@ void main() {
             // Blend engine ambient out as SH indirect approaches full strength to avoid
             // double-counting baked indirect from the SH DC term.
             // #1055: the share of baked SH radiance that a shadow removed is replaced by
-            // engine ambient, as a shadowed mesh keeps ambient * albedo. Without this, a
-            // fully shadowed splat at the default indirect_sh_scale = 1 received neither
-            // SH nor ambient and rendered pure black. Unshadowed splats are unchanged
-            // (shadow_weight == 0), and without scene ambient a shadow still goes black,
-            // exactly like a mesh.
+            // engine ambient. Without this, a fully shadowed splat at the default
+            // indirect_sh_scale = 1 received neither SH nor ambient and rendered pure
+            // black. Unshadowed splats are unchanged (shadow_weight == 0).
+            // Limits: only the flat ambient colour (ambient_light_color_energy.rgb) is
+            // available here. With sky-sourced ambient the engine leaves that colour at
+            // its (default black) value and meshes sample the sky cubemap instead, which
+            // this pass does not bind, so a shadowed splat under sky ambient still goes
+            // dark. Like the pre-existing ambient term, the product mixes the splat's
+            // display-encoded colour with linear ambient. The weight clamps k to [0, 1]
+            // on purpose: ambient is not scaled by the SH gain when k > 1.
             SceneData scene_data = scene_data_block.data;
             if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT)) {
                 float sh_indirect = clamp(params.lighting_config.y, 0.0, 1.0);
