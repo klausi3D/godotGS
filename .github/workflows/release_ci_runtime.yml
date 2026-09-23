@@ -105,11 +105,24 @@ jobs:
       - name: Set up MSVC build env
         uses: ilammy/msvc-dev-cmd@v1
 
+      # GAP-403: this runner is the maintainer's workstation, so nothing is
+      # installed into its global interpreter. SCons goes into a per-job venv
+      # from the version-and-hash-locked tests/ci/requirements-scons.txt, and the
+      # venv's Scripts dir is prepended to PATH (here and, via GITHUB_PATH, for
+      # every later step), so each later `python`, including `python -m SCons`,
+      # runs in the venv. No repository script this job runs imports a
+      # third-party module, so SCons is the whole toolchain.
       - name: Install SCons
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install scons numpy pillow
+          $venv = Join-Path $env:RUNNER_TEMP "gs-ci-venv"
+          python -m venv --clear $venv
+          if ($LASTEXITCODE -ne 0) { throw "venv creation failed with exit code $LASTEXITCODE" }
+          $env:PATH = "$venv\Scripts;$env:PATH"
+          if ((python -c "import sys; print(sys.prefix != sys.base_prefix)") -ne "True") { throw "the venv interpreter is not first on PATH" }
+          python -m pip install --require-hashes -r tests/ci/requirements-scons.txt
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE" }
+          "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Godot editor with tests
         shell: pwsh
