@@ -88,6 +88,7 @@ HEADLESS_GAUSSIAN_SCOPED_TAGS: tuple[str, ...] = (
     "Node",
     "PLY",
     "Persistence",
+    "SHEncoding",  # #1054: signed SH storage; strict lane below, so the advisory net must not re-run it.
     "SPZ",  # G2: promoted from the advisory [untagged] lane to a strict blocking lane.
     "SceneTree",
     "SortBenchmark",

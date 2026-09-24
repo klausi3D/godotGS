@@ -723,14 +723,10 @@ def _check_sh_snorm10_binning(failures: list[str], binning: str, sh_glsl: str) -
         failures.append(f"{TILE_BINNING_GLSL.relative_to(ROOT)}: quantized SH metadata does not use SH_ENCODING_SNORM10_SPLAT_SCALE")
     if re.search(r"\bSH_ENCODING_RGB9E5\b", binning_code) or re.search(r"\bSH_ENCODING_RGB9E5\b", _strip_c_comments(sh_glsl)):
         failures.append("SH SNORM10 contract: binning shaders still reference the retired SH_ENCODING_RGB9E5")
-
-    # #1063: SH view direction follows the reference (Inria computeColorFromSH: dir = pos - campos).
-    view_dirs = re.findall(r"vec3\s+view_dir\s*=\s*normalize\(([^;]*)\)\s*;", binning_code)
-    if view_dirs != ["g.position - params.camera_position.xyz"]:
-        failures.append(
-            f"{TILE_BINNING_GLSL.relative_to(ROOT)}: SH view direction must be exactly normalize(g.position - params.camera_position.xyz) "
-            f"(camera -> splat, the 3DGS reference convention, #1063); found {view_dirs}"
-        )
+    # The SH view direction (#1063, camera -> splat) is deliberately NOT pinned here: it is a
+    # property of the rendered result, asserted against the reference formula by the
+    # RendererSceneTree GPU case in test_sh_encoding.h. A source-spelling pin would reject
+    # equivalent refactors without adding coverage.
 
 
 def _check_sh_snorm10_contract(failures: list[str]) -> None:
@@ -1242,7 +1238,7 @@ def main() -> int:
         + "."
     )
     print("[gaussian-layout-check] DebugCounters binding-6 SSBO matches host TileDebugCounterSnapshot (tile_binning.glsl).")
-    print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, signed extraction, encoder shifts and clamp, scale lane sh_dc.w) matches between host and GLSL; RGB9E5 is not emitted; SH view direction is the reference camera->splat (#1063).")
+    print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, signed extraction, encoder shifts and clamp, scale lane sh_dc.w) matches between host and GLSL; RGB9E5 is not emitted.")
     print(
         "[gaussian-layout-check] Push-constant std430 blocks match their host structs: "
         + ", ".join(
