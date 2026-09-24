@@ -27,7 +27,7 @@ struct PackedGaussian {
     uint _pad_rotation_align;  // std430 keeps rotation at offset 32; was `area` (never read)
     vec4 rotation;
     vec4 sh_dc;
-    float sh_encoded[12];
+    uint sh_encoded[12];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
     vec3 normal;
     uint sh_metadata;
 };

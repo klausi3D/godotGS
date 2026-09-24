@@ -17,12 +17,6 @@
 namespace {
 static bool _is_data_log_enabled() { return gs::settings::is_data_log_enabled(); }
 
-static float bits_to_float(uint32_t bits) {
-    float value;
-    memcpy(&value, &bits, sizeof(uint32_t));
-    return value;
-}
-
 // #1054: SH coefficients are signed (trained SH has zero mean). They used to be stored as
 // unsigned RGB9E5, which clamped every negative channel to zero on every GPU path. They are
 // now stored as signed 10-bit integers scaled by one per-splat magnitude (see
@@ -66,13 +60,15 @@ static float encode_sh_snorm10(const SelectedSH &p_sel, uint32_t *r_words) {
         scale = MAX(scale, MAX(Math::abs(sanitize_sh_component(c.x)),
                                    MAX(Math::abs(sanitize_sh_component(c.y)), Math::abs(sanitize_sh_component(c.z)))));
     }
-    if (!(scale > 0.0f) || !Math::is_finite(scale)) {
+    // Also covers a denormal scale (0 < scale < ~1.5e-36) whose reciprocal step would overflow
+    // to inf and turn every quantized value into NaN (undefined behaviour in the int cast).
+    const float inv_step = (scale > 0.0f && Math::is_finite(scale)) ? float(GS_SH_SNORM10_MAX) / scale : 0.0f;
+    if (!(scale > 0.0f) || !Math::is_finite(scale) || !Math::is_finite(inv_step)) {
         for (uint32_t i = 0; i < p_sel.total; i++) {
             r_words[i] = 0u;
         }
         return 0.0f;
     }
-    const float inv_step = float(GS_SH_SNORM10_MAX) / scale;
     const auto quantize = [inv_step](float p_value) -> uint32_t {
         int32_t q = int32_t(Math::round(sanitize_sh_component(p_value) * inv_step));
         q = CLAMP(q, -GS_SH_SNORM10_MAX, GS_SH_SNORM10_MAX);
@@ -92,7 +88,7 @@ void PackedSphericalHarmonics::clear() {
         dc[i] = 0.0f;
     }
     for (uint32_t i = 0; i < MAX_ENCODED_COEFFICIENTS; i++) {
-        encoded[i] = 0.0f;
+        encoded[i] = 0u;
     }
 }
 
@@ -139,12 +135,8 @@ void pack_gaussian(const Gaussian &src,
 
     SelectedSH selected;
     select_sh_coefficients(src, higher_order_coeffs, first_order_count, higher_order_count, coefficient_limit, selected);
-    uint32_t words[PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS];
     // The w lane of the DC vec4 carries the per-splat SH scale; no shader reads sh_dc.w as colour.
-    dst.sh.dc[3] = encode_sh_snorm10(selected, words);
-    for (uint32_t i = 0; i < selected.total; i++) {
-        dst.sh.encoded[i] = bits_to_float(words[i]);
-    }
+    dst.sh.dc[3] = encode_sh_snorm10(selected, dst.sh.encoded);
     const uint32_t stored_first = selected.stored_first;
     const uint32_t stored_high = selected.stored_high;
     const uint32_t encoded_total = selected.total;

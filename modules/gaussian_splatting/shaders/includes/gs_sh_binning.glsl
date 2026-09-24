@@ -54,7 +54,9 @@ vec3 decode_sh_snorm10(uint packed, float splat_scale) {
 // sh_unknown_encoding_count) so the fallback is observable rather than silent.
 bool gaussian_sh_encoding_unsupported(uint meta) {
     uint encoding = gaussian_get_sh_encoding(meta);
-    return encoding != 0u && encoding != SH_ENCODING_SNORM10_SPLAT_SCALE && gaussian_get_encoded_count(meta) > 0u;
+    // Any stored SH words the decoder cannot interpret: an unknown id, or id 0 ("no SH") that
+    // nevertheless claims coefficients. Counted per SH evaluation (not per unique splat).
+    return gaussian_get_encoded_count(meta) > 0u && encoding != SH_ENCODING_SNORM10_SPLAT_SCALE;
 }
 
 // SH basis evaluation constants
@@ -183,7 +185,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
     if (sh_band_level >= 1u) {
         uint max_first = min(first_count, 3u);
         for (uint i = 0u; i < max_first; i++) {
-            vec3 coeff = decode_sh_snorm10(floatBitsToUint(g.sh_encoded[i]), splat_scale);
+            vec3 coeff = decode_sh_snorm10(g.sh_encoded[i], splat_scale);
             color += coeff * basis[1u + i];
         }
     }
@@ -199,7 +201,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
         max_high = min(max_high, coeff_limit);
 
         for (uint i = 0u; i < max_high; i++) {
-            vec3 coeff = decode_sh_snorm10(floatBitsToUint(g.sh_encoded[first_count + i]), splat_scale);
+            vec3 coeff = decode_sh_snorm10(g.sh_encoded[first_count + i], splat_scale);
             color += coeff * basis[4u + i];  // Higher order starts at basis index 4
         }
     }

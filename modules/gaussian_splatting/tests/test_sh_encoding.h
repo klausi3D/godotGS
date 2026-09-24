@@ -6,6 +6,7 @@
 #ifndef GAUSSIAN_SPLATTING_TEST_SH_ENCODING_H
 #define GAUSSIAN_SPLATTING_TEST_SH_ENCODING_H
 
+#include "gs_test_pump.h"
 #include "test_macros.h"
 
 #include "../core/gaussian_data.h"
@@ -13,6 +14,7 @@
 #include "../core/streaming_quantization.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/quantization_config.h"
 
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
@@ -76,12 +78,6 @@ inline float max_abs_component(const Vector3 *p_coeffs, uint32_t p_count) {
 	return m;
 }
 
-inline uint32_t word_bits(float p_value) {
-	uint32_t bits = 0;
-	memcpy(&bits, &p_value, sizeof(uint32_t));
-	return bits;
-}
-
 // Checks every decoded coefficient against the original within the SNORM10 bound, and that
 // the sign of every component larger than one quantization step survives.
 inline void check_round_trip(const Vector3 *p_expected, const uint32_t *p_words, uint32_t p_count, float p_scale,
@@ -114,7 +110,7 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Negative band-1 SH survives the unqua
 
 	CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_SNORM10_SPLAT_SCALE);
 	CHECK(packed.sh.dc[3] == doctest::Approx(0.3f)); // per-splat scale = largest |component|
-	const Vector3 decoded = gs_decode_sh_snorm10(TestSHEncoding::word_bits(packed.sh.encoded[0]), packed.sh.dc[3]);
+	const Vector3 decoded = gs_decode_sh_snorm10(packed.sh.encoded[0], packed.sh.dc[3]);
 	CHECK(decoded.x < -0.29f);
 	CHECK(decoded.y > 0.19f);
 	CHECK(decoded.z < -0.09f);
@@ -177,7 +173,7 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Round-trip within scale/1022 for nega
 		CHECK(packed.sh.dc[3] == TestSHEncoding::max_abs_component(expected, 12));
 		uint32_t words[12];
 		for (int i = 0; i < 12; i++) {
-			words[i] = TestSHEncoding::word_bits(packed.sh.encoded[i]);
+			words[i] = packed.sh.encoded[i];
 			CHECK_MESSAGE((words[i] >> 30u) == 0u, "bits 30-31 of an SH word must stay zero");
 		}
 		TestSHEncoding::check_round_trip(expected, words, 12, packed.sh.dc[3], c.label);
@@ -206,9 +202,9 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Scale covers exactly the stored coeff
 	CHECK(((packed.sh_metadata & GS_SH_METADATA_ENCODED_COUNT_MASK) >> 16u) == 2u);
 	CHECK(packed.sh.dc[3] == doctest::Approx(0.1f));
 	const Vector3 expected[2] = { g.sh_1[0], g.sh_1[1] };
-	uint32_t words[2] = { TestSHEncoding::word_bits(packed.sh.encoded[0]), TestSHEncoding::word_bits(packed.sh.encoded[1]) };
+	uint32_t words[2] = { packed.sh.encoded[0], packed.sh.encoded[1] };
 	TestSHEncoding::check_round_trip(expected, words, 2, packed.sh.dc[3], "coefficient_limit");
-	CHECK(packed.sh.encoded[2] == 0.0f);
+	CHECK(packed.sh.encoded[2] == 0u);
 }
 
 TEST_CASE("[GaussianSplatting][SHEncoding] All-zero and non-finite coefficients encode to zero words with a finite scale") {
@@ -219,7 +215,7 @@ TEST_CASE("[GaussianSplatting][SHEncoding] All-zero and non-finite coefficients 
 		pack_gaussian(g, packed, metrics, nullptr, 3, 0);
 		CHECK(packed.sh.dc[3] == 0.0f);
 		for (int i = 0; i < 3; i++) {
-			CHECK(TestSHEncoding::word_bits(packed.sh.encoded[i]) == 0u);
+			CHECK(packed.sh.encoded[i] == 0u);
 		}
 		// A zero word decodes to zero whatever the scale.
 		CHECK(gs_decode_sh_snorm10(0u, 0.0f) == Vector3());
@@ -252,14 +248,18 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Encoding ids: SNORM10 is new and the 
 
 
 // ---------------------------------------------------------------------------------------------
-// GPU readback (ADR evidence item 2). One opaque splat, rendered three times with its band-1
-// Y(1,0) red coefficient negative / zero / positive; the camera looks down -Z so that basis term
-// is non-zero. Before #1054 the negative render was pixel-identical to the zero render (the
-// unsigned packer clamped it to 0). The case asserts ordering and symmetry of the red channel.
-// Tagged [SceneTree][RequiresGPU] (RendererSceneTree GPU batch) and FAILs, never skips, when the
-// harness does not provide the GPU environment it promises.
+// GPU readback (ADR evidence item 2; #1054 signed storage + #1063 view direction). One opaque
+// splat is rendered with a single band-1 coefficient in the red channel and compared with the
+// REFERENCE formula (Inria 3DGS computeColorFromSH): delta_red = c * basis_k(dir), where
+// dir = normalize(splat - camera) and basis = (-SH_C1*y, SH_C1*z, -SH_C1*x) for slots 0/1/2.
+// Before #1054 a negative c rendered exactly like c = 0; before #1063 every band-1 delta had the
+// opposite sign. The red channel is sampled at the splat's measured coverage centroid (robust to
+// the readback's row order). Tagged [SceneTree][RequiresGPU] (RendererSceneTree GPU batch);
+// FAILs, never skips, when the harness does not provide the GPU environment it promises.
 // ---------------------------------------------------------------------------------------------
 namespace TestSHEncoding {
+
+static constexpr float REF_SH_C1 = 0.4886025119029199f;
 
 inline RID create_readback_texture(RenderingDevice *p_rd, const Vector2i &p_size) {
 	RD::TextureFormat format;
@@ -275,10 +275,12 @@ inline RID create_readback_texture(RenderingDevice *p_rd, const Vector2i &p_size
 	return p_rd->texture_create(format, RD::TextureView());
 }
 
-// Renders one splat whose Y(1,0) red coefficient is p_coeff and returns the centre pixel's red
-// channel in [0, 1] through r_red. Returns false (with a message) if any step of the render or
-// readback fails, so the caller can FAIL instead of asserting on garbage.
-inline bool render_center_red(RenderingDevice *p_rd, float p_coeff, float &r_red, String &r_why) {
+// Renders one splat at p_position (camera at the origin looking down -Z) with band-1 red
+// coefficients p_band1 (slot k in component k) and returns the mean red over the 3x3 pixels
+// around the splat's coverage centroid. False (with a reason) on any render/readback failure or
+// when the route under test (quantized or not) was not the one taken.
+inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, const Vector3 &p_band1,
+		bool p_expect_quantized, float &r_red, String &r_why) {
 	Ref<GaussianSplatRenderer> renderer;
 	renderer.instantiate(p_rd);
 	if (!renderer.is_valid()) {
@@ -292,7 +294,7 @@ inline bool render_center_red(RenderingDevice *p_rd, float p_coeff, float &r_red
 	gaussians.resize(1);
 	Gaussian &g = gaussians[0];
 	g = Gaussian{};
-	g.position = Vector3(0.0f, 0.0f, -3.0f);
+	g.position = p_position;
 	g.scale = Vector3(0.6f, 0.6f, 0.6f);
 	g.opacity = 0.995f;
 	g.rotation = Quaternion();
@@ -300,28 +302,41 @@ inline bool render_center_red(RenderingDevice *p_rd, float p_coeff, float &r_red
 	g.area = g.scale.x * g.scale.y;
 	g.sh_dc = Color(0.0f, 0.0f, 0.0f, 1.0f); // displays as 0.5 grey under the linear DC decode
 	g.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-	g.sh_1[0] = Vector3();
-	g.sh_1[1] = Vector3(p_coeff, 0.0f, 0.0f); // Y(1,0): basis = SH_C1 * view_dir.z
-	g.sh_1[2] = Vector3();
+	// Red carries the coefficient under test. Slot 2's green coefficient only keeps band 1
+	// complete: GaussianData derives sh_degree from the highest non-zero band-1 slot, and the
+	// quantized route gates bands by it (ChunkMetaGPU.sh_limit), so a lone slot-0 or slot-1
+	// coefficient would otherwise render as DC only on that route. Red is unaffected.
+	g.sh_1[0] = Vector3(p_band1.x, 0.0f, 0.0f);
+	g.sh_1[1] = Vector3(p_band1.y, 0.0f, 0.0f);
+	g.sh_1[2] = Vector3(p_band1.z, 0.05f, 0.0f);
 
 	Ref<GaussianData> data;
 	data.instantiate();
 	data->set_gaussians(gaussians);
+	if (data->get_sh_degree() != 1) {
+		r_why = vformat("premise: fixture sh_degree is %d, expected 1 (band 1 would be gated off)", data->get_sh_degree());
+		return false;
+	}
 	renderer->set_max_splats(1);
 	if (renderer->set_gaussian_data(data) != OK) {
 		r_why = "set_gaussian_data failed";
 		return false;
 	}
 
-	const Vector2i resolution(64, 64);
+	const Vector2i resolution(96, 96);
 	Projection projection;
 	projection.set_perspective(60.0f, 1.0f, 0.1f, 50.0f);
-	bool rendered = false;
-	for (int attempt = 0; attempt < 8 && !rendered; attempt++) {
-		rendered = renderer->render_for_view(Transform3D(), projection, RID(), resolution);
+	const TestGaussianSplatting::GSPumpOutcome outcome = TestGaussianSplatting::gs_pump_until([&]() {
+		return renderer->render_for_view(Transform3D(), projection, RID(), resolution);
+	}, 10000000, 1);
+	if (!outcome.ready()) {
+		r_why = "render_for_view never reported a rendered frame: " + outcome.describe();
+		return false;
 	}
-	if (!rendered) {
-		r_why = "render_for_view never reported a rendered frame";
+	const bool quantized = bool(renderer->get_render_stats().get("raster_feature_quantized_storage", false));
+	if (quantized != p_expect_quantized) {
+		r_why = vformat("premise: raster_feature_quantized_storage is %s, expected %s (the route under test was not taken)",
+				quantized ? "true" : "false", p_expect_quantized ? "true" : "false");
 		return false;
 	}
 
@@ -345,14 +360,73 @@ inline bool render_center_red(RenderingDevice *p_rd, float p_coeff, float &r_red
 		r_why = vformat("readback returned %d bytes, expected %d", pixels.size(), resolution.x * resolution.y * 4);
 		return false;
 	}
-	const int idx = ((resolution.y / 2) * resolution.x + resolution.x / 2) * 4;
-	r_red = float(pixels[idx]) / 255.0f;
+	// Coverage centroid over the alpha channel (the background is transparent).
+	double sum_w = 0.0, sum_x = 0.0, sum_y = 0.0;
+	for (int y = 0; y < resolution.y; y++) {
+		for (int x = 0; x < resolution.x; x++) {
+			const double a = pixels[(y * resolution.x + x) * 4 + 3] / 255.0;
+			if (a > 0.5) {
+				sum_w += a;
+				sum_x += a * x;
+				sum_y += a * y;
+			}
+		}
+	}
+	if (sum_w < 9.0) {
+		r_why = vformat("the splat covers too few opaque pixels (alpha mass %f)", sum_w);
+		return false;
+	}
+	const int cx = int(Math::round(sum_x / sum_w));
+	const int cy = int(Math::round(sum_y / sum_w));
+	float red = 0.0f;
+	for (int dy = -1; dy <= 1; dy++) {
+		for (int dx = -1; dx <= 1; dx++) {
+			const int x = CLAMP(cx + dx, 0, resolution.x - 1);
+			const int y = CLAMP(cy + dy, 0, resolution.y - 1);
+			red += pixels[(y * resolution.x + x) * 4] / 255.0f;
+		}
+	}
+	r_red = red / 9.0f;
 	return true;
+}
+
+// Reference band-1 basis (Inria forward.cu) for the direction from the camera (origin) to p_pos.
+inline Vector3 reference_band1_basis(const Vector3 &p_pos) {
+	const Vector3 dir = p_pos.normalized();
+	return Vector3(-REF_SH_C1 * dir.y, REF_SH_C1 * dir.z, -REF_SH_C1 * dir.x);
+}
+
+inline void check_band1_against_reference(RenderingDevice *p_rd, const Vector3 &p_position, bool p_quantized, const char *p_label) {
+	float red_zero = 0.0f;
+	String why;
+	if (!render_splat_red(p_rd, p_position, Vector3(), p_quantized, red_zero, why)) {
+		FAIL(vformat("%s zero-SH render: %s", p_label, why));
+		return;
+	}
+	CHECK_MESSAGE(red_zero > 0.4f, vformat("%s premise: zero-SH splat not mid grey (%f)", p_label, red_zero));
+	CHECK_MESSAGE(red_zero < 0.6f, vformat("%s premise: zero-SH splat not mid grey (%f)", p_label, red_zero));
+	const Vector3 basis = reference_band1_basis(p_position);
+	for (int slot = 0; slot < 3; slot++) {
+		for (const float c : { -0.4f, 0.4f }) {
+			Vector3 band1;
+			band1[slot] = c;
+			float red = 0.0f;
+			if (!render_splat_red(p_rd, p_position, band1, p_quantized, red, why)) {
+				FAIL(vformat("%s slot %d c=%f render: %s", p_label, slot, c, why));
+				return;
+			}
+			const float expected = c * basis[slot];
+			const float measured = red - red_zero;
+			MESSAGE(vformat("%s slot %d c=%+.2f: measured %+f expected %+f", p_label, slot, c, measured, expected));
+			CHECK_MESSAGE(Math::abs(measured - expected) < 0.02f,
+					vformat("%s slot %d c=%+.2f: red delta %+f != reference %+f (sign flipped or clamped?)", p_label, slot, c, measured, expected));
+		}
+	}
 }
 
 } // namespace TestSHEncoding
 
-TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Negative band-1 SH renders darker than zero SH through the GPU (#1054)") {
+TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Band-1 SH renders the reference colour delta on-axis and off-axis, unquantized and quantized (#1054, #1063)") {
 	if (RenderingServer::get_singleton() == nullptr) {
 		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case - the harness is required to provide one");
 		return;
@@ -367,31 +441,13 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Negative band-1 SH render
 		FAIL("RenderingDevice unavailable in a [RequiresGPU] case");
 		return;
 	}
-
-	float red_neg = 0.0f, red_zero = 0.0f, red_pos = 0.0f;
-	String why;
-	if (!TestSHEncoding::render_center_red(rd, -0.4f, red_neg, why)) {
-		FAIL(vformat("negative-SH render: %s", why));
-		return;
-	}
-	if (!TestSHEncoding::render_center_red(rd, 0.0f, red_zero, why)) {
-		FAIL(vformat("zero-SH render: %s", why));
-		return;
-	}
-	if (!TestSHEncoding::render_center_red(rd, 0.4f, red_pos, why)) {
-		FAIL(vformat("positive-SH render: %s", why));
-		return;
-	}
-	MESSAGE(vformat("centre red: negative %f, zero %f, positive %f", red_neg, red_zero, red_pos));
-
-	// Premise: the splat covers the centre and its DC decodes to mid grey.
-	CHECK_MESSAGE(red_zero > 0.25f, "the zero-SH splat does not cover the centre pixel");
-	CHECK_MESSAGE(red_zero < 0.75f, "the zero-SH splat is not mid grey");
-	// #1054: the negative coefficient must darken red exactly as the positive one brightens it.
-	CHECK_MESSAGE(red_neg < red_zero - 0.03f, "negative band-1 SH did not darken red (clamped to zero?)");
-	CHECK_MESSAGE(red_pos > red_zero + 0.03f, "positive band-1 SH did not brighten red");
-	CHECK_MESSAGE(Math::abs((red_zero - red_neg) - (red_pos - red_zero)) < 0.04f,
-			"negative and positive SH deltas are not symmetric");
+	const QuantizationConfig saved_quantization = g_quantization_config;
+	g_quantization_config.per_chunk_quantization = false;
+	TestSHEncoding::check_band1_against_reference(rd, Vector3(0.0f, 0.0f, -3.0f), false, "unquantized on-axis");
+	TestSHEncoding::check_band1_against_reference(rd, Vector3(1.2f, 0.9f, -3.0f), false, "unquantized off-axis");
+	g_quantization_config.per_chunk_quantization = true;
+	TestSHEncoding::check_band1_against_reference(rd, Vector3(1.2f, 0.9f, -3.0f), true, "quantized off-axis");
+	g_quantization_config = saved_quantization;
 }
 
 #endif // GAUSSIAN_SPLATTING_TEST_SH_ENCODING_H

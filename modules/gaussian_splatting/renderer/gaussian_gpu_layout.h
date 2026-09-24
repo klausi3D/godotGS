@@ -259,7 +259,7 @@ struct alignas(16) PackedSphericalHarmonics {
     static constexpr uint32_t MAX_ENCODED_COEFFICIENTS = 12;
 
     float dc[4];
-    float encoded[MAX_ENCODED_COEFFICIENTS];
+    uint32_t encoded[MAX_ENCODED_COEFFICIENTS]; // #1054: raw SNORM10 SH words (uint, never float-typed)
 
     void clear();
 };
@@ -308,7 +308,7 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_m
  *   area_lo: uint16_t - Low 16 bits of area as float16 (2 bytes)
  *   rotation: uint16_t[4] - Quaternion as float16 (8 bytes)
  *   sh_dc: float[4] - DC coefficients (16 bytes)
- *   sh_encoded: uint32_t[6] - Higher-order SH as RGB9E5 pairs (24 bytes)
+ *   sh_encoded: uint32_t[6] - SH coefficient triplets as signed SNORM10 words, scale in sh_dc[3] (24 bytes)
  *   normal_xy: uint32_t - Normal xy as half2 (4 bytes)
  *   normal_z_stroke: uint32_t - Normal z + stroke_age as half2 (4 bytes)
  *   painterly_data: uint32_t - Packed painterly meta (4 bytes)
@@ -330,7 +330,7 @@ struct alignas(16) PackedGaussianQuantized {
     uint16_t _pre_sh_padding[2];    // 4 bytes @28 - Align to 32
 
     float sh_dc[4];                 // 16 bytes @32 - DC coefficients (FP32)
-    uint32_t sh_encoded[6];         // 24 bytes @48 - RGB9E5 encoded higher-order
+    uint32_t sh_encoded[6];         // 24 bytes @48 - SNORM10 SH words (scale in sh_dc[3])
 
     uint32_t normal_xy;             // 4 bytes @72 - packHalf2x16(nx, ny)
     uint32_t normal_z_stroke;       // 4 bytes @76 - packHalf2x16(nz, stroke_age)

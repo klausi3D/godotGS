@@ -15,8 +15,9 @@
 
 // These exercise pack_gaussian_quantized() against the CPU dequantizers, which use the
 // identical 1/((1<<bits)-1) normalization as the GLSL side (quantization_dequant.glsl):
-// dequantize_position/scale are therefore a faithful reference for the shader. The end-
-// to-end GLSL match (rendered pixels) is covered separately by the GPU-harness PSNR test.
+// dequantize_position/scale are therefore a faithful reference for the shader. No GPU test
+// compares rendered position/scale pixels for this layout (no PSNR test exists); the only
+// end-to-end quantized render check is band-1 SH colour, in test_sh_encoding.h (#1054).
 
 namespace TestQuantizedPacking {
 

@@ -654,25 +654,81 @@ def _check_sh_snorm10_contract(failures: list[str]) -> None:
     if host_max is not None and int(host_max) != 511:
         failures.append(f"SH SNORM10 contract: max {host_max} does not fit a 10-bit two's-complement field (expected 511)")
 
-    glsl_fields = re.findall(r"bitfieldExtract\(word,\s*(\d+),\s*(\d+)\)", sh_glsl)
-    if glsl_fields != [("0", "10"), ("10", "10"), ("20", "10")]:
-        failures.append(f"SH SNORM10 contract: GLSL decoder fields {glsl_fields} != [(0,10),(10,10),(20,10)]")
-    host_offsets = re.findall(r"extract\(p_packed,\s*(\d+)u\)", host_h)
-    if host_offsets != ["0", "10", "20"]:
-        failures.append(f"SH SNORM10 contract: host decoder mirror offsets {host_offsets} != [0,10,20]")
-    for token, label in (("0x3FFu", "10-bit mask"), ("0x200", "sign bit"), ("0x400", "sign extension")):
-        if token not in host_h:
-            failures.append(f"SH SNORM10 contract: host decoder mirror lacks the {label} `{token}`")
-    host_enc_shifts = re.findall(r"quantize\(c\.[xyz]\)(?:\s*<<\s*(\d+)u)?", host_cpp)
-    if host_enc_shifts != ["", "10", "20"]:
-        failures.append(f"SH SNORM10 contract: host encoder channel shifts {host_enc_shifts} != [0,10,20]")
+    def _strip_comments(text: str) -> str:
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        return re.sub(r"//[^\n]*", "", text)
 
-    if "GS_SH_ENCODING_RGB9E5" in host_cpp or "encode_rgb9e5" in host_cpp:
+    def _body(text: str, signature: str, label: str) -> str | None:
+        """Comment-stripped body of the single function whose signature matches, by brace matching."""
+        code = _strip_comments(text)
+        found = list(re.finditer(signature, code))
+        if len(found) != 1:
+            failures.append(f"SH SNORM10 contract: expected exactly one {label}, found {len(found)}")
+            return None
+        start = code.index("{", found[0].end() - 1)
+        depth = 0
+        for i in range(start, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return code[start : i + 1]
+        failures.append(f"SH SNORM10 contract: unbalanced braces in {label}")
+        return None
+
+    glsl_decoder = _body(sh_glsl, r"vec3\s+decode_sh_snorm10\s*\(\s*uint\s+packed\s*,\s*float\s+splat_scale\s*\)\s*\{", "GLSL decode_sh_snorm10(uint, float)")
+    if glsl_decoder is not None:
+        # bitfieldExtract sign-extends only on a SIGNED int: a `uint word` would silently drop the sign.
+        if not re.search(r"\bint\s+word\s*=\s*int\s*\(\s*packed\s*\)\s*;", glsl_decoder):
+            failures.append("SH SNORM10 contract: GLSL decoder must extract from a signed `int word = int(packed);`")
+        glsl_fields = re.findall(r"bitfieldExtract\(word,\s*(\d+),\s*(\d+)\)", glsl_decoder)
+        if glsl_fields != [("0", "10"), ("10", "10"), ("20", "10")]:
+            failures.append(f"SH SNORM10 contract: GLSL decoder fields {glsl_fields} != [(0,10),(10,10),(20,10)]")
+        if not re.search(r"splat_scale\s*\*\s*\(\s*1\.0\s*/\s*SH_SNORM10_MAX\s*\)", glsl_decoder):
+            failures.append("SH SNORM10 contract: GLSL decoder does not scale by splat_scale / SH_SNORM10_MAX")
+    host_decoder = _body(host_h, r"inline\s+Vector3\s+gs_decode_sh_snorm10\s*\([^)]*\)\s*\{", "host gs_decode_sh_snorm10()")
+    if host_decoder is not None:
+        host_offsets = re.findall(r"extract\(p_packed,\s*(\d+)u\)", host_decoder)
+        if host_offsets != ["0", "10", "20"]:
+            failures.append(f"SH SNORM10 contract: host decoder mirror offsets {host_offsets} != [0,10,20]")
+        for token, label in (("0x3FFu", "10-bit mask"), ("0x200", "sign bit"), ("0x400", "sign extension")):
+            if token not in host_decoder:
+                failures.append(f"SH SNORM10 contract: host decoder mirror lacks the {label} `{token}`")
+    host_encoder = _body(host_cpp, r"static\s+float\s+encode_sh_snorm10\s*\([^)]*\)\s*\{", "host encode_sh_snorm10()")
+    if host_encoder is not None:
+        host_enc_shifts = re.findall(r"quantize\(c\.([xyz])\)(?:\s*<<\s*(\d+)u)?", host_encoder)
+        if host_enc_shifts != [("x", ""), ("y", "10"), ("z", "20")]:
+            failures.append(f"SH SNORM10 contract: host encoder channel shifts {host_enc_shifts} != x:0 y:10 z:20")
+        if not re.search(r"CLAMP\(\s*q\s*,\s*-GS_SH_SNORM10_MAX\s*,\s*GS_SH_SNORM10_MAX\s*\)", host_encoder):
+            failures.append("SH SNORM10 contract: host encoder must clamp to [-GS_SH_SNORM10_MAX, GS_SH_SNORM10_MAX] (signed)")
+
+    # The per-splat scale travels in the w lane of the DC vec4 on both layouts, and the GLSL reads it there.
+    host_code = _strip_comments(host_cpp)
+    for pattern, label in ((r"dst\.sh\.dc\[3\]\s*=\s*encode_sh_snorm10\(", "unquantized packer writes the scale to sh.dc[3]"),
+                           (r"dst\.sh_dc\[3\]\s*=\s*encode_sh_snorm10\(", "quantized packer writes the scale to sh_dc[3]")):
+        if len(re.findall(pattern, host_code)) != 1:
+            failures.append(f"SH SNORM10 contract: expected exactly one site where the {label}")
+    evaluator = _body(sh_glsl, r"vec3\s+evaluate_sh_with_bands\s*\([^)]*\)\s*\{", "GLSL evaluate_sh_with_bands()")
+    if evaluator is not None and not re.search(r"\bfloat\s+splat_scale\s*=\s*g\.sh_dc\.w\s*;", evaluator):
+        failures.append("SH SNORM10 contract: evaluate_sh_with_bands must read the per-splat scale from g.sh_dc.w")
+
+    if "GS_SH_ENCODING_RGB9E5" in host_code or "encode_rgb9e5" in host_code:
         failures.append(f"{HOST_LAYOUT_CPP.relative_to(ROOT)}: still emits the retired RGB9E5 SH encoding")
-    if not re.search(r"gs_build_quantized_sh_metadata\(.*?SH_ENCODING_SNORM10_SPLAT_SCALE\s*<<\s*24u", binning, re.DOTALL):
+    binning_code = _strip_comments(binning)
+    metadata_fn = _body(binning, r"uint\s+gs_build_quantized_sh_metadata\s*\([^)]*\)\s*\{", "GLSL gs_build_quantized_sh_metadata()")
+    if metadata_fn is not None and not re.search(r"SH_ENCODING_SNORM10_SPLAT_SCALE\s*<<\s*24u", metadata_fn):
         failures.append(f"{TILE_BINNING_GLSL.relative_to(ROOT)}: quantized SH metadata does not use SH_ENCODING_SNORM10_SPLAT_SCALE")
-    if re.search(r"\bSH_ENCODING_RGB9E5\b", binning) or re.search(r"\bSH_ENCODING_RGB9E5\b", sh_glsl):
+    if re.search(r"\bSH_ENCODING_RGB9E5\b", binning_code) or re.search(r"\bSH_ENCODING_RGB9E5\b", _strip_comments(sh_glsl)):
         failures.append("SH SNORM10 contract: binning shaders still reference the retired SH_ENCODING_RGB9E5")
+
+    # #1063: SH view direction follows the reference (Inria computeColorFromSH: dir = pos - campos).
+    view_dirs = re.findall(r"vec3\s+view_dir\s*=\s*normalize\(([^;]*)\)\s*;", binning_code)
+    if view_dirs != ["g.position - params.camera_position.xyz"]:
+        failures.append(
+            f"{TILE_BINNING_GLSL.relative_to(ROOT)}: SH view direction must be exactly normalize(g.position - params.camera_position.xyz) "
+            f"(camera -> splat, the 3DGS reference convention, #1063); found {view_dirs}"
+        )
 
 
 # Push-constant ABI: each host struct is mirrored by a GLSL `layout(push_constant, std430)`
@@ -1170,7 +1226,7 @@ def main() -> int:
         + "."
     )
     print("[gaussian-layout-check] DebugCounters binding-6 SSBO matches host TileDebugCounterSnapshot (tile_binning.glsl).")
-    print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, sign extension) matches between host encoder/decoder mirror and GLSL decoder; RGB9E5 is not emitted.")
+    print("[gaussian-layout-check] SH SNORM10 word format (id, max, field offsets, signed extraction, encoder shifts and clamp, scale lane sh_dc.w) matches between host and GLSL; RGB9E5 is not emitted; SH view direction is the reference camera->splat (#1063).")
     print(
         "[gaussian-layout-check] Push-constant std430 blocks match their host structs: "
         + ", ".join(
