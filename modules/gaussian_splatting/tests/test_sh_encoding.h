@@ -275,21 +275,12 @@ inline RID create_readback_texture(RenderingDevice *p_rd, const Vector2i &p_size
 	return p_rd->texture_create(format, RD::TextureView());
 }
 
-// Renders one splat at p_position (camera at the origin looking down -Z) with band-1 red
-// coefficients p_band1 (slot k in component k) and returns the mean red over the 3x3 pixels
-// around the splat's coverage centroid. False (with a reason) on any render/readback failure or
-// when the route under test (quantized or not) was not the one taken.
-inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, const Vector3 &p_band1,
-		bool p_expect_quantized, float &r_red, String &r_why) {
-	Ref<GaussianSplatRenderer> renderer;
-	renderer.instantiate(p_rd);
-	if (!renderer.is_valid()) {
-		r_why = "renderer did not instantiate";
-		return false;
-	}
-	renderer->initialize();
-	renderer->set_painterly_enabled(false);
-
+// One opaque splat at p_position with band-1 red coefficients p_band1 (slot k in component k),
+// DC at mid grey. Red carries the coefficient under test. Slot 2's green coefficient only keeps
+// band 1 complete: GaussianData derives sh_degree from the highest non-zero band-1 slot, and the
+// quantized route gates bands by it (ChunkMetaGPU.sh_limit), so a lone slot-0 or slot-1
+// coefficient would otherwise render as DC only on that route. Red is unaffected.
+inline Ref<GaussianData> make_band1_splat(const Vector3 &p_position, const Vector3 &p_band1) {
 	LocalVector<Gaussian> gaussians;
 	gaussians.resize(1);
 	Gaussian &g = gaussians[0];
@@ -302,10 +293,6 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 	g.area = g.scale.x * g.scale.y;
 	g.sh_dc = Color(0.0f, 0.0f, 0.0f, 1.0f); // displays as 0.5 grey under the linear DC decode
 	g.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-	// Red carries the coefficient under test. Slot 2's green coefficient only keeps band 1
-	// complete: GaussianData derives sh_degree from the highest non-zero band-1 slot, and the
-	// quantized route gates bands by it (ChunkMetaGPU.sh_limit), so a lone slot-0 or slot-1
-	// coefficient would otherwise render as DC only on that route. Red is unaffected.
 	g.sh_1[0] = Vector3(p_band1.x, 0.0f, 0.0f);
 	g.sh_1[1] = Vector3(p_band1.y, 0.0f, 0.0f);
 	g.sh_1[2] = Vector3(p_band1.z, 0.05f, 0.0f);
@@ -313,10 +300,63 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 	Ref<GaussianData> data;
 	data.instantiate();
 	data->set_gaussians(gaussians);
+	return data;
+}
+
+// Mean red over the 3x3 pixels around the alpha-coverage centroid of an RGBA8 readback (the
+// background is transparent), so the sample is robust to the readback's row order.
+inline bool sample_centroid_red(const Vector<uint8_t> &p_pixels, const Vector2i &p_size, float &r_red, String &r_why) {
+	if (p_pixels.size() != p_size.x * p_size.y * 4) {
+		r_why = vformat("readback returned %d bytes, expected %d", p_pixels.size(), p_size.x * p_size.y * 4);
+		return false;
+	}
+	double sum_w = 0.0, sum_x = 0.0, sum_y = 0.0;
+	for (int y = 0; y < p_size.y; y++) {
+		for (int x = 0; x < p_size.x; x++) {
+			const double a = p_pixels[(y * p_size.x + x) * 4 + 3] / 255.0;
+			if (a > 0.5) {
+				sum_w += a;
+				sum_x += a * x;
+				sum_y += a * y;
+			}
+		}
+	}
+	if (sum_w < 9.0) {
+		r_why = vformat("the splat covers too few opaque pixels (alpha mass %f)", sum_w);
+		return false;
+	}
+	const int cx = int(Math::round(sum_x / sum_w));
+	const int cy = int(Math::round(sum_y / sum_w));
+	float red = 0.0f;
+	for (int dy = -1; dy <= 1; dy++) {
+		for (int dx = -1; dx <= 1; dx++) {
+			const int x = CLAMP(cx + dx, 0, p_size.x - 1);
+			const int y = CLAMP(cy + dy, 0, p_size.y - 1);
+			red += p_pixels[(y * p_size.x + x) * 4] / 255.0f;
+		}
+	}
+	r_red = red / 9.0f;
+	return true;
+}
+
+// Renders make_band1_splat(p_position, p_band1) with the camera at the origin looking down -Z
+// and returns sample_centroid_red() of the final texture. False (with a reason) on any
+// render/readback failure, or when the route under test (quantized or not) was not the one taken.
+inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, const Vector3 &p_band1,
+		bool p_expect_quantized, float &r_red, String &r_why) {
+	const Ref<GaussianData> data = make_band1_splat(p_position, p_band1);
 	if (data->get_sh_degree() != 1) {
 		r_why = vformat("premise: fixture sh_degree is %d, expected 1 (band 1 would be gated off)", data->get_sh_degree());
 		return false;
 	}
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate(p_rd);
+	if (!renderer.is_valid()) {
+		r_why = "renderer did not instantiate";
+		return false;
+	}
+	renderer->initialize();
+	renderer->set_painterly_enabled(false);
 	renderer->set_max_splats(1);
 	if (renderer->set_gaussian_data(data) != OK) {
 		r_why = "set_gaussian_data failed";
@@ -356,38 +396,7 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 		r_why = "copy_final_texture_to_target failed";
 		return false;
 	}
-	if (pixels.size() != resolution.x * resolution.y * 4) {
-		r_why = vformat("readback returned %d bytes, expected %d", pixels.size(), resolution.x * resolution.y * 4);
-		return false;
-	}
-	// Coverage centroid over the alpha channel (the background is transparent).
-	double sum_w = 0.0, sum_x = 0.0, sum_y = 0.0;
-	for (int y = 0; y < resolution.y; y++) {
-		for (int x = 0; x < resolution.x; x++) {
-			const double a = pixels[(y * resolution.x + x) * 4 + 3] / 255.0;
-			if (a > 0.5) {
-				sum_w += a;
-				sum_x += a * x;
-				sum_y += a * y;
-			}
-		}
-	}
-	if (sum_w < 9.0) {
-		r_why = vformat("the splat covers too few opaque pixels (alpha mass %f)", sum_w);
-		return false;
-	}
-	const int cx = int(Math::round(sum_x / sum_w));
-	const int cy = int(Math::round(sum_y / sum_w));
-	float red = 0.0f;
-	for (int dy = -1; dy <= 1; dy++) {
-		for (int dx = -1; dx <= 1; dx++) {
-			const int x = CLAMP(cx + dx, 0, resolution.x - 1);
-			const int y = CLAMP(cy + dy, 0, resolution.y - 1);
-			red += pixels[(y * resolution.x + x) * 4] / 255.0f;
-		}
-	}
-	r_red = red / 9.0f;
-	return true;
+	return sample_centroid_red(pixels, resolution, r_red, r_why);
 }
 
 // Reference band-1 basis (Inria forward.cu) for the direction from the camera (origin) to p_pos.
