@@ -411,18 +411,30 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-### The bottom of the frame goes empty if you lower the overlap-record budget below what your scene needs ([#54](https://github.com/klausi3D/godotGS/issues/54))
+### The bottom of the frame can go empty when a frame needs more overlap records than are allocated ([#54](https://github.com/klausi3D/godotGS/issues/54))
 
 Every splat that touches a tile costs one **overlap record**. If a frame needs more records
-than `rendering/gaussian_splatting/gpu_sorting/max_overlap_records` allows, the tiles with
+than the renderer has currently allocated, the tiles with
 the highest tile index get nothing — and because tiles are numbered row by row, that is a
 **hard horizontal line across the frame with only background below it**, plus one
 partially-truncated tile row at the seam. The line sits wherever the budget ran out, so it
 moves as your camera moves.
 
-**You will almost certainly never see this at defaults.** The default budget is
-**100,000,000 records**, and it took forcing that setting 200–1000× lower to produce the
-measurements below.
+Two limits matter, and they are not the same number:
+
+- **The allocated capacity**, which the renderer sizes and resizes itself. It starts at
+  roughly 50 records per visible splat, shrinks toward the measured demand when the scene
+  needs less, and grows after a drop. On the default path it learns the demand from a
+  readback of an earlier frame, so it is always a little behind.
+- **The configured cap**, `rendering/gaussian_splatting/gpu_sorting/max_overlap_records`
+  (default **100,000,000**). The allocated capacity never grows past it.
+
+**At defaults you can see a brief band, not a lasting one.** A sudden jump in demand, such
+as the camera moving quickly into a dense close-up, can outrun the allocated capacity. The
+band then shows for a frame or a few and goes away as the capacity catches up. This case
+follows from the code; it has **not** been captured on hardware, and how many frames it
+lasts is not measured. A **lasting** band needs demand above the configured cap. The
+measurements below produced it only by forcing that setting 200–1000× below its default.
 
 **Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
 binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
@@ -444,17 +456,20 @@ mis-sorted or mis-coloured; the ones that survive are exactly right, and the res
 simply absent.
 
 **You are told when it happens.** The log carries a one-shot warning
-(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) and the
-profiler monitor `gaussian_splatting/overflow_tile_count` reports the count of affected
-tiles. Both fired in the run above.
+(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) whenever any
+record is dropped; use it to tell whether you are hitting this at all. The profiler monitor
+`gaussian_splatting/overflow_tile_count` counts only tiles that were **emptied completely**.
+A tile cut off partway, such as the seam row, loses splats without being counted, so a
+small overflow confined to the last tiles can leave the monitor at 0. Both signals fired
+in the run above.
 
-**Is it transient or permanent?** That depends on which side of the *setting* you are on, and
-the setting is the whole story. When the renderer sees a drop it grows its capacity toward 1.5×
+**Is it transient or permanent?** That depends on which side of the *configured cap* your
+demand is on. When the renderer sees a drop it grows its capacity toward 1.5×
 the demand it measured — but it will not grow past `max_overlap_records`, whatever you have set
 that to. So:
 
 - **Demand below your `max_overlap_records`, capacity merely behind it** — a spike, and it
-  fixes itself as the capacity catches up.
+  fixes itself as the capacity catches up. This is the case you can meet at defaults.
 - **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
   the setting, and the band stays. Every measurement in the table above is this case: the frame
   was still truncated on the 24th frame, on exactly the same scanline as the first.
@@ -464,8 +479,10 @@ records. The 100,000-splat scene above demands 708,814.
 
 **Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
 tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
-scene's demand. Raising it above the default costs VRAM (100M records is roughly 1.2 GB of
-key and value buffers), so prefer reducing density.
+scene's demand. Raising it above the default costs VRAM as demand grows: each record needs
+24 bytes with the default 64-bit keys (key and value, plus an equal-sized radix-sort copy),
+so a scene that actually uses 100M records holds about **2.4 GB** in these buffers alone.
+Prefer reducing density.
 
 **Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
 Scaling the numbers above to 1080p and the node's own 500,000-splats-per-frame cap gives
