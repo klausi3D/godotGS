@@ -591,14 +591,26 @@ INDIRECT_DISPATCH_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "dispatch_xyz": ("dispatch_x", "dispatch_y", "dispatch_z"),
 }
 
-# C++ translation units that embed GLSL as a string literal. They are scanned for buffer-block
+# C++ sources that may embed GLSL as a string literal. They are scanned for buffer-block
 # declarations exactly like a `.glsl` file, because a declaration hidden in a raw string literal
-# is no less an ABI mirror -- `renderer/gpu_sorter.cpp`'s `IndirectCount` block reads the same
-# buffer the tile prefix scan writes.
-INDIRECT_DISPATCH_EMBEDDED_GLSL_FILES: tuple[Path, ...] = (
-    ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp",
-    ROOT / "modules" / "gaussian_splatting" / "interfaces" / "gpu_sorting_pipeline.cpp",
-)
+# is no less an ABI mirror -- `renderer/gpu_sorter.cpp`'s `IndirectCount` blocks read the same
+# buffer the tile prefix scan writes. The file set is DERIVED (every C/C++ source under the
+# module), not listed: a hand-kept list silently skipped any new translation unit that embedded
+# a declaration. Build-generated `*.gen.*` files are excluded (the pattern .gitignore uses):
+# `*.glsl.gen.h` embeds a copy of a tracked `.glsl` file the SHADER_ROOTS sweep already checks,
+# and scanning the copy would report every in-tree build's declarations twice.
+INDIRECT_DISPATCH_EMBEDDED_GLSL_ROOT = ROOT / "modules" / "gaussian_splatting"
+INDIRECT_DISPATCH_EMBEDDED_GLSL_SUFFIXES = frozenset({".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".inc", ".inl"})
+
+
+def _discover_embedded_glsl_sources() -> list[Path]:
+    return sorted(
+        path
+        for path in INDIRECT_DISPATCH_EMBEDDED_GLSL_ROOT.rglob("*")
+        if path.suffix.lower() in INDIRECT_DISPATCH_EMBEDDED_GLSL_SUFFIXES
+        and ".gen." not in path.name
+        and path.is_file()
+    )
 
 # Host-side C++ structs OTHER than the canonical one that redeclare the same layout and are
 # reinterpret_cast over the same bytes. Each is compared field-by-field against
@@ -858,7 +870,7 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> dict[str, int]:
         pinned_specs.setdefault((path, block), []).append((expected_set, expected_binding))
     seen_counts: dict[tuple[Path, str], int] = {}
     sources = [path for root in SHADER_ROOTS for path in sorted(root.rglob("*.glsl"))]
-    sources += [path for path in INDIRECT_DISPATCH_EMBEDDED_GLSL_FILES if path.exists()]
+    sources += _discover_embedded_glsl_sources()
     for path in sources:
         for block_name, raw_args, body in _indirect_dispatch_declarations(path):
             rel = path.relative_to(ROOT)
