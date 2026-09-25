@@ -249,6 +249,13 @@ var _proof_scan_starved_frames := 0
 var _proof_vram_cap_hit_frames := 0
 var _proof_chunk_loads_per_frame: Array = []
 var _proof_chunk_evictions_per_frame: Array = []
+# The same per-frame samples restricted to the steady window (#1016). The run-wide
+# arrays above still back the per-frame avg/p95/max; these back the turnover TOTALS,
+# which must cover the window the report labels as the proof window. Summing the
+# full run let a world that churned only while populating during warm-up, and then
+# stopped streaming, satisfy the chunk_loads_total / chunk_evictions_total floors.
+var _proof_steady_chunk_loads_per_frame: Array = []
+var _proof_steady_chunk_evictions_per_frame: Array = []
 var _proof_last_uploaded_splats := 0
 var _proof_last_total_splats := 0
 var _proof_last_visible_splats := 0
@@ -419,6 +426,8 @@ func _setup_runtime_state() -> void:
 	_proof_vram_cap_hit_frames = 0
 	_proof_chunk_loads_per_frame.clear()
 	_proof_chunk_evictions_per_frame.clear()
+	_proof_steady_chunk_loads_per_frame.clear()
+	_proof_steady_chunk_evictions_per_frame.clear()
 	_proof_last_uploaded_splats = 0
 	_proof_last_total_splats = 0
 	_proof_last_visible_splats = 0
@@ -1163,12 +1172,20 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 		_proof_last_uploaded_splats = uploaded
 		_proof_last_total_splats = total
 
+	# Same warm-up boundary as _sample_metrics, which decides what steady_overall is.
+	var in_steady_window := _elapsed_s >= benchmark_warmup
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame"):
 		_proof_chunk_monitor_available = true
-		_proof_chunk_loads_per_frame.append(float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame")))
+		var loads := float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame"))
+		_proof_chunk_loads_per_frame.append(loads)
+		if in_steady_window:
+			_proof_steady_chunk_loads_per_frame.append(loads)
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame"):
 		_proof_chunk_monitor_available = true
-		_proof_chunk_evictions_per_frame.append(float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame")))
+		var evictions := float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame"))
+		_proof_chunk_evictions_per_frame.append(evictions)
+		if in_steady_window:
+			_proof_steady_chunk_evictions_per_frame.append(evictions)
 
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_loaded_chunks"):
 		_proof_atlas_published_available = true
@@ -1231,6 +1248,9 @@ func _proof_metric_summary(samples: Array) -> Dictionary:
 			"avg": null,
 			"p95": null,
 			"max": null,
+			# null, not 0: no samples means the run measured nothing, which must stay
+			# distinguishable from a run that measured zero chunk turnover (#1016).
+			"total": null,
 			"sample_count": 0,
 		}
 	var total := 0.0
@@ -1243,6 +1263,11 @@ func _proof_metric_summary(samples: Array) -> Dictionary:
 		"avg": total / float(samples.size()),
 		"p95": BenchmarkMetricsUtil.percentile(samples, 95.0),
 		"max": max_value,
+		# Cumulative over the samples passed in, not per-frame; _build_proof_metrics
+		# passes the proof-window samples for the *_total fields. Chunk turnover over a whole traversal is the
+		# thing that distinguishes streaming from a static scene wearing a streaming
+		# label; per-frame avg/p95/max cannot express "the working set turned over once".
+		"total": total,
 		"sample_count": samples.size(),
 	}
 
@@ -1255,6 +1280,14 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 
 	var chunk_loads_summary := _proof_metric_summary(_proof_chunk_loads_per_frame)
 	var chunk_evictions_summary := _proof_metric_summary(_proof_chunk_evictions_per_frame)
+	# Turnover totals cover the proof window, not the run (#1016): when the window is
+	# steady_overall, warm-up churn must not count toward the floors the release gate
+	# reads. With no steady samples the window is "overall" and the run arrays are it.
+	var chunk_loads_window_summary := chunk_loads_summary
+	var chunk_evictions_window_summary := chunk_evictions_summary
+	if proof_window == "steady_overall":
+		chunk_loads_window_summary = _proof_metric_summary(_proof_steady_chunk_loads_per_frame)
+		chunk_evictions_window_summary = _proof_metric_summary(_proof_steady_chunk_evictions_per_frame)
 	var proof_samples := int(proof_summary.get("sample_count", 0))
 	var avg_frame_ms := float(proof_summary.get("avg_frame_ms", 0.0))
 	var p95_frame_ms := float(proof_summary.get("p95_frame_ms", 0.0))
@@ -1286,10 +1319,12 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"chunk_loads_per_frame_p95": chunk_loads_summary.get("p95"),
 		"chunk_loads_per_frame_max": chunk_loads_summary.get("max"),
 		"chunk_loads_per_frame_samples": chunk_loads_summary.get("sample_count"),
+		"chunk_loads_total": chunk_loads_window_summary.get("total"),
 		"chunk_evictions_per_frame_avg": chunk_evictions_summary.get("avg"),
 		"chunk_evictions_per_frame_p95": chunk_evictions_summary.get("p95"),
 		"chunk_evictions_per_frame_max": chunk_evictions_summary.get("max"),
 		"chunk_evictions_per_frame_samples": chunk_evictions_summary.get("sample_count"),
+		"chunk_evictions_total": chunk_evictions_window_summary.get("total"),
 		"uploaded_splats": _proof_last_uploaded_splats if _proof_residency_available else null,
 		"total_splats": _proof_last_total_splats if _proof_residency_available else null,
 		"visible_splats": _proof_last_visible_splats if _proof_visibility_metric_available else null,

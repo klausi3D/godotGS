@@ -525,7 +525,7 @@ which brings it into the derived set automatically.
 | Workflow | Schedule (UTC) | Behavior |
 | --- | --- | --- |
 | `baseline_qa.yml` | `30 3 * * *` | Runs in update mode and publishes the `gpu-harness-recaptured-baselines` artifact (recaptured PNGs + provenance); opens a recapture PR when `BASELINE_UPDATE_PAT` is provisioned. |
-| `gaussian_production_gates.yml` | `30 3 * * 1` | Runs the non-blocking `openworld-proof-weekly` benchmark evidence surface. |
+| `gaussian_production_gates.yml` | `30 3 * * 1` | Runs two non-blocking benchmark evidence surfaces in the `openworld-proof-evidence` job: `openworld-proof-dev` (`open_world_corridor_proof` + `city_flyover`, performance profile) and `openworld-proof-weekly`. A `workflow_dispatch` run executes each surface only when its own input (`run_openworld_proof_dev` / `run_openworld_proof_weekly`) is set. |
 | `release_builds.yml` | `30 2 * * *` | Builds and publishes the nightly prerelease, then prunes older nightly releases and tags. |
 | `release_ci_runtime.yml` | `0 6 * * *` | Runs the non-blocking `release-ci` runtime evidence lane on the self-hosted Windows GPU runner and uploads the runtime validation report. |
 

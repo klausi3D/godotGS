@@ -626,9 +626,18 @@ jobs:
       # continue-on-error (this evidence surface is non-blocking by design), so a
       # failure here shows as a red job with a named cause instead of a green one
       # that measured nothing.
+      # #1045: this step is the ONLY thing in the repository that runs
+      # `open_world_corridor_proof`, the lane that actually drives a chunked
+      # GaussianSplatWorld3D, and until now it was reachable only from a
+      # workflow_dispatch with an opt-in input. Every workflow_dispatch run of this
+      # workflow is from March 2026, so the lane had never executed -- inside a job
+      # named "Open-World Proof Evidence" that runs weekly. `schedule` is added here
+      # so the scheduled run exercises the surface the job is named after. The
+      # `if` deliberately mirrors the weekly step below rather than inventing a
+      # third trigger shape.
       - name: Run openworld-proof-dev evidence surface
         id: openworld_proof_dev
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true) }}
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
@@ -645,7 +654,7 @@ jobs:
             --output-dir $outputDir
 
       - name: Summarize openworld-proof-dev evidence
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true }}
+        if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true)) }}
         env:
           SURFACE_OUTCOME: ${{ steps.openworld_proof_dev.outcome }}
         shell: pwsh
@@ -657,7 +666,20 @@ jobs:
           Add-Content -LiteralPath $stepSummary -Value ""
           Add-Content -LiteralPath $stepSummary -Value "## $surfaceName (non-blocking evidence)"
           Add-Content -LiteralPath $stepSummary -Value ""
-          Add-Content -LiteralPath $stepSummary -Value "- Benchmark run outcome: ``$env:SURFACE_OUTCOME``"
+          # #1045: three outcomes must not share an encoding. This job carries
+          # continue-on-error, so a failure here never reaches the RUN conclusion --
+          # the 2026-09-21 nightly failed and `gh run list` showed green. Until the
+          # blocking question on #1045 is decided, the least this surface can do is
+          # say which of the three states it is in, in words, at the top.
+          $verdict = switch ($env:SURFACE_OUTCOME) {
+            "success"   { "RAN AND PASSED" }
+            "failure"   { "RAN AND FAILED - this is NOT 'nothing to report'" }
+            "cancelled" { "CANCELLED - no evidence was produced" }
+            "skipped"   { "DID NOT RUN - no evidence was produced, and that is not a pass" }
+            default     { "UNKNOWN OUTCOME '$env:SURFACE_OUTCOME' - treat as no evidence" }
+          }
+          Add-Content -LiteralPath $stepSummary -Value "- **Status: $verdict** (raw outcome: ``$env:SURFACE_OUTCOME``)"
+          Add-Content -LiteralPath $stepSummary -Value "- Lane under test: ``open_world_corridor_proof`` (the only lane that drives a chunked GaussianSplatWorld3D)"
           Add-Content -LiteralPath $stepSummary -Value ""
           if (Test-Path -LiteralPath $summaryPath) {
             Get-Content -LiteralPath $summaryPath | Add-Content -LiteralPath $stepSummary
@@ -669,7 +691,7 @@ jobs:
           }
 
       - name: Upload openworld-proof-dev evidence artifact
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true }}
+        if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true)) }}
         uses: actions/upload-artifact@v4
         with:
           name: openworld-proof-dev-evidence
