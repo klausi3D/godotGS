@@ -363,8 +363,8 @@ order.
 | # | Slice | Class | Depends on |
 | --- | --- | --- | --- |
 | 1 | Signed SH encoder and decoders (both layouts, both GLSL decoders, metadata id, observable unknown-id fallback), with evidence items 1, 2, 5 and 6 | **R2** | ADR approval |
-| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
-| 3 | SPZ DC decode and SPZ importer bump; evidence 3 (SPZ rows) | **R3** | 2 |
+| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush and its undo capture/restore, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
+| 3 | SPZ DC decode and SPZ importer bump; the editor readers of `GaussianSplatAsset::colors` (asset preview, gizmo heatmap) converted through `gaussian_dc_to_display()` (review round 5, §9); evidence 3 (SPZ rows) | **R3** | 2 |
 | 4 | Remove the `LEGACY_BIAS` decode, the `sh_metadata` DC bit, the asset flag, the splat-0 resolvers and the quantization DC-compatibility gate | **R2** | 2, 3 |
 | 5 | *Folded into slice 2* (review round 3, §9). The CPU consumers cannot land separately: between slice 2 and a later slice they would mix display-space and coefficient-space `sh_dc` | — | — |
 
@@ -485,3 +485,29 @@ and `commit_runtime_changes()` copies it into `sh_dc` unchanged
 (`core/gaussian_data_edits.cpp:121-160`, `:199-203`). They are part of slice 2 (§7), and the
 brush route does not count as their coverage. Slice 2's evidence adds a direct-API test for
 each: set or apply a colour, commit, save, load, and match the display colour given.
+
+**Review round 5 (2026-09-25, Codex on `28696d8285f`).** The cited files are unchanged
+between the base commit and `origin/master` `673f9c709f8`.
+
+1. **Brush undo (P1), slice 2.** `capture_brush_affected_state()` saves the runtime overlay
+   where one exists and raw `gaussians[i].sh_dc` otherwise, into one `colors` array
+   (`core/gaussian_data_edits.cpp:381-388`). `restore_brush_stroke()` writes every entry back
+   through `_set_runtime_color_locked()` (`:406-428`); the editor registers it as the stroke's
+   undo (`editor/gaussian_editor_plugin.cpp:601`, `:607`). Once overlays are display space and
+   `sh_dc` is coefficient space, undoing a stroke over un-overlaid splats would commit their
+   coefficient as a display colour, 0.5 too dark. Direction: capture converts `sh_dc` through
+   `gaussian_dc_to_display()`, so the saved state is display space throughout. Evidence:
+   stroke, undo, commit, save, load on a slice-2-tagged asset, and every affected splat's
+   `sh_dc` is unchanged from before the stroke. The round-3 stroke test cannot see this.
+2. **Editor readers of asset colours (P2), slice 3.** The importers copy `g.sh_dc` into
+   `GaussianSplatAsset::colors` (`io/resource_importer_spz.cpp:412-414`, `:462`;
+   `io/resource_importer_ply.cpp:449-451`, `:498`), and that lane must stay coefficient
+   space because `get_spherical_harmonics_buffer()` uses it as DC when no DC array exists
+   (`core/gaussian_splat_asset.cpp:648-656`). The asset preview passes it to
+   `MultiMesh::set_instance_color()` (`editor/gaussian_asset_preview_control.cpp:314-318`)
+   and the gizmo heatmap buckets its luminance (`editor/gaussian_splat_gizmo_plugin.cpp:381-388`),
+   both as display colour. For PLY assets this already previews 0.5 too dark today. Slice 3
+   would extend it to SPZ, whose `colors` are display-like until then. Direction: both
+   readers convert through `gaussian_dc_to_display()` in slice 3, together with the SPZ
+   decode, so SPZ previews never pass through a dark window. Evidence: an editor preview of a
+   mid-grey PLY and SPZ asset matches the rendered colour.
