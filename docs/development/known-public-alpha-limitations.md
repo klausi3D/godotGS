@@ -411,12 +411,98 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-**Nothing is proposed-but-unaccepted today.** The section is kept, empty, because the
-mechanism is the point: it is where a disclosure is drafted while its disposition is still
-open, and an empty section is a statement that no such draft is outstanding — not an
-invitation to skip the step.
+### The bottom of the frame can go empty when a frame needs more overlap records than are allocated ([#54](https://github.com/klausi3D/godotGS/issues/54))
 
-The last entry here was **#1025** (splats trailing under TAA in motion). A named human
+Every splat that touches a tile costs one **overlap record**. If a frame needs more records
+than the renderer has currently allocated, the tiles with
+the highest tile index get nothing — and because tiles are numbered row by row, that is a
+**hard horizontal line across the frame with only background below it**, plus one
+partially-truncated tile row at the seam. The line sits wherever the budget ran out, so it
+moves as your camera moves.
+
+Two limits matter, and they are not the same number:
+
+- **The allocated capacity**, which the renderer sizes and resizes itself. It starts at
+  roughly 50 records per visible splat, shrinks toward the measured demand when the scene
+  needs less, and grows after a drop. On the default path it learns the demand from a
+  readback of an earlier frame, so it is always a little behind.
+- **The configured cap**, `rendering/gaussian_splatting/gpu_sorting/max_overlap_records`
+  (default **100,000,000**). The allocated capacity never grows past it.
+
+**At defaults you can see a brief band, not a lasting one.** A sudden jump in demand, such
+as the camera moving quickly into a dense close-up, can outrun the allocated capacity. The
+band then shows for a frame or a few and goes away as the capacity catches up. This case
+follows from the code; it has **not** been captured on hardware, and how many frames it
+lasts is not measured. A **lasting** band needs demand above the configured cap. The
+measurements below produced it only by forcing that setting 200–1000× below its default.
+
+**Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
+binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
+demand **708,814 records**, 7.09 per splat. With `max_overlap_records` forced down:
+
+| `max_overlap_records` | Last lit scanline (of 512) | Empty tiles (of 1024) |
+| --- | --- | --- |
+| 100,000 | 95 | 837 |
+| 250,000 | 191 | 651 |
+| 500,000 | 351 | 340 |
+| 1,000,000 | 511 — nothing dropped | 0 |
+| 100,000,000 (default) | 511 — nothing dropped | 0 |
+
+**What this does *not* do, also measured.** The part of the image above the line is
+**pixel-identical** to a clean render of the same scene (0 differing pixels in all three
+overflowing cases), the line does **not** flicker — it sat on the same scanline across four
+consecutive frames of a static camera — and nothing crashes. Splats are not
+mis-sorted or mis-coloured; the ones that survive are exactly right, and the rest are
+simply absent.
+
+**You are told when it happens.** The log carries a one-shot warning
+(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) whenever any
+record is dropped; use it to tell whether you are hitting this at all. The profiler monitor
+`gaussian_splatting/overflow_tile_count` counts only tiles that were **emptied completely**.
+A tile cut off partway, such as the seam row, loses splats without being counted, so a
+small overflow confined to the last tiles can leave the monitor at 0. Both signals fired
+in the run above.
+
+**Is it transient or permanent?** That depends on which side of the *configured cap* your
+demand is on. When the renderer sees a drop it grows its capacity toward 1.5×
+the demand it measured — but it will not grow past `max_overlap_records`, whatever you have set
+that to. So:
+
+- **Demand below your `max_overlap_records`, capacity merely behind it** — a spike, and it
+  fixes itself as the capacity catches up. This is the case you can meet at defaults.
+- **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
+  the setting, and the band stays. Every measurement in the table above is this case: the frame
+  was still truncated on the 24th frame, on exactly the same scanline as the first.
+- **The renderer cannot allocate a bigger buffer** (VRAM is short) — **lasting while memory is
+  short**, even below your `max_overlap_records`. It keeps the old capacity and retries, and
+  the log says so (`Global composite sort grow to … could not build its replacement`). Raising
+  `max_overlap_records` does not help here and asks for more memory; free VRAM or reduce
+  density instead.
+
+At the 100,000,000 default the second case needs a frame demanding more than 100 million
+records. The 100,000-splat scene above demands 708,814.
+
+**Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
+tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
+scene's demand. Raising it above the default costs VRAM as demand grows: each record needs
+24 bytes with the default 64-bit keys (key and value, plus an equal-sized radix-sort copy),
+so a scene that actually uses 100M records holds about **2.4 GB** in these buffers alone.
+Prefer reducing density.
+
+**Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
+Scaling the numbers above to 1080p and the node's own 500,000-splats-per-frame cap gives
+roughly 28 million — about 3.6× of headroom — but that is arithmetic on a synthetic grid,
+not a capture of real content. If you hit the warning above at default settings, that is
+worth reporting on #54.
+
+---
+
+**One proposal is outstanding: #54, above.** The section is otherwise empty, and it is kept
+even when empty because the mechanism is the point: it is where a disclosure is drafted
+while its disposition is still open, and an empty section is a statement that no such draft
+is outstanding — not an invitation to skip the step.
+
+A previous entry here was **#1025** (splats trailing under TAA in motion). A named human
 accepted it on
 [2026-09-20](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553), which
 met the acceptance bar's §10.1 condition 4, so it moved up into
