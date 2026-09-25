@@ -86,7 +86,9 @@ PROOF_METHOD = "test_overflow_drop_telemetry"
 REQUIRED_METHOD_CONTENT: dict[str, str] = {
     # The forced-low global overlap budget is what provokes a real drop. Without it the dense
     # scene fits and the case proves nothing (it would pass on a renderer that never drops).
-    "forced-low overlap-record budget": r"MAX_OVERLAP_RECORDS_PATH",
+    # The set_setting CALL, not the path token (the restoring ProjectSettingGuard names it too).
+    "forced-low overlap-record budget":
+        r"set_setting\(\s*(?:GPUSortingConfig::)?MAX_OVERLAP_RECORDS_PATH\s*,",
     # CONTROL phase: a non-overflowing scene must leave the counter alone. This is what makes
     # the proof discriminate rather than pass on a counter that ticks every frame.
     "control-phase assertion (counter must NOT move without a drop)":
@@ -108,6 +110,37 @@ REQUIRED_FAILURE_BRANCH_CONDITIONS: tuple[str, ...] = (
 )
 EXPECTED_PASSED_ASSIGNMENTS = 1
 _PASSED_ASSIGN_RE = re.compile(r"\br\.passed\s*=\s*true\s*;")
+# A failure branch that reports but does not return falls through to the final success.
+_RETURN_R_RE = re.compile(r"\breturn\s+r\s*;")
+
+# The forced-low budget itself, not merely the setting's name: the ProjectSettingGuard that
+# restores the setting also names MAX_OVERLAP_RECORDS_PATH, so deleting only the set_setting
+# call would leave the name present while the case runs at the 100M default and never drops.
+_FORCED_LOW_SET_RE = re.compile(
+    r"set_setting\(\s*(?:GPUSortingConfig::)?MAX_OVERLAP_RECORDS_PATH\s*,\s*(\d[\d']*)u?\s*\)"
+)
+# "Low" = far below the 100,000,000 default. The case uses 100,000 (MIN_OVERLAP_RECORDS).
+FORCED_LOW_MAX = 1_000_000
+
+# The two workloads: the CONTROL run (must not drop) and the OVERFLOW run (must drop). Each
+# counter read must follow its own run; with a run deleted the two reads sit back to back and
+# the phase they belong to proves nothing. `auto render_scene = [&](` is the lambda's
+# definition and does not match (no `(` directly after the name).
+_RENDER_CALL_RE = re.compile(r"\brender_scene\s*\(")
+_CONTROL_READ_RE = re.compile(r"\bcontrol_after\s*=")
+_OVERFLOW_READ_RE = re.compile(r"\bdrop_events\s*=")
+EXPECTED_RENDER_CALLS = 2
+
+_STRING_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"')
+
+
+def _blank_strings(text: str) -> str:
+    """Blank string-literal contents (length-preserving) so a quoted name is not a call."""
+    return _STRING_LITERAL_RE.sub(lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', text)
+
+
+def _call_re(name: str) -> re.Pattern[str]:
+    return re.compile(r"\b" + re.escape(name) + r"\s*\(")
 
 _CASE_RE = re.compile(r'TEST_CASE\(\s*"((?:[^"\\]|\\.)*)"\s*\)\s*\{')
 _METHOD_RE_TEMPLATE = r"TileRendererRegressionTest::TestResult\s+TileRendererRegressionTest::{name}\s*\("
@@ -303,7 +336,7 @@ def analyze() -> list[str]:
                 "not be used to drop the module's only on-GPU overlap-record drop proof."
             )
 
-    if PROOF_METHOD not in case_body:
+    if _call_re(PROOF_METHOD).search(_blank_strings(case_body)) is None:
         problems.append(
             f"case {case_name!r} no longer calls {PROOF_METHOD}(). The case would run, pass, and "
             "prove nothing about overlap-record drops."
@@ -350,6 +383,37 @@ def analyze() -> list[str]:
                     "`r.passed = true`. That condition is the FAILURE condition; passing there "
                     "inverts the proof while every presence check still matches."
                 )
+            if _RETURN_R_RE.search(block) is None:
+                problems.append(
+                    f"{PROOF_METHOD}: the branch taken when `{condition}` holds no longer "
+                    "`return r;`. It would record the error and fall through to the final "
+                    "`r.passed = true`, so the failure would be reported as a pass."
+                )
+
+        forced = _FORCED_LOW_SET_RE.search(method_body)
+        if forced is not None and int(forced.group(1).replace("'", "")) > FORCED_LOW_MAX:
+            problems.append(
+                f"{PROOF_METHOD} forces max_overlap_records to {forced.group(1)}, above "
+                f"{FORCED_LOW_MAX:,}. The budget must stay far below the 100M default or the "
+                "dense scene fits and nothing is dropped."
+            )
+
+        calls = [m.start() for m in _RENDER_CALL_RE.finditer(method_body)]
+        control_read = _CONTROL_READ_RE.search(method_body)
+        overflow_read = _OVERFLOW_READ_RE.search(method_body)
+        ordered = (
+            len(calls) == EXPECTED_RENDER_CALLS
+            and control_read is not None
+            and overflow_read is not None
+            and calls[0] < control_read.start() < calls[1] < overflow_read.start()
+        )
+        if not ordered:
+            problems.append(
+                f"{PROOF_METHOD} must run exactly {EXPECTED_RENDER_CALLS} workloads, the CONTROL "
+                "`render_scene(...)` before `control_after` is read and the OVERFLOW "
+                f"`render_scene(...)` before `drop_events` is read; found {len(calls)} call(s) "
+                "in a different arrangement. A missing run leaves its phase measuring nothing."
+            )
 
         passed_assignments = len(_PASSED_ASSIGN_RE.findall(method_body))
         if passed_assignments != EXPECTED_PASSED_ASSIGNMENTS:
@@ -510,6 +574,75 @@ def _self_test() -> list[str]:
             "self-test: the `r.passed = true` counter miscounts the real shape, so it would be "
             "red on a clean tree."
         )
+
+    # (i) Review round 2 (#1042): four ways the proof could go vacuous with every earlier
+    #     presence check still matching. Each detector must accept the real shape and reject
+    #     the mutation.
+    guard_only = (
+        "ProjectSettingGuard overlap_guard(ps, GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH);\n"
+    )
+    forced_pattern = REQUIRED_METHOD_CONTENT["forced-low overlap-record budget"]
+    if re.search(forced_pattern, guard_only) is not None:
+        problems.append(
+            "self-test: the forced-low detector accepted a body that only names the setting in "
+            "its restoring ProjectSettingGuard (the set_setting call deleted)."
+        )
+    forced_real = _FORCED_LOW_SET_RE.search(
+        "ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 100000);")
+    forced_high = _FORCED_LOW_SET_RE.search(
+        "ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 100000000);")
+    if forced_real is None or int(forced_real.group(1)) > FORCED_LOW_MAX:
+        problems.append("self-test: the forced-low value check rejects the real 100000 budget.")
+    if forced_high is None or int(forced_high.group(1)) <= FORCED_LOW_MAX:
+        problems.append("self-test: the forced-low value check accepts the 100M default.")
+
+    fallthrough_branch = (
+        "if (control_after != control_baseline) {\n"
+        "    r.error_message = vformat(\"control moved\");\n}\n"
+        "r.passed = true;\n"
+    )
+    ft_block = _braced_block_after(fallthrough_branch, re.search(first, fallthrough_branch).end())
+    if good_block is None or _RETURN_R_RE.search(good_block) is None:
+        problems.append("self-test: the return check rejects the real failure branch.")
+    if ft_block is None or _RETURN_R_RE.search(ft_block) is not None:
+        problems.append(
+            "self-test: a failure branch that reports but falls through to success was not detected."
+        )
+
+    def _ordered(body: str) -> bool:
+        calls = [m.start() for m in _RENDER_CALL_RE.finditer(body)]
+        c = _CONTROL_READ_RE.search(body)
+        o = _OVERFLOW_READ_RE.search(body)
+        return (len(calls) == EXPECTED_RENDER_CALLS and c is not None and o is not None
+                and calls[0] < c.start() < calls[1] < o.start())
+
+    workloads = (
+        "auto render_scene = [&](uint32_t n, int f) { return true; };\n"
+        "if (!render_scene(512u, 8)) { return r; }\n"
+        "const uint32_t control_after = tile_renderer->get_overflow_drop_events();\n"
+        "if (!render_scene(OVERFLOW_TEST_SPLAT_COUNT, 24)) { return r; }\n"
+        "const uint32_t baseline_drop_events = 0;\n"
+        "const uint32_t drop_events = tile_renderer->get_overflow_drop_events();\n"
+    )
+    no_control = workloads.replace("if (!render_scene(512u, 8)) { return r; }\n", "")
+    no_overflow = workloads.replace("if (!render_scene(OVERFLOW_TEST_SPLAT_COUNT, 24)) { return r; }\n", "")
+    if not _ordered(workloads):
+        problems.append("self-test: the workload check rejects the real control-then-overflow shape.")
+    if _ordered(no_control):
+        problems.append("self-test: a deleted CONTROL render_scene() call was not detected.")
+    if _ordered(no_overflow):
+        problems.append("self-test: a deleted OVERFLOW render_scene() call was not detected.")
+
+    live_call = 'TileRendererRegressionTest::TestResult result = regression_test->test_overflow_drop_telemetry(rd);'
+    quoted_only = 'MESSAGE("test_overflow_drop_telemetry(rd) was removed");'
+    reference_only = "auto fn = &TileRendererRegressionTest::test_overflow_drop_telemetry;"
+    call = _call_re(PROOF_METHOD)
+    if call.search(_blank_strings(live_call)) is None:
+        problems.append("self-test: the live-call check rejects the real call.")
+    if call.search(_blank_strings(quoted_only)) is not None:
+        problems.append("self-test: a method name inside a string literal was accepted as a call.")
+    if call.search(_blank_strings(reference_only)) is not None:
+        problems.append("self-test: a function reference without a call was accepted as a call.")
 
     return problems
 
