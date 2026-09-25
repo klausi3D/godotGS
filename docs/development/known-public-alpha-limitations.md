@@ -473,6 +473,11 @@ that to. So:
 - **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
   the setting, and the band stays. Every measurement in the table above is this case: the frame
   was still truncated on the 24th frame, on exactly the same scanline as the first.
+- **The renderer cannot allocate a bigger buffer** (VRAM is short) — **lasting while memory is
+  short**, even below your `max_overlap_records`. It keeps the old capacity and retries, and
+  the log says so (`Global composite sort grow to … could not build its replacement`). Raising
+  `max_overlap_records` does not help here and asks for more memory; free VRAM or reduce
+  density instead.
 
 At the 100,000,000 default the second case needs a frame demanding more than 100 million
 records. The 100,000-splat scene above demands 708,814.
