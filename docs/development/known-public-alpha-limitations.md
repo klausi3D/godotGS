@@ -253,8 +253,13 @@ matters is the one above: more than about 1.8 million splats in view at 1080p.
 
 Whether a real scene at 1080p has that many splats in view at once has not been measured.
 All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
-warning above at default settings, that is worth reporting on #54 — it is the measurement
-that would end this acceptance.
+warning above at default settings, that is worth reporting on #54 as a data point. It does
+not by itself end this acceptance: at defaults the warning also fires on the brief band
+accepted above and on a failed grow while VRAM is short. What would end it is a
+default-configured, in-envelope real scene **measured with demand above the cap** — a band
+that persists at the default `max_overlap_records`, rather than one that clears as the
+capacity catches up, with no failed-grow warning (`… could not build its replacement`) in
+the log.
 
 ### Transparent viewports are opaque under TAA or FSR2 ([#989](https://github.com/klausi3D/godotGS/issues/989))
 
