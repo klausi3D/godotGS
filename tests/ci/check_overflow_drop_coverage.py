@@ -42,6 +42,13 @@ in `docs/governance/evidence-integrity.md`.
      non-overflowing scene must NOT move the counter), and the OVERFLOW assertion (a dense
      overflowing scene MUST move it). A body that lost the control assertion would pass on a
      counter that ticks unconditionally; one that lost the overflow assertion proves nothing.
+  7. The workloads are real: `g_gpu_sorting_config.load_from_project_settings()` runs between
+     the low write and the first render (the renderer reads the cached config); all four
+     counter values are assigned once, from `tile_renderer->get_overflow_drop_events()`, in
+     baseline/run/after order per phase; the CONTROL run uses a literal splat count <= 2048 and
+     the OVERFLOW run uses `OVERFLOW_TEST_SPLAT_COUNT`, itself a literal >= the forced budget;
+     both frame counts are literals >= 1. Readback latency (how many frames are ENOUGH) is not
+     modelled -- that limit is declared, not closed.
 
 ## Residual this guard does NOT close
 
@@ -191,6 +198,130 @@ def _forced_low_problems(method_body: str) -> list[str]:
                 "dense scene fits and nothing is dropped."
             )
     return problems
+
+
+# Review round 4 (#1042). `set_setting` only changes ProjectSettings; the renderer reads the
+# CACHED `g_gpu_sorting_config` (tile_renderer.cpp get_overlap_records_hard_cap()). Without the
+# reload between the low write and the first workload the 100M default stays in force and the
+# dense scene need not overflow.
+_CONFIG_RELOAD_RE = re.compile(r"\bg_gpu_sorting_config\s*\.\s*load_from_project_settings\s*\(\s*\)\s*;")
+
+# The four counter reads, each of which must come from the renderer's telemetry getter. A
+# fabricated value (`drop_events = baseline_drop_events + 1;`) would make the proof pass
+# whatever the renderer does. Order in the method: baseline, CONTROL run, after, baseline,
+# OVERFLOW run, after.
+_COUNTER_VARS: tuple[str, ...] = (
+    "control_baseline", "control_after", "baseline_drop_events", "drop_events",
+)
+_GETTER_READ = r"\s*=\s*tile_renderer\s*->\s*get_overflow_drop_events\s*\(\s*\)\s*;"
+
+# The discriminating workload arguments. The CONTROL run must be small (a literal splat count
+# <= CONTROL_MAX_SPLATS) and the OVERFLOW run must use OVERFLOW_TEST_SPLAT_COUNT, whose value
+# must be at least the forced-low budget. Swapping either argument keeps the count and order of
+# calls while erasing the no-overflow / overflow contrast. Frame counts are pinned only as
+# literals >= 1 (a zero-frame run renders nothing); readback latency is NOT modelled.
+CONTROL_MAX_SPLATS = 2048
+OVERFLOW_COUNT_NAME = "OVERFLOW_TEST_SPLAT_COUNT"
+_RENDER_ARGS_RE = re.compile(r"\brender_scene\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,")
+_INT_LITERAL_RE = re.compile(r"(\d[\d']*)u?")
+_OVERFLOW_COUNT_DEF_RE = re.compile(
+    r"\bstatic\s+constexpr\s+uint32_t\s+" + OVERFLOW_COUNT_NAME + r"\s*=\s*([^;]+?)\s*;"
+)
+
+
+def _literal(token: str) -> int | None:
+    m = _INT_LITERAL_RE.fullmatch(token.strip())
+    return None if m is None else int(m.group(1).replace("'", ""))
+
+
+def _workload_problems(method_body: str) -> list[str]:
+    """Reload after the low write, getter-backed counter reads, discriminating arguments."""
+    problems: list[str] = []
+    calls = list(_RENDER_CALL_RE.finditer(method_body))
+    first_set = _ANY_BUDGET_SET_RE.search(method_body)
+    first_call = calls[0].start() if calls else len(method_body)
+    if first_set is not None:
+        reload = _CONFIG_RELOAD_RE.search(method_body, first_set.end())
+        if reload is None or reload.start() > first_call:
+            problems.append(
+                f"{PROOF_METHOD} no longer calls `g_gpu_sorting_config.load_from_project_settings();` "
+                "between the forced-low set_setting and the first render_scene(). The renderer reads "
+                "the cached config, so the 100M default would stay in force and nothing overflows."
+            )
+
+    positions: dict[str, int] = {}
+    for var in _COUNTER_VARS:
+        writes = list(re.finditer(r"\b" + var + r"\s*=(?!=)", method_body))
+        backed = re.search(r"\b" + var + _GETTER_READ, method_body)
+        if len(writes) != 1 or backed is None or backed.start() != writes[0].start():
+            problems.append(
+                f"{PROOF_METHOD}: `{var}` must be assigned exactly once, from "
+                "`tile_renderer->get_overflow_drop_events()`. A fabricated or overwritten value "
+                "makes the phase pass regardless of the renderer's telemetry."
+            )
+        else:
+            positions[var] = backed.start()
+    if len(positions) == len(_COUNTER_VARS) and len(calls) == EXPECTED_RENDER_CALLS:
+        order = [positions["control_baseline"], calls[0].start(), positions["control_after"],
+                 positions["baseline_drop_events"], calls[1].start(), positions["drop_events"]]
+        if order != sorted(order):
+            problems.append(
+                f"{PROOF_METHOD}: each baseline read must precede its render_scene() run and each "
+                "after-read must follow it (control_baseline, CONTROL run, control_after, "
+                "baseline_drop_events, OVERFLOW run, drop_events)."
+            )
+
+    if len(calls) != EXPECTED_RENDER_CALLS:
+        return problems  # the workload-order check in analyze() already reports this
+    parsed = [_RENDER_ARGS_RE.match(method_body, c.start()) for c in calls]
+    if any(p is None for p in parsed):
+        problems.append(
+            f"{PROOF_METHOD}: a render_scene() call's splat-count and frame arguments cannot be "
+            "read (nested call or expression); keep them plain so the guard can pin them."
+        )
+        return problems
+    calls = parsed
+    control_count = _literal(calls[0].group(1))
+    if control_count is None or control_count > CONTROL_MAX_SPLATS:
+        problems.append(
+            f"{PROOF_METHOD}: the CONTROL render_scene() splat count is `{calls[0].group(1)}`, "
+            f"expected an integer literal <= {CONTROL_MAX_SPLATS}. A large control scene can "
+            "overflow, so the control phase no longer shows the counter stays put without a drop."
+        )
+    if calls[1].group(1) != OVERFLOW_COUNT_NAME:
+        problems.append(
+            f"{PROOF_METHOD}: the OVERFLOW render_scene() splat count is `{calls[1].group(1)}`, "
+            f"expected `{OVERFLOW_COUNT_NAME}`. A small overflow scene fits the budget and never "
+            "drops."
+        )
+    for label, call in (("CONTROL", calls[0]), ("OVERFLOW", calls[1])):
+        frames = _literal(call.group(2))
+        if frames is None or frames < 1:
+            problems.append(
+                f"{PROOF_METHOD}: the {label} render_scene() frame count is `{call.group(2)}`, "
+                "expected an integer literal >= 1. A run with no frames renders nothing."
+            )
+    return problems
+
+
+def _overflow_count_problems(text: str, method_body: str) -> list[str]:
+    """OVERFLOW_TEST_SPLAT_COUNT must be a literal no smaller than the forced-low budget."""
+    defs = list(_OVERFLOW_COUNT_DEF_RE.finditer(text))
+    budgets = [
+        int(m.group(1).replace("'", ""))
+        for m in (_FORCED_LOW_SET_RE.match(method_body, s.start())
+                  for s in _ANY_BUDGET_SET_RE.finditer(method_body))
+        if m is not None
+    ]
+    value = _literal(defs[0].group(1)) if len(defs) == 1 else None
+    floor = max(budgets) if budgets else None
+    if value is None or (floor is not None and value < floor):
+        return [
+            f"`static constexpr uint32_t {OVERFLOW_COUNT_NAME}` must be defined once as an integer "
+            f"literal >= the forced-low budget ({floor}); found {[d.group(1) for d in defs]}. Fewer "
+            "splats than budgeted records cannot be relied on to overflow."
+        ]
+    return []
 
 _STRING_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
@@ -455,6 +586,8 @@ def analyze() -> list[str]:
                 )
 
         problems.extend(_forced_low_problems(method_body))
+        problems.extend(_workload_problems(method_body))
+        problems.extend(_overflow_count_problems(text, method_body))
 
         calls = [m.start() for m in _RENDER_CALL_RE.finditer(method_body)]
         control_read = _CONTROL_READ_RE.search(method_body)
@@ -744,6 +877,69 @@ def _self_test() -> list[str]:
     for label, mutant in budget_mutants.items():
         if not _forced_low_problems(mutant):
             problems.append(f"self-test: the forced-low check accepted {label}.")
+
+    # (k) Review round 4 (#1042): config reload, getter-backed reads, discriminating arguments,
+    #     and the overflow splat-count constant.
+    method_real = (
+        "ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 100000);\n"
+        "g_gpu_sorting_config.load_from_project_settings();\n"
+        "auto render_scene = [&](uint32_t p_splat_count, int p_frames, uint32_t &c, String &e) -> bool {\n"
+        "    const uint32_t drop_events_before = tile_renderer->get_overflow_drop_events();\n"
+        "    return true;\n};\n"
+        "const uint32_t control_baseline = tile_renderer->get_overflow_drop_events();\n"
+        "if (!render_scene(512u, 8, control_clamped, control_error)) { return r; }\n"
+        "const uint32_t control_after = tile_renderer->get_overflow_drop_events();\n"
+        "const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();\n"
+        "if (!render_scene(OVERFLOW_TEST_SPLAT_COUNT, 24, clamped_seen, overflow_error)) { return r; }\n"
+        "const uint32_t drop_events = tile_renderer->get_overflow_drop_events();\n"
+    )
+    reload_line = "g_gpu_sorting_config.load_from_project_settings();\n"
+    workload_mutants = {
+        "the config reload deleted": method_real.replace(reload_line, ""),
+        "the config reload moved after the first run": method_real.replace(reload_line, "").replace(
+            "const uint32_t control_after", reload_line + "const uint32_t control_after"),
+        "a fabricated overflow read": method_real.replace(
+            "const uint32_t drop_events = tile_renderer->get_overflow_drop_events();",
+            "const uint32_t drop_events = baseline_drop_events + 1;"),
+        "a fabricated control read": method_real.replace(
+            "control_after = tile_renderer->get_overflow_drop_events();",
+            "control_after = control_baseline;"),
+        "a fabricated overflow baseline": method_real.replace(
+            "baseline_drop_events = tile_renderer->get_overflow_drop_events();",
+            "baseline_drop_events = 0;"),
+        "an overwritten overflow read": method_real + "drop_events = 99;\n",
+        "a baseline read after its run": method_real.replace(
+            "const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();\n", "").replace(
+            "const uint32_t drop_events =",
+            "const uint32_t baseline_drop_events = tile_renderer->get_overflow_drop_events();\n"
+            "const uint32_t drop_events ="),
+        "the control run at the overflow size": method_real.replace(
+            "render_scene(512u,", "render_scene(OVERFLOW_TEST_SPLAT_COUNT,"),
+        "the overflow run at the control size": method_real.replace(
+            "render_scene(OVERFLOW_TEST_SPLAT_COUNT,", "render_scene(512u,"),
+        "a zero-frame control run": method_real.replace("render_scene(512u, 8,", "render_scene(512u, 0,"),
+        "an unreadable splat-count argument": method_real.replace(
+            "render_scene(512u,", "render_scene(pick(512u),"),
+    }
+    if _workload_problems(method_real):
+        problems.append(
+            "self-test: the workload check rejects the real method shape: "
+            f"{_workload_problems(method_real)}"
+        )
+    for label, mutant in workload_mutants.items():
+        if not _workload_problems(mutant):
+            problems.append(f"self-test: the workload check accepted {label}.")
+
+    const_real = "static constexpr uint32_t OVERFLOW_TEST_SPLAT_COUNT = 100000;\n"
+    if _overflow_count_problems(const_real, method_real):
+        problems.append("self-test: the overflow-count check rejects the real 100000 constant.")
+    for label, const_text in {
+        "a count below the budget": const_real.replace("100000", "512"),
+        "a non-literal count": const_real.replace("100000", "pick_count()"),
+        "a missing definition": "",
+    }.items():
+        if not _overflow_count_problems(const_text, method_real):
+            problems.append(f"self-test: the overflow-count check accepted {label}.")
 
     return problems
 
