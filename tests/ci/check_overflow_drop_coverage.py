@@ -33,9 +33,12 @@ in `docs/governance/evidence-integrity.md`.
      (case-insensitive, `[`/`]` literal), not `fnmatch`, which would read `[...]` as a
      character class.
   5. The case's body actually CALLS the drop-telemetry method -- a case that kept the name but
-     stopped invoking the real test would be hollow.
+     stopped invoking the real test would be hollow. The call's return is bound to `result`,
+     followed by a bare `CHECK(result.passed);` (or REQUIRE), and the case never writes
+     `result.passed` itself -- otherwise a failing proof would pass the doctest.
   6. The method body still contains the three things that make it discriminate:
-     the forced-low overlap budget that provokes the drop, the CONTROL assertion (a
+     the forced-low overlap budget that provokes the drop (every write of it a plain integer
+     literal <= 1,000,000; a non-literal value fails closed), the CONTROL assertion (a
      non-overflowing scene must NOT move the counter), and the OVERFLOW assertion (a dense
      overflowing scene MUST move it). A body that lost the control assertion would pass on a
      counter that ticks unconditionally; one that lost the overflow assertion proves nothing.
@@ -130,6 +133,64 @@ _RENDER_CALL_RE = re.compile(r"\brender_scene\s*\(")
 _CONTROL_READ_RE = re.compile(r"\bcontrol_after\s*=")
 _OVERFLOW_READ_RE = re.compile(r"\bdrop_events\s*=")
 EXPECTED_RENDER_CALLS = 2
+
+# Every set_setting of the budget (the presence pattern above, without requiring the value to
+# parse). Each one must carry a plain integer literal the value check can read: an expression
+# such as `200000000 + 0` would otherwise slip past the numeric check, and a second call later
+# in the method could raise the budget again after the low one.
+_ANY_BUDGET_SET_RE = re.compile(REQUIRED_METHOD_CONTENT["forced-low overlap-record budget"])
+
+# The case's VERDICT. Calling the method is not enough: with `CHECK(result.passed)` deleted or
+# replaced by `CHECK(true)`, a failing TestResult no longer fails the doctest, and because the
+# batch is advisory nothing else gates it. So the call's result must be bound to `result`, a
+# bare `CHECK(result.passed)` / `REQUIRE(result.passed)` must follow the call, and the case must
+# not overwrite `result.passed` itself.
+_RESULT_BINDING_RE = re.compile(r"\bresult\s*=\s*[^;]*\b" + re.escape(PROOF_METHOD) + r"\s*\(")
+_VERDICT_ASSERT_RE = re.compile(r"\b(?:CHECK|REQUIRE)\s*\(\s*result\.passed\s*\)\s*;")
+_CASE_PASSED_WRITE_RE = re.compile(r"\bresult\.passed\s*=(?!=)")
+
+
+def _verdict_problems(case_name: str, live_case_body: str) -> list[str]:
+    """The case must assert the proof's verdict (strings and comments already blanked)."""
+    problems: list[str] = []
+    binding = _RESULT_BINDING_RE.search(live_case_body)
+    if binding is None:
+        problems.append(
+            f"case {case_name!r} does not bind the return of {PROOF_METHOD}() to `result`, so "
+            "the proof's verdict is not what the case asserts."
+        )
+        return problems
+    if _VERDICT_ASSERT_RE.search(live_case_body, binding.end()) is None:
+        problems.append(
+            f"case {case_name!r} no longer asserts `CHECK(result.passed);` (or REQUIRE) after "
+            f"calling {PROOF_METHOD}(). A failing proof would then pass the doctest, and the "
+            "advisory batch gates nothing else."
+        )
+    if _CASE_PASSED_WRITE_RE.search(live_case_body) is not None:
+        problems.append(
+            f"case {case_name!r} assigns `result.passed` itself, overriding the proof's verdict."
+        )
+    return problems
+
+
+def _forced_low_problems(method_body: str) -> list[str]:
+    """Every budget set_setting must be a readable literal no greater than FORCED_LOW_MAX."""
+    problems: list[str] = []
+    for match in _ANY_BUDGET_SET_RE.finditer(method_body):
+        literal = _FORCED_LOW_SET_RE.match(method_body, match.start())
+        if literal is None:
+            problems.append(
+                f"{PROOF_METHOD} sets max_overlap_records to a value that is not a plain integer "
+                "literal, so the guard cannot confirm it stays low. Keep the forced-low budget a "
+                f"literal <= {FORCED_LOW_MAX:,}."
+            )
+        elif int(literal.group(1).replace("'", "")) > FORCED_LOW_MAX:
+            problems.append(
+                f"{PROOF_METHOD} forces max_overlap_records to {literal.group(1)}, above "
+                f"{FORCED_LOW_MAX:,}. The budget must stay far below the 100M default or the "
+                "dense scene fits and nothing is dropped."
+            )
+    return problems
 
 _STRING_LITERAL_RE = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
@@ -336,11 +397,14 @@ def analyze() -> list[str]:
                 "not be used to drop the module's only on-GPU overlap-record drop proof."
             )
 
-    if _call_re(PROOF_METHOD).search(_blank_strings(case_body)) is None:
+    live_case_body = _blank_strings(case_body)
+    if _call_re(PROOF_METHOD).search(live_case_body) is None:
         problems.append(
             f"case {case_name!r} no longer calls {PROOF_METHOD}(). The case would run, pass, and "
             "prove nothing about overlap-record drops."
         )
+    else:
+        problems.extend(_verdict_problems(case_name, live_case_body))
 
     method_body = _extract_method_body(text, PROOF_METHOD)
     if method_body is None:
@@ -390,13 +454,7 @@ def analyze() -> list[str]:
                     "`r.passed = true`, so the failure would be reported as a pass."
                 )
 
-        forced = _FORCED_LOW_SET_RE.search(method_body)
-        if forced is not None and int(forced.group(1).replace("'", "")) > FORCED_LOW_MAX:
-            problems.append(
-                f"{PROOF_METHOD} forces max_overlap_records to {forced.group(1)}, above "
-                f"{FORCED_LOW_MAX:,}. The budget must stay far below the 100M default or the "
-                "dense scene fits and nothing is dropped."
-            )
+        problems.extend(_forced_low_problems(method_body))
 
         calls = [m.start() for m in _RENDER_CALL_RE.finditer(method_body)]
         control_read = _CONTROL_READ_RE.search(method_body)
@@ -643,6 +701,49 @@ def _self_test() -> list[str]:
         problems.append("self-test: a method name inside a string literal was accepted as a call.")
     if call.search(_blank_strings(reference_only)) is not None:
         problems.append("self-test: a function reference without a call was accepted as a call.")
+
+    # (j) Review round 3 (#1042): the case must assert the verdict, and every budget write must
+    #     be a readable low literal.
+    case_real = (
+        "TileRendererRegressionTest::TestResult result = "
+        "regression_test->test_overflow_drop_telemetry(local_device);\n"
+        "regression_test.unref();\n"
+        "if (!result.passed) {\n    MESSAGE(result.error_message.utf8().get_data());\n}\n"
+        "CHECK(result.passed);\n"
+    )
+    verdict_mutants = {
+        "CHECK(result.passed) deleted": case_real.replace("CHECK(result.passed);\n", ""),
+        "CHECK(result.passed) -> CHECK(true)": case_real.replace(
+            "CHECK(result.passed);", "CHECK(true);"),
+        "CHECK(result.passed || true)": case_real.replace(
+            "CHECK(result.passed);", "CHECK(result.passed || true);"),
+        "result.passed overwritten": case_real.replace(
+            "CHECK(result.passed);", "result.passed = true;\nCHECK(result.passed);"),
+        "return value discarded": case_real.replace(
+            "TileRendererRegressionTest::TestResult result = ",
+            "TileRendererRegressionTest::TestResult result;\n"),
+        "assertion before the call": (
+            "TestResult result;\nCHECK(result.passed);\n"
+            "result = regression_test->test_overflow_drop_telemetry(local_device);\n"),
+    }
+    if _verdict_problems("x", _blank_strings(case_real)):
+        problems.append("self-test: the verdict check rejects the real case body.")
+    for label, mutant in verdict_mutants.items():
+        if not _verdict_problems("x", _blank_strings(mutant)):
+            problems.append(f"self-test: the verdict check accepted a case with {label}.")
+
+    budget_real = "ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 100000); // MIN\n"
+    budget_mutants = {
+        "a non-literal high value": budget_real.replace("100000", "200000000 + 0"),
+        "a named high constant": budget_real.replace("100000", "DEFAULT_MAX_OVERLAP_RECORDS"),
+        "a second call raising it again": budget_real
+            + "ps->set_setting(GPUSortingConfig::MAX_OVERLAP_RECORDS_PATH, 200000000);\n",
+    }
+    if _forced_low_problems(budget_real):
+        problems.append("self-test: the forced-low check rejects the real 100000 budget.")
+    for label, mutant in budget_mutants.items():
+        if not _forced_low_problems(mutant):
+            problems.append(f"self-test: the forced-low check accepted {label}.")
 
     return problems
 
