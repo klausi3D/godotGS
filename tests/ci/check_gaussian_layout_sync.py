@@ -612,20 +612,24 @@ INDIRECT_DISPATCH_HOST_STRUCT_MIRRORS: tuple[tuple[Path, str], ...] = (
 )
 
 # Every GLSL declaration of the 24-byte IndirectDispatchLayout, as
-# (source_path, block_name, set, binding). All nine are views of the same host struct: the five
+# (source_path, block_name, set, binding). All twelve are views of the same host struct: the five
 # `IndirectDispatch`/`InstanceCount` blocks bound to buffers the host creates with
 # `sizeof(GaussianSplatting::IndirectDispatchLayout)`, the three `InstanceIndirectDispatch`
 # views of the instance-pipeline indirect-count buffer (created with that same sizeof at
 # renderer/render_streaming_orchestrator.cpp and
-# renderer/resident_instance_contract_publisher.cpp), and the `IndirectCount` block in
-# gpu_sorter.cpp's embedded dispatch shader.
+# renderer/resident_instance_contract_publisher.cpp), and the four `IndirectCount` blocks in
+# gpu_sorter.cpp's embedded radix-sort shaders. Three of those four (histogram, workgroup
+# prefix, scatter) are PREFIX views that declare only `dispatch_xyz[3] + element_count`; a
+# prefix view is validated against the leading fields of the host layout, so it may stop early
+# but may not reorder, retype or insert.
 #
 # This list decides WHICH set/binding each declaration must use -- that is policy. WHICH
 # declarations exist is DERIVED from the tree by the sweep in _check_indirect_dispatch_abi,
-# which validates every occurrence it finds against the host layout and fails on any occurrence
-# this list does not mention, as well as on any entry here it does not find exactly once. A
+# which validates every occurrence it finds against the host layout. Entries sharing one
+# (file, block) name are matched to that block's declarations IN FILE ORDER, one entry per
+# declaration: an occurrence with no entry fails, and so does an entry with no occurrence. A
 # duplicate declaration of an already-listed block name (an `#ifdef`/`#else` variant pair, say)
-# therefore fails rather than being credited to the first one.
+# therefore fails unless someone deliberately lists it, rather than being credited to the first.
 INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_prefix_scan.glsl", "IndirectDispatch", 0, 5),
     (ROOT / "modules" / "gaussian_splatting" / "shaders" / "tile_rasterizer.glsl", "IndirectDispatch", 0, 6),
@@ -640,7 +644,12 @@ INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
     ),
     (ROOT / "modules" / "gaussian_splatting" / "compute" / "instance_count_clamp.glsl", "IndirectDispatch", 0, 1),
     (ROOT / "modules" / "gaussian_splatting" / "compute" / "instance_count_clamp.glsl", "InstanceCount", 0, 3),
-    # Embedded GLSL in a C++ raw string literal; reads global_sort_resources.indirect_dispatch_buffer.
+    # Embedded GLSL in C++ raw string literals, in file order: the histogram, workgroup-prefix and
+    # scatter prefix views of the radix sort's count buffer, then the dispatch-args shader's full
+    # view (which reads global_sort_resources.indirect_dispatch_buffer).
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "IndirectCount", 0, 2),
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "IndirectCount", 0, 3),
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "IndirectCount", 0, 6),
     (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "IndirectCount", 0, 0),
 )
 
@@ -656,8 +665,8 @@ INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
 # (interfaces/gpu_sorting_pipeline.cpp, `contract.binding = p_binding`), so there is no literal
 # to anchor at the append_id site. The GLSL side of both is still pinned above; only the C++
 # half of that one shader is unpinned, and it is called out here rather than left implicit.
-# (gpu_sorter.cpp's embedded IndirectCount shader is wired by constructor, not append_id; it is
-# pinned in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS below.)
+# (gpu_sorter.cpp's embedded IndirectCount shaders are wired by constructor, not append_id; they
+# are pinned in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS below.)
 INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
     (
         ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_prefix_scan.cpp",
@@ -693,15 +702,21 @@ INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
 
 # Constructor-form host bindings: `<list>.push_back(RD::Uniform(<type>, N, <buffer>))`, which the
 # append_id walk above cannot see. (cpp_path, list_variable, buffer_variable, expected_binding,
-# expected_occurrences). The embedded radix-sort IndirectCount shader (gpu_sorter.cpp, pinned at
-# binding 0 in INDIRECT_DISPATCH_SHADER_MIRRORS) is wired this way.
+# expected_occurrences). All four embedded radix-sort IndirectCount shaders (gpu_sorter.cpp,
+# pinned at bindings 2/3/6/0 in INDIRECT_DISPATCH_SHADER_MIRRORS) are wired this way. Coverage is
+# also checked in reverse: every constructor-form site in a pinned file that binds a pinned
+# buffer variable must be accounted for by these pins, so a new uniform list that binds the
+# count buffer cannot go unpinned.
 INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS: tuple[tuple[Path, str, str, int, int], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "histogram_uniforms", "count_buffer", 2, 1),
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "wg_prefix_uniforms", "count_buffer", 3, 1),
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "scatter_uniforms", "count_buffer", 6, 1),
     (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "dispatch_uniforms", "count_buffer", 0, 1),
 )
 
-# Derived completeness sweep: EVERY buffer block whose body declares the IndirectDispatch field
-# set is discovered from the tree and validated on the spot, then matched against
-# INDIRECT_DISPATCH_SHADER_MIRRORS. Occurrence-keyed, not (path, block)-keyed, so a SECOND
+# Derived completeness sweep: EVERY buffer block whose body declares ANY IndirectDispatch marker
+# field (full views and prefix views alike) is discovered from the tree and validated on the
+# spot, then matched against INDIRECT_DISPATCH_SHADER_MIRRORS. Occurrence-keyed, so a SECOND
 # declaration of an already-listed block name -- the `#ifdef`/`#else` variant-pair shape, which
 # tile_binning.glsl's EMIT-pass block is already one half of -- is checked in its own right
 # instead of being credited to the first one.
@@ -736,7 +751,13 @@ def _blank_comments(text: str) -> str:
 
 def _indirect_dispatch_declarations(path: Path) -> list[tuple[str, str, str]]:
     """Return (block_name, layout_args, body) for every buffer block in `path` whose parsed
-    field names are exactly the IndirectDispatchLayout marker set.
+    field names include ANY IndirectDispatchLayout marker field.
+
+    Any, not all: the radix sorter's histogram/prefix/scatter shaders declare only the
+    `dispatch_xyz[3] + element_count` prefix of the same buffer, and requiring the full marker
+    set excluded them from every check. What a discovered block must then satisfy (a leading
+    prefix of the host layout) is decided by the caller, so a block that names a marker field in
+    the wrong place fails instead of being skipped.
 
     Discovery is by PARSED FIELD NAME, not by a literal `"uint element_count;"` substring, so a
     declaration cannot hide from the sweep by being reformatted (an extra space was enough
@@ -754,7 +775,7 @@ def _indirect_dispatch_declarations(path: Path) -> list[tuple[str, str, str]]:
             if any(marker in body for marker in _INDIRECT_DISPATCH_MARKER_FIELDS):
                 raise
             continue
-        if _INDIRECT_DISPATCH_MARKER_FIELDS <= names:
+        if _INDIRECT_DISPATCH_MARKER_FIELDS & names:
             found.append((match.group("block"), match.group("args").strip(), body))
     return found
 
@@ -781,9 +802,16 @@ def _expand_indirect_dispatch_aliases(layout: LayoutSpec) -> tuple[tuple[str, st
     return tuple(flat)
 
 
-def _check_indirect_dispatch_abi(failures: list[str]) -> None:
+def _check_indirect_dispatch_abi(failures: list[str]) -> dict[str, int]:
     """Pin IndirectDispatchLayout across the host struct, every GLSL declaration of it, and the
-    host C++ that binds those declarations' slots. See INDIRECT_DISPATCH_SHADER_MIRRORS."""
+    host C++ that binds those declarations' slots. See INDIRECT_DISPATCH_SHADER_MIRRORS.
+
+    Returns what was actually examined (declarations discovered, host binding sites walked,
+    host struct mirrors compared). main() prints its coverage line FROM this value, and
+    tests/ci/test_check_gaussian_layout_sync.py (run by the guard lane before this script)
+    asserts main() calls this function and that every count is non-zero, so deleting the call
+    turns the guard lane red instead of silently dropping every check."""
+    coverage = {"glsl_declarations": 0, "host_binding_sites": 0, "host_ctor_binding_sites": 0, "host_struct_mirrors": 0}
     host_text = INDIRECT_DISPATCH_HOST_HEADER.read_text(encoding="utf-8")
     host_def = _parse_struct_definition(INDIRECT_DISPATCH_HOST_HEADER, INDIRECT_DISPATCH_HOST_NAME)
     host_layout = _layout_struct({INDIRECT_DISPATCH_HOST_NAME: host_def}, INDIRECT_DISPATCH_HOST_NAME, "host")
@@ -823,11 +851,11 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
     #     is validated on its own body and its own layout qualifiers, then matched against the
     #     pinned list. Looking each pinned entry up by name would check only the FIRST
     #     declaration of that name in the file, so an `#ifdef`/`#else` variant pair could carry a
-    #     drifted second copy for free.
-    pinned_specs = {
-        (path, block): (expected_set, expected_binding)
-        for path, block, expected_set, expected_binding in INDIRECT_DISPATCH_SHADER_MIRRORS
-    }
+    #     drifted second copy for free. Entries sharing a (file, block) name are consumed in file
+    #     order, one per declaration.
+    pinned_specs: dict[tuple[Path, str], list[tuple[int, int]]] = {}
+    for path, block, expected_set, expected_binding in INDIRECT_DISPATCH_SHADER_MIRRORS:
+        pinned_specs.setdefault((path, block), []).append((expected_set, expected_binding))
     seen_counts: dict[tuple[Path, str], int] = {}
     sources = [path for root in SHADER_ROOTS for path in sorted(root.rglob("*.glsl"))]
     sources += [path for path in INDIRECT_DISPATCH_EMBEDDED_GLSL_FILES if path.exists()]
@@ -836,21 +864,27 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
             rel = path.relative_to(ROOT)
             key = (path, block_name)
             seen_counts[key] = seen_counts.get(key, 0) + 1
+            coverage["glsl_declarations"] += 1
             occurrence = seen_counts[key]
             label = f"`buffer {block_name}`" + (f" (occurrence {occurrence})" if occurrence > 1 else "")
 
             block_def = StructDef(block_name, _parse_fields_from_body(body, path), None)
             block_layout = _layout_struct({block_name: block_def}, block_name, "shader")
             block_flat = _expand_indirect_dispatch_aliases(block_layout)
-            if block_flat != host_flat:
+            # A declaration may be a leading PREFIX of the host layout (the radix sorter's
+            # histogram/prefix/scatter views stop after element_count) but must match every field
+            # it does declare, word for word. An empty or non-leading slice is not a prefix.
+            if not block_flat or block_flat != host_flat[: len(block_flat)]:
                 failures.append(
-                    f"{rel}: {label} layout {list(block_flat)} != host "
+                    f"{rel}: {label} layout {list(block_flat)} is not a leading prefix of host "
                     f"{INDIRECT_DISPATCH_HOST_NAME} {list(host_flat)}. The host writes this buffer as "
                     f"{INDIRECT_DISPATCH_HOST_NAME}; a field that moved reads a different word on the GPU."
                 )
-            if block_layout.size != host_layout.size:
+            if block_layout.size > host_layout.size or (
+                len(block_flat) == len(host_flat) and block_layout.size != host_layout.size
+            ):
                 failures.append(
-                    f"{rel}: {label} size {block_layout.size} != host "
+                    f"{rel}: {label} size {block_layout.size} does not fit host "
                     f"{INDIRECT_DISPATCH_HOST_NAME} size {host_layout.size}"
                 )
             if "std430" not in raw_args:
@@ -859,22 +893,22 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                     "packed C++ struct; std140 would pad it."
                 )
 
-            spec = pinned_specs.get(key)
-            if spec is None:
+            specs = pinned_specs.get(key)
+            if specs is None:
                 failures.append(
-                    f"{rel}: {label} declares the IndirectDispatchLayout field set but is not in "
+                    f"{rel}: {label} declares IndirectDispatchLayout fields but is not in "
                     "INDIRECT_DISPATCH_SHADER_MIRRORS, so its set/binding is pinned by nothing. Add it "
                     "(with its set and binding) to the list."
                 )
                 continue
-            if occurrence > 1:
+            if occurrence > len(specs):
                 failures.append(
-                    f"{rel}: {label} -- `{block_name}` is declared more than once in this file. "
-                    "INDIRECT_DISPATCH_SHADER_MIRRORS pins one set/binding per (file, block), so a second "
-                    "declaration (an #ifdef variant, say) cannot be pinned. Give it a distinct block name "
-                    "and list it separately."
+                    f"{rel}: {label} -- `{block_name}` is declared {occurrence} time(s) in this file but "
+                    f"INDIRECT_DISPATCH_SHADER_MIRRORS pins {len(specs)}. An extra declaration (an #ifdef "
+                    "variant, say) is pinned by nothing; list it deliberately, in file order."
                 )
-            expected_set, expected_binding = spec
+                continue
+            expected_set, expected_binding = specs[occurrence - 1]
             set_match = _LAYOUT_SET_RE.search(raw_args)
             binding_match = _LAYOUT_BINDING_RE.search(raw_args)
             actual_set = int(set_match.group(1)) if set_match else None
@@ -884,21 +918,23 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
             if actual_binding != expected_binding:
                 failures.append(
                     f"{rel}: {label} is at binding {actual_binding}, pinned binding {expected_binding}. "
-                    "The host wires this slot in C++ (see INDIRECT_DISPATCH_HOST_BINDING_PINS); a one-sided "
-                    "change binds a different buffer here while every layout check still passes."
+                    "The host wires this slot in C++ (see INDIRECT_DISPATCH_HOST_BINDING_PINS and "
+                    "INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS); a one-sided change binds a different buffer "
+                    "here while every layout check still passes."
                 )
 
     # (c) Completeness in the other direction: a pinned declaration that the sweep did not find
     #     has been renamed, deleted or reformatted past the parser -- all of which silently
     #     shrink what is checked, so none of them may pass.
-    for key, (expected_set, expected_binding) in pinned_specs.items():
-        if key not in seen_counts:
-            path, block_name = key
+    for key, specs in pinned_specs.items():
+        found = seen_counts.get(key, 0)
+        path, block_name = key
+        for index, (expected_set, expected_binding) in enumerate(specs[found:], start=found + 1):
             failures.append(
-                f"{path.relative_to(ROOT)}: pinned `buffer {block_name}` (set {expected_set}, binding "
-                f"{expected_binding}) was NOT found. It was renamed, removed, or written in a form the "
-                "sweep cannot parse; either way its ABI is no longer checked. Update "
-                "INDIRECT_DISPATCH_SHADER_MIRRORS deliberately."
+                f"{path.relative_to(ROOT)}: pinned `buffer {block_name}` #{index} of {len(specs)} (set "
+                f"{expected_set}, binding {expected_binding}) was NOT found ({found} declaration(s) "
+                "discovered). It was renamed, removed, or written in a form the sweep cannot parse; either "
+                "way its ABI is no longer checked. Update INDIRECT_DISPATCH_SHADER_MIRRORS deliberately."
             )
 
     # (c2) Host-side C++ structs that redeclare the same layout instead of using the canonical one.
@@ -910,6 +946,7 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
         mirror_def = _parse_struct_definition(host_mirror_path, host_mirror_name)
         mirror_layout = _layout_struct({host_mirror_name: mirror_def}, host_mirror_name, "host")
         mirror_flat = _expand_indirect_dispatch_aliases(mirror_layout)
+        coverage["host_struct_mirrors"] += 1
         if mirror_flat != host_flat or mirror_layout.size != host_layout.size:
             failures.append(
                 f"{mirror_rel}: `struct {host_mirror_name}` layout {list(mirror_flat)} (size "
@@ -934,6 +971,7 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                 f"{expected_occurrences}. A new or removed binding site for the IndirectDispatch buffer "
                 "must be reconciled with INDIRECT_DISPATCH_HOST_BINDING_PINS, not silently accepted."
             )
+        coverage["host_binding_sites"] += len(append_sites)
         for site in append_sites:
             var = site.group("var")
             # Anchor the backwards walk to this uniform's OWN declaration. Scanning the whole
@@ -970,6 +1008,7 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                 )
 
     # (e) Constructor-form host bindings (see INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS).
+    pinned_ctor_totals: dict[tuple[Path, str], int] = {}
     for cpp_path, list_var, buffer_var, expected_binding, expected_occurrences in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS:
         cpp_rel = cpp_path.relative_to(ROOT)
         if not cpp_path.exists():
@@ -986,6 +1025,8 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                 f"{cpp_rel}: found {len(sites)} `{list_var}.push_back(RD::Uniform(..., N, {buffer_var}))` site(s), "
                 f"pinned {expected_occurrences}. Reconcile it with INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS."
             )
+        coverage["host_ctor_binding_sites"] += len(sites)
+        pinned_ctor_totals[(cpp_path, buffer_var)] = pinned_ctor_totals.get((cpp_path, buffer_var), 0) + expected_occurrences
         for site in sites:
             actual = int(site.group("binding"))
             if actual != expected_binding:
@@ -993,6 +1034,27 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                     f"{cpp_rel}: `{list_var}` binds {buffer_var} at binding {actual}, pinned {expected_binding} "
                     "(the embedded GLSL declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
                 )
+
+    # (e2) Reverse coverage for (e): every constructor-form site in a pinned file that binds a
+    #      pinned buffer variable, through ANY uniform list, must be accounted for by the pins. A
+    #      new pass that binds the count buffer from a list nobody pinned fails here instead of
+    #      sitting outside the per-list occurrence counts.
+    for (cpp_path, buffer_var), pinned_total in pinned_ctor_totals.items():
+        text = _blank_comments(cpp_path.read_text(encoding="utf-8"))
+        any_list_re = re.compile(
+            rf"(?P<list>\w+)\s*\.\s*push_back\(\s*RD::Uniform\(\s*RD::\w+\s*,\s*\d+\s*,\s*"
+            rf"{re.escape(buffer_var)}\s*\)\s*\)"
+        )
+        all_sites = list(any_list_re.finditer(text))
+        if len(all_sites) != pinned_total:
+            failures.append(
+                f"{cpp_path.relative_to(ROOT)}: found {len(all_sites)} constructor-form binding(s) of "
+                f"`{buffer_var}` across uniform lists {sorted({m.group('list') for m in all_sites})}, but "
+                f"INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS accounts for {pinned_total}. A binding of this "
+                "buffer from an unpinned list has an unchecked slot; pin it."
+            )
+
+    return coverage
 
 
 # C4b: the binding-3 overlap-statistics SSBO is a GLSL `buffer` block (not a `struct`) and is
@@ -1505,7 +1567,7 @@ def main() -> int:
 
     _check_overflow_stats_mirror(failures)
 
-    _check_indirect_dispatch_abi(failures)
+    indirect_dispatch_coverage = _check_indirect_dispatch_abi(failures)
 
     for host_header, host_name, shader_mirrors in PUSH_CONSTANT_MIRRORS:
         _check_push_constant_mirror(host_header, host_name, shader_mirrors, failures)
@@ -1529,12 +1591,16 @@ def main() -> int:
         + ", ".join(path.name for path, _ in OVERFLOW_STATS_SHADER_MIRRORS)
         + "."
     )
+    # Counts come from what _check_indirect_dispatch_abi actually examined, not from the pin
+    # lists, so the line cannot claim coverage for a check that did not run
+    # (tests/ci/test_check_gaussian_layout_sync.py asserts both).
     print(
         "[gaussian-layout-check] IndirectDispatchLayout is pinned across "
-        f"{len(INDIRECT_DISPATCH_SHADER_MIRRORS)} GLSL declaration(s) "
+        f"{indirect_dispatch_coverage['glsl_declarations']} GLSL declaration(s) "
         + ", ".join(f"{path.name}:{block}@set{s}/binding{b}" for path, block, s, b in INDIRECT_DISPATCH_SHADER_MIRRORS)
-        + f", {sum(n for _, _, _, n in INDIRECT_DISPATCH_HOST_BINDING_PINS)} host binding site(s), and "
-        + f"{len(INDIRECT_DISPATCH_HOST_STRUCT_MIRRORS)} host struct mirror(s) "
+        + f", {indirect_dispatch_coverage['host_binding_sites']} host append_id binding site(s), "
+        + f"{indirect_dispatch_coverage['host_ctor_binding_sites']} host constructor binding site(s), and "
+        + f"{indirect_dispatch_coverage['host_struct_mirrors']} host struct mirror(s) "
         + ", ".join(f"{path.name}:{name}" for path, name in INDIRECT_DISPATCH_HOST_STRUCT_MIRRORS)
         + "."
     )

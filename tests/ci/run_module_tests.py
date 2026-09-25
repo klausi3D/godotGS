@@ -30,6 +30,7 @@ BUILD_METADATA_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_build_metadat
 SHADER_DEPENDENCY_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_shader_dependency_contract.py"
 PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_project_settings_manifest.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
+GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -860,18 +861,23 @@ def _run_project_settings_manifest_guard() -> tuple[bool, list[str]]:
 
 
 def _run_gaussian_layout_guard() -> tuple[bool, list[str]]:
-    if not GAUSSIAN_LAYOUT_GUARD_SCRIPT.is_file():
-        return False, [
-            f"Missing Gaussian layout guard script: {GAUSSIAN_LAYOUT_GUARD_SCRIPT.relative_to(ROOT)}"
-        ]
-
-    code, out, err = _run_command([sys.executable, str(GAUSSIAN_LAYOUT_GUARD_SCRIPT)])
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"Gaussian layout guard failed with exit code {code}."]
-        return False, output_lines
+    """Host/shader struct layout guard. Runs the guard's own wiring test first, so a check
+    function that main() no longer calls (#54: the IndirectDispatch ABI check was one line away
+    from being unreachable with the script still exiting 0) fails this lane instead of passing
+    it -- mirroring the metric-reset and REQUIRE null-deref guards."""
+    output_lines: list[str] = []
+    for label, script in (
+        ("Gaussian layout guard unit test", GAUSSIAN_LAYOUT_TEST_SCRIPT),
+        ("Gaussian layout guard", GAUSSIAN_LAYOUT_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 
