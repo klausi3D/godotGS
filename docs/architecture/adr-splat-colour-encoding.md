@@ -200,10 +200,11 @@ traced.** Slice 1 must either change it in lockstep or prove it is dead and dele
    | `PLYLoader` | `SH_C0·f_dc`, tagged `SH_C0`. This covers the importer, both raw `load_from_file` paths and `.gsplatcache` |
    | `SPZLoader` | converted from `byte` to `SH_C0 · (byte/255 − 0.5) / 0.15`, tagged `SH_C0`. The 0.15 `colorScale` comes from the upstream `nianticlabs/spz` reference and **is not verified in this ADR** (§6) |
    | `set_splat_data(colors)` | display colour converted: `sh_dc = color − 0.5`, tagged |
+   | `GaussianSplatAsset.set_colors()` | display colour converted: `color − 0.5`, and the asset's `dc_encoding` set to `SH_C0`, so the non-defaulting resolver accepts procedural assets. The importers, which already hold coefficients, use a coefficient-space setter instead, so nothing is converted twice (review round 7, §9) |
    | `GaussianData.resize` | white becomes `sh_dc = (0.5, 0.5, 0.5)`, tagged |
    | `set_spherical_harmonics` | documented as `SH_C0` coefficients, tagged |
    | merge | requires tagged inputs, so the per-source tag lookup disappears |
-   | `.gsplatworld` / GSF writers | write the new container versions (§4). The file-level encoding field is `SH_C0`, and every splat is tagged `SH_C0` |
+   | `.gsplatworld` / GSF writers | write the new container versions (§4). The file-level encoding field is `SH_C0`, and every splat is tagged `SH_C0`. They **refuse to write** any splat whose colour is not known to be `SH_C0`, meaning untagged data and, until slice 3, SPZ-derived data. Nothing is stamped canonical on trust (review round 7, §9) |
    | `.gsplatworld` / GSF readers | **new versions:** check the file-level field in the header, which is O(1) and keeps random access; each splat's tag is checked **lazily** as its chunk is decoded (streamed chunk read, or resident materialisation), and a mismatch fails that chunk closed, naming the file and chunk. **Old versions:** the legacy route in §4 |
    | CPU edit, bake and export paths | work in display space through two helpers, `gaussian_dc_to_display()` and `gaussian_display_to_dc()`, defined next to the enum |
 
@@ -363,7 +364,7 @@ order.
 | # | Slice | Class | Depends on |
 | --- | --- | --- | --- |
 | 1 | Signed SH encoder and decoders (both layouts, both GLSL decoders, metadata id, observable unknown-id fallback), with evidence items 1, 2, 5 and 6 | **R2** | ADR approval |
-| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush and its undo capture/restore, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
+| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush and its undo capture/restore, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); **the code-derived colour inventory: every producer and consumer of `Gaussian::sh_dc` and `GaussianSplatAsset` colours is listed in the PR and either converted or refusing untagged data, and an unlisted one is a review blocker**; `GaussianSplatAsset.set_colors()` taking display colours and tagging; new-version writers refusing SPZ-derived data until slice 3, with a test (review round 7, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
 | 3 | SPZ DC decode and SPZ importer bump; the editor readers of `GaussianSplatAsset::colors` (asset preview, gizmo heatmap, colour thumbnail) converted through `gaussian_dc_to_display()`, with a colour-space version in the thumbnail cache key (review rounds 5-6, §9); evidence 3 (SPZ rows) | **R3** | 2 |
 | 4 | Remove the `LEGACY_BIAS` decode, the `sh_metadata` DC bit, the asset flag, the splat-0 resolvers and the quantization DC-compatibility gate | **R2** | 2, 3 |
 | 5 | *Folded into slice 2* (review round 3, §9). The CPU consumers cannot land separately: between slice 2 and a later slice they would mix display-space and coefficient-space `sh_dc` | — | — |
@@ -527,3 +528,43 @@ until the next re-import is a cosmetic editor artefact, so slice 3 either regene
 load or names it in the release notes; it does not justify a PLY importer bump on its own.
 Evidence: the colour thumbnail of a mid-grey PLY and SPZ asset is mid-grey, both freshly
 generated and after a restart with a warm disk cache.
+
+**Review round 7 (2026-09-25, Codex on `46fe2547451`): the colour inventory rule.** Each of
+rounds 3-7 found another reader or writer of DC colour that no slice converted. Listing them
+one by one here does not converge, so slice 2 carries a rule for the whole class:
+
+- **Inventory.** Slice 2's PR contains an inventory of every producer and consumer of
+  `Gaussian::sh_dc` and `GaussianSplatAsset` colours. It is derived from the code at the PR's
+  base with the grep patterns listed in the PR, covering at least: writers of `sh_dc`, callers
+  of `set_colors()` / `get_colors()` and readers of the `colors` lane, the runtime-colour
+  APIs, undo and restore, previews and thumbnails, importers, exporters and serializers.
+- **Disposition per entry.** Each entry is either converted through `gaussian_dc_to_display()`
+  / `gaussian_display_to_dc()` or refuses untagged data explicitly with a message. An entry
+  may name slice 3 as its owner only if it is SPZ-specific or listed in slice 3's row (§7).
+- **Blocker.** A producer or consumer that the grep finds and the inventory omits is a review
+  blocker on slice 2.
+- **The examples found so far are not a closed list:** brush, undo capture/restore, the
+  runtime-colour APIs, grading bake, animated colour and PLY export (rounds 3-5); asset
+  preview, gizmo heatmap and colour thumbnail (rounds 5-6, slice 3); and the two below.
+
+The two round-7 findings are closed through the rule:
+
+1. **`GaussianSplatAsset.set_colors()` (P1).** The bound setter stores its argument unchanged
+   and sets no `dc_encoding` (`core/gaussian_splat_asset.cpp:898-912`). The documented
+   procedural example passes display colours to it (`docs/api/gaussian_splat_asset.md:399-424`).
+   Under the non-defaulting resolver (§3.3) that asset would be rejected, and tagging it
+   without converting would render it 0.5 too bright. Direction (§3.4 table): in slice 2, `set_colors()`
+   takes display colours, converts them and tags the asset `SH_C0`. The two in-tree callers,
+   both importers holding coefficients (`io/resource_importer_ply.cpp:498`,
+   `io/resource_importer_spz.cpp:462`), move to a coefficient-space setter. Evidence: the
+   documented procedural asset is built, saved, loaded and rendered, and a splat's colour
+   matches the `Color` it was given.
+2. **SPZ ordering fails closed (P1).** Between slices 2 and 3, SPZ data still holds
+   `byte / 255` under the tag value that slice 2 renames `SH_C0` (`io/spz_loader.cpp:381-382`,
+   §1.4). A strict writer that trusted the tag would write new-version files falsely marked
+   canonical, and slice 3's importer bump could not find or repair them. Direction: slice 2
+   keeps SPZ-derived data distinguishable from `SH_C0` at write time, and the `.gsplatworld`
+   v2 and GSF v3 writers **refuse** it, and any untagged data, naming the source, instead of
+   stamping it canonical. Landing slice 3 in the same PR as slice 2 also satisfies this.
+   Evidence: at the slice-2 head, an imported SPZ saved as `.gsplatworld` v2 and as GSF v3 is
+   refused and no file is written.
