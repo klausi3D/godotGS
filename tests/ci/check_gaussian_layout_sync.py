@@ -656,6 +656,8 @@ INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
 # (interfaces/gpu_sorting_pipeline.cpp, `contract.binding = p_binding`), so there is no literal
 # to anchor at the append_id site. The GLSL side of both is still pinned above; only the C++
 # half of that one shader is unpinned, and it is called out here rather than left implicit.
+# (gpu_sorter.cpp's embedded IndirectCount shader is wired by constructor, not append_id; it is
+# pinned in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS below.)
 INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
     (
         ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_prefix_scan.cpp",
@@ -687,6 +689,14 @@ INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
         15,
         2,  # fragment + compute rasterizer variants
     ),
+)
+
+# Constructor-form host bindings: `<list>.push_back(RD::Uniform(<type>, N, <buffer>))`, which the
+# append_id walk above cannot see. (cpp_path, list_variable, buffer_variable, expected_binding,
+# expected_occurrences). The embedded radix-sort IndirectCount shader (gpu_sorter.cpp, pinned at
+# binding 0 in INDIRECT_DISPATCH_SHADER_MIRRORS) is wired this way.
+INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS: tuple[tuple[Path, str, str, int, int], ...] = (
+    (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "dispatch_uniforms", "count_buffer", 0, 1),
 )
 
 # Derived completeness sweep: EVERY buffer block whose body declares the IndirectDispatch field
@@ -957,6 +967,31 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> None:
                 failures.append(
                     f"{cpp_rel}: `{var}` binds {buffer_expr} at binding {actual}, pinned {expected_binding} "
                     "(the GLSL side declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
+                )
+
+    # (e) Constructor-form host bindings (see INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS).
+    for cpp_path, list_var, buffer_var, expected_binding, expected_occurrences in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS:
+        cpp_rel = cpp_path.relative_to(ROOT)
+        if not cpp_path.exists():
+            failures.append(f"{cpp_rel}: expected IndirectDispatch constructor binding site not found")
+            continue
+        text = _blank_comments(cpp_path.read_text(encoding="utf-8"))
+        ctor_re = re.compile(
+            rf"\b{re.escape(list_var)}\s*\.\s*push_back\(\s*RD::Uniform\(\s*RD::\w+\s*,\s*(?P<binding>\d+)\s*,\s*"
+            rf"{re.escape(buffer_var)}\s*\)\s*\)"
+        )
+        sites = list(ctor_re.finditer(text))
+        if len(sites) != expected_occurrences:
+            failures.append(
+                f"{cpp_rel}: found {len(sites)} `{list_var}.push_back(RD::Uniform(..., N, {buffer_var}))` site(s), "
+                f"pinned {expected_occurrences}. Reconcile it with INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS."
+            )
+        for site in sites:
+            actual = int(site.group("binding"))
+            if actual != expected_binding:
+                failures.append(
+                    f"{cpp_rel}: `{list_var}` binds {buffer_var} at binding {actual}, pinned {expected_binding} "
+                    "(the embedded GLSL declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
                 )
 
 
