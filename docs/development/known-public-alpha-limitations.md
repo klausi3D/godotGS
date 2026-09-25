@@ -490,13 +490,20 @@ so a scene that actually uses 100M records holds about **2.4 GB** in these buffe
 Prefer reducing density.
 
 **Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
-Scaling the numbers above to 1080p gives about 56 records per splat. At the default splat
-limit of both `GaussianSplatNode3D` and `GaussianSplatWorld3D` (`max_splat_count =
-1,000,000`) that is roughly 56 million records, **about 1.8× under the cap**. The quality
-presets' lower per-frame LOD budget (500,000 splats, ≈28 million records, ≈3.6×) applies only
-where that budget actually limits the rendered set, which has not been checked for every
-route. All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the warning above at default settings, that is
-worth reporting on #54.
+Scaling the numbers above to 1080p gives about 56 records per splat. The splat limit that
+multiplies depends on the node:
+
+- **`GaussianSplatWorld3D`** has no quality preset and keeps its default `max_splat_count` of
+  1,000,000: roughly 56 million records, **about 1.8× under the cap**.
+- **`GaussianSplatNode3D`** starts on the Balanced quality preset, which sets its
+  `max_splat_count` to 500,000 when the node is created (the 1,000,000 in the class
+  declaration does not survive construction): roughly 28 million records, about 3.6×. The
+  Quality preset raises it to 1,000,000, the same 1.8× as the world node.
+
+Whether either limit actually bounds the rendered set on every route has not been checked,
+so read 1.8× as the working figure. All of this is arithmetic on a synthetic grid, not a
+capture of real content. If you hit the warning above at default settings, that is worth
+reporting on #54.
 
 ---
 
