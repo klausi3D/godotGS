@@ -10,7 +10,7 @@ const GRID_ROWS := 1
 const GRID_SPACING := 1.0
 const CAMERA_ORBIT_SPEED := 0.35
 
-const MONITOR_KEYS := [
+const MONITOR_KEYS: Array[String] = [
 	"gaussian_splatting/gpu_time_frame_ms",
 	"gaussian_splatting/gpu_time_cull_ms",
 	"gaussian_splatting/gpu_time_raster_ms",

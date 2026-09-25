@@ -441,6 +441,7 @@ ALLOWED_PYTHON_MODULES = frozenset(
     {
         "pip",  # `python -m pip install ...` -- stdlib-adjacent installer.
         "SCons",  # `python -m SCons @args` -- the build system, a pip dependency.
+        "venv",  # `python -m venv --clear $venv` -- stdlib; the per-job SCons venv (GAP-403).
     }
 )
 

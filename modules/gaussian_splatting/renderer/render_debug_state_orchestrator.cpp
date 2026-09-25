@@ -478,6 +478,7 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	out["tiny_splat_param_q8"] = (int64_t)counters.tiny_splat_param_q8;
 	out["min_allowed_radius_q8"] = (int64_t)counters.min_allowed_radius_q8;
 	out["min_radius_min_q8_inv"] = (int64_t)counters.min_radius_min_q8_inv;
+	out["sh_unknown_encoding_count"] = (int64_t)counters.sh_unknown_encoding_count;
 	// Computed averages for easier debugging
 	if (counters.depth_discrepancy_count > 0) {
 		out["avg_depth_discrepancy"] = double(counters.depth_discrepancy_sum_q8) / 256.0 / double(counters.depth_discrepancy_count);

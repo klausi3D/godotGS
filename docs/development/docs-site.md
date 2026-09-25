@@ -46,6 +46,15 @@ ENABLE_GIT_DATES=false python3 scripts/build_docs_site.py --strict
 python3 scripts/docs/release_acceptance.py
 ```
 
+CI (`docs_pages.yml`) does not install the loose `>=` ranges above. It installs
+`docs/requirements-lock.txt`, the full transitive set compiled from those two files,
+exact-pinned and hashed, with `pip install --require-hashes`. To reproduce the CI
+stack locally, install the lock the same way. After you change either input file,
+regenerate the lock with the pip-tools command recorded in its header. Run it
+with `PIP_CONFIG_FILE` set to the null device (`/dev/null`, or `nul` on
+Windows), so a local extra index is never consulted. A lock compiled on Windows also pins `tzdata`, which
+`mkdocs-git-revision-date-localized-plugin` requires only on Windows.
+
 Equivalent Make targets:
 
 ```bash

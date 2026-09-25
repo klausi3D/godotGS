@@ -1,0 +1,10 @@
+# Input for tests/ci/requirements-test-data.txt, the hash-locked install used by
+# the GitHub-hosted `cpu-tests` job in baseline_qa.yml. Its only third-party
+# import is numpy, in test_data/generate_test_data.py. That job builds with the
+# distro `scons` from apt, so SCons is not listed here.
+#
+# Pinned to the numpy that job resolved before the lock existed. To upgrade:
+# change the pin here, then run the pip-tools command recorded in the header of
+# requirements-test-data.txt from the repository root, with PIP_CONFIG_FILE set
+# to the null device so a local extra index is never consulted.
+numpy==2.4.6
