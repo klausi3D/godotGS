@@ -490,20 +490,22 @@ so a scene that actually uses 100M records holds about **2.4 GB** in these buffe
 Prefer reducing density.
 
 **Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
-Scaling the numbers above to 1080p gives about 56 records per splat. The splat limit that
-multiplies depends on the node:
+Scaling the numbers above to 1080p gives about 56 records per splat, so the cap is reached
+at roughly **1.8 million visible splats**.
 
-- **`GaussianSplatWorld3D`** has no quality preset and keeps its default `max_splat_count` of
-  1,000,000: roughly 56 million records, **about 1.8× under the cap**.
-- **`GaussianSplatNode3D`** starts on the Balanced quality preset, which sets its
-  `max_splat_count` to 500,000 when the node is created (the 1,000,000 in the class
-  declaration does not survive construction): roughly 28 million records, about 3.6×. The
-  Quality preset raises it to 1,000,000, the same 1.8× as the world node.
+**At default settings, no splat limit keeps you below that.** A freshly imported `.ply` or
+`.spz` uses the Ultra import preset, which keeps every splat. The renderer treats such an
+asset as full-fidelity and budgets for its whole splat count, ignoring the node's
+`max_splat_count`. So a default-imported scene with more than about 1.8 million splats in
+view can reach the cap on either node. `max_splat_count` does apply to assets imported with a
+lighter preset. There it is 500,000 on a default `GaussianSplatNode3D` (its Balanced quality
+preset sets it when the node is created), which is about 28 million records, or 3.6× under
+the cap. It is 1,000,000 on `GaussianSplatWorld3D` or on the node's Quality preset, which is
+about 56 million records, or 1.8×.
 
-Whether either limit actually bounds the rendered set on every route has not been checked,
-so read 1.8× as the working figure. All of this is arithmetic on a synthetic grid, not a
-capture of real content. If you hit the warning above at default settings, that is worth
-reporting on #54.
+Whether a real scene at 1080p has that many splats in view at once has not been measured.
+All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
+warning above at default settings, that is worth reporting on #54.
 
 ---
 
