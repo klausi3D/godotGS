@@ -51,10 +51,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y doxygen
 
+      # GAP-403: the full transitive docs stack, version-and-hash-locked. It is
+      # compiled from docs/requirements.txt + docs/requirements-site.txt; the
+      # regeneration command is in the lock file's header.
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r docs/requirements.txt -r docs/requirements-site.txt
+          python -m pip install --require-hashes -r docs/requirements-lock.txt
 
       - name: Generate and stage docs artifacts
         run: |

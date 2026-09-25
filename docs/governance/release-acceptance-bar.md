@@ -226,6 +226,7 @@ drift apart. Exactly one row does that today: `#929 residual`.
 | --- | --- | --- | --- |
 | **#989** | `transparent_bg` viewports render fully opaque under TAA or FSR2. | **Upstream Godot, not ours.** Alpha is hardcoded to 1.0 in `taa_resolve.glsl` and the FSR2 callbacks; a mesh-only control shows identical loss with no splats present, so it is not splat-specific and cannot be fixed in a module PR. | Do not combine `transparent_bg` with TAA or FSR2. |
 | **#983** | A buffer-allocation failure during a tile-sorter grow loses both sorters; the reduced-capacity fallback then churns per frame. | Pre-existing, strictly narrower than what #982 fixed, and a **code-reading finding not reproduced on NVIDIA** — unproven, not absent. | Reduce splat count rather than capping overlap records. |
+| **#54** *(proposed 2026-09-22 — no named human has accepted this, so #54 stays an alpha blocker in §11 and its user-facing entry sits in the known-limitations page's fenced "Proposed, not yet accepted" section)* | When the tile pipeline's overlap-record demand exceeds the configured `max_overlap_records`, the tiles with the highest tile index lose their records and render as **background**. Row-major tile order makes that a **hard horizontal boundary: everything below one scanline is empty**, with a single partially-truncated tile row at the seam. **Measured 2026-09-22** on an RTX 3090 (Vulkan, `dev_build=yes` editor binary at `6f4552076c7`), 100,000 splats filling a 512×512 viewport at `tile_size = 16`: demand **708,814 records** (7.09 per splat), and with `max_overlap_records` forced to 100,000 / 250,000 / 500,000 the last lit scanline was **95 / 191 / 351** of 512 (837 / 651 / 340 of 1024 tiles empty). At 1,000,000 and at the **100,000,000 default** there was no drop at all. | **Not reproduced in envelope** — the category §8's preamble names, so this does **not** engage §10.1's in-envelope rule and needs no §10.1 exception. Three measured reasons. **(1) The default has 141× the headroom this scene needs.** A frame drops records when its demand exceeds the currently **allocated** capacity; a **lasting** drop needs demand above `max_overlap_records` (default 100,000,000, `renderer/gpu_sorting_config.h:28`) or a capacity grow that keeps failing (below). Every drop above was produced by forcing that setting 200–1000× below its default. **(2) Transient below the configured setting, permanent above it — and the setting is the cap.** The CPU consumes the flag and raises capacity toward `unclamped_total × 3/2` on the next frame (`renderer/tile_renderer.cpp:822-836`), but `_clamp_overlap_record_budget` (`:3480-3487`) caps that at `get_overlap_records_hard_cap()`, which returns **`max_overlap_records` itself** (`gpu_sorting_config.h:101`) — not a fixed 100M. So a spike self-corrects only while demand stays under the configured value and capacity is merely behind it; once demand exceeds the configured value the truncation is **permanent**. **The transient case is reachable at defaults** (review of #1043): on the default async path the allocated capacity starts at ≈50 records per visible splat (`renderer/tile_renderer.cpp:843`), shrinks toward measured demand, and grows only from a previous frame's readback (`:820-836`, `:963-975`), so a sudden demand jump — a fast move into a dense close-up — can truncate for a frame or a few while `max_overlap_records` stays at 100M. That follows from the code; it has **not** been captured, and its duration is not measured. **A failed grow can also make it last below the cap:** when a replacement sorter cannot be allocated (VRAM pressure), the working sorter is kept at its old capacity and the grow is retried with backoff (`renderer/tile_render_resources.cpp:1399-1424`), so records above that capacity keep being dropped until a grow succeeds. It logs its own warning ("Global composite sort grow to … could not build its replacement"); the related allocation-failure case is the #983 row above. The measurements above are all the permanent case — still truncated on the 24th frame, on the same scanline as the first — which is why the number that matters is the default setting (100,000,000) against this scene's 708,814-record demand, and not any claim that overflow is self-healing. An earlier revision of this row said truncation persists "only above the 100M cap"; that was wrong in a way the captures already contradicted, and is corrected here. The one response that *would* converge by reducing splat count is off by default (`overflow_autotune_enabled = false`, `interfaces/gpu_culler.h:118`, after an exponential-decay incident described at `:110-117`, never re-validated since its root cause was fixed). **(3) It is not silent, and this was observed, not inferred.** The always-on `WARN_PRINT_ONCE` at `renderer/tile_render_debug_stats.cpp:221-226` fired in the measured run, `get_overflow_drop_events()` reached 24, and the `gaussian_splatting/overflow_tile_count` monitor (`core/performance_monitors.cpp:272`) reported 837 of 1024 tiles. That monitor counts only **fully emptied** tiles (`shaders/tile_rasterizer.glsl:148-150`); a partially truncated tile is not counted, so the warning, not the monitor, is the detection signal. **What the artifact is not:** the region above the seam is **pixel-identical** to a non-overflowing render of the same scene (0 differing pixels, max channel delta 0, across all three budgets), the boundary is **stable frame to frame** on a static camera (identical last-lit scanline over frames 20–23), and nothing crashes. So this is a capacity-envelope defect, not a correctness one. **The one thing not measured:** whether a *real* in-envelope scene can reach 100M records at defaults. Scaling the measurement by screen area at constant angular size gives ≈56 records/splat at 1080p, and the node's own `max_splats_per_frame = 500000` cap (`core/gaussian_splat_quality_config.h:17`) puts that at ≈28M — about 3.6× under the cap. Reaching 100M would need ≈200 tiles per splat, an average splat ≈224 px across. That is an extrapolation from a synthetic grid, not a measurement of real content; **if someone measures a default-configured in-envelope scene above the cap, this row is wrong and #54 blocks.** Note also that the issue's own title is stale: no shader reads `indirect_dispatch.overflow_flag`, but the CPU does, and the harm the issue describes is instrumented. | Reduce splat density, or move the camera back, so overlap demand falls. If you changed `rendering/gaussian_splatting/gpu_sorting/max_overlap_records` from its default, **do not leave it below your scene's demand** — that is the only condition that makes the truncation permanent; the default is already 100M (≈2.4 GB at full use: 24 B/record with 64-bit keys, key+value plus the radix ping-pong copy, `renderer/gpu_sorting_config.cpp:413-420`) and lowering it is the only way the measurements above were produced. A brief band after a sudden close-up at defaults is the self-correcting case. The one-shot overlap-record warning in the log tells you whether you are hitting this at all; `gaussian_splatting/overflow_tile_count` counts only fully emptied tiles and can read 0 on a small overflow. |
 | **#929 residual** *(accepted 2026-09-20 — the §10.1 condition-4 acceptance exists, so this is a disclosure and not a blocker: [maintainer disposition on #1025](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553))* | With **TAA** on, splat detail trails its true position by **≈1.5 px** while the camera or the content moves — 0.27–0.87 frames stale, 6–26× an in-frame geometry control. The trail does **not** grow with camera speed (1.48 px at 15°/s, 1.65 px at 56°/s). **Under FSR2 there is no ghosting**: 0.000 frames of staleness at scale 1.0 on both pans, 0.04 px on a dolly, i.e. at the control's floor; at scale 0.5 the splat trail is at or below the control's in two of three motions. Static-camera swimming is fixed separately. Measured for the first time in [#1025](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5751997279) — an earlier revision of this row said “TAA or FSR2”, which the measurement refuted. | **In envelope, disclosed under the §10.1 exception** (residual of a landed fix; a wrong fix is worse than the defect; workaround exists). TAA reprojects splat pixels with `velocity == 0` (`taa_resolve.glsl:315`) *and* widens its variance clip when velocity reads zero (`:276`), so the one missing input costs twice. FSR2 escapes both: it detects the `(-1,-1)` velocity sentinel and derives a camera motion vector from depth, and the composite already feeds its reactive mask through the destination alpha (`viewport_blit.glsl:206-208` → `params.reactive`), which suppresses history on splat pixels. **Two claims this cell previously made are withdrawn as refuted by #1025:** velocity write-back does *not* require depth write-back — the dependency runs the other way — and it is *not* an engine-boundary R3 change: the module already holds the `RenderSceneBuffersRD *` (`gaussian_splat_renderer.cpp:2409`), already caches the previous-frame camera (`:2420-2421`), and the velocity target is RG16F carrying the storage bit, so the addition measures as one `imageStore` in a dispatch that already runs. (Depth write-back *is* separately blocked: `RB_TEX_DEPTH` has no `STORAGE` bit off the MSAA path, so it needs its own raster pass — and it buys nothing for ghosting.) What keeps this out of the alpha is not cost but risk: **a wrong velocity smears confidently**, which is worse than a bounded 1.5 px trail on one stage that is off by default. Tracked as **#1025** (`priority:P1`, `needs-adr`), which stays open as the tracking issue; #929 itself is closed. **Condition 4 was met on 2026-09-20** — the maintainer accepted this residual as a disclosed alpha limitation ([record](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553)) — so this row is a disclosure rather than a proposal, and the limitation is listed on [the known-limitations page](../development/known-public-alpha-limitations.md), which is the `docs_path` §9.1 requires. **The gate still cannot act on it:** #1025 has no `public_alpha_issue_ledger` entry, and `check_renderer_release_gates.py:1921-1924` fails any candidate that classifies an issue as `accepted_alpha_limitation` without one. That entry is an R3 manifest edit, deliberately not bundled into the R0 documentation change that recorded this acceptance, and is tracked as **#1038**. | `use_taa = false` — Godot's own default — for content with a moving camera. **FSR2 needs no workaround at either scale**, and neither does a still camera. |
 
 Holding an issue open for a defect we do not own would put it in the §4 blocker
@@ -372,9 +373,14 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > **The real precondition, and the single largest cost of the public alpha: every open P0,
 > P1 and release-blocker must be closed or ledgered.** Measured **2026-09-19**: **2 open P0**
 > (#182, #184), **36 open P1**, **4 carrying `release blocker`** (#1010, #1011, #1012,
-> #1016) — **38 distinct issues**. The ledger holds four entries (#351, #352, #360, #369).
-> The figure moves — it was 37 hours earlier, before #1025 gained `priority:P1` — so
-> re-query it rather than quoting this line; the rule above is what binds.
+> #1016) — **38 distinct issues**. The figure moves — it was 37 hours earlier, before #1025
+> gained `priority:P1` — so re-query it rather than quoting this line; the rule above is what
+> binds.
+>
+> **Ledger contents, measured separately on 2026-09-22** (do not read the two counts as one
+> subtraction): five entries — #351, #352, #360, #369, and **#1025 since #1038**. One of the
+> 38 above, #1025, is therefore discharged by a ledger entry rather than still outstanding;
+> the other 37 are neither closed nor ledgered.
 > An earlier revision of this section said the precondition was "#351, #352 and #360 must be
 > closed"; that was wrong twice over — #351 and #352 closed in June, and the requirement was
 > never about three issues.
@@ -544,24 +550,38 @@ R3", why it carries `needs-adr`, and why it would need two independent reviews a
 CODEOWNER. That is **class follows the design, not the cheaper glob**, the rule this
 repository already applies in the other direction. Condition 2 is satisfied on that reading
 and on no other: **if a maintainer reads "R3 at the engine boundary" literally, as requiring
-an edit outside the module, condition 2 fails and #1025 returns to the §4 blocker query.**
+an edit outside the module, condition 2 fails and #1025 must return to the §4 blocker query.**
 Nothing here re-reads the condition to fit the instance; the two readings are written down so
 the choice between them is visible.
+
+> **Revoking this acceptance now costs an R3 edit, and that asymmetry is deliberate but
+> must not be mistaken for the gate still being able to block.** Since #1038 put #1025 in
+> `public_alpha_issue_ledger`, `_validate_candidate_issues` (`:1918`) uses the **manifest's**
+> classification in preference to the bundle's, and the only earlier escape,
+> `_candidate_issue_is_manifest_resolved` (`:1843-1848`), fires only for `status: "blocking"`.
+> So a candidate bundle that classifies #1025 `blocking` — because a maintainer took the
+> literal reading above, or simply withdrew the acceptance — **is ignored, and the gate
+> passes anyway**. Putting #1025 back in the blocker set therefore means editing the ledger
+> entry (two independent reviews plus CODEOWNER), not writing a different bundle. That is
+> the correct place for the decision, and it means a withdrawal has to be executed in the
+> manifest to take effect. Do not read a `blocking` classification in a bundle as having
+> done it.
 
 **And a §8.1 row is not by itself a machine-visible disclosure** — §9.1 sets out
 what the gate actually requires (a label in `classification_labels_any`, a
 `docs_path` equal to `known_limitations_page`, an entry in the manifest ledger, and
 a snapshot the gate cannot verify is complete). Concretely for this row: #1025 carries
-`priority:P1`, so the gate asks about it, and it now has both the human acceptance and
-the `docs_path` — but **it is still not in the ledger**, so no candidate bundle can
-classify it either way. `accepted_alpha_limitation` fails on
-`check_renderer_release_gates.py:1921-1924` ("must be tracked in
-`public_alpha_issue_ledger`") and `blocking` fails on `:1793-1800`. Adding the entry is
-an **R3** edit to `docs/reference/renderer_release_gate_manifest.json`
-(`.agentic/policy.json`, "Release / security / CI workflow surface"), which is why it is
-not carried by the R0 documentation change that recorded the acceptance; it is tracked as
-**#1038** and must land before any `v*-alpha*` tag. Until then this disclosure is
-human-visible and machine-invisible. That is the fail-closed direction.
+`priority:P1`, so the gate asks about it; it has the human acceptance, the `docs_path`, and
+since **#1038** a `public_alpha_issue_ledger` entry. All three were needed. Until that entry
+landed no candidate bundle could classify #1025 **either way** —
+`accepted_alpha_limitation` failed on `check_renderer_release_gates.py:1921-1924` ("must be
+tracked in `public_alpha_issue_ledger`") and `blocking` failed on `:1793-1800` — which was
+the fail-closed direction, not a bug to route around. The entry is an **R3** edit to
+`docs/reference/renderer_release_gate_manifest.json` (`.agentic/policy.json`, "Release /
+security / CI workflow surface"), which is why it was not carried by the R0 documentation
+change that recorded the acceptance. **What the entry buys is narrow**: the gate can now
+resolve #1025, and nothing more. The snapshot it resolves against is still one the gate
+cannot verify is complete, and the ledger is still hand-maintained (#963).
 
 **And a caveat that is part of the decision, not a footnote.** All three lanes exist,
 and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
@@ -696,8 +716,9 @@ rather than a ceiling.
    happen and is recorded only so the choice that was made is legible against the one
    that was not. #929 needed no label in the end, because it is closed; **#1025 carries
    `priority:P1` in its own right**, which is what makes the gate ask about it.
-   What #1025 still lacks is the `public_alpha_issue_ledger` entry (§9.1, §10.1) —
-   an R3 manifest edit, tracked as **#1038**.
+   The `public_alpha_issue_ledger` entry #1025 also needed (§9.1, §10.1) — an R3
+   manifest edit — was added by **#1038**, so the disclosure is now machine-visible
+   as well as human-visible.
 
    #929 itself carried no remaining work either way: the residual lives in
    #1025, which already carries `priority:P1`.
@@ -714,8 +735,17 @@ rather than a ceiling.
    premise ("ships today on both painterly paths") held only because the QA pin
    sets `depth_test=false`; re-test at the shipped default once #986 lands.
 9. **#833** — starter-template overlay never updates.
-10. **#54** — dropped tiles above the 100M overlap-record cap, on close-up dense
-   scenes.
+10. **#54** — dropped tiles when overlap-record demand outruns the allocated capacity
+   (briefly after a sudden close-up at defaults; lastingly only above the configured
+   cap, default 100M), on close-up dense scenes. **Reproduced and characterised on hardware 2026-09-22** (see the §8.1
+   row): the artifact is a hard horizontal boundary with background below it,
+   stable frame to frame, with the surviving region pixel-identical to a clean
+   render — a capacity-envelope defect, not a correctness one. **A disclosure is
+   proposed and not yet accepted**, so #54 stays in this list; its user-facing
+   entry is in the known-limitations page's fenced "Proposed, not yet accepted"
+   section. The one thing that would change this is a measurement of a
+   default-configured in-envelope scene exceeding the 100M cap; the estimated
+   headroom is ≈3.6×, and it is an estimate.
 
 **Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
 re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are

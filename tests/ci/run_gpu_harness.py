@@ -411,11 +411,11 @@ BATCHES: tuple[BatchSpec, ...] = (
     # which doctest reports as PASSED. Retagged [SceneTree][RequiresGPU], it
     # needs a batch or it stays just as invisible as before.
     #
-    # The filter is deliberately narrow. No other case in the corpus carries
-    # exactly [GaussianSplatting][SceneTree][RequiresGPU], so this batch's blast
-    # radius is precisely the one case it is named for, and a new case joining
+    # The filter is deliberately narrow: only cases carrying exactly
+    # [GaussianSplatting][SceneTree][RequiresGPU] join it, and a new case joining
     # that tag triple is a deliberate opt-in to this batch rather than an
-    # accident. Measured ~16 s end to end on an RTX 3090 (device bring-up
+    # accident. Members: the world-streaming case above, and (#1054/#1063) the
+    # band-1 SH reference readback in test_sh_encoding.h. Measured ~16 s end to end on an RTX 3090 (device bring-up
     # dominates); 180 s is ~11x, comfortably clear of the >=1.5x headroom the
     # budget guard in test_gpu_harness_deferred_contract.py encodes as the
     # minimum, and consistent with the other SceneTree batches' budgets.

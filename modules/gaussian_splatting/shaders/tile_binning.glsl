@@ -64,7 +64,7 @@ struct Gaussian {
     vec4 rotation; // Quaternion
 
     vec4 sh_dc;
-    float sh_encoded[12];
+    uint sh_encoded[12];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
 
     vec3 normal;
 
@@ -265,6 +265,7 @@ layout(set = 0, binding = 6, std430) buffer DebugCounters {
     uint tiny_splat_param_q8;          // params.tiny_splat_screen_radius (max across threads)
     uint min_allowed_radius_q8;        // max(MIN_SPLAT_RADIUS, tiny_splat) (max across threads)
     uint min_radius_min_q8_inv;        // inverted min(min_radius) across threads: 0xFFFFFFFF - q8
+    uint sh_unknown_encoding_count;    // #1054: splats whose SH encoding id is unsupported (rendered DC-only)
 } debug_counters;
 
 const uint GS_DEBUG_SPLAT_AUDIT_MAX_SAMPLES = 64u;
@@ -443,7 +444,7 @@ bool gs_tile_intersects_projected_ellipse(vec2 center, vec3 conic, float sigma2,
 uint gs_build_quantized_sh_metadata(uint encoded_total, bool dc_linear_rgb) {
     uint first_count = min(encoded_total, 3u);
     uint high_count = encoded_total > first_count ? (encoded_total - first_count) : 0u;
-    uint metadata = first_count | (high_count << 8u) | (encoded_total << 16u) | (SH_ENCODING_RGB9E5 << 24u);
+    uint metadata = first_count | (high_count << 8u) | (encoded_total << 16u) | (SH_ENCODING_SNORM10_SPLAT_SCALE << 24u);
     if (dc_linear_rgb) {
         metadata |= SH_METADATA_DC_ENCODING_MASK;
     }
@@ -736,14 +737,14 @@ void main() {
     g.sh_dc = src.sh_dc;
     g.sh_metadata = gs_build_quantized_sh_metadata(6u, (chunk_meta.flags & GS_ASSET_FLAG_DC_LINEAR_RGB) != 0u);
     for (int i = 0; i < 12; ++i) {
-        g.sh_encoded[i] = 0.0;
+        g.sh_encoded[i] = 0u;
     }
-    g.sh_encoded[0] = uintBitsToFloat(src.sh_encoded_01.x);
-    g.sh_encoded[1] = uintBitsToFloat(src.sh_encoded_01.y);
-    g.sh_encoded[2] = uintBitsToFloat(src.sh_encoded_23.x);
-    g.sh_encoded[3] = uintBitsToFloat(src.sh_encoded_23.y);
-    g.sh_encoded[4] = uintBitsToFloat(src.sh_encoded_45.x);
-    g.sh_encoded[5] = uintBitsToFloat(src.sh_encoded_45.y);
+    g.sh_encoded[0] = src.sh_encoded_01.x;
+    g.sh_encoded[1] = src.sh_encoded_01.y;
+    g.sh_encoded[2] = src.sh_encoded_23.x;
+    g.sh_encoded[3] = src.sh_encoded_23.y;
+    g.sh_encoded[4] = src.sh_encoded_45.x;
+    g.sh_encoded[5] = src.sh_encoded_45.y;
     // Normal + stroke_age ARE carried in the 80-byte quantized payload
     // (pack_gaussian_quantized writes normal_xy / normal_z_stroke), so decode
     // them here. Zeroing g.normal used to force the thinnest-axis fallback below
@@ -1210,8 +1211,11 @@ void main() {
     float base_opacity = clamp(deformation.opacity * instance.params.x * params.opacity_multiplier *
             size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 0.99);
 
-    // Evaluate SH for view-dependent color using configurable band level
-    vec3 view_dir = normalize(params.camera_position.xyz - g.position);
+    // Evaluate SH for view-dependent color using configurable band level.
+    // #1063: the reference (Inria 3DGS computeColorFromSH, forward.cu) evaluates the basis with
+    // dir = pos - campos, i.e. FROM the camera TO the splat. The basis is odd in dir for bands 1
+    // and 3, so the opposite direction sign-flipped those bands against the trained coefficients.
+    vec3 view_dir = normalize(g.position - params.camera_position.xyz);
     vec3 view_dir_local = (instance.ids.y & GS_INSTANCE_FLAG_ROTATION_IDENTITY) != 0u
             ? view_dir
             : gs_quat_rotate(instance.inv_rotation, view_dir);
@@ -1235,6 +1239,9 @@ void main() {
         }
     }
     if (update_sh) {
+        if (sh_band_level > 0u && gaussian_sh_encoding_unsupported(g.sh_metadata)) {
+            GS_DEBUG_INCREMENT(sh_unknown_encoding_count);
+        }
         sh_color = evaluate_sh_with_bands(g, view_dir_local, sh_band_level);
         sh_color = max(sh_color, vec3(0.0));
         // Cache ungraded SH color so color grading changes immediately affect all splats
@@ -1249,6 +1256,9 @@ void main() {
     // Apply color grading after cache logic so it affects both cached and fresh SH
     sh_color = apply_color_grading_binning(sh_color, splat_ref.instance_id);
 #else
+    if (sh_band_level > 0u && gaussian_sh_encoding_unsupported(g.sh_metadata)) {
+        GS_DEBUG_INCREMENT(sh_unknown_encoding_count);
+    }
     vec3 sh_color = evaluate_sh_with_bands(g, view_dir_local, sh_band_level);
     // Clamp SH color to non-negative after evaluation
     // SH basis functions can produce negative contributions but final color should not be negative
@@ -1356,9 +1366,11 @@ void main() {
                         diffuse_light, specular_light);
             }
 
+            // Fraction of the baked SH radiance that engine shadows remove from this splat.
+            float shadow_weight = 0.0;
             if (shadow_strength > 0.0 && sh_occlusion > 0.0) {
-                float sh_factor = 1.0 - shadow_strength * clamp(sh_occlusion, 0.0, 1.0);
-                final_color *= sh_factor;
+                shadow_weight = shadow_strength * clamp(sh_occlusion, 0.0, 1.0);
+                final_color *= 1.0 - shadow_weight;
             }
 
             // Match Godot's forward path: diffuse light is multiplied by albedo at the end.
@@ -1369,9 +1381,21 @@ void main() {
 
             // Blend engine ambient out as SH indirect approaches full strength to avoid
             // double-counting baked indirect from the SH DC term.
+            // #1055: the share of baked SH radiance that a shadow removed is replaced by
+            // engine ambient. Without this, a fully shadowed splat at the default
+            // indirect_sh_scale = 1 received neither SH nor ambient and rendered pure
+            // black. Unshadowed splats are unchanged (shadow_weight == 0).
+            // Limits: only the flat ambient colour (ambient_light_color_energy.rgb) is
+            // available here. With sky-sourced ambient the engine leaves that colour at
+            // its (default black) value and meshes sample the sky cubemap instead, which
+            // this pass does not bind, so a shadowed splat under sky ambient still goes
+            // dark. Like the pre-existing ambient term, the product mixes the splat's
+            // display-encoded colour with linear ambient. The weight clamps k to [0, 1]
+            // on purpose: ambient is not scaled by the SH gain when k > 1.
             SceneData scene_data = scene_data_block.data;
             if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT)) {
-                float ambient_blend = 1.0 - clamp(params.lighting_config.y, 0.0, 1.0);
+                float sh_indirect = clamp(params.lighting_config.y, 0.0, 1.0);
+                float ambient_blend = (1.0 - sh_indirect) + sh_indirect * shadow_weight;
                 if (ambient_blend > 0.0) {
                     vec3 ambient = scene_data.ambient_light_color_energy.rgb;
                     final_color += ambient * vec3(h_albedo) * ambient_blend;
