@@ -433,3 +433,38 @@ maintainer's approval of §5. The recommended option is unchanged.
   CPU at read.
 - This is deliberate and version-scoped. The #1056 fix applies to everything produced or
   re-saved from now on, and the GPU never decodes `LEGACY_BIAS`.
+
+**Review round 2 (2026-09-23, Codex on `ca0b0aa6ba5`): open items that block slice 2.**
+These are recorded here, not resolved. The review found real gaps in the migration design,
+but they only bite when slice 2 is implemented. Slice 2 is not an alpha blocker, so
+another design round now would not move the alpha. Slice 2's PR must resolve all three,
+with the evidence named, before it is opened for review.
+
+1. **v1 world imports must stay on the legacy route (P1).**
+   - The §4 table row says untagged worlds fail at re-import after the importer bump
+     (2 → 3). Godot re-runs the importer for every existing v1 `.gsplatworld`, and the
+     importer copies the source and loads that copy (`io/resource_importer_gsplatworld.cpp:327`, `:345-347`), so the
+     rejection would fire before the promised legacy route is reached.
+   - Direction: the importer accepts v1 through the legacy reader with its warning.
+     Strict tag rejection is reserved for v2.
+   - Evidence: an editor re-import of a v1 fixture after the bump succeeds and warns.
+2. **Legacy GSIF colour deltas need a version or a migration (P1).**
+   - The §4 table says GSIF needs "no bump" because the baseline carries the tag. But a
+     v1 GSIF colour delta recorded against an untagged baseline holds legacy-space
+     `sh_dc`. `_apply_splat_changes()` assigns it directly (`persistence/incremental_saver.cpp:440-441`)
+     after the baseline was converted to canonical, which is silent colour corruption.
+   - Direction: bump GSIF and convert (or reject) v1 colour deltas by version.
+   - Evidence: a migration test with an untagged baseline plus a colour-changing delta.
+3. **The legacy appearance promise is DC-only (P2).**
+   - §8 and §6.4 promise that legacy files keep *exactly* today's appearance, with a
+     pixel-identical readback against the base. Slice 1 has since landed (#1062, including
+     the #1063 view-direction correction). Legacy files with non-zero higher-order SH
+     therefore already render differently from the old base: negative coefficients are no
+     longer clamped, and odd bands have the reference sign. Converting only `sh_dc` cannot
+     undo that, and should not.
+   - Direction: limit the compatibility guarantee, and §6.4's comparison fixture, to
+     DC/band-0 appearance (fixtures with zero higher-order SH, or DC-only rendering).
+
+**Slice 1 status.** Merged as #1062 (signed SNORM10 storage, evidence items 1, 2, 5, 6 and
+§8's `s` distribution, plus the #1063 view-direction fix). The dead RGB9E5 decoder in
+`gaussian_splat_common_inc.glsl` stayed by maintainer waiver; its deletion is #1064.
