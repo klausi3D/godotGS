@@ -672,13 +672,10 @@ INDIRECT_DISPATCH_SHADER_MIRRORS: tuple[tuple[Path, str, int, int], ...] = (
 # from both ends. The occurrence count is pinned as well: a new binding site that nobody
 # reviewed fails here rather than being silently accepted.
 #
-# NOT COVERED: compute/instance_count_clamp.glsl's bindings 1 and 3. Its host side goes through
-# a shared helper that takes the binding as a parameter
-# (interfaces/gpu_sorting_pipeline.cpp, `contract.binding = p_binding`), so there is no literal
-# to anchor at the append_id site. The GLSL side of both is still pinned above; only the C++
-# half of that one shader is unpinned, and it is called out here rather than left implicit.
-# (gpu_sorter.cpp's embedded IndirectCount shaders are wired by constructor, not append_id; they
-# are pinned in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS below.)
+# gpu_sorter.cpp's embedded IndirectCount shaders and compute/instance_count_clamp.glsl are not
+# wired through append_id: they pass the binding as a literal argument (an RD::Uniform
+# constructor, or gpu_sorting_pipeline.cpp's `append_binding(list, type, N, buffer, label)`
+# helper), and are pinned in INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS below.
 INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
     (
         ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_prefix_scan.cpp",
@@ -712,10 +709,12 @@ INDIRECT_DISPATCH_HOST_BINDING_PINS: tuple[tuple[Path, str, int, int], ...] = (
     ),
 )
 
-# Constructor-form host bindings: `<list>.push_back(RD::Uniform(<type>, N, <buffer>))`, which the
-# append_id walk above cannot see. (cpp_path, list_variable, buffer_variable, expected_binding,
+# Literal-argument host bindings, which the append_id walk above cannot see, in either spelling:
+# `<list>.push_back(RD::Uniform(<type>, N, <buffer>))` or `append_binding(<list>, <type>, N,
+# <buffer>, <label>)`. (cpp_path, list_variable, buffer_variable, expected_binding,
 # expected_occurrences). All four embedded radix-sort IndirectCount shaders (gpu_sorter.cpp,
-# pinned at bindings 2/3/6/0 in INDIRECT_DISPATCH_SHADER_MIRRORS) are wired this way. Coverage is
+# pinned at bindings 2/3/6/0 in INDIRECT_DISPATCH_SHADER_MIRRORS) and the instance count clamp
+# (instance_count_clamp.glsl bindings 1/3) are wired this way. Coverage is
 # also checked in reverse: every constructor-form site in a pinned file that binds a pinned
 # buffer variable must be accounted for by these pins, so a new uniform list that binds the
 # count buffer cannot go unpinned.
@@ -724,7 +723,34 @@ INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS: tuple[tuple[Path, str, str, int, int],
     (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "wg_prefix_uniforms", "count_buffer", 3, 1),
     (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "scatter_uniforms", "count_buffer", 6, 1),
     (ROOT / "modules" / "gaussian_splatting" / "renderer" / "gpu_sorter.cpp", "dispatch_uniforms", "count_buffer", 0, 1),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "interfaces" / "gpu_sorting_pipeline.cpp",
+        "clamp_bindings",
+        "inputs.indirect_count_buffer",
+        1,
+        1,
+    ),
+    (
+        ROOT / "modules" / "gaussian_splatting" / "interfaces" / "gpu_sorting_pipeline.cpp",
+        "clamp_bindings",
+        "inputs.instance_count_buffer",
+        3,
+        1,
+    ),
 )
+
+
+def _literal_binding_sites(text: str, list_pattern: str, buffer_var: str) -> list[tuple[str, int]]:
+    """(list_name, binding) for every literal-argument binding of `buffer_var` in `text`, in
+    either spelling INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS accepts. `list_pattern` is a regex
+    for the list variable: an escaped name, or `\\w+` for any list."""
+    buffer = re.escape(buffer_var)
+    patterns = (
+        rf"\b(?P<list>{list_pattern})\s*\.\s*push_back\(\s*RD::Uniform\(\s*RD::\w+\s*,\s*(?P<binding>\d+)\s*,\s*"
+        rf"{buffer}\s*\)\s*\)",
+        rf"\bappend_binding\(\s*(?P<list>{list_pattern})\s*,\s*RD::\w+\s*,\s*(?P<binding>\d+)\s*,\s*{buffer}\s*,",
+    )
+    return [(m.group("list"), int(m.group("binding"))) for pattern in patterns for m in re.finditer(pattern, text)]
 
 # Derived completeness sweep: EVERY buffer block whose body declares ANY IndirectDispatch marker
 # field (full views and prefix views alike) is discovered from the tree and validated on the
@@ -1027,24 +1053,19 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> dict[str, int]:
             failures.append(f"{cpp_rel}: expected IndirectDispatch constructor binding site not found")
             continue
         text = _blank_comments(cpp_path.read_text(encoding="utf-8"))
-        ctor_re = re.compile(
-            rf"\b{re.escape(list_var)}\s*\.\s*push_back\(\s*RD::Uniform\(\s*RD::\w+\s*,\s*(?P<binding>\d+)\s*,\s*"
-            rf"{re.escape(buffer_var)}\s*\)\s*\)"
-        )
-        sites = list(ctor_re.finditer(text))
+        sites = _literal_binding_sites(text, re.escape(list_var), buffer_var)
         if len(sites) != expected_occurrences:
             failures.append(
-                f"{cpp_rel}: found {len(sites)} `{list_var}.push_back(RD::Uniform(..., N, {buffer_var}))` site(s), "
+                f"{cpp_rel}: found {len(sites)} literal-argument binding site(s) of {buffer_var} in `{list_var}`, "
                 f"pinned {expected_occurrences}. Reconcile it with INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS."
             )
         coverage["host_ctor_binding_sites"] += len(sites)
         pinned_ctor_totals[(cpp_path, buffer_var)] = pinned_ctor_totals.get((cpp_path, buffer_var), 0) + expected_occurrences
-        for site in sites:
-            actual = int(site.group("binding"))
+        for _list_name, actual in sites:
             if actual != expected_binding:
                 failures.append(
                     f"{cpp_rel}: `{list_var}` binds {buffer_var} at binding {actual}, pinned {expected_binding} "
-                    "(the embedded GLSL declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
+                    "(the GLSL side declares that binding; see INDIRECT_DISPATCH_SHADER_MIRRORS)."
                 )
 
     # (e2) Reverse coverage for (e): every constructor-form site in a pinned file that binds a
@@ -1053,15 +1074,11 @@ def _check_indirect_dispatch_abi(failures: list[str]) -> dict[str, int]:
     #      sitting outside the per-list occurrence counts.
     for (cpp_path, buffer_var), pinned_total in pinned_ctor_totals.items():
         text = _blank_comments(cpp_path.read_text(encoding="utf-8"))
-        any_list_re = re.compile(
-            rf"(?P<list>\w+)\s*\.\s*push_back\(\s*RD::Uniform\(\s*RD::\w+\s*,\s*\d+\s*,\s*"
-            rf"{re.escape(buffer_var)}\s*\)\s*\)"
-        )
-        all_sites = list(any_list_re.finditer(text))
+        all_sites = _literal_binding_sites(text, r"\w+", buffer_var)
         if len(all_sites) != pinned_total:
             failures.append(
-                f"{cpp_path.relative_to(ROOT)}: found {len(all_sites)} constructor-form binding(s) of "
-                f"`{buffer_var}` across uniform lists {sorted({m.group('list') for m in all_sites})}, but "
+                f"{cpp_path.relative_to(ROOT)}: found {len(all_sites)} literal-argument binding(s) of "
+                f"`{buffer_var}` across uniform lists {sorted({name for name, _ in all_sites})}, but "
                 f"INDIRECT_DISPATCH_HOST_CTOR_BINDING_PINS accounts for {pinned_total}. A binding of this "
                 "buffer from an unpinned list has an unchecked slot; pin it."
             )
