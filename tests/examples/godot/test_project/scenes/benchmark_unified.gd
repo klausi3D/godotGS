@@ -30,7 +30,7 @@ const CAMERA_KEYS := [
 	{"t": 1.0, "offset": Vector3(0.0, 16.0, 45.0), "look": Vector3(0.0, 6.0, 0.0)},
 ]
 
-const MONITOR_KEYS := [
+const MONITOR_KEYS: Array[String] = [
 	"gaussian_splatting/gpu_time_frame_ms",
 	"gaussian_splatting/gpu_time_cull_ms",
 	"gaussian_splatting/gpu_time_raster_ms",

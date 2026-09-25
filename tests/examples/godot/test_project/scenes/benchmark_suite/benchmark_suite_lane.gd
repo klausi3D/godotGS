@@ -18,7 +18,7 @@ const SETTINGS_APPLY_INTERVAL := 0.1
 const ABORT_EXIT_CODE := 3
 const STREAMING_VRAM_CHUNK_CAP_MONITOR := "gaussian_splatting/streaming_vram_chunk_cap_hit"
 
-const MONITOR_KEYS := [
+const MONITOR_KEYS: Array[String] = [
 	"gaussian_splatting/gpu_time_frame_ms",
 	"gaussian_splatting/gpu_time_cull_ms",
 	"gaussian_splatting/gpu_time_raster_ms",

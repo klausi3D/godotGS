@@ -48,7 +48,7 @@ struct Gaussian {
     vec4 rotation;
 
     vec4 sh_dc;
-    float sh_encoded[12];
+    uint sh_encoded[12];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
 
     vec3 normal;
 
@@ -233,9 +233,20 @@ void main() {
         // Cooperative shared memory load for this batch
         if (gl_LocalInvocationIndex == 0) {
             gs_shared_splat_count = batch_size;
-            gs_shared_all_saturated = 1u;
         }
         barrier();
+
+        // #1050: reset the early-exit flag only AFTER the barrier above. Every
+        // invocation reads the previous batch's flag at the bottom of the loop, and
+        // this barrier is the first point at which all of them are known to have
+        // done so. Resetting it before the barrier let invocation 0 overwrite the
+        // flag while a lagging invocation had not read it yet; that invocation then
+        // left the loop alone and the rest of the workgroup reached barrier() in
+        // non-uniform control flow (undefined behaviour). The reset still precedes
+        // the next barrier, which orders it before this batch's atomicAnd writes.
+        if (gl_LocalInvocationIndex == 0) {
+            gs_shared_all_saturated = 1u;
+        }
 
         for (uint i = local_index; i < batch_size; i += local_invocations) {
             uint sorted_idx = sorted_values.values[range_start + batch_start + i];

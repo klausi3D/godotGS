@@ -534,7 +534,28 @@ which brings it into the derived set automatically.
 - Python 3.11
 - PyYAML 6.0.2 for workflow parsing in `agentic-pr-gate`, installed from the
   CI-only version-and-hash pin in `tests/ci/requirements-automation.txt`
-- SCons/build toolchain for compiled lanes
+- SCons/build toolchain for compiled lanes. Every `pip install` in CI uses
+  `--require-hashes` against a version-and-hash-locked file (GAP-403). Each
+  lock records its pip-tools regeneration command in its header.
+  - `tests/ci/requirements-scons.txt` (SCons 4.10.1, compiled from
+    `requirements-scons.in`) is for the self-hosted Windows build jobs in
+    `baseline_qa.yml`, `gaussian_production_gates.yml`, `release_builds.yml` and
+    `release_ci_runtime.yml`. Because that runner is the maintainer's
+    workstation, those jobs never install into its global Python. Each job
+    creates a venv under `$RUNNER_TEMP`, installs the lock there, and prepends
+    the venv's `Scripts` directory to `GITHUB_PATH`, so every later `python`,
+    `python -m SCons` included, runs in the venv. The self-hosted jobs with no
+    install step (`guards`, `export_smoke_windows`, and the job in
+    `gaussian_shader_validation.yml`) still use the global interpreter but
+    install nothing into it.
+  - `tests/ci/requirements-test-data.txt` (numpy, compiled from
+    `requirements-test-data.in`) is for the hosted `cpu-tests` job in
+    `baseline_qa.yml`, which takes its SCons from apt.
+  - `docs/requirements-lock.txt` is for `docs_pages.yml`. It holds the full
+    transitive docs stack, compiled from `docs/requirements.txt` and
+    `docs/requirements-site.txt`.
+  - The hosted Linux jobs in `release_builds.yml` take their SCons from apt and
+    install nothing from PyPI.
 - Self-hosted Windows runner attached to this repository with labels `self-hosted`, `Windows`, `X64`, `godotgs`
 - Optional GPU evidence label `gpu` for the Windows evidence lane
 - Vulkan-capable environment for render-path lanes

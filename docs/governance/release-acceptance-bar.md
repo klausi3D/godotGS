@@ -373,9 +373,14 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > **The real precondition, and the single largest cost of the public alpha: every open P0,
 > P1 and release-blocker must be closed or ledgered.** Measured **2026-09-19**: **2 open P0**
 > (#182, #184), **36 open P1**, **4 carrying `release blocker`** (#1010, #1011, #1012,
-> #1016) — **38 distinct issues**. The ledger holds four entries (#351, #352, #360, #369).
-> The figure moves — it was 37 hours earlier, before #1025 gained `priority:P1` — so
-> re-query it rather than quoting this line; the rule above is what binds.
+> #1016) — **38 distinct issues**. The figure moves — it was 37 hours earlier, before #1025
+> gained `priority:P1` — so re-query it rather than quoting this line; the rule above is what
+> binds.
+>
+> **Ledger contents, measured separately on 2026-09-22** (do not read the two counts as one
+> subtraction): five entries — #351, #352, #360, #369, and **#1025 since #1038**. One of the
+> 38 above, #1025, is therefore discharged by a ledger entry rather than still outstanding;
+> the other 37 are neither closed nor ledgered.
 > An earlier revision of this section said the precondition was "#351, #352 and #360 must be
 > closed"; that was wrong twice over — #351 and #352 closed in June, and the requirement was
 > never about three issues.
@@ -545,24 +550,38 @@ R3", why it carries `needs-adr`, and why it would need two independent reviews a
 CODEOWNER. That is **class follows the design, not the cheaper glob**, the rule this
 repository already applies in the other direction. Condition 2 is satisfied on that reading
 and on no other: **if a maintainer reads "R3 at the engine boundary" literally, as requiring
-an edit outside the module, condition 2 fails and #1025 returns to the §4 blocker query.**
+an edit outside the module, condition 2 fails and #1025 must return to the §4 blocker query.**
 Nothing here re-reads the condition to fit the instance; the two readings are written down so
 the choice between them is visible.
+
+> **Revoking this acceptance now costs an R3 edit, and that asymmetry is deliberate but
+> must not be mistaken for the gate still being able to block.** Since #1038 put #1025 in
+> `public_alpha_issue_ledger`, `_validate_candidate_issues` (`:1918`) uses the **manifest's**
+> classification in preference to the bundle's, and the only earlier escape,
+> `_candidate_issue_is_manifest_resolved` (`:1843-1848`), fires only for `status: "blocking"`.
+> So a candidate bundle that classifies #1025 `blocking` — because a maintainer took the
+> literal reading above, or simply withdrew the acceptance — **is ignored, and the gate
+> passes anyway**. Putting #1025 back in the blocker set therefore means editing the ledger
+> entry (two independent reviews plus CODEOWNER), not writing a different bundle. That is
+> the correct place for the decision, and it means a withdrawal has to be executed in the
+> manifest to take effect. Do not read a `blocking` classification in a bundle as having
+> done it.
 
 **And a §8.1 row is not by itself a machine-visible disclosure** — §9.1 sets out
 what the gate actually requires (a label in `classification_labels_any`, a
 `docs_path` equal to `known_limitations_page`, an entry in the manifest ledger, and
 a snapshot the gate cannot verify is complete). Concretely for this row: #1025 carries
-`priority:P1`, so the gate asks about it, and it now has both the human acceptance and
-the `docs_path` — but **it is still not in the ledger**, so no candidate bundle can
-classify it either way. `accepted_alpha_limitation` fails on
-`check_renderer_release_gates.py:1921-1924` ("must be tracked in
-`public_alpha_issue_ledger`") and `blocking` fails on `:1793-1800`. Adding the entry is
-an **R3** edit to `docs/reference/renderer_release_gate_manifest.json`
-(`.agentic/policy.json`, "Release / security / CI workflow surface"), which is why it is
-not carried by the R0 documentation change that recorded the acceptance; it is tracked as
-**#1038** and must land before any `v*-alpha*` tag. Until then this disclosure is
-human-visible and machine-invisible. That is the fail-closed direction.
+`priority:P1`, so the gate asks about it; it has the human acceptance, the `docs_path`, and
+since **#1038** a `public_alpha_issue_ledger` entry. All three were needed. Until that entry
+landed no candidate bundle could classify #1025 **either way** —
+`accepted_alpha_limitation` failed on `check_renderer_release_gates.py:1921-1924` ("must be
+tracked in `public_alpha_issue_ledger`") and `blocking` failed on `:1793-1800` — which was
+the fail-closed direction, not a bug to route around. The entry is an **R3** edit to
+`docs/reference/renderer_release_gate_manifest.json` (`.agentic/policy.json`, "Release /
+security / CI workflow surface"), which is why it was not carried by the R0 documentation
+change that recorded the acceptance. **What the entry buys is narrow**: the gate can now
+resolve #1025, and nothing more. The snapshot it resolves against is still one the gate
+cannot verify is complete, and the ledger is still hand-maintained (#963).
 
 **And a caveat that is part of the decision, not a footnote.** All three lanes exist,
 and none of them is release evidence today. `tests/fixtures/benchmark_asset_manifest.json`
@@ -697,8 +716,9 @@ rather than a ceiling.
    happen and is recorded only so the choice that was made is legible against the one
    that was not. #929 needed no label in the end, because it is closed; **#1025 carries
    `priority:P1` in its own right**, which is what makes the gate ask about it.
-   What #1025 still lacks is the `public_alpha_issue_ledger` entry (§9.1, §10.1) —
-   an R3 manifest edit, tracked as **#1038**.
+   The `public_alpha_issue_ledger` entry #1025 also needed (§9.1, §10.1) — an R3
+   manifest edit — was added by **#1038**, so the disclosure is now machine-visible
+   as well as human-visible.
 
    #929 itself carried no remaining work either way: the residual lives in
    #1025, which already carries `priority:P1`.

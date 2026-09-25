@@ -1902,13 +1902,13 @@ TEST_CASE("[GaussianSplatting][Renderer] SH metadata preserves DC encoding mode"
     legacy.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
     pack_gaussian(legacy, packed, metrics, nullptr, 0, 0);
     CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_RGB9E5);
+    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_SNORM10_SPLAT_SCALE); // #1054: signed SH storage
 
     Gaussian linear = legacy;
     linear.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
     pack_gaussian(linear, packed, metrics, nullptr, 0, 0);
     CHECK(gs_get_dc_encoding(packed.sh_metadata) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_RGB9E5);
+    CHECK(gs_get_sh_encoding(packed.sh_metadata) == GS_SH_ENCODING_SNORM10_SPLAT_SCALE); // #1054: signed SH storage
 }
 
 TEST_CASE("[GaussianSplatting][Renderer] Shader SH metadata masks match host DC encoding contract") {

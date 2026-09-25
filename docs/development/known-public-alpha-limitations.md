@@ -56,14 +56,14 @@ entry that has not been reproduced **must not** be pointed at by a candidate's
 check. Do not relax the criterion at the top of this page to make an entry admissible —
 produce the evidence, or leave the issue in the blocker set.
 
-**And clearing it is still not sufficient.** #1025 is the one entry here with a named human
-acceptance and hardware evidence behind all five bullets, and a candidate bundle *still*
-cannot cite it: the gate additionally requires the issue to appear in the manifest's
-`public_alpha_issue_ledger`, and #1025 does not
-(`tests/ci/check_renderer_release_gates.py:1921-1924`). That entry is an R3 manifest edit,
-tracked as [#1038](https://github.com/klausi3D/godotGS/issues/1038). Until it lands, this
-disclosure is real for a reader and invisible to the machine — recorded here rather than
-left to be discovered at tag time.
+**And clearing it is still not sufficient.** A candidate bundle may cite an entry here only
+if the issue *also* appears in the manifest's `public_alpha_issue_ledger`
+(`tests/ci/check_renderer_release_gates.py:1921-1924`). #1025 is the one entry on this page
+that has all of it — a named human acceptance, hardware evidence behind all five bullets,
+and, since [#1038](https://github.com/klausi3D/godotGS/issues/1038), a ledger entry. **Every
+other entry here is still machine-invisible**, and adding a ledger entry is an R3 manifest
+edit, not a docs change. Read an entry on this page as a disclosure to a reader, not as
+something a release candidate may cite, unless the ledger says otherwise.
 
 Verified against `b915afc51c5` (2026-09-17), **except where an entry names its own commit**.
 The #1025 entry below is verified against `bc77ce31e9c` (2026-09-20): the behaviour it
