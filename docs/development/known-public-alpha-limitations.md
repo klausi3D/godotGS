@@ -493,15 +493,23 @@ Prefer reducing density.
 Scaling the numbers above to 1080p gives about 56 records per splat, so the cap is reached
 at roughly **1.8 million visible splats**.
 
-**At default settings, no splat limit keeps you below that.** A freshly imported `.ply` or
-`.spz` uses the Ultra import preset, which keeps every splat. The renderer treats such an
-asset as full-fidelity and budgets for its whole splat count, ignoring the node's
-`max_splat_count`. So a default-imported scene with more than about 1.8 million splats in
-view can reach the cap on either node. `max_splat_count` does apply to assets imported with a
-lighter preset. There it is 500,000 on a default `GaussianSplatNode3D` (its Balanced quality
-preset sets it when the node is created), which is about 28 million records, or 3.6× under
-the cap. It is 1,000,000 on `GaussianSplatWorld3D` or on the node's Quality preset, which is
-about 56 million records, or 1.8×.
+Whether a splat limit keeps you below that depends on how the asset was imported:
+
+- **Imported automatically** (a `.ply` or `.spz` dropped into the project and imported with
+  Godot's default options): this uses the Ultra import preset, which sets no splat-count cap
+  and full density. The renderer treats such an asset as full-fidelity and budgets for its whole splat
+  count, not the node's `max_splat_count`. On this route no splat limit applies, so a scene
+  with more than about 1.8 million splats in view can reach the cap on either node.
+- **Imported through the module's import dialog** with its preselected settings: this uses
+  the Desktop preset, which keeps at most 750,000 splats at 0.7 density. The node's
+  `max_splat_count` then also applies. It is 500,000 on a default `GaussianSplatNode3D`,
+  because its Balanced quality preset sets that when the node is created. That comes to about
+  28 million records, or 3.6× under the cap. It is 1,000,000 on `GaussianSplatWorld3D` or on
+  the node's Quality preset, so the asset's 750,000 is the binding limit. That comes to about
+  42 million records, or 2.4×.
+
+Any other import preset or node quality setting changes these figures. The condition that
+matters is the one above: more than about 1.8 million splats in view at 1080p.
 
 Whether a real scene at 1080p has that many splats in view at once has not been measured.
 All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
