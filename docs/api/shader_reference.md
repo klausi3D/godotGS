@@ -1,8 +1,8 @@
 # Shader Reference
 
-Last generated: 2026-09-16
+Last generated: 2026-09-24
 
-Coverage summary: `185` documented functions, `13` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `186` documented functions, `13` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -931,8 +931,12 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Read the SH storage format identifier from metadata.</td>
     </tr>
     <tr>
-      <td><pre><code>decode_rgb9e5(uint packed)</code></pre></td>
-      <td>Decode one RGB9E5-packed SH coefficient triplet to linear RGB.</td>
+      <td><pre><code>decode_sh_snorm10(uint packed, float splat_scale)</code></pre></td>
+      <td>Decode one signed SH coefficient triplet (bitfieldExtract on a signed int sign-extends).</td>
+    </tr>
+    <tr>
+      <td><pre><code>gaussian_sh_encoding_unsupported(uint meta)</code></pre></td>
+      <td>True when the splat carries SH words in a format this decoder does not understand. evaluate_sh_with_bands() then falls back to DC only; callers count it (debug counter sh_unknown_encoding_count) so the fallback is observable rather than silent.</td>
     </tr>
     <tr>
       <td><pre><code>compute_sh_basis(vec3 dir, uint max_band, out float basis[16])</code></pre></td>

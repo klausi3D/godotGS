@@ -120,9 +120,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 163,
-    "sha256": "637a7fa5b10bac1ff8f5ad7f1cfc0a62ebf9822982947e413e362c94f9833699",
-    "sha256_last_changed_by": "#862 (GaussianSplatWorld3D never resubmitted when the assigned GaussianSplatWorld resource's payload changed, so the director kept the apply-time snapshot): INCREASE 162 -> 163 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_gaussian_splat_node.h, tagged [GaussianSplatting][Node][SceneTree][RequiresGPU] (\"#862 A payload that arrives after apply reaches the shared renderer and wins the route gate\"), selected by the NodeSceneTree batch, which runs 36 -> 37 cases. NodeSceneTree is NOT a required_batch (deliberately un-promoted, #724), so no minimum_test_cases changes and no threshold moves. The case is the only in-repo proof that the fix reaches the RENDERER rather than only the director's record: it asserts renderer->get_gaussian_data(), has_world_submission_for_renderer(), and that get_submission_residency_hint_for_renderer() now reports source \"world_submission\". Mutation-proven on an RTX 3090 / Vulkan: with the fix reverted the same case fails 4 of its 6 assertions. running_in_a_named_batch 96 -> 97, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 924594d23c926a4e5e48ac7844640770eb387df4c0ca59a250099334d9536499 (count 162, #928). Prior provenance: #928 (pre-upscale compute composite forced alpha=1.0, flattening splat coverage on transparent_bg viewports): INCREASE 161 -> 162 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h, tagged [GaussianSplatting][OutputCompositor][SceneTree][RequiresGPU] (\"Pre-upscale composite preserves destination alpha instead of forcing opaque\"), selected by the OutputCompositor batch (a REQUIRED batch; minimum_test_cases RAISED 3 -> 4 so a filter drift that stops selecting this case turns the gate red). [SceneTree] is deliberate: it lets the case assert its environment with FAIL() instead of adding a site to the shrink-only environment-skip inventory (#595), and it supplies the TextureStorage singleton the depth_test=false compute route needs. running_in_a_named_batch 95 -> 96, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 42055b719cd82c5968d7b56a6243f098d11c9563dacf9879a3b7657ecf88608e (count 161, #980 / #984).",
+    "test_count": 164,
+    "sha256": "fb4cd428337895c28ccffea13a6c86b2ecb31865e1fb1e8fa47b2ce00b3092b7",
+    "sha256_last_changed_by": "#1054 / #1063 (SH coefficients stored unsigned, so negative SH clamped to zero; band-1 SH evaluated with the view direction reversed against the reference): INCREASE 163 -> 164 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_sh_encoding.h, tagged [GaussianSplatting][SceneTree][RequiresGPU] (\"Band-1 SH renders the reference colour delta on-axis and off-axis, unquantized and quantized (#1054, #1063)\"), selected by the RendererSceneTree batch (a REQUIRED batch; minimum_test_cases RAISED 1 -> 2 so a filter drift that stops selecting this case turns the gate red). It renders one splat per band-1 slot and sign and compares the red delta with the Inria computeColorFromSH reference on both the unquantized and the quantized atlas route. Mutation-proven on an RTX 3090 / Vulkan: reversing the view direction fails 14 of 24 assertions; clamping negative coefficients to zero fails 7 of 24. running_in_a_named_batch 97 -> 98, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 637a7fa5b10bac1ff8f5ad7f1cfc0a62ebf9822982947e413e362c94f9833699 (count 163, #862 / #1009).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -219,7 +219,7 @@
       },
       {
         "name": "RendererSceneTree",
-        "minimum_test_cases": 1,
+        "minimum_test_cases": 2,
         "allow_skips": false,
         "allow_timeout": false,
         "allow_rid_leaks": false,
@@ -447,8 +447,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 163,
-      "running_in_a_named_batch": 97,
+      "requires_gpu_total": 164,
+      "running_in_a_named_batch": 98,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },

@@ -17,7 +17,27 @@ static constexpr uint32_t GS_SH_METADATA_HIGH_ORDER_MASK = 0x0000FF00u;
 static constexpr uint32_t GS_SH_METADATA_ENCODED_COUNT_MASK = 0x00FF0000u;
 static constexpr uint32_t GS_SH_METADATA_ENCODING_MASK = 0x7F000000u;
 static constexpr uint32_t GS_SH_METADATA_DC_ENCODING_MASK = 0x80000000u;
+// Retired (#1054): unsigned shared-exponent RGB9E5 clamped every negative SH coefficient to
+// zero. Kept only so the id is never reused; no packer emits it and no shader decodes it.
 static constexpr uint32_t GS_SH_ENCODING_RGB9E5 = 1u;
+// Signed SH storage (docs/architecture/adr-splat-colour-encoding.md, option E): each
+// coefficient triplet is three 10-bit two's-complement integers in bits 0-9 / 10-19 / 20-29
+// (bits 30-31 zero), scaled by one per-splat magnitude stored in the sh_dc.w lane:
+// coeff = q * (scale / 511). Mirrored by decode_sh_snorm10() in shaders/includes/gs_sh_binning.glsl.
+static constexpr uint32_t GS_SH_ENCODING_SNORM10_SPLAT_SCALE = 2u;
+static constexpr int32_t GS_SH_SNORM10_MAX = 511;
+
+// C++ mirror of the GLSL decoder (host round-trip tests; the layout-sync guard pins both).
+inline Vector3 gs_decode_sh_snorm10(uint32_t p_packed, float p_scale) {
+    const auto extract = [](uint32_t p_word, uint32_t p_offset) -> int32_t {
+        const int32_t q = int32_t((p_word >> p_offset) & 0x3FFu);
+        return (q & 0x200) ? q - 0x400 : q; // sign-extend 10 bits
+    };
+    const float step = p_scale * (1.0f / float(GS_SH_SNORM10_MAX));
+    return Vector3(float(extract(p_packed, 0u)) * step,
+            float(extract(p_packed, 10u)) * step,
+            float(extract(p_packed, 20u)) * step);
+}
 static constexpr uint32_t GS_GPU_ASSET_FLAG_IS_2D = 1u << 0u;
 static constexpr uint32_t GS_GPU_ASSET_FLAG_DC_LINEAR_RGB = 1u << 1u;
 
@@ -239,7 +259,7 @@ struct alignas(16) PackedSphericalHarmonics {
     static constexpr uint32_t MAX_ENCODED_COEFFICIENTS = 12;
 
     float dc[4];
-    float encoded[MAX_ENCODED_COEFFICIENTS];
+    uint32_t encoded[MAX_ENCODED_COEFFICIENTS]; // #1054: raw SNORM10 SH words (uint, never float-typed)
 
     void clear();
 };
@@ -288,7 +308,7 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_m
  *   area_lo: uint16_t - Low 16 bits of area as float16 (2 bytes)
  *   rotation: uint16_t[4] - Quaternion as float16 (8 bytes)
  *   sh_dc: float[4] - DC coefficients (16 bytes)
- *   sh_encoded: uint32_t[6] - Higher-order SH as RGB9E5 pairs (24 bytes)
+ *   sh_encoded: uint32_t[6] - SH coefficient triplets as signed SNORM10 words, scale in sh_dc[3] (24 bytes)
  *   normal_xy: uint32_t - Normal xy as half2 (4 bytes)
  *   normal_z_stroke: uint32_t - Normal z + stroke_age as half2 (4 bytes)
  *   painterly_data: uint32_t - Packed painterly meta (4 bytes)
@@ -310,7 +330,7 @@ struct alignas(16) PackedGaussianQuantized {
     uint16_t _pre_sh_padding[2];    // 4 bytes @28 - Align to 32
 
     float sh_dc[4];                 // 16 bytes @32 - DC coefficients (FP32)
-    uint32_t sh_encoded[6];         // 24 bytes @48 - RGB9E5 encoded higher-order
+    uint32_t sh_encoded[6];         // 24 bytes @48 - SNORM10 SH words (scale in sh_dc[3])
 
     uint32_t normal_xy;             // 4 bytes @72 - packHalf2x16(nx, ny)
     uint32_t normal_z_stroke;       // 4 bytes @76 - packHalf2x16(nz, stroke_age)
