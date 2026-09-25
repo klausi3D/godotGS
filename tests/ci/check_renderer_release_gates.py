@@ -1342,7 +1342,80 @@ def _open_world_corridor_proof_content_failures(
                 f"required minimum {minimum}"
             )
 
+    failures.extend(_corridor_proof_contract_failures(group, str(required_lane), document))
     return failures
+
+
+_BENCHMARK_RUNNER_MODULE: Any = None
+
+
+def _load_benchmark_runner() -> Any:
+    """Import ``tests/runtime/run_benchmark.py``, which owns the lane proof contracts.
+
+    Loaded from this checkout rather than from the candidate root: the contract is the
+    repository's policy, not something a candidate bundle may supply for itself.
+    """
+    global _BENCHMARK_RUNNER_MODULE
+    if _BENCHMARK_RUNNER_MODULE is None:
+        runtime_dir = ROOT / "tests" / "runtime"
+        # run_benchmark.py imports its sibling helpers by bare module name.
+        if str(runtime_dir) not in sys.path:
+            sys.path.insert(0, str(runtime_dir))
+        spec = importlib.util.spec_from_file_location(
+            "godotgs_release_gate_run_benchmark", runtime_dir / "run_benchmark.py"
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("unable to import tests/runtime/run_benchmark.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _BENCHMARK_RUNNER_MODULE = module
+    return _BENCHMARK_RUNNER_MODULE
+
+
+def _corridor_proof_contract_failures(group: Any, lane_id: str, document: dict[str, Any]) -> list[str]:
+    """The report must PASS the lane's own correctness contract, not only show turnover.
+
+    The minimum_values floors prove chunks loaded and evicted; they say nothing about
+    whether anything was visible. A run that streamed chunks behind a black screen met
+    every floor while failing ``run_benchmark.py``'s corridor contract (residency_ratio,
+    first_visible_ms, no-progress and scan-starved frames, VRAM cap hits), and because
+    ``open_world_corridor_proof`` is not a candidate-required benchmark lane nothing
+    else in the candidate gate reads its ``proof_status`` (Codex review on #1046).
+
+    The contract is evaluated with the harness's own function against the harness's own
+    table, so this gate and ``run_benchmark.py`` cannot disagree about what "passed"
+    means. ``proof_valid`` is the harness's verdict: ``pass`` or ``warn`` (a soft
+    timing budget only) is accepted; ``fail``, ``missing_telemetry`` and
+    ``report_unavailable`` are not, so a report missing a correctness metric fails
+    closed rather than being scored on the metrics it happens to carry.
+    """
+    try:
+        runner = _load_benchmark_runner()
+    except Exception as exc:  # noqa: BLE001 - any import failure must fail closed
+        return [
+            f"candidate artifact {group} could not be checked against the corridor proof "
+            f"contract because tests/runtime/run_benchmark.py failed to load: {exc}"
+        ]
+    if lane_id not in runner.LARGE_WORLD_PROOF_CONTRACTS:
+        return [
+            f"candidate artifact {group} requires lane {lane_id!r}, which has no large-world "
+            "proof contract in tests/runtime/run_benchmark.py, so there is nothing that "
+            "could establish the proof passed"
+        ]
+    outcome = runner._evaluate_large_world_proof_contract(lane_id, document)
+    if outcome.get("proof_valid") is True:
+        return []
+    issues = [
+        str(issue.get("message", ""))
+        for key in ("proof_failures", "proof_missing_telemetry")
+        for issue in outcome.get(key) or []
+    ]
+    return [
+        f"candidate artifact {group} fails the {lane_id} proof contract "
+        f"(proof_status={outcome.get('proof_status')!r}): "
+        + ("; ".join(issues) if issues else "no detail reported")
+    ]
 
 
 # The single registry of content-validator kinds. `_CONTENT_VALIDATOR_KINDS` is DERIVED

@@ -97,6 +97,8 @@ report and to show telemetry that was measured:
 | a `proof_metrics` block exists | a JSON file that is not a lane report |
 | every flag in `required_telemetry_available` is `true` | numbers that were defaulted rather than measured |
 | every `minimum_values` entry is a number at or above its floor | a single-chunk run, an empty measurement window, a `null` read as zero |
+| every `minimum_values` entry is finite | `NaN` / `Infinity`, which compare false against every floor |
+| the report passes `run_benchmark.py`'s `open_world_corridor_proof` correctness contract (`proof_valid`, evaluated by the harness's own `_evaluate_large_world_proof_contract`) | a run that turned chunks over behind a black screen: the floors above say nothing about visibility, residency or forward progress, and `open_world_corridor_proof` is not a candidate-required lane, so nothing else reads its `proof_status` |
 
 Three deliberate fail-closed choices:
 

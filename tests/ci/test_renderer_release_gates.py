@@ -3476,11 +3476,18 @@ class GpuHarnessCaseAssertAuditTests(unittest.TestCase):
 
 
 def _honest_corridor_proof_report() -> dict[str, Any]:
-    """A lane report shaped as ``benchmark_suite_lane.gd`` writes it for the proof lane.
+    """CONSTRUCTED, NOT CAPTURED -- a known open review finding (Codex, #1046).
 
-    Values are illustrative, not a recorded run. The point of this fixture is the
-    *shape and the availability flags*, which is what the validator asserts; it must
-    never be cited as evidence that the lane passed on hardware.
+    tests/AGENTS.md requires a producer-format fixture to be captured from the producer.
+    This one is not: it is hand-built from the key names in ``_build_proof_metrics``
+    (benchmark_suite_lane.gd). It must be replaced by a real ``open_world_corridor_proof``
+    lane report once the shared GPU runner is free to produce one. Until then it proves
+    only the validator's logic, not that the producer emits this shape. It is never
+    evidence that the lane passed on hardware.
+
+    The correctness and soft-budget metrics are set to PASSING values because the
+    validator now also evaluates run_benchmark.py's corridor proof contract; a real run
+    may well not pass it (see the Codex finding on residency_ratio).
     """
     return {
         "lane_id": "open_world_corridor_proof",
@@ -3491,8 +3498,16 @@ def _honest_corridor_proof_report() -> dict[str, Any]:
             "loaded_chunks": 46,
             "atlas_published_chunks": 44,
             "total_splats": 20000000,
-            "residency_ratio": 0.0711,
+            "residency_ratio": 0.82,
+            "first_visible_ms": 1200.0,
             "queue_pressure_frames": 11,
+            "no_progress_frames": 0,
+            "scan_starved_frames": 0,
+            "vram_cap_hit_frames": 0,
+            "frame_p95_ms": 24.0,
+            "frame_p95_to_avg_ratio": 1.3,
+            "chunk_loads_per_frame_p95": 2.0,
+            "chunk_evictions_per_frame_p95": 1.0,
             "chunk_loads_total": 312.0,
             "chunk_evictions_total": 266.0,
             "streaming_state_telemetry_available": True,
@@ -3692,6 +3707,59 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
             Path(self._tmp), self.PROOF_REL, json.dumps(report)
         )
         self.assertTrue(any("not a finite measurement" in failure for failure in failures))
+
+    def test_report_failing_the_corridor_correctness_contract_is_rejected(self) -> None:
+        """Codex review on #1046: turnover floors say nothing about visibility.
+
+        A run that loads and evicts chunks behind a black screen meets every
+        minimum_values floor. open_world_corridor_proof is not a candidate-required
+        benchmark lane, so nothing else in the candidate gate reads its proof_status;
+        the artifact itself must pass run_benchmark.py's correctness contract.
+        """
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["residency_ratio"] = 0.0711
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(
+            any("fails the open_world_corridor_proof proof contract" in f and "residency_ratio" in f
+                for f in failures),
+            f"a report failing the corridor correctness contract must be rejected; got {failures}",
+        )
+
+    def test_report_missing_a_correctness_metric_fails_closed(self) -> None:
+        """Absent is not passing: a contract metric the report lacks is missing_telemetry."""
+        report = _honest_corridor_proof_report()
+        del report["proof_metrics"]["first_visible_ms"]
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertTrue(
+            any("missing_telemetry" in f and "first_visible_ms" in f for f in failures),
+            f"a missing contract metric must fail closed; got {failures}",
+        )
+
+    def test_soft_budget_breach_alone_is_accepted(self) -> None:
+        """`warn` is the harness's own passing verdict (proof_valid true); keep them in step."""
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["frame_p95_ms"] = 500.0
+        failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        self.assertEqual(failures, [])
+
+    def test_contract_is_the_harness_table_not_a_copy(self) -> None:
+        """The gate must evaluate run_benchmark.py's contract, so the two cannot drift."""
+        runner = checker._load_benchmark_runner()
+        report = _honest_corridor_proof_report()
+        original = runner.LARGE_WORLD_PROOF_CONTRACTS["open_world_corridor_proof"]["correctness_thresholds"]
+        tightened = [dict(rule) for rule in original]
+        for rule in tightened:
+            if rule["metric"] == "residency_ratio":
+                rule["value"] = 0.99
+        runner.LARGE_WORLD_PROOF_CONTRACTS["open_world_corridor_proof"]["correctness_thresholds"] = tightened
+        try:
+            failures = self._proof_failures(Path(self._tmp), self.PROOF_REL, json.dumps(report))
+        finally:
+            runner.LARGE_WORLD_PROOF_CONTRACTS["open_world_corridor_proof"]["correctness_thresholds"] = original
+        self.assertTrue(
+            any("residency_ratio" in f for f in failures),
+            f"tightening the harness contract must tighten the gate; got {failures}",
+        )
 
     def test_contract_mode_fails_if_the_proof_validator_is_removed(self) -> None:
         """Codex review: deleting the manifest wiring must not silently restore the hole.

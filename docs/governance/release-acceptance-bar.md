@@ -298,21 +298,38 @@ silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch
 malformed one. The workflow binds an eleventh group, `windows_export_template_archive`,
 via `--artifact-sha`.
 
-> **Artifact groups are integrity-checked, never content-checked, and that is load-bearing
-> for `open_world_proof`.** `_validate_candidate_artifact_group`
-> (`tests/ci/check_renderer_release_gates.py:1050-1065`) runs the required-field, hash,
-> commit and mtime checks and nothing else. The bytes *are* read — `:1100-1112` hashes
-> them — but **no validator inspects what the file says**; any byte string with a matching
-> digest satisfies the group. Demonstrated:
-> a bundle that is otherwise complete but points `open_world_proof` at the repository's
-> `README.md`, with a correct digest, **exits 0 with no failures**. The manifest says as
-> much about itself — `workflow_blocking_behavior_machine_enforced: false` (`:320-324`) and
-> "open-world proof must be blocking rather than advisory" under
-> `documented_non_enforced_rules` (`:260-264`). **So pointing this group at genuine
-> corridor-proof output is a #961 and human-signer obligation, not something the gate
-> enforces.** Treat it as §4.2's "a lane that passes without executing" until either a
-> content validator exists for the group or `open_world_corridor_proof` is added to
-> `candidate_required_lanes`.
+> **Artifact groups are integrity-checked; `open_world_proof` is also content-checked
+> (#1016, PR #1046).** `_validate_candidate_artifact_group`
+> (`tests/ci/check_renderer_release_gates.py:1100`) runs the required-field, hash, commit
+> and mtime checks for every group. For a group listed under
+> `artifact_requirements.content_validators` in the manifest, it then also runs
+> `_validate_candidate_artifact_content` (`:1206`). Today that list holds only
+> `open_world_proof`. Before this validator existed, a bundle pointing
+> `open_world_proof` at the repository's `README.md` with a correct digest exited 0 with
+> no failures; it now fails. The `open_world_proof` artifact must be the JSON lane report
+> that `benchmark_suite_lane.gd` writes for `open_world_corridor_proof`, and
+> `_open_world_corridor_proof_content_failures` (`:1258`) requires all of the following:
+>
+> * `lane_id` is `open_world_corridor_proof`.
+> * The four streaming-telemetry availability flags are `true`, so the numbers were
+>   measured, not defaulted.
+> * The manifest's `minimum_values` hold as finite numbers: at least 2 loaded chunks,
+>   5,000,000 total splats, a non-empty proof window, 2 chunk loads and 1 chunk eviction.
+>   The turnover totals count only the proof window, so warm-up churn does not count.
+> * The report **passes the lane's own correctness contract**, `_corridor_proof_contract_failures`
+>   (`:1376`). It is evaluated with `run_benchmark.py`'s `LARGE_WORLD_PROOF_CONTRACTS` and
+>   `_evaluate_large_world_proof_contract`, so a `fail`, `missing_telemetry` or
+>   `report_unavailable` verdict is refused. That contract covers `first_visible_ms`,
+>   `residency_ratio`, queue-pressure, no-progress and scan-starved frames, and VRAM cap
+>   hits. A `warn` verdict, which means only soft timing budgets were missed, is accepted.
+>
+> `--mode contract` also fails if the `open_world_proof` validator is removed from the
+> manifest (`_validate_content_validation_coverage`, `:828`). What the gate still does
+> **not** do is run the lane itself. It validates a supplied report. The gate refuses
+> **proof that says the wrong thing**. Producing the proof on the release commit is
+> still a #961 and human-signer obligation. `workflow_blocking_behavior_machine_enforced:
+> false` and the "open-world proof must be blocking rather than advisory" entry under
+> `documented_non_enforced_rules` still describe the workflow, which is a separate question.
 
 **GPU harness report.** `supervisor_exit` must be **present** and `0` — a report without
 it is refused outright, which closes the delete-the-field laundering path. If present,
@@ -479,7 +496,8 @@ the blocker set by this decision rather than by a change in its severity.
 the same kind of reason and with a larger consequence. Three gate requirements must now be
 satisfied before a stable tag: the **benchmark lanes** `streaming_corridor` and
 `city_flyover`, whose rows are content-checked, and the **artifact group**
-`open_world_proof`, which is only integrity-checked — see §9.1. Note the gate runs no lane
+`open_world_proof`, which is integrity-checked and, since #1046, content-checked against
+the corridor lane's report format and proof contract — see §9.1. Note the gate runs no lane
 itself; it reads a supplied report. "Must run and pass" is a statement about the release
 process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
 #786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set
