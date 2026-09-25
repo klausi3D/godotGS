@@ -363,7 +363,7 @@ order.
 | # | Slice | Class | Depends on |
 | --- | --- | --- | --- |
 | 1 | Signed SH encoder and decoders (both layouts, both GLSL decoders, metadata id, observable unknown-id fallback), with evidence items 1, 2, 5 and 6 | **R2** | ADR approval |
-| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers of `sh_dc` (PERS-016: brush, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
+| 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
 | 3 | SPZ DC decode and SPZ importer bump; evidence 3 (SPZ rows) | **R3** | 2 |
 | 4 | Remove the `LEGACY_BIAS` decode, the `sh_metadata` DC bit, the asset flag, the splat-0 resolvers and the quantization DC-compatibility gate | **R2** | 2, 3 |
 | 5 | *Folded into slice 2* (review round 3, §9). The CPU consumers cannot land separately: between slice 2 and a later slice they would mix display-space and coefficient-space `sh_dc` | — | — |
@@ -478,3 +478,10 @@ again, and saving persists the corrupted value. The consumers need slice 2's dis
 so they cannot land first either. **They are therefore part of slice 2** (§7), and slice 5 is
 retired. Slice 2's evidence must include a brush stroke and a grading bake on a slice-2-tagged
 asset, round-tripped through save and load, matching the display colour they were given.
+
+**Review round 4 (2026-09-25, Codex P1 on `c89c97789ae`).** The same applies to the bound
+runtime-colour APIs: `set_runtime_color()` and `apply_color_range()` store a display `Color`,
+and `commit_runtime_changes()` copies it into `sh_dc` unchanged
+(`core/gaussian_data_edits.cpp:121-160`, `:199-203`). They are part of slice 2 (§7), and the
+brush route does not count as their coverage. Slice 2's evidence adds a direct-API test for
+each: set or apply a colour, commit, save, load, and match the display colour given.
