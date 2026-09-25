@@ -96,6 +96,20 @@
           "qlty check is documented as a non-blocking external signal in docs/reference/renderer-release-gates.md and .github/workflows/README.md",
           "candidate issue validation can resolve #369 through this deferred manifest classification"
         ]
+      },
+      {
+        "number": 1025,
+        "title": "Splats trail by about 1.5 px under TAA while the camera or the content is moving (post-#929 residual)",
+        "status": "accepted_alpha_limitation",
+        "docs_path": "docs/development/known-public-alpha-limitations.md",
+        "goal": "Public alpha ships the TAA-only splat trail disclosed rather than fixed: the remaining fix is a module-published velocity field, and a wrong velocity smears confidently and reads as a renderer bug, so a bounded ~1.5 px trail on a temporal stage that is off by default is the lower risk for an alpha.",
+        "title_note": "This title is deliberately NOT the live GitHub title of #1025, which is still 'Splats ghost under TAA/FSR2 in motion: no depth write-back, no motion vectors, no reactive mask (post-#929 residual)'. The 2026-09-20 measurement refuted all three of those clauses: FSR2 does not ghost, and the reactive mask IS fed through the composite's destination alpha. Nothing in the gate compares a ledger title to the issue snapshot, so do not read a title mismatch here as drift; the issue should be renamed, which is a maintainer action (#1038).",
+        "rationale": "Accepted by the maintainer on 2026-09-20 under release-acceptance-bar.md section 10.1 condition 4 (https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5752837553); the disposition record is the '#929 residual' row in that document's section 8.1, and this entry must not state a different disposition from that row. Measured rather than predicted: under TAA the splat layer is 0.27-0.87 frames stale (~1.5 px, 6-26x an in-frame geometry control) and the trail does not grow with camera speed, while under FSR2 staleness is 0.000 frames at scale 1.0 because the composite already feeds FSR2's reactive mask through the destination alpha. The workaround, use_taa = false, is Godot's own default. #1025 stays open as the tracking issue for the velocity-field work; #929 itself is closed.",
+        "evidence_required": [
+          "a named human acceptance of this residual as a public-alpha limitation is recorded on #1025 and cited in docs/governance/release-acceptance-bar.md section 8.1, and that row and this entry record the same disposition",
+          "docs/development/known-public-alpha-limitations.md carries the #1025 entry with the TAA-only trail, the FSR2 no-ghosting result and the use_taa = false workaround, and the candidate's docs_path points at that page",
+          "the measurement that clears the known-limitations page's fifth admission bullet is linked from the candidate: rig determinism at 0 LSB over all 16,588,800 pixels, per-pose region masks, a stage-engaged gate that fails when a temporal config does not move an in-frame control, and base and head binaries agreeing to within 0.01 frames so #1026's jitter fix neither causes nor cures the residual"
+        ]
       }
     ]
   },

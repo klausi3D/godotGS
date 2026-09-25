@@ -396,7 +396,7 @@ open, not to quietly re-narrow the gate or mark a lane advisory.
 | Streaming configuration added to the visual-pass procedure | #1012 | §5.4 |
 | Streaming blockers re-labelled from v1.0 to alpha | #320, #786, #883 | §5.3 |
 | Close or manifest-ledger all 37 open P0/P1/release-blocker issues | #963 | §5.5 — the largest item |
-| Give the gate-invisible blockers a `priority:P0`/`P1`/`release blocker` label | #851, #833, #54, #1030 — *amended 2026-09-20: #1025 was labelled `priority:P1` on 2026-09-19, and #929 closed by hand, so neither needs one; #1025 needs a `public_alpha_issue_ledger` entry instead (#1038)* | §5.5 — without this the gate never sees them |
+| Give the gate-invisible blockers a `priority:P0`/`P1`/`release blocker` label | #851, #833, #54, #1030 — *amended 2026-09-20: #1025 was labelled `priority:P1` on 2026-09-19, and #929 closed by hand, so neither needs one; #1025 needs a `public_alpha_issue_ledger` entry instead (#1038); **amended 2026-09-22: that entry has landed, so #1025 is done — #851, #833, #54 and #1030 remain*** | §5.5 — without this the gate never sees them |
 | Content-validate `open_world_proof`, or promote `open_world_corridor_proof` into `candidate_required_lanes` | #1016 / #961 | §4.3 — R3; until then the obligation is human |
 | Un-quarantine the streaming QA scenes, or record them as accepted alpha limitations | #786 + the three untracked reasons | §5.2 |
 
