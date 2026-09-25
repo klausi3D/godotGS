@@ -364,7 +364,7 @@ order.
 | --- | --- | --- | --- |
 | 1 | Signed SH encoder and decoders (both layouts, both GLSL decoders, metadata id, observable unknown-id fallback), with evidence items 1, 2, 5 and 6 | **R2** | ADR approval |
 | 2 | DC contract core: enum with `UNSET = 0`; tagging in `PLYLoader`, `resize` and `set_splat_data`; non-defaulting resolvers; `.gsplatworld` v2 / GSF v3 writers with the header encoding field; strict route with lazy per-chunk validation; legacy read route for world v1 / GSF v1-v2 (appearance-preserving conversion at chunk decode); fallible packers; `PLY_CACHE_VERSION` and `.gsplatworld` importer bumps; v2 fixtures; **the CPU consumers and producers of `sh_dc` (PERS-016: brush and its undo capture/restore, the direct runtime-colour APIs `set_runtime_color()` / `apply_color_range()` committed by `commit_runtime_changes()`, grading bake with no coefficient-space `MAX(0)`, animated colour, PLY export), converted through the display helpers in the same PR** (review round 3, §9); evidence 3 (PLY rows) and 4 | **R3** | 1 is not required but reduces visual confounds |
-| 3 | SPZ DC decode and SPZ importer bump; the editor readers of `GaussianSplatAsset::colors` (asset preview, gizmo heatmap) converted through `gaussian_dc_to_display()` (review round 5, §9); evidence 3 (SPZ rows) | **R3** | 2 |
+| 3 | SPZ DC decode and SPZ importer bump; the editor readers of `GaussianSplatAsset::colors` (asset preview, gizmo heatmap, colour thumbnail) converted through `gaussian_dc_to_display()`, with a colour-space version in the thumbnail cache key (review rounds 5-6, §9); evidence 3 (SPZ rows) | **R3** | 2 |
 | 4 | Remove the `LEGACY_BIAS` decode, the `sh_metadata` DC bit, the asset flag, the splat-0 resolvers and the quantization DC-compatibility gate | **R2** | 2, 3 |
 | 5 | *Folded into slice 2* (review round 3, §9). The CPU consumers cannot land separately: between slice 2 and a later slice they would mix display-space and coefficient-space `sh_dc` | — | — |
 
@@ -511,3 +511,19 @@ between the base commit and `origin/master` `673f9c709f8`.
    readers convert through `gaussian_dc_to_display()` in slice 3, together with the SPZ
    decode, so SPZ previews never pass through a dark window. Evidence: an editor preview of a
    mid-grey PLY and SPZ asset matches the rendered colour.
+
+**Review round 6 (2026-09-25, Codex P2 on `998b8ef2674`): colour thumbnails, slice 3.** A
+third reader of the same lane: both importers generate a colour thumbnail at import and
+persist it as the asset's preview image (`io/resource_importer_spz.cpp:488`, `:490`;
+`io/resource_importer_ply.cpp:526`). The generator averages `colors` unconverted
+(`editor/gaussian_thumbnail_generator.cpp:310`, `:312`) and writes the mean as pixels (`:351`),
+so a coefficient of zero, which renders mid-grey, becomes a black pixel. Two stored copies
+keep the old image after the generator is fixed. The disk cache key is a fingerprint of the
+payload with no generator version (`:108-133`, `:184-186`), and the PLY importer is not
+bumped (§4), so a PLY asset's persisted preview image is not regenerated either. Direction:
+slice 3 converts the thumbnail generator with the other two readers, and adds a
+colour-space version to the thumbnail fingerprint. A stale PLY preview image that persists
+until the next re-import is a cosmetic editor artefact, so slice 3 either regenerates it at
+load or names it in the release notes; it does not justify a PLY importer bump on its own.
+Evidence: the colour thumbnail of a mid-grey PLY and SPZ asset is mid-grey, both freshly
+generated and after a restart with a warm disk cache.
