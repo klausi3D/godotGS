@@ -3,7 +3,7 @@
 This page is the canonical reference for recurring build and runtime symptoms and the checks that narrow them down. It is generic by design and names no specific defect.
 
 !!! note "Check the known defects first"
-    The specific defects the public alpha ships with, each with its issue number, the configuration it affects and a workaround where one exists, are listed on [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md). If your symptom matches an entry there, that entry is the answer, and you do not need to debug your own project.
+    The specific defects the public alpha ships with are listed on [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md). Each entry describes the symptom and gives a workaround where one exists. Most entries link a tracking issue; the platform and packaging entries do not. If your symptom matches an entry, that known limitation may be the cause. Check the conditions the entry describes against your setup before you debug your own project. Several entries are code-reading findings that nobody has reproduced, and each of those says so.
 
 Real troubleshooting screenshots are still pending, so this page stays text-first and uses a reference diagram only at the end.
 
