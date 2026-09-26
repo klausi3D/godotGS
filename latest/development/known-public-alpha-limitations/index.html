@@ -2323,10 +2323,28 @@ scene's demand. Raising it above the default costs VRAM as demand grows: each re
 so a scene that actually uses 100M records holds about <strong>2.4 GB</strong> in these buffers alone.
 Prefer reducing density.</p>
 <p><strong>Not measured:</strong> whether a real scene at default settings can exceed 100,000,000 records.
-Scaling the numbers above to 1080p and the node's own 500,000-splats-per-frame cap gives
-roughly 28 million — about 3.6× of headroom — but that is arithmetic on a synthetic grid,
-not a capture of real content. If you hit the warning above at default settings, that is
-worth reporting on #54.</p>
+Scaling the numbers above to 1080p gives about 56 records per splat, so the cap is reached
+at roughly <strong>1.8 million visible splats</strong>.</p>
+<p>Whether a splat limit keeps you below that depends on how the asset was imported:</p>
+<ul>
+<li><strong>Imported automatically</strong> (a <code>.ply</code> or <code>.spz</code> dropped into the project and imported with
+  Godot's default options): this uses the Ultra import preset, which sets no splat-count cap
+  and full density. The renderer treats such an asset as full-fidelity and budgets for its whole splat
+  count, not the node's <code>max_splat_count</code>. On this route no splat limit applies, so a scene
+  with more than about 1.8 million splats in view can reach the cap on either node.</li>
+<li><strong>Imported through the module's import dialog</strong> with its preselected settings: this uses
+  the Desktop preset, which keeps at most 750,000 splats at 0.7 density. The node's
+  <code>max_splat_count</code> then also applies. It is 500,000 on a default <code>GaussianSplatNode3D</code>,
+  because its Balanced quality preset sets that when the node is created. That comes to about
+  28 million records, or 3.6× under the cap. It is 1,000,000 on <code>GaussianSplatWorld3D</code> or on
+  the node's Quality preset, so the asset's 750,000 is the binding limit. That comes to about
+  42 million records, or 2.4×.</li>
+</ul>
+<p>Any other import preset or node quality setting changes these figures. The condition that
+matters is the one above: more than about 1.8 million splats in view at 1080p.</p>
+<p>Whether a real scene at 1080p has that many splats in view at once has not been measured.
+All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
+warning above at default settings, that is worth reporting on #54.</p>
 <hr>
 <p><strong>One proposal is outstanding: #54, above.</strong> The section is otherwise empty, and it is kept
 even when empty because the mechanism is the point: it is where a disclosure is drafted
@@ -2360,7 +2378,7 @@ section exists at all.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 25, 2026 18:04:16 UTC">September 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 26, 2026 18:53:23 UTC">September 26, 2026</span>
   </span>
 
     
