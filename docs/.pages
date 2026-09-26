@@ -40,6 +40,7 @@ nav:
       - architecture/overview.md
       - governance/contribution-standards.md
       - governance/release-acceptance-bar.md
+      - governance/real-scan-visual-pass.md
       - development/export-templates.md
       - development/docs-site.md
       - style/documentation-style-guide.md
