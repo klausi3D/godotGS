@@ -14,9 +14,11 @@ it from source.
 
 - **Inventory + labels:** `modules/gaussian_splatting/config/project_settings_manifest.json`
   (every key, its `publicness`, `visibility`, `scope`, and notes).
-- **Public API contract:** `modules/gaussian_splatting/config/project_settings_public_api_baseline.json`
+- **Public-settings change record:** `modules/gaussian_splatting/config/project_settings_public_api_baseline.json`
   (`public_settings[]` and `retired_settings[]`), enforced by
-  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`.
+  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`. The guard
+  makes sure no key leaves the surface without a record. During the public alpha it
+  is **not** a stability promise; see [API Stability](../development/api-stability.md).
 - **Design rationale + labeling rules:** [`docs/architecture/gaussian-project-settings-contract.md`](../architecture/gaussian-project-settings-contract.md).
 - **Generated reference of live keys:** [`docs/reference/project-settings.md`](project-settings.md).
 
@@ -24,6 +26,11 @@ The manifest and baseline are the source of truth; this document is the
 human-readable migration companion.
 
 ## Deprecation lifecycle
+
+> **During the public alpha this lifecycle is how renames have been handled so far, not
+> a promise.** Nothing enforces it: the guard requires a removed key to be *recorded*,
+> not to pass through an alias first, and [API Stability](../development/api-stability.md)
+> promises no deprecation period. Do not depend on it.
 
 A renamed key is not deleted immediately. It becomes a **read-only deprecated
 alias**:

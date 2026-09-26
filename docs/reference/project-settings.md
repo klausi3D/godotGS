@@ -5,11 +5,18 @@
 > may be renamed, change meaning or default, or be removed in any release; see
 > [API Stability](../development/api-stability.md). The `publicness` field in
 > `modules/gaussian_splatting/config/project_settings_manifest.json` does not change
-> that: it is a v1.0 classification exercise in progress. 153 of the 193 settings
-> resolve to `public`, most by inheriting a family default rather than by a decision
-> about that key, and 139 of the 193 are `test_coverage: inventory_only`, with nothing
-> verifying they do anything. Read `public` as "expected to land in the public bucket at
-> v1.0", not as "supported".
+> that: it is a v1.0 classification exercise in progress. As of `12f2feb61da` (counts
+> hand-copied; the manifest is the authority), 153 of the 193 settings resolve to
+> `public`, 150 of them by inheriting a family default rather than by a decision about
+> that key, and 139 of the 193 are `test_coverage: inventory_only`, with nothing
+> verifying they do anything. Read `public` as "the bucket this key's family defaults to
+> today", not as "supported".
+>
+> `modules/gaussian_splatting/config/project_settings_public_api_baseline.json` is a
+> **change record**, not a promise either. Its guard makes sure no key disappears
+> without a record: a removed key has to stay listed and gain a `retired_settings` entry,
+> and the [migration notes](gaussian-project-settings-migration.md) describe each one.
+> A recorded removal is still a removal, and it may happen in any release.
 >
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:
