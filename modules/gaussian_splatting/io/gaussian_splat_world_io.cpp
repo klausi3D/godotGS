@@ -106,7 +106,14 @@ static void _write_vec3(Ref<FileAccess> p_file, const Vector3 &p_value) {
 }
 
 static Vector3 _read_vec3(Ref<FileAccess> p_file) {
-	return Vector3(p_file->get_float(), p_file->get_float(), p_file->get_float());
+	// #1048: each get_float() advances the cursor, and C++ leaves the evaluation
+	// order of function arguments unspecified. Written as
+	// Vector3(get_float(), get_float(), get_float()), MSVC evaluated right to left
+	// and every vector came back as (z, y, x). Separate statements fix the order.
+	const float x = p_file->get_float();
+	const float y = p_file->get_float();
+	const float z = p_file->get_float();
+	return Vector3(x, y, z);
 }
 
 static void _write_chunk_record(Ref<FileAccess> p_file, const ChunkRecord &p_record) {

@@ -524,6 +524,153 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld save/load round-trip") {
     _remove_world_io_fixture(path);
 }
 
+namespace {
+
+// #1048: component-exact Vector3 comparison. Every component is checked on its own
+// so a failure names the axis; exact equality is correct because every value used
+// below is exactly representable as a float32 and passes through store_float /
+// get_float unchanged.
+void _check_vec3_exact(const char *p_label, const Vector3 &p_got, const Vector3 &p_expected) {
+    CHECK_MESSAGE(p_got.x == p_expected.x, String(p_label), ".x: got ", p_got, " expected ", p_expected);
+    CHECK_MESSAGE(p_got.y == p_expected.y, String(p_label), ".y: got ", p_got, " expected ", p_expected);
+    CHECK_MESSAGE(p_got.z == p_expected.z, String(p_label), ".z: got ", p_got, " expected ", p_expected);
+}
+
+// Every component differs from the other two in each vector, and the world is long
+// in Z like a corridor. A symmetric or near-cubic vector round-trips "correctly"
+// under an X/Z swap and would prove nothing.
+Vector<GaussianSplatRenderer::StaticChunk> build_asymmetric_chunks() {
+    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+    chunks.resize(2);
+
+    GaussianSplatRenderer::StaticChunk first;
+    first.bounds = AABB(Vector3(-3.25f, 0.5f, 11.75f), Vector3(2.5f, 0.75f, 17.0f));
+    first.center = Vector3(-2.0f, 0.875f, 20.25f);
+    first.radius = 9.5f;
+    first.indices.resize(2);
+    first.indices.write[0] = 0;
+    first.indices.write[1] = 1;
+    chunks.write[0] = first;
+
+    GaussianSplatRenderer::StaticChunk second;
+    second.bounds = AABB(Vector3(1.0f, -0.25f, 30.5f), Vector3(0.5f, 1.75f, 21.25f));
+    second.center = Vector3(1.25f, 0.625f, 41.125f);
+    second.radius = 10.75f;
+    second.indices.resize(2);
+    second.indices.write[0] = 2;
+    second.indices.write[1] = 3;
+    chunks.write[1] = second;
+
+    return chunks;
+}
+
+void _check_world_vectors_exact(const char *p_route, const Ref<GaussianSplatWorld> &p_loaded,
+        const AABB &p_expected_bounds, const Vector<GaussianSplatRenderer::StaticChunk> &p_expected_chunks) {
+    MESSAGE("route: ", p_route);
+    _check_vec3_exact("world bounds.position", p_loaded->get_bounds().position, p_expected_bounds.position);
+    _check_vec3_exact("world bounds.size", p_loaded->get_bounds().size, p_expected_bounds.size);
+
+    const Vector<GaussianSplatRenderer::StaticChunk> &chunks = p_loaded->get_static_chunks();
+    if (chunks.size() != p_expected_chunks.size()) {
+        FAIL("expected ", p_expected_chunks.size(), " chunks, got ", chunks.size());
+        return;
+    }
+    for (int i = 0; i < chunks.size(); i++) {
+        MESSAGE("chunk ", i);
+        _check_vec3_exact("chunk bounds.position", chunks[i].bounds.position, p_expected_chunks[i].bounds.position);
+        _check_vec3_exact("chunk bounds.size", chunks[i].bounds.size, p_expected_chunks[i].bounds.size);
+        _check_vec3_exact("chunk center", chunks[i].center, p_expected_chunks[i].center);
+        CHECK_EQ(chunks[i].radius, p_expected_chunks[i].radius);
+    }
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld round-trip preserves Vector3 component order (#1048)") {
+    GsplatWorldCompressionSettingGuard compression_guard(false);
+
+    Ref<GaussianData> gaussian_data;
+    gaussian_data.instantiate();
+    gaussian_data->set_gaussians(build_gaussians());
+
+    const AABB expected_bounds(Vector3(-3.25f, -0.25f, 11.75f), Vector3(4.75f, 2.25f, 40.0f));
+    const Vector<GaussianSplatRenderer::StaticChunk> expected_chunks = build_asymmetric_chunks();
+
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(gaussian_data);
+    world->set_bounds(expected_bounds);
+    world->set_static_chunks(expected_chunks);
+
+    const String path = _make_world_io_fixture_path("vec3_order");
+    ResourceFormatSaverGaussianSplatWorld saver;
+    const Error save_err = saver.save(world, path);
+    if (save_err != OK) {
+        FAIL("saving the asymmetric world failed with error ", int(save_err));
+        return;
+    }
+
+    // Write side: the on-disk layout is x, y, z. Header bounds start after the seven
+    // uint32 header fields; the chunk-table offset is the third uint64 after
+    // chunk_count. Each float is read in its own statement so the read order is fixed.
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::READ);
+        if (f.is_null()) {
+            FAIL("cannot reopen the saved world at ", path);
+            _remove_world_io_fixture(path);
+            return;
+        }
+        f->seek(7u * sizeof(uint32_t));
+        float raw[6];
+        for (float &value : raw) {
+            value = f->get_float();
+        }
+        _check_vec3_exact("on-disk bounds.position", Vector3(raw[0], raw[1], raw[2]), expected_bounds.position);
+        _check_vec3_exact("on-disk bounds.size", Vector3(raw[3], raw[4], raw[5]), expected_bounds.size);
+
+        f->seek(7u * sizeof(uint32_t) + 6u * sizeof(float) + sizeof(uint32_t) + 2u * sizeof(uint64_t));
+        const uint64_t chunk_table_offset = f->get_64();
+        f->seek(chunk_table_offset);
+        float record[9];
+        for (float &value : record) {
+            value = f->get_float();
+        }
+        _check_vec3_exact("on-disk chunk[0] bounds.position", Vector3(record[0], record[1], record[2]),
+                expected_chunks[0].bounds.position);
+        _check_vec3_exact("on-disk chunk[0] bounds.size", Vector3(record[3], record[4], record[5]),
+                expected_chunks[0].bounds.size);
+        _check_vec3_exact("on-disk chunk[0] center", Vector3(record[6], record[7], record[8]),
+                expected_chunks[0].center);
+    }
+
+    // Read side, both load routes.
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    Error load_err = OK;
+    Ref<GaussianSplatWorld> streamed = loader.load(path, "", &load_err);
+    if (load_err != OK || streamed.is_null()) {
+        FAIL("streamable load failed with error ", int(load_err));
+    } else {
+        _check_world_vectors_exact("streamable load", streamed, expected_bounds, expected_chunks);
+        Ref<ChunkPayloadSource> source = streamed->get_chunk_payload_source();
+        if (source.is_null()) {
+            FAIL("streamable load attached no chunk payload source");
+        } else {
+            _check_vec3_exact("payload source bounds.position", source->get_bounds().position, expected_bounds.position);
+            _check_vec3_exact("payload source bounds.size", source->get_bounds().size, expected_bounds.size);
+        }
+    }
+
+    load_err = OK;
+    Ref<GaussianSplatWorld> resident = loader.load_resident(path, &load_err);
+    if (load_err != OK || resident.is_null()) {
+        FAIL("resident load failed with error ", int(load_err));
+    } else {
+        _check_world_vectors_exact("resident load", resident, expected_bounds, expected_chunks);
+    }
+
+    _remove_world_io_fixture(path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO] compressed gsplatworld remains resident-only") {
     GsplatWorldCompressionSettingGuard compression_guard(true);
 
