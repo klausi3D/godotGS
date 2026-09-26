@@ -1,6 +1,9 @@
 # Recurring Issues
 
-This page is the canonical recurring bug and build/runtime issue reference.
+This page is the canonical reference for recurring build and runtime symptoms and the checks that narrow them down. It is generic by design and names no specific defect.
+
+!!! note "Check the known defects first"
+    The specific defects the public alpha ships with, each with its issue number, the configuration it affects and a workaround where one exists, are listed on [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md). If your symptom matches an entry there, that entry is the answer, and you do not need to debug your own project.
 
 Real troubleshooting screenshots are still pending, so this page stays text-first and uses a reference diagram only at the end.
 
