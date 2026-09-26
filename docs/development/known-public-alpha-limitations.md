@@ -29,9 +29,10 @@ alpha actually ships with, read everything *above* that heading.
 
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blockers #851, #833 and #54 carry none of those (all
-> three are `priority:P2`), so nothing automated stops a release on them. (#929 was a
-> fourth until it closed on 2026-09-20, carrying only `program:prod-ready`.) Read "it is in
+> `release blocker`; the §11 alpha blockers #851 and #833 carry none of those (both are
+> `priority:P2`), so nothing automated stops a release on them. (Two more were in that
+> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`, and #54
+> until it was accepted on 2026-09-25; #54 is now listed under [Rendering](#rendering).) Read "it is in
 > the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
@@ -58,17 +59,21 @@ produce the evidence, or leave the issue in the blocker set.
 
 **And clearing it is still not sufficient.** A candidate bundle may cite an entry here only
 if the issue *also* appears in the manifest's `public_alpha_issue_ledger`
-(`tests/ci/check_renderer_release_gates.py:1921-1924`). #1025 is the one entry on this page
-that has all of it — a named human acceptance, hardware evidence behind all five bullets,
-and, since [#1038](https://github.com/klausi3D/godotGS/issues/1038), a ledger entry. **Every
-other entry here is still machine-invisible**, and adding a ledger entry is an R3 manifest
-edit, not a docs change. Read an entry on this page as a disclosure to a reader, not as
+(`tests/ci/check_renderer_release_gates.py:1921-1924`). #1025 and #54 are the two entries on
+this page that have all of it — a named human acceptance, hardware evidence behind all five
+bullets, and a ledger entry (#1025's since [#1038](https://github.com/klausi3D/godotGS/issues/1038),
+#54's since its 2026-09-25 acceptance). For #54 the hardware evidence covers the lasting
+band; the brief band at defaults is derived from the code and not captured, and its entry
+says so. **Every other entry here is still machine-invisible**, and adding a ledger entry is
+an R3 manifest edit, not a docs change. Read an entry on this page as a disclosure to a reader, not as
 something a release candidate may cite, unless the ledger says otherwise.
 
 Verified against `b915afc51c5` (2026-09-17), **except where an entry names its own commit**.
 The #1025 entry below is verified against `bc77ce31e9c` (2026-09-20): the behaviour it
 describes postdates `b915afc51c5`, because #1026 landed after it, and checking that entry out
-at the page-wide anchor would show the opposite.
+at the page-wide anchor would show the opposite. The #54 entry names the binary it was
+measured on (`6f4552076c7`); its import-route and node figures follow the code at
+`673f9c709f8`.
 
 ## Rendering
 
@@ -131,6 +136,130 @@ measured.
 Fixing it means the module publishing a velocity field — which is *not* an engine-boundary
 change, since the module already holds the buffers and the previous-frame camera — but a wrong
 velocity smears confidently and reads as a renderer bug, which is why it is not alpha work.
+
+### The bottom of the frame can go empty when a frame needs more overlap records than are allocated ([#54](https://github.com/klausi3D/godotGS/issues/54))
+
+Every splat that touches a tile costs one **overlap record**. If a frame needs more records
+than the renderer has currently allocated, the tiles with
+the highest tile index get nothing — and because tiles are numbered row by row, that is a
+**hard horizontal line across the frame with only background below it**, plus one
+partially-truncated tile row at the seam. The line sits wherever the budget ran out, so it
+moves as your camera moves.
+
+Two limits matter, and they are not the same number:
+
+- **The allocated capacity**, which the renderer sizes and resizes itself. It starts at
+  roughly 50 records per visible splat, shrinks toward the measured demand when the scene
+  needs less, and grows after a drop. On the default path it learns the demand from a
+  readback of an earlier frame, so it is always a little behind.
+- **The configured cap**, `rendering/gaussian_splatting/gpu_sorting/max_overlap_records`
+  (default **100,000,000**). The allocated capacity never grows past it.
+
+**At defaults you can see a brief band, not a lasting one.** A sudden jump in demand, such
+as the camera moving quickly into a dense close-up, can outrun the allocated capacity. The
+band then shows for a frame or a few and goes away as the capacity catches up. This case
+follows from the code; it has **not** been captured on hardware, and how many frames it
+lasts is not measured. A **lasting** band needs demand above the configured cap, or a
+capacity grow that keeps failing while VRAM is short (the third case below). The
+measurements below produced it only by forcing that setting 200–1000× below its default.
+
+**Affects:** any scene whose overlap-record demand in one frame outruns the capacity
+allocated for it — in practice, dense content seen close up. Measured on an RTX 3090
+(Vulkan).
+
+**Accepted** as a public-alpha limitation on 2026-09-25
+([disposition](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717)), with
+three risks put to the maintainer: the brief band at defaults is derived from the code and
+has not been captured, the headroom at defaults is an extrapolation, and automatic import
+applies no splat limit. **The acceptance lapses** if a default-configured, in-envelope real
+scene is measured above the cap; #54 then blocks the alpha again. The disposition record and
+the mechanism live in the bar's [§8.1](../governance/release-acceptance-bar.md); this entry is
+the user-facing half. #54 stays open as the tracking issue for the engineering fix.
+
+**Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
+binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
+demand **708,814 records**, 7.09 per splat. With `max_overlap_records` forced down:
+
+| `max_overlap_records` | Last lit scanline (of 512) | Empty tiles (of 1024) |
+| --- | --- | --- |
+| 100,000 | 95 | 837 |
+| 250,000 | 191 | 651 |
+| 500,000 | 351 | 340 |
+| 1,000,000 | 511 — nothing dropped | 0 |
+| 100,000,000 (default) | 511 — nothing dropped | 0 |
+
+**What this does *not* do, also measured.** The part of the image above the line is
+**pixel-identical** to a clean render of the same scene (0 differing pixels in all three
+overflowing cases), the line does **not** flicker — it sat on the same scanline across four
+consecutive frames of a static camera — and nothing crashes. Splats are not
+mis-sorted or mis-coloured; the ones that survive are exactly right, and the rest are
+simply absent.
+
+**You are told when it happens.** The log carries a one-shot warning
+(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) whenever any
+record is dropped; use it to tell whether you are hitting this at all. The profiler monitor
+`gaussian_splatting/overflow_tile_count` counts only tiles that were **emptied completely**.
+A tile cut off partway, such as the seam row, loses splats without being counted, so a
+small overflow confined to the last tiles can leave the monitor at 0. Both signals fired
+in the run above.
+
+**Is it transient or permanent?** That depends on which side of the *configured cap* your
+demand is on. When the renderer sees a drop it grows its capacity toward 1.5×
+the demand it measured — but it will not grow past `max_overlap_records`, whatever you have set
+that to. So:
+
+- **Demand below your `max_overlap_records`, capacity merely behind it** — a spike, and it
+  fixes itself as the capacity catches up. This is the case you can meet at defaults.
+- **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
+  the setting, and the band stays. Every measurement in the table above is this case: the frame
+  was still truncated on the 24th frame, on exactly the same scanline as the first.
+- **The renderer cannot allocate a bigger buffer** (VRAM is short) — **lasting while memory is
+  short**, even below your `max_overlap_records`. It keeps the old capacity and retries, and
+  the log says so (`Global composite sort grow to … could not build its replacement`). Raising
+  `max_overlap_records` does not help here and asks for more memory; free VRAM or reduce
+  density instead.
+
+At the 100,000,000 default the second case needs a frame demanding more than 100 million
+records. The 100,000-splat scene above demands 708,814.
+
+**Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
+tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
+scene's demand. Raising it above the default costs VRAM as demand grows: each record needs
+24 bytes with the default 64-bit keys (key and value, plus an equal-sized radix-sort copy),
+so a scene that actually uses 100M records holds about **2.4 GB** in these buffers alone.
+Prefer reducing density.
+
+**Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
+Scaling the numbers above to 1080p gives about 56 records per splat, so the cap is reached
+at roughly **1.8 million visible splats**.
+
+Whether a splat limit keeps you below that depends on how the asset was imported:
+
+- **Imported automatically** (a `.ply` or `.spz` dropped into the project and imported with
+  Godot's default options): this uses the Ultra import preset, which sets no splat-count cap
+  and full density. The renderer treats such an asset as full-fidelity and budgets for its whole splat
+  count, not the node's `max_splat_count`. On this route no splat limit applies, so a scene
+  with more than about 1.8 million splats in view can reach the cap on either node.
+- **Imported through the module's import dialog** with its preselected settings: this uses
+  the Desktop preset, which keeps at most 750,000 splats at 0.7 density. The node's
+  `max_splat_count` then also applies. It is 500,000 on a default `GaussianSplatNode3D`,
+  because its Balanced quality preset sets that when the node is created. That comes to about
+  28 million records, or 3.6× under the cap. It is 1,000,000 on `GaussianSplatWorld3D` or on
+  the node's Quality preset, so the asset's 750,000 is the binding limit. That comes to about
+  42 million records, or 2.4×.
+
+Any other import preset or node quality setting changes these figures. The condition that
+matters is the one above: more than about 1.8 million splats in view at 1080p.
+
+Whether a real scene at 1080p has that many splats in view at once has not been measured.
+All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
+warning above at default settings, that is worth reporting on #54 as a data point. It does
+not by itself end this acceptance: at defaults the warning also fires on the brief band
+accepted above and on a failed grow while VRAM is short. What would end it is a
+default-configured, in-envelope real scene **measured with demand above the cap** — a band
+that persists at the default `max_overlap_records`, rather than one that clears as the
+capacity catches up, with no failed-grow warning (`… could not build its replacement`) in
+the log.
 
 ### Transparent viewports are opaque under TAA or FSR2 ([#989](https://github.com/klausi3D/godotGS/issues/989))
 
@@ -411,113 +540,9 @@ either. The machinery behind both conditions — and the reason a classification
 than it looks — is in the acceptance bar's
 [§9.1](../governance/release-acceptance-bar.md); it is deliberately not restated here.
 
-### The bottom of the frame can go empty when a frame needs more overlap records than are allocated ([#54](https://github.com/klausi3D/godotGS/issues/54))
-
-Every splat that touches a tile costs one **overlap record**. If a frame needs more records
-than the renderer has currently allocated, the tiles with
-the highest tile index get nothing — and because tiles are numbered row by row, that is a
-**hard horizontal line across the frame with only background below it**, plus one
-partially-truncated tile row at the seam. The line sits wherever the budget ran out, so it
-moves as your camera moves.
-
-Two limits matter, and they are not the same number:
-
-- **The allocated capacity**, which the renderer sizes and resizes itself. It starts at
-  roughly 50 records per visible splat, shrinks toward the measured demand when the scene
-  needs less, and grows after a drop. On the default path it learns the demand from a
-  readback of an earlier frame, so it is always a little behind.
-- **The configured cap**, `rendering/gaussian_splatting/gpu_sorting/max_overlap_records`
-  (default **100,000,000**). The allocated capacity never grows past it.
-
-**At defaults you can see a brief band, not a lasting one.** A sudden jump in demand, such
-as the camera moving quickly into a dense close-up, can outrun the allocated capacity. The
-band then shows for a frame or a few and goes away as the capacity catches up. This case
-follows from the code; it has **not** been captured on hardware, and how many frames it
-lasts is not measured. A **lasting** band needs demand above the configured cap. The
-measurements below produced it only by forcing that setting 200–1000× below its default.
-
-**Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
-binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
-demand **708,814 records**, 7.09 per splat. With `max_overlap_records` forced down:
-
-| `max_overlap_records` | Last lit scanline (of 512) | Empty tiles (of 1024) |
-| --- | --- | --- |
-| 100,000 | 95 | 837 |
-| 250,000 | 191 | 651 |
-| 500,000 | 351 | 340 |
-| 1,000,000 | 511 — nothing dropped | 0 |
-| 100,000,000 (default) | 511 — nothing dropped | 0 |
-
-**What this does *not* do, also measured.** The part of the image above the line is
-**pixel-identical** to a clean render of the same scene (0 differing pixels in all three
-overflowing cases), the line does **not** flicker — it sat on the same scanline across four
-consecutive frames of a static camera — and nothing crashes. Splats are not
-mis-sorted or mis-coloured; the ones that survive are exactly right, and the rest are
-simply absent.
-
-**You are told when it happens.** The log carries a one-shot warning
-(`Overlap-record overflow: the tile-binning pass dropped overlap records …`) whenever any
-record is dropped; use it to tell whether you are hitting this at all. The profiler monitor
-`gaussian_splatting/overflow_tile_count` counts only tiles that were **emptied completely**.
-A tile cut off partway, such as the seam row, loses splats without being counted, so a
-small overflow confined to the last tiles can leave the monitor at 0. Both signals fired
-in the run above.
-
-**Is it transient or permanent?** That depends on which side of the *configured cap* your
-demand is on. When the renderer sees a drop it grows its capacity toward 1.5×
-the demand it measured — but it will not grow past `max_overlap_records`, whatever you have set
-that to. So:
-
-- **Demand below your `max_overlap_records`, capacity merely behind it** — a spike, and it
-  fixes itself as the capacity catches up. This is the case you can meet at defaults.
-- **Demand above your `max_overlap_records`** — **permanent**. The renderer cannot grow past
-  the setting, and the band stays. Every measurement in the table above is this case: the frame
-  was still truncated on the 24th frame, on exactly the same scanline as the first.
-- **The renderer cannot allocate a bigger buffer** (VRAM is short) — **lasting while memory is
-  short**, even below your `max_overlap_records`. It keeps the old capacity and retries, and
-  the log says so (`Global composite sort grow to … could not build its replacement`). Raising
-  `max_overlap_records` does not help here and asks for more memory; free VRAM or reduce
-  density instead.
-
-At the 100,000,000 default the second case needs a frame demanding more than 100 million
-records. The 100,000-splat scene above demands 708,814.
-
-**Workaround:** reduce splat density, or move the camera back, so fewer splats cover each
-tile. If you lowered `max_overlap_records`, raise it back — do not set it below your
-scene's demand. Raising it above the default costs VRAM as demand grows: each record needs
-24 bytes with the default 64-bit keys (key and value, plus an equal-sized radix-sort copy),
-so a scene that actually uses 100M records holds about **2.4 GB** in these buffers alone.
-Prefer reducing density.
-
-**Not measured:** whether a real scene at default settings can exceed 100,000,000 records.
-Scaling the numbers above to 1080p gives about 56 records per splat, so the cap is reached
-at roughly **1.8 million visible splats**.
-
-Whether a splat limit keeps you below that depends on how the asset was imported:
-
-- **Imported automatically** (a `.ply` or `.spz` dropped into the project and imported with
-  Godot's default options): this uses the Ultra import preset, which sets no splat-count cap
-  and full density. The renderer treats such an asset as full-fidelity and budgets for its whole splat
-  count, not the node's `max_splat_count`. On this route no splat limit applies, so a scene
-  with more than about 1.8 million splats in view can reach the cap on either node.
-- **Imported through the module's import dialog** with its preselected settings: this uses
-  the Desktop preset, which keeps at most 750,000 splats at 0.7 density. The node's
-  `max_splat_count` then also applies. It is 500,000 on a default `GaussianSplatNode3D`,
-  because its Balanced quality preset sets that when the node is created. That comes to about
-  28 million records, or 3.6× under the cap. It is 1,000,000 on `GaussianSplatWorld3D` or on
-  the node's Quality preset, so the asset's 750,000 is the binding limit. That comes to about
-  42 million records, or 2.4×.
-
-Any other import preset or node quality setting changes these figures. The condition that
-matters is the one above: more than about 1.8 million splats in view at 1080p.
-
-Whether a real scene at 1080p has that many splats in view at once has not been measured.
-All of this is arithmetic on a synthetic grid, not a capture of real content. If you hit the
-warning above at default settings, that is worth reporting on #54.
-
 ---
 
-**One proposal is outstanding: #54, above.** The section is otherwise empty, and it is kept
+**No proposal is outstanding.** The section is empty, and it is kept
 even when empty because the mechanism is the point: it is where a disclosure is drafted
 while its disposition is still open, and an empty section is a statement that no such draft
 is outstanding — not an invitation to skip the step.
@@ -530,3 +555,9 @@ met the acceptance bar's §10.1 condition 4, so it moved up into
 ghost under FSR2 too and told you to avoid it; that was a prediction, it was measured, and it
 was wrong in the direction that costs you a working feature — which is the reason this
 section exists at all.
+
+The most recent entry here was **#54** (the bottom of the frame going empty when a frame needs
+more overlap records than are allocated). A named human accepted it on
+[2026-09-25](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717), so it
+moved up into [Rendering](#rendering) as a real limitation, with the condition under which
+that acceptance lapses stated in the entry.
