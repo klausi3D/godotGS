@@ -1,5 +1,16 @@
 # Project Settings Reference
 
+> **Stability (manual annotation, 2026-09-26; [#1010](https://github.com/klausi3D/godotGS/issues/1010)).**
+> No setting on this page carries a stability promise during the public alpha. Any key
+> may be renamed, change meaning or default, or be removed in any release; see
+> [API Stability](../development/api-stability.md). The `publicness` field in
+> `modules/gaussian_splatting/config/project_settings_manifest.json` does not change
+> that: it is a v1.0 classification exercise in progress. 153 of the 193 settings
+> resolve to `public`, most by inheriting a family default rather than by a decision
+> about that key, and 139 of the 193 are `test_coverage: inventory_only`, with nothing
+> verifying they do anything. Read `public` as "expected to land in the public bucket at
+> v1.0", not as "supported".
+>
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:
 >

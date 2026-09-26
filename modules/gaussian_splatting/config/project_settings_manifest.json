@@ -1,5 +1,5 @@
 {
-  "description": "Inventory contract for Gaussian ProjectSettings keys. Family defaults plus each exact key resolve owner, scope, reload semantics, effective-state field, visibility/publicness, and test coverage status.",
+  "description": "Inventory contract for Gaussian ProjectSettings keys. Family defaults plus each exact key resolve owner, scope, reload semantics, effective-state field, visibility/publicness, and test coverage status. During the public alpha, publicness is a v1.0 classification exercise in progress and confers no stability promise: most keys inherit it from a family default, and a key resolving to public is neither supported nor covered by that alone (docs/development/api-stability.md).",
   "families": [
     {
       "owner": "Gaussian module",
