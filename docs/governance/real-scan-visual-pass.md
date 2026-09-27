@@ -53,12 +53,22 @@ as not controlled.
    tag commit. Do not look for a template `BUILD-INFO.txt`, because none exists.
 
    A pass run on a local build says nothing about the bytes a user downloads.
+
+   **The current release workflow publishes before any pass can run.** Every `v*` tag
+   maps to a stable, non-prerelease publish (`release_builds.yml:183-188`), and the
+   release is created with `draft: false` (`:1700`). There is no hold point between the
+   build and the publish. So until a draft or candidate promotion step exists (#1085),
+   the pass runs **before tagging**, on the workflow artifacts of a `workflow_dispatch`
+   or nightly run of the **exact candidate commit**. The tag build is then a rebuild of
+   the same commit, not the same bytes. The bundle records the pre-tag run id and its
+   artifact hashes, and the proof boundary says that the signed bytes and the published
+   bytes are two builds of one commit.
 2. **Real-scan assets, referenced by hash and never committed.** For each source `.ply`,
    record its file name, `sha256`, splat count, and where a reviewer can obtain it:
 
    | Role | File | Splats | SHA-256 |
    | --- | --- | --- | --- |
-   | Primary: at least 1M splats, so that the import and node caps bind | `baum-mit-wiese2.ply` (1,984,001,532 bytes) | 8,000,000 | `75eb67b5fa25bc957cb3ecafecf365de3acd8de4b3dc84f3993fa3ea8c197908` |
+   | Primary: at least 1M splats, so that the dialog route's import cap and the node cap bind | `baum-mit-wiese2.ply` (1,984,001,532 bytes) | 8,000,000 | `75eb67b5fa25bc957cb3ecafecf365de3acd8de4b3dc84f3993fa3ea8c197908` |
    | Small-scene control | `holzbank-clean.ply` (62,578,379 bytes) | 252,326 | `86416da54b70832b0e474ff61175d1df30f8726267da25d58762179eb35b40e8` |
 
    Both come from the maintainer's GrandmasHouse capture library (`assets/ply/`).
@@ -83,9 +93,17 @@ as not controlled.
    - A `GaussianSplatNode3D` at its Balanced quality preset caps `max_splat_count` at
      500,000 (`modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:1680-1682`).
 
+   **On the automatic route, the node cap does not bind.** An asset imported with
+   `max_splats = 0` and `density_multiplier` of 1.0 or more is treated as requesting
+   full fidelity (`renderer/gaussian_splat_renderer.cpp:127-134`), and
+   `build_runtime_fidelity_policy()` then budgets the asset's whole count instead of the
+   node's `max_splat_count` (`:1617-1622`). So every `*-auto` run of the primary asset
+   is budgeted at all 8,000,000 splats, not 500,000. The signer should read memory and
+   overflow behaviour on those runs with that in mind.
+
    For each run, record the preset id, `max_splats`, `density_multiplier`, the imported
-   splat count, the node quality preset, and the **visible splat count the renderer
-   reported**.
+   splat count, the node quality preset, the **effective runtime budget**, and the
+   **visible splat count the renderer reported**.
 4. **Machine.** Record the OS and build, the GPU model, the driver version, the rendering
    driver and API version, and the output resolution, which is 1920×1080. **One Windows
    machine with one NVIDIA GPU is enough for the alpha.** That is a single-vendor blind
@@ -110,6 +128,7 @@ All configurations use Forward+ and a single view (bar §10.1).
 | C6 | World | `GaussianSplatWorld3D` with a resident payload, scale 1.0, and one live swap from payload A to a different payload B during the run | The world route, which is in the alpha envelope (§10.1). |
 | C7 | Streaming | `GaussianSplatWorld3D` streaming the open-world corridor world (`open_world_corridor_20m`), with a camera path that crosses chunk boundaries so chunks load **and evict** | Streaming open worlds, which stay in the alpha envelope. **Blocked on #1075.** |
 | C8 | Node | C1's camera with the exhibition recipe | The bar's required exhibition-recipe check (§6). |
+| C9 | Multi-node | **v1.0 only.** Several `GaussianSplatNode3D` instances of the primary and control assets in one scene, with overlapping screen coverage and one opaque mesh between them | The multi-node scope that the v1.0 envelope adds (bar §5). It is not run for an alpha pass. |
 
 Notes on individual rows:
 
@@ -122,20 +141,25 @@ Notes on individual rows:
   `payload_streamable` from `GaussianSplatRenderer.get_render_stats()`.
 - **C6 has to prove the swap happened.** Payloads A and B must have different hashes,
   and both are recorded. Capture at least one frame **before** and one **after** the
-  swap, each with its pose-matched control. The splat region must differ between the
-  before and after captures. A bundle with no post-swap capture, or with A and B
+  swap, each with its pose-matched control. **The before and after captures share one
+  camera pose**: the camera stays still across the swap, and the bundle records the pose
+  once for both. The splat region must differ between the before and after captures.
+  Otherwise a camera move could supply the difference while payload A is still on
+  screen. A bundle with no post-swap capture, or with A and B
   identical, fails the run.
 - **C7 has to prove that it streamed and evicted.** The run fails, as a run, unless all
   of these hold:
   - `payload_streamable` is true;
-  - the `gaussian_splatting/streaming_loaded_chunks` monitor changes during the camera
-    path;
-  - `gaussian_splatting/streaming_chunks_evicted_this_frame`
-    (`modules/gaussian_splatting/core/performance_monitors.cpp:338-339`) is non-zero on
+  - `gaussian_splatting/streaming_chunks_loaded_this_frame`
+    (`modules/gaussian_splatting/core/performance_monitors.cpp:336-337`) is non-zero on
+    at least one frame during the path, which shows loads directly rather than
+    inferring them;
+  - `gaussian_splatting/streaming_chunks_evicted_this_frame` (`:338-339`) is non-zero on
     at least one frame.
 
-  Record the per-frame series of both monitors. A streaming run that quietly ran
-  resident, or never evicted, has not exercised what the Streaming dimension judges.
+  Record the per-frame series of both monitors, and of
+  `gaussian_splatting/streaming_loaded_chunks`. A streaming run that quietly ran
+  resident, never loaded, or never evicted, has not exercised what the Streaming dimension judges.
 - **C7 content and its interim.** C7 uses the corridor world as soon as
   [#1075](https://github.com/klausi3D/godotGS/issues/1075) makes it run. Until then, C7
   may be captured on the `lightweight_smoke` streaming content only as a labelled
@@ -186,6 +210,7 @@ background differs anyway.
 | World route (C6) | Content does not update after the payload swap (the shape of #862), or the wrong content is shown. |
 | Streaming (C7) | Holes where chunks should be, chunks that pop in or out in view, stale content after an eviction, or a scene that never becomes visually ready (the shape of #786). |
 | Exhibition recipe (C8) | Splats and meshes graded differently, rather than as one consistent look. |
+| Multi-node (C9, v1.0 only) | A node missing, nodes sorting or occluding each other wrongly where their coverage overlaps, or one node's content drawn with another's transform. |
 | Discrimination | Any capture that matches its paired control, or any engagement proof above that did not hold. |
 
 **Verdicts per dimension:** `PASS`, `FAIL`, `KNOWN #N` or `BLOCKED #N`.
@@ -283,9 +308,10 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
   "non_default_project_settings": {"<key>": "<value>"},
   "configurations": [
     {
-      "id": "C1-auto", "asset": "A1", "import_route": "automatic",
-      "route": "node | world | streaming", "world_payloads": [],
+      "id": "C1-auto", "route": "node | world | streaming | multi_node",
+      "asset": "A1", "import_route": "automatic", "world_payloads": [],
       "node_quality_preset": "balanced", "max_splat_count": 500000,
+      "runtime_budget_splats": 8000000,
       "scaling_3d_mode": "off | bilinear | fsr2", "scaling_3d_scale": 1.0,
       "use_taa": false, "route_policy": null,
       "visible_splats": 0,
@@ -305,14 +331,23 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
 
 Field rules:
 
-- `route_policy`, `payload_mode` and `payload_streamable` may be `null` only for node
-  routes.
+- The fields depend on the route. Leave the other route's fields `null` rather than
+  inventing values:
+  - `asset`, `import_route`, `node_quality_preset` and `max_splat_count` are for `node`
+    and `multi_node` configurations. They are `null` for `world` and `streaming`, which
+    consume world payloads.
+  - `route_policy`, `payload_mode` and `payload_streamable` are for `world` and
+    `streaming` configurations. They are `null` for `node` and `multi_node`.
+  - `runtime_budget_splats` and `visible_splats` are required for every route.
+  - A `multi_node` configuration lists one entry per node in a `nodes[]` array, each
+    with its own node fields.
 - `world_payloads` lists the payload ids a world or streaming configuration used. For
   C6 that is **both** A and B, in swap order.
 - `engagement_proof` is required for C3, C4, C6 and C7:
   - for C3 and C4: the noise floor, the control region and the measured difference;
-  - for C6: the before/after frame pair and the difference;
-  - for C7: the per-frame loaded and evicted monitor series.
+  - for C6: the before/after frame pair, the shared camera pose and the difference;
+  - for C7: the per-frame series of `streaming_chunks_loaded_this_frame`,
+    `streaming_chunks_evicted_this_frame` and `streaming_loaded_chunks`.
 - `frames` pairs every judged capture with its pose-matched control.
   `capture_equals_control: true` in any frame makes the run a failure.
 
@@ -330,8 +365,9 @@ It records:
 
 The proof boundary says that the pass shows **one Windows machine with one NVIDIA GPU**,
 the listed assets and these configurations. It shows nothing about other GPU vendors,
-Linux or macOS, or multi-node scenes, which are outside the alpha envelope. If C7 ran
-only as its interim, the proof boundary says that too.
+Linux or macOS, or, for an alpha pass, multi-node scenes, which are outside the alpha
+envelope. If C7 ran only as its interim, or the signed bytes were a pre-tag build (see
+the prerequisites), the proof boundary says that too.
 
 ### `SIGNOFF.md`
 
@@ -354,13 +390,14 @@ only as its interim, the proof boundary says that too.
 | Streaming | PASS / FAIL / BLOCKED #1075 | |
 | Exhibition recipe | PASS / FAIL | |
 | Discrimination | PASS / FAIL | |
+| Multi-node (v1.0 only) | PASS / FAIL / N/A for an alpha pass | |
 
 Disposition: ACCEPT | FIX: <dimension and expected result> | SANCTION_BASELINE_UPDATE: <reason>
 ```
 
 The three dispositions follow the wording of the #921 packet. `ACCEPT` requires every
-dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted limitation. Any `FAIL` or
-`BLOCKED` rules `ACCEPT` out.
+dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted limitation. Multi-node may
+also be `N/A`, but only in an alpha pass. Any `FAIL` or `BLOCKED` rules `ACCEPT` out.
 
 **The signer is the maintainer, and only the maintainer.** The maintainer may also run
 the captures. It is a solo project, and the bundle records who did each. **The signature
