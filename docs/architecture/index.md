@@ -32,6 +32,7 @@ rather than patching it by hand.
 - [Decompose the renderer facade into owned sub-contexts](adr-decompose-renderer-facade.md)
 - [Decompose the scene director](adr-decompose-scene-director.md)
 - [Decompose the streaming system](adr-decompose-streaming-system.md)
+- [Explicit, signed splat colour encoding (SH sign + DC contract)](adr-splat-colour-encoding.md) — *Accepted* (2026-09-23; slice 1 landed in #1062)
 - [Import importance pruning](adr-import-importance-pruning.md)
 - [Import input hardening](adr-import-input-hardening.md)
 - [Overflow drop telemetry](adr-overflow-drop-telemetry.md)

@@ -13,7 +13,9 @@ static func load_stage_manifest(path: String) -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
-static func build_world_from_stage_manifest(stage_manifest_path: String, owner: Node) -> Dictionary:
+# `_owner` is kept for call-site compatibility but is deliberately unused: the builder
+# container is never added to the scene tree (see the #1075 note below).
+static func build_world_from_stage_manifest(stage_manifest_path: String, _owner: Node) -> Dictionary:
 	var stage_manifest := load_stage_manifest(stage_manifest_path)
 	if stage_manifest.is_empty():
 		return {"error": "stage_manifest_unavailable"}
@@ -40,7 +42,13 @@ static func build_world_from_stage_manifest(stage_manifest_path: String, owner: 
 	container.name = "OpenWorldBootstrapBuilder"
 	container.set_merge_on_ready(false)
 	container.set_chunk_size(float(builder.get("chunk_size", 0.75)))
-	owner.add_child(container)
+	# #1075: build OUT of the scene tree. In the tree, every child GaussianSplatNode3D
+	# registers with the shared renderer on add_child, and each registration fans out to
+	# every peer's debug-overlay union (super-linear in the node count). For the corridor's
+	# 800 instances that alone took ~110 s of the lane's 165 s timeout, before any frame.
+	# Out of the tree, merge_children() uses each node's local transform, which equals its
+	# global transform here because the lane root and the container are at identity; the nodes are freed
+	# below without ever rendering, so nothing observable changes.
 
 	var corridor_lanes: int = max(1, int(builder.get("corridor_lanes", 4)))
 	var corridor_segments: int = max(1, int(builder.get("corridor_segments", 32)))
