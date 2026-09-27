@@ -443,6 +443,10 @@ struct TileRenderParams {
 	uint32_t cluster_size = 0;
 	uint32_t cluster_max_elements = 0;
 	uint32_t light_mask = 0xFFFFFFFFu;
+	// Pixel size the engine built `cluster_buffer` for (RenderSceneBuffersRD
+	// internal size). Zero = same as viewport_size. Painterly rasterizes at its
+	// own internal_scale, so its pixels must be mapped into this grid (#1078).
+	Vector2i cluster_viewport_size;
 	Vector2i viewport_size;
 	Transform3D world_to_camera_transform;
 	Projection projection;
@@ -622,6 +626,7 @@ struct TileSceneLightingInputs {
 	uint32_t cluster_size = 0;
 	uint32_t cluster_max_elements = 0;
 	uint32_t light_mask = 0xFFFFFFFFu;
+	Vector2i cluster_viewport_size;
 };
 
 /**
@@ -651,6 +656,7 @@ inline void apply_lighting_to_render_params(TileRenderParams &r_params,
 	r_params.cluster_size = p_scene.cluster_size;
 	r_params.cluster_max_elements = p_scene.cluster_max_elements;
 	r_params.light_mask = p_scene.light_mask;
+	r_params.cluster_viewport_size = p_scene.cluster_viewport_size;
 	r_params.direct_light_scale = CLAMP(p_settings.direct_light_scale, 0.0f, 4.0f);
 	r_params.indirect_sh_scale = CLAMP(p_settings.indirect_sh_scale, 0.0f, 4.0f);
 	r_params.shadow_strength = CLAMP(p_settings.shadow_strength, 0.0f, 1.0f);
@@ -660,6 +666,22 @@ inline void apply_lighting_to_render_params(TileRenderParams &r_params,
 	r_params.enable_direct_lighting = true;
 	r_params.normal_mode = 0;
 	r_params.direct_lighting_mode = 1;
+}
+
+/**
+ * @brief The pixel grid the engine's light-cluster buffer is laid out in. #1078.
+ *
+ * The cluster buffer is built for the scene's render size. A producer that
+ * rasterizes at another size (painterly at internal_scale < 1 or low_end_mode)
+ * must compute the cluster layout -- row stride and omni/spot section offset --
+ * from THIS size and map its own pixels into it; the shader does the mapping
+ * with the scale written to TileRenderParamsGPU::lighting_mode.yz.
+ */
+inline Vector2i tile_cluster_grid_viewport(const TileRenderParams &p_params) {
+	if (p_params.cluster_viewport_size.x > 0 && p_params.cluster_viewport_size.y > 0) {
+		return p_params.cluster_viewport_size;
+	}
+	return p_params.viewport_size;
 }
 
 struct BufferOwnership {

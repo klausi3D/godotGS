@@ -270,11 +270,17 @@ static GaussianSplatting::TileSceneLightingInputs _gather_scene_lighting_inputs(
 		inputs.cluster_buffer = p_render_data->cluster_buffer;
 		inputs.cluster_size = p_render_data->cluster_size;
 		inputs.cluster_max_elements = p_render_data->cluster_max_elements;
+		// The engine lays the cluster grid out for the render buffers' internal
+		// size (ClusterBuilderRD::setup in render_forward_clustered.cpp).
+		if (RenderSceneBuffersRD *rb = Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr())) {
+			inputs.cluster_viewport_size = rb->get_internal_size();
+		}
 	}
 	if (GaussianSplatting::is_debug_force_unclustered_lights_enabled()) {
 		inputs.cluster_buffer = RID();
 		inputs.cluster_size = 0;
 		inputs.cluster_max_elements = 0;
+		inputs.cluster_viewport_size = Vector2i();
 	}
 	if (RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton()) {
 		inputs.directional_light_buffer = light_storage->get_directional_light_buffer();
