@@ -14,9 +14,15 @@ it from source.
 
 - **Inventory + labels:** `modules/gaussian_splatting/config/project_settings_manifest.json`
   (every key, its `publicness`, `visibility`, `scope`, and notes).
-- **Public API contract:** `modules/gaussian_splatting/config/project_settings_public_api_baseline.json`
+- **Public-settings change record:** `modules/gaussian_splatting/config/project_settings_public_api_baseline.json`
   (`public_settings[]` and `retired_settings[]`), enforced by
-  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`.
+  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`. The guard
+  compares the baseline against the default branch's history: the merge-base with
+  `origin/main`, `main`, `origin/master` or `master`, or the ref in
+  `GS_PROJECT_SETTINGS_MANIFEST_BASE_REF`. It rejects deleting a key that is present
+  there without a `retired_settings` record. It does not cover a stacked PR's own base,
+  and it is skipped when none of those refs resolves. During the public alpha it
+  is **not** a stability promise; see [API Stability](../development/api-stability.md).
 - **Design rationale + labeling rules:** [`docs/architecture/gaussian-project-settings-contract.md`](../architecture/gaussian-project-settings-contract.md).
 - **Generated reference of live keys:** [`docs/reference/project-settings.md`](project-settings.md).
 
@@ -25,7 +31,15 @@ human-readable migration companion.
 
 ## Deprecation lifecycle
 
-A renamed key is not deleted immediately. It becomes a **read-only deprecated
+> **During the public alpha there is no deprecation period** (maintainer decision,
+> 2026-09-27; see [API Stability](../development/api-stability.md)). Settings may be
+> renamed or removed in any release without passing through an alias. The lifecycle below
+> describes how the renames listed on this page were handled; it is not a commitment for
+> the next one, and nothing enforces it. For keys present in the default branch's
+> history (see above), the guard requires a removed key to be *recorded*, not to be
+> aliased first. A deprecation lifecycle begins at v1.0.
+
+The renames listed below were handled like this. A renamed key is not deleted immediately. It becomes a **read-only deprecated
 alias**:
 
 1. The **canonical** key is what the supported surface uses going forward.
