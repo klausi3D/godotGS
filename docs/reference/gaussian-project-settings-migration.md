@@ -16,8 +16,11 @@ it from source.
   (every key, its `publicness`, `visibility`, `scope`, and notes).
 - **Public-settings change record:** `modules/gaussian_splatting/config/project_settings_public_api_baseline.json`
   (`public_settings[]` and `retired_settings[]`), enforced by
-  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`. The guard
-  makes sure no key leaves the surface without a record. During the public alpha it
+  `modules/gaussian_splatting/tests/check_project_settings_manifest.py`. When the
+  guard can resolve a base ref, as in the PR gate, which checks out full history, it
+  rejects deleting a key from the baseline without a `retired_settings` record. In a
+  shallow or local checkout with no `origin/main`, `main`, `origin/master` or `master`,
+  it skips that comparison. During the public alpha it
   is **not** a stability promise; see [API Stability](../development/api-stability.md).
 - **Design rationale + labeling rules:** [`docs/architecture/gaussian-project-settings-contract.md`](../architecture/gaussian-project-settings-contract.md).
 - **Generated reference of live keys:** [`docs/reference/project-settings.md`](project-settings.md).
@@ -31,8 +34,9 @@ human-readable migration companion.
 > 2026-09-27; see [API Stability](../development/api-stability.md)). Settings may be
 > renamed or removed in any release without passing through an alias. The lifecycle below
 > describes how the renames listed on this page were handled; it is not a commitment for
-> the next one, and nothing enforces it. The guard requires a removed key to be
-> *recorded*, not to be aliased first. A deprecation lifecycle begins at v1.0.
+> the next one, and nothing enforces it. Where the guard can compare against a base ref
+> (see above), it requires a removed key to be *recorded*, not to be aliased first. A
+> deprecation lifecycle begins at v1.0.
 
 The renames listed below were handled like this. A renamed key is not deleted immediately. It becomes a **read-only deprecated
 alias**:

@@ -14,9 +14,11 @@
 > today", not as "supported".
 >
 > `modules/gaussian_splatting/config/project_settings_public_api_baseline.json` is a
-> **change record**, not a promise either. Its guard makes sure no key disappears
-> without a record: a removed key has to stay listed and gain a `retired_settings` entry,
-> and the [migration notes](gaussian-project-settings-migration.md) describe each one.
+> **change record**, not a promise either. When its guard can resolve a base ref (as in
+> the PR gate, which checks out full history), a removed key has to stay listed and gain
+> a `retired_settings` entry. A shallow or local checkout with no `main`/`master` ref
+> skips that comparison. The [migration notes](gaussian-project-settings-migration.md)
+> describe each recorded removal.
 > A recorded removal is still a removal, and during the alpha it may happen in any
 > release, with or without a deprecated alias first.
 >
