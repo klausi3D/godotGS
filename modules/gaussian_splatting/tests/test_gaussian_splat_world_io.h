@@ -607,6 +607,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld round-trip preserves Vector3
     const Error save_err = saver.save(world, path);
     if (save_err != OK) {
         FAIL("saving the asymmetric world failed with error ", int(save_err));
+        _remove_world_io_fixture(path);
         return;
     }
 

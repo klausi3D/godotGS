@@ -108,8 +108,9 @@ static void _write_vec3(Ref<FileAccess> p_file, const Vector3 &p_value) {
 static Vector3 _read_vec3(Ref<FileAccess> p_file) {
 	// #1048: each get_float() advances the cursor, and C++ leaves the evaluation
 	// order of function arguments unspecified. Written as
-	// Vector3(get_float(), get_float(), get_float()), MSVC evaluated right to left
-	// and every vector came back as (z, y, x). Separate statements fix the order.
+	// Vector3(get_float(), get_float(), get_float()), any compiler that evaluated
+	// the arguments right to left returned every vector as (z, y, x). Separate
+	// statements fix the order regardless of compiler.
 	const float x = p_file->get_float();
 	const float y = p_file->get_float();
 	const float z = p_file->get_float();
