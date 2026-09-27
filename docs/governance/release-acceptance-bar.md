@@ -755,27 +755,34 @@ rather than a ceiling.
    `check_shipped_project_scripts.py` guard), #1031 (`e2f1c2f6850`: every displayed row reads
    a registered monitor or a `get_statistics()` key, and renders `n/a` where there is no
    producer) and #1032 (`bdabe6988fa`: README and GDScript reference). The entry is kept
-   struck rather than deleted so the disposition stays readable. **Runtime check,
-   2026-09-27**, on a dev editor built from `6f4552076c7` (template and
-   `performance_monitors.cpp` byte-identical to master), windowed 1280×720 on the shipped
-   `scenes/main.tscn` with the generated 768-splat asset, CI idle. A probe read every
-   monitor id the overlay's source names, every frame, through
-   `Performance.get_custom_monitor`. **Before** (the tree just before #1027, same binary):
-   two `Parse Error`s, the scene root had no script, 18 of the 57 ids read were not
-   registered, and the panel read `Initializing...` for the whole run. **After** (five
-   runs): no parse, load or missing-monitor errors; root, overlay, node and camera all
-   attached; 0 of the 52 ids read are unregistered; the panel text changed on 28–29 of
-   ~32 refreshes. `cpu_setup_time_ms` took 82–91 distinct values per run, and when the
-   camera was moved with the template's own `camera_move_forward` action,
-   `aggregated_count` moved with it (14,446 → 21,387). `tile_count` (3,600 at 1280×720),
-   `total_processed` (768) and the device-VRAM rows are real values that do not change on a
-   static scene. `streaming_monitor_ready` read 0, so the LOD, streaming and streaming-VRAM
-   blocks render `n/a`, never the `0` / `1` / `1.0` their getters return with no
-   streaming renderer. **Not checked:** the streaming rows with a streaming system attached,
-   and a second GPU vendor. **Seen, and not caused by this fix:** with the shipped
-   `thread_model=2`, every run, the pre-fix one included, logged `RenderingDevice::free`
-   off-render-thread errors at shutdown and exited abnormally after the probe had
-   finished. The #1030 crash while polling was not observed in the five post-fix runs.
+   struck rather than deleted so the disposition stays readable.
+
+   **Evidence:** a one-off runtime check on 2026-09-27, recorded in full at
+   [#833 comment 5856499938](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5856499938).
+   The record has the probe script verbatim, the exact command, the binary and commit
+   (dev editor from `6f4552076c7`; template and `performance_monitors.cpp` byte-identical to
+   master), and the raw per-run monitor tables. This is **not a lane**: the probe is an
+   uncommitted scratch autoload, and the record is what makes it reproducible. What it
+   shows:
+   - **Before** (the tree just before #1027, same binary): two `Parse Error`s, a scene root
+     with no script, 18 of the 57 monitor ids in the overlay source unregistered, and the
+     panel reading `Initializing...` for the whole run.
+   - **After** (five windowed runs at 1280×720, CI idle): no parse, load or missing-monitor
+     errors; root, overlay, node and camera attached; 0 of 52 ids unregistered; 28–29
+     distinct panel texts in ~32 refreshes; `cpu_setup_time_ms` at 82–91 distinct values
+     per run; `aggregated_count` following a camera move (14,446 → 21,387).
+   - `streaming_monitor_ready` read 0, so the LOD, streaming and streaming-VRAM blocks show
+     `n/a` rather than their getters' `0` / `1` / `1.0`.
+
+   **Maintainer visual sign-off: pending.**
+
+   **Not checked:** the streaming rows with a streaming system attached, and a second GPU
+   vendor.
+
+   **Seen, and not caused by this fix (#1077):** every run, the pre-fix one included,
+   exited abnormally at shutdown, **after** the probe's checks had completed, with
+   `RenderingDevice::free` called off the render thread under the template's
+   `thread_model=2`. The #1030 polling crash was not observed.
 10. ~~**#54** — dropped tiles when overlap-record demand outruns the allocated capacity~~
    (briefly after a sudden close-up at defaults; lastingly only above the configured
    cap, default 100M), on close-up dense scenes. **Struck on 2026-09-25: accepted as a
