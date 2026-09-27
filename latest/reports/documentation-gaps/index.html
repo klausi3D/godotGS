@@ -4041,6 +4041,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingrenderertile_render_resourcescpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4107,28 +4118,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/io/gaussian_splat_world_io.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#modulesgaussian_splattingcoregaussian_data_gpucpp" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4144,6 +4133,17 @@
     <span class="md-ellipsis">
       
         modules/gaussian_splatting/renderer/gaussian_gpu_layout.cpp
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/io/gaussian_splat_world_io.cpp
       
     </span>
   </a>
@@ -9805,6 +9805,24 @@
 <li>line 1050: void GaussianAnimationStateMachine::_update_blend_weights(fl...</li>
 <li>line 1072: Variant GaussianAnimationStateMachine::_sample_track_at_time...</li>
 </ul>
+<h2 id="modulesgaussian_splattingteststest_gaussian_splat_world_ioh">modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 21: Gaussian make_gaussian(const Vector3 &amp;p_position, const Colo...</li>
+<li>line 50: void _check_attributes_round_trip(const Gaussian &amp;p_got, con...</li>
+<li>line 67: Vector<gaussian> build_gaussians() {...</gaussian></li>
+<li>line 77: Vector<gaussiansplatrenderer::staticchunk> build_chunks() {...</gaussiansplatrenderer::staticchunk></li>
+<li>line 121: explicit GsplatWorldCompressionSettingGuard(bool p_enabled) ...</li>
+<li>line 138: String _make_world_io_fixture_path(const String &amp;p_prefix) {...</li>
+<li>line 144: void _remove_world_io_fixture(const String &amp;p_path) {...</li>
+<li>line 148: bool _world_io_file_has_compression_flag(const String &amp;p_pat...</li>
+<li>line 157: Vector<gaussian> build_staged_payload_gaussians(uint32_t p_c...</gaussian></li>
+<li>line 172: bool write_staged_payload_fixture(const String &amp;p_path, cons...</li>
+<li>line 533: void _check_vec3_exact(const char *p_label, const Vector3 &amp;p...</li>
+<li>line 542: Vector<gaussiansplatrenderer::staticchunk> build_asymmetric_...</gaussiansplatrenderer::staticchunk></li>
+<li>line 976: bool _write_malformed_world(const String &amp;p_path, const Malf...</li>
+<li>line 1016: MalformedWorldHeader _valid_single_splat_header() {...</li>
+<li>line 1193: bool _write_compressed_world_oversized_count(const String &amp;p...</li>
+</ul>
 <h2 id="modulesgaussian_splattingrenderertile_render_resourcescpp">modules/gaussian_splatting/renderer/tile_render_resources.cpp<a class="headerlink" href="#modulesgaussian_splattingrenderertile_render_resourcescpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 32: inline void safe_free_buffer_rid(RenderingDevice *p_device, ...</li>
@@ -9981,49 +9999,6 @@
 <li>line 189: explicit TileRasterizerStage(TileRenderer &amp;p_owner) : owner(...</li>
 <li>line 260: explicit TileResolveStage(TileRenderer &amp;p_owner) : owner(p_o...</li>
 </ul>
-<h2 id="modulesgaussian_splattingiogaussian_splat_world_iocpp">modules/gaussian_splatting/io/gaussian_splat_world_io.cpp<a class="headerlink" href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 59: static bool fits_within(uint64_t p_offset, uint64_t p_size, ...</li>
-<li>line 66: static bool checked_mul_u64(uint64_t p_a, uint64_t p_b, uint...</li>
-<li>line 84: static bool _read_exact(Ref<fileaccess> p_file, void *p_dst,...</fileaccess></li>
-<li>line 102: static void _write_vec3(Ref<fileaccess> p_file, const Vector...</fileaccess></li>
-<li>line 108: static Vector3 _read_vec3(Ref<fileaccess> p_file) {...</fileaccess></li>
-<li>line 112: static void _write_chunk_record(Ref<fileaccess> p_file, cons...</fileaccess></li>
-<li>line 122: static ChunkRecord _read_chunk_record(Ref<fileaccess> p_file...</fileaccess></li>
-<li>line 135: static PackedByteArray _compress_data(const uint8_t *p_data,...</li>
-<li>line 169: static bool _decompress_data(const uint8_t *p_compressed, ui...</li>
-<li>line 176: static Error <em>ensure_file_write_ok(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
-<li>line 188: static Error _materialize_payload_source_for_save(const Gaus...</li>
-<li>line 232: static uint64_t _count_chunk_indices(const Vector&lt;StaticChun...</li>
-<li>line 259: static PackedByteArray _build_world_metadata_bytes(const Gau...</li>
-<li>line 417: static Error _write_world_chunk_table(const Ref<fileaccess> ...</fileaccess></li>
-<li>line 434: static Error _write_world_chunk_indices(const Ref&lt;FileAccess...</li>
-<li>line 464: static Error <em>write_world_metadata(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
-<li>line 503: static Ref<resource> _load_gsplatworld_resource(const String...</resource></li>
-<li>line 957: Ref<gaussiansplatworld> ResourceFormatLoaderGaussianSplatWor...</gaussiansplatworld></li>
-<li>line 963: void ResourceFormatLoaderGaussianSplatWorld::get_recognized_...</li>
-<li>line 967: bool ResourceFormatLoaderGaussianSplatWorld::handles_type(co...</li>
-<li>line 971: String ResourceFormatLoaderGaussianSplatWorld::get_resource_...</li>
-<li>line 979: Error ResourceFormatSaverGaussianSplatWorld::save(const Ref&lt;...</li>
-<li>line 1028: bool ResourceFormatSaverGaussianSplatWorld::recognize(const ...</li>
-<li>line 1032: bool ResourceFormatSaverGaussianSplatWorld::recognize_path(c...</li>
-</ul>
-<h2 id="modulesgaussian_splattingteststest_gaussian_splat_world_ioh">modules/gaussian_splatting/tests/test_gaussian_splat_world_io.h<a class="headerlink" href="#modulesgaussian_splattingteststest_gaussian_splat_world_ioh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 21: Gaussian make_gaussian(const Vector3 &amp;p_position, const Colo...</li>
-<li>line 50: void _check_attributes_round_trip(const Gaussian &amp;p_got, con...</li>
-<li>line 67: Vector<gaussian> build_gaussians() {...</gaussian></li>
-<li>line 77: Vector<gaussiansplatrenderer::staticchunk> build_chunks() {...</gaussiansplatrenderer::staticchunk></li>
-<li>line 121: explicit GsplatWorldCompressionSettingGuard(bool p_enabled) ...</li>
-<li>line 138: String _make_world_io_fixture_path(const String &amp;p_prefix) {...</li>
-<li>line 144: void _remove_world_io_fixture(const String &amp;p_path) {...</li>
-<li>line 148: bool _world_io_file_has_compression_flag(const String &amp;p_pat...</li>
-<li>line 157: Vector<gaussian> build_staged_payload_gaussians(uint32_t p_c...</gaussian></li>
-<li>line 172: bool write_staged_payload_fixture(const String &amp;p_path, cons...</li>
-<li>line 828: bool _write_malformed_world(const String &amp;p_path, const Malf...</li>
-<li>line 868: MalformedWorldHeader _valid_single_splat_header() {...</li>
-<li>line 1045: bool _write_compressed_world_oversized_count(const String &amp;p...</li>
-</ul>
 <h2 id="modulesgaussian_splattingcoregaussian_data_gpucpp">modules/gaussian_splatting/core/gaussian_data_gpu.cpp<a class="headerlink" href="#modulesgaussian_splattingcoregaussian_data_gpucpp" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 26: bool GaussianData::_is_finite_and_bounded(float p_value, flo...</li>
@@ -10045,6 +10020,33 @@
 <li>line 184: static inline float sanitize_finite(float v, float fallback)...</li>
 <li>line 187: static inline Vector3 sanitize_finite_vec3(const Vector3 &amp;v,...</li>
 <li>line 312: static bool _reserve_pack_output(Vector<t> &amp;p_dst, uint32_t ...</t></li>
+</ul>
+<h2 id="modulesgaussian_splattingiogaussian_splat_world_iocpp">modules/gaussian_splatting/io/gaussian_splat_world_io.cpp<a class="headerlink" href="#modulesgaussian_splattingiogaussian_splat_world_iocpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 59: static bool fits_within(uint64_t p_offset, uint64_t p_size, ...</li>
+<li>line 66: static bool checked_mul_u64(uint64_t p_a, uint64_t p_b, uint...</li>
+<li>line 84: static bool _read_exact(Ref<fileaccess> p_file, void *p_dst,...</fileaccess></li>
+<li>line 102: static void _write_vec3(Ref<fileaccess> p_file, const Vector...</fileaccess></li>
+<li>line 108: static Vector3 _read_vec3(Ref<fileaccess> p_file) {...</fileaccess></li>
+<li>line 120: static void _write_chunk_record(Ref<fileaccess> p_file, cons...</fileaccess></li>
+<li>line 130: static ChunkRecord _read_chunk_record(Ref<fileaccess> p_file...</fileaccess></li>
+<li>line 143: static PackedByteArray _compress_data(const uint8_t *p_data,...</li>
+<li>line 177: static bool _decompress_data(const uint8_t *p_compressed, ui...</li>
+<li>line 184: static Error <em>ensure_file_write_ok(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
+<li>line 196: static Error _materialize_payload_source_for_save(const Gaus...</li>
+<li>line 240: static uint64_t _count_chunk_indices(const Vector&lt;StaticChun...</li>
+<li>line 267: static PackedByteArray _build_world_metadata_bytes(const Gau...</li>
+<li>line 425: static Error _write_world_chunk_table(const Ref<fileaccess> ...</fileaccess></li>
+<li>line 442: static Error _write_world_chunk_indices(const Ref&lt;FileAccess...</li>
+<li>line 472: static Error <em>write_world_metadata(const Ref<fileaccess> &amp;p</fileaccess></em>...</li>
+<li>line 511: static Ref<resource> _load_gsplatworld_resource(const String...</resource></li>
+<li>line 965: Ref<gaussiansplatworld> ResourceFormatLoaderGaussianSplatWor...</gaussiansplatworld></li>
+<li>line 971: void ResourceFormatLoaderGaussianSplatWorld::get_recognized_...</li>
+<li>line 975: bool ResourceFormatLoaderGaussianSplatWorld::handles_type(co...</li>
+<li>line 979: String ResourceFormatLoaderGaussianSplatWorld::get_resource_...</li>
+<li>line 987: Error ResourceFormatSaverGaussianSplatWorld::save(const Ref&lt;...</li>
+<li>line 1036: bool ResourceFormatSaverGaussianSplatWorld::recognize(const ...</li>
+<li>line 1040: bool ResourceFormatSaverGaussianSplatWorld::recognize_path(c...</li>
 </ul>
 <h2 id="modulesgaussian_splattingloggergs_loggerh">modules/gaussian_splatting/logger/gs_logger.h<a class="headerlink" href="#modulesgaussian_splattingloggergs_loggerh" title="Permanent link">¶</a></h2>
 <ul>
@@ -12240,7 +12242,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 27, 2026 08:35:55 UTC">September 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 27, 2026 09:38:28 UTC">September 27, 2026</span>
   </span>
 
     
