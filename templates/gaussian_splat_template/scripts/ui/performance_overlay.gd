@@ -72,12 +72,31 @@ const VISIBILITY_TOGGLE_KEY := KEY_F3
 
 var gaussian_node: GaussianSplatNode3D
 var camera_node: Node3D
-var _time_since_update := 0.0
-var _ema_frame_ms := 0.0
-var _ema_fps := 0.0
-var _last_instant_ms := 0.0
-var _last_instant_fps := 0.0
-var _fps_samples: Array[float] = []
+## Frame pacing is measured on the WALL CLOCK: `Time.get_ticks_usec()` read once
+## per `_process`, i.e. once per main-loop iteration. It is deliberately not
+## derived from the `delta` argument:
+##
+## * `delta` is `process_step * Engine.time_scale` (`main/main.cpp`,
+##   `Main::iteration()`), so any slow-motion or pause effect rescales it;
+## * `process_step` comes from `MainTimerSync`, which smooths it toward the
+##   display refresh and snaps it to physics steps, so it is a timestep, not a
+##   measured interval;
+## * the old rows showed `1 / delta` of whichever single frame happened to
+##   precede a 4 Hz refresh, so one hitch was printed as the frame rate.
+##
+## The headline FPS is frames counted over the wall time of the refresh window
+## (`update_interval`). The window keeps running while the panel is hidden, so
+## the number is live the moment F3 brings it back.
+var _window_start_us := 0
+var _window_frames := 0
+var _window_max_interval_us := 0
+var _last_frame_us := 0
+## Last completed window, or `-1.0` before one has completed ("not measured").
+var _window_fps := -1.0
+var _window_mean_ms := -1.0
+var _window_max_ms := -1.0
+## Wall-clock intervals of the most recent MAX_SAMPLES frames, in microseconds.
+var _interval_samples_us: Array[int] = []
 const MAX_SAMPLES := 120
 
 ## Rendered in place of any quantity this build cannot measure on this frame.
@@ -233,24 +252,35 @@ func _try_resolve_camera() -> void:
 		if node_obj and node_obj is Node3D:
 			camera_node = node_obj
 
-## Tracks frame timing and refreshes the overlay at the configured interval.
-## @param delta: Frame delta in seconds.
-func _process(delta: float) -> void:
+## Tracks frame timing on the wall clock and refreshes the overlay once per
+## `update_interval` of wall time.
+## @param _delta: Unused -- see the note on `_window_start_us` for why frame
+## timing does not come from `delta`.
+func _process(_delta: float) -> void:
 	_try_resolve_camera()
-	if delta > 0.0:
-		_last_instant_ms = delta * 1000.0
-		_last_instant_fps = 1.0 / delta
-		var alpha := 0.12
-		_ema_frame_ms = _last_instant_ms if _ema_frame_ms == 0.0 else lerp(_ema_frame_ms, _last_instant_ms, alpha)
-		_ema_fps = _last_instant_fps if _ema_fps == 0.0 else lerp(_ema_fps, _last_instant_fps, alpha)
-		_fps_samples.append(_last_instant_fps)
-		if _fps_samples.size() > MAX_SAMPLES:
-			_fps_samples.pop_front()
-
-	_time_since_update += delta
-	if _time_since_update < update_interval:
+	var now := Time.get_ticks_usec()
+	if _last_frame_us == 0:
+		# First call: nothing to measure an interval against yet.
+		_last_frame_us = now
+		_window_start_us = now
 		return
-	_time_since_update = 0.0
+	var interval_us := now - _last_frame_us
+	_last_frame_us = now
+	_window_frames += 1
+	_window_max_interval_us = max(_window_max_interval_us, interval_us)
+	_interval_samples_us.append(interval_us)
+	if _interval_samples_us.size() > MAX_SAMPLES:
+		_interval_samples_us.pop_front()
+
+	var window_us := now - _window_start_us
+	if window_us < int(update_interval * 1000000.0):
+		return
+	_window_fps = _window_frames * 1000000.0 / window_us
+	_window_mean_ms = window_us / 1000.0 / _window_frames
+	_window_max_ms = _window_max_interval_us / 1000.0
+	_window_start_us = now
+	_window_frames = 0
+	_window_max_interval_us = 0
 	if not visible:
 		# Hidden by F3: nothing would be read, so do not pay for the refresh.
 		return
@@ -329,19 +359,38 @@ func _unhandled_input(event: InputEvent) -> void:
 # Sections
 # ============================================================================
 
-## Frame pacing. Engine-side values; not renderer telemetry.
+## Frame pacing, measured on the wall clock (see `_window_start_us`). Engine-side
+## values; not renderer telemetry.
+##
+## Every row names its window and its clock. "Frame interval" is the wall time
+## between consecutive main-loop iterations -- CPU work, GPU waits and the vsync
+## wait together -- so it is not labelled "CPU frame": it is not CPU time.
+## `Engine.get_frames_per_second()` is the engine's own count of main-loop
+## iterations in the last whole second (`Main::iteration()`); it reads 0 until
+## the first second has elapsed, which is shown as `n/a`, never as 0 FPS.
 func _section_frame(lines: Array[String]) -> void:
 	lines.append("[b]═══ FRAME ═══[/b]")
-	lines.append("FPS: %.1f (inst) / %.1f (engine avg)" % [_last_instant_fps, Engine.get_frames_per_second()])
-	lines.append("CPU frame: %.2f ms (inst) / %.2f ms (EMA)" % [_last_instant_ms, _ema_frame_ms])
-	if _fps_samples.size() > 0:
-		var fps_min = _fps_samples.min()
-		var fps_max = _fps_samples.max()
-		var fps_avg = 0.0
-		for v in _fps_samples:
-			fps_avg += v
-		fps_avg /= _fps_samples.size()
-		lines.append("FPS trends (%d frames): avg %.1f | min %.1f | max %.1f" % [_fps_samples.size(), fps_avg, fps_min, fps_max])
+	var window_ms := update_interval * 1000.0
+	var engine_fps := Engine.get_frames_per_second()
+	var engine_text := ("%d (engine, last 1 s)" % engine_fps) if engine_fps > 0 else ("%s (engine, first second)" % UNAVAILABLE)
+	if _window_fps < 0.0:
+		lines.append("FPS: %s (measuring) | %s" % [UNAVAILABLE, engine_text])
+		lines.append("Frame interval: %s (wall clock)" % UNAVAILABLE)
+	else:
+		lines.append("FPS: %.1f (frames / wall time, last %.0f ms) | %s" % [_window_fps, window_ms, engine_text])
+		lines.append("Frame interval: mean %.2f ms | max %.2f ms (wall clock, last %.0f ms)"
+			% [_window_mean_ms, _window_max_ms, window_ms])
+	if _interval_samples_us.size() > 0:
+		var total_us := 0
+		for v in _interval_samples_us:
+			total_us += v
+		# Frames over their summed wall time, not a mean of per-frame 1/dt
+		# values: that mean is dominated by the fastest frames and overstates FPS.
+		lines.append("Last %d frames: %.1f FPS | slowest %.2f ms | fastest %.2f ms" % [
+			_interval_samples_us.size(),
+			_interval_samples_us.size() * 1000000.0 / max(total_us, 1),
+			_interval_samples_us.max() / 1000.0,
+			_interval_samples_us.min() / 1000.0])
 
 func _section_camera(lines: Array[String]) -> void:
 	if camera_node == null:
