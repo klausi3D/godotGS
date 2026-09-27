@@ -7,14 +7,10 @@ public alpha and for v1.0 (§6, §9, §10). Tracked as
 
 > **Status: not yet executed.** The policy decisions this page needed were made on
 > 2026-09-27 by the coordinator, on the maintainer's delegation. They are recorded in
-> [Decisions](#decisions) at the end. Two items are still open:
->
-> - **C7 (streaming) is blocked on
->   [#1075](https://github.com/klausi3D/godotGS/issues/1075).** Until the corridor world
->   runs, no pass can reach `ACCEPT`.
-> - **The maintainer has to confirm that they own the primary asset** named below.
->
-> A pass run before both are closed is evidence, not a sign-off.
+> [Decisions](#decisions) at the end. One item is still open: **C7 (streaming) is
+> blocked on [#1075](https://github.com/klausi3D/godotGS/issues/1075).** Until the
+> corridor world runs, no pass can reach `ACCEPT`, and a pass run before then is
+> evidence, not a sign-off.
 
 ## What the pass is, and what it is not
 
@@ -68,11 +64,9 @@ as not controlled.
    Both come from the maintainer's GrandmasHouse capture library (`assets/ply/`).
    The coordinator named `holzbank-clean.ply` as an own capture, on the maintainer's
    behalf. `baum-mit-wiese2.ply` is the largest standard 3DGS scan in that library (62
-   properties per splat, SH degree 3), and it is named and stored like the library's own
-   captures. That makes its ownership an **inference**, not a documented fact, so the
-   maintainer has to confirm it before the pass counts.
-   If it is not an own scan, a different at least-1M own real scan must be supplied. The
-   bar is **not** lowered to a smaller asset. The splat counts are the PLY headers'
+   properties per splat, SH degree 3). It is a **maintainer-confirmed own scan,
+   2026-09-27**, cleared to be referenced as the release asset. The splat counts are the
+   PLY headers'
    `element vertex` values. The hashes were taken on 2026-09-27.
 
    The bundle gives the obtain-from location. The assets themselves stay outside the
@@ -399,8 +393,8 @@ Decided on 2026-09-27 by the coordinator, on the maintainer's delegation.
    of 1280 px or less. The full-resolution set is attached to the GitHub release. The
    SHA-256 of every image, at both sizes, is committed. There is no LFS change.
 3. **Asset:** the largest own real scan available, which is `baum-mit-wiese2.ply` at 8M
-   splats. The maintainer still has to confirm ownership, and the at-least-1M bar is not
-   lowered. Assets are referenced by hash and never committed.
+   splats, a maintainer-confirmed own scan (2026-09-27). Assets are referenced by hash
+   and never committed.
 4. **Import routes:** both, automatic (`ultra`) and dialog (`desktop`).
 5. **Exhibition recipe:** AgX, with `tonemap_exposure = 0.354` (−1.5 stops), as the #921
    packet recorded.
