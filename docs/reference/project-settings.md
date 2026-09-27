@@ -2,8 +2,9 @@
 
 > **Stability (manual annotation, 2026-09-26; [#1010](https://github.com/klausi3D/godotGS/issues/1010)).**
 > No setting on this page carries a stability promise during the public alpha. Any key
-> may be renamed, change meaning or default, or be removed in any release; see
-> [API Stability](../development/api-stability.md). The `publicness` field in
+> may be renamed, change meaning or default, or be removed in any release, without a
+> deprecation period (maintainer decision, 2026-09-27; a deprecation lifecycle begins at
+> v1.0); see [API Stability](../development/api-stability.md). The `publicness` field in
 > `modules/gaussian_splatting/config/project_settings_manifest.json` does not change
 > that: it is a v1.0 classification exercise in progress. As of `12f2feb61da` (counts
 > hand-copied; the manifest is the authority), 153 of the 193 settings resolve to
@@ -16,7 +17,8 @@
 > **change record**, not a promise either. Its guard makes sure no key disappears
 > without a record: a removed key has to stay listed and gain a `retired_settings` entry,
 > and the [migration notes](gaussian-project-settings-migration.md) describe each one.
-> A recorded removal is still a removal, and it may happen in any release.
+> A recorded removal is still a removal, and during the alpha it may happen in any
+> release, with or without a deprecated alias first.
 >
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:

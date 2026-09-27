@@ -27,12 +27,14 @@ human-readable migration companion.
 
 ## Deprecation lifecycle
 
-> **During the public alpha this lifecycle is how renames have been handled so far, not
-> a promise.** Nothing enforces it: the guard requires a removed key to be *recorded*,
-> not to pass through an alias first, and [API Stability](../development/api-stability.md)
-> promises no deprecation period. Do not depend on it.
+> **During the public alpha there is no deprecation period** (maintainer decision,
+> 2026-09-27; see [API Stability](../development/api-stability.md)). Settings may be
+> renamed or removed in any release without passing through an alias. The lifecycle below
+> describes how the renames listed on this page were handled; it is not a commitment for
+> the next one, and nothing enforces it. The guard requires a removed key to be
+> *recorded*, not to be aliased first. A deprecation lifecycle begins at v1.0.
 
-A renamed key is not deleted immediately. It becomes a **read-only deprecated
+The renames listed below were handled like this. A renamed key is not deleted immediately. It becomes a **read-only deprecated
 alias**:
 
 1. The **canonical** key is what the supported surface uses going forward.

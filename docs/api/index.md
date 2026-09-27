@@ -7,8 +7,9 @@ Use this folder for Gaussian Splatting API references and regeneration scripts.
 
 **GodotGS is an alpha, and nothing documented in this folder carries an API stability
 promise.** Any class, method, property, signal, singleton or project setting described
-here may change or be removed in any release, including a patch release, with no
-promised deprecation period. The references below describe what the current build exposes, not
+here may change or be removed in any release, including a patch release, without a
+deprecation period. That is policy for the alpha; a deprecation lifecycle begins at
+v1.0. The references below describe what the current build exposes, not
 what later builds will keep. See [API Stability](../development/api-stability.md) for
 the full statement and what to do about it.
 
