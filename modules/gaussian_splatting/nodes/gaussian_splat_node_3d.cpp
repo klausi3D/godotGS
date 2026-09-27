@@ -2835,6 +2835,7 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
     director->collect_instance_node_ids_for_renderer(p_renderer.ptr(), peer_ids);
     const ObjectID self_id = get_instance_id();
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -2947,6 +2948,7 @@ void GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer(GaussianSplatRend
     LocalVector<ObjectID> peer_ids;
     director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

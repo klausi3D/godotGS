@@ -21,6 +21,7 @@
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 #include "../lod/lod_config.h"
@@ -32,6 +33,11 @@
 #include <cmath>
 
 namespace {
+
+#ifdef TESTS_ENABLED
+// #1081: see GaussianSplatNodeDebugHelper::count_peer_walk_step().
+SafeNumeric<uint64_t> g_peer_walk_steps;
+#endif
 
 Mutex g_renderer_settings_owner_mutex;
 HashMap<ObjectID, ObjectID> g_renderer_settings_owner_lookup;
@@ -225,6 +231,7 @@ static void _note_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id
     MutexLock lock(g_renderer_bound_nodes_mutex);
     LocalVector<ObjectID> &nodes = g_renderer_bound_nodes[p_renderer_id];
     for (uint32_t i = 0; i < nodes.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (nodes[i] == p_node_id) {
             return;
         }
@@ -242,6 +249,7 @@ static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_
         return;
     }
     for (uint32_t i = 0; i < nodes->size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if ((*nodes)[i] == p_node_id) {
             nodes->remove_at_unordered(i);
             break;
@@ -284,9 +292,11 @@ static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_rende
     }
 
     for (uint32_t i = 0; i < bound_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const ObjectID bound_id = bound_ids[i];
         bool already_listed = false;
         for (uint32_t j = 0; j < r_peer_ids.size(); j++) {
+            GS_COUNT_PEER_WALK_STEP();
             if (r_peer_ids[j] == bound_id) {
                 already_listed = true;
                 break;
@@ -451,6 +461,7 @@ static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, 
     const ObjectID settings_owner = _peek_renderer_settings_owner(p_renderer->get_instance_id());
     ObjectID first_eligible;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!_node_can_host_debug_hud(peer, p_renderer, p_viewport)) {
             continue;
@@ -1046,6 +1057,16 @@ void GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(GaussianSplatR
     _forget_renderer_bound_node(p_renderer->get_instance_id(), p_node->get_instance_id());
 }
 
+#ifdef TESTS_ENABLED
+void GaussianSplatNodeDebugHelper::count_peer_walk_step() {
+    g_peer_walk_steps.increment();
+}
+
+uint64_t GaussianSplatNodeDebugHelper::get_peer_walk_steps() {
+    return g_peer_walk_steps.get();
+}
+#endif
+
 void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     if (!owner.renderer.is_valid()) {
         return;
@@ -1069,6 +1090,7 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     _collect_overlay_union_peer_ids(owner.renderer.ptr(), peer_ids);
     const ObjectID self_id = owner.get_instance_id();
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -1134,6 +1156,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     LocalVector<ObjectID> peer_ids;
     _collect_overlay_union_peer_ids(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;
@@ -1157,6 +1180,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     // which is the whole point: nobody is left to be told, so the write above had
     // to happen here rather than being delegated.
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

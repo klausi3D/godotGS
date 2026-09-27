@@ -107,9 +107,26 @@ public:
     static void register_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
     static void unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
 
+#ifdef TESTS_ENABLED
+    // #1081: a work counter for the walks over a renderer's peer set (the
+    // registration fan-out, the overlay-union collection and union, the HUD
+    // election and fan-out). One step per peer entry visited or compared. The
+    // regression test compares it across node counts, so the verdict does not
+    // depend on wall-clock time on a contended runner. TESTS_ENABLED only:
+    // absent from editor and export builds (see #725).
+    static void count_peer_walk_step();
+    static uint64_t get_peer_walk_steps();
+#endif
+
 private:
     GaussianSplatNode3D &owner;
 };
+
+#ifdef TESTS_ENABLED
+#define GS_COUNT_PEER_WALK_STEP() GaussianSplatNodeDebugHelper::count_peer_walk_step()
+#else
+#define GS_COUNT_PEER_WALK_STEP() ((void)0)
+#endif
 
 class GaussianSplatNodeQualityHelper {
 public:
