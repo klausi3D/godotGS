@@ -90,10 +90,11 @@ public:
             RD::DataFormat p_target_format = RD::DATA_FORMAT_MAX);
     Error render_painterly_frame(GaussianSplatRenderer *p_renderer, const Size2i &p_viewport_size,
             RD::DataFormat p_target_format, const Transform3D &p_view_transform, const Projection &p_projection,
-            const Projection &p_render_projection, RID &r_final_output, Size2i &r_internal_size,
-            float &r_render_time_ms);
+            const Projection &p_render_projection, const GaussianSplatting::TileSceneLightingInputs &p_scene_lighting,
+            RID &r_final_output, Size2i &r_internal_size, float &r_render_time_ms);
     Error populate_painterly_gbuffer(GaussianSplatRenderer *p_renderer, const Size2i &p_internal_size,
-            const Transform3D &p_view_transform, const Projection &p_projection, const Projection &p_render_projection);
+            const Transform3D &p_view_transform, const Projection &p_projection, const Projection &p_render_projection,
+            const GaussianSplatting::TileSceneLightingInputs &p_scene_lighting);
     bool composite_painterly_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RID p_color_texture,
             RID p_depth_texture, const Size2i &p_viewport_size, bool p_scene_depth_test_enabled);
     void free_painterly_resources(GaussianSplatRenderer *p_renderer);

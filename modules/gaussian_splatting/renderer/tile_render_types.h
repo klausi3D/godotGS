@@ -603,6 +603,65 @@ inline void apply_wind_to_render_params(TileRenderParams &r_params,
 	r_params.wind_time_seconds = gs::settings::compute_wind_time_seconds(p_settings, p_animation_time_seconds);
 }
 
+/**
+ * @brief The engine-side scene lighting a raster pass consumes. #851.
+ *
+ * Gathered once per frame from RenderDataRD + LightStorage by the raster stage
+ * (renderer/render_pipeline_stages.cpp) and handed to every TileRenderParams
+ * producer, so the baseline and painterly producers light a frame from the same
+ * inputs. The defaults are the "no scene" answer (shadow pass with null
+ * render_data): no lights, clustering off, permissive mask.
+ */
+struct TileSceneLightingInputs {
+	RID scene_uniform_buffer;
+	RID directional_light_buffer;
+	RID cluster_buffer;
+	RID shadow_atlas;
+	uint32_t omni_light_count = 0;
+	uint32_t spot_light_count = 0;
+	uint32_t cluster_size = 0;
+	uint32_t cluster_max_elements = 0;
+	uint32_t light_mask = 0xFFFFFFFFu;
+};
+
+/**
+ * @brief Write the whole lighting/shadow/cluster field family into TileRenderParams. #851.
+ *
+ * THE ONLY supported way to populate these eighteen fields. The baseline
+ * producer assigned them member-by-member; the painterly producer assigned
+ * none, so every painterly frame shipped `direct_lighting_mode = 0` (the struct
+ * default) with zero light counts and an invalid scene UBO. Mode 0 is the
+ * resolve-time lighting path, which lights a pixel at the alpha-weighted mean
+ * depth of every splat under it (black contours) with a zero receiver bias
+ * (inert shadows) -- and with no lights bound it contributed nothing at all.
+ *
+ * Mode 1 is the per-splat path the baseline has always shipped: binning lights
+ * each splat at its own position with a radius-scaled receiver bias. Writing
+ * the mode here, rather than in each producer, means no producer can reach
+ * mode 0 by forgetting to set it.
+ */
+inline void apply_lighting_to_render_params(TileRenderParams &r_params,
+		const gs::settings::GSLightingSettings &p_settings, const TileSceneLightingInputs &p_scene) {
+	r_params.scene_uniform_buffer = p_scene.scene_uniform_buffer;
+	r_params.directional_light_buffer = p_scene.directional_light_buffer;
+	r_params.cluster_buffer = p_scene.cluster_buffer;
+	r_params.shadow_atlas = p_scene.shadow_atlas;
+	r_params.omni_light_count = p_scene.omni_light_count;
+	r_params.spot_light_count = p_scene.spot_light_count;
+	r_params.cluster_size = p_scene.cluster_size;
+	r_params.cluster_max_elements = p_scene.cluster_max_elements;
+	r_params.light_mask = p_scene.light_mask;
+	r_params.direct_light_scale = CLAMP(p_settings.direct_light_scale, 0.0f, 4.0f);
+	r_params.indirect_sh_scale = CLAMP(p_settings.indirect_sh_scale, 0.0f, 4.0f);
+	r_params.shadow_strength = CLAMP(p_settings.shadow_strength, 0.0f, 1.0f);
+	r_params.shadow_receiver_bias_scale = MAX(0.0f, p_settings.shadow_receiver_bias_scale);
+	r_params.shadow_receiver_bias_min = MAX(0.0f, p_settings.shadow_receiver_bias_min);
+	r_params.shadow_receiver_bias_max = MAX(0.0f, p_settings.shadow_receiver_bias_max);
+	r_params.enable_direct_lighting = true;
+	r_params.normal_mode = 0;
+	r_params.direct_lighting_mode = 1;
+}
+
 struct BufferOwnership {
 	RenderingDevice *device = nullptr;
 	uint64_t device_id = 0;

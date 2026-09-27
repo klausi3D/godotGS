@@ -252,8 +252,45 @@ static bool _get_bool_setting(ProjectSettings *p_settings, const StringName &p_n
 	return gs::settings::get_bool(p_settings, p_name, p_fallback);
 }
 
-static float _get_float_setting(ProjectSettings *p_settings, const StringName &p_name, float p_fallback) {
-	return gs::settings::get_float(p_settings, p_name, p_fallback);
+// #851: the scene lighting every TileRenderParams producer consumes, gathered
+// once from RenderDataRD + LightStorage. The painterly producer used to get
+// none of it (it has no RenderDataRD in scope), so painterly frames bound a
+// zero-filled scene UBO and zero light counts. A null render_data (shadow pass)
+// yields the struct defaults, exactly as the baseline producer always did.
+static GaussianSplatting::TileSceneLightingInputs _gather_scene_lighting_inputs(RenderDataRD *p_render_data) {
+	GaussianSplatting::TileSceneLightingInputs inputs;
+	if (p_render_data && p_render_data->scene_data) {
+		inputs.scene_uniform_buffer = p_render_data->scene_data->get_uniform_buffer();
+		inputs.light_mask = p_render_data->scene_data->camera_visible_layers;
+	}
+	if (p_render_data) {
+		inputs.shadow_atlas = p_render_data->shadow_atlas;
+	}
+	if (p_render_data && p_render_data->cluster_buffer.is_valid()) {
+		inputs.cluster_buffer = p_render_data->cluster_buffer;
+		inputs.cluster_size = p_render_data->cluster_size;
+		inputs.cluster_max_elements = p_render_data->cluster_max_elements;
+	}
+	if (GaussianSplatting::is_debug_force_unclustered_lights_enabled()) {
+		inputs.cluster_buffer = RID();
+		inputs.cluster_size = 0;
+		inputs.cluster_max_elements = 0;
+	}
+	if (RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton()) {
+		inputs.directional_light_buffer = light_storage->get_directional_light_buffer();
+		uint32_t omni_count = light_storage->get_omni_light_count();
+		uint32_t spot_count = light_storage->get_spot_light_count();
+		const bool use_clustered = inputs.cluster_buffer.is_valid() &&
+				inputs.cluster_size > 0u &&
+				inputs.cluster_max_elements > 0u;
+		if (!use_clustered) {
+			omni_count = MIN(omni_count, uint32_t(TileRenderer::MAX_OMNI_LIGHTS));
+			spot_count = MIN(spot_count, uint32_t(TileRenderer::MAX_SPOT_LIGHTS));
+		}
+		inputs.omni_light_count = omni_count;
+		inputs.spot_light_count = spot_count;
+	}
+	return inputs;
 }
 
 static _FORCE_INLINE_ uint64_t _hash_u64(uint64_t p_value, uint64_t p_seed);
@@ -543,41 +580,25 @@ static uint64_t _compute_lighting_signature(const RenderDataRD *p_render_data, u
 		seed = _hash_u64(static_cast<uint64_t>(p_render_data->scene_data->directional_light_count), seed);
 	}
 
-	float direct_light_scale = 0.5f;
-	float indirect_sh_scale = 1.0f;
-	float shadow_strength = 1.0f;
-	float shadow_receiver_bias_scale = 0.2f;
-	float shadow_receiver_bias_min = 0.0f;
-	float shadow_receiver_bias_max = 0.0f;
-	// Same shared wind reader the parameter producer uses (#1018). The hash and
-	// the parameters MUST see identical values: a signature computed from a
-	// second, hand-kept copy of these settings goes stale silently the moment
-	// the two lists diverge, and a stale signature serves a cached render.
+	// Same shared readers the parameter producers use (#1018 wind, #851
+	// lighting). The hash and the parameters MUST see identical values: a
+	// signature computed from a second, hand-kept copy of these settings goes
+	// stale silently the moment the two lists diverge, and a stale signature
+	// serves a cached render.
+	gs::settings::GSLightingSettings lighting_settings;
 	gs::settings::GSWindSettings wind_settings;
 	gs::settings::GSSphereEffectorSettings sphere_effector_settings;
 	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
-		static const StringName direct_path("rendering/gaussian_splatting/lighting/direct_light_scale");
-		static const StringName indirect_path("rendering/gaussian_splatting/lighting/indirect_sh_scale");
-		static const StringName shadow_path("rendering/gaussian_splatting/lighting/shadow_strength");
-		static const StringName shadow_bias_scale_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_scale");
-		static const StringName shadow_bias_min_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_min");
-		static const StringName shadow_bias_max_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_max");
-		direct_light_scale = _get_float_setting(ps, direct_path, direct_light_scale);
-		indirect_sh_scale = _get_float_setting(ps, indirect_path, indirect_sh_scale);
-		shadow_strength = _get_float_setting(ps, shadow_path, shadow_strength);
-		shadow_receiver_bias_scale = _get_float_setting(ps, shadow_bias_scale_path, shadow_receiver_bias_scale);
-		shadow_receiver_bias_min = _get_float_setting(ps, shadow_bias_min_path, shadow_receiver_bias_min);
-		shadow_receiver_bias_max = _get_float_setting(ps, shadow_bias_max_path, shadow_receiver_bias_max);
-
+		lighting_settings = gs::settings::get_lighting_settings(ps);
 		wind_settings = gs::settings::get_wind_settings(ps);
 		sphere_effector_settings = gs::settings::get_sphere_effector_settings(ps, true);
 	}
-	seed = _hash_float_bits(direct_light_scale, seed);
-	seed = _hash_float_bits(indirect_sh_scale, seed);
-	seed = _hash_float_bits(shadow_strength, seed);
-	seed = _hash_float_bits(shadow_receiver_bias_scale, seed);
-	seed = _hash_float_bits(shadow_receiver_bias_min, seed);
-	seed = _hash_float_bits(shadow_receiver_bias_max, seed);
+	seed = _hash_float_bits(lighting_settings.direct_light_scale, seed);
+	seed = _hash_float_bits(lighting_settings.indirect_sh_scale, seed);
+	seed = _hash_float_bits(lighting_settings.shadow_strength, seed);
+	seed = _hash_float_bits(lighting_settings.shadow_receiver_bias_scale, seed);
+	seed = _hash_float_bits(lighting_settings.shadow_receiver_bias_min, seed);
+	seed = _hash_float_bits(lighting_settings.shadow_receiver_bias_max, seed);
 	seed = _hash_bool(wind_settings.enabled, seed);
 	seed = _hash_vector3(wind_settings.direction, seed);
 	seed = _hash_float_bits(wind_settings.strength, seed);
@@ -2151,15 +2172,11 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	render_params.output_is_premultiplied = true;
 	render_params.opacity_multiplier = render_config.opacity_multiplier;
 	render_params.color_grading = render_config.color_grading;
-	render_params.scene_uniform_buffer = RID();
-	render_params.directional_light_buffer = RID();
-	render_params.cluster_buffer = RID();
-	render_params.shadow_atlas = RID();
-	render_params.omni_light_count = 0;
-	render_params.spot_light_count = 0;
-	render_params.cluster_size = 0;
-	render_params.cluster_max_elements = 0;
-	render_params.light_mask = 0xFFFFFFFFu;
+	// #851: the lighting/shadow/cluster family is written through the ONE shared
+	// applier, from the same gathered inputs the painterly producer receives.
+	apply_lighting_to_render_params(render_params,
+			gs::settings::get_lighting_settings(ProjectSettings::get_singleton()),
+			_gather_scene_lighting_inputs(p_render_data));
 
 	// Per-splat scene-depth clip (compositing slice D): give the raster the opaque
 	// scene depth so splats behind meshes are clipped inside the accumulation loop.
@@ -2190,42 +2207,16 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	// texture — those downstream decisions are not reflected here.
 	performance_state.metrics.raster_scene_clip_active = render_params.scene_depth_clip_enabled;
 
-	float direct_light_scale = 0.5f;
-	float indirect_sh_scale = 1.0f;
-	float shadow_strength = 1.0f;
-	float shadow_receiver_bias_scale = 0.2f;
-	float shadow_receiver_bias_min = 0.0f;
-	float shadow_receiver_bias_max = 0.0f;
 	// #1018: the wind group is read through the ONE shared reader and written
 	// through the ONE shared applier, so the painterly producer cannot get a
-	// different answer -- or, as it did, no answer at all.
+	// different answer -- or, as it did, no answer at all. (The lighting group
+	// went the same way for #851; it is applied above.)
 	gs::settings::GSWindSettings wind_settings;
 	gs::settings::GSSphereEffectorSettings sphere_effector_settings;
 	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
-		static const StringName direct_path("rendering/gaussian_splatting/lighting/direct_light_scale");
-		static const StringName indirect_path("rendering/gaussian_splatting/lighting/indirect_sh_scale");
-		static const StringName shadow_path("rendering/gaussian_splatting/lighting/shadow_strength");
-		static const StringName shadow_bias_scale_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_scale");
-		static const StringName shadow_bias_min_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_min");
-		static const StringName shadow_bias_max_path("rendering/gaussian_splatting/lighting/shadow_receiver_bias_max");
-		direct_light_scale = _get_float_setting(ps, direct_path, direct_light_scale);
-		indirect_sh_scale = _get_float_setting(ps, indirect_path, indirect_sh_scale);
-		shadow_strength = _get_float_setting(ps, shadow_path, shadow_strength);
-		shadow_receiver_bias_scale = _get_float_setting(ps, shadow_bias_scale_path, shadow_receiver_bias_scale);
-		shadow_receiver_bias_min = _get_float_setting(ps, shadow_bias_min_path, shadow_receiver_bias_min);
-		shadow_receiver_bias_max = _get_float_setting(ps, shadow_bias_max_path, shadow_receiver_bias_max);
 		wind_settings = gs::settings::get_wind_settings(ps);
 		sphere_effector_settings = gs::settings::get_sphere_effector_settings(ps, true);
 	}
-	render_params.direct_light_scale = CLAMP(direct_light_scale, 0.0f, 4.0f);
-	render_params.indirect_sh_scale = CLAMP(indirect_sh_scale, 0.0f, 4.0f);
-	render_params.shadow_strength = CLAMP(shadow_strength, 0.0f, 1.0f);
-	render_params.shadow_receiver_bias_scale = MAX(0.0f, shadow_receiver_bias_scale);
-	render_params.shadow_receiver_bias_min = MAX(0.0f, shadow_receiver_bias_min);
-	render_params.shadow_receiver_bias_max = MAX(0.0f, shadow_receiver_bias_max);
-	render_params.enable_direct_lighting = true;
-	render_params.normal_mode = 0;
-	render_params.direct_lighting_mode = 1;
 	// Wall-clock time sampled once per frame in prepare_render_frame_context()
 	// (see RenderFrameContextManager::sample_render_animation_time_seconds).
 	// Shared with the depth/sort pass uniform fill below so both stages see
@@ -2277,8 +2268,6 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 		render_params.instance_indirect_dispatch_buffer = RID();
 	}
 	if (p_render_data && p_render_data->scene_data) {
-		render_params.scene_uniform_buffer = p_render_data->scene_data->get_uniform_buffer();
-		render_params.light_mask = p_render_data->scene_data->camera_visible_layers;
 		bool want_projection_log = GaussianSplatting::is_debug_frame_logging_enabled();
 		if (!want_projection_log && subsystem_state_view.debug_overlay_system.is_valid()) {
 			want_projection_log = subsystem_state_view.debug_overlay_system->get_show_projection_issues();
@@ -2292,33 +2281,6 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 				}
 			}
 		}
-	}
-	if (p_render_data) {
-		render_params.shadow_atlas = p_render_data->shadow_atlas;
-	}
-	if (p_render_data && p_render_data->cluster_buffer.is_valid()) {
-		render_params.cluster_buffer = p_render_data->cluster_buffer;
-		render_params.cluster_size = p_render_data->cluster_size;
-		render_params.cluster_max_elements = p_render_data->cluster_max_elements;
-	}
-	if (GaussianSplatting::is_debug_force_unclustered_lights_enabled()) {
-		render_params.cluster_buffer = RID();
-		render_params.cluster_size = 0;
-		render_params.cluster_max_elements = 0;
-	}
-	if (RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton()) {
-		render_params.directional_light_buffer = light_storage->get_directional_light_buffer();
-		uint32_t omni_count = light_storage->get_omni_light_count();
-		uint32_t spot_count = light_storage->get_spot_light_count();
-		const bool use_clustered = render_params.cluster_buffer.is_valid() &&
-				render_params.cluster_size > 0u &&
-				render_params.cluster_max_elements > 0u;
-		if (!use_clustered) {
-			omni_count = MIN(omni_count, uint32_t(TileRenderer::MAX_OMNI_LIGHTS));
-			spot_count = MIN(spot_count, uint32_t(TileRenderer::MAX_SPOT_LIGHTS));
-		}
-		render_params.omni_light_count = omni_count;
-		render_params.spot_light_count = spot_count;
 	}
 
 	if (GaussianSplatting::is_debug_frame_logging_enabled()) {
@@ -2721,8 +2683,8 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::render_pain
 	}
 	Error painterly_err = painterly_renderer->render_painterly_frame(renderer,
 			p_input.viewport_size, p_input.viewport_format, p_input.world_to_camera_transform,
-			p_input.projection, p_input.render_projection, r_output.color, r_output.internal_size,
-			painterly_render_time_ms);
+			p_input.projection, p_input.render_projection, _gather_scene_lighting_inputs(p_input.render_data),
+			r_output.color, r_output.internal_size, painterly_render_time_ms);
 	if (painterly_err != OK) {
 		StageResult painterly_failure;
 		r_output.painterly_active = false;
