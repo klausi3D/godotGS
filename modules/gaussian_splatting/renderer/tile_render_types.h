@@ -632,7 +632,7 @@ struct TileSceneLightingInputs {
 /**
  * @brief Write the whole lighting/shadow/cluster field family into TileRenderParams. #851.
  *
- * THE ONLY supported way to populate these eighteen fields. The baseline
+ * THE ONLY supported way to populate these nineteen fields. The baseline
  * producer assigned them member-by-member; the painterly producer assigned
  * none, so every painterly frame shipped `direct_lighting_mode = 0` (the struct
  * default) with zero light counts and an invalid scene UBO. Mode 0 is the
@@ -665,6 +665,11 @@ inline void apply_lighting_to_render_params(TileRenderParams &r_params,
 	r_params.shadow_receiver_bias_max = MAX(0.0f, p_settings.shadow_receiver_bias_max);
 	r_params.enable_direct_lighting = true;
 	r_params.normal_mode = 0;
+	// Mode 0 (resolve-time, per-pixel "deferred" direct lighting in
+	// tile_resolve.glsl) is unused by every route after #1078. It has known
+	// defects (black silhouette contours from lighting at the blended depth and
+	// normal; no shadow input -- receiver bias hard-wired to 0) and is KEPT for
+	// evaluation against this per-splat mode 1: #1083.
 	r_params.direct_lighting_mode = 1;
 }
 

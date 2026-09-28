@@ -170,6 +170,7 @@ var metrics: Dictionary = {
 	"cluster_baseline_bright_px": -1,
 	"cluster_painterly_bright_px": -1,
 	"cluster_mapping_iou": -1.0,
+	"cluster_effective_internal_scale": -1.0,
 	"renderer_route_valid_immediately": false,
 	"renderer_route_valid_after_frames": false,
 	"renderer_route_painterly_active": false,
@@ -979,6 +980,21 @@ func _measure_clustered_light_mapping_with(light: OmniLight3D) -> bool:
 	if painterly_mask.is_empty():
 		return false
 	metrics["cluster_painterly_bright_px"] = _mask_count(painterly_mask)
+	# Premise: the painterly pass graph really ran at the reduced scale. If the
+	# setter stopped applying, painterly would rasterize at full size, the IoU
+	# would be ~1.0 and this phase would pass without testing the mapping.
+	# `painterly_internal_scale` is the pass graph's APPLIED scale
+	# (render_diagnostics_orchestrator.cpp), not the requested one.
+	var scale_stats := _read_renderer_stats()
+	metrics["cluster_effective_internal_scale"] = float(scale_stats.get("painterly_internal_scale", -1.0))
+	if absf(float(metrics["cluster_effective_internal_scale"]) - CLUSTER_MAPPING_INTERNAL_SCALE) > 0.01:
+		_fail(
+			"Phase G premise failed: painterly ran at effective internal_scale %.3f, not %.2f (stats key present=%s). "
+			% [float(metrics["cluster_effective_internal_scale"]), CLUSTER_MAPPING_INTERNAL_SCALE, scale_stats.has("painterly_internal_scale")]
+			+ "The clustered-light mapping check would be vacuous at full scale."
+		)
+		return false
+	_report.ok()
 	var inter := 0
 	var uni := 0
 	for i in range(min(baseline_mask.size(), painterly_mask.size())):
