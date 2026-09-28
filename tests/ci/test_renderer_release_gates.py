@@ -3475,47 +3475,59 @@ class GpuHarnessCaseAssertAuditTests(unittest.TestCase):
         self.assertEqual(result.zero_assert_reported, len(result.zero_assertion_cases))
 
 
+# CAPTURED from the real producer, not hand-written (tests/AGENTS.md: "Never
+# hand-author a fixture that claims to model a real producer's output"; Codex review
+# on #1046). Provenance:
+#   command: python -B tests/runtime/run_benchmark.py --godot-binary <editor>
+#            --project-path tests/examples/godot/test_project --profile performance
+#            --lane open_world_corridor_proof --no-dashboard --output-dir <scratch>
+#   binary:  godot.windows.editor.x86_64.exe from release nightly-20260926
+#            (commit 12f2feb61da, optimize=speed_trace; zip sha256 d8b4be49...b910)
+#   tree:    gs/1016-streaming-evidence-gate at 51642bdcad8 (includes #1080)
+#   when:    2026-09-27T21:37Z-21:39Z, RTX 3090, CI idle
+# The file is the lane's open_world_corridor_proof.json, re-serialized with indent=1.
+# The only content change is that `output_path` (a machine-specific scratch path) is
+# redacted.
+#
+# THIS CAPTURED RUN FAILS THE CORRIDOR PROOF CONTRACT: residency_ratio 0.006,
+# queue_pressure_frames 8156, no_progress_frames 1202, scan_starved_frames 63 and
+# vram_cap_hit_frames 2054 all breach run_benchmark.py's correctness thresholds. It is
+# the real report SHAPE and must never be cited as evidence that the lane passes.
+CAPTURED_CORRIDOR_PROOF_REPORT = (
+    ROOT / "tests" / "ci" / "fixtures" / "open_world_corridor_proof_lane_report.json"
+)
+
+# run_benchmark.py's corridor contract metrics, set to values that PASS it. Only these
+# keys are overridden on top of the captured report, so the legal route is exercised on
+# the producer's real shape. These values are constructed; the captured ones fail.
+_PASSING_CONTRACT_OVERRIDES: dict[str, Any] = {
+    "first_visible_ms": 1200.0,
+    "residency_ratio": 0.82,
+    "queue_pressure_frames": 11,
+    "no_progress_frames": 0,
+    "scan_starved_frames": 0,
+    "vram_cap_hit_frames": 0,
+    "frame_p95_ms": 24.0,
+    "frame_p95_to_avg_ratio": 1.3,
+    "chunk_loads_per_frame_p95": 2.0,
+    "chunk_evictions_per_frame_p95": 1.0,
+}
+
+
+def _captured_corridor_proof_report() -> dict[str, Any]:
+    """The report exactly as the producer wrote it; a fresh parse per call."""
+    return json.loads(CAPTURED_CORRIDOR_PROOF_REPORT.read_text(encoding="utf-8"))
+
+
 def _honest_corridor_proof_report() -> dict[str, Any]:
-    """CONSTRUCTED, NOT CAPTURED -- a known open review finding (Codex, #1046).
+    """The captured report with ONLY the contract metrics moved to passing values.
 
-    tests/AGENTS.md requires a producer-format fixture to be captured from the producer.
-    This one is not: it is hand-built from the key names in ``_build_proof_metrics``
-    (benchmark_suite_lane.gd). It must be replaced by a real ``open_world_corridor_proof``
-    lane report once the shared GPU runner is free to produce one. Until then it proves
-    only the validator's logic, not that the producer emits this shape. It is never
-    evidence that the lane passed on hardware.
-
-    The correctness and soft-budget metrics are set to PASSING values because the
-    validator now also evaluates run_benchmark.py's corridor proof contract; a real run
-    may well not pass it (see the Codex finding on residency_ratio).
+    Everything the parser reads besides those values (lane_id, the availability flags,
+    the turnover totals, the window, the sample counts) is the producer's real output.
     """
-    return {
-        "lane_id": "open_world_corridor_proof",
-        "scene": "res://scenes/benchmark_suite/lane_open_world_corridor_proof.tscn",
-        "proof_metrics": {
-            "proof_window": "steady_overall",
-            "proof_window_sample_count": 1840,
-            "loaded_chunks": 46,
-            "atlas_published_chunks": 44,
-            "total_splats": 20000000,
-            "residency_ratio": 0.82,
-            "first_visible_ms": 1200.0,
-            "queue_pressure_frames": 11,
-            "no_progress_frames": 0,
-            "scan_starved_frames": 0,
-            "vram_cap_hit_frames": 0,
-            "frame_p95_ms": 24.0,
-            "frame_p95_to_avg_ratio": 1.3,
-            "chunk_loads_per_frame_p95": 2.0,
-            "chunk_evictions_per_frame_p95": 1.0,
-            "chunk_loads_total": 312.0,
-            "chunk_evictions_total": 266.0,
-            "streaming_state_telemetry_available": True,
-            "atlas_published_telemetry_available": True,
-            "chunk_monitor_telemetry_available": True,
-            "queue_pressure_telemetry_available": True,
-        },
-    }
+    report = _captured_corridor_proof_report()
+    report["proof_metrics"].update(_PASSING_CONTRACT_OVERRIDES)
+    return report
 
 
 class OpenWorldProofContentValidationTests(unittest.TestCase):
@@ -3707,6 +3719,39 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
             Path(self._tmp), self.PROOF_REL, json.dumps(report)
         )
         self.assertTrue(any("not a finite measurement" in failure for failure in failures))
+
+    def test_captured_report_fails_only_on_the_proof_contract(self) -> None:
+        """The real producer output parses; what rejects it is the contract, nothing else.
+
+        If the producer stopped emitting a field the validator reads (a renamed
+        availability flag, a missing turnover total), a failure other than the contract
+        one would appear here. The captured run genuinely fails the contract.
+        """
+        failures = self._proof_failures(
+            Path(self._tmp), self.PROOF_REL, json.dumps(_captured_corridor_proof_report())
+        )
+        self.assertEqual(len(failures), 1, f"expected only the contract failure; got {failures}")
+        self.assertIn("fails the open_world_corridor_proof proof contract", failures[0])
+        self.assertIn("proof_status='fail'", failures[0])
+        for metric in ("residency_ratio", "queue_pressure_frames", "no_progress_frames",
+                       "scan_starved_frames", "vram_cap_hit_frames"):
+            self.assertIn(metric, failures[0])
+
+    def test_captured_turnover_totals_cover_only_the_steady_window(self) -> None:
+        """Runtime evidence for the steady-window totals (Codex review on #1046).
+
+        The per-frame series span the whole run, so avg * samples is the run total; the
+        *_total fields must count only the steady proof window. In the captured run the
+        world loaded chunks during the 5 s warm-up, so the two differ for loads.
+        """
+        metrics = _captured_corridor_proof_report()["proof_metrics"]
+        self.assertEqual(metrics["proof_window"], "steady_overall")
+        run_loads = metrics["chunk_loads_per_frame_avg"] * metrics["chunk_loads_per_frame_samples"]
+        run_evictions = (
+            metrics["chunk_evictions_per_frame_avg"] * metrics["chunk_evictions_per_frame_samples"]
+        )
+        self.assertLess(metrics["chunk_loads_total"], round(run_loads))
+        self.assertLessEqual(metrics["chunk_evictions_total"], round(run_evictions))
 
     def test_report_failing_the_corridor_correctness_contract_is_rejected(self) -> None:
         """Codex review on #1046: turnover floors say nothing about visibility.
