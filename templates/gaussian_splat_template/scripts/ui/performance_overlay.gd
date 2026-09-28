@@ -95,6 +95,17 @@ var _last_frame_us := 0
 var _window_fps := -1.0
 var _window_mean_ms := -1.0
 var _window_max_ms := -1.0
+## Actual wall duration of the last completed window. A window closes on the
+## first frame at or past `update_interval`, so at low FPS it runs longer than
+## the configured interval, and the label must say what was measured.
+var _window_ms := -1.0
+## First `_process` tick, for the engine-FPS readiness check below.
+var _first_frame_us := 0
+## `Engine.get_frames_per_second()` starts at 1, not 0 (`core/config/engine.h`,
+## `_fps = 1`), and `Main::iteration()` replaces it only after its first whole
+## second. The engine's loop starts before this node processes, so once this
+## node has seen more than this long, the engine value is a real sample.
+const ENGINE_FPS_READY_US := 1100000
 ## Wall-clock intervals of the most recent MAX_SAMPLES frames, in microseconds.
 var _interval_samples_us: Array[int] = []
 const MAX_SAMPLES := 120
@@ -263,6 +274,7 @@ func _process(_delta: float) -> void:
 		# First call: nothing to measure an interval against yet.
 		_last_frame_us = now
 		_window_start_us = now
+		_first_frame_us = now
 		return
 	var interval_us := now - _last_frame_us
 	_last_frame_us = now
@@ -278,6 +290,7 @@ func _process(_delta: float) -> void:
 	_window_fps = _window_frames * 1000000.0 / window_us
 	_window_mean_ms = window_us / 1000.0 / _window_frames
 	_window_max_ms = _window_max_interval_us / 1000.0
+	_window_ms = window_us / 1000.0
 	_window_start_us = now
 	_window_frames = 0
 	_window_max_interval_us = 0
@@ -366,13 +379,15 @@ func _unhandled_input(event: InputEvent) -> void:
 ## between consecutive main-loop iterations -- CPU work, GPU waits and the vsync
 ## wait together -- so it is not labelled "CPU frame": it is not CPU time.
 ## `Engine.get_frames_per_second()` is the engine's own count of main-loop
-## iterations in the last whole second (`Main::iteration()`); it reads 0 until
-## the first second has elapsed, which is shown as `n/a`, never as 0 FPS.
+## iterations in the last whole second (`Main::iteration()`); before its first
+## whole second it holds the initial value 1, which is shown as `n/a` (see
+## `ENGINE_FPS_READY_US`), never as 1 FPS.
 func _section_frame(lines: Array[String]) -> void:
 	lines.append("[b]═══ FRAME ═══[/b]")
-	var window_ms := update_interval * 1000.0
+	var window_ms := _window_ms
+	var engine_ready := _first_frame_us > 0 and Time.get_ticks_usec() - _first_frame_us > ENGINE_FPS_READY_US
 	var engine_fps := Engine.get_frames_per_second()
-	var engine_text := ("%d (engine, last 1 s)" % engine_fps) if engine_fps > 0 else ("%s (engine, first second)" % UNAVAILABLE)
+	var engine_text := ("%d (engine, last 1 s)" % engine_fps) if engine_ready else ("%s (engine, first second)" % UNAVAILABLE)
 	if _window_fps < 0.0:
 		lines.append("FPS: %s (measuring) | %s" % [UNAVAILABLE, engine_text])
 		lines.append("Frame interval: %s (wall clock)" % UNAVAILABLE)
