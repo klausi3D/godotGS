@@ -3806,6 +3806,27 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
             f"tightening the harness contract must tighten the gate; got {failures}",
         )
 
+    def test_nan_threshold_in_the_manifest_fails_rather_than_disabling_the_floor(self) -> None:
+        """Codex review on #1046: `value < NaN` is False, so a NaN floor rejects nothing."""
+        root = Path(self._tmp)
+        manifest = self._manifest_with_proof_group(root)
+        manifest["artifact_requirements"]["content_validators"]["open_world_proof"][
+            "minimum_values"]["chunk_evictions_total"] = float("nan")
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"]["chunk_evictions_total"] = 0.0
+        evidence = self._evidence_with_proof(root, self.PROOF_REL, json.dumps(report))
+        failures = checker._validate_candidate_artifacts(root, manifest, evidence)
+        self.assertTrue(
+            any("minimum_values.chunk_evictions_total" in f and "not a finite number" in f
+                for f in failures),
+            f"candidate mode must refuse a NaN floor; got {failures}",
+        )
+        coverage = checker._validate_content_validation_coverage(manifest)
+        self.assertTrue(
+            any("chunk_evictions_total" in f and "not a finite number" in f for f in coverage),
+            f"contract mode must refuse a NaN floor; got {coverage}",
+        )
+
     def test_contract_mode_fails_if_the_proof_validator_is_removed(self) -> None:
         """Codex review: deleting the manifest wiring must not silently restore the hole.
 
@@ -3956,6 +3977,71 @@ class OpenWorldProofContentValidationTests(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self._tmp = self._tmpdir.name
         self.addCleanup(self._tmpdir.cleanup)
+
+
+class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
+    """Codex review on #1046: the candidate gate must read what streaming evidence SAYS.
+
+    `required_fields_non_null` accepted `queue_pressure: {}` and
+    `proof_status: "not_applicable"` on a lane whose policy claims streaming proof, so a
+    stale or hand-authored row bypassed run_benchmark.py's fail-closed producer.
+    """
+
+    PROOF_LANE = "streaming_corridor"  # evidence_role proof_support_* in the repo manifest
+    PLAIN_LANE = "static_baseline"  # evidence_role low_noise_smoke_reference
+
+    @staticmethod
+    def _measured_row() -> dict[str, Any]:
+        return {
+            "streaming_telemetry_measured": True,
+            "queue_pressure": {"frames": 11, "candidate_frames": 34, "active": False,
+                               "source": "streaming_state"},
+            "proof_status": "pass",
+        }
+
+    def _failures(self, lane_id: str, row: dict[str, Any]) -> list[str]:
+        return checker._candidate_lane_streaming_evidence_failures(lane_id, row)
+
+    def test_lane_roles_come_from_the_repository_policy(self) -> None:
+        self.assertEqual(checker._lane_declares_proof_evidence_by_policy(self.PROOF_LANE)[0], True)
+        self.assertEqual(checker._lane_declares_proof_evidence_by_policy(self.PLAIN_LANE)[0], False)
+
+    def test_measured_streaming_evidence_is_accepted(self) -> None:
+        self.assertEqual(self._failures(self.PROOF_LANE, self._measured_row()), [])
+
+    def test_placeholder_evidence_on_a_proof_lane_is_rejected(self) -> None:
+        for mutate, expected in (
+            (lambda r: r.__setitem__("queue_pressure", {}), "queue_pressure.source"),
+            (lambda r: r.__setitem__("queue_pressure", {"source": "not_applicable"}), "queue_pressure.source"),
+            (lambda r: r["queue_pressure"].__setitem__("frames", None), "queue_pressure.frames"),
+            (lambda r: r["queue_pressure"].__setitem__("frames", float("nan")), "queue_pressure.frames"),
+            (lambda r: r.__setitem__("proof_status", "not_applicable"), "proof_status"),
+            (lambda r: r.__setitem__("proof_status", "fail"), "proof_status"),
+            (lambda r: r.__setitem__("streaming_telemetry_measured", None), "streaming_telemetry_measured"),
+        ):
+            row = self._measured_row()
+            mutate(row)
+            failures = self._failures(self.PROOF_LANE, row)
+            self.assertTrue(any(expected in f for f in failures), f"{expected}: got {failures}")
+
+    def test_a_row_cannot_relabel_itself_out_of_the_proof_requirement(self) -> None:
+        row = {"evidence_role": "suite_support", "queue_pressure": {"source": "not_applicable"},
+               "proof_status": "not_applicable"}
+        self.assertTrue(self._failures(self.PROOF_LANE, row))
+
+    def test_non_streaming_lanes_keep_their_honest_not_applicable(self) -> None:
+        row = {"queue_pressure": {"frames": None, "source": "not_applicable"},
+               "proof_status": "not_applicable"}
+        self.assertEqual(self._failures(self.PLAIN_LANE, row), [])
+
+    def test_unknown_lane_fails_closed(self) -> None:
+        self.assertTrue(self._failures("no_such_lane", self._measured_row()))
+
+    def test_wired_into_the_candidate_lane_validator(self) -> None:
+        failures = checker._validate_candidate_benchmark_lane(
+            self.PROOF_LANE, {"proof_status": "not_applicable"}, [], {}, None
+        )
+        self.assertTrue(any("proof_status" in f and "not_applicable" in f for f in failures))
 
 
 if __name__ == "__main__":

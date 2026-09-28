@@ -350,7 +350,16 @@ count that reconciles with that list's length. Zero RID leaks, no timeout, `rc` 
 `gpu_timing_available` is true, `gpu_time_frame_ms` must be a positive number; when it is
 not, the row must carry an explicit `gpu_frame_time_source`/`gpu_time_frame_source` of
 `"unavailable"`. Silence is a failure, not an exemption. A timed-out lane fails, and a
-CPU/fallback route fails unless the lane explicitly allows it.
+CPU/fallback route fails unless the lane explicitly allows it. A lane whose repository
+asset manifest (`tests/fixtures/benchmark_asset_manifest.json`) gives it a `proof*`
+`evidence_role` must also carry *measured* streaming evidence. Today those lanes are
+`streaming_corridor` and `city_flyover`. The requirements are
+`streaming_telemetry_measured: true`, a `queue_pressure` object with
+`source: "streaming_state"` and a finite non-negative `frames`, and a `proof_status` of
+`pass` or `warn` (`_candidate_lane_streaming_evidence_failures`). The role is read from
+the repository, not from the row, so a row cannot relabel itself out of the requirement.
+Neither lane has a large-world proof contract today, so the harness writes a null
+`proof_status` for them and no current run can satisfy this.
 
 **Visual acceptance — evaluated per benchmark-lane row, not once per bundle.** Every lane
 row carries its own capture fields and is checked independently

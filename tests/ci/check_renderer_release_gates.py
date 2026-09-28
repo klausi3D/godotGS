@@ -863,6 +863,15 @@ def _validate_content_validation_coverage(manifest: dict[str, Any]) -> list[str]
                 f"artifact_requirements.content_validators.{group}.kind is {kind!r}, "
                 f"which is not a known validator kind"
             )
+        minimums = validator.get("minimum_values")
+        if isinstance(minimums, dict):
+            for field in sorted(minimums):
+                if not _is_json_number(minimums[field]):
+                    failures.append(
+                        f"artifact_requirements.content_validators.{group}.minimum_values."
+                        f"{field} is {minimums[field]!r}, not a finite number; a NaN floor "
+                        "compares false against every value and silently disables itself"
+                    )
     return failures
 
 
@@ -1320,6 +1329,14 @@ def _open_world_corridor_proof_content_failures(
     minimums = validator.get("minimum_values") or {}
     for field in sorted(minimums):
         minimum = minimums[field]
+        if not _is_json_number(minimum):
+            # `json.loads` accepts a bare NaN in the manifest too, and `value < NaN` is
+            # False for every value, so a NaN floor would silently disable itself.
+            failures.append(
+                f"candidate artifact {group} content validator minimum_values.{field} is "
+                f"{minimum!r}, not a finite number; a non-finite floor rejects nothing"
+            )
+            continue
         value = metrics.get(field)
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             failures.append(
@@ -1920,6 +1937,89 @@ def _candidate_lane_required_field_failures(
     return failures
 
 
+BENCHMARK_ASSET_MANIFEST_REL = "tests/fixtures/benchmark_asset_manifest.json"
+_ACCEPTED_PROOF_STATUSES = frozenset({"pass", "warn"})
+
+
+def _lane_declares_proof_evidence_by_policy(lane_id: str) -> tuple[bool | None, str]:
+    """Whether the REPOSITORY's asset manifest says this lane claims streaming proof.
+
+    Read from this checkout, never from the candidate row: a row's own `evidence_role`
+    is part of the evidence under audit, and a stale or hand-authored row could simply
+    declare itself a non-streaming lane. The proof-role predicate is run_benchmark.py's
+    own `_lane_declares_proof_evidence`, so producer and gate select the same lanes.
+    Returns (None, reason) when the policy cannot be read, which callers fail closed on.
+    """
+    try:
+        manifest = json.loads((ROOT / BENCHMARK_ASSET_MANIFEST_REL).read_text(encoding="utf-8"))
+        runner = _load_benchmark_runner()
+    except Exception as exc:  # noqa: BLE001 - any failure must fail closed
+        return None, f"could not read {BENCHMARK_ASSET_MANIFEST_REL} or run_benchmark.py: {exc}"
+    metadata = manifest.get("lane_metadata", {}) if isinstance(manifest, dict) else {}
+    entry = metadata.get(lane_id) if isinstance(metadata, dict) else None
+    role = entry.get("evidence_role") if isinstance(entry, dict) else None
+    if not isinstance(role, str) or not role.strip():
+        return None, f"{BENCHMARK_ASSET_MANIFEST_REL} declares no lane_metadata.{lane_id}.evidence_role"
+    return bool(runner._lane_declares_proof_evidence(role)), role
+
+
+def _candidate_lane_streaming_evidence_failures(lane_id: str, row: dict[str, Any]) -> list[str]:
+    """Consume the streaming evidence by meaning, not merely by non-null-ness.
+
+    `required_fields_non_null` accepts `queue_pressure: {}` and
+    `proof_status: "not_applicable"` -- exactly the structural placeholders that
+    run_benchmark.py's `_streaming_evidence_fail_closed` exists to keep out of
+    streaming-proof lanes. Relying on the producer alone lets a stale or hand-authored
+    row bypass it (Codex review on #1046), so for every lane whose repository policy
+    claims streaming proof the gate itself requires: a measured streaming-state flag, a
+    `queue_pressure` object sourced from streaming state with a finite non-negative
+    frame count, and a proof_status the harness scores as valid (pass or warn).
+    Lanes whose policy makes no streaming claim are unaffected.
+    """
+    declares_proof, detail = _lane_declares_proof_evidence_by_policy(lane_id)
+    if declares_proof is None:
+        return [
+            f"candidate benchmark lane {lane_id}: cannot tell whether it must carry "
+            f"streaming evidence ({detail}); refusing rather than assuming it need not"
+        ]
+    if not declares_proof:
+        return []
+    failures: list[str] = []
+    if row.get("streaming_telemetry_measured") is not True:
+        failures.append(
+            f"candidate benchmark lane {lane_id} (evidence_role={detail}) has "
+            f"streaming_telemetry_measured={row.get('streaming_telemetry_measured')!r}, not "
+            "true: no streaming state was measured for a lane that claims streaming proof"
+        )
+    queue_pressure = row.get("queue_pressure")
+    if not isinstance(queue_pressure, dict):
+        failures.append(
+            f"candidate benchmark lane {lane_id} queue_pressure must be an object, "
+            f"got {queue_pressure!r}"
+        )
+    else:
+        if queue_pressure.get("source") != "streaming_state":
+            failures.append(
+                f"candidate benchmark lane {lane_id} queue_pressure.source is "
+                f"{queue_pressure.get('source')!r}, not 'streaming_state': the pressure figure "
+                "was not measured from streaming telemetry"
+            )
+        frames = queue_pressure.get("frames")
+        if not _is_json_number(frames) or frames < 0:
+            failures.append(
+                f"candidate benchmark lane {lane_id} queue_pressure.frames is {frames!r}, "
+                "not a finite non-negative measurement"
+            )
+    proof_status = row.get("proof_status")
+    if proof_status not in _ACCEPTED_PROOF_STATUSES:
+        failures.append(
+            f"candidate benchmark lane {lane_id} proof_status is {proof_status!r}; a lane "
+            f"that claims streaming proof needs one of {sorted(_ACCEPTED_PROOF_STATUSES)} "
+            "(not_applicable, fail and missing_telemetry prove nothing)"
+        )
+    return failures
+
+
 def _candidate_lane_visual_failures(
     lane_id: str,
     row: dict[str, Any],
@@ -2025,6 +2125,7 @@ def _validate_candidate_benchmark_lane(
     failures.extend(_candidate_lane_identity_failures(lane_id, row, commit))
     failures.extend(_candidate_lane_execution_status_failures(lane_id, row))
     failures.extend(_candidate_lane_required_field_failures(lane_id, row, required_non_null))
+    failures.extend(_candidate_lane_streaming_evidence_failures(lane_id, row))
     failures.extend(_candidate_lane_visual_failures(lane_id, row, visual_rules))
     failures.extend(_candidate_lane_gpu_timing_failures(lane_id, row))
     failures.extend(_candidate_lane_route_failures(lane_id, row))
