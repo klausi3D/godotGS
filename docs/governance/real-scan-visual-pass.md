@@ -51,10 +51,14 @@ as not controlled.
    **The export template carries no commit record of its own.** The template zip holds
    only the two executables (`release_builds.yml:979`), and its
    `EXPORT-TEMPLATE-INFO.txt` is not a release asset (`:962-979`, and the publish list
-   at `:1718-1725`). Its commit is bound by the publish step instead. That step refuses
-   a template whose info commit differs from the commit being published (`:1449-1457`).
-   So record the template's `sha256`, checked against its sidecar, together with the
-   tag commit. Do not look for a template `BUILD-INFO.txt`, because none exists.
+   at `:1718-1725`). For a **published** release, the publish step binds the commit: it
+   refuses a template whose info commit differs from the commit being published
+   (`:1449-1457`). That step runs only when the run publishes (`:1288-1291`), so it does
+   **not** cover a non-publishing pre-tag `workflow_dispatch` run. For the pre-tag
+   candidate, take `EXPORT-TEMPLATE-INFO.txt` from that run's export-template workflow
+   artifact, which does contain it (`:994-1001`). Record its `commit=` value, which must
+   equal `candidate_commit`, together with the template's `sha256` checked against its
+   sidecar. Do not look for a template `BUILD-INFO.txt`, because none exists.
 
    A pass run on a local build says nothing about the bytes a user downloads.
 
@@ -147,7 +151,9 @@ Notes on individual rows:
   Record `route_policy`, and for both rows record `payload_mode` and
   `payload_streamable` from `GaussianSplatRenderer.get_render_stats()`.
 - **C6 has to prove the swap happened.** Payloads A and B must have different hashes,
-  and both are recorded. Capture at least one frame **before** and one **after** the
+  and both are recorded. Both are derived from the hashed real-scan assets above, for
+  example A from the primary asset and B from the small-scene control. Only C7 is allowed
+  synthetic content. Capture at least one frame **before** and one **after** the
   swap, each with its pose-matched control. **The before and after captures share one
   camera pose**: the camera stays still across the swap, and the bundle records the pose
   once for both. The splat region must differ between the before and after captures.
@@ -304,7 +310,7 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
     "tag_commit": "<40-hex, git rev-list -n 1 <tag>; null until tagged; must equal candidate_commit>",
     "editor_build_info_commit": "<40-hex from the editor zip's BUILD-INFO.txt; must equal candidate_commit>",
     "editor_archive": {"name": "…", "sha256": "…", "sidecar_verified": true},
-    "export_template_archive": {"name": "…", "sha256": "…", "sidecar_verified": true}
+    "export_template_archive": {"name": "…", "sha256": "…", "sidecar_verified": true, "info_commit": "<commit= from the run's EXPORT-TEMPLATE-INFO.txt; must equal candidate_commit>"}
   },
   "full_resolution_attachment": {"release_asset": "…zip", "sha256": "…"},
   "machine": {
@@ -326,7 +332,7 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
   "world_payloads": [
     {
       "id": "W1", "file_name": "….gsplatworld", "sha256": "…",
-      "derived_from": "<asset id or fixture id>", "derivation": "<tool, version and settings>",
+      "derived_from": "<asset id for C6; the fixture id only for C7>", "derivation": "<tool, version and settings>",
       "compressed": false, "chunk_count": 0
     }
   ],
@@ -359,8 +365,9 @@ Field rules:
 - The fields depend on the route. Leave the other route's fields `null` rather than
   inventing values:
   - `asset`, `import_route`, `node_quality_preset` and `max_splat_count` are for `node`
-    and `multi_node` configurations. They are `null` for `world` and `streaming`, which
-    consume world payloads.
+    configurations. They are `null` for `world` and `streaming`, which consume world
+    payloads, and `null` at the top level of `multi_node`, which records them per node
+    in `nodes[]`.
   - `route_policy`, `payload_mode` and `payload_streamable` are for `world` and
     `streaming` configurations. They are `null` for `node` and `multi_node`.
   - `runtime_budget_splats` and `visible_splats` are required for every route.
