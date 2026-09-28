@@ -17,8 +17,10 @@ public alpha and for v1.0 (§6, §9, §10). Tracked as
 Synthetic CI fixtures (2k to 30k splats) keep their regression role, but they do not
 support the claim that the product looks right. GPU-001 was absent under production
 defaults while every counter reported success, and a QA pin masked it (#903, #921). The
-pass puts **the maintainer's eyes on real-scan content, rendered by the exact bytes a user
-downloads**, across the alpha envelope (bar §10.1).
+pass puts **the maintainer's eyes on real-scan content, rendered by release-built bytes of
+the candidate commit**, across the alpha envelope (bar §10.1). There are two stated
+exceptions: streaming (C7) runs on synthetic content, and until #1085 the signed bytes are
+a pre-tag build of the commit, not the published bytes.
 
 - It is a **human judgement**. Bar §9 lists it under "human-signed", not machine-checked.
   No green lane, script exit code or agent assertion can stand in for the signature.
@@ -42,7 +44,9 @@ as not controlled.
      into the zip (`.github/workflows/release_builds.yml:775-792`);
    - the commit the release tag points to (`git rev-list -n 1 <tag>`).
 
-   The editor commit and the tag commit must match.
+   The editor commit and the candidate commit must match. Until #1085, the candidate
+   commit is the pre-tag run's commit (see below); after tagging, the tag must point to
+   that same commit.
 
    **The export template carries no commit record of its own.** The template zip holds
    only the two executables (`release_builds.yml:979`), and its
@@ -60,9 +64,12 @@ as not controlled.
    build and the publish. So until a draft or candidate promotion step exists (#1085),
    the pass runs **before tagging**, on the workflow artifacts of a `workflow_dispatch`
    or nightly run of the **exact candidate commit**. The tag build is then a rebuild of
-   the same commit, not the same bytes. The bundle records the pre-tag run id and its
-   artifact hashes, and the proof boundary says that the signed bytes and the published
-   bytes are two builds of one commit.
+   the same commit, not the same bytes. The signed bundle records the pre-tag run in
+   `candidate.pre_tag_run` (run id, commit and artifact hashes) and leaves `release_tag`
+   and `tag_commit` `null`. After tagging, one follow-up commit fills both in, and
+   `tag_commit` must equal the pre-tag commit; if it does not, the sign-off does not
+   apply. The proof boundary says that the signed bytes and the published bytes are two
+   builds of one commit.
 2. **Real-scan assets, referenced by hash and never committed.** For each source `.ply`,
    record its file name, `sha256`, splat count, and where a reviewer can obtain it:
 
@@ -160,6 +167,15 @@ Notes on individual rows:
   Record the per-frame series of both monitors, and of
   `gaussian_splatting/streaming_loaded_chunks`. A streaming run that quietly ran
   resident, never loaded, or never evicted, has not exercised what the Streaming dimension judges.
+- **C7's content is synthetic, not a real scan.** `open_world_corridor_20m` is built by
+  repeating `synthetic_spiral.ply` (25,000 splats, 800 instances, about 20M in total;
+  `tests/fixtures/benchmark_asset_manifest.json:140-157`). It is classified as a
+  `chunked_open_world_candidate`, not as `real_chunked` proof
+  (`docs/testing/benchmark-suite.md:306-310`). So C7 lets the signer judge streaming
+  **behaviour**: holes, popping, stale content after an eviction, and readiness. It does
+  **not** show real-scan appearance under streaming, and the proof boundary has to say so.
+  Whether a streamable world derived from a hashed real scan should be required is left
+  to the procedure's first execution.
 - **C7 content and its interim.** C7 uses the corridor world as soon as
   [#1075](https://github.com/klausi3D/godotGS/issues/1075) makes it run. Until then, C7
   may be captured on the `lightweight_smoke` streaming content only as a labelled
@@ -218,8 +234,15 @@ background differs anyway.
 **`KNOWN #N` is available only for an issue that has been admitted as an accepted
 limitation.** That means it appears in `public_alpha_issue_ledger` in
 `docs/reference/renderer_release_gate_manifest.json` with
-`status: accepted_alpha_limitation`. On 2026-09-27 that is #1025, the ≈1.5 px TAA trail in
-C4, and #54. Being listed on the known-limitations page is **not** enough. That page
+`status: accepted_alpha_limitation`, **and the acceptance's own conditions still hold**.
+On 2026-09-27 the ledger has two such issues: #1025, the ≈1.5 px TAA trail in C4, and #54.
+#54's acceptance lapses if a default-configured, in-envelope real scene is measured above
+`max_overlap_records` (the ledger entry's `rationale` and last `evidence_required` item in
+`renderer_release_gate_manifest.json`, and the #54 entry on the known-limitations page).
+A `*-auto` run of the 8M primary asset is exactly such a scene. If a run shows #54's band
+at defaults, and the overflow log warning confirms it, the acceptance has lapsed. The
+dimension is then `FAIL`, not `KNOWN #54`, and #54 blocks until its ledger entry is
+edited. Being listed on the known-limitations page is **not** enough. That page
 says itself that most of its entries are disclosures that have not cleared admission.
 
 If a pass reproduces the symptom of any other listed entry, the dimension is `FAIL`, and
@@ -275,9 +298,11 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
   "signer": "<the maintainer>",
   "candidate": {
     "stage": "public-alpha | v1.0",
-    "release_tag": "<v*-alpha* for the alpha; v1.* for v1.0>",
-    "tag_commit": "<40-hex, git rev-list -n 1 <tag>>",
-    "editor_build_info_commit": "<40-hex from the editor zip's BUILD-INFO.txt; must equal tag_commit>",
+    "candidate_commit": "<40-hex: the commit the signed artifacts were built from>",
+    "pre_tag_run": {"workflow_run_id": "…", "event": "workflow_dispatch | schedule", "commit": "<40-hex>"},
+    "release_tag": "<v*-alpha* for the alpha; v1.* for v1.0; null until tagged>",
+    "tag_commit": "<40-hex, git rev-list -n 1 <tag>; null until tagged; must equal candidate_commit>",
+    "editor_build_info_commit": "<40-hex from the editor zip's BUILD-INFO.txt; must equal candidate_commit>",
     "editor_archive": {"name": "…", "sha256": "…", "sidecar_verified": true},
     "export_template_archive": {"name": "…", "sha256": "…", "sidecar_verified": true}
   },
@@ -366,8 +391,9 @@ It records:
 The proof boundary says that the pass shows **one Windows machine with one NVIDIA GPU**,
 the listed assets and these configurations. It shows nothing about other GPU vendors,
 Linux or macOS, or, for an alpha pass, multi-node scenes, which are outside the alpha
-envelope. If C7 ran only as its interim, or the signed bytes were a pre-tag build (see
-the prerequisites), the proof boundary says that too.
+envelope. It also says that C7's streaming content is synthetic. If C7 ran only as its
+interim, or the signed bytes were a pre-tag build (see the prerequisites), the proof
+boundary says that too.
 
 ### `SIGNOFF.md`
 
@@ -377,7 +403,7 @@ the prerequisites), the proof boundary says that too.
 - Signer: <maintainer's full name> (@<github-handle>)
 - Captures run by: <name> (@<github-handle>)
 - Date: <YYYY-MM-DD>
-- Candidate: <release_tag> at <tag_commit>
+- Candidate: <candidate_commit> (pre-tag run <workflow_run_id>; tag <release_tag> added after tagging)
 - Bundle: evidence/visual/<YYYY-MM-DD>-<commit12>/
 
 | Dimension | Verdict | Note |
