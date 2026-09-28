@@ -251,6 +251,15 @@ private:
     Viewport *observed_viewport = nullptr;
     ViewportTextureState viewport_texture_state = ViewportTextureState::INACTIVE;
     Vector2i cached_viewport_size = Vector2i();
+    // #1092: the viewport RID and visible size the cached render target was
+    // acquired for. While both still match, the per-frame binding step reuses the
+    // cached RIDs instead of re-querying the RenderingServer (a main/render-thread
+    // sync per getter under thread_model=2).
+    RID cached_viewport_rid;
+    Vector2i cached_viewport_acquired_size = Vector2i();
+#ifdef TESTS_ENABLED
+    uint64_t viewport_render_target_query_count = 0;
+#endif
     bool viewport_bootstrap_deferred = false;
     bool first_frame_render_deferred = false;
     bool viewport_texture_missing_reported = false;
@@ -943,6 +952,17 @@ public:
     // Editor-specific functionality
     bool _can_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) const;
     void _drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from);
+#endif
+
+#ifdef TESTS_ENABLED
+    // Test-only (#1092). The headless test RenderingServer uses the dummy
+    // rasterizer, whose render targets are always RID(), so the READY state a real
+    // renderer reaches after its first frame is seeded through the same commit
+    // path a successful query takes.
+    void test_update_viewport_render_target();
+    void test_mark_viewport_render_target_acquired(const RID &p_render_target, const RID &p_render_texture);
+    bool test_is_viewport_render_target_ready() const;
+    uint64_t test_get_viewport_render_target_query_count() const { return viewport_render_target_query_count; }
 #endif
 };
 
