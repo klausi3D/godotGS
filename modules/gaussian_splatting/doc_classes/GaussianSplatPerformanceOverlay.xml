@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="GaussianSplatPerformanceOverlay" inherits="CanvasLayer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		The runtime performance overlay for Gaussian Splatting: frame pacing, GPU pass timings, visibility, VRAM, LOD and streaming.
+	</brief_description>
+	<description>
+		Add this node to any scene to show a performance panel. With no configuration it finds the [GaussianSplatNode3D] or [GaussianSplatWorld3D] to describe on its own: the first one in tree order that has a renderer and is rendered in the same [World3D] as the overlay's viewport, preferring the one the process-global custom monitors currently track. Set [member target_path] or call [method set_target] to choose one explicitly. The camera rows describe the viewport's current [Camera3D].
+		Every row is a measurement of what its label names, or it reads [code]n/a[/code]; a [code]0[/code] always means "measured, and it was zero". GPU pass rows are shown only while the renderer's validity flag for that pass is set, and the panel prints how many frames behind those (sticky) values may be. Rows read from the process-global custom monitors are shown only when those monitors describe the overlay's own target renderer.
+		Frame pacing is measured on the wall clock, sampled once per main-loop iteration: FPS is the number of drawn frames ([method Engine.get_frames_drawn]) divided by wall time over the refresh window, never [code]1 / delta[/code], so it is unaffected by [member Engine.time_scale]. The frame interval is labelled as a wall-clock interval because it includes GPU and vsync waits.
+		Statistics are read once per refresh window (at most 4 Hz), never per frame, and not at all while the overlay is hidden; the frame counter keeps running while hidden. Press [member hide_key] (default [kbd]F3[/kbd]) to toggle the panel.
+		The panel ignores mouse input, so camera controls that use [method Node._unhandled_input] keep working underneath it.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="get_last_refresh_usec" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns the wall time, in microseconds, that the most recent refresh of the panel took. This is the overlay's own cost per refresh window.
+			</description>
+		</method>
+		<method name="get_refresh_count" qualifiers="const">
+			<return type="int" />
+			<description>
+				Returns how many times the panel has been refreshed. It does not advance while the overlay is hidden.
+			</description>
+		</method>
+		<method name="get_snapshot" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns the values shown by the most recent refresh, as a [Dictionary] of sections ([code]"frame"[/code], [code]"camera"[/code], [code]"gpu_passes"[/code], [code]"host_stages"[/code], [code]"visibility"[/code], [code]"device_vram"[/code], [code]"lod"[/code], [code]"streaming"[/code], [code]"sh_compression"[/code], [code]"node"[/code], [code]"manager"[/code]), each mapping row keys to values. A value that the panel shows as [code]n/a[/code] is [code]null[/code], never [code]0[/code]. Only enabled [member sections] are present.
+			</description>
+		</method>
+		<method name="get_target" qualifiers="const">
+			<return type="Node" />
+			<description>
+				Returns the node the overlay describes, or [code]null[/code] if it has none yet.
+			</description>
+		</method>
+		<method name="refresh_now">
+			<return type="void" />
+			<description>
+				Refreshes the panel immediately, using the most recently completed frame-pacing window.
+			</description>
+		</method>
+		<method name="set_target">
+			<return type="void" />
+			<param index="0" name="node" type="Node" />
+			<description>
+				Makes the overlay describe [param node], a [GaussianSplatNode3D] or [GaussianSplatWorld3D]. Clears [member target_path].
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="corner" type="int" setter="set_corner" getter="get_corner" enum="GaussianSplatPerformanceOverlay.Corner" default="0">
+			The viewport corner the panel is anchored to.
+		</member>
+		<member name="font_size" type="int" setter="set_font_size" getter="get_font_size" default="13">
+			Font size of the panel's rows, in pixels.
+		</member>
+		<member name="hide_key" type="int" setter="set_hide_key" getter="get_hide_key" enum="Key" default="4194334">
+			The key that toggles the overlay's visibility. [constant KEY_NONE] disables the shortcut.
+		</member>
+		<member name="layer" type="int" setter="set_layer" getter="get_layer" overrides="CanvasLayer" default="100" />
+		<member name="process_mode" type="int" setter="set_process_mode" getter="get_process_mode" overrides="Node" enum="Node.ProcessMode" default="3" />
+		<member name="sections" type="int" setter="set_sections" getter="get_sections" default="1791">
+			Which sections the panel shows, as a combination of [enum Section] flags. By default every section except SH compression is shown.
+		</member>
+		<member name="target_path" type="NodePath" setter="set_target_path" getter="get_target_path" default="NodePath(&quot;&quot;)">
+			Optional path to the [GaussianSplatNode3D] or [GaussianSplatWorld3D] to describe. When empty, the overlay discovers its target on its own.
+		</member>
+		<member name="title" type="String" setter="set_title" getter="get_title" default="&quot;&quot;">
+			The panel title. When empty, "Gaussian Splatting" is used. The current scene's file name is appended.
+		</member>
+		<member name="update_interval" type="float" setter="set_update_interval" getter="get_update_interval" default="0.25">
+			Length of the refresh window, in seconds. FPS is measured over this window and statistics are read once per window. Clamped to 0.25–2.0 s: statistics are never read faster than 4 Hz.
+		</member>
+	</members>
+	<constants>
+		<constant name="CORNER_TOP_LEFT" value="0" enum="Corner">
+			Anchor the panel to the top-left corner.
+		</constant>
+		<constant name="CORNER_TOP_RIGHT" value="1" enum="Corner">
+			Anchor the panel to the top-right corner.
+		</constant>
+		<constant name="CORNER_BOTTOM_LEFT" value="2" enum="Corner">
+			Anchor the panel to the bottom-left corner.
+		</constant>
+		<constant name="CORNER_BOTTOM_RIGHT" value="3" enum="Corner">
+			Anchor the panel to the bottom-right corner.
+		</constant>
+		<constant name="SECTION_FRAME" value="1" enum="Section" is_bitfield="true">
+			Frame pacing: FPS and frame interval on the wall clock, the engine's whole-second FPS, and main-loop process time.
+		</constant>
+		<constant name="SECTION_CAMERA" value="2" enum="Section" is_bitfield="true">
+			Position, rotation and projection of the viewport's current camera.
+		</constant>
+		<constant name="SECTION_GPU_PASSES" value="4" enum="Section" is_bitfield="true">
+			The six resolved GPU pass timings, their total, timing age, and the render and sort route.
+		</constant>
+		<constant name="SECTION_HOST_STAGES" value="8" enum="Section" is_bitfield="true">
+			Host-side (CPU clock) stage timings: TileRenderer setup, cull stage, sort dispatch.
+		</constant>
+		<constant name="SECTION_VISIBILITY" value="16" enum="Section" is_bitfield="true">
+			Resident splats, cull results by domain, tile rejects and overlap-record usage.
+		</constant>
+		<constant name="SECTION_DEVICE_VRAM" value="32" enum="Section" is_bitfield="true">
+			RenderingDevice memory, and the streaming VRAM budget when streaming is active.
+		</constant>
+		<constant name="SECTION_LOD" value="64" enum="Section" is_bitfield="true">
+			Streaming LOD state.
+		</constant>
+		<constant name="SECTION_STREAMING" value="128" enum="Section" is_bitfield="true">
+			Chunk streaming state, upload caps and pressure.
+		</constant>
+		<constant name="SECTION_SH_COMPRESSION" value="256" enum="Section" is_bitfield="true">
+			Spherical-harmonics compression ratio (streaming only).
+		</constant>
+		<constant name="SECTION_NODE" value="512" enum="Section" is_bitfield="true">
+			The target node: splat count, last update time and the (read-only) raster policy.
+		</constant>
+		<constant name="SECTION_MANAGER" value="1024" enum="Section" is_bitfield="true">
+			Buffers registered with [GaussianSplatManager].
+		</constant>
+		<constant name="SECTION_ALL" value="2047" enum="Section" is_bitfield="true">
+			Every section.
+		</constant>
+		<constant name="SECTION_DEFAULT" value="1791" enum="Section" is_bitfield="true">
+			Every section except SH compression.
+		</constant>
+	</constants>
+</class>

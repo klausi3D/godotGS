@@ -168,8 +168,11 @@ private:
 
 	PanelContainer *panel = nullptr;
 	Label *title_label = nullptr;
-	RichTextLabel *body_left = nullptr;
-	RichTextLabel *body_right = nullptr;
+	// One label per section slot in each column. A refresh re-sets only the
+	// sections whose text changed, so a static section is never relaid out.
+	static constexpr int SECTION_SLOTS = 11;
+	Vector<RichTextLabel *> section_labels[2];
+	Vector<String> section_texts[2];
 	Label *footer_label = nullptr;
 
 	void _build_ui();
@@ -180,7 +183,8 @@ private:
 	void _gather(ReportInputs &r_in, Node *p_target, const String &p_problem) const;
 	void _read_monitors(ReportInputs &r_in, const GaussianSplatRenderer *p_target_renderer) const;
 	void _refresh();
-	static void _split_columns(const Vector<String> &p_lines, String &r_left, String &r_right);
+	static void _split_columns(const Vector<String> &p_lines, Vector<String> &r_left, Vector<String> &r_right);
+	void _apply_column(int p_column, const Vector<String> &p_sections);
 
 protected:
 	static void _bind_methods();

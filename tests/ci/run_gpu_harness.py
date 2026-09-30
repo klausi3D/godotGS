@@ -415,7 +415,8 @@ BATCHES: tuple[BatchSpec, ...] = (
     # [GaussianSplatting][SceneTree][RequiresGPU] join it, and a new case joining
     # that tag triple is a deliberate opt-in to this batch rather than an
     # accident. Members: the world-streaming case above, and (#1054/#1063) the
-    # band-1 SH reference readback in test_sh_encoding.h. Measured ~16 s end to end on an RTX 3090 (device bring-up
+    # band-1 SH reference readback in test_sh_encoding.h, and (#1084) the
+    # performance-overlay live-values case in test_performance_overlay.h. Measured ~16 s end to end on an RTX 3090 (device bring-up
     # dominates); 180 s is ~11x, comfortably clear of the >=1.5x headroom the
     # budget guard in test_gpu_harness_deferred_contract.py encodes as the
     # minimum, and consistent with the other SceneTree batches' budgets.

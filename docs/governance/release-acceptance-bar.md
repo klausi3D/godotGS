@@ -320,7 +320,7 @@ it is refused outright, which closes the delete-the-field laundering path. If pr
 empty/zero. `batches` must be a **list** of objects each carrying `name`. All eight
 `gpu_harness_policy.required_batches` must appear, each meeting its
 `minimum_test_cases`: `CompositorHazard` (1), `RendererPipeline` (4), `Lifetime` (4),
-`OutputCompositor` (4), `RendererSceneTree` (1), `WorldSceneTree` (5),
+`OutputCompositor` (4), `RendererSceneTree` (3), `WorldSceneTree` (5),
 `SceneDirectorSceneTree` (14), `GpuSorting` (1). Every batch additionally needs
 `test_cases` and `assertions` as **objects**, `summary_parse_ok: true`,
 `case_assert_audit_ok: true`, a `zero_assertion_cases` list, and a `zero_assert_reported`

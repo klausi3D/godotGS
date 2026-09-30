@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 164,
-    "sha256": "fb4cd428337895c28ccffea13a6c86b2ecb31865e1fb1e8fa47b2ce00b3092b7",
-    "sha256_last_changed_by": "#1054 / #1063 (SH coefficients stored unsigned, so negative SH clamped to zero; band-1 SH evaluated with the view direction reversed against the reference): INCREASE 163 -> 164 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_sh_encoding.h, tagged [GaussianSplatting][SceneTree][RequiresGPU] (\"Band-1 SH renders the reference colour delta on-axis and off-axis, unquantized and quantized (#1054, #1063)\"), selected by the RendererSceneTree batch (a REQUIRED batch; minimum_test_cases RAISED 1 -> 2 so a filter drift that stops selecting this case turns the gate red). It renders one splat per band-1 slot and sign and compares the red delta with the Inria computeColorFromSH reference on both the unquantized and the quantized atlas route. Mutation-proven on an RTX 3090 / Vulkan: reversing the view direction fails 14 of 24 assertions; clamping negative coefficients to zero fails 7 of 24. running_in_a_named_batch 97 -> 98, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 637a7fa5b10bac1ff8f5ad7f1cfc0a62ebf9822982947e413e362c94f9833699 (count 163, #862 / #1009).",
+    "test_count": 165,
+    "sha256": "490f1ae36487868e496f82fc504ece603829435108a1c19a756860ca122efa8c",
+    "sha256_last_changed_by": "#1084 (one engine-side performance overlay, GaussianSplatPerformanceOverlay, replacing both GDScript overlays): INCREASE 164 -> 165 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_performance_overlay.h, tagged [GaussianSplatting][SceneTree][RequiresGPU] (\"Performance overlay shows its own world's renderer and gates every pass row\"), selected by the RendererSceneTree batch (a REQUIRED batch; minimum_test_cases RAISED 2 -> 3 so a filter drift that stops selecting this case turns the gate red). It puts a splat node in the root world and a decoy splat node in a SubViewport with its own World3D (earlier in tree order, registered later), and asserts the overlay picks the root-world node, reports that node's splat count, shows each GPU pass row iff the target renderer's own *_valid flag is set (and then with that renderer's value), and shows the process-global monitor rows as n/a while two renderers are registered. running_in_a_named_batch 98 -> 99, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: fb4cd428337895c28ccffea13a6c86b2ecb31865e1fb1e8fa47b2ce00b3092b7 (count 164, #1054 / #1063 (SH coefficients stored unsigned, so negative SH clamped to zero; band-1 SH evaluated with the view direction reversed against the reference)).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -248,7 +248,7 @@
       },
       {
         "name": "RendererSceneTree",
-        "minimum_test_cases": 2,
+        "minimum_test_cases": 3,
         "allow_skips": false,
         "allow_timeout": false,
         "allow_rid_leaks": false,
@@ -476,8 +476,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 164,
-      "running_in_a_named_batch": 98,
+      "requires_gpu_total": 165,
+      "running_in_a_named_batch": 99,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },

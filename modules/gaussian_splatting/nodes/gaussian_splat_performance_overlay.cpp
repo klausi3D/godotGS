@@ -827,7 +827,7 @@ void GaussianSplatPerformanceOverlay::build_report(const ReportInputs &p_in, Vec
 // Splits rows across the two columns on section boundaries, choosing the split
 // that minimises the taller column (a single ~50-row column is taller than a
 // 720 px viewport). A header is never separated from its rows.
-void GaussianSplatPerformanceOverlay::_split_columns(const Vector<String> &p_lines, String &r_left, String &r_right) {
+void GaussianSplatPerformanceOverlay::_split_columns(const Vector<String> &p_lines, Vector<String> &r_left, Vector<String> &r_right) {
 	Vector<Vector<String>> blocks;
 	Vector<String> current;
 	for (const String &line : p_lines) {
@@ -852,16 +852,34 @@ void GaussianSplatPerformanceOverlay::_split_columns(const Vector<String> &p_lin
 			best_split = i;
 		}
 	}
-	PackedStringArray left;
-	PackedStringArray right;
+	r_left.clear();
+	r_right.clear();
 	for (int i = 0; i < blocks.size(); i++) {
-		PackedStringArray &target = i < best_split ? left : right;
+		PackedStringArray section;
 		for (const String &line : blocks[i]) {
-			target.push_back(line);
+			section.push_back(line);
+		}
+		(i < best_split ? r_left : r_right).push_back(String("\n").join(section).strip_edges());
+	}
+}
+
+void GaussianSplatPerformanceOverlay::_apply_column(int p_column, const Vector<String> &p_sections) {
+	Vector<RichTextLabel *> &labels = section_labels[p_column];
+	Vector<String> &cache = section_texts[p_column];
+	for (int i = 0; i < labels.size(); i++) {
+		const bool used = i < p_sections.size();
+		if (labels[i]->is_visible() != used) {
+			labels[i]->set_visible(used);
+		}
+		const String text = used ? p_sections[i] : String();
+		// Re-set only what changed: set_text() re-parses and re-shapes the whole
+		// label, and on a -O0 build that layout, not the statistics read, was the
+		// dominant main-thread cost of a refresh (#1084 measurement).
+		if (cache[i] != text) {
+			cache.write[i] = text;
+			labels[i]->set_text(text);
 		}
 	}
-	r_left = String("\n").join(left).strip_edges();
-	r_right = String("\n").join(right).strip_edges();
 }
 
 // ============================================================================
@@ -957,17 +975,26 @@ void GaussianSplatPerformanceOverlay::_build_ui() {
 	columns->add_theme_constant_override("separation", 16);
 	vbox->add_child(columns);
 
-	for (RichTextLabel **body : { &body_left, &body_right }) {
-		RichTextLabel *label = memnew(RichTextLabel);
-		label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-		label->set_use_bbcode(true);
-		label->set_fit_content(true);
-		label->set_scroll_active(false);
-		label->set_custom_minimum_size(Size2(340, 0));
-		columns->add_child(label);
-		*body = label;
+	for (int column = 0; column < 2; column++) {
+		VBoxContainer *column_box = memnew(VBoxContainer);
+		column_box->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+		column_box->set_custom_minimum_size(Size2(340, 0));
+		column_box->add_theme_constant_override("separation", 6);
+		columns->add_child(column_box);
+		for (int slot = 0; slot < SECTION_SLOTS; slot++) {
+			RichTextLabel *label = memnew(RichTextLabel);
+			label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
+			label->set_use_bbcode(true);
+			label->set_fit_content(true);
+			label->set_scroll_active(false);
+			label->set_visible(false);
+			column_box->add_child(label);
+			section_labels[column].push_back(label);
+			section_texts[column].push_back(String());
+		}
 	}
-	body_left->set_text(String("Measuring… (") + NA + ")");
+	section_labels[0][0]->set_text(String(U"Measuring… (") + NA + ")");
+	section_labels[0][0]->set_visible(true);
 
 	footer_label = memnew(Label);
 	footer_label->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
@@ -979,13 +1006,15 @@ void GaussianSplatPerformanceOverlay::_build_ui() {
 }
 
 void GaussianSplatPerformanceOverlay::_apply_font_size() {
-	if (!body_left) {
+	if (!title_label) {
 		return;
 	}
-	for (RichTextLabel *label : { body_left, body_right }) {
-		label->add_theme_font_size_override("normal_font_size", font_size);
-		label->add_theme_font_size_override("bold_font_size", font_size);
-		label->add_theme_font_size_override("italics_font_size", font_size);
+	for (int column = 0; column < 2; column++) {
+		for (RichTextLabel *label : section_labels[column]) {
+			label->add_theme_font_size_override("normal_font_size", font_size);
+			label->add_theme_font_size_override("bold_font_size", font_size);
+			label->add_theme_font_size_override("italics_font_size", font_size);
+		}
 	}
 	title_label->add_theme_font_size_override("font_size", font_size + 5);
 	footer_label->add_theme_font_size_override("font_size", MAX(8, font_size - 1));
@@ -1040,8 +1069,8 @@ void GaussianSplatPerformanceOverlay::unhandled_key_input(const Ref<InputEvent> 
 		return;
 	}
 	set_visible(!is_visible());
-	if (Viewport *vp = get_viewport()) {
-		vp->set_input_as_handled();
+	if (Viewport *own_vp = Node::get_viewport()) {
+		own_vp->set_input_as_handled();
 	}
 }
 
@@ -1052,8 +1081,8 @@ Node *GaussianSplatPerformanceOverlay::_discover_target() const {
 	if (!tree || !tree->get_root()) {
 		return nullptr;
 	}
-	Viewport *vp = get_viewport();
-	const Ref<World3D> world = vp ? vp->find_world_3d() : Ref<World3D>();
+	Viewport *own_vp = Node::get_viewport();
+	const Ref<World3D> world = own_vp ? own_vp->find_world_3d() : Ref<World3D>();
 	const GaussianSplattingPerformanceMonitors *monitors = GaussianSplattingPerformanceMonitors::get_singleton();
 	const GaussianSplatRenderer *preferred = monitors ? monitors->get_monitor_source_info().splat_renderer : nullptr;
 
@@ -1237,8 +1266,8 @@ void GaussianSplatPerformanceOverlay::_gather(ReportInputs &r_in, Node *p_target
 	}
 
 	if (sections & SECTION_CAMERA) {
-		Viewport *vp = get_viewport();
-		Camera3D *cam = vp ? vp->get_camera_3d() : nullptr;
+		Viewport *own_vp = Node::get_viewport();
+		Camera3D *cam = own_vp ? own_vp->get_camera_3d() : nullptr;
 		if (cam && cam->is_inside_tree()) {
 			r_in.has_camera = true;
 			r_in.camera_transform = cam->get_global_transform();
@@ -1298,11 +1327,11 @@ void GaussianSplatPerformanceOverlay::_refresh() {
 	Dictionary snapshot;
 	build_report(in, lines, snapshot);
 
-	String left;
-	String right;
+	Vector<String> left;
+	Vector<String> right;
 	_split_columns(lines, left, right);
-	body_left->set_text(left);
-	body_right->set_text(right);
+	_apply_column(0, left);
+	_apply_column(1, right);
 
 	String scene_name;
 	if (SceneTree *tree = get_tree()) {
@@ -1311,7 +1340,10 @@ void GaussianSplatPerformanceOverlay::_refresh() {
 		}
 	}
 	const String base_title = title.is_empty() ? String("Gaussian Splatting") : title;
-	title_label->set_text(scene_name.is_empty() ? base_title : vformat(U"%s · %s", base_title, scene_name));
+	const String title_text = scene_name.is_empty() ? base_title : vformat(U"%s · %s", base_title, scene_name);
+	if (title_label->get_text() != title_text) {
+		title_label->set_text(title_text);
+	}
 
 	last_refresh_usec = OS::get_singleton()->get_ticks_usec() - start;
 	refresh_count++;
