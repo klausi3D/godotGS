@@ -245,10 +245,16 @@ On 2026-09-27 the ledger has two such issues: #1025, the ≈1.5 px TAA trail in 
 #54's acceptance lapses if a default-configured, in-envelope real scene is measured above
 `max_overlap_records` (the ledger entry's `rationale` and last `evidence_required` item in
 `renderer_release_gate_manifest.json`, and the #54 entry on the known-limitations page).
-A `*-auto` run of the 8M primary asset is exactly such a scene. If a run shows #54's band
-at defaults, and the overflow log warning confirms it, the acceptance has lapsed. The
-dimension is then `FAIL`, not `KNOWN #54`, and #54 blocks until its ledger entry is
-edited. Being listed on the known-limitations page is **not** enough. That page
+A `*-auto` run of the 8M primary asset is exactly such a scene. #54's band plus the
+overflow log warning does **not** by itself show that condition: the known-limitations
+page says the same band can appear briefly at defaults while the allocated capacity catches
+up to a demand below the cap, or last while a capacity grow fails for lack of VRAM, and
+that the warning fires whenever any record is dropped. So if a run shows #54's band at
+defaults, the signer records the measured demand against `max_overlap_records`. Only if
+the demand is above the cap has the acceptance lapsed. The dimension is then `FAIL`, not
+`KNOWN #54`, and #54 blocks until its ledger entry is edited. A band that the signer
+cannot attribute to either side of the cap is a dimension the captures cannot answer
+(see below). Being listed on the known-limitations page is **not** enough. That page
 says itself that most of its entries are disclosures that have not cleared admission.
 
 If a pass reproduces the symptom of any other listed entry, the dimension is `FAIL`, and
