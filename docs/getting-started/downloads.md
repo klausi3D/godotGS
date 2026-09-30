@@ -6,14 +6,14 @@ Public binaries for godotGS are published as nightly prereleases on GitHub. Ther
 
 [**Open the Releases page**](https://github.com/klausi3D/godotGS/releases) and pick the most recent `nightly-YYYYMMDD` entry at the top. (There is no stable `v*` release yet, so GitHub's "latest release" shortcut does not resolve to a nightly; always use the list.)
 
-Each nightly contains the editor for both supported platforms, the Windows export template, and integrity files. The Windows assets are attached only when the Windows build and its export smoke test succeeded for that run:
+Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when the Windows build and its export smoke test succeed** for that run; when the Windows lane fails, the nightly is published Linux-only. Several consecutive nightlies can be Linux-only, so on Windows pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`, which is not necessarily the newest entry.
 
 | Asset | Platform | Contents |
 | --- | --- | --- |
 | `godotgs-linux-x86_64-<tag>.tar.xz` | Linux x86_64 | Editor binary (`dev_build=yes`, `-O0`) |
-| `godotgs-windows-x86_64-<tag>.zip` | Windows x86_64 | **Editor**, optimized: GUI editor (`.exe`) + console wrapper (`.console.exe`) |
-| `godotgs-export-template-windows-x86_64-<tag>.zip` | Windows x86_64 | **Export template** for shipping a game: `windows_release_x86_64.exe` + `windows_release_x86_64.console.exe`. Not an editor. See [Export Templates](../development/export-templates.md). |
-| `*.sha256` | both | SHA-256 checksum sidecars |
+| `godotgs-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows lane passed) | **Editor**, optimized: GUI editor (`.exe`) + console wrapper (`.console.exe`) |
+| `godotgs-export-template-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows lane passed) | **Export template** for shipping a game: `windows_release_x86_64.exe` + `windows_release_x86_64.console.exe`. Not an editor. See [Export Templates](../development/export-templates.md). |
+| `*.sha256` | per archive | SHA-256 checksum sidecar for each archive attached to that nightly |
 | `BUILD-INFO.txt` | shared | Channel, commit hash, binary names, generation timestamp |
 
 macOS is not yet covered by a published binary — [Build from Source](../BUILDING.md).

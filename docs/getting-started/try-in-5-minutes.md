@@ -4,10 +4,10 @@ This is the shortest honest path to a visible result: download the latest nightl
 
 ## 1. Get the Nightly Editor
 
-Open the [GitHub Releases](https://github.com/klausi3D/godotGS/releases) page, pick the most recent `nightly-YYYYMMDD` entry at the top of the list, and download the archive that matches your platform:
+Open the [GitHub Releases](https://github.com/klausi3D/godotGS/releases) page and download the archive that matches your platform:
 
-- **Linux:** `godotgs-linux-x86_64-<date>.tar.xz`
-- **Windows:** `godotgs-windows-x86_64-<date>.zip` (contains both the GUI editor and the console wrapper — pick whichever fits your workflow). Do not take `godotgs-export-template-windows-x86_64-<date>.zip` by mistake: that is the export template for shipping a game, not the editor.
+- **Linux:** `godotgs-linux-x86_64-<date>.tar.xz` from the most recent `nightly-YYYYMMDD` entry at the top of the list. Every nightly has it.
+- **Windows:** `godotgs-windows-x86_64-<date>.zip` from the most recent nightly that lists it. The Windows zip is attached only when that night's Windows build lane passed, so the newest nightly may be Linux-only. The zip contains both the GUI editor and the console wrapper; pick whichever fits your workflow. Do not take `godotgs-export-template-windows-x86_64-<date>.zip` by mistake: that is the export template for shipping a game, not the editor.
 - **macOS:** no published binary; stop here and use [Build from Source](../BUILDING.md).
 
 See the [Downloads page](downloads.md) for verification and integrity-check details.
@@ -37,17 +37,19 @@ from the clone (paths below are relative to the repository root):
 
 ```bash
 export GODOT_BINARY=/absolute/path/to/godot.linuxbsd.editor.dev.x86_64
-$GODOT_BINARY --path tests/examples/godot/test_project
+$GODOT_BINARY -e --path tests/examples/godot/test_project
 ```
 
 ```powershell
 $env:GODOT_BINARY="C:\absolute\path\to\godot.windows.editor.x86_64.exe"
-& $env:GODOT_BINARY --path .\tests\examples\godot\test_project
+& $env:GODOT_BINARY -e --path .\tests\examples\godot\test_project
 ```
+
+The `-e` flag opens the editor; without it, `--path` runs the project's main scene directly.
 
 ## 4. Verify the Public Evaluator
 
-Press Play. The sample project opens `res://scenes/public_evaluator.tscn` by default.
+Press Play. The sample project opens `res://scenes/public_evaluator.tscn` by default. It shows a small synthetic sample (a 1,024-splat test fixture), not a real capture.
 
 You should see:
 

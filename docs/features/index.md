@@ -6,17 +6,17 @@ hide:
 
 <p class="gs-eyebrow">Features</p>
 
-# Everything you need to ship reality
+# From capture to running scene
 
-From a raw capture to a running scene, godotGS keeps the whole splatting workflow inside the engine — no exporting, no separate viewer, no guesswork. Each guide below is maintained in this repository.
+From a raw capture to a running scene, godotGS keeps the splatting workflow inside the engine, with no separate viewer. godotGS is alpha software. Each guide below is maintained in this repository.
 
 <div class="grid cards" markdown>
 
--   __Import any capture__
+-   __Import PLY and SPZ captures__
 
     ---
 
-    Load `.ply` and `.spz` files. They import as a `GaussianSplatAsset` resource, which you assign to a `GaussianSplatNode3D` in your scene, ready to orbit.
+    Import supported `.ply` and `.spz` splat captures as native Godot resources. Each imports as a `GaussianSplatAsset`; assign it to a `GaussianSplatNode3D`, or drag it into the 3D viewport and the editor creates the node for you.
 
     [PLY loader technical details →](ply-loader.md)
 
@@ -26,7 +26,7 @@ From a raw capture to a running scene, godotGS keeps the whole splatting workflo
 
     ---
 
-    Exposure, white balance, and a non-destructive color-grading bake — tuned live in the Inspector, then baked into the resource.
+    Exposure, contrast, saturation and white balance (temperature and tint) through a `ColorGradingResource`, tuned in the Inspector. An optional, reversible bake (`bake_color_grading()`, undone by `restore_color_grading()`) writes the grade into the node's loaded splat colors; it does not rewrite the saved asset.
 
     [Color grading quick start →](color-grading-quick-start.md)
 
@@ -46,21 +46,21 @@ From a raw capture to a running scene, godotGS keeps the whole splatting workflo
 
     ---
 
-    Distance-based LOD, per-chunk quantization, and a streaming queue keep multi-million-splat scenes fluid at runtime — not just in a demo.
+    Streaming in fixed-size chunks, distance-based LOD, and per-chunk quantization are built for multi-million-splat scenes. Frame rates at that density are not yet interactive; see [Performance](../performance/index.md) for the measured numbers.
 
     [Streaming system →](streaming.md)
 
-    <span class="gs-card-meta">lod · quantization · octree chunks</span>
+    <span class="gs-card-meta">lod · quantization · fixed-size chunks</span>
 
 -   __Animate splats__
 
     ---
 
-    Drive splat transforms and node properties from the timeline, alongside the rest of your Godot scene.
+    Keyframe per-splat position, color, opacity, scale and rotation with `GaussianAnimationStateMachine`, then advance and sample it from script. It is opt-in: the renderer does not play these clips on its own, and there is no `AnimationPlayer` timeline integration.
 
     [Animation system →](animation.md)
 
-    <span class="gs-card-meta">timeline · transforms · properties</span>
+    <span class="gs-card-meta">keyframes · per-splat · scripted</span>
 
 -   __Version-controlled media__
 
