@@ -2017,7 +2017,47 @@ def _candidate_lane_streaming_evidence_failures(lane_id: str, row: dict[str, Any
             f"that claims streaming proof needs one of {sorted(_ACCEPTED_PROOF_STATUSES)} "
             "(not_applicable, fail and missing_telemetry prove nothing)"
         )
+    failures.extend(_candidate_lane_proof_contract_failures(lane_id, row))
     return failures
+
+
+def _candidate_lane_proof_contract_failures(lane_id: str, row: dict[str, Any]) -> list[str]:
+    """Re-score the row against the harness's own contract; never trust its proof_status.
+
+    A literal ``proof_status: "pass"`` is part of the evidence under audit (Codex review
+    on #1046). A lane with no entry in ``LARGE_WORLD_PROOF_CONTRACTS`` cannot have been
+    scored at all -- the harness emits ``not_applicable``, which
+    ``_streaming_evidence_fail_closed`` turns into null -- so any accepted status on such
+    a row did not come from the harness and is refused. A lane that has a contract is
+    re-evaluated from its nested ``report`` with the harness's own function, exactly as
+    ``_corridor_proof_contract_failures`` does for the open_world_proof artifact.
+    """
+    try:
+        runner = _load_benchmark_runner()
+    except Exception as exc:  # noqa: BLE001 - any import failure must fail closed
+        return [
+            f"candidate benchmark lane {lane_id} proof_status could not be re-scored because "
+            f"tests/runtime/run_benchmark.py failed to load: {exc}"
+        ]
+    if lane_id not in runner.LARGE_WORLD_PROOF_CONTRACTS:
+        return [
+            f"candidate benchmark lane {lane_id} claims streaming proof but has no large-world "
+            "proof contract in tests/runtime/run_benchmark.py, so nothing can have scored it; "
+            f"its proof_status={row.get('proof_status')!r} is not evidence"
+        ]
+    outcome = runner._evaluate_large_world_proof_contract(lane_id, row.get("report"))
+    if outcome.get("proof_valid") is True and outcome.get("proof_status") in _ACCEPTED_PROOF_STATUSES:
+        return []
+    issues = [
+        str(issue.get("message", ""))
+        for key in ("proof_failures", "proof_missing_telemetry")
+        for issue in outcome.get(key) or []
+    ]
+    return [
+        f"candidate benchmark lane {lane_id} fails its proof contract when re-scored from its "
+        f"report (proof_status={outcome.get('proof_status')!r}, row claimed "
+        f"{row.get('proof_status')!r}): " + ("; ".join(issues) if issues else "no detail reported")
+    ]
 
 
 def _candidate_lane_visual_failures(

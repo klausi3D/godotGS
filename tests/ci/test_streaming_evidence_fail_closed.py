@@ -334,8 +334,9 @@ class OpenWorldProofSurfaceReachabilityTests(unittest.TestCase):
     STEP_HEADER_PREFIX = "      - name:"
     STEP_KEY_PREFIX = "        "
 
-    def _proof_steps(self) -> list[tuple[str, list[str]]]:
-        """Return (step name, step lines) for steps whose body runs the proof lane."""
+    def _proof_steps(self, lane: str | None = None) -> list[tuple[str, list[str]]]:
+        """Return (step name, step lines) for steps whose body runs `lane` (default: the proof lane)."""
+        lane = lane or self.PROOF_LANE
         text = self.WORKFLOW.read_text(encoding="utf-8")
         blocks: list[tuple[str, list[str]]] = []
         current: list[str] | None = None
@@ -359,7 +360,7 @@ class OpenWorldProofSurfaceReachabilityTests(unittest.TestCase):
         return [
             (step_name, lines)
             for step_name, lines in blocks
-            if any(f"--lane {self.PROOF_LANE}" in line for line in lines)
+            if any(f"--lane {lane}" in line for line in lines)
         ]
 
     @staticmethod
@@ -391,6 +392,27 @@ class OpenWorldProofSurfaceReachabilityTests(unittest.TestCase):
             f"scheduled run, so the lane only executes if a human dispatches it: {unreachable}. "
             "That is how the lane went from March 2026 to September 2026 without running once.",
         )
+
+    def test_the_weekly_surface_does_not_depend_on_the_dev_surface(self) -> None:
+        """Codex P2 on #1046 c21490c: the schedule now runs the dev surface first.
+
+        A `success()` gate on the weekly step went false when a dev-surface SUMMARY or
+        UPLOAD step failed after a successful dev benchmark, so the weekly surface was
+        skipped on a run that claims to execute both. Its gate must be its real
+        prerequisite (the fixture-prep step) and never any dev-surface step.
+        """
+        steps = self._proof_steps("long_soak")
+        self.assertEqual(len(steps), 1, f"expected exactly one weekly long_soak step, got {steps}")
+        condition = self._condition(steps[0][1])
+        self.assertNotIn("success()", condition)
+        self.assertNotIn("openworld_proof_dev", condition)
+        self.assertIn("steps.prepare_synthetic_assets.outcome == 'success'", condition)
+        # An unknown step id evaluates to '' and would skip the weekly step forever.
+        self.assertIn(
+            "        id: prepare_synthetic_assets\n", self.WORKFLOW.read_text(encoding="utf-8")
+        )
+        self.assertIn("!cancelled()", condition)
+        self.assertIn("github.event_name == 'schedule'", condition)
 
     def test_the_guard_does_not_depend_on_pyyaml(self) -> None:
         """The guard lane installs nothing; an `import yaml` would error, not report."""

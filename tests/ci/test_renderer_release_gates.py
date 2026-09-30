@@ -3987,7 +3987,10 @@ class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
     stale or hand-authored row bypassed run_benchmark.py's fail-closed producer.
     """
 
-    PROOF_LANE = "streaming_corridor"  # evidence_role proof_support_* in the repo manifest
+    # The only lane with a harness proof contract; evidence_role proof_corridor_return_*.
+    PROOF_LANE = "open_world_corridor_proof"
+    # Candidate-required, evidence_role proof_support_*, and NO proof contract.
+    UNCONTRACTED_PROOF_LANE = "streaming_corridor"
     PLAIN_LANE = "static_baseline"  # evidence_role low_noise_smoke_reference
 
     @staticmethod
@@ -3997,6 +4000,7 @@ class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
             "queue_pressure": {"frames": 11, "candidate_frames": 34, "active": False,
                                "source": "streaming_state"},
             "proof_status": "pass",
+            "report": _honest_corridor_proof_report(),
         }
 
     def _failures(self, lane_id: str, row: dict[str, Any]) -> list[str]:
@@ -4004,10 +4008,37 @@ class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
 
     def test_lane_roles_come_from_the_repository_policy(self) -> None:
         self.assertEqual(checker._lane_declares_proof_evidence_by_policy(self.PROOF_LANE)[0], True)
+        self.assertEqual(
+            checker._lane_declares_proof_evidence_by_policy(self.UNCONTRACTED_PROOF_LANE)[0], True
+        )
         self.assertEqual(checker._lane_declares_proof_evidence_by_policy(self.PLAIN_LANE)[0], False)
 
     def test_measured_streaming_evidence_is_accepted(self) -> None:
         self.assertEqual(self._failures(self.PROOF_LANE, self._measured_row()), [])
+
+    def test_claimed_pass_on_a_lane_with_no_proof_contract_is_refused(self) -> None:
+        """Codex P1 on #1046 c21490c: the harness can only emit null here, so "pass" is forged."""
+        for claimed in ("pass", "warn"):
+            row = self._measured_row()
+            row["proof_status"] = claimed
+            failures = self._failures(self.UNCONTRACTED_PROOF_LANE, row)
+            self.assertTrue(
+                any("no large-world proof contract" in f for f in failures), f"{claimed}: {failures}"
+            )
+
+    def test_claimed_pass_is_re_scored_from_the_report(self) -> None:
+        """A row saying "pass" whose report fails or lacks the contract metrics is refused."""
+        failing = self._measured_row()
+        failing["report"] = _captured_corridor_proof_report()  # the real capture fails the contract
+        missing = self._measured_row()
+        missing["report"]["proof_metrics"].pop("residency_ratio")
+        absent = self._measured_row()
+        absent.pop("report")
+        for name, row in (("failing", failing), ("missing", missing), ("absent", absent)):
+            failures = self._failures(self.PROOF_LANE, row)
+            self.assertTrue(
+                any("re-scored from its report" in f for f in failures), f"{name}: {failures}"
+            )
 
     def test_placeholder_evidence_on_a_proof_lane_is_rejected(self) -> None:
         for mutate, expected in (

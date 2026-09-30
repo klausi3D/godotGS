@@ -358,8 +358,13 @@ asset manifest (`tests/fixtures/benchmark_asset_manifest.json`) gives it a `proo
 `source: "streaming_state"` and a finite non-negative `frames`, and a `proof_status` of
 `pass` or `warn` (`_candidate_lane_streaming_evidence_failures`). The role is read from
 the repository, not from the row, so a row cannot relabel itself out of the requirement.
+The row's own `proof_status` is not trusted either: the gate re-scores the row's nested
+`report` against the lane's contract in `run_benchmark.py`'s `LARGE_WORLD_PROOF_CONTRACTS`
+with the harness's own `_evaluate_large_world_proof_contract`, and refuses a lane that has
+no contract whatever status the row claims (`_candidate_lane_proof_contract_failures`).
 Neither lane has a large-world proof contract today, so the harness writes a null
-`proof_status` for them and no current run can satisfy this.
+`proof_status` for them, a hand-written `pass` is refused, and no current run can satisfy
+this.
 
 **Visual acceptance — evaluated per benchmark-lane row, not once per bundle.** Every lane
 row carries its own capture fields and is checked independently
