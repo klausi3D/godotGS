@@ -8,16 +8,14 @@ Real editor screenshots for this flow are still pending, so this page stays text
 
 ## 1. Get an Editor
 
-A stock Godot editor does not work: you need an editor built from this fork.
+A stock Godot editor does not work: you need an editor built from this fork. The nightly editors are published on GitHub Releases; the [Downloads](downloads.md) page links them and explains how to unpack, run and verify each archive.
+
+Before you download, read [Build Flavor and Performance](downloads.md#build-flavor-and-performance): the Linux nightly is not a performance build. This page shows that godotGS works, not how fast it is; the [Performance Dashboard](../performance/index.md) shows what an optimized build measures.
 
 - **Linux:** download `godotgs-linux-x86_64-<tag>.tar.xz` from the most recent `nightly-YYYYMMDD` release. Every nightly has it.
 - **Windows:** download `godotgs-windows-x86_64-<tag>.zip` from the most recent nightly that lists it. The Windows zip is attached only when that night's Windows build lane passed, so the newest nightly may be Linux-only. The zip contains both the GUI editor and the console wrapper; pick whichever fits your workflow. Do not take `godotgs-export-template-windows-x86_64-<tag>.zip` by mistake: that is the export template for shipping a game, not the editor.
 - **macOS:** no published binary. Build one with [Build from Source](../BUILDING.md).
 - **Already built one?** Any editor built from this fork works; see [Installation](installation.md) for prerequisites and build paths.
-
-[Downloads](downloads.md) links the Releases page and explains how to unpack, run and verify each archive.
-
-This page shows that godotGS works, not how fast it is. Before you judge speed, read [Build Flavor and Performance](downloads.md#build-flavor-and-performance) (the Linux nightly is not a performance build) and the [Performance Dashboard](../performance/index.md).
 
 ## 2. Get the Sample Project
 
