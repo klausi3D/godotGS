@@ -1230,7 +1230,7 @@ void GaussianSplatNodeDebugHelper::set_show_performance_hud(bool p_show) {
 
     push_debug_overlay_union();
 
-    if (owner.show_performance_overlay) {
+    if (owner.show_timing_gizmo) {
         owner.update_gizmos();
     }
 
@@ -1246,12 +1246,12 @@ void GaussianSplatNodeDebugHelper::set_show_lod_spheres(bool p_show) {
     owner.update_gizmos();
 }
 
-void GaussianSplatNodeDebugHelper::set_show_performance_overlay(bool p_show) {
-    if (owner.show_performance_overlay == p_show) {
+void GaussianSplatNodeDebugHelper::set_show_timing_gizmo(bool p_show) {
+    if (owner.show_timing_gizmo == p_show) {
         return;
     }
 
-    owner.show_performance_overlay = p_show;
+    owner.show_timing_gizmo = p_show;
     owner.update_gizmos();
 }
 

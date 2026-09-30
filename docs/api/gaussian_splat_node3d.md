@@ -314,10 +314,10 @@ Use `GaussianSplatNode3D` to render Gaussian splat assets or procedural splat ar
       <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:631</code></td>
     </tr>
     <tr>
-      <td><code>debug/show_performance_overlay</code></td>
+      <td><code>debug/show_timing_gizmo</code></td>
       <td><code>bool</code></td>
-      <td><code>set_show_performance_overlay</code>, <code>is_showing_performance_overlay</code></td>
-      <td>Updates gizmos only.</td>
+      <td><code>set_show_timing_gizmo</code>, <code>is_showing_timing_gizmo</code></td>
+      <td>Updates gizmos only: the editor timing gizmo (update/render/sort bars). The runtime performance overlay is the <code>GaussianSplatPerformanceOverlay</code> node.</td>
       <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:640</code></td>
     </tr>
     <tr>

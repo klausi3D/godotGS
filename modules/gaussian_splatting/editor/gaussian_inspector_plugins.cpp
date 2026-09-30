@@ -201,8 +201,13 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     Label *stats_label = memnew(Label);
     String stats_text = TTR("Performance:") + "\n";
     stats_text += vformat(TTR("Visible: %d/%d splats"), (int64_t)stats["visible_splats"], (int64_t)stats["total_splats"]) + "\n";
-    stats_text += vformat(TTR("Sort: %s ms"), String::num(stats["sort_time_ms"], 1)) + " | ";
-    stats_text += vformat(TTR("Render: %s ms"), String::num(stats["render_time_ms"], 1));
+    // #1084: an absent or not-yet-measured time is n/a, never "0.0 ms".
+    auto ms_or_na = [&stats](const char *p_key) -> String {
+        const double ms = stats.has(p_key) ? double(stats[p_key]) : 0.0;
+        return ms > 0.0 ? String::num(ms, 1) + " ms" : String("n/a");
+    };
+    stats_text += vformat(TTR("Sort: %s"), ms_or_na("sort_time_ms")) + " | ";
+    stats_text += vformat(TTR("Render: %s"), ms_or_na("render_time_ms"));
     stats_label->set_text(stats_text);
     add_custom_control(stats_label);
 }
@@ -351,15 +356,15 @@ void GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled(bool p_presse
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled(bool p_pressed, ObjectID p_node_id) {
-    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Performance HUD"), "debug/show_performance_hud", p_pressed, true);
+    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Route & Residency HUD"), "debug/show_performance_hud", p_pressed, true);
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled(bool p_pressed, ObjectID p_node_id) {
     _commit_node_property_change(p_node_id, TTR("Toggle Gaussian LOD Spheres"), "debug/show_lod_spheres", p_pressed, true);
 }
 
-void GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled(bool p_pressed, ObjectID p_node_id) {
-    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Performance Overlay"), "debug/show_performance_overlay", p_pressed, true);
+void GaussianSplatNodeInspectorPlugin::_on_timing_gizmo_toggled(bool p_pressed, ObjectID p_node_id) {
+    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Timing Gizmo"), "debug/show_timing_gizmo", p_pressed, true);
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_debug_draw_mode_selected(int p_index, ObjectID p_node_id, OptionButton *p_source) {
@@ -629,7 +634,7 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
             node->is_showing_density_heatmap(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
 
-    _add_debug_toggle(overlay_row, TTR("HUD"), "debug/show_performance_hud",
+    _add_debug_toggle(overlay_row, TTR("Route HUD"), "debug/show_performance_hud",
             node->is_showing_performance_hud(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
 
@@ -649,9 +654,9 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
             node->is_showing_lod_spheres(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled).bind(node->get_instance_id()));
 
-    _add_debug_toggle(lod_row, TTR("Performance Overlay"), "debug/show_performance_overlay",
-            node->is_showing_performance_overlay(),
-            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled).bind(node->get_instance_id()));
+    _add_debug_toggle(lod_row, TTR("Timing Gizmo"), "debug/show_timing_gizmo",
+            node->is_showing_timing_gizmo(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_timing_gizmo_toggled).bind(node->get_instance_id()));
 
     root->add_child(lod_row);
 

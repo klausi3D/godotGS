@@ -183,7 +183,7 @@ These flags populate `get_statistics()` but do **not** draw HUD text in the view
 
 ##### Other Debug Options
 - `debug/show_lod_spheres`: Display LOD distance spheres as gizmos
-- `debug/show_performance_overlay`: Show performance overlay gizmo
+- `debug/show_timing_gizmo`: Draw the editor timing gizmo (update/render/sort bars). The runtime performance overlay is the `GaussianSplatPerformanceOverlay` node.
 - `debug/debug_draw_mode`: Visualization mode (Off, Wireframe, Points, Heatmap)
 - `debug/runtime_preview`: Enable debug visualization at runtime
 

@@ -180,7 +180,7 @@ signal benchmark_scene_finished(result: Dictionary)
 @export var default_duration_s := DEFAULT_BENCHMARK_DURATION
 
 @onready var camera: Camera3D = $Camera3D
-@onready var performance_overlay: Control = $PerformanceOverlay
+@onready var performance_overlay: GaussianSplatPerformanceOverlay = $PerformanceOverlay
 @onready var instance_root: Node3D = $InstanceRoot
 @onready var directional_light: DirectionalLight3D = $DirectionalLight3D
 @onready var omni_light_a: OmniLight3D = $OmniLightA

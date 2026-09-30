@@ -1,10 +1,11 @@
 /**
  * @file gaussian_splat_debug_hud.h
- * @brief In-viewport debug HUD for Gaussian Splatting performance stats.
+ * @brief The internal "Route & residency HUD".
  *
- * This file defines GaussianSplatDebugHUD, a Control node that draws runtime
- * statistics directly in the viewport. It displays splat count, FPS, memory
- * usage, streaming status, and other key performance metrics.
+ * This file defines GaussianSplatDebugHUD, a Control node that draws the
+ * renderer's diagnostic lines (route, policy, backend, residency) directly in
+ * the viewport. Since #1084 it shows no frame or GPU timings: the one runtime
+ * performance overlay is GaussianSplatPerformanceOverlay.
  */
 
 #ifndef GAUSSIAN_SPLAT_DEBUG_HUD_H
@@ -29,11 +30,10 @@ class Font;
  *
  * ## Displayed Information
  *
- * - **Splat Count**: Visible / Total splats
- * - **FPS / Frame Time**: Current rendering performance
- * - **GPU Memory**: Estimated VRAM usage in MB
- * - **Streaming Status**: Chunks loaded / total (if streaming enabled)
- * - **Sort/Render Time**: GPU timing for key pipeline stages
+ * - **Routes**: selected render / sort / cull route, requested policy, backend reason
+ * - **Splat Count**: Visible / sorted splats
+ * - **Residency**: registered buffers, resident splats and memory (residency HUD)
+ * - No FPS, frame time or pass timing (#1084: see GaussianSplatPerformanceOverlay)
  *
  * ## Usage
  *

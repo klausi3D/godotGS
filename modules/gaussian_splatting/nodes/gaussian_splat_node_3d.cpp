@@ -282,9 +282,9 @@ void GaussianSplatNode3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_showing_lod_spheres"), &GaussianSplatNode3D::is_showing_lod_spheres);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_lod_spheres"), "set_show_lod_spheres", "is_showing_lod_spheres");
 
-    ClassDB::bind_method(D_METHOD("set_show_performance_overlay", "show"), &GaussianSplatNode3D::set_show_performance_overlay);
-    ClassDB::bind_method(D_METHOD("is_showing_performance_overlay"), &GaussianSplatNode3D::is_showing_performance_overlay);
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_performance_overlay"), "set_show_performance_overlay", "is_showing_performance_overlay");
+    ClassDB::bind_method(D_METHOD("set_show_timing_gizmo", "show"), &GaussianSplatNode3D::set_show_timing_gizmo);
+    ClassDB::bind_method(D_METHOD("is_showing_timing_gizmo"), &GaussianSplatNode3D::is_showing_timing_gizmo);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_timing_gizmo"), "set_show_timing_gizmo", "is_showing_timing_gizmo");
 
     ClassDB::bind_method(D_METHOD("set_debug_overlay_opacity", "opacity"), &GaussianSplatNode3D::set_debug_overlay_opacity);
     ClassDB::bind_method(D_METHOD("get_debug_overlay_opacity"), &GaussianSplatNode3D::get_debug_overlay_opacity);
@@ -1483,8 +1483,8 @@ void GaussianSplatNode3D::set_show_lod_spheres(bool p_show) {
     debug_helper.set_show_lod_spheres(p_show);
 }
 
-void GaussianSplatNode3D::set_show_performance_overlay(bool p_show) {
-    debug_helper.set_show_performance_overlay(p_show);
+void GaussianSplatNode3D::set_show_timing_gizmo(bool p_show) {
+    debug_helper.set_show_timing_gizmo(p_show);
 }
 
 void GaussianSplatNode3D::set_debug_overlay_opacity(float p_opacity) {
@@ -1526,7 +1526,7 @@ Dictionary GaussianSplatNode3D::get_statistics() const {
     stats["debug_draw_mode"] = debug_draw_mode;
     stats["debug_preview_mode"] = debug_draw_mode;
     stats["show_lod_spheres"] = show_lod_spheres;
-    stats["show_performance_overlay"] = show_performance_overlay;
+    stats["show_timing_gizmo"] = show_timing_gizmo;
     stats["preview_enabled"] = preview_enabled;
 
     if (renderer.is_valid()) {
@@ -3100,6 +3100,10 @@ void GaussianSplatNode3D::_fill_preset_config(QualityPreset p_preset, Dictionary
 
 Ref<GaussianSplatRenderer> GaussianSplatNode3D::get_renderer() {
     _ensure_renderer();
+    return renderer;
+}
+
+Ref<GaussianSplatRenderer> GaussianSplatNode3D::get_existing_renderer() const {
     return renderer;
 }
 

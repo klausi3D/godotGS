@@ -482,13 +482,13 @@
 			<return type="void" />
 			<param index="0" name="show" type="bool" />
 			<description>
-				Enables or disables the performance HUD overlay.
+				Enables or disables the internal Route &amp; residency HUD (see [member debug/show_performance_hud]).
 			</description>
 		</method>
 		<method name="is_showing_performance_hud">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if the performance HUD is visible.
+				Returns [code]true[/code] if the Route &amp; residency HUD is requested.
 			</description>
 		</method>
 		<method name="set_show_lod_spheres">
@@ -504,17 +504,17 @@
 				Returns [code]true[/code] if LOD sphere visualization is active.
 			</description>
 		</method>
-		<method name="set_show_performance_overlay">
+		<method name="set_show_timing_gizmo">
 			<return type="void" />
 			<param index="0" name="show" type="bool" />
 			<description>
-				Enables or disables the runtime performance overlay.
+				Enables or disables the editor timing gizmo (see [member debug/show_timing_gizmo]).
 			</description>
 		</method>
-		<method name="is_showing_performance_overlay">
+		<method name="is_showing_timing_gizmo">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if the performance overlay is visible.
+				Returns [code]true[/code] if the editor timing gizmo is drawn.
 			</description>
 		</method>
 		<method name="set_debug_overlay_opacity">
@@ -671,13 +671,13 @@
 			Shows the per-tile density heatmap.
 		</member>
 		<member name="debug/show_performance_hud" type="bool" setter="set_show_performance_hud" getter="is_showing_performance_hud" default="false">
-			Shows the performance HUD overlay.
+			Requests the internal Route &amp; residency HUD ([GaussianSplatDebugHUD]): render, sort and cull route, requested policy, backend and residency lines. It shows no frame or GPU timings; those live in [GaussianSplatPerformanceOverlay].
 		</member>
 		<member name="debug/show_lod_spheres" type="bool" setter="set_show_lod_spheres" getter="is_showing_lod_spheres" default="false">
 			Shows LOD transition sphere visualization.
 		</member>
-		<member name="debug/show_performance_overlay" type="bool" setter="set_show_performance_overlay" getter="is_showing_performance_overlay" default="false">
-			Shows the runtime performance overlay.
+		<member name="debug/show_timing_gizmo" type="bool" setter="set_show_timing_gizmo" getter="is_showing_timing_gizmo" default="false">
+			Draws the editor timing gizmo: three bars above the node for its update, render and sort time. A time that was not measured draws no bar. This is an editor aid, not the runtime performance overlay; for that, add a [GaussianSplatPerformanceOverlay] to the scene.
 		</member>
 		<member name="debug/overlay_opacity" type="float" setter="set_debug_overlay_opacity" getter="get_debug_overlay_opacity" default="0.5">
 			Opacity of debug overlays.

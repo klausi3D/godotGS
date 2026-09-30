@@ -1,15 +1,14 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="GaussianSplatWorld" path="res://tests/fixtures/test_splats.gsplatworld" id="1"]
 [ext_resource type="Script" path="res://fps_camera_controller.gd" id="2"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="3"]
 
 [sub_resource type="ColorGradingResource" id="1"]
 exposure = 0.23
 
 [node name="PublicEvaluator" type="Node3D"]
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("3")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="DemoSplat" type="GaussianSplatWorld3D" parent="."]
 world = ExtResource("1")
