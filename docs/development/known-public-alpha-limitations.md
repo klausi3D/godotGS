@@ -29,10 +29,11 @@ alpha actually ships with, read everything *above* that heading.
 
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blockers #851 and #833 carry none of those (both are
-> `priority:P2`), so nothing automated stops a release on them. (Two more were in that
-> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`, and #54
-> until it was accepted on 2026-09-25; #54 is now listed under [Rendering](#rendering).) Read "it is in
+> `release blocker`; the §11 alpha blocker #851 carries none of those (it is
+> `priority:P2`), so nothing automated stops a release on it. (Three more were in that
+> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`; #54
+> until it was accepted on 2026-09-25, and it is now listed under [Rendering](#rendering);
+> and #833 until it was struck on 2026-09-30, fixed by #1027, #1031 and #1032 — §11 item 9.) Read "it is in
 > the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.

@@ -638,8 +638,8 @@ Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
 **Status: 12 identified, 10 fixed or closed, 1 accepted as a limitation, 1 open, 0 refuted**
-(re-counted 2026-09-27: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
-run time on 2026-09-27 — see item 9; that moves the count from 9/1/2 to 10/1/1, and the one
+(re-counted 2026-09-30: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
+run time on 2026-09-27 and signed off by the maintainer on 2026-09-30 — see item 9; that moves the count from 9/1/2 to 10/1/1, and the one
 still open is #851. Re-counted before that on 2026-09-25: **#54 accepted** by the maintainer as a disclosed public-alpha
 limitation, [#54 comment 5838456717](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717).
 It stays open as the tracking issue for the engineering fix, so it is counted as accepted
@@ -750,7 +750,7 @@ rather than a ceiling.
 8. **#851** — black contours and inert shadows with painterly enabled. Its
    premise ("ships today on both painterly paths") held only because the QA pin
    sets `depth_test=false`; re-test at the shipped default once #986 lands.
-9. ~~**#833** — starter-template overlay never updates.~~ **Struck on 2026-09-27: fixed on
+9. ~~**#833** — starter-template overlay never updates.~~ **Struck on 2026-09-30: fixed on
    master** by #1027 (`511acdc0fc9`: the template's scripts parse and attach, plus the static
    `check_shipped_project_scripts.py` guard), #1031 (`e2f1c2f6850`: every displayed row reads
    a registered monitor or a `get_statistics()` key, and renders `n/a` where there is no
@@ -774,7 +774,10 @@ rather than a ceiling.
    - `streaming_monitor_ready` read 0, so the LOD, streaming and streaming-VRAM blocks show
      `n/a` rather than their getters' `0` / `1` / `1.0`.
 
-   **Maintainer visual sign-off: pending.**
+   **Signed off on 2026-09-30.** The maintainer gave the visual sign-off, on the runtime
+   contact sheet from these runs
+   ([record](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5919843709)). It
+   covers the overlay only, not the gaps listed next.
 
    **Not checked:** the streaming rows with a streaming system attached, and a second GPU
    vendor.
