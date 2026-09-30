@@ -8,6 +8,8 @@ Public binaries for godotGS are published as nightly prereleases on GitHub. Ther
 
 Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when the Windows build and its export smoke test succeed** for that run; when the Windows lane fails, the nightly is published Linux-only. Several consecutive nightlies can be Linux-only, so on Windows pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`, which is not necessarily the newest entry.
 
+<div id="gs-latest-nightlies" data-repo="klausi3D/godotGS" hidden></div>
+
 | Asset | Platform | Contents |
 | --- | --- | --- |
 | `godotgs-linux-x86_64-<tag>.tar.xz` | Linux x86_64 | Editor binary (`dev_build=yes`, `-O0`) |
