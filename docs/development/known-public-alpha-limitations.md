@@ -40,7 +40,7 @@ fixed them.
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
 | Two render-thread syncs per frame under `thread_model=2` | [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Active |
 | The starter template exits abnormally at shutdown | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | Active |
-| A world renders nothing when a `GaussianSplatNode3D` shares the scene | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
+| A world and a `GaussianSplatNode3D` in one scene: one of them renders nothing | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
 | An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
 | World bounds are never re-derived once set | [#1003](https://github.com/klausi3D/godotGS/issues/1003) | Active |
@@ -543,20 +543,35 @@ error signature, is not explained by this entry and should be treated as a new f
 
 ## GaussianSplatWorld3D
 
-### A world renders nothing when a `GaussianSplatNode3D` shares the scene ([#788](https://github.com/klausi3D/godotGS/issues/788))
+### With a `GaussianSplatWorld3D` and a `GaussianSplatNode3D` in one scene, one of them renders nothing ([#788](https://github.com/klausi3D/godotGS/issues/788))
 
 **Status: Active.**
 
-The renderer picks one route per frame. A `GaussianSplatNode3D` always publishes the
-resident hint (`SUBMISSION_RESIDENCY_HINT_RESIDENT`), while a `GaussianSplatWorld3D` derives
-its hint from `route_policy`. With both in a scene, the renderer commits to the resident
-route, the world submission contributes no resident instances, and the resident-route
-contract rejects the frame with `resident_no_instances`. The only signal is a one-shot
-warning, `Resident route rejected (...) frame skipped to preserve single-route-per-frame
-contract`. Hiding the node does not hand the frame back to the world.
+The renderer picks one route per frame for the whole scene. Unless `route_policy` forces the
+resident route, the route follows a single residency hint, chosen by
+`GaussianSplatSceneDirector::get_submission_residency_hint_for_renderer`:
 
-**Workaround:** do not put a `GaussianSplatWorld3D` and a `GaussianSplatNode3D` in the same
-scene.
+- If the world submission is active, has a renderable payload and carries a hint, the
+  **world's** hint wins (source `world_submission`). The world node derives it from
+  `route_policy`. In this case the `GaussianSplatNode3D` content can be the part that is not
+  drawn. #788 reports this direction too: with `route_policy` set to streaming, the node's
+  capture showed the world's splats instead of its own.
+- Otherwise the hint comes from the instance records, and a `GaussianSplatNode3D` always
+  publishes `SUBMISSION_RESIDENCY_HINT_RESIDENT` (source `instance_submission`). The frame
+  goes resident, and if the resident contract then has no instances to publish, the frame is
+  skipped with `resident_no_instances`. This is the configuration measured on #788: the
+  **world** rendered nothing, with a one-shot warning
+  `Resident route rejected (reason=submission_hint_resident:instance_submission_not_feasible:resident_no_instances) ... frame skipped to preserve single-route-per-frame contract`.
+
+**Which of the two disappears therefore depends on the world submission's state when the
+route is decided**, and that state is not visible to you. The accepted ADR
+[single-route-per-frame node coexistence](../architecture/adr-single-route-per-frame-node-coexistence.md)
+(§3.2) records this precedence and does not establish why the world submission failed its
+gate in the measured case. Hiding either node does not help: the instance-hint scan ignores
+`visible`, and the route is chosen per frame for the whole renderer. No configuration warning
+is shown on this build.
+
+**Workaround:** run content of only one of the two node types in a scene at a time.
 
 ### Any payload change costs a full resubmit — about 2.1 s at 1M splats ([#1008](https://github.com/klausi3D/godotGS/issues/1008))
 
