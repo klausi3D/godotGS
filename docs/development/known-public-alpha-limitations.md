@@ -18,7 +18,7 @@ the alpha as it ships, with a workaround where one exists. Each entry carries a 
 | Status | Meaning |
 | --- | --- |
 | **Accepted** | A named human accepted it as a public-alpha limitation, and the release-gate manifest's `public_alpha_issue_ledger` has an entry for it. Only these entries can be cited by a release candidate. |
-| **Active** | Real and open, disclosed so you are not surprised by it. Nobody has formally accepted it, and nothing in the gate tracks it. |
+| **Active** | Real and open, disclosed so you are not surprised by it. It is **not accepted**: nobody has formally accepted it, and nothing in the gate tracks it. Listing it here does not decide whether it should block the alpha; that is the maintainer's call, recorded in the acceptance bar. |
 | **Mitigated** | The defect this page used to describe was fixed. A narrower remainder is still open, and the entry describes only that remainder. |
 | **Engine limitation** | The cause is in upstream Godot, not in this module, and the module cannot fix it alone. |
 
@@ -70,10 +70,13 @@ section after it lists only fixed defects.
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
 > `release blocker`; the §11 alpha blocker #851 carries none of those (it is
-> `priority:P2`), so nothing automated stops a release on it. (Three more were in that
-> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`; #54
-> until it was accepted on 2026-09-25, and it is now listed under [Rendering](#rendering);
-> and #833, which closed on 2026-09-27, fixed by #1027, #1031 and #1032.) Read "it is in
+> `priority:P2`), so nothing automated stops a release on it. (Two more have left that
+> list: #929 when it closed on 2026-09-20, carrying only `program:prod-ready`, and #54
+> when it was accepted on 2026-09-25; #54 is now listed under [Rendering](#rendering).
+> Issue #833 is also `priority:P2`. It closed on 2026-09-27, fixed by #1027, #1031 and
+> PR #1032, but striking it from §11 is a separate change to the bar,
+> [PR #1076](https://github.com/klausi3D/godotGS/pull/1076). Until that lands, §11 still
+> names #833, and the bar is the release disposition of record.) Read "it is in
 > the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
@@ -328,7 +331,10 @@ cannot be fixed from this module.
 
 ### Shadow-casting splats darken themselves, and the starter template renders nearly black ([#1089](https://github.com/klausi3D/godotGS/issues/1089))
 
-**Status: Active.**
+**Status: Active — not accepted, pending a maintainer decision.** Nobody has accepted this
+as a public-alpha limitation, and it is not in the acceptance bar's §11 list either. Whether
+it blocks the alpha is undecided. It is disclosed here because it is live on master and the
+default template shows it.
 
 When a `GaussianSplatNode3D` has `rendering/cast_shadow` on (it is off by default) and a
 `DirectionalLight3D` has shadows on, the splats do not cast a real shadow. The splat shadow
@@ -485,7 +491,13 @@ an overestimate is not a measurement, and one clean run is not a safety proof.
 ## Separate render thread (`thread_model=2`)
 
 Only the starter template ships `rendering/driver/threads/thread_model=2`. The repository's
-test project uses `1`, so no CI lane runs with a separate render thread.
+test project uses `1`. One CI case runs with a separate render thread: the
+`Render-Thread Dispatch Characterization` case in `tests/ci/run_baseline_qa.py`
+(`render_thread: "separate"`, in the self-hosted `baseline_qa.yml` lane). It drives
+`GaussianSplatRenderer` test hooks directly and creates no `GaussianSplatNode3D`, so no CI
+lane renders a splat node or the starter template in this mode. That case is judged by its
+verdict markers, not its exit code, because its own comment records that shutdown in this
+mode is unstable.
 
 ### Every `GaussianSplatNode3D` forces two render-thread syncs per frame ([#1092](https://github.com/klausi3D/godotGS/issues/1092))
 
@@ -524,8 +536,10 @@ thread rejects; that is not verified. Whether the editor or an exported game sho
 dialog on quit has not been checked.
 
 **Workaround:** set `thread_model` to `1`, as for the entry above. That this avoids the
-crash is **not** measured. Do not treat a non-zero exit code from a windowed template run as
-a new failure.
+crash is **not** measured. A non-zero exit is attributable to this entry only when it comes
+**after** the scene has quit and is preceded by the `RenderingDevice::free ... can only be
+called from the render thread` errors above. A failure before quit, or with a different
+error signature, is not explained by this entry and should be treated as a new failure.
 
 ## GaussianSplatWorld3D
 
@@ -767,4 +781,4 @@ re-checked in code at `dbc0f49aa8b`.
 | --- | --- | --- | --- | --- |
 | [#997](https://github.com/klausi3D/godotGS/issues/997) | The painterly material cannot be assigned from a scene, because `GaussianSplatNode3D` does not bind `painterly/material`. The demo scenes' assignment is discarded at load, and no in-repo test exercises the painterly GPU path. | [#1028](https://github.com/klausi3D/godotGS/pull/1028) | 2026-09-20 | `GaussianSplatNode3D` binds `painterly/material` and pushes it to the renderer. The `Painterly Material Render` runtime scenario fails when painterly does not run. What is still open is listed under Rendering as **Mitigated**. The issue is still open. |
 | [#1018](https://github.com/klausi3D/godotGS/issues/1018) | Per-node wind freezes mid-sway under painterly, because `wind_time_seconds` is never advanced. | [#1033](https://github.com/klausi3D/godotGS/pull/1033) | 2026-09-20 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_wind_to_render_params`, and `tests/ci/check_render_param_family_producers.py` fails if a producer stops doing so. The issue is still open, because the PR referenced it without closing it. |
-| [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Closed. |
+| [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Issue closed. Its removal from the bar's §11 list is [PR #1076](https://github.com/klausi3D/godotGS/pull/1076); until that lands, §11 still names it. |
