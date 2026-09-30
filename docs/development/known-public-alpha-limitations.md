@@ -33,10 +33,14 @@ fixed them.
 | Splats trail by about 1.5 px under TAA in motion | [#1025](https://github.com/klausi3D/godotGS/issues/1025) | Accepted |
 | The bottom of the frame can go empty when overlap records run out | [#54](https://github.com/klausi3D/godotGS/issues/54) | Accepted |
 | Transparent viewports are opaque under TAA or FSR2 | [#989](https://github.com/klausi3D/godotGS/issues/989) | Engine limitation |
+| Shadow-casting splats darken themselves; the starter template renders nearly black | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | Active |
 | Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) | Mitigated |
 | Painterly ignores lights, effectors and depth-clip settings the baseline honours | [#851](https://github.com/klausi3D/godotGS/issues/851) | Active (the lighting part is a blocker) |
 | The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
+| Two render-thread syncs per frame under `thread_model=2` | [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Active |
+| The starter template exits abnormally at shutdown | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | Active |
+| A world renders nothing when a `GaussianSplatNode3D` shares the scene | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
 | An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
 | World bounds are never re-derived once set | [#1003](https://github.com/klausi3D/godotGS/issues/1003) | Active |
@@ -47,8 +51,8 @@ fixed them.
 | Linux is smoke-tested, not editor-tested | — | Active |
 | macOS is build-supported and unvalidated | — | Active |
 | Nightly Linux editors are unoptimized | — | Active |
-| No Linux export template is attached to releases | — | Active |
-| Nothing is code-signed | — | Active |
+| No Linux export template is attached to releases | [#1015](https://github.com/klausi3D/godotGS/issues/1015) | Active |
+| Nothing is code-signed | [#1015](https://github.com/klausi3D/godotGS/issues/1015) | Active |
 
 **Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
@@ -322,6 +326,34 @@ cannot be fixed from this module.
 > temporal behaviour silently**, with no test that would notice. Measure FSR2 ghosting
 > before and after any #989 fix.
 
+### Shadow-casting splats darken themselves, and the starter template renders nearly black ([#1089](https://github.com/klausi3D/godotGS/issues/1089))
+
+**Status: Active.**
+
+When a `GaussianSplatNode3D` has `rendering/cast_shadow` on (it is off by default) and a
+`DirectionalLight3D` has shadows on, the splats do not cast a real shadow. The splat shadow
+pass, `GaussianSplatRenderer::render_shadow_depth_map`, runs `render_sorted_splats` for the
+light view. That call gives the raster stage a fresh `StageMetrics`, and
+`RasterCompositeStage::execute` reads the sorted-splat count from those metrics in preference
+to the frame snapshot, so the shadow raster sees zero splats and draws nothing. The shadow
+pass then blits whatever depth texture the rasterizer holds into the shadow atlas, with no
+check that this pass rendered it. That texture is the **main camera's** splat depth, so
+every cascade receives a stretched copy of the camera view.
+
+What you see: splats shadow themselves and go dark, a detached dark shape can appear on the
+ground, and the effect changes as the camera moves, because it follows the camera rather
+than the light. A node that is hidden can keep casting the last frame's shadow.
+
+The shipped starter template (`templates/gaussian_splat_template`, `scenes/main.tscn`) hits
+this out of the box. Its `GaussianSplatNode3D` sets `rendering/cast_shadow = true` and its
+`DirectionalLight3D` sets `shadow_enabled = true`. Measured on #1089 (RTX 3090, 1280×720):
+from the camera position the template settles on, the white splat cloud renders at a mean
+luma of 0.06–0.10 instead of about 0.8.
+
+**Workaround:** turn off `rendering/cast_shadow` on the splat node, or shadows on the light.
+Either restores full brightness. Splats then cast no shadow, which is also what they
+effectively do today.
+
 ### Painterly's GPU path is covered by one nightly test that does not gate anything ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
 **Status: Mitigated.** The original defect was fixed by #1028 on 2026-09-20 (see
@@ -450,7 +482,67 @@ direction — both figures move the same way from the same premise.)
 **The defect is real either way, and both numbers still need retaking on a quiet machine** —
 an overestimate is not a measurement, and one clean run is not a safety proof.
 
+## Separate render thread (`thread_model=2`)
+
+Only the starter template ships `rendering/driver/threads/thread_model=2`. The repository's
+test project uses `1`, so no CI lane runs with a separate render thread.
+
+### Every `GaussianSplatNode3D` forces two render-thread syncs per frame ([#1092](https://github.com/klausi3D/godotGS/issues/1092))
+
+**Status: Active.**
+
+Every frame, `GaussianSplatNode3D::_update_viewport_render_state` calls
+`GaussianSplatNodeViewportHelper::acquire_viewport_render_target`. That calls
+`RenderingServer::viewport_get_render_target` and `viewport_get_texture` unconditionally,
+even when the viewport has not changed. Under `thread_model=2` both are synchronous calls,
+so the main thread waits for the render thread twice per frame, and the log fills with
+"causing RenderingServer synchronizations on every frame".
+
+Measured on #1092 with the optimized `nightly-20260926` editor, RTX 3090, 1280×720, vsync
+60 Hz: the starter template ran at **43 FPS with 768 splats** and **24 FPS with a
+252k-splat scan**, against a locked 60 FPS with `thread_model=1`.
+
+**Workaround:** set `rendering/driver/threads/thread_model` to `1` (Godot's default) in
+projects that use Gaussian splats, including projects made from the starter template.
+
+### The starter template exits abnormally at shutdown ([#1077](https://github.com/klausi3D/godotGS/issues/1077))
+
+**Status: Active.**
+
+On 2026-09-27, 6 of 6 windowed runs of the starter template ended abnormally **after** the
+scene had quit (exit 127 or 139, no normal shutdown). Each run logged
+`This function (free) can only be called from the render thread` from
+`RenderingDevice::free` during teardown. Some runs also logged
+`RenderDeviceManager::shutdown` reporting still-tracked owned resources, or a `SafeRefCount`
+misuse error. This happened with and without the #833 overlay fix, so the overlay is not
+the cause.
+
+**Evidence:** reproduced, not diagnosed. Every run had a probe script attached. A run with
+no probe, and runs at `thread_model=1`, have not been made. The issue's hypothesis is that
+module-owned RIDs are freed from the main thread during teardown, which a separate render
+thread rejects; that is not verified. Whether the editor or an exported game shows a crash
+dialog on quit has not been checked.
+
+**Workaround:** set `thread_model` to `1`, as for the entry above. That this avoids the
+crash is **not** measured. Do not treat a non-zero exit code from a windowed template run as
+a new failure.
+
 ## GaussianSplatWorld3D
+
+### A world renders nothing when a `GaussianSplatNode3D` shares the scene ([#788](https://github.com/klausi3D/godotGS/issues/788))
+
+**Status: Active.**
+
+The renderer picks one route per frame. A `GaussianSplatNode3D` always publishes the
+resident hint (`SUBMISSION_RESIDENCY_HINT_RESIDENT`), while a `GaussianSplatWorld3D` derives
+its hint from `route_policy`. With both in a scene, the renderer commits to the resident
+route, the world submission contributes no resident instances, and the resident-route
+contract rejects the frame with `resident_no_instances`. The only signal is a one-shot
+warning, `Resident route rejected (...) frame skipped to preserve single-route-per-frame
+contract`. Hiding the node does not hand the frame back to the world.
+
+**Workaround:** do not put a `GaussianSplatWorld3D` and a `GaussianSplatNode3D` in the same
+scene.
 
 ### Any payload change costs a full resubmit — about 2.1 s at 1M splats ([#1008](https://github.com/klausi3D/godotGS/issues/1008))
 
@@ -604,7 +696,7 @@ roughly an order of magnitude; the `.dev` segment in the filename is that flag. 
 **Workaround:** use nightlies to see GodotGS work, not to judge how fast it is. Build with
 `target=editor optimize=speed_trace` for representative numbers.
 
-### No Linux export template is attached to releases
+### No Linux export template is attached to releases ([#1015](https://github.com/klausi3D/godotGS/issues/1015))
 
 **Status: Active.**
 
@@ -617,7 +709,7 @@ game on Linux therefore requires building the template yourself. See
 
 **Workaround:** build the Linux template from source.
 
-### Nothing is code-signed
+### Nothing is code-signed ([#1015](https://github.com/klausi3D/godotGS/issues/1015))
 
 **Status: Active.**
 
