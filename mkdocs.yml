@@ -8,6 +8,19 @@ site_dir: .site/site
 use_directory_urls: true
 exclude_docs: /README.md
 
+# Every published page must be in the nav (docs/.pages) or listed here. With
+# omitted_files: warn, `mkdocs build --strict` fails on a page that is neither,
+# so a new orphan page cannot ship unnoticed.
+not_in_nav: |
+  /index.md
+  /architecture/generated/
+  /reports/
+  /programs/
+
+validation:
+  nav:
+    omitted_files: warn
+
 theme:
   name: material
   custom_dir: overrides
@@ -67,7 +80,13 @@ plugins:
       enable_git_follow: false
   - redirects:
       # README.md -> index.md normalization keeps the same published section URLs.
-      redirect_maps: {}
+      # A page merged into another keeps its old URL as a redirect to the page
+      # that now holds its content.
+      redirect_maps:
+        getting-started/try-in-5-minutes.md: getting-started/quick-start.md
+        user/quickstart.md: user/index.md
+        user/manual/index.md: user/index.md
+        user/manual/workflows.md: user/index.md
   - charts
 
 extra:
