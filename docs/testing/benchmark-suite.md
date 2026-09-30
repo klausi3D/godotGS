@@ -287,6 +287,29 @@ Metric intent:
 - soft budget warnings are meant to flag machine-noise-sensitive frame spikes or bursty load/eviction pressure without turning one noisy run into a hard blocker
 - missing telemetry is a separate review condition because an unauditable lane is not valid proof evidence
 
+What three of the correctness metrics measure (#1086). All three are read from the engine's
+needed-set telemetry in `streaming_state` (`needed_chunks`, `needed_resident_chunks`,
+`needed_unserved_chunks`, `needed_set_stalled`, `scheduler_visible_scan_starved`), cover the
+proof window only (`steady_overall` when it has samples), and are `null` - so the lane reports
+missing telemetry - when the binary does not publish them. The *needed set* is the visible
+chunks inside the load distance, the same set `_load_visible_chunks` treats as load candidates.
+
+- `residency_ratio`: resident needed chunks / needed chunks, averaged over the proof-window
+  frames whose needed set was non-empty. `residency_ratio_min` and
+  `residency_full_frame_fraction` (share of those frames at exactly 1.0) are reported beside it.
+  It used to be visible splats / world splats, which the corridor's 120,000-splat render cap held
+  at or below 0.006 however well streaming worked.
+- `no_progress_frames`: proof-window frames on which the needed set had been incomplete with no
+  chunk load completing for at least 0.5 s of wall time
+  (`StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS`). It used to count
+  every frame with zero completions, which at ~200 fps scored a pipeline completing ~37 chunks/s
+  as stalled on ~80% of its frames.
+- `scan_starved_frames`: proof-window frames on which needed chunks sat unserved (neither loaded
+  nor upload-pending), the visible scan had enqueue capacity (headroom left and the queue-pressure
+  throttle not engaged), and the scan found no load candidate. It used to count
+  `scheduler_visible_scan_budget_effective <= 1`, which is what the throttle deliberately
+  produces when pack jobs in flight reach `max_pack_jobs_in_flight`.
+
 ## Suite Coverage
 
 These are the user-relevant lanes already encoded in the suite and available for publication once committed results exist:

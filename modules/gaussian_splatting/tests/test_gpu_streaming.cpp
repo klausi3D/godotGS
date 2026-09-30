@@ -3723,3 +3723,217 @@ TEST_CASE("[Streaming VRAM] Reported total folds in the persistent buffer alloca
     CHECK(reported >= uint64_t(persistent_bytes));
     CHECK(reported > 0u);
 }
+
+// ---------------------------------------------------------------------------
+// #1086: forward-progress telemetry for the open-world proof lane.
+//
+// The lane used to score residency as visible splats over the whole world, count
+// every frame with zero completions as "no progress" (frame-rate dependent: a
+// pipeline completing ~37 chunks/s at 200 fps completes nothing on ~80% of its
+// frames), and count every frame whose scan was cut to one chunk as "starved"
+// (which is exactly what the pack-saturation throttle is designed to do). These
+// cases pin what each signal is supposed to mean, using the engine's own code.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void _setup_needed_set_chunk(GaussianStreamingTypes::StreamingChunk &r_chunk, uint32_t p_index,
+        const Vector3 &p_center, bool p_loaded, bool p_gpu_resident, bool p_upload_pending) {
+    r_chunk.start_idx = p_index;
+    r_chunk.count = 1;
+    r_chunk.center = p_center;
+    r_chunk.bounds = AABB(p_center - Vector3(0.05f, 0.05f, 0.05f), Vector3(0.1f, 0.1f, 0.1f));
+    r_chunk.max_radius = 0.05f;
+    r_chunk.distance = 0.0f;
+    r_chunk.is_loaded = p_loaded;
+    r_chunk.gpu_resident = p_gpu_resident;
+    r_chunk.upload_pending = p_upload_pending;
+    r_chunk.is_visible = false;
+    r_chunk.buffer_slot = p_loaded ? p_index : UINT32_MAX;
+    r_chunk.effective_count = r_chunk.count;
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Needed-set residency counts resident needed chunks, not the whole world (#1086)") {
+    // 10 chunks in front of the camera (the needed set) and 20 loaded, GPU-resident
+    // chunks behind it. The needed set is 4 resident + 2 loaded-but-not-yet-GPU-
+    // resident + 2 upload-pending + 2 unserved.
+    const uint32_t needed_count = 10;
+    const uint32_t behind_count = 20;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(needed_count + behind_count);
+    for (uint32_t i = 0; i < needed_count; i++) {
+        const Vector3 center(float(i % 5) * 0.2f - 0.4f, 0.0f, -5.0f - float(i));
+        const bool resident = i < 4;
+        const bool loaded_not_gpu = i == 4 || i == 5;
+        const bool pending = i == 6 || i == 7;
+        _setup_needed_set_chunk(chunks[i], i, center, resident || loaded_not_gpu, resident, pending);
+    }
+    for (uint32_t i = 0; i < behind_count; i++) {
+        const uint32_t idx = needed_count + i;
+        _setup_needed_set_chunk(chunks[idx], idx, Vector3(0.0f, 0.0f, 50.0f + float(i)), true, true, false);
+    }
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 1000.0f);
+    Transform3D camera_transform; // at the origin, looking down -Z
+    system->begin_frame();
+    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    const Dictionary culling = system->get_chunk_culling_stats();
+    if (int(culling.get("visible_chunks", -1)) != int(needed_count)) {
+        FAIL("fixture precondition: expected exactly the ", needed_count, " front chunks to be visible, got ",
+                int(culling.get("visible_chunks", -1)));
+        return;
+    }
+
+    system->_test_set_visible_scan_result(false, 0);
+    system->_test_build_visible_chunk_list();
+    system->end_frame();
+    const Dictionary analytics = system->get_streaming_analytics();
+
+    CHECK(int64_t(analytics.get("needed_chunks", int64_t(-1))) == int64_t(needed_count));
+    // Only GPU-resident needed chunks count: not the 20 resident chunks behind the
+    // camera, not the loaded-but-not-GPU-resident pair, not the pending pair.
+    CHECK(int64_t(analytics.get("needed_resident_chunks", int64_t(-1))) == 4);
+    // Unserved = neither loaded nor already in the pipeline.
+    CHECK(int64_t(analytics.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    // The whole-world view the old metric was built on cannot express this: 26
+    // chunks are loaded, more than twice the needed set.
+    CHECK(int(culling.get("loaded_chunks", -1)) == int(4 + 2 + behind_count));
+
+    // Once the whole needed set is resident the ratio is exactly 1, however large
+    // the world behind the camera is.
+    for (uint32_t i = 0; i < needed_count; i++) {
+        chunks[i].is_loaded = true;
+        chunks[i].gpu_resident = true;
+        chunks[i].upload_pending = false;
+    }
+    system->begin_frame();
+    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    system->_test_set_visible_scan_result(false, 0);
+    system->_test_build_visible_chunk_list();
+    system->end_frame();
+    const Dictionary complete = system->get_streaming_analytics();
+    CHECK(int64_t(complete.get("needed_chunks", int64_t(-1))) == int64_t(needed_count));
+    CHECK(int64_t(complete.get("needed_resident_chunks", int64_t(-1))) == int64_t(needed_count));
+    CHECK(int64_t(complete.get("needed_unserved_chunks", int64_t(-1))) == 0);
+}
+
+TEST_CASE("[Streaming Pipeline] Scan starvation excludes designed pack-saturation backpressure (#1086)") {
+    // The throttle's own output for "pack jobs in flight == max_pack_jobs_in_flight":
+    // the scan budget is cut to exactly one chunk. The old lane metric
+    // (scheduler_visible_scan_budget_effective <= 1) scored this as starvation.
+    StreamingQueuePressureController::ScanBudgetInput saturated;
+    saturated.base_scan_budget = 64;
+    saturated.throttle_enabled = true;
+    saturated.throttle_min_queue_depth = 1;
+    saturated.observed_queue_depth = 0;
+    saturated.throttle_scan_cap = 1024;
+    saturated.enqueue_headroom = 0;
+    const StreamingQueuePressureController::ScanBudgetResult saturated_result =
+            StreamingQueuePressureController::compute_candidate_scan_budget(saturated);
+    CHECK(saturated_result.scan_budget == 1);
+    CHECK(saturated_result.throttle_active);
+    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(
+            true, saturated.enqueue_headroom, saturated_result.throttle_active));
+    // Same with the throttle disabled: zero headroom still means the scan could not
+    // enqueue anything, so it is backpressure, not starvation.
+    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(true, 0, false));
+    // A scan that never ran had no capacity to use.
+    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(false, UINT32_MAX, false));
+
+    StreamingQueuePressureController::VisibleScanStarvationInput input;
+    input.needed_unserved_chunks = 5;
+    input.load_candidates = 0;
+    input.scan_had_capacity = false;
+    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
+
+    // Real starvation: the pipeline had room, demand sat unserved, and the scan
+    // window found none of it (e.g. a capped scan that restarts at the nearest,
+    // already-resident prefix every frame).
+    input.scan_had_capacity = StreamingQueuePressureController::visible_scan_had_capacity(true, 3, false);
+    CHECK(input.scan_had_capacity);
+    CHECK(StreamingQueuePressureController::is_visible_scan_starved(input));
+    // The scan reached the demand; whatever happens next (admission, cap) is not scan starvation.
+    input.load_candidates = 2;
+    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
+    // No unserved demand (everything needed is resident or already in flight).
+    input.load_candidates = 0;
+    input.needed_unserved_chunks = 0;
+    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
+
+    // Through the system: the published flag follows the needed set it computed.
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(3);
+    for (uint32_t i = 0; i < 3; i++) {
+        _setup_needed_set_chunk(chunks[i], i, Vector3(0.0f, 0.0f, -5.0f - float(i)), i == 0, i == 0, false);
+    }
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 1000.0f);
+    Transform3D camera_transform;
+    system->begin_frame();
+    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    system->_test_set_visible_scan_result(false, 0); // saturated: backpressure
+    system->_test_build_visible_chunk_list();
+    system->end_frame();
+    CHECK_FALSE(bool(system->get_streaming_analytics().get("scheduler_visible_scan_starved", true)));
+
+    system->begin_frame();
+    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    system->_test_set_visible_scan_result(true, 0); // room, but the scan found nothing
+    system->_test_build_visible_chunk_list();
+    system->end_frame();
+    const Dictionary starved = system->get_streaming_analytics();
+    CHECK(int64_t(starved.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    CHECK(bool(starved.get("scheduler_visible_scan_starved", false)));
+}
+
+TEST_CASE("[Streaming Pipeline] Needed-set stall is measured in time, so a throttled 200 fps pipeline is not stalled (#1086)") {
+    const float threshold = StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;
+
+    // Healthy, throttled pipeline: 200 fps, one completion every 5th frame (40
+    // chunks/s; the measured corridor rate is ~37/s), needed set never complete.
+    const float dt_200 = 1.0f / 200.0f;
+    float stall = 0.0f;
+    uint32_t stalled_frames = 0;
+    uint32_t zero_completion_frames = 0;
+    for (uint32_t frame = 0; frame < 2000; frame++) {
+        const uint32_t completed = (frame % 5 == 4) ? 1u : 0u;
+        zero_completion_frames += completed == 0 ? 1u : 0u;
+        stall = StreamingQueuePressureController::advance_needed_set_stall_seconds(stall, 100, 60, completed, dt_200);
+        stalled_frames += stall >= threshold ? 1u : 0u;
+    }
+    CHECK(stalled_frames == 0);
+    // What the old per-frame count saw on the same run: 80% of frames.
+    CHECK(zero_completion_frames == 1600);
+
+    // A genuine stall trips at the same wall time whatever the frame rate.
+    const auto first_stalled_time = [&](float p_dt) -> float {
+        float s = 0.0f;
+        for (uint32_t frame = 1; frame <= 10000; frame++) {
+            s = StreamingQueuePressureController::advance_needed_set_stall_seconds(s, 100, 60, 0, p_dt);
+            if (s >= threshold) {
+                return float(frame) * p_dt;
+            }
+        }
+        return -1.0f;
+    };
+    const float t_200 = first_stalled_time(dt_200);
+    const float t_30 = first_stalled_time(1.0f / 30.0f);
+    CHECK(t_200 >= threshold - 0.001f);
+    CHECK(t_200 < threshold + 2.0f * dt_200);
+    CHECK(t_30 >= threshold - 0.001f);
+    CHECK(t_30 < threshold + 2.0f * (1.0f / 30.0f));
+
+    // A complete needed set is not a stall even with no completions (static camera,
+    // everything resident), and a single completion resets an accumulating stall.
+    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(10.0f, 100, 100, 0, dt_200) == 0.0f);
+    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(10.0f, 100, 60, 1, dt_200) == 0.0f);
+    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(0.0f, 0, 0, 0, dt_200) == 0.0f);
+}

@@ -15,6 +15,33 @@ static void _set_error(String *r_error, const String &p_message) {
 
 } // namespace
 
+bool StreamingQueuePressureController::is_visible_scan_starved(const VisibleScanStarvationInput &p_input) {
+    return p_input.needed_unserved_chunks > 0 &&
+            p_input.scan_had_capacity &&
+            p_input.load_candidates == 0;
+}
+
+bool StreamingQueuePressureController::visible_scan_had_capacity(bool p_scan_ran, uint32_t p_enqueue_headroom,
+        bool p_throttle_active) {
+    return p_scan_ran && p_enqueue_headroom > 0 && !p_throttle_active;
+}
+
+float StreamingQueuePressureController::advance_needed_set_stall_seconds(float p_previous_stall_seconds,
+        uint32_t p_needed_chunks, uint32_t p_needed_resident_chunks,
+        uint32_t p_chunks_completed_this_frame, float p_frame_delta_seconds) {
+    const bool needed_set_incomplete = p_needed_resident_chunks < p_needed_chunks;
+    if (!needed_set_incomplete || p_chunks_completed_this_frame > 0) {
+        return 0.0f;
+    }
+    const float previous = (Math::is_finite(p_previous_stall_seconds) && p_previous_stall_seconds > 0.0f)
+            ? p_previous_stall_seconds
+            : 0.0f;
+    const float delta = (Math::is_finite(p_frame_delta_seconds) && p_frame_delta_seconds > 0.0f)
+            ? p_frame_delta_seconds
+            : 0.0f;
+    return previous + delta;
+}
+
 StreamingQueuePressureController::ScanBudgetResult StreamingQueuePressureController::compute_candidate_scan_budget(
         const ScanBudgetInput &p_input) {
     ScanBudgetResult result;

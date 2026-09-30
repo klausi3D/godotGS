@@ -90,6 +90,17 @@ struct SchedulerState {
     uint32_t last_sync_fallback_drained_count = 0;
     uint32_t last_sync_fallback_dropped_count = 0;
     uint32_t last_sync_fallback_stalled_count = 0;
+    // #1086 needed-set accounting, written by _build_visible_chunk_list. "Needed" =
+    // visible and inside the load distance; "resident" = GPU-resident and renderable
+    // (the frame's visible chunk list); "unserved" = neither loaded nor upload-pending.
+    uint32_t last_needed_chunk_count = 0;
+    uint32_t last_needed_resident_chunk_count = 0;
+    uint32_t last_needed_unserved_chunk_count = 0;
+    bool last_visible_scan_had_capacity = false;
+    bool last_visible_scan_starved = false;
+    // Cumulative across frames (not per-frame reset); see
+    // StreamingQueuePressureController::advance_needed_set_stall_seconds.
+    float needed_set_stall_seconds = 0.0f;
     uint32_t prefetch_loads_remaining_this_frame = DEFAULT_PREFETCH_LOADS_PER_FRAME;
     uint32_t prefetch_scan_budget_remaining_this_frame = 0;
     bool queue_pressure_candidate_scan_throttle_active = false;

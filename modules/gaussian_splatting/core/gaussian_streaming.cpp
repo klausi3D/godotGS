@@ -597,6 +597,12 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_prefetch_upload_pending_skip_count = 0;
     scheduler.last_prefetch_enqueued_count = 0;
     scheduler.last_prefetch_enqueue_headroom_stall_count = 0;
+    scheduler.last_needed_chunk_count = 0;
+    scheduler.last_needed_resident_chunk_count = 0;
+    scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_visible_scan_had_capacity = false;
+    scheduler.last_visible_scan_starved = false;
+    scheduler.needed_set_stall_seconds = 0.0f;
     scheduler.last_sync_fallback_queue_depth = 0;
     scheduler.last_sync_fallback_enqueued_count = 0;
     scheduler.last_sync_fallback_drained_count = 0;
@@ -2611,6 +2617,14 @@ void GaussianStreamingSystem::_run_streaming_frame_pipeline(const Transform3D &c
 
     phase_start_usec = os ? os->get_ticks_usec() : 0;
     _build_visible_chunk_list();
+    // Every completion path for this frame (begin_frame and the retirements above)
+    // has run by now, so chunks_loaded_this_frame is final for the stall decision.
+    scheduler.needed_set_stall_seconds = StreamingQueuePressureController::advance_needed_set_stall_seconds(
+            scheduler.needed_set_stall_seconds,
+            scheduler.last_needed_chunk_count,
+            scheduler.last_needed_resident_chunk_count,
+            budget.chunks_loaded_this_frame,
+            resolved_frame_delta_seconds);
     scheduler.last_build_visible_cpu_ms = sample_cpu_ms(phase_start_usec);
     phase_start_usec = os ? os->get_ticks_usec() : 0;
     _handle_predictive_prefetch(camera_pos, effective_max);
@@ -2777,6 +2791,11 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_sync_fallback_drained_count = 0;
     scheduler.last_sync_fallback_dropped_count = 0;
     scheduler.last_sync_fallback_stalled_count = 0;
+    scheduler.last_needed_chunk_count = 0;
+    scheduler.last_needed_resident_chunk_count = 0;
+    scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_visible_scan_had_capacity = false;
+    scheduler.last_visible_scan_starved = false;
     scheduler.last_sync_fallback_cpu_ms = 0.0;
     scheduler.queue_pressure_candidate_scan_throttle_active = false;
     scheduler.queue_pressure_candidate_scan_throttle_queue_depth = 0;
@@ -2956,6 +2975,10 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         scheduler.last_load_candidate_count = 0;
         return;
     }
+    // #1086: record whether this scan could have enqueued work at all, so a frame
+    // whose scan was cut short by designed backpressure is not read as starvation.
+    scheduler.last_visible_scan_had_capacity = StreamingQueuePressureController::visible_scan_had_capacity(
+            true, enqueue_headroom, throttle_result.throttle_active);
     if (scheduler.visible_scan_cursor >= visible_count) {
         scheduler.visible_scan_cursor = 0;
     }
@@ -3072,6 +3095,10 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
 void GaussianStreamingSystem::_build_visible_chunk_list() {
     FrameData &frame = frame_data[current_frame_idx];
     frame.visible_chunks.clear();
+    scheduler.last_needed_chunk_count = 0;
+    scheduler.last_needed_resident_chunk_count = 0;
+    scheduler.last_needed_unserved_chunk_count = 0;
+    scheduler.last_visible_scan_starved = false;
 
     const LocalVector<uint32_t> &visible_chunks = visibility.visible_chunk_indices;
     if (visible_chunks.is_empty()) {
@@ -3081,18 +3108,39 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     const float lod_mult = budget.vram_regulator.is_valid()
             ? budget.vram_regulator->get_lod_distance_multiplier()
             : 1.0f;
+    // Same threshold _load_visible_chunks uses to decide load candidates, so the
+    // needed set here is exactly the set the scheduler is trying to make resident.
     const float visible_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
 
+    uint32_t needed_chunks = 0;
+    uint32_t needed_unserved_chunks = 0;
     for (uint32_t chunk_idx : visible_chunks) {
         if (chunk_idx >= chunks.size()) {
             continue;
         }
         StreamingChunk &chunk = chunks[chunk_idx];
-        if (chunk.is_loaded && chunk.gpu_resident && chunk.distance < visible_threshold) {
+        if (chunk.distance >= visible_threshold) {
+            continue;
+        }
+        needed_chunks++;
+        if (chunk.is_loaded && chunk.gpu_resident) {
             frame.visible_chunks.push_back(chunk_idx);
             eviction_controller.touch_chunk_use(chunk.last_used_frame);
+        } else if (!chunk.is_loaded && !chunk.upload_pending) {
+            needed_unserved_chunks++;
         }
     }
+
+    // #1086: publish the needed set so the proof lane can measure how complete the
+    // working set is (resident-needed / needed), not visible splats over the world.
+    scheduler.last_needed_chunk_count = needed_chunks;
+    scheduler.last_needed_resident_chunk_count = frame.visible_chunks.size();
+    scheduler.last_needed_unserved_chunk_count = needed_unserved_chunks;
+    StreamingQueuePressureController::VisibleScanStarvationInput starvation_input;
+    starvation_input.needed_unserved_chunks = needed_unserved_chunks;
+    starvation_input.scan_had_capacity = scheduler.last_visible_scan_had_capacity;
+    starvation_input.load_candidates = scheduler.last_load_candidate_count;
+    scheduler.last_visible_scan_starved = StreamingQueuePressureController::is_visible_scan_starved(starvation_input);
 }
 
 void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max) {

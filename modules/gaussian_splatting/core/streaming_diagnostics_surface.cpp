@@ -330,6 +330,15 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["scheduler_cpu_unattributed_ms"] = scheduler.last_cpu_unattributed_ms;
     analytics_snapshot["scheduler_visible_scan_budget_effective"] =
             static_cast<int64_t>(scheduler.last_visible_scan_budget_effective);
+    // #1086 needed-set / forward-progress telemetry (see streaming_queue_pressure_controller.h).
+    analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
+    analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
+    analytics_snapshot["needed_unserved_chunks"] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);
+    analytics_snapshot["needed_set_stall_seconds"] = scheduler.needed_set_stall_seconds;
+    analytics_snapshot["needed_set_stalled"] = scheduler.needed_set_stall_seconds >=
+            StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;
+    analytics_snapshot["scheduler_visible_scan_had_capacity"] = scheduler.last_visible_scan_had_capacity;
+    analytics_snapshot["scheduler_visible_scan_starved"] = scheduler.last_visible_scan_starved;
     analytics_snapshot["scheduler_prefetch_scan_budget_effective"] =
             static_cast<int64_t>(scheduler.last_prefetch_scan_budget_effective);
     analytics_snapshot["scheduler_queue_pressure_scan_throttle_active"] =

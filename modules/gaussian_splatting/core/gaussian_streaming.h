@@ -439,6 +439,13 @@ public:
     uint32_t _test_get_primary_eviction_candidate_count() const { return scheduler.last_primary_eviction_candidate_count; }
     uint32_t _test_get_non_primary_eviction_scan_count() const { return scheduler.last_non_primary_scan_count; }
     uint32_t _test_get_non_primary_eviction_candidate_count() const { return scheduler.last_non_primary_eviction_candidate_count; }
+    // #1086: drive the needed-set accounting without a device. The scan state is what
+    // _load_visible_chunks would have recorded for this frame.
+    void _test_set_visible_scan_result(bool p_had_capacity, uint32_t p_load_candidates) {
+        scheduler.last_visible_scan_had_capacity = p_had_capacity;
+        scheduler.last_load_candidate_count = p_load_candidates;
+    }
+    void _test_build_visible_chunk_list() { _build_visible_chunk_list(); }
     // Field-level accessors for the global atlas registry. Returning the
     // registry by reference would expose private fields the registry's
     // friendship with this class doesn't grant onward — these forward only

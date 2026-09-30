@@ -244,8 +244,13 @@ var _proof_chunk_monitor_available := false
 var _proof_vram_cap_hit_available := false
 var _proof_queue_pressure_frames := 0
 var _proof_queue_pressure_candidate_frames := 0
-var _proof_no_progress_frames := 0
-var _proof_scan_starved_frames := 0
+# #1086: needed-set accounting, kept per window so the proof metrics cover the same
+# frames as the proof window (steady_overall when it has samples). "Needed" is the
+# engine's set of visible chunks inside the load distance; see needed_chunks in
+# streaming_diagnostics_surface.cpp.
+var _proof_needed_set_available := false
+var _proof_needed_set_all: Dictionary = {}
+var _proof_needed_set_steady: Dictionary = {}
 var _proof_vram_cap_hit_frames := 0
 var _proof_chunk_loads_per_frame: Array = []
 var _proof_chunk_evictions_per_frame: Array = []
@@ -414,8 +419,9 @@ func _setup_runtime_state() -> void:
 	_proof_vram_cap_hit_available = false
 	_proof_queue_pressure_frames = 0
 	_proof_queue_pressure_candidate_frames = 0
-	_proof_no_progress_frames = 0
-	_proof_scan_starved_frames = 0
+	_proof_needed_set_available = false
+	_proof_needed_set_all = _new_needed_set_window()
+	_proof_needed_set_steady = _new_needed_set_window()
 	_proof_vram_cap_hit_frames = 0
 	_proof_chunk_loads_per_frame.clear()
 	_proof_chunk_evictions_per_frame.clear()
@@ -1202,10 +1208,16 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 			var load_candidates := _read_stat_int(stream_state, ["scheduler_load_candidates"])
 			if load_candidates > 0:
 				_proof_queue_pressure_candidate_frames += 1
-				if _read_stat_int(stream_state, ["chunks_loaded_this_frame"]) == 0:
-					_proof_no_progress_frames += 1
-				if _read_stat_int(stream_state, ["scheduler_visible_scan_budget_effective"]) <= 1:
-					_proof_scan_starved_frames += 1
+		# #1086: no_progress and scan_starved are no longer derived here from "zero
+		# completions this frame" and "scan budget <= 1". The first depends on the
+		# frame rate (~37 chunks/s at 200 fps completes nothing on ~80% of frames);
+		# the second is the pack-saturation throttle doing its job. The engine
+		# publishes the failure conditions themselves.
+		if stream_state.has("needed_chunks") and stream_state.has("needed_resident_chunks"):
+			_proof_needed_set_available = true
+			_accumulate_needed_set_window(_proof_needed_set_all, stream_state)
+			if _elapsed_s >= benchmark_warmup:
+				_accumulate_needed_set_window(_proof_needed_set_steady, stream_state)
 
 		var vram_cap_hit: Variant = _read_stat_optional_bool(
 			stream_state,
@@ -1224,6 +1236,39 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 
 	if vram_cap_monitor_hit:
 		_proof_vram_cap_hit_frames += 1
+
+func _new_needed_set_window() -> Dictionary:
+	return {
+		"frames": 0,
+		"demand_frames": 0,
+		"ratio_sum": 0.0,
+		"ratio_min": 1.0,
+		"full_frames": 0,
+		"stalled_frames": 0,
+		"scan_starved_frames": 0,
+	}
+
+func _accumulate_needed_set_window(window: Dictionary, stream_state: Dictionary) -> void:
+	window["frames"] = int(window.get("frames", 0)) + 1
+	var needed := _read_stat_int(stream_state, ["needed_chunks"])
+	var resident := _read_stat_int(stream_state, ["needed_resident_chunks"])
+	if needed > 0:
+		# Frames with an empty needed set carry no demand, so they neither help nor
+		# hurt residency; they are counted in "frames" only.
+		var ratio := clampf(float(resident) / float(needed), 0.0, 1.0)
+		window["demand_frames"] = int(window.get("demand_frames", 0)) + 1
+		window["ratio_sum"] = float(window.get("ratio_sum", 0.0)) + ratio
+		window["ratio_min"] = minf(float(window.get("ratio_min", 1.0)), ratio)
+		if resident >= needed:
+			window["full_frames"] = int(window.get("full_frames", 0)) + 1
+	# needed_set_stalled: the needed set has been incomplete with no chunk completion
+	# for at least NEEDED_SET_STALL_THRESHOLD_SECONDS of wall time.
+	if bool(stream_state.get("needed_set_stalled", false)):
+		window["stalled_frames"] = int(window.get("stalled_frames", 0)) + 1
+	# scheduler_visible_scan_starved: unserved needed chunks, the scan had enqueue
+	# capacity (not throttled by pack saturation), and it found no load candidate.
+	if bool(stream_state.get("scheduler_visible_scan_starved", false)):
+		window["scan_starved_frames"] = int(window.get("scan_starved_frames", 0)) + 1
 
 func _proof_metric_summary(samples: Array) -> Dictionary:
 	if samples.is_empty():
@@ -1258,19 +1303,29 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 	var proof_samples := int(proof_summary.get("sample_count", 0))
 	var avg_frame_ms := float(proof_summary.get("avg_frame_ms", 0.0))
 	var p95_frame_ms := float(proof_summary.get("p95_frame_ms", 0.0))
+	# #1086: residency is how complete the NEEDED set was (resident needed chunks /
+	# needed chunks, averaged over the proof window's frames that had demand), not
+	# visible splats over the whole world. The old ratio was capped at
+	# quality/max_splat_count / total_splats (120,000 / 20,000,000 = 0.006 on the
+	# corridor) however well streaming worked.
+	var needed_window: Dictionary = _proof_needed_set_steady if proof_window == "steady_overall" else _proof_needed_set_all
+	var demand_frames := int(needed_window.get("demand_frames", 0))
 	var residency_ratio = null
-	if _proof_residency_available and _proof_last_total_splats > 0:
-		var residency_numerator := _proof_last_uploaded_splats
-		# Streaming worlds don't update uploaded_splat_count; fall back to visible_splats.
-		if residency_numerator == 0 and _proof_atlas_published_available and _proof_last_visible_splats > 0:
-			residency_numerator = _proof_last_visible_splats
-		residency_ratio = float(residency_numerator) / float(max(1, _proof_last_total_splats))
+	var residency_ratio_min = null
+	var residency_full_frame_fraction = null
+	if _proof_needed_set_available and demand_frames > 0:
+		residency_ratio = float(needed_window["ratio_sum"]) / float(demand_frames)
+		residency_ratio_min = float(needed_window["ratio_min"])
+		residency_full_frame_fraction = float(needed_window["full_frames"]) / float(demand_frames)
 
 	return {
 		"proof_window": proof_window,
 		"proof_window_sample_count": proof_samples,
 		"first_visible_ms": _proof_first_visible_ms if _proof_visibility_metric_available else null,
 		"residency_ratio": residency_ratio,
+		"residency_ratio_min": residency_ratio_min,
+		"residency_full_frame_fraction": residency_full_frame_fraction,
+		"residency_demand_frames": demand_frames if _proof_needed_set_available else null,
 		"frame_p95_ms": p95_frame_ms if proof_samples > 0 else null,
 		"frame_p95_to_avg_ratio": (
 			p95_frame_ms / maxf(0.001, avg_frame_ms) if proof_samples > 0 else null
@@ -1279,8 +1334,13 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"queue_pressure_candidate_frames": (
 			_proof_queue_pressure_candidate_frames if _proof_streaming_state_available else null
 		),
-		"no_progress_frames": _proof_no_progress_frames if _proof_streaming_state_available else null,
-		"scan_starved_frames": _proof_scan_starved_frames if _proof_streaming_state_available else null,
+		# #1086: proof-window frames on which the needed set had gone without any chunk
+		# completion for >= 0.5 s of wall time (engine: needed_set_stalled), and on
+		# which the visible scan had capacity but reached none of the unserved demand
+		# (engine: scheduler_visible_scan_starved). null when the binary does not
+		# publish them, so an older build reads as missing telemetry, not as 0.
+		"no_progress_frames": int(needed_window.get("stalled_frames", 0)) if _proof_needed_set_available else null,
+		"scan_starved_frames": int(needed_window.get("scan_starved_frames", 0)) if _proof_needed_set_available else null,
 		"vram_cap_hit_frames": _proof_vram_cap_hit_frames if _proof_vram_cap_hit_available else null,
 		"chunk_loads_per_frame_avg": chunk_loads_summary.get("avg"),
 		"chunk_loads_per_frame_p95": chunk_loads_summary.get("p95"),
@@ -1298,7 +1358,9 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"visibility_telemetry_available": _proof_visibility_metric_available,
 		"atlas_published_telemetry_available": _proof_atlas_published_available,
 		"streaming_state_telemetry_available": _proof_streaming_state_available,
-		"residency_telemetry_available": _proof_residency_available,
+		# residency_ratio, no_progress_frames and scan_starved_frames all come from the
+		# engine's needed-set telemetry; uploaded/total splats above keep their own gate.
+		"residency_telemetry_available": _proof_needed_set_available,
 		"chunk_monitor_telemetry_available": _proof_chunk_monitor_available,
 		"queue_pressure_telemetry_available": _proof_queue_pressure_available,
 		"vram_cap_telemetry_available": _proof_vram_cap_hit_available,
