@@ -12,27 +12,64 @@ evidence bundle points to a section here with:
 
 ## How to read this page
 
-Every entry is a defect that is real, reachable in a supported configuration, and
-shipping anyway, with the reason and a workaround where one exists. An entry here is a
-decision, not an oversight.
+Every entry is a defect that is real, reachable in a supported configuration, and in
+the alpha as it ships, with a workaround where one exists. Each entry carries a status:
+
+| Status | Meaning |
+| --- | --- |
+| **Accepted** | A named human accepted it as a public-alpha limitation, and the release-gate manifest's `public_alpha_issue_ledger` has an entry for it. Only these entries can be cited by a release candidate. |
+| **Active** | Real and open, disclosed so you are not surprised by it. Nobody has formally accepted it, and nothing in the gate tracks it. |
+| **Mitigated** | The defect this page used to describe was fixed. A narrower remainder is still open, and the entry describes only that remainder. |
+| **Engine limitation** | The cause is in upstream Godot, not in this module, and the module cannot fix it alone. |
+
+Fixed defects are removed from the list. The [Recently resolved](#recently-resolved)
+section at the bottom records what this page used to say about them and which change
+fixed them.
+
+### Summary
+
+| Limitation | Issue | Status |
+| --- | --- | --- |
+| Splats trail by about 1.5 px under TAA in motion | [#1025](https://github.com/klausi3D/godotGS/issues/1025) | Accepted |
+| The bottom of the frame can go empty when overlap records run out | [#54](https://github.com/klausi3D/godotGS/issues/54) | Accepted |
+| Transparent viewports are opaque under TAA or FSR2 | [#989](https://github.com/klausi3D/godotGS/issues/989) | Engine limitation |
+| Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) | Mitigated |
+| Painterly ignores lights, effectors and depth-clip settings the baseline honours | [#851](https://github.com/klausi3D/godotGS/issues/851) | Active (the lighting part is a blocker) |
+| The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
+| `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
+| A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
+| An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
+| World bounds are never re-derived once set | [#1003](https://github.com/klausi3D/godotGS/issues/1003) | Active |
+| `strict_identity_transform` is bypassed on resubmit | [#1006](https://github.com/klausi3D/godotGS/issues/1006) | Active |
+| Applying a world writes `world_path` into your resource | [#1007](https://github.com/klausi3D/godotGS/issues/1007) | Active |
+| A world resource replaced mid-load can stay connected | [#1005](https://github.com/klausi3D/godotGS/issues/1005) | Engine limitation |
+| A failed tile-sorter grow can lose both sorters | [#983](https://github.com/klausi3D/godotGS/issues/983) | Active |
+| Linux is smoke-tested, not editor-tested | — | Active |
+| macOS is build-supported and unvalidated | — | Active |
+| Nightly Linux editors are unoptimized | — | Active |
+| No Linux export template is attached to releases | — | Active |
+| Nothing is code-signed | — | Active |
 
 **Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
-what we ship knowing about.
+what we ship knowing about. The one blocker named here is #851, inside the painterly entry
+that shares its cause, so that a user who sees the symptom can find the issue.
 
-The one exception is the clearly-fenced **"Proposed, not yet accepted"** section at the
-bottom. A defect lands there when someone has proposed shipping it but no named human has
+The other exception is the clearly-fenced **"Proposed, not yet accepted"** section near
+the bottom. A defect lands there when someone has proposed shipping it but no named human has
 accepted it yet, so it is **still a blocker**. It is written up in advance only so the
 disclosure and the disposition are drafted together and cannot drift; nothing in that
 section may be cited as an `accepted_alpha_limitation`. If you are looking for what the
-alpha actually ships with, read everything *above* that heading.
+alpha actually ships with, read everything *above* that heading. The "Recently resolved"
+section after it lists only fixed defects.
 
 > That list is **human-maintained, and today the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blockers #851 and #833 carry none of those (both are
-> `priority:P2`), so nothing automated stops a release on them. (Two more were in that
-> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`, and #54
-> until it was accepted on 2026-09-25; #54 is now listed under [Rendering](#rendering).) Read "it is in
+> `release blocker`; the §11 alpha blocker #851 carries none of those (it is
+> `priority:P2`), so nothing automated stops a release on it. (Three more were in that
+> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`; #54
+> until it was accepted on 2026-09-25, and it is now listed under [Rendering](#rendering);
+> and #833, which closed on 2026-09-27, fixed by #1027, #1031 and #1032.) Read "it is in
 > the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
@@ -46,8 +83,8 @@ is cited so you can check it yourself.
 The five bullets at the top of this page are the bar a limitation must clear to be cited
 by a release candidate as an `accepted_alpha_limitation` — including the last one,
 evidence that the limitation does not hide a renderer correctness failure. **Most entries
-below do not clear it yet**, because they are code-reading findings with no reproduction:
-#1018, #983 and #1005 say so in their own Status lines.
+below do not clear it yet**. Some are code-reading findings with no reproduction, and the
+entries for #983 and #1005 say so in their own Evidence lines.
 
 Those two things are deliberately kept apart. This page's job as a *user* document is to
 disclose everything real that we know about, reproduced or not; an entry with no
@@ -59,25 +96,26 @@ produce the evidence, or leave the issue in the blocker set.
 
 **And clearing it is still not sufficient.** A candidate bundle may cite an entry here only
 if the issue *also* appears in the manifest's `public_alpha_issue_ledger`
-(`tests/ci/check_renderer_release_gates.py:1921-1924`). #1025 and #54 are the two entries on
-this page that have all of it — a named human acceptance, hardware evidence behind all five
-bullets, and a ledger entry (#1025's since [#1038](https://github.com/klausi3D/godotGS/issues/1038),
-#54's since its 2026-09-25 acceptance). For #54 the hardware evidence covers the lasting
+(`_validate_candidate_issues` in `tests/ci/check_renderer_release_gates.py`). #1025 and #54
+are the two entries on this page that have all of it — a named human acceptance, hardware
+evidence behind all five bullets, and a ledger entry (#1025's since
+[#1038](https://github.com/klausi3D/godotGS/issues/1038), and #54's since its 2026-09-25 acceptance). For #54 the hardware evidence covers the lasting
 band; the brief band at defaults is derived from the code and not captured, and its entry
 says so. **Every other entry here is still machine-invisible**, and adding a ledger entry is
 an R3 manifest edit, not a docs change. Read an entry on this page as a disclosure to a reader, not as
 something a release candidate may cite, unless the ledger says otherwise.
 
-Verified against `b915afc51c5` (2026-09-17), **except where an entry names its own commit**.
-The #1025 entry below is verified against `bc77ce31e9c` (2026-09-20): the behaviour it
-describes postdates `b915afc51c5`, because #1026 landed after it, and checking that entry out
-at the page-wide anchor would show the opposite. The #54 entry names the binary it was
-measured on (`6f4552076c7`); its import-route and node figures follow the code at
-`673f9c709f8`.
+**Every entry was re-verified against `dbc0f49aa8b` (2026-09-27)**: the issue's state, the
+merged changes that reference it, and the code it describes. Measurements were not retaken
+for that revision. They are as reported, on the binaries they were taken on. The #1025 figures come from the pre-fix and
+post-#1026 binaries (the entry was first verified at `bc77ce31e9c`). The #54 figures come from
+`6f4552076c7`, and its import-route and node figures follow the code at `673f9c709f8`.
 
 ## Rendering
 
 ### Splats trail by about 1.5 px under TAA while the camera or the content is moving ([#1025](https://github.com/klausi3D/godotGS/issues/1025))
+
+**Status: Accepted** (2026-09-20).
 
 With TAA enabled and the camera or the content in motion, splat detail is drawn behind its
 true position by **≈1.5 px** — 0.27–0.87 frames stale, and 6–26× an in-frame geometry control
@@ -108,7 +146,7 @@ exception
 The disposition record and the mechanism live in the bar's
 [§8.1](../governance/release-acceptance-bar.md); this entry is the user-facing half.
 
-**Status: measured, and the rig proved it could fail.** The
+**Evidence: measured, and the rig proved it could fail.** The
 [measurement](https://github.com/klausi3D/godotGS/issues/1025#issuecomment-5751997279) ran on
 both the pre-fix and post-#1026 binaries, which agree to within 0.01 frames in every cell, so
 the jitter fix neither causes nor cures this. Three gates ran before any figure was reported:
@@ -139,6 +177,8 @@ velocity smears confidently and reads as a renderer bug, which is why it is not 
 
 ### The bottom of the frame can go empty when a frame needs more overlap records than are allocated ([#54](https://github.com/klausi3D/godotGS/issues/54))
 
+**Status: Accepted** (2026-09-25).
+
 Every splat that touches a tile costs one **overlap record**. If a frame needs more records
 than the renderer has currently allocated, the tiles with
 the highest tile index get nothing — and because tiles are numbered row by row, that is a
@@ -153,7 +193,9 @@ Two limits matter, and they are not the same number:
   needs less, and grows after a drop. On the default path it learns the demand from a
   readback of an earlier frame, so it is always a little behind.
 - **The configured cap**, `rendering/gaussian_splatting/gpu_sorting/max_overlap_records`
-  (default **100,000,000**). The allocated capacity never grows past it.
+  (default **100,000,000**). The allocated capacity never grows past it. In Project
+  Settings this reads `0`, which means "use the `gpu_sorting/gpu_preset` budget", and the
+  default `high` preset's budget is 100,000,000. Any positive value overrides the preset.
 
 **At defaults you can see a brief band, not a lasting one.** A sudden jump in demand, such
 as the camera moving quickly into a dense close-up, can outrun the allocated capacity. The
@@ -176,7 +218,7 @@ scene is measured above the cap; #54 then blocks the alpha again. The dispositio
 the mechanism live in the bar's [§8.1](../governance/release-acceptance-bar.md); this entry is
 the user-facing half. #54 stays open as the tracking issue for the engineering fix.
 
-**Status: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
+**Evidence: reproduced on hardware 2026-09-22** — RTX 3090, Vulkan, `dev_build=yes` editor
 binary at `6f4552076c7`. 100,000 splats filling a 512×512 viewport at `tile_size = 16`
 demand **708,814 records**, 7.09 per splat. With `max_overlap_records` forced down:
 
@@ -263,6 +305,8 @@ the log.
 
 ### Transparent viewports are opaque under TAA or FSR2 ([#989](https://github.com/klausi3D/godotGS/issues/989))
 
+**Status: Engine limitation.**
+
 A viewport with `transparent_bg` renders fully opaque when TAA or FSR2 is enabled. Alpha
 is hardcoded to 1.0 in Godot's `taa_resolve.glsl` and in the FSR2 callbacks; a mesh-only
 control shows identical loss with no splats present, so this is not splat-specific and
@@ -278,67 +322,90 @@ cannot be fixed from this module.
 > temporal behaviour silently**, with no test that would notice. Measure FSR2 ghosting
 > before and after any #989 fix.
 
-### Painterly rendering has no automated coverage, and its material cannot be assigned from a scene ([#997](https://github.com/klausi3D/godotGS/issues/997))
+### Painterly's GPU path is covered by one nightly test that does not gate anything ([#997](https://github.com/klausi3D/godotGS/issues/997))
+
+**Status: Mitigated.** The original defect was fixed by #1028 on 2026-09-20 (see
+[Recently resolved](#recently-resolved)). This entry covers what is still open.
 
 Painterly needs two things, and `painterly/enabled` is only one of them: a valid
-`PainterlyMaterial` must also be set on the renderer, or the raster stage reports
-`PAINTERLY_MATERIAL_UNAVAILABLE` and falls back to the baseline pipeline
-(`renderer/render_pipeline_stages.cpp:2561-2567`).
+`PainterlyMaterial` must also reach the renderer, or the raster stage reports
+`RenderFallbackReason::PAINTERLY_MATERIAL_UNAVAILABLE` and renders the baseline pipeline
+instead. `GaussianSplatNode3D` binds `painterly/material`, so you can assign the material
+in the inspector or in a scene file, and the node pushes it to the renderer.
 
-There is no supported way to do that from a scene file. `painterly_material` is a property
-of `GaussianSplatRenderer`, which is `RefCounted` rather than a `Node`, so it never appears
-in the inspector; the only route is `node.get_renderer().painterly_material = ...` from
-script. `GaussianSplatRenderer::set_painterly_material` has **no callers anywhere in this
-repository**.
+Exactly one test renders the painterly GPU path and can fail when painterly does not run:
+the `Painterly Material Render` runtime scenario (`tests/runtime/test_painterly_material_render.gd`).
+It is in the `release-ci` runtime profile. The only workflow that runs that profile is the
+nightly **Release-CI Runtime Evidence** lane (`release_ci_runtime.yml`), which is not a PR
+gate. A change that breaks painterly can therefore merge green and only show up in the
+next nightly. The rest of the painterly coverage does not touch the GPU path:
 
-Worse, the shipped demo scenes look like they configure it and do not.
-`scenes/testlevel.tscn` and `scenes/ancient_corinth.tscn` assign `painterly/material` on
-`GaussianSplatNode3D` — a property that class does not bind — so Godot discards the
-assignment silently at scene load.
+- The C++ `[GaussianSplatting][Painterly]` suite (`test_painterly_pipeline.h`) compiles the
+  painterly shader permutations, but it draws its frames with a CPU software rasterizer
+  (`render_scene_headless`).
+- `test_painterly_material.cpp` checks the material's validation, serialization and shader
+  compilation. It renders no frame.
+- The `modules/gaussian_splatting/tests/painterly_scenes/` harness builds its images on the
+  CPU (`painterly_scene_util.gd`) and references no `GaussianSplatNode3D`.
+- The GDScript painterly tests are held by `tests/ci/check_painterly_test_non_vacuity.py`
+  to read `stage_raster_painterly`, so they can no longer pass on a baseline frame. That
+  guard checks what a test reads, not that the test ran on a GPU.
 
-The consequence for coverage: no in-repo test exercises the painterly GPU path. The
-painterly test suite renders **neither** pipeline; it is a CPU software rasterizer
-(`modules/gaussian_splatting/tests/test_painterly_pipeline.h:241-364`). The GDScript
-painterly tests call `set_enable_painterly(true)` and assert only visible-splat counts, so
-they pass on a baseline frame.
+Painterly also renders without lighting and ignores several controls. See the next entry.
 
-**Workaround:** treat painterly as experimental. Assign the material from script, confirm
-you are actually on the painterly path before drawing conclusions, and validate visually in
-your own scene.
+**Workaround:** treat painterly as experimental. Confirm you are actually on the painterly
+path before drawing conclusions: `get_renderer().get_render_stats()["stage_raster_painterly"]`
+is `true` on a painterly frame. The flag survives render-cache reuse, so it can be stale
+after you change settings. Check it against the image as well. Validate visually in your own
+scene.
 
-### Painterly ignores pass parameters the baseline pipeline sets
+### Painterly ignores lights, effectors and depth-clip settings the baseline pipeline honours ([#851](https://github.com/klausi3D/godotGS/issues/851))
 
-`render_painterly_stage` hand-copies a subset of the render-parameter struct that
-`render_baseline_stage` populates, so controls that work on the baseline path are silently
-inert under painterly. This is a class of defect, not a single bug, and the instances below
-are the ones found so far rather than the complete set.
+**Status: Active.** The lighting part is #851, which is in the acceptance bar's §11
+**blocker** set rather than accepted. It is described here so that a user who sees it can
+find the issue.
 
-- **Per-node wind freezes mid-sway**
-  ([#1018](https://github.com/klausi3D/godotGS/issues/1018)). `wind_time_seconds` is never
-  advanced under painterly (`interfaces/painterly_renderer.cpp`, params built around
-  `:1647-1916`), so it stays at its `0.0f` default
-  (`renderer/tile_render_types.h:534`) forever. A node using the
-  `rendering/wind_override_enabled` force path therefore renders permanently deformed off
-  its rest position instead of swaying. **Unproven:** this is a code-reading finding at
-  `b915afc51c5`, not reproduced on a GPU — and per #997 it almost certainly has never been
-  observed, because nothing in the repo can put the renderer on the painterly path from a
-  scene file.
-- **Lighting-mode fields** are tracked as
-  [#851](https://github.com/klausi3D/godotGS/issues/851): with painterly enabled you get
-  **black contour lines**, and `shadow_strength` is **inert** — resolve-time lighting
-  (mode 0) does not receive what the baseline stage assigns it. That one is in the
-  **blocker** set rather than here, but its symptom is named so a user who sees it can
-  find the issue.
+The painterly path fills its render parameters in `PainterlyRenderer::populate_painterly_gbuffer`.
+The baseline path fills its own in `RenderPipelineStages::RasterStage::render_tile_fallback`.
+The painterly producer sets only a subset of the fields, and the rest keep their struct
+defaults, so controls that work on the baseline path do nothing under painterly. This is a
+class of defect, not a single bug. The instances below were verified in code at
+`dbc0f49aa8b`, and they are the ones found so far, not a complete list.
 
-**Workaround:** none. Do not rely on wind, or on any per-pass control, while painterly is
-active.
+- **No scene lighting.** The painterly producer assigns none of the lighting, shadow or
+  light-cluster fields, and it leaves `direct_lighting_mode` at its default of `0`
+  (resolve-time lighting). The baseline sets `1`. So `DirectionalLight3D`, `OmniLight3D`,
+  `SpotLight3D`, shadows and the `lighting/*` project settings, including `shadow_strength`,
+  have no effect on a painterly frame. The 2026-09-17 measurement on #851 used a real
+  300,000-splat scan at shipped defaults. The painterly image was about a third darker than
+  the baseline (painterly/standard luminance **0.6742**), and every painterly frame logged
+  `Resolve lighting set 2 binding 0 (SceneDataBlock) using fallback`. #851's own title
+  describes black contour artifacts. Those were observed on a rig that was not on the
+  painterly path, so they are not confirmed on a real painterly frame.
+- **`SphereEffector3D` does nothing under painterly.** The baseline fills the
+  `sphere_effector_*` fields from scene effectors and project settings. The painterly
+  producer assigns none of them.
+- **Per-splat depth clipping is off under painterly.** The baseline fills the
+  `scene_depth_*` fields and enables `scene_depth_clip_enabled` when
+  `composite/per_splat_depth_clip` asks for it. The painterly producer does not. Occlusion
+  against meshes then relies only on the painterly composite's depth test.
+
+Wind used to be on this list. It was fixed by #1033 (see [Recently resolved](#recently-resolved)),
+which added one shared writer for the wind fields (`apply_wind_to_render_params`) and a
+guard, `tests/ci/check_render_param_family_producers.py`. Today that guard covers only the
+wind fields.
+
+**Workaround:** none. Do not rely on lights, shadows, effectors or per-splat depth clipping
+while painterly is active.
 
 ### The painterly composite's `blend_strength` is a no-op ([#1001](https://github.com/klausi3D/godotGS/issues/1001))
 
-`push_constant.blend_strength` is assigned the literal `1.0f`
-(`interfaces/painterly_renderer.cpp:1389`) with nothing feeding it. The shader does consume
-it (`shaders/painterly_composite.glsl:84`), so the multiply happens — it is just an
-identity. There is no user-facing control to set.
+**Status: Active.**
+
+`PainterlyRenderer::composite_painterly_output` assigns `push_constant.blend_strength` the
+literal `1.0f`, with nothing feeding it. The shader does consume it
+(`params.blend_strength` in `shaders/painterly_composite.glsl`), so the multiply happens, but
+it multiplies by one. There is no user-facing control to set.
 
 This is unrelated to `PainterlyMaterial.palette_blend_strength`, which is a different
 quantity and does work.
@@ -349,18 +416,22 @@ quantity and does work.
 
 ### `get_statistics()` can crash the engine when polled every frame ([#1030](https://github.com/klausi3D/godotGS/issues/1030))
 
-`GaussianSplatNode3D.get_statistics()` is ClassDB-bound
-(`nodes/gaussian_splat_node_3d.cpp:233`) and is the natural call for a per-node HUD. Called
-**once per rendered frame** from GDScript it intermittently takes the process down with a
-`CrashHandlerException` inside the call. It builds a large `Dictionary` out of live
-metrics structures (`:1460` → `render_diagnostics_orchestrator.cpp`) that the render
-thread is mutating concurrently under the default multi-threaded
-`rendering/driver/threads/thread_model=2`.
+**Status: Active.**
+
+`GaussianSplatNode3D.get_statistics()` is ClassDB-bound and is the natural call for a
+per-node HUD. Called **once per rendered frame** from GDScript it intermittently takes the
+process down with a `CrashHandlerException` inside the call. It builds a large `Dictionary`
+that includes everything `GaussianSplatRenderer::get_render_stats()` returns, read from live
+metrics structures that the render thread is mutating concurrently under the default
+multi-threaded `rendering/driver/threads/thread_model=2`.
 
 **Workaround:** poll it at **4 Hz or slower** — roughly every 15th frame, which is the rate
-the shipped overlay itself refreshes at. A 444-frame run at that rate did not crash.
+the starter template's performance overlay refreshes at (`update_interval = 0.25`). A
+444-frame run at that rate did not crash. The starter template itself does not keep to that
+rate everywhere. Its `_focus_camera()` calls `get_statistics()` once per frame until the
+splat bounds arrive, for at most 5 seconds after the scene starts.
 
-**Status:** **reproduced, not diagnosed** — 2 crashes in 5 runs on an optimized editor
+**Evidence:** **reproduced, not diagnosed** — 2 crashes in 5 runs on an optimized editor
 build; the C++ backtrace was unsymbolized, so the faulting function is not named and no
 root cause is established. 2-of-5 is a rate, not a mechanism.
 
@@ -383,6 +454,8 @@ an overestimate is not a measurement, and one clean run is not a safety proof.
 
 ### Any payload change costs a full resubmit — about 2.1 s at 1M splats ([#1008](https://github.com/klausi3D/godotGS/issues/1008))
 
+**Status: Active.**
+
 Changing `gaussian_data`, `bounds`, `metadata`, `lod_bias`, `max_render_distance` or
 `max_splat_count` all converge on `_register_shared_renderer()`, which rebuilds the entire
 submission from scratch. There is no dirty-field tracking and no equality early-out, so a
@@ -390,8 +463,8 @@ one-field nudge pays the whole cost: a blocking render-thread round trip, then
 `clear_gaussian_data()` followed by a full GPU re-upload of every splat buffer.
 
 **Two bounds on that.** The re-upload is the **resident** branch — a world whose payload is
-file-backed takes `set_file_backed_payload_source()` instead
-(`renderer/render_data_orchestrator.cpp:799-803`), which does not re-upload the splat
+file-backed and has no resident data takes `set_file_backed_payload_source()` instead
+(`GaussianSplatRenderer::apply_world_submission_contract`), which does not re-upload the splat
 buffers the same way. And a world that holds no registered submission resubmits nothing.
 The cost below is the resident path, which is the one the alpha's world route uses.
 
@@ -413,6 +486,8 @@ them as a baseline.
 
 ### An emptied world does not reach the renderer ([#1002](https://github.com/klausi3D/godotGS/issues/1002))
 
+**Status: Active.**
+
 `GaussianSplatWorld::clear()` is the one payload mutator that emits no `changed` signal.
 Every other one does. The director holds its own copy of the payload rather than the
 resource, so with no signal nothing re-registers and the previous content stays on screen.
@@ -426,7 +501,10 @@ so mutating it from script changes the resource without emitting `changed` eithe
 
 ### Bounds are never re-derived after they are once set ([#1003](https://github.com/klausi3D/godotGS/issues/1003))
 
-Bounds are derived from the payload only while they are empty. Once `bounds` has volume —
+**Status: Active.**
+
+Bounds are derived from the payload only while they are empty
+(`GaussianSplatWorld::set_gaussian_data` and `set_chunk_payload_source`). Once `bounds` has volume —
 however it got there — a later payload assignment never re-derives it, and the stale value
 becomes the culling AABB. Content relocated with its payload can be culled at the wrong
 place.
@@ -435,8 +513,10 @@ place.
 
 ### `strict_identity_transform` is bypassed on every resubmit ([#1006](https://github.com/klausi3D/godotGS/issues/1006))
 
+**Status: Active.**
+
 The transform check runs on every *apply* path and on no *resubmit* path — the resubmit
-helper calls `_register_shared_renderer()` directly, which contains no check. So a world
+helper, `_resubmit_world_submission_if_registered()`, calls `_register_shared_renderer()` directly, which contains no check. So a world
 node moved after a successful apply is republished unchecked by any of the parameter
 setters. The node also never tracks transforms, deliberately.
 
@@ -444,6 +524,8 @@ setters. The node also never tracks transforms, deliberately.
 `strict_identity_transform` is on; the setting will not catch you.
 
 ### Applying a world writes `world_path` into your resource ([#1007](https://github.com/klausi3D/godotGS/issues/1007))
+
+**Status: Active.**
 
 Every apply of a world that has a resource path injects a `world_path` key into the
 resource's own metadata dictionary — and because metadata is returned by reference, the
@@ -457,6 +539,9 @@ In-memory worlds with no resource path are not affected.
 
 ### A resource replaced mid-load can stay connected ([#1005](https://github.com/klausi3D/godotGS/issues/1005))
 
+**Status: Engine limitation.** The mechanism is in upstream Godot's `Resource`; the module
+triggers it by connecting to a world resource that may still be loading.
+
 `Resource::connect_changed` routes through the loader when called off the main thread
 during a load, queueing the connection rather than making it; a matching
 `disconnect_changed` on the main thread then finds nothing connected and is a silent no-op,
@@ -464,7 +549,7 @@ because it never reaches that queue. The queued connection is honoured afterward
 A world resource swapped inside that window can leave the old resource connected and
 resubmitting.
 
-**Status:** confirmed at code level; the reachable window is narrow and no end-to-end
+**Evidence:** confirmed at code level; the reachable window is narrow and no end-to-end
 reproduction was constructed.
 
 **Workaround:** avoid replacing a world resource while it is still loading.
@@ -473,11 +558,14 @@ reproduction was constructed.
 
 ### A failed sorter grow can lose both sorters ([#983](https://github.com/klausi3D/godotGS/issues/983))
 
-A tile-sorter grow retires the old sorter before the enlarged buffers are allocated. If
+**Status: Active.**
+
+A tile-sorter grow in `TileGlobalSortResources::ensure_resources()` retires the old sorter
+before the enlarged buffers are allocated. If
 that allocation fails, both are lost, and the reduced-capacity fallback then churns every
 frame.
 
-**Status:** a code-reading finding, **not reproduced on NVIDIA hardware** — unproven, not
+**Evidence:** a code-reading finding, **not reproduced on NVIDIA hardware** — unproven, not
 absent. It is strictly narrower than what #982 fixed.
 
 **Workaround:** reduce splat count rather than raising the overlap-record cap.
@@ -486,7 +574,10 @@ absent. It is strictly narrower than what #982 fixed.
 
 ### Linux is smoke-tested, not editor-tested
 
-The Linux CI lane runs the `ply`, `pipeline`, `runtime` and `module` categories headless
+**Status: Active.**
+
+The Linux CI lane (the `cpu-tests` job in `baseline_qa.yml`, which does not run on pull
+requests) runs the `ply`, `pipeline`, `runtime` and `module` categories headless
 under xvfb on a GPU-less hosted runner. It runs neither `qa` nor `sorting`, so no QA-scene
 and no GPU-sorting evidence exists for Linux at all; every GPU-backed lane in this project
 is Windows. See the [compatibility matrix](../reference/compatibility-matrix.md).
@@ -495,12 +586,16 @@ is Windows. See the [compatibility matrix](../reference/compatibility-matrix.md)
 
 ### macOS is build-supported and unvalidated
 
+**Status: Active.**
+
 The build accepts macOS and no lane exercises it. There is no macOS CI, no published macOS
 binary, and no evidence of any kind.
 
 **Workaround:** build from source and validate it yourself.
 
 ### Nightly Linux editors are unoptimized
+
+**Status: Active.**
 
 Nightly Linux builds are `dev_build=yes` (`-O0`), which inflates CPU-side frame cost by
 roughly an order of magnitude; the `.dev` segment in the filename is that flag. This is a
@@ -511,14 +606,20 @@ roughly an order of magnitude; the `.dev` segment in the filename is that flag. 
 
 ### No Linux export template is attached to releases
 
-The Linux export template is built and uploaded as a CI artifact, but it is not among the
-files attached to a release — only the Windows template is. Exporting a Gaussian-Splatting
+**Status: Active.**
+
+The Linux export template is built and uploaded as a CI artifact
+(`build_linux_export_template` in `release_builds.yml`), but `publish_release` does not
+attach it. The only template attached to a release is the Windows one, and only when the
+Windows build of that run succeeded. Exporting a Gaussian-Splatting
 game on Linux therefore requires building the template yourself. See
 [export templates](export-templates.md).
 
 **Workaround:** build the Linux template from source.
 
 ### Nothing is code-signed
+
+**Status: Active.**
 
 No published binary is signed, on any platform — there is no signing step anywhere in the
 release workflows. Windows SmartScreen will warn on the editor and on games exported with
@@ -561,3 +662,17 @@ more overlap records than are allocated). A named human accepted it on
 [2026-09-25](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717), so it
 moved up into [Rendering](#rendering) as a real limitation, with the condition under which
 that acceptance lapses stated in the entry.
+
+---
+
+## Recently resolved
+
+These defects were listed or named on this page and have since been fixed on master. If you
+read an earlier version of this page, the claims below are no longer true. Each fix was
+re-checked in code at `dbc0f49aa8b`.
+
+| Issue | What this page used to say | Fixed by | Date | Now |
+| --- | --- | --- | --- | --- |
+| [#997](https://github.com/klausi3D/godotGS/issues/997) | The painterly material cannot be assigned from a scene, because `GaussianSplatNode3D` does not bind `painterly/material`. The demo scenes' assignment is discarded at load, and no in-repo test exercises the painterly GPU path. | [#1028](https://github.com/klausi3D/godotGS/pull/1028) | 2026-09-20 | `GaussianSplatNode3D` binds `painterly/material` and pushes it to the renderer. The `Painterly Material Render` runtime scenario fails when painterly does not run. What is still open is listed under Rendering as **Mitigated**. The issue is still open. |
+| [#1018](https://github.com/klausi3D/godotGS/issues/1018) | Per-node wind freezes mid-sway under painterly, because `wind_time_seconds` is never advanced. | [#1033](https://github.com/klausi3D/godotGS/pull/1033) | 2026-09-20 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_wind_to_render_params`, and `tests/ci/check_render_param_family_producers.py` fails if a producer stops doing so. The issue is still open, because the PR referenced it without closing it. |
+| [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Closed. |
