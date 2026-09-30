@@ -54,6 +54,10 @@ without touching the self-hosted lanes. It runs:
   resolved
 - `python -m unittest discover -s tests/agentic`
 - `python scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md AGENTS.md CLAUDE.md`
+- `python tests/ci/check_doc_snippets.py` — GDScript examples, `Class.member` prose
+  references and API-page method tables in `docs/` against the module's ClassDB
+  bindings; no path filter, so a binding rename fails the PR that makes it
+  (`docs/architecture/` and ADRs only warn)
 - `python tests/ci/run_module_tests.py --guard-only` (GPU-free; the StringName guard
   self-skips when no Godot binary is present)
 
