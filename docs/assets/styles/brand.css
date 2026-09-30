@@ -7,8 +7,9 @@
    blue accent (#54a9ec). No gradients, elevation by hairline + soft ambient
    shadow (never glow). Warm photographic color lives only inside splat
    viewports — never as UI chrome. Type: Hanken Grotesk (headlines, 700, tight
-   tracking — never a flat 800), Geist (body/UI), Geist Mono (code + all
-   numbers, labels, eyebrows).
+   tracking — never a flat 800), Geist (body/UI, including labels, table
+   headers, captions and nav titles), Geist Mono (code and real machine data
+   only: identifiers, file names, numbers, status chips, the landing eyebrow).
 
    This file owns: webfont loading, the design tokens, both color schemes mapped
    onto Material's CSS variables, base typography, header/wordmark, nav, links,
@@ -58,6 +59,15 @@
 
   /* Layout */
   --gs-container: 1220px;
+  /* Reading measure: body copy stops at ~72 characters per line (Geist body
+     text averages ~0.5em per character). rem-based so every prose element
+     shares one right edge; tables, code and figures keep the full column. */
+  --gs-measure: 31rem;
+
+  /* Reading type scale */
+  --gs-text-body: 0.85rem;   /* 17px at Material's 20px root */
+  --gs-leading-body: 1.65;
+  --gs-text-code-block: 0.72rem;
 
   /* Material overrides that apply to both schemes */
   --md-text-font: var(--gs-font-text);
@@ -67,7 +77,11 @@
 /* --------------------------------------------------------------------------
    DARK scheme (default look — the product is a dark 3D editor)
    -------------------------------------------------------------------------- */
-[data-md-color-scheme="slate"] {
+[data-md-color-scheme="slate"],
+.gs-marketing .gsm-editor,
+.gs-marketing .gsm-term {
+  /* The landing's editor product shot and terminal are always dark (like a real
+     screenshot), so they re-use this token set in both schemes. */
   color-scheme: dark;
 
   /* Surfaces — cool graphite */
@@ -88,7 +102,7 @@
   /* Text */
   --gs-text: #e8eef5;
   --gs-muted: #98a5b6;
-  --gs-faint: #5c6a7c;
+  --gs-faint: #7d8a9c; /* 4.62:1 on --gs-surface-raised, 5.47:1 on --gs-bg (AA) */
   --gs-prose: #cdd6e1;
 
   /* Primary — Godot-lineage blue */
@@ -164,7 +178,7 @@
 
   --gs-text: #0d1420;
   --gs-muted: #55606e;
-  --gs-faint: #7a8695;
+  --gs-faint: #636e7c; /* 4.79:1 on --gs-bg, 4.58:1 on --gs-bg-alt (AA) */
   --gs-prose: #26303d;
 
   /* Godot blue, darkened so links/buttons meet AA on white */
@@ -247,9 +261,15 @@ button {
 }
 
 .md-typeset {
-  font-size: 0.78rem;
-  line-height: 1.65;
+  font-size: var(--gs-text-body);
+  line-height: var(--gs-leading-body);
   color: var(--gs-prose);
+}
+
+/* Prose measure: running text and callouts stop at --gs-measure; tables, code
+   blocks, figures and card grids are not listed, so they keep the full column. */
+.md-typeset > :is(p, ul, ol, dl, blockquote, .admonition, details) {
+  max-width: var(--gs-measure);
 }
 
 .md-typeset,
@@ -276,25 +296,18 @@ button {
   line-height: 1.08;
 }
 
+/* Section hierarchy comes from whitespace (a generous gap above, a tight one
+   below), not from divider rules. */
 .md-typeset h2 {
-  margin-top: 2.6rem;
-  padding-top: 1.6rem;
-  border-top: 1px solid var(--gs-line);
+  margin: 2.8rem 0 0.8rem;
   font-size: 1.4375rem;
   font-weight: var(--gs-weight-display);
   letter-spacing: var(--gs-tracking-snug);
   line-height: 1.2;
 }
-/* First section heading (right under the page H1) needs no divider */
-.md-typeset h1 + h2,
-.md-typeset h1 + .highlight + h2 {
-  margin-top: 1.8rem;
-  padding-top: 0;
-  border-top: 0;
-}
 
 .md-typeset h3 {
-  margin-top: 1.6rem;
+  margin: 2rem 0 0.6rem;
   font-size: 1.0625rem;
   font-weight: var(--gs-weight-bold);
   letter-spacing: -0.01em;
@@ -328,10 +341,10 @@ button {
   color: var(--gs-accent-hi);
 }
 
-/* Lead paragraph directly under the H1 */
+/* Lead paragraph directly under the H1: slightly larger, same prose colour
+   (it is often normative text, so it must not read as secondary). */
 .md-typeset h1 + p {
-  font-size: 0.9rem;
-  color: var(--gs-muted);
+  font-size: 0.94rem;
   line-height: 1.6;
 }
 
@@ -343,16 +356,14 @@ button {
   font-family: var(--gs-font-code);
 }
 
+/* Inline code: the surrounding text colour on a subtle neutral fill, so it
+   never reads as a link (inside a link it takes the link colour). */
 .md-typeset code:not(pre code) {
-  padding: 0.12rem 0.34rem;
+  padding: 0.1em 0.3em;
   border-radius: var(--gs-radius-xs);
-  border: 1px solid var(--gs-line);
-  background: color-mix(in srgb, var(--gs-accent-soft) 40%, transparent);
-  color: var(--gs-accent);
-  font-size: 0.82em;
-}
-[data-md-color-scheme="default"] .md-typeset code:not(pre code) {
-  color: var(--gs-accent-hi);
+  background: color-mix(in srgb, var(--gs-text) 7%, transparent);
+  color: inherit;
+  font-size: 0.85em;
 }
 
 .md-typeset .md-content__inner {
@@ -413,10 +424,18 @@ button {
   color: var(--gs-accent);
 }
 
-/* Site name text next to the wordmark is redundant with it — hide the built-in
-   title topic and let the wordmark + tabs + breadcrumb carry context. */
+/* Site name text next to the wordmark is redundant with it, so its text is
+   hidden — but the element stays in the layout: it is Material's flex-grow
+   spacer that pushes the palette toggle, search and repo link to the right. */
 .md-header__title {
-  display: none;
+  visibility: hidden;
+}
+/* Below the desktop breakpoint the drawer (menu) button leads, as in stock
+   Material (which hides the logo there; this theme keeps the wordmark). */
+@media screen and (max-width: 76.234375em) {
+  .md-header__button[for="__drawer"] {
+    order: -1;
+  }
 }
 
 /* Header controls inherit the graphite-on-glass treatment */
@@ -461,8 +480,6 @@ button {
 /* Breadcrumb path */
 .md-path {
   color: var(--gs-faint);
-  font-family: var(--gs-font-code);
-  font-size: 0.66rem;
 }
 .md-path__link {
   color: var(--gs-faint);
@@ -478,12 +495,9 @@ button {
   font-size: 0.72rem;
 }
 .md-nav__title {
-  font-family: var(--gs-font-code);
-  font-size: 0.62rem;
-  letter-spacing: var(--gs-tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--gs-faint);
-  font-weight: var(--gs-weight-medium);
+  font-size: 0.72rem;
+  color: var(--gs-muted);
+  font-weight: var(--gs-weight-semibold);
 }
 .md-nav__link {
   color: var(--gs-muted);
@@ -513,9 +527,6 @@ button {
 }
 
 /* TOC (right rail) */
-.md-nav--secondary .md-nav__title {
-  color: var(--gs-faint);
-}
 .md-nav--secondary .md-nav__link--active {
   color: var(--gs-accent);
 }
@@ -587,17 +598,4 @@ button {
    -------------------------------------------------------------------------- */
 ::selection {
   background: var(--gs-accent-soft);
-}
-
-/* Content wide-mode when there is no primary nav (kept from prior layout) */
-@media screen and (min-width: 76.25em) {
-  .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) {
-    grid-template-columns: minmax(0, 1fr) minmax(14rem, 17rem);
-  }
-  .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) .md-sidebar--primary {
-    display: none;
-  }
-  .md-main__inner:has(.md-sidebar--primary .md-nav__list:not(:has(.md-nav__item))) .md-content {
-    max-width: none;
-  }
 }

@@ -1,7 +1,9 @@
 /* ==========================================================================
    godotGS — components.css
    Content surfaces styled in the design-system component language: hairline
-   elevation, monospace labels/eyebrows, soft ambient shadow (never glow).
+   elevation, soft ambient shadow (never glow). Labels (table headers, callout
+   titles, captions, pager) use the text face in sentence case; monospace is
+   reserved for code and machine data (chips, card meta, file names).
    Depends on the tokens defined in brand.css.
    ========================================================================== */
 
@@ -134,95 +136,64 @@
 }
 
 /* --------------------------------------------------------------------------
-   Admonitions / callouts — hairline border with a colored left edge, tinted
-   surface, monospace title label.
+   Admonitions / callouts — hairline border with a colored left edge, a faint
+   role tint behind the title. The role colour lives in one variable (--gs-adm)
+   and is carried by the edge, the icon and the tint; title text stays in the
+   heading colour so it meets AA in both schemes.
    -------------------------------------------------------------------------- */
 .md-typeset .admonition,
 .md-typeset details {
+  --gs-adm: var(--gs-accent); /* note, info, abstract and any unlisted type */
   border-radius: var(--gs-radius-md);
   border: 1px solid var(--gs-line);
-  border-left-width: 2px;
+  border-left: 2px solid var(--gs-adm);
   background: var(--gs-surface);
   box-shadow: none;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
 }
-.md-typeset .admonition-title,
-.md-typeset summary {
-  font-family: var(--gs-font-code);
-  font-size: 0.7rem;
+.md-typeset :is(.tip, .hint, .important, .success, .check, .done) {
+  --gs-adm: var(--gs-success);
+}
+.md-typeset :is(.warning, .caution, .attention) {
+  --gs-adm: var(--gs-warning);
+}
+.md-typeset :is(.danger, .error, .failure, .fail, .missing, .bug) {
+  --gs-adm: var(--gs-danger);
+}
+/* Material colours each type with (0,3,0)/(0,3,1) selectors such as
+   `.md-typeset .admonition.warning`; the [class] qualifier matches that
+   specificity so these single rules replace the per-type palette. */
+.md-typeset .admonition[class],
+.md-typeset details[class] {
+  border-color: var(--gs-line);
+  border-left-color: var(--gs-adm);
+}
+.md-typeset [class] > :is(.admonition-title, summary) {
+  background-color: color-mix(in srgb, var(--gs-adm) 8%, transparent);
+  color: var(--gs-text);
+  font-size: 0.78rem;
   font-weight: var(--gs-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: transparent;
 }
-.md-typeset .admonition-title::before,
-.md-typeset summary::before {
+.md-typeset [class] > :is(.admonition-title, summary)::before {
+  background-color: var(--gs-adm);
   border-radius: 2px;
 }
 
-/* Retint by semantic role using the DS palette */
-.md-typeset .admonition.note,
-.md-typeset .admonition.info,
-.md-typeset .admonition.abstract,
-.md-typeset details.note {
-  border-left-color: var(--gs-accent);
-}
-.md-typeset .note > .admonition-title,
-.md-typeset .info > .admonition-title,
-.md-typeset .abstract > .admonition-title {
-  color: var(--gs-accent);
-}
-.md-typeset .admonition.tip,
-.md-typeset .admonition.success,
-.md-typeset .admonition.check,
-.md-typeset details.tip {
-  border-left-color: var(--gs-success);
-}
-.md-typeset .tip > .admonition-title,
-.md-typeset .success > .admonition-title {
-  color: var(--gs-success);
-}
-.md-typeset .admonition.warning,
-.md-typeset .admonition.caution,
-.md-typeset .admonition.attention,
-.md-typeset details.warning {
-  border-left-color: var(--gs-warning);
-}
-.md-typeset .warning > .admonition-title,
-.md-typeset .caution > .admonition-title {
-  color: var(--gs-warning);
-}
-.md-typeset .admonition.danger,
-.md-typeset .admonition.failure,
-.md-typeset .admonition.bug,
-.md-typeset details.danger {
-  border-left-color: var(--gs-danger);
-}
-.md-typeset .danger > .admonition-title,
-.md-typeset .failure > .admonition-title,
-.md-typeset .bug > .admonition-title {
-  color: var(--gs-danger);
-}
-
 /* --------------------------------------------------------------------------
-   Tables — the compatibility / status matrix
+   Tables — the compatibility / status matrix. Cells are transparent so the
+   scroll-edge shadows on the wrapper (below) show through them.
    -------------------------------------------------------------------------- */
 .md-typeset table:not([class]) {
   border-radius: var(--gs-radius-md);
-  overflow: hidden;
   border: 1px solid var(--gs-line);
   box-shadow: none;
-  background: var(--gs-surface);
-  font-size: 0.74rem;
+  background: transparent;
+  font-size: 0.76rem;
 }
 .md-typeset table:not([class]) th {
-  background: var(--gs-surface-raised);
-  color: var(--gs-faint);
-  font-family: var(--gs-font-code);
-  font-size: 0.64rem;
-  font-weight: var(--gs-weight-medium);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  background: color-mix(in srgb, var(--gs-text) 4%, transparent);
+  color: var(--gs-text);
+  font-weight: var(--gs-weight-semibold);
   border-bottom: 1px solid var(--gs-line);
 }
 .md-typeset table:not([class]) td {
@@ -231,27 +202,32 @@
 }
 .md-typeset table:not([class]) td:first-child {
   color: var(--gs-text);
-  font-weight: var(--gs-weight-semibold);
 }
 .md-typeset table:not([class]) tr:hover td {
   background: color-mix(in srgb, var(--gs-accent-soft) 55%, transparent);
 }
-.md-typeset table:not([class]) td code {
-  font-size: 0.85em;
-}
-/* Keep code tokens whole so wide reference tables reach a real min-width and the
-   Material scroll-wrapper lets you swipe them on narrow screens, instead of
-   squishing each identifier down to a 1-character-per-line column. */
-.md-typeset table:not([class]) code {
+/* Keep inline code tokens whole so wide reference tables reach a real min-width
+   and scroll on narrow screens, instead of squishing each identifier down to a
+   1-character-per-line column. */
+.md-typeset table:not([class]) code:not(pre code) {
   white-space: nowrap;
 }
 
-/* Make the horizontal scroll on wide/dense tables obvious (an on-brand thin
-   scrollbar) so a table wider than its column reads as "swipe me", not "cut off". */
+/* Horizontal-scroll affordance for tables wider than the column: scroll-edge
+   shadows (visible only on the side that has more content — the page-coloured
+   covers scroll with the content and hide a shadow once its edge is reached)
+   plus an always-styled thin scrollbar. */
 .md-typeset__scrollwrap {
+  --gs-scroll-shadow: color-mix(in srgb, var(--gs-text) 16%, transparent);
+  background:
+    linear-gradient(to right, var(--gs-bg) 40%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--gs-bg) 40%, transparent) right / 2.5rem 100% no-repeat local,
+    linear-gradient(to right, var(--gs-scroll-shadow), transparent) left / 1.2rem 100% no-repeat scroll,
+    linear-gradient(to left, var(--gs-scroll-shadow), transparent) right / 1.2rem 100% no-repeat scroll;
   scrollbar-width: thin;
-  scrollbar-color: var(--gs-line-strong) transparent;
+  scrollbar-color: var(--gs-faint) transparent;
 }
+/* Engines without scrollbar-color (Safari) keep a classic, visible thin bar. */
 .md-typeset__scrollwrap::-webkit-scrollbar {
   height: 8px;
 }
@@ -259,11 +235,8 @@
   background: transparent;
 }
 .md-typeset__scrollwrap::-webkit-scrollbar-thumb {
-  background: var(--gs-line-strong);
+  background: var(--gs-faint);
   border-radius: var(--gs-radius-pill);
-}
-.md-typeset__scrollwrap::-webkit-scrollbar-thumb:hover {
-  background: var(--gs-muted);
 }
 
 /* --------------------------------------------------------------------------
@@ -286,10 +259,13 @@
   border-radius: 0;
   background: transparent;
 }
+/* One code-block size everywhere (rem-based, so a block inside a table cell or
+   callout is not scaled by its container's font size). */
 .md-typeset pre > code {
   border-radius: inherit;
-  font-size: 0.76rem;
-  line-height: 1.7;
+  font-size: var(--gs-text-code-block);
+  font-weight: normal;
+  line-height: 1.65;
 }
 .md-typeset .highlight [data-md-color-scheme] {
   background: transparent;
@@ -302,19 +278,18 @@
 .md-clipboard:hover {
   color: var(--gs-accent);
 }
+/* File names are real machine data: mono, and never case-transformed. */
 .highlight .filename,
 .md-typeset .highlight span.filename {
   font-family: var(--gs-font-code);
-  font-size: 0.66rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--gs-faint);
+  font-size: 0.68rem;
+  color: var(--gs-muted);
   background: var(--gs-surface);
   border-bottom: 1px solid var(--gs-line);
 }
 
 /* --------------------------------------------------------------------------
-   Content tabs (pymdownx.tabbed) — monospace underline tab set
+   Content tabs (pymdownx.tabbed) — underline tab set
    -------------------------------------------------------------------------- */
 .md-typeset .tabbed-set {
   display: grid;
@@ -336,9 +311,7 @@
   padding: 0.15rem 0 0.45rem;
   border-bottom: 2px solid transparent;
   color: var(--gs-muted);
-  font-family: var(--gs-font-code);
-  font-size: 0.7rem;
-  letter-spacing: 0.02em;
+  font-size: 0.74rem;
   font-weight: var(--gs-weight-medium);
   cursor: pointer;
   transition: color var(--gs-dur-fast) var(--gs-ease);
@@ -381,15 +354,14 @@
   background: var(--gs-surface-raised);
   box-shadow: var(--gs-shadow-md);
 }
+/* Captions: text face, upright (no Geist italic is loaded, so Material's
+   italic would be a synthesized slant), secondary colour. */
 .md-typeset figure figcaption {
+  max-width: var(--gs-measure);
   margin-top: 0.7rem;
-  color: var(--gs-faint);
-  font-family: var(--gs-font-code);
-  font-size: 0.68rem;
-  font-weight: var(--gs-weight-medium);
-  letter-spacing: 0.02em;
-  text-transform: none;
-  max-width: none;
+  color: var(--gs-muted);
+  font-size: 0.76rem;
+  font-style: normal;
 }
 .md-typeset .mermaid {
   border: 1px solid var(--gs-line);
@@ -423,11 +395,8 @@
   font-weight: var(--gs-weight-semibold);
 }
 .md-footer__direction {
-  font-family: var(--gs-font-code);
-  font-size: 0.6rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--gs-faint);
+  color: var(--gs-muted);
+  opacity: 1; /* Material dims this label to 0.7; the muted token already is the secondary tone */
 }
 
 /* Meta footer (copyright / generator line) */
