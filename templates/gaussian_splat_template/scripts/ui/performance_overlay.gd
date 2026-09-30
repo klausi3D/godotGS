@@ -103,9 +103,14 @@ var _window_ms := -1.0
 var _first_frame_us := 0
 ## `Engine.get_frames_per_second()` starts at 1, not 0 (`core/config/engine.h`,
 ## `_fps = 1`), and `Main::iteration()` replaces it only after its first whole
-## second. The engine's loop starts before this node processes, so once this
-## node has seen more than this long, the engine value is a real sample.
+## second, at the END of an iteration -- after `MainLoop::process()` returns, so
+## after this node's `_process`. The engine's loop starts before this node
+## processes, so once an EARLIER `_process` (whose iteration has completed) was
+## more than this long after the first one, the engine value is a real sample.
+## Judging the current tick instead would accept an iteration whose update has
+## not run yet, e.g. after one interval longer than this threshold.
 const ENGINE_FPS_READY_US := 1100000
+var _engine_fps_ready := false
 ## Wall-clock intervals of the most recent MAX_SAMPLES frames, in microseconds.
 var _interval_samples_us: Array[int] = []
 const MAX_SAMPLES := 120
@@ -276,6 +281,9 @@ func _process(_delta: float) -> void:
 		_window_start_us = now
 		_first_frame_us = now
 		return
+	# `_last_frame_us` is the previous tick, whose iteration has completed.
+	if _last_frame_us - _first_frame_us > ENGINE_FPS_READY_US:
+		_engine_fps_ready = true
 	var interval_us := now - _last_frame_us
 	_last_frame_us = now
 	_window_frames += 1
@@ -385,9 +393,8 @@ func _unhandled_input(event: InputEvent) -> void:
 func _section_frame(lines: Array[String]) -> void:
 	lines.append("[b]═══ FRAME ═══[/b]")
 	var window_ms := _window_ms
-	var engine_ready := _first_frame_us > 0 and Time.get_ticks_usec() - _first_frame_us > ENGINE_FPS_READY_US
 	var engine_fps := Engine.get_frames_per_second()
-	var engine_text := ("%d (engine, last 1 s)" % engine_fps) if engine_ready else ("%s (engine, first second)" % UNAVAILABLE)
+	var engine_text := ("%d (engine, last 1 s)" % engine_fps) if _engine_fps_ready else ("%s (engine, first second)" % UNAVAILABLE)
 	if _window_fps < 0.0:
 		lines.append("FPS: %s (measuring) | %s" % [UNAVAILABLE, engine_text])
 		lines.append("Frame interval: %s (wall clock)" % UNAVAILABLE)
