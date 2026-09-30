@@ -15,14 +15,14 @@ Visual captures for the import dialog are still pending, so this page stays text
 
 | Input | Output | Best for |
 | --- | --- | --- |
-| `.ply` | Imported `GaussianSplatAsset` resource | Common editor import flow |
-| `.spz` | Imported `GaussianSplatAsset` resource | Compressed splat inputs |
+| `.ply` | Imported `GaussianSplatAsset` resource (importer `gaussian_splat_ply`, saved as `.res` under `.godot/imported/`) | Common editor import flow |
+| `.spz` | Imported `GaussianSplatAsset` resource (importer `gaussian_splat_spz`, saved as `.res`) | Compressed splat inputs |
 | `.gsplatworld` | Imported binary `GaussianSplatWorld` copy | Prebaked multi-asset worlds |
 | Runtime load path | In-memory `GaussianSplatAsset` | Scripted loading without import-dock output |
 
 Direct `.ply` and `.spz` imports are resident-only scene assets. The PLY importer may write a sibling `.gsplatcache` for faster reloads; that cache is resident-only and owned by the source PLY path, size, mtime, and cache version.
 
-For out-of-core source streaming, use an uncompressed `.gsplatworld` loaded normally. Compressed `.gsplatworld`, `.gsplatcache`, explicit `load_resident()`, and direct PLY/SPZ imports do not provide file-backed chunk reads.
+For out-of-core source streaming, use an uncompressed `.gsplatworld` loaded normally (`load()` / `ResourceLoader.load()`). Compressed `.gsplatworld`, `.gsplatcache`, the C++-only resident loader `ResourceFormatLoaderGaussianSplatWorld::load_resident()` (not exposed to GDScript), and direct PLY/SPZ imports do not provide file-backed chunk reads.
 
 ## Import Steps
 
