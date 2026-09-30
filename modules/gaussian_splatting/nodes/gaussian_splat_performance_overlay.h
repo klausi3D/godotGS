@@ -24,6 +24,7 @@
 
 #include "core/math/transform_3d.h"
 #include "core/object/object_id.h"
+#include "core/object/ref_counted.h"
 #include "core/os/keyboard.h"
 #include "core/templates/vector.h"
 #include "core/variant/dictionary.h"
@@ -34,6 +35,7 @@ class PanelContainer;
 class RichTextLabel;
 class Node;
 class GaussianSplatRenderer;
+class Viewport;
 
 class GaussianSplatPerformanceOverlay : public CanvasLayer {
 	GDCLASS(GaussianSplatPerformanceOverlay, CanvasLayer);
@@ -63,8 +65,9 @@ public:
 	};
 
 	/// Statistics are polled once per refresh window, and a window is never
-	/// shorter than this: 4 Hz is the cadence at which #1030's render-thread
-	/// race on get_render_stats() was not observed, and D5 of #1084 caps it.
+	/// shorter than this (D5 of #1084). get_render_stats() itself runs on the
+	/// render thread (see _read_render_stats(), #1030); the cap bounds how often
+	/// that read stalls the main thread.
 	static constexpr double MIN_UPDATE_INTERVAL = 0.25;
 	static constexpr double MAX_UPDATE_INTERVAL = 2.0;
 
@@ -121,7 +124,7 @@ public:
 		// CAMERA
 		bool has_camera = false;
 		Transform3D camera_transform;
-		bool camera_orthogonal = false;
+		int camera_projection = 0; // Camera3D::ProjectionType
 		double camera_fov = 0.0;
 		double camera_size = 0.0;
 
@@ -180,6 +183,8 @@ private:
 	void _apply_font_size();
 	Node *_resolve_target(String &r_problem);
 	Node *_discover_target() const;
+	Viewport *_get_display_viewport() const;
+	static Dictionary _read_render_stats(const Ref<GaussianSplatRenderer> &p_renderer);
 	void _gather(ReportInputs &r_in, Node *p_target, const String &p_problem) const;
 	void _read_monitors(ReportInputs &r_in, const GaussianSplatRenderer *p_target_renderer) const;
 	void _refresh();

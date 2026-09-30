@@ -4,6 +4,7 @@
 #include "gaussian_splat_world_3d.h"
 #include "../core/gaussian_splat_manager.h"
 #include "../core/performance_monitors.h"
+#include "../interfaces/render_thread_dispatcher.h"
 #include "../renderer/gaussian_splat_renderer.h"
 
 #include "core/config/engine.h"
@@ -301,11 +302,20 @@ void section_camera(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, V
 	const Vector3 deg(Math::rad_to_deg(e.x), Math::rad_to_deg(e.y), Math::rad_to_deg(e.z));
 	r_lines.push_back(vformat("Pos: (%.2f, %.2f, %.2f)", o.x, o.y, o.z));
 	r_lines.push_back(vformat(U"Rot: (%.1f°, %.1f°, %.1f°)", deg.x, deg.y, deg.z));
+	const char *label = "Persp";
+	const char *name = "perspective";
+	if (p_in.camera_projection == Camera3D::PROJECTION_ORTHOGONAL) {
+		label = "Ortho";
+		name = "orthogonal";
+	} else if (p_in.camera_projection == Camera3D::PROJECTION_FRUSTUM) {
+		label = "Frustum";
+		name = "frustum";
+	}
 	r_lines.push_back(vformat("Projection: %s | FOV: %.1f° | Size: %.2f",
-			p_in.camera_orthogonal ? "Ortho" : "Persp", p_in.camera_fov, p_in.camera_size));
+			label, p_in.camera_fov, p_in.camera_size));
 	s["position"] = o;
 	s["rotation_degrees"] = deg;
-	s["projection"] = p_in.camera_orthogonal ? "orthogonal" : "perspective";
+	s["projection"] = name;
 	r_snap["camera"] = s;
 }
 
@@ -1076,13 +1086,63 @@ void GaussianSplatPerformanceOverlay::unhandled_key_input(const Ref<InputEvent> 
 
 // ---------------------------------------------------------------- target ----
 
+Viewport *GaussianSplatPerformanceOverlay::_get_display_viewport() const {
+	// The viewport this layer draws into: CanvasLayer's custom_viewport when one
+	// is in effect (split screen), else the node's own. CanvasLayer attaches its
+	// canvas to exactly that viewport's RID on ENTER_TREE, so comparing RIDs
+	// tells the two apart without touching a custom pointer that was already
+	// freed when the layer entered the tree (CanvasLayer then fell back itself).
+	Viewport *own_vp = Node::get_viewport();
+	if (!own_vp || !is_inside_tree() || CanvasLayer::get_viewport() == own_vp->get_viewport_rid()) {
+		return own_vp;
+	}
+	Viewport *custom_vp = Object::cast_to<Viewport>(get_custom_viewport());
+	return custom_vp ? custom_vp : own_vp;
+}
+
+// One process-wide dispatcher: it outlives every overlay, so a read that timed
+// out can still complete (into a Dictionary nobody reads any more) safely.
+static RenderThreadDispatcher &gs_overlay_stats_dispatcher() {
+	static RenderThreadDispatcher dispatcher;
+	return dispatcher;
+}
+
+static void gs_overlay_collect_render_stats(const Ref<GaussianSplatRenderer> &p_renderer, Dictionary p_out, uint64_t p_request_id) {
+	if (p_renderer.is_valid()) {
+		p_out.merge(p_renderer->get_render_stats());
+	}
+	gs_overlay_stats_dispatcher().notify_completed(p_request_id);
+}
+
+Dictionary GaussianSplatPerformanceOverlay::_read_render_stats(const Ref<GaussianSplatRenderer> &p_renderer) {
+	// #1030: get_render_stats() reads -- and on a dirty flag rebuilds -- state the
+	// render thread writes every frame (build_render_stats(),
+	// finalize_frame_metrics()). With a separate render thread, polling it from
+	// here races; a low rate only makes that rarer. So it runs ON the render
+	// thread, between frames (the command queue is FIFO), while this thread
+	// waits, so no main-thread writer races it either. Single-threaded, or with
+	// the render loop stopped, nothing writes concurrently and it runs inline.
+	RenderThreadDispatcher &dispatcher = gs_overlay_stats_dispatcher();
+	if (!dispatcher.is_render_thread_dispatch_path_active()) {
+		return p_renderer->get_render_stats();
+	}
+	Dictionary out; // shared with the bound copy, filled on the render thread
+	if (dispatcher.dispatch_call_on_render_thread_blocking(
+				callable_mp_static(&gs_overlay_collect_render_stats).bind(p_renderer, out),
+				nullptr, true, nullptr, "[GaussianSplatPerformanceOverlay] render-stats read")) {
+		return out;
+	}
+	// Timed out or not dispatched: show n/a rather than read unsynchronized.
+	return Dictionary();
+}
+
 Node *GaussianSplatPerformanceOverlay::_discover_target() const {
 	SceneTree *tree = get_tree();
 	if (!tree || !tree->get_root()) {
 		return nullptr;
 	}
-	Viewport *own_vp = Node::get_viewport();
-	const Ref<World3D> world = own_vp ? own_vp->find_world_3d() : Ref<World3D>();
+	Viewport *display_vp = _get_display_viewport();
+	const Ref<World3D> world = display_vp ? display_vp->find_world_3d() : Ref<World3D>();
 	const GaussianSplattingPerformanceMonitors *monitors = GaussianSplattingPerformanceMonitors::get_singleton();
 	const GaussianSplatRenderer *preferred = monitors ? monitors->get_monitor_source_info().splat_renderer : nullptr;
 
@@ -1266,12 +1326,12 @@ void GaussianSplatPerformanceOverlay::_gather(ReportInputs &r_in, Node *p_target
 	}
 
 	if (sections & SECTION_CAMERA) {
-		Viewport *own_vp = Node::get_viewport();
-		Camera3D *cam = own_vp ? own_vp->get_camera_3d() : nullptr;
+		Viewport *display_vp = _get_display_viewport();
+		Camera3D *cam = display_vp ? display_vp->get_camera_3d() : nullptr;
 		if (cam && cam->is_inside_tree()) {
 			r_in.has_camera = true;
 			r_in.camera_transform = cam->get_global_transform();
-			r_in.camera_orthogonal = cam->get_projection() == Camera3D::PROJECTION_ORTHOGONAL;
+			r_in.camera_projection = int(cam->get_projection());
 			r_in.camera_fov = cam->get_fov();
 			r_in.camera_size = cam->get_size();
 		}
@@ -1296,10 +1356,10 @@ void GaussianSplatPerformanceOverlay::_gather(ReportInputs &r_in, Node *p_target
 	}
 
 	if (renderer.is_valid()) {
-		// One get_render_stats() per refresh window (<= 4 Hz): #1030 is a
-		// render-thread race in exactly this call at per-frame polling.
+		// One statistics read per refresh window (<= 4 Hz), made on the render
+		// thread (#1030).
 		if (sections & (SECTION_GPU_PASSES | SECTION_HOST_STAGES | SECTION_VISIBILITY | SECTION_NODE)) {
-			r_in.render_stats = renderer->get_render_stats();
+			r_in.render_stats = _read_render_stats(renderer);
 		}
 		r_in.raster_policy = renderer->get_debug_compute_raster_policy();
 	}

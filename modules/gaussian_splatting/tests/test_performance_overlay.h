@@ -19,6 +19,7 @@
 #include "../core/gaussian_splat_asset.h"
 
 #include "core/input/input_event.h"
+#include "scene/3d/camera_3d.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
 #include "scene/main/window.h"
@@ -390,6 +391,70 @@ TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] Hidden, the overla
 	memdelete(overlay);
 }
 
+TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection is reported as itself") {
+	gs_overlay_test::Overlay::ReportInputs in;
+	in.sections = gs_overlay_test::Overlay::SECTION_CAMERA;
+	in.has_camera = true;
+	const struct {
+		Camera3D::ProjectionType projection;
+		const char *name;
+		const char *label;
+	} cases[] = {
+		{ Camera3D::PROJECTION_PERSPECTIVE, "perspective", "Projection: Persp" },
+		{ Camera3D::PROJECTION_ORTHOGONAL, "orthogonal", "Projection: Ortho" },
+		{ Camera3D::PROJECTION_FRUSTUM, "frustum", "Projection: Frustum" },
+	};
+	for (const auto &c : cases) {
+		in.camera_projection = int(c.projection);
+		Vector<String> lines;
+		Dictionary snap;
+		gs_overlay_test::Overlay::build_report(in, lines, snap);
+		CHECK_MESSAGE(String(gs_overlay_test::section(snap, "camera")["projection"]) == String(c.name), c.name);
+		CHECK_MESSAGE(gs_overlay_test::joined(lines).contains(c.label), c.label);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A custom_viewport overlay reports that viewport's camera") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree || !tree->get_root()) {
+		FAIL("SceneTree with a root window required");
+		return;
+	}
+	Window *root = tree->get_root();
+	// Split screen: the overlay lives under the root but draws into a
+	// SubViewport with its own world and its own (frustum) camera. The root
+	// viewport has a different camera, so reading the node's viewport shows up.
+	Camera3D *root_cam = memnew(Camera3D);
+	root->add_child(root_cam);
+	root_cam->make_current();
+	SubViewport *sub = memnew(SubViewport);
+	sub->set_size(Size2i(64, 64));
+	sub->set_use_own_world_3d(true);
+	root->add_child(sub);
+	Camera3D *sub_cam = memnew(Camera3D);
+	sub_cam->set_frustum(2.0, Vector2(), 0.05, 100.0);
+	sub->add_child(sub_cam);
+	sub_cam->set_position(Vector3(1.0, 2.0, 3.0));
+	sub_cam->make_current();
+
+	gs_overlay_test::Overlay *overlay = memnew(gs_overlay_test::Overlay);
+	overlay->set_custom_viewport(sub);
+	root->add_child(overlay);
+	overlay->refresh_now();
+	const Dictionary cam = gs_overlay_test::section(overlay->get_snapshot(), "camera");
+	CHECK(Vector3(cam.get("position", Vector3(-1, -1, -1))).is_equal_approx(Vector3(1.0, 2.0, 3.0)));
+	CHECK(String(cam.get("projection", String())) == "frustum");
+
+	root->remove_child(overlay);
+	memdelete(overlay);
+	sub->remove_child(sub_cam);
+	memdelete(sub_cam);
+	root->remove_child(sub);
+	memdelete(sub);
+	root->remove_child(root_cam);
+	memdelete(root_cam);
+}
+
 // ---------------------------------------------------------------------------
 // Live values (GPU)
 // ---------------------------------------------------------------------------
@@ -479,6 +544,17 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Performance overlay shows
 	const Dictionary vis = gs_overlay_test::section(snap, "visibility");
 	CHECK(gs_overlay_test::is_null(vis, "tile_count"));
 	CHECK(gs_overlay_test::is_null(gs_overlay_test::section(snap, "host_stages"), "tile_renderer_setup_ms"));
+
+	// Split screen: the same kind of overlay drawn into the SubViewport through
+	// CanvasLayer::custom_viewport describes the SubViewport's world, i.e. the
+	// decoy, although the overlay node itself sits in the root viewport.
+	gs_overlay_test::Overlay *split = memnew(gs_overlay_test::Overlay);
+	split->set_custom_viewport(sub);
+	root->add_child(split);
+	split->refresh_now();
+	CHECK(split->get_target() == decoy);
+	root->remove_child(split);
+	memdelete(split);
 
 	// The overlay leaves with the target: removing the target clears it.
 	root->remove_child(overlay);
