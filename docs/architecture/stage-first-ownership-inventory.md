@@ -3,6 +3,29 @@
 W0.2 artifact for issue #356, refreshed against `origin/master` at
 `d89bdd5d42` on 2026-05-20.
 
+> **Historical snapshot (status checked 2026-10-01).** This inventory describes the tree at
+> `d89bdd5d42` (2026-05-20). It is not maintained as a current ownership map. Line-number anchors
+> were replaced by symbol names on 2026-10-01; the rest of the text is unchanged. Known drift
+> since the snapshot:
+>
+> - `EvictionState` no longer exists. Eviction lives in `StreamingEvictionController`
+>   (`core/streaming_eviction_controller.*`).
+> - `SchedulerState` and `DiagnosticsState` are defined in `GaussianStreamingTypes`
+>   (`core/streaming_runtime_state.h`). `GaussianStreamingSystem` holds them as the members
+>   `scheduler` and `diagnostics` through type aliases.
+> - `VisibilityState` is an alias of `StreamingVisibilityController`.
+> - `PackTelemetry` is nested in `StreamingUploadPipeline` (`core/streaming_upload_pipeline.h`).
+> - `_sync_global_atlas_state()` belongs to `StreamingGlobalAtlasRegistry`.
+> - `GPUSortingPipeline::_apply_sorted_results()` and `pending_renderer` are gone. Sorted results
+>   are published by `GPUSortingPipeline::_publish_sorted_results()` through
+>   `ISortResultSink::publish_sorted_indices()`.
+> - The process-global `g_frame_log_settings` cache is gone. It was replaced by the file-static
+>   `FrameLogSettingsRegistry` singleton in `gaussian_splat_renderer.cpp`, which is still
+>   process-global.
+> - The `debug_frame` static counter moved to `core/streaming_diagnostics_surface.cpp`.
+>
+> For lifetime and teardown ownership, see [Renderer lifetime ownership](renderer-lifetime-ownership.md).
+
 This document records the current ownership boundary, single-writer rules, and hidden mutable state for the four highest-value decomposition targets:
 
 - `GaussianStreamingSystem`
@@ -41,12 +64,12 @@ future PRs do not re-implement stale work.
 
 Current state is already split into named buckets in `core/gaussian_streaming.h`:
 
-- `VisibilityState` at `gaussian_streaming.h:215`
-- `EvictionState` at `gaussian_streaming.h:264`
-- `PackTelemetry` at `gaussian_streaming.h:294`
-- `SchedulerState` at `gaussian_streaming.h:584`
-- `DiagnosticsState` at `gaussian_streaming.h:642`
-- atlas and quantization state at `gaussian_streaming.h:706` through `gaussian_streaming.h:739`
+- `VisibilityState`
+- `EvictionState` (gone since the snapshot; see the status note above)
+- `PackTelemetry`
+- `SchedulerState`
+- `DiagnosticsState`
+- atlas and quantization state (`atlas_allocator`, `global_atlas_registry`, `quantization_buffer` and the per-chunk quantization flags)
 
 Current write ownership:
 
@@ -69,8 +92,8 @@ Refactor note:
 
 Current state is member-owned:
 
-- Adaptive overlap runtime state lives in `TileRenderer::adaptive_overlap_budget_runtime_state` (`tile_renderer.h:430`) plus its initialized flag.
-- Subgroup support cache lives in `TileRenderer::subgroup_support_cache` (`tile_renderer.h:423`).
+- Adaptive overlap runtime state lives in `TileRenderer::adaptive_overlap_budget_runtime_state` plus its initialized flag.
+- Subgroup support cache lives in `TileRenderer::subgroup_support_cache`.
 - Resource ownership and tracking are handled by `TileResourceController`, `_resolve_texture_owner()`, `track_output_resources()`, and `clear_output_resource_tracking()`.
 
 Current write ownership:
@@ -94,12 +117,12 @@ Refactor note:
 
 Current state in `interfaces/gpu_sorting_pipeline.h` is concentrated but still too coupled:
 
-- Sort buffers and sort capacity live at `gpu_sorting_pipeline.h:132` through `gpu_sorting_pipeline.h:145`
-- Depth compute resources live at `gpu_sorting_pipeline.h:150` through `gpu_sorting_pipeline.h:176`
-- CPU-side sort and depth buffers live at `gpu_sorting_pipeline.h:178` through `gpu_sorting_pipeline.h:183`
-- `SortReadbackState` and `InstanceCountReadbackState` live at `gpu_sorting_pipeline.h:197` through `gpu_sorting_pipeline.h:212`
-- `ISortResultSink *sort_result_sink` and `ISortBufferHostContext *sort_buffer_host_context` live at `gpu_sorting_pipeline.h:247` through `gpu_sorting_pipeline.h:248`
-- `InstancePipelineInputs::owner_renderer` still lives at `gpu_sorting_pipeline.h:40`
+- Sort buffers and sort capacity are `GPUSortingPipeline` member fields
+- Depth compute resources are `GPUSortingPipeline` member fields
+- CPU-side sort and depth buffers are `GPUSortingPipeline` member fields
+- `GPUSortingPipeline::SortReadbackState` and `GPUSortingPipeline::InstanceCountReadbackState`
+- `GPUSortingPipeline::sort_result_sink` (`ISortResultSink *`) and `GPUSortingPipeline::sort_buffer_host_context` (`ISortBufferHostContext *`)
+- `GPUSortingPipeline::InstancePipelineInputs::owner_renderer`
 
 Current write ownership:
 
@@ -136,13 +159,13 @@ Current state is spread across explicit sub-buckets and orchestrators:
 
 Implementation anchors:
 
-- `interfaces/render_thread_dispatcher.h:10` through `:25` define the dispatch interface and `:44` through `:51` hold the owned mutex/semaphore/request state.
+- `IRenderThreadDispatcher` in `interfaces/render_thread_dispatcher.h` defines the dispatch interface, and `RenderThreadDispatcher` in the same header holds the owned mutex/semaphore/request state.
 - `_dispatch_call_on_render_thread_blocking()` and `_notify_render_thread_dispatch_completed()` delegate to the dispatcher.
 - `render_scene_instance()` still owns per-frame cleanup, camera extraction, route policy diagnostics, resident/streaming selection, and typed skip publication.
 - `RenderPipelineStages::prepare_frame_context()` still builds `FrameDeps` by reaching broadly into renderer state buckets.
 - `RenderPipelineStages::execute_frame_entry()` still owns the cull -> sort cascade and zero-safe snapshot updates.
 - `RenderPipelineStages::render_sorted_splats_with_context()` still resets raster/GPU/output-cache metrics before raster/composite.
-- `gaussian_splat_renderer.cpp:156` through `gaussian_splat_renderer.cpp:163` hold the frame-log settings cache.
+- The frame-log settings cache was the process-global `g_frame_log_settings` in `gaussian_splat_renderer.cpp` (now `FrameLogSettingsRegistry`; see the status note above).
 
 Current write ownership:
 
@@ -161,13 +184,13 @@ Refactor note:
 
 | Location | Symbol / state | Why it matters | Current owner status |
 | --- | --- | --- | --- |
-| `renderer/gaussian_splat_renderer.cpp:156` | `g_frame_log_settings` | Process-global cache for frame logging/debug behavior. It is updated from project settings and shared by all renderer instances. | Temporary global cache, should become explicit renderer or process service state. |
-| `interfaces/render_thread_dispatcher.h:44` through `:51` | dispatcher mutex, semaphore, request/completion counters, timeout, latest data result | Synchronization state is now service-owned instead of embedded in the renderer facade. | Done as an ownership move. Remaining coupling is renderer call-site policy, not field ownership. |
-| `interfaces/gpu_sorting_pipeline.h:40` | `InstancePipelineInputs::owner_renderer` | Cross-object lifetime handoff remains for instance sorting, even after sink/host extraction. | Open coupling; replace with an instance-state snapshot/view after characterization tests. |
-| `interfaces/gpu_sorting_pipeline.h:247` through `:248` | `sort_result_sink`, `sort_buffer_host_context` | Explicit sort result and buffer-host seams. | Done seam, but currently bound to the renderer by `RenderSortingOrchestrator`; future work should narrow the concrete host object. |
-| `renderer/gaussian_splat_renderer.cpp:603` through `:770` | `FrameStateProvider` fallback statics and broad mutable accessors | Provider methods can expose fallback mutable objects and broad write surfaces. | Open coupling; split into read-only snapshots plus small mutation sinks per stage. |
-| `nodes/gaussian_splat_node_helpers.cpp:33` through `:78` | shared renderer settings owner map | Node-side renderer settings ownership is process-global arbitration and protects shared renderer peers. | Intentional external contract for now; moving it belongs in a later node/director boundary issue. |
-| `core/gaussian_streaming.cpp:2400` | `debug_frame` static counter | Telemetry pacing is process-global, not instance-owned. | Benign but still hidden mutable state; keep the scope explicit. |
+| `renderer/gaussian_splat_renderer.cpp` | `g_frame_log_settings` (now `FrameLogSettingsRegistry`) | Process-global cache for frame logging/debug behavior. It is updated from project settings and shared by all renderer instances. | Temporary global cache, should become explicit renderer or process service state. |
+| `interfaces/render_thread_dispatcher.h` (`RenderThreadDispatcher`) | dispatcher mutex, semaphore, request/completion counters, timeout, latest data result | Synchronization state is now service-owned instead of embedded in the renderer facade. | Done as an ownership move. Remaining coupling is renderer call-site policy, not field ownership. |
+| `interfaces/gpu_sorting_pipeline.h` | `InstancePipelineInputs::owner_renderer` | Cross-object lifetime handoff remains for instance sorting, even after sink/host extraction. | Open coupling; replace with an instance-state snapshot/view after characterization tests. |
+| `interfaces/gpu_sorting_pipeline.h` | `sort_result_sink`, `sort_buffer_host_context` | Explicit sort result and buffer-host seams. | Done seam, but currently bound to the renderer by `RenderSortingOrchestrator`; future work should narrow the concrete host object. |
+| `renderer/gaussian_splat_renderer.cpp` (`GaussianSplatRenderer::FrameStateProvider`) | `FrameStateProvider` fallback statics and broad mutable accessors | Provider methods can expose fallback mutable objects and broad write surfaces. | Open coupling; split into read-only snapshots plus small mutation sinks per stage. |
+| `nodes/gaussian_splat_node_helpers.cpp` (`g_renderer_settings_owner_lookup`) | shared renderer settings owner map | Node-side renderer settings ownership is process-global arbitration and protects shared renderer peers. | Intentional external contract for now; moving it belongs in a later node/director boundary issue. |
+| `core/gaussian_streaming.cpp` (now `core/streaming_diagnostics_surface.cpp`) | `debug_frame` static counter | Telemetry pacing is process-global, not instance-owned. | Benign but still hidden mutable state; keep the scope explicit. |
 
 ## What This Means For Decomposition
 
@@ -183,4 +206,4 @@ Refactor note:
 - [Render pipeline details](render-pipeline.md)
 - [Module architecture map](../../modules/gaussian_splatting/ARCHITECTURE.md)
 - [Memory and residency invariants](../../modules/gaussian_splatting/MEMORY_SUBSYSTEM.md)
-- [Renderer lifetime ownership](renderer-lifetime-ownership.md) — per-owner create / destroy / idempotency / threading contract at file:line precision (work package #352).
+- [Renderer lifetime ownership](renderer-lifetime-ownership.md) — per-owner create / destroy / idempotency / threading contract (work package #352).

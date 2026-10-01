@@ -14,16 +14,27 @@ This document describes the runtime render pipeline in detail: frame entry, rout
 ## Frame Execution Flow
 
 1. `GaussianSplatRenderer::render_scene_instance` initializes per-frame state and camera/view context.
-2. Renderer decides route: streaming route via `RenderStreamingOrchestrator` when streaming buffers/readiness are valid, otherwise it records explicit not-ready/readiness state and skips the frame.
-3. `RenderPipelineStages` runs stage sequence: cull (`execute_cull_stage`), sort (`execute_sort_stage`), then raster/composite (`render_sorted_splats_with_context`).
+2. The renderer builds the frame's backend plan (`build_frame_backend_plan`) and picks exactly one route:
+   - **Resident, tried first** when `FrameBackendPlan::prefer_resident_backend` is set. `_try_render_resident_frame` publishes the resident instance contract (`_publish_resident_direct_data_contract`, backed by `ResidentInstanceContractPublisher`), then calls `render_instanced`. If the contract cannot be published, the frame is skipped with a typed `resident_not_feasible` route. Streaming is not tried on the same frame.
+   - **Streaming** when streaming is requested and ready. `RenderStreamingOrchestrator::render_streaming_frame` publishes the streaming instance contract, checks readiness, and then runs `_run_cull_sort_pipeline_frame`, which enters `RenderPipelineStages::execute_frame_entry`. If streaming was requested but is not ready, or the orchestrator rejects the frame, the frame is skipped with a typed streaming-not-ready route. It never falls through to the resident route.
+   - **Resident, explicit policy**: if streaming was not requested at all, the renderer calls `_render_resident_frame`, which runs the same resident attempt.
+3. `RenderPipelineStages` runs the same stage sequence on both routes: cull (`execute_cull_stage`), sort (`execute_sort_stage`), then raster/composite (`render_sorted_splats_with_context`). The resident route drives it per instance pass from `RenderInstancingOrchestrator::render_instanced`. The streaming route drives it once from `execute_frame_entry`.
 4. Output and diagnostics are finalized.
 
 ```mermaid
 flowchart LR
-    Entry[render_scene_instance] --> Route{Streaming<br/>ready?}
-    Route -- Yes --> Stream[RenderStreamingOrchestrator]
-    Route -- No --> NotReady[Publish not-ready state]
-    Stream --> Cull[Cull Stage]
+    Entry[render_scene_instance] --> Plan{Prefer<br/>resident?}
+    Plan -- Yes --> Resident[Publish resident contract]
+    Resident -- Published --> Inst[render_instanced]
+    Inst --> Cull[Cull Stage]
+    Resident -- Not feasible --> Skip[Typed skip, no same-frame fallback]
+    Plan -- No --> Stream{Streaming<br/>requested + ready?}
+    Stream -- Yes --> StreamOrch[RenderStreamingOrchestrator]
+    StreamOrch -- Ready --> Entry2[execute_frame_entry]
+    Entry2 --> Cull
+    StreamOrch -- Not ready --> Skip
+    Stream -- Requested, not ready --> Skip
+    Stream -- Not requested --> Resident
     Cull --> Sort[Sort Stage]
     Sort --> Raster[Raster / Composite]
     Raster --> Output[Final Output]
@@ -202,15 +213,17 @@ Splats supply **colour only**.
   splats publish "no FSR2 reactive-mask contribution". **That was false**, and it is
   the single most load-bearing thing on this seam. Godot has no dedicated reactive
   texture: `params.reactive` is an *alpha-swizzled view of the internal colour
-  buffer* (`render_forward_clustered.cpp:2707` →
-  `render_scene_buffers_rd.h:257-264`, all four swizzles set to
-  `TEXTURE_SWIZZLE_A`). On the upscaling path the engine zeroes that alpha
+  buffer* (set in the FSR2 block of `RenderForwardClustered::_render_scene` from
+  `RenderSceneBuffersRD::get_internal_texture_reactive()`, which sets all four
+  swizzles to `TEXTURE_SWIZZLE_A`). On the upscaling path the engine zeroes that alpha
   everywhere it draws, reserving the channel for coverage. The Gaussian composite
   then writes splat coverage into exactly that channel —
-  `shaders/viewport_blit.glsl:206-208`, gated on `params.destination_has_alpha`,
-  which is set from `pre_upscale_phase` (`interfaces/output_compositor.cpp:1252`,
-  `:1644`) — i.e. true on precisely the path FSR2 reads. The painterly composite
-  does the same (`shaders/painterly_composite.glsl:97`). FSR2 clamps it to 0.9, so
+  the `result_color.a` source-over write in `shaders/viewport_blit.glsl`, gated on
+  `params.destination_has_alpha`, which `OutputCompositor::integrate_final_output()`
+  sets from `pre_upscale_phase` and `OutputCompositor::_copy_final_output_compute()`
+  uploads — i.e. true on precisely the path FSR2 reads. The painterly composite
+  does the same (the `out_color` alpha write at the end of
+  `shaders/painterly_composite.glsl`). FSR2 clamps it to 0.9, so
   a fully covered splat texel gets roughly a tenth of the normal history
   accumulation.
 
@@ -230,8 +243,9 @@ Splats supply **colour only**.
   sentinel and derives a camera motion vector from depth, and because the reactive
   coupling above suppresses history anyway. **Under TAA it costs ≈1.5 px of trail**
   (0.27–0.87 frames stale, 6–26× an in-frame control), because
-  `taa_resolve.glsl:315` reprojects with `velocity == 0` and its variance clip
-  *widens* when velocity reads zero (`:276`). The trail does not grow with camera
+  `temporal_antialiasing()` in `taa_resolve.glsl` reprojects with `velocity == 0`
+  and the variance clip in `clip_history_3x3()` *widens* when velocity reads zero
+  (`box_size` grows as `length(velocity_closest)` falls to 0). The trail does not grow with camera
   speed, because the clip box is computed from the current frame. Disclosed under
   §8.1 of the release acceptance bar and tracked as #1025.
 

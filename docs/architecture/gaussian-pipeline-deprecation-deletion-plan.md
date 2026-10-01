@@ -54,7 +54,7 @@ That means the remaining cleanup work is concentrated in compatibility seams, no
 | `GaussianSplatRenderer::set_gaussian_data()` | Low-level renderer/test/tool hook | Public low-level API | Keep for now, narrow usage contract, remove only after replacements exist | Bucket C |
 | `GaussianSplatContainer::apply_to_renderer()` | Container-level direct renderer bypass | Removed in Wave 1 cleanup | Delete outright; keep `apply_to_node()` / export workflows only | Complete |
 | Duplicated source-path resolution helpers | Same logic in node/editor code | Internal duplication | Consolidate into one shared helper | Bucket A |
-| Explicit-resident legacy resident fallback | Accepted runtime fallback when resident atlas publish is infeasible | Runtime compatibility behavior | Keep until resident atlas covers explicit-resident edge cases or the fallback is intentionally retired | Bucket C |
+| Explicit-resident legacy resident fallback | Removed by #280 (Wave 1 fallback cleanup). A resident contract that cannot be published now skips the frame (`COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`). Per-chunk quantization, the main rejection case, is supported on the resident atlas since #455 | Removed | None; see section 8 | Complete |
 
 ## Deletion Buckets
 
@@ -273,7 +273,7 @@ Deletion criteria:
 
 - World-backed runtime no longer realizes submissions through primary `gaussian_data`.
 - Streaming bootstrap no longer depends on primary raw scene data or synthetic primary fallback instances.
-- Explicit-resident fallback no longer needs the legacy non-instance route.
+- Explicit-resident fallback no longer needs the legacy non-instance route. (Met: #280 removed the fallback.)
 - Editor preview no longer depends on it directly.
 - Low-level tests have replacement helpers or intentionally keep this as a supported low-level API.
 
@@ -301,6 +301,15 @@ Deletion criteria:
 - Editor and node warnings/origin labels share the same rules.
 
 ### 8. Explicit-Resident Legacy Fallback
+
+> **Status, verified 2026-10-01: removed by #280.** `GaussianSplatRenderer::_try_render_resident_frame`
+> has no legacy fallback. When `ResidentInstanceContractPublisher` cannot publish the contract,
+> the attempt returns false and `render_scene_instance` skips the frame under the
+> single-route-per-frame rule. The resident atlas has supported per-chunk quantization since
+> #455 (GS-PERF-Q80B). The regression test
+> `Asset-backed GaussianSplatNode3D renders without direct set_gaussian_data` in
+> `tests/test_scene_director_submission_scaffolding.h` records the removal. The body below is
+> the pre-#280 analysis, kept for history.
 
 Canonical files:
 

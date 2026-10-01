@@ -241,8 +241,8 @@ The final residency verdict belongs to the renderer/backend layer, not to the di
 
 ### Current Implementation Notes
 
-- The resident atlas publisher intentionally rejects per-chunk quantization. When resident publication is rejected for that reason, the renderer records `resident_quantization_unsupported` and falls back to streaming publication when the requested route is streaming-capable; explicit resident requests fall back to the legacy resident path instead of inventing a second stage contract.
-- `backend_selection_reason` may be chained with ` -> ` when a rejected resident attempt leads into streaming publication or fallback. The chained reason is intentional and is part of the accepted diagnostics surface.
+- *Superseded (verified 2026-10-01).* The resident atlas publisher no longer rejects per-chunk quantization: #455 (GS-PERF-Q80B) added quantized resident atlases. The legacy resident fallback was removed by #280. A resident contract that cannot be published now skips the frame (`COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`) instead of falling back to streaming or to a legacy path on the same frame. Original text: "The resident atlas publisher intentionally rejects per-chunk quantization. When resident publication is rejected for that reason, the renderer records `resident_quantization_unsupported` and falls back to streaming publication when the requested route is streaming-capable; explicit resident requests fall back to the legacy resident path instead of inventing a second stage contract."
+- *Superseded (verified 2026-10-01).* Under single-route-per-frame there is no same-frame resident→streaming handoff, so the renderer no longer produces ` -> `-chained `backend_selection_reason` values. The label formatter in `render_route_labels.cpp` still parses the format. Original text: "`backend_selection_reason` may be chained with ` -> ` when a rejected resident attempt leads into streaming publication or fallback. The chained reason is intentional and is part of the accepted diagnostics surface."
 - Submission-hint collapse is conservative in the accepted implementation: conflicting instance-submission hints on one shared renderer collapse to no effective hint (`mixed_instance_submissions`), while preview and active world hints still take precedence over instance hints. Cross-source mixed-hint normalization is intentionally deferred because it would change backend-policy semantics.
 
 ### Exit Criteria
@@ -323,7 +323,7 @@ This stage is intentionally deferred.
 
 ### Validation Status
 
-- The explicit resident-plus-quantization-rejection fallback path now has dedicated coverage in `modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h`. Keep that test as baseline coverage while the legacy explicit-resident fallback remains supported.
+- *Superseded (verified 2026-10-01).* The legacy explicit-resident fallback was removed by #280, and resident quantization is supported since #455. The test in `modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h` whose name still says "Explicit resident quantization rejection falls back to the legacy resident path" now asserts the opposite: the resident instance contract is published and ready (`is_instance_contract_ready()`), with no `resident_quantization_unsupported` reason. Its name is stale.
 
 ### Important Constraint
 
