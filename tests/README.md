@@ -7,7 +7,7 @@ Use CI runners in `tests/ci/` and runtime harnesses in `tests/runtime/`.
 ```bash
 python3 tests/ci/run_baseline_qa.py
 python3 tests/ci/run_module_tests.py --guard-only
-python3 tests/runtime/run_runtime_validation.py
+python3 tests/runtime/run_runtime_validation.py --profile headless-ci
 ```
 
 ## References

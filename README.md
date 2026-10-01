@@ -36,10 +36,9 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 
 ## Fastest Way In
 
-1. [Try in 5 Minutes](docs/getting-started/try-in-5-minutes.md) if you want the shortest honest evaluation path.
-2. [Public Evaluator](docs/getting-started/quick-start.md) if you want the canonical sample-project flow.
-3. [Compatibility Matrix](docs/reference/compatibility-matrix.md) if you need platform evidence before trying it.
-4. [Build from Source](docs/BUILDING.md) if you are on macOS or you want a custom editor binary.
+1. [Your First Splat](docs/getting-started/quick-start.md) if you want the shortest honest path from an editor to a visible splat in the sample project.
+2. [Compatibility Matrix](docs/reference/compatibility-matrix.md) if you need platform evidence before trying it.
+3. [Build from Source](docs/BUILDING.md) if you are on macOS or you want a custom editor binary.
 
 ## Current Public Evidence
 

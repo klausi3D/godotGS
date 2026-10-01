@@ -30,7 +30,7 @@ This page explains what artists usually observe while navigating a splat scene, 
 
 Quick references:
 - [Performance presets](performance-presets.md)
-- [Workflow details](workflows.md)
+- [Workflow details](../index.md#workflow-details)
 
 ## When to Use Troubleshooting Docs
 

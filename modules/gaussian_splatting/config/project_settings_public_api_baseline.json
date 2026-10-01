@@ -1,5 +1,5 @@
 {
-  "description": "Baseline of Gaussian ProjectSettings keys that have been exposed as public API. Keep entries here when retiring a setting and add a retired_settings record instead of deleting the key.",
+  "description": "Baseline of Gaussian ProjectSettings keys whose manifest publicness resolves to public, cleanup_candidate or deprecated_alias, kept so that no such key disappears unrecorded (the guard compares against the default branch's history, i.e. the merge-base with origin/main, main, origin/master or master, or GS_PROJECT_SETTINGS_MANIFEST_BASE_REF; it covers keys present there, not a stacked PR's own base, and is skipped when no such ref resolves). Keep entries here when retiring a setting and add a retired_settings record instead of deleting the key. It is a change record, not a promise: during the public alpha settings may be renamed or removed in any release without a deprecation period (maintainer decision 2026-09-27); a deprecation lifecycle begins at v1.0 (docs/development/api-stability.md).",
   "public_settings": [
     "rendering/gaussian_splatting/animation/wind_direction_x",
     "rendering/gaussian_splatting/animation/wind_direction_y",

@@ -49,16 +49,16 @@
             <div class="gsm-dock-h">Scene</div>
             <div class="gsm-tree">
               <div class="gsm-node"><span class="ic">▸</span> RoomCapture</div>
-              <div class="gsm-node sel ind"><span class="ic">◈</span> GaussianSplat3D</div>
+              <div class="gsm-node sel ind"><span class="ic">◈</span> GaussianSplatNode3D</div>
               <div class="gsm-node ind2"><span class="ic">▪</span> Camera3D</div>
-              <div class="gsm-node ind2"><span class="ic">▪</span> DirectionalLight</div>
+              <div class="gsm-node ind2"><span class="ic">▪</span> DirectionalLight3D</div>
               <div class="gsm-node ind"><span class="ic">▪</span> WorldEnvironment</div>
             </div>
             <div class="gsm-dock-h" style="margin-top:14px;">FileSystem</div>
             <div class="gsm-tree">
               <div class="gsm-node"><span class="ic">▸</span> room.ply</div>
-              <div class="gsm-node"><span class="ic">▸</span> room.splat</div>
-              <div class="gsm-node"><span class="ic">▸</span> cameras.json</div>
+              <div class="gsm-node"><span class="ic">▸</span> room.spz</div>
+              <div class="gsm-node"><span class="ic">▸</span> room.gsplatworld</div>
             </div>
           </div>
           <div class="gsm-viewport">
@@ -68,9 +68,9 @@
               <div class="gsm-vp-tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg></div>
             </div>
             <div class="gsm-vp-stats">
-              <div><b>12</b> FPS · 81.0 ms</div>
-              <div>4 900 000 splats</div>
-              <div style="color:var(--faint)">1920×1080 · SH deg 3</div>
+              <div><b>Illustration</b></div>
+              <div>not a live render</div>
+              <div style="color:var(--faint)">measured numbers below</div>
             </div>
             <canvas id="gsm-splat" style="width:100%;height:100%;display:block;"></canvas>
             <svg class="gsm-gizmo" width="52" height="52" viewBox="0 0 52 52">
@@ -80,18 +80,18 @@
             </svg>
           </div>
           <div class="gsm-dock right">
-            <div class="gsm-dock-h">Inspector · GaussianSplat3D</div>
-            <div class="gsm-prop"><div class="k">SPLAT COUNT</div><div class="v"><span>Loaded</span><span class="num">4.90 M</span></div></div>
-            <div class="gsm-prop"><div class="k">LOD BIAS</div><div class="v"><span>Distance</span><span class="num">1.35</span></div><div class="gsm-slider sw62"></div></div>
-            <div class="gsm-prop"><div class="k">OPACITY SCALE</div><div class="v"><span>Global</span><span class="num">0.92</span></div><div class="gsm-slider sw78"></div></div>
-            <div class="gsm-prop"><div class="k">SH DEGREE</div><div class="v"><span>Harmonics</span><span class="num">3</span></div></div>
+            <div class="gsm-dock-h">Inspector · GaussianSplatNode3D</div>
+            <div class="gsm-prop"><div class="k">ASSET</div><div class="v"><span>Splat Asset</span><span class="num">room.ply</span></div></div>
+            <div class="gsm-prop"><div class="k">QUALITY</div><div class="v"><span>Lod Bias</span><span class="num">1.00</span></div><div class="gsm-slider sw62"></div></div>
+            <div class="gsm-prop"><div class="k">RENDERING</div><div class="v"><span>Opacity</span><span class="num">1.00</span></div><div class="gsm-slider sw78"></div></div>
+            <div class="gsm-prop"><div class="k">QUALITY</div><div class="v"><span>Preset</span><span class="num">Balanced</span></div></div>
             <div class="gsm-prop"><div class="k">COLOR GRADING</div><div class="v"><span>Exposure</span><span class="num">+0.4</span></div><div class="gsm-slider sw40"></div></div>
-            <div class="gsm-prop"><div class="k">CULLING</div><div class="v"><span>Frustum + AABB</span><span style="color:var(--green)">on</span></div></div>
+            <div class="gsm-prop"><div class="k">RENDERING</div><div class="v"><span>Frustum Culling</span><span style="color:var(--green)">on</span></div></div>
           </div>
         </div>
         <div class="gsm-statusbar">
-          <span class="dot"></span> Ready <span>·</span> tiles 256 · sorted <span>·</span> VRAM 6.1 GB
-          <span style="margin-left:auto;color:var(--muted)">nightly-20260712</span>
+          <span class="dot"></span> Ready
+          <span style="margin-left:auto;color:var(--muted)">mockup</span>
         </div>
       </div>
     </div>
@@ -103,8 +103,7 @@
       <span class="lbl">Built on the engine you know</span>
       <span class="gsm-chip">Godot 4.5</span>
       <span class="gsm-chip">Vulkan · Forward+</span>
-      <span class="gsm-chip">.ply / .splat</span>
-      <span class="gsm-chip">COLMAP poses</span>
+      <span class="gsm-chip">.ply / .spz</span>
       <span class="gsm-chip">GDScript API</span>
       <span class="gsm-chip">MIT licensed</span>
     </div>
@@ -115,31 +114,31 @@
     <div class="gsm-sec-head">
       <span class="gsm-eyebrow">What it does</span>
       <h2>A splatting pipeline that lives in the engine.</h2>
-      <p>No round-trips to a separate viewer. Import a capture, bake it to a node, and ship it in your game — with the tools you already use.</p>
+      <p>No round-trips to a separate viewer. Import a capture, place it in a scene, and export it with a godotGS export template — with the tools you already use.</p>
     </div>
     <div class="gsm-frow">
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15V6a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9"/><path d="M17 18l3 3 3-3M20 12v9"/></svg></div>
-        <h3>Import any capture</h3>
-        <p>Drop in <span class="mono">.ply</span> or <span class="mono">.splat</span> files and COLMAP camera poses. They land as a <span class="mono">GaussianSplat3D</span> node in your scene tree.</p>
-        <div class="meta">ply · splat · colmap · reality capture</div>
+        <h3>Import PLY and SPZ captures</h3>
+        <p>Import supported <span class="mono">.ply</span> and <span class="mono">.spz</span> splat captures as native Godot resources: each becomes a <span class="mono">GaussianSplatAsset</span>. Drag it into the 3D viewport and the editor creates a <span class="mono">GaussianSplatNode3D</span> for it.</p>
+        <div class="meta">ply · spz · GaussianSplatAsset</div>
       </div>
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 22V12"/></svg></div>
         <h3>Stream millions of splats</h3>
-        <p>Distance-based LOD, per-chunk quantization, and a streaming queue keep multi-million-splat scenes fluid — not just in a demo, at runtime.</p>
-        <div class="meta">lod · quantization · octree chunks</div>
+        <p>Streaming, distance-based LOD and per-chunk quantization are built for multi-million-splat scenes. At that density frame rates are not yet interactive — see <a href="{{ 'performance/' | url }}">Performance</a> for the measured numbers.</p>
+        <div class="meta">lod · quantization · fixed-size chunks</div>
       </div>
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
         <h3>Tune in the editor</h3>
-        <p>Live LOD bias, opacity, spherical-harmonic degree and a color-grading bake — all in the Inspector, with the viewport updating as you drag.</p>
-        <div class="meta">inspector · color grading · live preview</div>
+        <p>Quality preset, LOD bias, opacity and color grading are Inspector properties on <span class="mono">GaussianSplatNode3D</span>. An optional bake writes the grade into the node's loaded splat colors, not the saved asset.</p>
+        <div class="meta">inspector · quality presets · color grading</div>
       </div>
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
-        <h3>Prove every claim</h3>
-        <p>A single-process benchmark orchestrator and a doctest visual-compare lane back the numbers. No hand-wavy "blazing fast" — measured frames.</p>
+        <h3>Evidence-first</h3>
+        <p>GPU regression tests, runtime validation and reproducible benchmark lanes. We publish the harness and a dated benchmark snapshot, including the slow numbers.</p>
         <div class="meta">benchmark harness · visual baselines</div>
       </div>
     </div>
@@ -150,12 +149,12 @@
     <div class="gsm-wrap">
       <span class="gsm-eyebrow">Measured, not promised</span>
       <div class="gsm-stats">
-        <div class="gsm-stat"><div class="n">12.3<span class="u"> fps</span></div><div class="l">Average frame rate</div></div>
-        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time</div></div>
-        <div class="gsm-stat"><div class="n">RTX 3090</div><div class="l">Self-hosted Vulkan lane</div></div>
+        <div class="gsm-stat"><div class="n">12.3<span class="u"> fps</span></div><div class="l">Average frame rate · stress reference</div></div>
+        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time · same lane</div></div>
+        <div class="gsm-stat"><div class="n">RTX 3090</div><div class="l">Ryzen 7 5800X · captured 2026-07-19</div></div>
         <div class="gsm-stat"><div class="n">MIT</div><div class="l">License · fully open</div></div>
       </div>
-      <p class="gsm-cap">Published baseline: <span class="mono">dense_resident_2m</span>, 4.9M visible splats, captured 2026-07-19 on an optimized Windows build (RTX 3090 / Ryzen 7 5800X). This is a slow number, and it is the one we publish — the resident path does not reach interactive frame rates at this density. Alpha software — nightly-first, no named stable release yet. We publish the harness, not just the highlight.</p>
+      <p class="gsm-cap">Stress reference, not a typical scene: <span class="mono">dense_resident_2m</span>, 4.9M visible splats across 196 instances of synthetic fixtures (not a real capture), captured 2026-07-19 on an optimized Windows build (RTX 3090 / Ryzen 7 5800X). This is a slow number, and it is the one we publish — the resident path does not reach interactive frame rates at this density. Alpha software — nightly-first, no named stable release yet. We publish the harness, not just the highlight.</p>
     </div>
   </section>
 
@@ -163,9 +162,9 @@
   <section class="gsm-feat gsm-wrap">
     <div class="gsm-qs">
       <div class="gsm-sec-head">
-        <span class="gsm-eyebrow">Try in 5 minutes</span>
-        <h2>Your first splat, in three commands.</h2>
-        <p>Build the editor from source on Linux, Windows, or macOS, then open the sample project and orbit a real capture. macOS needs a MoltenVK-capable Vulkan SDK.</p>
+        <span class="gsm-eyebrow">Build from source</span>
+        <h2>Your first splat, in three steps.</h2>
+        <p>From a clone of the repository, build the editor on Linux, Windows, or macOS, then open the sample project in the editor and press Play to see a small synthetic sample (1,024 splats). macOS needs a MoltenVK-capable Vulkan SDK.</p>
         <div class="gsm-cta" style="margin-top:26px;">
           <a href="{{ 'BUILDING/' | url }}" class="gsm-btn gsm-btn-primary">Full build guide</a>
           <a href="{{ 'reference/compatibility-matrix/' | url }}" class="gsm-btn gsm-btn-ghost">Compatibility matrix</a>
@@ -176,11 +175,10 @@
         <div class="gsm-term-b mono">
 <span class="c"># 1 — build the editor</span><br>
 <span class="p">scons</span> platform=linuxbsd target=editor -j$(nproc)<br><br>
-<span class="c"># 2 — open the sample project</span><br>
-./bin/godot.linuxbsd.editor.x86_64 \<br>
+<span class="c"># 2 — open the sample project in the editor</span><br>
+./bin/godot.linuxbsd.editor.x86_64 -e \<br>
 &nbsp;&nbsp;--path tests/examples/godot/test_project<br><br>
-<span class="c"># 3 — press Play, orbit your first splat</span><br>
-<span class="g">✓ scene loaded · 4.9M splats · 12 fps</span>
+<span class="c"># 3 — press Play (F5) to run the public evaluator scene</span>
         </div>
       </div>
     </div>
@@ -223,7 +221,7 @@
           <a href="https://github.com/klausi3D/godotGS">GitHub</a>
           <a href="{{ 'contributor/' | url }}">Contribute</a>
           <a href="{{ 'governance/contribution-standards/' | url }}">Standards</a>
-          <a href="https://github.com/klausi3D/godotGS/blob/master/LICENSE">License (MIT)</a>
+          <a href="https://github.com/klausi3D/godotGS/blob/master/LICENSE.txt">License (MIT)</a>
         </div>
       </div>
       <div class="gsm-foot-bottom">

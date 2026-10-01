@@ -3,7 +3,14 @@
 GodotGS is an alpha. **There is no API stability promise.**
 
 Every GDScript-facing name this module registers may change or be removed in any
-release, including a patch release, with no deprecation period and no migration shim.
+release, including a patch release, **without a deprecation period** and without a
+migration shim. This is policy for the public alpha (maintainer decision, 2026-09-27),
+not an omission. Some renamed project settings have kept a read-only alias, as the
+[migration notes](../reference/gaussian-project-settings-migration.md) describe, but
+that is not a commitment, and the next rename or removal may skip it. A deprecation
+lifecycle begins at v1.0, for the surface classified `public` then, together with the
+stability promise the [release acceptance bar](../governance/release-acceptance-bar.md)
+describes in §7.
 That covers **every class this module registers** with Godot's ClassDB (33 at the time of
 writing), their methods, properties and signals, the **two engine singletons**
 (`GaussianSplatManager` and `GaussianSplatSceneDirector`), and **every project setting**
