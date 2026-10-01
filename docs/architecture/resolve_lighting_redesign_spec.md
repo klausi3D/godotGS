@@ -1,6 +1,22 @@
 # Resolve-Mode Lighting Redesign Spec
 
 **Status**: design, not implemented
+
+> **Status note, verified 2026-10-01.** Still not implemented. The `shadow_normal` / `h_normal`
+> flips and the `sh_occlusion = max(sh_occlusion, 1.0 - shadow)` coupling are still in
+> `gs_accumulate_directional_lights()` (`shaders/includes/gs_lighting_common.glsl`). Two
+> things have changed since this spec was written:
+>
+> - **No route runs the resolve-mode path.** Since #1078, every route uses per-splat direct
+>   lighting in `tile_binning.glsl` (`direct_lighting_mode = 1`, written by
+>   `apply_lighting_to_render_params()`). Mode 0 is kept only for evaluation (#1083). See
+>   [Lighting system architecture](lighting-system.md).
+> - **The shared helpers also serve mode 1.** `gs_lighting_common.glsl`, which this spec
+>   changes, is included by `tile_binning.glsl` as well as `tile_resolve.glsl`. Implementing the
+>   spec now means re-scoping it against mode 1.
+>
+> The `file:line` anchors below date from this spec's original commit (#246, target
+> `e53d60ff77`) and have drifted. Re-derive them before implementing.
 **Target**: post-tier-2 master (`e53d60ff77` or later)
 **Supersedes**: the deferred portions of PR #220's resolve-lighting overhaul that were intentionally dropped during the PR #243 salvage
 

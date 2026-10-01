@@ -48,7 +48,17 @@ void gs_get_cluster_params(vec2 pixel_pos, vec3 view_pos, out uint cluster_offse
 
     vec2 viewport_size = max(params.viewport_size, vec2(1.0));
     vec2 clamped_pos = clamp(pixel_pos, vec2(0.0), viewport_size - vec2(1.0));
-    uvec2 cluster_pos = uvec2(clamped_pos) >> cluster_shift;
+    // #1078: the engine built the cluster grid for the scene render size. A
+    // raster running at another size (painterly internal_scale / low_end_mode)
+    // maps its pixel into that grid; lighting_mode.yz carries the scale (1.0
+    // when the sizes match, which keeps this an identity for the baseline).
+    vec2 cluster_px_scale = uintBitsToFloat(params.lighting_mode.yz);
+    if (!(cluster_px_scale.x > 0.0) || !(cluster_px_scale.y > 0.0)) {
+        cluster_px_scale = vec2(1.0);
+    }
+    vec2 grid_size = max(viewport_size * cluster_px_scale, vec2(1.0));
+    vec2 grid_pos = clamp(clamped_pos * cluster_px_scale, vec2(0.0), grid_size - vec2(1.0));
+    uvec2 cluster_pos = uvec2(grid_pos) >> cluster_shift;
     cluster_offset = (cluster_width * cluster_pos.y + cluster_pos.x) * (max_cluster_element_count_div_32 + 32u);
     cluster_z = uint(clamp((-view_pos.z / scene_data_block.data.z_far) * 32.0, 0.0, 31.0));
 }
