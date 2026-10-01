@@ -68,7 +68,10 @@ When it runs:
    runtime-validation entry point). It falls through to cull + sort when the streaming route is not
    ready, or when the resident route is preferred. The other caller is the test hook
    `GaussianSplatRenderer::test_cull_visible_count`, which clears `gaussian_data` and culls test
-   positions.
+   positions. Neither caller clears the culler's instance inputs, and `GPUCuller` keeps them
+   after a pipeline frame: only the cull-skip path of `RenderPipelineStages::execute_cull_stage`
+   calls `clear_instance_pipeline_inputs()`. So once a frame has set them, both callers take the
+   GPU instance path, and this case applies only before any frame or after a cull-skip frame.
 
 Inside the fallback there are two candidate sources:
 

@@ -24,7 +24,9 @@ Audience: rendering and pipeline engineers
 > - **No legacy resident fallback.** #280 removed the fallback described in the last bullet of
 >   [Accepted Stage 2B Behavior](#accepted-stage-2b-behavior-and-current-limits). If the resident
 >   contract cannot be published, `_try_render_resident_frame` returns false and the frame is
->   skipped with `COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*` under the single-route-per-frame rule.
+>   not rendered under the single-route-per-frame rule. When the resident backend is preferred,
+>   the skip is published as `COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`. On the explicit-resident
+>   policy (streaming not requested) no typed skip route is published.
 > - **Resident quantization is supported.** #455 (GS-PERF-Q80B) made the resident atlas pack
 >   per-chunk quantized data, so the `resident_quantization_unsupported` rejection no longer
 >   occurs. The label table still knows the token.

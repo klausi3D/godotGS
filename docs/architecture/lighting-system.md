@@ -55,7 +55,9 @@ own disjoint modes, and there is no "both" mode:
 
 - `1`: per-splat. The binning pass bakes direct light and the resolve pass adds none. This is the
   only mode any route uses: `apply_lighting_to_render_params()` always writes
-  `direct_lighting_mode = 1`.
+  `direct_lighting_mode = 1`. One dormant caller does not call the applier:
+  `TileRasterizer::render` leaves the struct default `0`. Its only caller is
+  `PainterlyRenderer::render`, which no production route calls today.
 - `0`: resolve-time. [tile_resolve.glsl](../../modules/gaussian_splatting/shaders/tile_resolve.glsl)
   adds direct light per pixel and binning bakes none. No route selects this mode since #1078, and
   it has known defects. It lights at the blended depth and normal, which gives black silhouette

@@ -670,13 +670,23 @@ GaussianSplatNode3D (per node, scene side)          nodes/gaussian_splat_node_3d
 
 1. **Owner identity:** `GaussianSplatNode3D` (`nodes/gaussian_splat_node_3d.h`), a `Node3D`.
 2. **What it owns:**
-   - `renderer` (`Ref<GaussianSplatRenderer>`) and `renderer_data` (`Ref<GaussianData>`). These
-     are strong references into the director's `SharedWorld`.
+   - `renderer` (`Ref<GaussianSplatRenderer>`): a strong reference to the shared renderer of the
+     director's `SharedWorld`, set by `GaussianSplatNodeRendererHelper::ensure_renderer()` from
+     `GaussianSplatSceneDirector::get_shared_renderer()`. The node holds a reference; the world
+     owns the renderer.
+   - `renderer_data` (`Ref<GaussianData>`): node-local. The node creates it itself in
+     `_ensure_renderer_data_for_splats()` (`renderer_data.instantiate()`) and resizes it there; it
+     is not shared through the director.
    - `render_instance` (RenderingServer instance RID) and `gaussian_base` (RenderingServer base
      RID).
-   - `cached_viewport_render_target`, `cached_viewport_render_texture` and
-     `cached_viewport_texture`.
+   - `cached_viewport_texture` (`Ref<ViewportTexture>`), a reference taken from
+     `Viewport::get_texture()` in `GaussianSplatNodeViewportHelper::ensure_viewport_texture_binding()`.
    - `color_grading`, `splat_asset` and `runtime_asset`.
+   - **Borrowed, not owned:** `cached_viewport_render_target` and `cached_viewport_render_texture`.
+     `GaussianSplatNodeViewportHelper::query_viewport_render_target()` reads them from
+     `RenderingServer::viewport_get_render_target()` and `viewport_get_texture()`; the viewport
+     owns them. Since #1094 the node queries them only while the cached target is invalid, not
+     every frame. The node only resets these handles to `RID()`; it must never free them.
 3. **Created where:**
    - `gaussian_base` is created in the constructor through `_ensure_gaussian_base()`, and again
      by `_update_render_instance()` / `_update_bounds()` when needed. `render_instance` is

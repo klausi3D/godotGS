@@ -15,7 +15,10 @@ W0.2 artifact for issue #356, refreshed against `origin/master` at
 >   `scheduler` and `diagnostics` through type aliases.
 > - `VisibilityState` is an alias of `StreamingVisibilityController`.
 > - `PackTelemetry` is nested in `StreamingUploadPipeline` (`core/streaming_upload_pipeline.h`).
-> - `_sync_global_atlas_state()` belongs to `StreamingGlobalAtlasRegistry`.
+> - `_sync_global_atlas_state()` no longer exists. Its work is
+>   `StreamingGlobalAtlasRegistry::sync_to_gpu()`, which `_run_streaming_frame_pipeline()` still
+>   calls last. The old name survives only in log strings and in the test wrapper
+>   `GaussianStreamingSystem::_test_sync_global_atlas_state`.
 > - `GPUSortingPipeline::_apply_sorted_results()` and `pending_renderer` are gone. Sorted results
 >   are published by `GPUSortingPipeline::_publish_sorted_results()` through
 >   `ISortResultSink::publish_sorted_indices()`.

@@ -54,7 +54,7 @@ That means the remaining cleanup work is concentrated in compatibility seams, no
 | `GaussianSplatRenderer::set_gaussian_data()` | Low-level renderer/test/tool hook | Public low-level API | Keep for now, narrow usage contract, remove only after replacements exist | Bucket C |
 | `GaussianSplatContainer::apply_to_renderer()` | Container-level direct renderer bypass | Removed in Wave 1 cleanup | Delete outright; keep `apply_to_node()` / export workflows only | Complete |
 | Duplicated source-path resolution helpers | Same logic in node/editor code | Internal duplication | Consolidate into one shared helper | Bucket A |
-| Explicit-resident legacy resident fallback | Removed by #280 (Wave 1 fallback cleanup). A resident contract that cannot be published now skips the frame (`COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`). Per-chunk quantization, the main rejection case, is supported on the resident atlas since #455 | Removed | None; see section 8 | Complete |
+| Explicit-resident legacy resident fallback | Removed by #280 (Wave 1 fallback cleanup). On the explicit-resident policy, a resident contract that cannot be published now leaves the frame unrendered without a typed skip route (`route_uid` stays `COMMON.UNSET.ROUTE`); only the preferred-resident branch publishes `COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`. Per-chunk quantization, the main rejection case, is supported on the resident atlas since #455 | Removed | None; see section 8 | Complete |
 
 ## Deletion Buckets
 
@@ -304,8 +304,11 @@ Deletion criteria:
 
 > **Status, verified 2026-10-01: removed by #280.** `GaussianSplatRenderer::_try_render_resident_frame`
 > has no legacy fallback. When `ResidentInstanceContractPublisher` cannot publish the contract,
-> the attempt returns false and `render_scene_instance` skips the frame under the
-> single-route-per-frame rule. The resident atlas has supported per-chunk quantization since
+> the attempt returns false and the frame is not rendered; no other route is tried on that frame.
+> Only the preferred-resident branch of `render_scene_instance` publishes a typed skip route
+> (`COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`). The explicit-resident branch reaches the attempt
+> through `_render_resident_frame`, which discards the result, so that skip publishes no route
+> decision and leaves `route_uid` at `COMMON.UNSET.ROUTE`. The resident atlas has supported per-chunk quantization since
 > #455 (GS-PERF-Q80B). The regression test
 > `Asset-backed GaussianSplatNode3D renders without direct set_gaussian_data` in
 > `tests/test_scene_director_submission_scaffolding.h` records the removal. The body below is
