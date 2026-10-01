@@ -1982,6 +1982,8 @@
 <h1 id="testing-setup-guide">Testing Setup Guide<a class="headerlink" href="#testing-setup-guide" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
 <p>Run Gaussian Splatting test lanes through maintained runners in <code>tests/ci/</code> and <code>tests/runtime/</code>.</p>
+<p>References on this page name a file and a symbol (function, constant or block), not a line number.
+Run any runner with <code>--help</code> for its current option list.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -1995,22 +1997,27 @@
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub:69</code></td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/c0d1ef536a2a62fc994804fbcc4a54f70d5fa7c0/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/c0d1ef536a2a62fc994804fbcc4a54f70d5fa7c0/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
 <td><code>export GODOT_BINARY=/path/to/godot</code></td>
-<td><code>tests/ci/run_baseline_qa.py:763</code>, <code>tests/ci/run_module_tests.py:350</code>, <code>tests/runtime/run_runtime_validation.py:98</code></td>
+<td><code>tests/ci/run_baseline_qa.py</code> <code>main()</code>, and the <code>--godot-binary</code> defaults in <code>tests/ci/run_module_tests.py</code> and <code>tests/runtime/run_runtime_validation.py</code>. <code>tests/ci/run_gpu_harness.py</code> does not read <code>GODOT_BINARY</code>; pass <code>--godot</code>.</td>
 </tr>
 <tr>
-<td>Run quick baseline subset</td>
+<td>Run quick baseline subset (<code>ply</code> + <code>sorting</code>)</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --quick</code></td>
-<td><code>tests/ci/run_baseline_qa.py:725</code>, <code>tests/ci/run_baseline_qa.py:284</code></td>
+<td><code>BaselineQARunner.run_all_tests()</code> in <code>tests/ci/run_baseline_qa.py</code></td>
 </tr>
 <tr>
 <td>Run one baseline category</td>
-<td><code>python3 tests/ci/run_baseline_qa.py --category &lt;ply|pipeline|sorting|runtime|module|qa&gt;</code></td>
-<td><code>tests/ci/run_baseline_qa.py:730</code>, <code>tests/ci/run_baseline_qa.py:281</code></td>
+<td><code>python3 tests/ci/run_baseline_qa.py --category &lt;all|ply|pipeline|sorting|runtime|module|qa|renderer&gt;</code></td>
+<td><code>TEST_CATEGORIES</code>, <code>CATEGORY_ALIASES</code> and <code>normalize_test_category()</code> in <code>tests/ci/run_baseline_qa.py</code></td>
+</tr>
+<tr>
+<td>Run several baseline categories</td>
+<td><code>python3 tests/ci/run_baseline_qa.py --categories ply,pipeline,runtime,module</code></td>
+<td><code>BaselineQARunner.run_all_tests()</code>: a requested category that selects no tests fails the run</td>
 </tr>
 <tr>
 <td>Run unified benchmark scene (report-only)</td>
@@ -2030,30 +2037,35 @@
 <tr>
 <td>Compare QA output against stored baseline (strict)</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --qa-baseline tests/ci/baselines/qa_results.json --require-qa-baseline</code></td>
-<td><code>tests/ci/run_baseline_qa.py:730</code>, <code>tests/ci/run_baseline_qa.py:735</code>, <code>tests/ci/run_baseline_qa.py:745</code>, <code>tests/ci/run_baseline_qa.py:796</code></td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code> and <code>main()</code> in <code>tests/ci/run_baseline_qa.py</code></td>
 </tr>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
-<td><code>tests/ci/run_baseline_qa.py:740</code>, <code>tests/ci/run_baseline_qa.py:456</code></td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/c0d1ef536a2a62fc994804fbcc4a54f70d5fa7c0/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
 </tr>
 <tr>
 <td>Run renderer/static guards without Godot tests</td>
 <td><code>python3 tests/ci/run_module_tests.py --guard-only</code></td>
-<td><code>tests/ci/run_module_tests.py:354</code>, <code>tests/ci/run_module_tests.py:439</code></td>
+<td><code>main()</code> in <code>tests/ci/run_module_tests.py</code></td>
 </tr>
 <tr>
 <td>Run module doctests after guards</td>
 <td><code>python3 tests/ci/run_module_tests.py --godot-binary "$GODOT_BINARY"</code></td>
-<td><code>tests/ci/run_module_tests.py:350</code>, <code>tests/ci/run_module_tests.py:454</code></td>
+<td><code>MODULE_TEST_FILTERS</code> in <code>tests/ci/run_module_tests.py</code></td>
 </tr>
 <tr>
 <td>Run runtime validation harnesses</td>
-<td><code>python3 tests/runtime/run_runtime_validation.py --godot-binary "$GODOT_BINARY" --gd-mode headless</code></td>
-<td><code>tests/runtime/run_runtime_validation.py:98</code>, <code>tests/runtime/run_runtime_validation.py:103</code>, <code>tests/runtime/run_runtime_validation.py:957</code></td>
+<td><code>python3 tests/runtime/run_runtime_validation.py --godot-binary "$GODOT_BINARY" --profile headless-ci</code></td>
+<td><code>default_profile</code> and <code>profiles</code> in <code>tests/runtime/runtime_scenarios.json</code>; <code>main()</code> in <code>tests/runtime/run_runtime_validation.py</code></td>
 </tr>
 </tbody>
 </table>
+<p>Always pass <code>--profile</code> to <code>run_runtime_validation.py</code>. Without it the runner uses the scenario
+config's <code>default_profile</code>, which is <code>release-ci</code>: the non-headless GDScript suite with a required
+renderer proof, which needs a GPU and a display. <code>headless-ci</code> is the profile baseline QA runs.
+<code>--gd-mode</code> defaults to the selected profile's mode, so it is only needed to override it.
+<code>--list-profiles</code> prints every profile and marks the default.</p>
 <table>
 <thead>
 <tr>
@@ -2065,36 +2077,44 @@
 <tbody>
 <tr>
 <td><code>ply</code></td>
-<td><code>tests/ci/test_ply_loader_ci.gd</code></td>
-<td><code>tests/ci/run_baseline_qa.py:233</code></td>
+<td><code>tests/ci/test_ply_loader_ci.gd</code> (headless)</td>
+<td><code>BaselineQARunner._build_test_table()</code></td>
 </tr>
 <tr>
 <td><code>pipeline</code></td>
-<td><code>tests/ci/test_ply_pipeline_ci.gd</code></td>
-<td><code>tests/ci/run_baseline_qa.py:239</code></td>
+<td><code>tests/ci/test_ply_pipeline_ci.gd</code> (headless)</td>
+<td><code>BaselineQARunner._build_test_table()</code></td>
 </tr>
 <tr>
 <td><code>sorting</code></td>
-<td><code>tests/ci/test_gpu_sorting_ci.gd</code></td>
-<td><code>tests/ci/run_baseline_qa.py:245</code></td>
+<td><code>tests/ci/test_gpu_sorting_ci.gd</code>, launched on the real display (<code>--display-driver windows --rendering-driver vulkan --render-thread safe</code>) because the entry sets <code>requires_gpu</code></td>
+<td><code>BaselineQARunner._build_test_table()</code>, <code>gpu_display_args()</code></td>
 </tr>
 <tr>
 <td><code>runtime</code></td>
-<td><code>python3 tests/runtime/run_runtime_validation.py</code></td>
-<td><code>tests/ci/run_baseline_qa.py:251</code></td>
+<td><code>python3 tests/runtime/run_runtime_validation.py --profile headless-ci --godot-binary &lt;binary&gt;</code></td>
+<td><code>BaselineQARunner._build_test_table()</code></td>
 </tr>
 <tr>
 <td><code>module</code></td>
-<td><code>python3 tests/ci/run_module_tests.py</code></td>
-<td><code>tests/ci/run_baseline_qa.py:258</code></td>
+<td><code>python3 tests/ci/run_module_tests.py --godot-binary &lt;binary&gt;</code></td>
+<td><code>BaselineQARunner._build_test_table()</code></td>
 </tr>
 <tr>
 <td><code>qa</code></td>
 <td><code>godot &lt;display flags&gt; --path tests/examples/godot/test_project --script res://scripts/qa_test_runner.gd --qa-output tests/ci/qa_results.json</code> — runs headless by default, but on the real display (<code>--display-driver windows --rendering-driver vulkan --render-thread safe</code>) when <code>--qa-require-capture</code> / <code>GS_CI_GPU_REQUIRED=1</code> is set. Headless cannot create a RenderingDevice, so the scenes capture nothing and the category degrades to a skip; the blocking lane always passes <code>--qa-require-capture</code>.</td>
-<td><code>tests/ci/run_baseline_qa.py:269</code>, <code>tests/ci/run_baseline_qa.py:271</code>, <code>tests/ci/run_baseline_qa.py:273</code></td>
+<td><code>BaselineQARunner._build_test_table()</code>, <code>gpu_display_args()</code></td>
+</tr>
+<tr>
+<td><code>renderer</code></td>
+<td><code>res://tests/test_render_thread_dispatch.gd</code> inside <code>tests/examples/godot/test_project</code>, launched with <code>--render-thread separate</code> and classified by its verdict markers, not its exit code. See <a href="../../reference/build-test-ci/#render-thread-dispatch-characterization-live-renderingserver">Render-thread dispatch characterization</a>.</td>
+<td><code>BaselineQARunner._build_test_table()</code>, <code>BaselineQARunner.run_test()</code></td>
 </tr>
 </tbody>
 </table>
+<p>The table also holds an <code>Importer Zero-Init Tests</code> entry (<code>tests/ci/test_importer_zero_init_ci.gd</code>,
+category <code>import</code>). <code>import</code> is not a <code>--category</code> choice, so that entry runs only when no category
+is selected (the full suite, or <code>--category all</code>).</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -2109,71 +2129,60 @@
 <tbody>
 <tr>
 <td><code>tests/ci/run_baseline_qa.py</code></td>
-<td><code>--godot</code>, <code>--quick</code>, <code>--category</code>, <code>--qa-baseline</code>, <code>--update-qa-baseline</code>, <code>--require-qa-baseline</code>, <code>--qa-require-capture</code>, <code>--baseline-report</code>, <code>--baseline-summary</code></td>
+<td><code>--godot</code>, <code>--quick</code>, <code>--category</code>, <code>--categories</code>, <code>--qa-baseline</code>, <code>--update-qa-baseline</code>, <code>--require-qa-baseline</code>, <code>--qa-require-capture</code>, <code>--baseline-report</code>, <code>--baseline-summary</code></td>
 <td>Orchestrates baseline categories and QA baseline compare/update flow.</td>
 <td><code>baseline_qa_results.json</code>, <code>tests/ci/qa_results.json</code>, <code>baseline_qa_regression_report.json</code>, <code>baseline_qa_regression_summary.md</code></td>
-<td><code>tests/ci/run_baseline_qa.py:723</code>, <code>tests/ci/run_baseline_qa.py:735</code>, <code>tests/ci/run_baseline_qa.py:750</code></td>
+<td><code>main()</code>, <code>BaselineQARunner._save_json_report()</code>, <code>DEFAULT_BASELINE_REPORT_PATH</code>, <code>DEFAULT_BASELINE_SUMMARY_PATH</code></td>
 </tr>
 <tr>
 <td><code>tests/ci/run_module_tests.py</code></td>
-<td><code>--godot-binary</code>, <code>--base-ref</code>, <code>--guard-only</code>, <code>--skip-render-guards</code>, <code>--skip-static-guards</code>, <code>--tests-unavailable-mode</code>, <code>--allow-tests-unavailable</code></td>
-<td>Runs renderer guards and module doctests filtered by <code>*GaussianSplatting*</code>.</td>
-<td>Console output</td>
-<td><code>tests/ci/run_module_tests.py:350</code>, <code>tests/ci/run_module_tests.py:354</code>, <code>tests/ci/run_module_tests.py:453</code></td>
+<td><code>--godot-binary</code>, <code>--base-ref</code>, <code>--guard-only</code>, <code>--skip-render-guards</code>, <code>--skip-static-guards</code>, <code>--skip-build-metadata-guard</code>, <code>--tests-unavailable-mode</code>, <code>--allow-tests-unavailable</code>, <code>--gpu</code>, <code>--lane-report</code></td>
+<td>Runs the guards, then the module doctest lanes declared in <code>MODULE_TEST_FILTERS</code> (plus <code>REQUIRES_RD_TEST_FILTERS</code> with <code>--gpu</code>), and prints the per-lane ledger.</td>
+<td>Console output; <code>--lane-report &lt;path&gt;</code> writes the ledger as JSON</td>
+<td><code>main()</code>, <code>MODULE_TEST_FILTERS</code>; ledger format in <a href="../../reference/build-test-ci/#per-lane-result-ledger">Build / Test / CI reference</a></td>
 </tr>
 <tr>
 <td><code>tests/runtime/run_runtime_validation.py</code></td>
-<td><code>--godot-binary</code>, <code>--gd-mode</code>, <code>--skip-cpp</code>, <code>--skip-gd</code>, <code>--fail-on-skip</code>, <code>--allow-skips</code></td>
-<td>Runs C++ runtime harnesses and GDScript runtime harnesses with skip/fail policy.</td>
-<td><code>tests/runtime/runtime_validation_report.json</code></td>
-<td><code>tests/runtime/run_runtime_validation.py:95</code>, <code>tests/runtime/run_runtime_validation.py:98</code>, <code>tests/runtime/run_runtime_validation.py:970</code></td>
+<td><code>--godot-binary</code>, <code>--profile</code>, <code>--list-profiles</code>, <code>--gd-mode</code>, <code>--skip-cpp</code>, <code>--skip-gd</code>, <code>--gd-test</code>, <code>--gd-script</code>, <code>--cpp-test</code>, <code>--fail-on-skip</code>, <code>--allow-skips</code>, <code>--allow-skip-test</code>, <code>--report-path</code></td>
+<td>Runs the C++ and GDScript runtime harnesses of the selected profile with its skip/fail policy.</td>
+<td><code>tests/runtime/runtime_validation_report.json</code> (or <code>--report-path</code>)</td>
+<td><code>main()</code>, <code>tests/runtime/runtime_scenarios.json</code></td>
 </tr>
+</tbody>
+</table>
+<table>
+<thead>
 <tr>
-<td>Scripted entry point</td>
-<td>Command surface</td>
-<td>Reference</td>
-<td></td>
-<td></td>
+<th>Scripted entry point</th>
+<th>Command surface</th>
+<th>Reference</th>
 </tr>
-<tr>
-<td>---</td>
-<td>---</td>
-<td>---</td>
-<td></td>
-<td></td>
-</tr>
+</thead>
+<tbody>
 <tr>
 <td><code>Makefile</code></td>
-<td><code>make test</code></td>
-<td><code>Makefile:29</code></td>
-<td></td>
-<td></td>
+<td><code>make test</code> (= <code>guard</code> + <code>test-baseline</code>, which builds with <code>tests=yes</code> first); also <code>make test-module</code>, <code>make test-runtime</code>, <code>make test-quick</code></td>
+<td><code>Makefile</code> targets <code>test</code>, <code>guard</code>, <code>test-baseline</code>, <code>test-runtime</code></td>
 </tr>
 <tr>
 <td><code>package.json</code></td>
-<td><code>npm run test</code></td>
-<td><code>package.json:6</code></td>
-<td></td>
-<td></td>
+<td><code>npm run test</code> (calls <code>make test</code>)</td>
+<td><code>package.json</code> <code>scripts.test</code></td>
 </tr>
 <tr>
 <td><code>run_tests.bat</code></td>
-<td>Windows batch full module run</td>
-<td><code>run_tests.bat:24</code>, <code>run_tests.bat:31</code></td>
-<td></td>
-<td></td>
+<td>Windows wrapper that forwards to <code>ci/scripts/run_module_tests.bat</code></td>
+<td><code>run_tests.bat</code></td>
 </tr>
 <tr>
 <td><code>ci/scripts/run_module_tests.bat</code></td>
-<td>Windows quick guard + module run</td>
-<td><code>ci/scripts/run_module_tests.bat:23</code>, <code>ci/scripts/run_module_tests.bat:47</code></td>
-<td></td>
-<td></td>
+<td>Windows: guard-only run, incremental non-dev <code>tools=yes tests=yes</code> editor build, then module doctests against that binary</td>
+<td><code>ci/scripts/run_module_tests.bat</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="gpu-test-harness-gs-gpu-test">GPU Test Harness (gs-gpu-test)<a class="headerlink" href="#gpu-test-harness-gs-gpu-test" title="Permanent link">¶</a></h2>
-<p>The <code>--gs-gpu-test</code> entrypoint is a second doctest runner specifically for tests tagged <code>[RequiresGPU]</code>. It bootstraps <code>RenderingDevice</code> offscreen via <code>Main::test_setup()</code> + <code>RenderingContextDriverVulkan</code> / <code>RenderingContextDriverD3D12</code> (no <code>SceneTree</code>, no window) and is therefore distinct from the <code>--test</code> lane driven by <code>tests/ci/run_module_tests.py</code>.</p>
+<p>The <code>--gs-gpu-test</code> entrypoint is a second doctest runner specifically for tests tagged <code>[RequiresGPU]</code>. It bootstraps <code>RenderingDevice</code> offscreen via <code>Main::test_setup()</code> + <code>RenderingContextDriverVulkan</code> / <code>RenderingContextDriverD3D12</code> (no window) and is therefore distinct from the <code>--test</code> lane driven by <code>tests/ci/run_module_tests.py</code>. Since #329 it also registers the mock <code>DisplayServer</code> driver, so <code>[SceneTree]</code>-tagged <code>[RequiresGPU]</code> cases get a full <code>SceneTree</code> and run in the four SceneTree batches listed below.</p>
 <table>
 <thead>
 <tr>
@@ -2189,6 +2198,11 @@
 <td><code>tests/ci/run_gpu_harness.py</code>, <code>modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h</code></td>
 </tr>
 <tr>
+<td>List the batch catalogue</td>
+<td><code>python3 tests/ci/run_gpu_harness.py --list-batches</code></td>
+<td><code>BATCHES</code> in <code>tests/ci/run_gpu_harness.py</code></td>
+</tr>
+<tr>
 <td>Run every catalogued batch</td>
 <td><code>python3 tests/ci/run_gpu_harness.py --godot ./bin/godot.linuxbsd.editor.dev.x86_64</code></td>
 <td><code>tests/ci/run_gpu_harness.py</code></td>
@@ -2196,7 +2210,7 @@
 <tr>
 <td>Direct doctest invocation with a custom filter</td>
 <td><code>./bin/godot.linuxbsd.editor.dev.x86_64 --gs-gpu-test --test-case="*HazardRepro*"</code></td>
-<td><code>main/main.cpp:947</code>, <code>modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp</code></td>
+<td><code>--gs-gpu-test</code> dispatch to <code>gs_gpu_test_main()</code> in <code>main/main.cpp</code>; <code>modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp</code></td>
 </tr>
 <tr>
 <td>Force a specific GPU driver</td>
@@ -2211,18 +2225,23 @@
 </code></pre></div>
 <p>Key contracts:</p>
 <ul>
-<li>Default filter when <code>--test-case</code> is omitted: <code>--test-case=*[RequiresGPU]* --test-case-exclude=*[SceneTree]*,*[Importer]*</code>. The <code>[SceneTree][RequiresGPU]</code> exclusion is tracked as Issue #329.</li>
-<li>Active batches: <code>CompositorHazard</code>, <code>OutputCompositor</code>, <code>TileRenderer</code>, <code>Integration</code>, <code>RendererPipeline</code>, <code>Lifetime</code>, and the <code>[SceneTree]</code> batches (<code>NodeSceneTree</code>, <code>WorldSceneTree</code>, <code>SceneDirectorSceneTree</code>, <code>RendererSceneTree</code>) — the <code>[SceneTree]</code> corpus (#329) now runs in these dedicated batches rather than being excluded. <code>GpuSorting</code> is now <strong>required</strong> (#744): its <code>*Sort*][RequiresGPU]*</code> filter matches the #508 <code>[GPUSortPipeline][RequiresGPU]</code> sticky-overflow test (measured 1 case / 5 assertions / 4.4 s, non-hollow). It gates that sort-pipeline overflow case only — <strong>not</strong> sort-order correctness, whose tests are linker-dropped (#622). <code>MemoryStream</code> (2 cases, #798) and <code>Streaming</code> (3 cases retagged <code>[Streaming]</code> in #908) are active but advisory; no catalogued-but-empty batch remains — the structurally-empty <code>ComputeInfrastructure</code> batch was deleted in #909 (its 11 <code>[ComputeInfra]</code> cases are null-device CPU tests that run in the strict headless <code>[ComputeInfra]</code> lane).</li>
-<li><code>REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree", "GpuSorting"}</code> (the four SceneTree/OutputCompositor batches promoted in #724, <code>GpuSorting</code> in #744) — asserted at import; an empty filter on a required batch fails the gate, and any hollow (zero-assertion) case in a required batch fails it per-case (#696). <code>NodeSceneTree</code> stays advisory (flaky under runner contention, #630).</li>
+<li>Default filter when <code>--test-case</code> is omitted: <code>--test-case=*[RequiresGPU]* --test-case-exclude=*[SceneTree]*,*[Importer]*</code>. This is only the bare-invocation default. The supervisor's batches pass explicit <code>--test-case=</code> filters, and the <code>[SceneTree]</code> corpus (#329) runs in the <code>NodeSceneTree</code>, <code>WorldSceneTree</code>, <code>SceneDirectorSceneTree</code> and <code>RendererSceneTree</code> batches.</li>
+<li>Batches (<code>python3 tests/ci/run_gpu_harness.py --list-batches</code>): <code>CompositorHazard</code>, <code>OutputCompositor</code>, <code>TileRenderer</code>, <code>GpuSorting</code>, <code>MemoryStream</code>, <code>Streaming</code>, <code>Integration</code>, <code>RendererPipeline</code>, <code>Lifetime</code>, <code>NodeSceneTree</code>, <code>WorldSceneTree</code>, <code>SceneDirectorSceneTree</code>, <code>RendererSceneTree</code>.</li>
+<li><code>GpuSorting</code> is <strong>required</strong> (#744). Its <code>*Sort*][RequiresGPU]*</code> filter selects every case in <code>test_gpu_sorting.h</code> whose name has <code>Sort</code> before <code>][RequiresGPU]</code> (doctest wildcards, case-insensitive). That includes the #508 <code>[GPUSortPipeline][RequiresGPU]</code> sticky-overflow case, the three sort-order oracles retagged <code>[GpuSort]</code> in #622 (Bitonic, 32-bit radix, 8-bit radix) that compare GPU output against a reference order, the two #764 sorter device-identity cases, and the sorter init-failure-backoff case. <code>tests/ci/check_gpu_sorting_order_coverage.py</code> pins that the batch selects the three order oracles. The separate order tests in <code>test_gpu_sorting.cpp</code> are still linker-dropped (#622/#631), and the "GPU Sorting Performance" timing benchmark is not gated.</li>
+<li><code>MemoryStream</code> (the two #798 cases) and <code>Streaming</code> are advisory. <code>Streaming</code> selects two of the three <code>[Streaming][RequiresGPU]</code> cases retagged in #908, but only "GPU Memory Streaming" exercises streaming. "Stage-B instance depth culling toggles" checks that the manager exists, then returns at the primary-<code>RenderingDevice</code> check (<code>test_gpu_streaming.h:390-395</code>) because the harness's local-device bootstrap has no primary device, so none of its culling assertions run. "GPU Memory Streaming Performance" is excluded under a waiver.</li>
+<li><code>TileRenderer</code> excludes one case under a waiver (#643). Every <code>BatchSpec.excludes</code> entry must have a matching entry in <code>deferred_requires_gpu_waivers</code> in <code>docs/reference/renderer_release_gate_manifest.json</code>; <code>tests/ci/test_gpu_harness_deferred_contract.py</code> checks that.</li>
+<li>The structurally empty <code>ComputeInfrastructure</code> batch was deleted in #909; its <code>[ComputeInfra]</code> cases run in the strict headless <code>[ComputeInfra]</code> lane.</li>
+<li><code>REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree", "GpuSorting"}</code> (the four SceneTree/OutputCompositor batches promoted in #724, <code>GpuSorting</code> in #744). An import-time assertion checks every name is a defined batch; an empty filter on a required batch fails the gate, and any hollow (zero-assertion) case in a required batch fails it per case (#696). <code>NodeSceneTree</code> stays advisory (flaky under runner contention, #630).</li>
 <li>CI strict mode (<code>GITHUB_ACTIONS=true</code> or <code>CI=true</code>): <code>--godot</code> is required and <code>bin/</code> fallback is refused.</li>
 <li>The supervisor writes a JSON report atomically (<code>tempfile.mkstemp</code> + <code>os.replace</code>) and streams subprocess output with one thread per pipe (Windows-compatible).</li>
-<li>The doctest listener prints <code>[GS-GPU][RID-LEAK?] bytes=N test=advisory</code> above 4 MiB residual (raised from 1 MiB in #341); the supervisor folds non-zero values into a gate failure.</li>
+<li>The doctest listener prints <code>[GS-GPU][RID-LEAK?] bytes=N test=advisory</code> above 4 MiB residual (<code>LEAK_BYTES_THRESHOLD</code>, raised from 1 MiB in #341); the supervisor folds non-zero values into a gate failure.</li>
 </ul>
 <p>See <code>modules/gaussian_splatting/tests/README.md#gpu-test-harness</code> for the per-batch filter table and full listener semantics. The <code>.github/workflows/baseline_qa.yml</code> workflow's <code>gpu-harness</code> job runs after <code>gpu-tests</code> on the self-hosted Windows runner; both jobs are gated against fork-PR code via <code>head.repo.full_name == github.repository</code>.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>tests/ci/run_baseline_qa.py<span class="w"> </span>--help
 python3<span class="w"> </span>tests/ci/run_module_tests.py<span class="w"> </span>--help
 python3<span class="w"> </span>tests/runtime/run_runtime_validation.py<span class="w"> </span>--help
+python3<span class="w"> </span>tests/runtime/run_runtime_validation.py<span class="w"> </span>--list-profiles
 python3<span class="w"> </span>tests/ci/run_module_tests.py<span class="w"> </span>--guard-only
 python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </span>--help
 python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </span>--batch<span class="w"> </span>CompositorHazard<span class="w"> </span>--godot<span class="w"> </span><span class="s2">"</span><span class="nv">$GODOT_BINARY</span><span class="s2">"</span>
@@ -2242,31 +2261,37 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
 <td><code>Could not find Godot binary</code></td>
 <td><code>GODOT_BINARY</code> is unset and no <code>godot</code> binary is on <code>PATH</code>.</td>
 <td>Set <code>GODOT_BINARY</code> or pass <code>--godot</code>/<code>--godot-binary</code>.</td>
-<td><code>tests/ci/run_baseline_qa.py:776</code></td>
+<td><code>main()</code> in <code>tests/ci/run_baseline_qa.py</code></td>
 </tr>
 <tr>
 <td><code>--quick</code> is ignored</td>
-<td><code>--category</code> was also passed.</td>
+<td><code>--category</code> or <code>--categories</code> was also passed; they take precedence.</td>
 <td>Run only one selector mode at a time.</td>
-<td><code>tests/ci/run_baseline_qa.py:781</code></td>
+<td><code>BaselineQARunner.run_all_tests()</code></td>
 </tr>
 <tr>
 <td>Module tests report disabled test runner</td>
 <td>Binary was not built with <code>tests=yes</code>.</td>
 <td>Rebuild the editor from repository root with <code>tests=yes</code> so the output in <code>bin/</code> includes the in-tree module and test runner.</td>
-<td><code>tests/ci/run_module_tests.py:459</code>, <code>modules/gaussian_splatting/SCsub:69</code></td>
+<td><code>_test_runner_is_unavailable()</code> and <code>_tests_unavailable()</code> in <code>tests/ci/run_module_tests.py</code>; <code>modules/gaussian_splatting/SCsub</code></td>
 </tr>
 <tr>
 <td>Need to run only <code>module</code> or <code>qa</code> checks</td>
 <td>Those categories are exposed only through the maintained baseline runner.</td>
 <td>Use <code>tests/ci/run_baseline_qa.py --category module</code> or <code>--category qa</code>.</td>
-<td><code>tests/ci/run_baseline_qa.py:730</code>, <code>tests/ci/run_baseline_qa.py:281</code></td>
+<td><code>TEST_CATEGORIES</code> in <code>tests/ci/run_baseline_qa.py</code></td>
 </tr>
 <tr>
-<td>Runtime run fails on skips in non-headless mode</td>
-<td>Default skip policy is strict outside headless mode.</td>
-<td>Add <code>--allow-skips</code> or switch to <code>--gd-mode headless</code>.</td>
-<td><code>tests/runtime/run_runtime_validation.py:916</code>, <code>tests/runtime/run_runtime_validation.py:920</code></td>
+<td>Runtime run fails on skips</td>
+<td>Every profile in <code>runtime_scenarios.json</code> sets <code>fail_on_skip: true</code>, and a profile's setting overrides the mode-based default, so switching <code>--gd-mode</code> does not relax it.</td>
+<td>Pass <code>--allow-skips</code>, or <code>--allow-skip-test &lt;name&gt;</code> for a single test. A skip that a CI lane must not tolerate is a real failure there.</td>
+<td><code>main()</code> in <code>tests/runtime/run_runtime_validation.py</code> (<code>fail_on_skip</code> resolution)</td>
+</tr>
+<tr>
+<td>Runtime run without <code>--profile</code> needs a GPU/display or fails a renderer proof</td>
+<td>The default profile is <code>release-ci</code> (non-headless, <code>requires_renderer_proof</code>).</td>
+<td>Pass <code>--profile headless-ci</code> for the headless lane.</td>
+<td><code>default_profile</code> in <code>tests/runtime/runtime_scenarios.json</code></td>
 </tr>
 <tr>
 <td><code>run_gpu_harness.py</code> refuses to discover a binary</td>
@@ -2277,14 +2302,14 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
 <tr>
 <td>GPU harness gate fails on an apparently-empty batch</td>
 <td>The batch is in <code>REQUIRED_BATCHES</code> and its filter matched no tests.</td>
-<td>Either add tests for that batch or remove it from <code>REQUIRED_BATCHES</code>.</td>
-<td><code>tests/ci/run_gpu_harness.py</code></td>
+<td>Find the rename or tag change that emptied it and restore the coverage. Removing a batch from <code>REQUIRED_BATCHES</code> is a contract change that needs its own justification and review.</td>
+<td><code>REQUIRED_BATCHES</code> in <code>tests/ci/run_gpu_harness.py</code></td>
 </tr>
 <tr>
 <td><code>FATAL: batch '&lt;name&gt;' TIMED OUT</code> / batch <code>rc=124</code>, <code>status=TIMEOUT</code>, <code>cases=0/0</code></td>
 <td>The batch exceeded its wall-clock budget, so doctest never printed a summary: its case counts parse as <code>0</code> and its leak bytes are partial. This is an absence of measurement, not a clean batch — <code>totals_authoritative</code> in the report goes <code>false</code> and the run totals exclude whatever it never reached.</td>
-<td>First establish budget vs hang by re-running that batch alone with a large <code>--timeout</code>. If it completes, raise that batch's <code>BatchSpec.timeout_seconds</code> (this is why <code>NodeSceneTree</code> sets <code>180</code>; it measures ~82 s and was being cut off at 9 of 18 cases). If it never completes, it is a hang — diagnose it, do not budget around it.</td>
-<td><code>tests/ci/run_gpu_harness.py</code></td>
+<td>First establish budget vs hang by re-running that batch alone with a large <code>--timeout</code>. If it completes, raise that batch's <code>BatchSpec.timeout_seconds</code>. <code>NodeSceneTree</code> went from the 60 s default to 180 s (#677) and then to 300 s as its corpus grew; the <code>BatchSpec</code> comment records the measured wall times. If it never completes, it is a hang — diagnose it, do not budget around it.</td>
+<td><code>BatchSpec</code> in <code>tests/ci/run_gpu_harness.py</code></td>
 </tr>
 <tr>
 <td><code>[GS-GPU][RID-LEAK?] bytes=N test=advisory</code> fails the gate</td>
@@ -2314,7 +2339,7 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:25:07 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:32:02 UTC">October 1, 2026</span>
   </span>
 
     

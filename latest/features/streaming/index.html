@@ -1875,10 +1875,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#key-methods" class="md-nav__link">
+  <a href="#gaussianstreamingsystem-methods-standalone-instances-only" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Key methods
+        GaussianStreamingSystem methods (standalone instances only)
       
     </span>
   </a>
@@ -1929,7 +1929,7 @@
 
 <h1 id="streaming">Streaming<a class="headerlink" href="#streaming" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Load and evict Gaussian splat chunks on demand so that datasets larger than available VRAM can be rendered without running out of memory. <code>GaussianStreamingSystem</code> manages a ring buffer of GPU chunks, performing frustum culling, predictive prefetch, and distance-based LOD to keep the visible portion of a scene resident.</p>
+<p>Load and evict Gaussian splat chunks on demand so that datasets larger than available VRAM can be rendered without running out of memory. <code>GaussianStreamingSystem</code> manages an atlas of fixed-size GPU chunk slots, performing frustum culling, predictive prefetch, and distance-based LOD to keep the visible portion of a scene resident. The renderer creates and drives this system internally for <code>GaussianSplatWorld3D</code> submissions; scripts observe it through diagnostics (see <a href="#monitoring-streaming-performance">Monitoring</a>).</p>
 <h2 id="when-to-use-streaming">When to use streaming<a class="headerlink" href="#when-to-use-streaming" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -1945,15 +1945,15 @@
 </tr>
 <tr>
 <td>Dataset exceeds available VRAM or contains more than 500K splats</td>
-<td>Enable streaming to stay within GPU memory limits.</td>
+<td>Bake it to an uncompressed <code>.gsplatworld</code> and render it with <code>GaussianSplatWorld3D</code> (see <a href="#enabling-streaming">Enabling streaming</a>).</td>
 </tr>
 <tr>
 <td>Camera moves continuously through a large environment</td>
-<td>Enable predictive prefetch to preload chunks along the camera path.</td>
+<td>Keep predictive prefetch enabled (default) to preload chunks along the camera path.</td>
 </tr>
 <tr>
 <td>Multiple Gaussian assets share a single world</td>
-<td>Use multi-asset registration so the atlas shares VRAM across assets.</td>
+<td>Bake them into one <code>.gsplatworld</code> with the <a href="../../workflows/GSPLATWORLD_BAKE/">bake workflow</a> so one atlas shares VRAM across them.</td>
 </tr>
 </tbody>
 </table>
@@ -1982,10 +1982,10 @@
 <td>Format is resident-only and has no "out-of-core" streaming path; the streaming system still manages visibility, LOD, and VRAM residency.</td>
 </tr>
 <tr>
-<td><code>.gsplatworld</code> loaded through <code>load_resident()</code></td>
+<td><code>.gsplatworld</code> loaded through <code>ResourceFormatLoaderGaussianSplatWorld::load_resident()</code></td>
 <td>Resident only</td>
 <td>None</td>
-<td>Compatibility path for callers that explicitly request resident CPU data.</td>
+<td>C++-only compatibility path (not exposed to GDScript) for callers that explicitly request resident CPU data, such as the <code>.gsplatcache</code> reader.</td>
 </tr>
 <tr>
 <td><code>.gsplatcache</code></td>
@@ -2003,7 +2003,7 @@
 </table>
 <p><code>GaussianStreamingSystem</code> can run for any of these sources, but "streaming" usually means GPU residency and LOD management. Out-of-core source loading currently exists only for normal uncompressed <code>.gsplatworld</code> loads.</p>
 <p>Generic <code>ResourceSaver::save()</code> preserves streamability for source-backed worlds: a normal save/load/save round trip writes uncompressed <code>.gsplatworld</code> data and does not leave the in-memory resource materialized as resident <code>GaussianData</code>. Compressed output is a resident-only export choice because the current gzip payload has no random-access chunk blocks.</p>
-<p>Runtime diagnostics expose the actual payload mode separately from route policy. <code>GaussianSplatRenderer.get_render_stats()</code> includes <code>payload_mode</code>, <code>payload_streamable</code>, <code>payload_source_active</code>, <code>resident_payload_active</code>, and <code>payload_resident_only_reason</code>; a streaming route policy with a compressed world still reports <code>payload_mode = "resident_only"</code>.</p>
+<p>Runtime diagnostics expose the actual payload mode separately from route policy. <code>GaussianSplatRenderer.get_render_stats()</code> (reach the renderer with <code>GaussianSplatWorld3D.get_renderer()</code>) includes <code>payload_mode</code>, <code>payload_streamable</code>, <code>payload_source_active</code>, <code>resident_payload_active</code>, and <code>payload_resident_only_reason</code>; a streaming route policy with a compressed world still reports <code>payload_mode = "resident_only"</code>.</p>
 <h2 id="upload-completion-contract">Upload completion contract<a class="headerlink" href="#upload-completion-contract" title="Permanent link">¶</a></h2>
 <p>Streaming chunks move through separate CPU and GPU states. A chunk may have a CPU-packed payload and an atlas slot reservation while <code>upload_pending=true</code>, but it is not renderable until the upload retirement ticket reaches <code>gpu_retired</code>. <code>is_loaded</code> and <code>gpu_resident</code> are the renderability signals; atlas metadata and visible buffer-space indices must ignore chunks that are still pending retirement.</p>
 <p>Completion modes are intentionally explicit:</p>
@@ -2037,7 +2037,7 @@ instruction could not be followed.</p>
 <p><strong>Streaming is opt-in through <code>GaussianSplatWorld3D</code>, and only through it.</strong> A direct
 <code>GaussianSplatNode3D</code> is resident by contract: it always pins
 <code>SUBMISSION_RESIDENCY_HINT_RESIDENT</code> and <strong>deliberately ignores</strong> <code>route_policy</code>
-(<code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:2626-2631</code>). So
+(<code>GaussianSplatNode3D::_register_instance_in_director</code>). So
 <code>rendering/gaussian_splatting/streaming/route_policy</code> selects the backend for <strong>world
 submissions only</strong>, and then only when the payload is actually streamable — see the
 residency table above.</p>
@@ -2053,25 +2053,26 @@ residency table above.</p>
 <tr>
 <td>1</td>
 <td>Use a <code>GaussianSplatWorld3D</code>. A bare <code>GaussianSplatNode3D</code> never streams, whatever the policy says.</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:2626-2631</code></td>
+<td><code>GaussianSplatNode3D::_register_instance_in_director</code></td>
 </tr>
 <tr>
 <td>2</td>
-<td>Leave <code>rendering/gaussian_splatting/streaming/route_policy</code> at its default <code>1</code>, or set it explicitly.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1008</code></td>
+<td>Leave <code>rendering/gaussian_splatting/streaming/route_policy</code> at its default <code>1</code> (streaming); <code>0</code> forces the resident route.</td>
+<td><code>GaussianSplatManager::initialize_module</code>, <code>GaussianSplatWorld3D::_register_shared_renderer</code></td>
 </tr>
 <tr>
 <td>3</td>
-<td>Call <code>initialize(data)</code> with a loaded <code>GaussianData</code> resource to partition splats into chunks.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.cpp:927</code></td>
+<td>Assign an uncompressed <code>.gsplatworld</code> (<code>GaussianSplatWorld</code>) to the node's <code>world</code> property. With <code>auto_apply_on_ready</code> (default <code>true</code>) the world is submitted when the node becomes ready; otherwise call <code>apply_world()</code>.</td>
+<td><code>GaussianSplatWorld3D::set_world</code>, <code>GaussianSplatWorld3D::apply_world</code></td>
 </tr>
 <tr>
 <td>4</td>
-<td>Each frame, call <code>update_streaming(camera_transform, projection)</code> to drive chunk loading, culling, and eviction.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:770</code></td>
+<td>Confirm the route at runtime: <code>get_renderer().get_render_stats()["payload_mode"]</code> and the <code>gaussian_splatting/streaming_*</code> Performance monitors (see below).</td>
+<td><code>GaussianSplatRenderer::get_render_stats</code></td>
 </tr>
 </tbody>
 </table>
+<p>You do not call <code>GaussianStreamingSystem.initialize()</code> or <code>update_streaming()</code> yourself: the renderer owns and drives the streaming system for world submissions. Those methods are bound, but a <code>GaussianStreamingSystem</code> you create with <code>.new()</code> is not connected to any renderer and draws nothing.</p>
 <h2 id="vram-budget-configuration">VRAM budget configuration<a class="headerlink" href="#vram-budget-configuration" title="Permanent link">¶</a></h2>
 <p>The streaming system allocates a fixed number of chunk slots in GPU memory. Each slot holds <code>CHUNK_SIZE</code> (65 536) splats. Budget limits can be configured globally or per quality tier.</p>
 <table>
@@ -2088,37 +2089,37 @@ residency table above.</p>
 <td><code>rendering/gaussian_splatting/streaming/max_upload_mb_per_frame</code></td>
 <td><code>128</code></td>
 <td>Maximum MB uploaded to VRAM in a single frame.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1054</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/max_upload_mb_per_slice</code></td>
 <td><code>16</code></td>
 <td>Maximum MB per upload slice within a frame.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1056</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/max_chunk_loads_per_frame</code></td>
 <td><code>16</code></td>
 <td>Cap on chunk load operations per frame.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1041</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/eviction_hysteresis_frames</code></td>
 <td><code>5</code></td>
 <td>Frames a chunk must be unused before eviction is considered.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1060</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/max_evictions_per_frame</code></td>
 <td><code>4</code></td>
 <td>Maximum chunk evictions per frame.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1062</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 </tbody>
 </table>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/c0d1ef536a2a62fc994804fbcc4a54f70d5fa7c0/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
-<p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces SH band level, increases splat skip factor, and modulates opacity as distance grows.</p>
+<p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
 <table>
 <thead>
 <tr>
@@ -2130,32 +2131,28 @@ residency table above.</p>
 <tbody>
 <tr>
 <td><code>current_lod_level</code> / <code>target_lod_level</code></td>
-<td>Drive smooth LOD transitions.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:106</code></td>
+<td>Drive LOD transitions.</td>
+<td><code>StreamingVisibilityController::update_chunk_lod_parameters</code></td>
 </tr>
 <tr>
 <td><code>sh_band_level</code> (0 -- 3)</td>
-<td>0 = DC only, 3 = full spherical harmonics.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:110</code></td>
+<td>0 = DC only, 3 = full spherical harmonics. Honoured on the GPU through the per-chunk SH limit in the chunk metadata.</td>
+<td><code>StreamingGlobalAtlasRegistry::update_chunk_meta_entry</code></td>
 </tr>
 <tr>
 <td><code>splat_skip_factor</code></td>
-<td>1 = render all, higher values skip splats.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:111</code></td>
+<td>1 = render all. A factor of N sets the chunk's <code>effective_count</code> to <code>count / N</code>, and the GPU draws <strong>the first <code>count / N</code> splats of each chunk</strong> in stored order: a prefix, not every Nth splat. Which splats survive depends on the order the chunk was written in, so the reduction is not spatially uniform. This is a known quality limitation.</td>
+<td><code>StreamingVisibilityController::update_chunk_lod_parameters</code>, <code>StreamingGlobalAtlasRegistry::update_chunk_meta_entry</code></td>
 </tr>
 <tr>
 <td><code>opacity_multiplier</code></td>
-<td>Distance-based opacity fade.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:112</code></td>
-</tr>
-<tr>
-<td><code>lod_blend_factor</code></td>
-<td>Smooth cross-fade between LOD levels.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:104</code></td>
+<td>Distance-based opacity fade. Computed per chunk and reported as <code>min_opacity_multiplier</code> in <code>get_lod_debug_stats()</code>; no consumer on the GPU draw path was found at this revision.</td>
+<td><code>StreamingVisibilityController::update_chunk_lod_parameters</code></td>
 </tr>
 </tbody>
 </table>
-<p>LOD blend behavior is controlled through the <code>LODBlendConfig</code> on the visibility state. Toggle blending with <code>set_lod_blend_enabled(true)</code> and adjust the blend distance with <code>set_lod_blend_distance(value)</code>.</p>
+<p>The strided variants <code>GaussianStreamingSystem::get_visible_gaussians()</code> and <code>get_visible_indices()</code> (every Nth splat, with opacity fade) exist in C++ but have no callers; they do not describe what is rendered.</p>
+<p>LOD blending is configured through project settings, read by <code>LODBlendConfig::load_from_project_settings</code> when the streaming configuration reloads: <code>rendering/gaussian_splatting/lod/blend_enabled</code> (default <code>true</code>) and <code>rendering/gaussian_splatting/lod/blend_distance</code> (default <code>5.0</code>). <code>GaussianStreamingSystem::set_lod_blend_enabled()</code> and <code>set_lod_blend_distance()</code> are inline C++ helpers only; they are not bound and cannot be called from GDScript.</p>
 <h2 id="predictive-prefetch">Predictive prefetch<a class="headerlink" href="#predictive-prefetch" title="Permanent link">¶</a></h2>
 <p>When the camera is in motion, the system predicts where the camera will be and begins loading chunks ahead of time.</p>
 <table>
@@ -2172,43 +2169,66 @@ residency table above.</p>
 <td><code>rendering/gaussian_splatting/streaming/predictive_prefetch_enabled</code></td>
 <td><code>true</code></td>
 <td>Enables velocity-based prefetch.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1031</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/prefetch_lookahead_distance</code></td>
 <td><code>10.0</code></td>
 <td>Distance (in world units) to look ahead for prefetch.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1033</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td><code>rendering/gaussian_splatting/streaming/max_prefetch_loads_per_frame</code></td>
 <td><code>6</code></td>
 <td>Prefetch load cap per frame.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1043</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="monitoring-streaming-performance">Monitoring streaming performance<a class="headerlink" href="#monitoring-streaming-performance" title="Permanent link">¶</a></h2>
 <h3 id="gdscript-queries">GDScript queries<a class="headerlink" href="#gdscript-queries" title="Permanent link">¶</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">streaming</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianStreamingSystem</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">get_streaming_system</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"VRAM usage bytes: "</span><span class="p">,</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_vram_usage</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Loaded chunks: "</span><span class="p">,</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_loaded_chunks</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Visible count: "</span><span class="p">,</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_visible_count</span><span class="p">())</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Effective splat count after LOD: "</span><span class="p">,</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_effective_splat_count</span><span class="p">())</span>
+<p>No bound API returns the <code>GaussianStreamingSystem</code> that a renderer uses (there is no <code>get_streaming_system()</code>). Scripts read the live system through two bound surfaces:</p>
+<ul>
+<li>the module's custom <code>Performance</code> monitors (<code>gaussian_splatting/streaming_*</code>, <code>gaussian_splatting/vram_*</code>, <code>gaussian_splatting/lod_*</code>), registered at module start-up by <code>GaussianSplattingPerformanceMonitors</code>. They report on the active renderer that has a streaming system, process-wide, not per node. They also appear in the editor's Debugger &gt; Monitors tab.</li>
+<li><code>GaussianSplatRenderer.get_render_stats()</code> on the renderer returned by <code>GaussianSplatWorld3D.get_renderer()</code> (shared by the Gaussian nodes of one <code>World3D</code>) for the payload/route fields listed above.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
 
-<span class="k">var</span><span class="w"> </span><span class="n">analytics</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Dictionary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_streaming_analytics</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Analytics: "</span><span class="p">,</span><span class="w"> </span><span class="n">analytics</span><span class="p">)</span>
+<span class="c1">## Assign a GaussianSplatWorld3D in the inspector (optional; monitors work without it).</span>
+<span class="err">@</span><span class="k">export</span><span class="w"> </span><span class="k">var</span><span class="w"> </span><span class="n">splat_world</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatWorld3D</span>
 
-<span class="k">var</span><span class="w"> </span><span class="n">culling</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Dictionary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_chunk_culling_stats</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"Culling stats: "</span><span class="p">,</span><span class="w"> </span><span class="n">culling</span><span class="p">)</span>
+<span class="k">const</span><span class="w"> </span><span class="n">STREAMING_MONITORS</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/streaming_loaded_chunks"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/streaming_visible_chunks"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/streaming_vram_usage_mb"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/streaming_visible_count"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/streaming_effective_splat_count"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/vram_budget_warning_active"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"gaussian_splatting/lod_splat_skip_factor"</span><span class="p">,</span>
+<span class="p">]</span>
 
-<span class="k">var</span><span class="w"> </span><span class="n">vram</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Dictionary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_vram_debug_stats</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"VRAM debug: "</span><span class="p">,</span><span class="w"> </span><span class="n">vram</span><span class="p">)</span>
+<span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">timer</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">Timer</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="w">    </span><span class="n">timer</span><span class="o">.</span><span class="n">wait_time</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span>
+<span class="w">    </span><span class="n">timer</span><span class="o">.</span><span class="n">autostart</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
+<span class="w">    </span><span class="n">timer</span><span class="o">.</span><span class="n">timeout</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">_print_streaming_state</span><span class="p">)</span>
+<span class="w">    </span><span class="n">add_child</span><span class="p">(</span><span class="n">timer</span><span class="p">)</span>
 
-<span class="k">var</span><span class="w"> </span><span class="n">lod</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Dictionary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">streaming</span><span class="o">.</span><span class="n">get_lod_debug_stats</span><span class="p">()</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"LOD debug: "</span><span class="p">,</span><span class="w"> </span><span class="n">lod</span><span class="p">)</span>
+<span class="k">func</span><span class="w"> </span><span class="n">_print_streaming_state</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="n">monitor_id</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">STREAMING_MONITORS</span><span class="p">:</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="n">Performance</span><span class="o">.</span><span class="n">has_custom_monitor</span><span class="p">(</span><span class="n">monitor_id</span><span class="p">):</span>
+<span class="w">            </span><span class="nb">print</span><span class="p">(</span><span class="n">monitor_id</span><span class="p">,</span><span class="w"> </span><span class="s2">" = "</span><span class="p">,</span><span class="w"> </span><span class="n">Performance</span><span class="o">.</span><span class="n">get_custom_monitor</span><span class="p">(</span><span class="n">monitor_id</span><span class="p">))</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">splat_world</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb nb-Type">null</span><span class="p">:</span>
+<span class="w">        </span><span class="k">return</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">splat_world</span><span class="o">.</span><span class="n">get_renderer</span><span class="p">()</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb nb-Type">null</span><span class="p">:</span>
+<span class="w">        </span><span class="k">return</span><span class="w">  </span><span class="c1"># No renderer until the world has been applied on a device-backed viewport.</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">stats</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">renderer</span><span class="o">.</span><span class="n">get_render_stats</span><span class="p">()</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"payload_mode = "</span><span class="p">,</span><span class="w"> </span><span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"payload_mode"</span><span class="p">),</span><span class="w"> </span><span class="s2">", streamable = "</span><span class="p">,</span><span class="w"> </span><span class="n">stats</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"payload_streamable"</span><span class="p">))</span>
 </code></pre></div>
-<h3 id="key-methods">Key methods<a class="headerlink" href="#key-methods" title="Permanent link">¶</a></h3>
+<h3 id="gaussianstreamingsystem-methods-standalone-instances-only"><code>GaussianStreamingSystem</code> methods (standalone instances only)<a class="headerlink" href="#gaussianstreamingsystem-methods-standalone-instances-only" title="Permanent link">¶</a></h3>
+<p>These methods are bound on <code>GaussianStreamingSystem</code>, but because no bound API hands out the renderer's instance, they only apply to an instance you create yourself. Such an instance is not connected to a renderer. For the live system, use the monitors above.</p>
 <table>
 <thead>
 <tr>
@@ -2223,67 +2243,67 @@ residency table above.</p>
 <td><code>get_vram_usage()</code></td>
 <td><code>int</code></td>
 <td>Total VRAM bytes consumed by loaded chunks.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:789</code></td>
+<td><code>GaussianStreamingSystem::get_vram_usage</code></td>
 </tr>
 <tr>
 <td><code>get_loaded_chunks()</code></td>
 <td><code>int</code></td>
 <td>Number of chunks currently resident in VRAM.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:790</code></td>
+<td><code>GaussianStreamingSystem::get_loaded_chunks</code></td>
 </tr>
 <tr>
 <td><code>get_pending_upload_retirement_slots()</code></td>
 <td><code>int</code></td>
 <td>Atlas slots reserved by chunks that are not yet GPU-retired/renderable.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h</code></td>
+<td><code>GaussianStreamingSystem::get_pending_upload_retirement_slots</code></td>
 </tr>
 <tr>
 <td><code>get_pending_upload_retirement_bytes()</code></td>
 <td><code>int</code></td>
 <td>Pending upload payload bytes reserved against streaming admission diagnostics.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h</code></td>
+<td><code>GaussianStreamingSystem::get_pending_upload_retirement_bytes</code></td>
 </tr>
 <tr>
 <td><code>get_visible_count()</code></td>
 <td><code>int</code></td>
 <td>Splat count visible this frame after culling.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:780</code></td>
+<td><code>GaussianStreamingSystem::get_visible_count</code></td>
 </tr>
 <tr>
 <td><code>get_effective_splat_count()</code></td>
 <td><code>int</code></td>
 <td>Splat count after LOD reduction is applied.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:873</code></td>
+<td><code>GaussianStreamingSystem::get_effective_splat_count</code></td>
 </tr>
 <tr>
 <td><code>get_streaming_analytics()</code></td>
 <td><code>Dictionary</code></td>
 <td>Detailed analytics including pack/upload timing.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:795</code></td>
+<td><code>GaussianStreamingSystem::get_streaming_analytics</code></td>
 </tr>
 <tr>
 <td><code>get_chunk_culling_stats()</code></td>
 <td><code>Dictionary</code></td>
 <td>Total, visible, culled, and loaded chunk counts.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:810</code></td>
+<td><code>GaussianStreamingSystem::get_chunk_culling_stats</code></td>
 </tr>
 <tr>
 <td><code>get_vram_debug_stats()</code></td>
 <td><code>Dictionary</code></td>
 <td>VRAM regulator state and budget utilization.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:814</code></td>
+<td><code>GaussianStreamingSystem::get_vram_debug_stats</code></td>
 </tr>
 <tr>
 <td><code>get_lod_debug_stats()</code></td>
 <td><code>Dictionary</code></td>
 <td>LOD level distribution and transition counts.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:872</code></td>
+<td><code>GaussianStreamingSystem::get_lod_debug_stats</code></td>
 </tr>
 <tr>
 <td><code>is_vram_budget_warning_active()</code></td>
 <td><code>bool</code></td>
 <td>True when VRAM usage approaches the configured budget.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:815</code></td>
+<td><code>GaussianStreamingSystem::is_vram_budget_warning_active</code></td>
 </tr>
 </tbody>
 </table>
@@ -2301,38 +2321,38 @@ residency table above.</p>
 <tr>
 <td>No splats visible after loading a large dataset</td>
 <td>Chunks have not finished uploading; initial load is in progress.</td>
-<td>Wait several frames and check <code>get_loaded_chunks()</code> is increasing. Increase <code>max_chunk_loads_per_frame</code> for faster initial population.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1041</code></td>
+<td>Wait several frames and check that the <code>gaussian_splatting/streaming_loaded_chunks</code> monitor is increasing. Increase <code>max_chunk_loads_per_frame</code> for faster initial population.</td>
+<td><code>GaussianStreamingSystem::get_loaded_chunks</code></td>
 </tr>
 <tr>
 <td>VRAM usage exceeds expectations</td>
 <td>Quality tier override is raising the VRAM budget ceiling.</td>
 <td>Check <code>rendering/gaussian_splatting/quality/tier_preset</code> and <code>tier_apply_streaming_budgets</code>.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1023</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td>Chunks pop in and out frequently</td>
 <td>Eviction hysteresis is too low or VRAM budget is too tight.</td>
 <td>Increase <code>eviction_hysteresis_frames</code> and raise <code>max_upload_mb_per_frame</code> so the system can keep more chunks loaded.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1060</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td>Zero visible splats persist for many frames</td>
 <td>Camera is outside the bounding boxes of all chunks, or recovery is not triggering.</td>
 <td>Verify camera position is within the dataset bounds. Check <code>rendering/gaussian_splatting/streaming/zero_visible_recovery_mode</code>.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:940</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td>Prefetch does not load chunks ahead of camera</td>
 <td>Prefetch is disabled or lookahead distance is too small.</td>
 <td>Set <code>predictive_prefetch_enabled</code> to <code>true</code> and increase <code>prefetch_lookahead_distance</code>.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:1031</code></td>
+<td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 <tr>
 <td>LOD transitions cause visible flickering</td>
 <td>LOD blend is disabled or blend distance is too short.</td>
-<td>Call <code>set_lod_blend_enabled(true)</code> and increase the blend distance with <code>set_lod_blend_distance()</code>.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_streaming.h:821</code></td>
+<td>Set <code>rendering/gaussian_splatting/lod/blend_enabled</code> to <code>true</code> and raise <code>rendering/gaussian_splatting/lod/blend_distance</code>.</td>
+<td><code>LODBlendConfig::load_from_project_settings</code></td>
 </tr>
 </tbody>
 </table>
@@ -2356,7 +2376,7 @@ residency table above.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:58 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:55 UTC">October 1, 2026</span>
   </span>
 
     

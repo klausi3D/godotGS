@@ -1775,6 +1775,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#run-the-bake" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run the Bake
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#required-options" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1886,6 +1897,22 @@
 </tr>
 </tbody>
 </table>
+<h2 id="run-the-bake">Run the Bake<a class="headerlink" href="#run-the-bake" title="Permanent link">¶</a></h2>
+<p>The bake is a headless GDScript tool, <a href="https://github.com/klausi3D/godotGS/blob/c0d1ef536a2a62fc994804fbcc4a54f70d5fa7c0/scripts/bake_gsplatworld.gd"><code>scripts/bake_gsplatworld.gd</code></a> (it <code>extends SceneTree</code>).
+It is not an editor menu entry. Copy it into your project, then run it with a GodotGS editor binary:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Input-list mode: merge assets with identity transforms</span>
+godot<span class="w"> </span>--headless<span class="w"> </span>--path<span class="w"> </span>&lt;your_project&gt;<span class="w"> </span>--script<span class="w"> </span>res://scripts/bake_gsplatworld.gd<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--inputs<span class="o">=</span>res://splats/a.ply,res://splats/b.spz<span class="w"> </span>--output<span class="o">=</span>res://worlds/world.gsplatworld
+
+<span class="c1"># Scene mode: merge the GaussianSplatNode3D children of one GaussianSplatContainer</span>
+godot<span class="w"> </span>--headless<span class="w"> </span>--path<span class="w"> </span>&lt;your_project&gt;<span class="w"> </span>--script<span class="w"> </span>res://scripts/bake_gsplatworld.gd<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--scene<span class="o">=</span>res://scenes/world.tscn<span class="w"> </span>--output<span class="o">=</span>res://worlds/world.gsplatworld<span class="w"> </span>--chunk_size<span class="o">=</span><span class="m">25</span>.0
+</code></pre></div>
+<p>Everything after the standalone <code>--</code> goes to the script (<code>OS.get_cmdline_user_args()</code>); options use the <code>--name=value</code> form.
+On success the script prints <code>Saved gsplatworld: &lt;path&gt; (splats=N, chunks=M)</code> and exits with code <code>0</code>.
+Other exit codes: <code>1</code> missing <code>--output</code> or mode, <code>2</code> bake produced no world, <code>3</code> output does not end in <code>.gsplatworld</code> (checked after the bake), <code>4</code> <code>ResourceSaver.save()</code> failed.</p>
+<p><code>--inputs</code> accepts <code>.ply</code>, <code>.spz</code>, and <code>GaussianSplatAsset</code> resources (<code>.tres</code>/<code>.res</code>). Raw <code>.ply</code>/<code>.spz</code> inputs are loaded with <code>GaussianSplatAsset.load_from_file()</code>, not through the import pipeline, so import options such as <code>quality/max_splats</code> do not apply to them.</p>
+<p>In scene mode the instantiated scene is <strong>not</strong> added to the scene tree, so <code>GaussianSplatContainer::_merge_children_internal</code> uses each node's local transform. Child transforms relative to the container are kept; a transform on the container or its ancestors is not applied.</p>
 <h2 id="required-options">Required Options<a class="headerlink" href="#required-options" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -1965,6 +1992,16 @@
 <td>Rename the output file</td>
 </tr>
 <tr>
+<td><code>Bake aborted: one or more GaussianSplatNode3D children are missing splat_asset.</code></td>
+<td>A splat node in the container has no <code>splat_asset</code></td>
+<td>Assign an asset to every <code>GaussianSplatNode3D</code> child, or remove the empty node</td>
+</tr>
+<tr>
+<td><code>Unsupported input format: ...</code></td>
+<td>An <code>--inputs</code> entry is not <code>.ply</code>, <code>.spz</code>, <code>.tres</code>, or <code>.res</code></td>
+<td>Convert the input or import it first</td>
+</tr>
+<tr>
 <td>Misaligned runtime world</td>
 <td>The baked world is applied to a transformed runtime node</td>
 <td>Reset <code>GaussianSplatWorld3D</code> to identity before applying the world data</td>
@@ -2001,7 +2038,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:25:10 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:32:04 UTC">October 1, 2026</span>
   </span>
 
     

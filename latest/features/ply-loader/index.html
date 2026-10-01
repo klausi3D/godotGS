@@ -1866,26 +1866,27 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <tr>
 <td>1</td>
 <td>Use <code>GaussianData.load_from_file(path)</code> for runtime loading.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:174</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:969</code></td>
+<td><code>GaussianData::load_from_file</code>, <code>load_gaussian_data_from_file()</code> in <code>modules/gaussian_splatting/io/gaussian_data_loader.cpp</code></td>
 </tr>
 <tr>
 <td>2</td>
 <td>Use <code>PLYLoader.load_file(path)</code> when you need property inspection or load statistics.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:61</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:69</code></td>
+<td><code>PLYLoader::load_file</code></td>
 </tr>
 <tr>
 <td>3</td>
 <td>Use <code>GaussianData.save_to_file(path)</code> to export binary little-endian PLY.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:175</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1064</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1074</code></td>
+<td><code>GaussianData::save_to_file</code></td>
 </tr>
 <tr>
 <td>4</td>
-<td>In editor import flow, use importer <code>gaussian_splat_ply</code> which outputs <code>GaussianSplatAsset</code> (<code>.tres</code>).</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:137</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:153</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:149</code></td>
+<td>In the editor, the importer <code>gaussian_splat_ply</code> turns a <code>.ply</code> into a <code>GaussianSplatAsset</code> saved as <code>.res</code> under <code>.godot/imported/</code>.</td>
+<td><code>ResourceImporterPLY::get_importer_name</code>, <code>ResourceImporterPLY::get_resource_type</code>, <code>ResourceImporterPLY::get_save_extension</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
+<p>Only the methods below are callable from GDScript. <code>PLYLoader::get_property_deficiencies()</code> and <code>PLYLoader::get_property_summary()</code> exist in C++ but are <strong>not</strong> bound; from a script, use <code>has_property()</code> and <code>get_property_names()</code> instead (see the example below).</p>
 <table>
 <thead>
 <tr>
@@ -1898,33 +1899,45 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <tbody>
 <tr>
 <td><code>GaussianData.load_from_file(path)</code></td>
-<td>Runtime method</td>
-<td>Routes by extension and loads PLY through <code>PLYLoader</code> unless extension is <code>.spz</code>.</td>
-<td><code>modules/gaussian_splatting/io/gaussian_data_loader.cpp:9</code>, <code>modules/gaussian_splatting/io/gaussian_data_loader.cpp:29</code></td>
+<td>Bound method</td>
+<td>Routes by extension: <code>.spz</code> goes through <code>SPZLoader</code>, <code>.ply</code> through <code>PLYLoader</code>, any other extension returns <code>ERR_FILE_UNRECOGNIZED</code>. A PLY missing any required property, or with a non-finite position/scale/rotation/opacity, returns <code>ERR_FILE_CORRUPT</code>.</td>
+<td><code>GaussianData::load_from_file</code>, <code>load_gaussian_data_from_file()</code> in <code>modules/gaussian_splatting/io/gaussian_data_loader.cpp</code></td>
 </tr>
 <tr>
 <td><code>GaussianData.save_to_file(path)</code></td>
-<td>Runtime method</td>
-<td>Writes PLY with position, SH DC, scale, rotation, opacity, and painterly fields.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:1077</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1089</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1108</code></td>
+<td>Bound method</td>
+<td>Writes binary little-endian PLY with position, SH DC, scale, rotation, opacity, and painterly fields, plus <code>nx,ny,nz</code> when the data is in 2D mode. Higher-order SH (<code>f_rest_*</code>) is <strong>not</strong> written.</td>
+<td><code>GaussianData::save_to_file</code></td>
 </tr>
 <tr>
 <td><code>PLYLoader.load_file(path)</code></td>
-<td>Runtime method</td>
-<td>Parses header, optionally uses the <code>.gsplatcache</code> sidecar, then parses binary or ASCII vertex data.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:69</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:97</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:112</code></td>
-</tr>
-<tr>
-<td><code>PLYLoader.get_property_deficiencies()</code></td>
-<td>Runtime method</td>
-<td>Returns missing required and optional PLY properties.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:907</code></td>
+<td>Bound method</td>
+<td>Parses the header, reuses the <code>.gsplatcache</code> sidecar when the cache is enabled and valid, otherwise parses binary or ASCII vertex data. It does not fail on missing required properties; missing fields fall back to defaults.</td>
+<td><code>PLYLoader::load_file</code>, <code>PLYLoader::try_load_cache</code></td>
 </tr>
 <tr>
 <td><code>PLYLoader.get_load_statistics()</code></td>
-<td>Runtime method</td>
-<td>Returns count, format, property count, timings, cache-hit flag, and bounds.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:885</code></td>
+<td>Bound method</td>
+<td>Returns <code>splat_count</code>, <code>format</code> (<code>"binary"</code> or <code>"ascii"</code>), <code>properties</code> (count), and, after a load, <code>load_time_ms</code>, <code>header_time_ms</code>, <code>parse_time_ms</code>, <code>cache_time_ms</code>, <code>cache_hit</code>, <code>bounds_min</code>, <code>bounds_max</code>.</td>
+<td><code>PLYLoader::get_load_statistics</code></td>
+</tr>
+<tr>
+<td><code>PLYLoader.has_property(name)</code></td>
+<td>Bound method</td>
+<td><code>true</code> when the header declares that vertex property.</td>
+<td><code>PLYLoader::has_property</code></td>
+</tr>
+<tr>
+<td><code>PLYLoader.get_property_names()</code></td>
+<td>Bound method</td>
+<td>All vertex property names from the header, in file order.</td>
+<td><code>PLYLoader::get_property_names</code></td>
+</tr>
+<tr>
+<td><code>PLYLoader.get_splat_count()</code> / <code>get_gaussian_data()</code></td>
+<td>Bound methods</td>
+<td>Loaded splat count and the loaded <code>GaussianData</code>.</td>
+<td><code>PLYLoader::get_splat_count</code>, <code>PLYLoader::get_gaussian_data</code></td>
 </tr>
 </tbody>
 </table>
@@ -1941,50 +1954,50 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <tr>
 <td><code>x,y,z</code></td>
 <td>Yes</td>
-<td>Position fields are required by validation and deficiency checks.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:911</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:482</code></td>
+<td>Position. Required by <code>GaussianData.load_from_file()</code> and by importer validation.</td>
+<td><code>PLYLoader::get_property_deficiencies</code>, <code>ResourceImporterPLY::validate_ply_properties</code></td>
 </tr>
 <tr>
 <td><code>f_dc_0,f_dc_1,f_dc_2</code></td>
 <td>Yes</td>
 <td>Color is read as SH DC and converted using <code>SH_C0</code>.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:336</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:692</code></td>
+<td><code>PLYLoader::assemble_sh_coefficients</code></td>
 </tr>
 <tr>
 <td><code>scale_0,scale_1,scale_2</code></td>
 <td>Yes</td>
 <td>Scale is decoded with <code>exp</code>.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:413</code></td>
+<td><code>PLYLoader::parse_binary_data</code>, <code>PLYLoader::parse_ascii_data</code></td>
 </tr>
 <tr>
 <td><code>rot_0..rot_3</code></td>
 <td>Yes</td>
-<td>Rotation is read as quaternion and normalized.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:419</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:424</code></td>
+<td>Rotation is read as quaternion (<code>rot_0</code> = w) and normalized.</td>
+<td><code>PLYLoader::parse_binary_data</code>, <code>PLYLoader::parse_ascii_data</code></td>
 </tr>
 <tr>
 <td><code>opacity</code></td>
 <td>Yes</td>
 <td>Opacity is decoded as sigmoid from logit.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:427</code></td>
+<td><code>PLYLoader::parse_binary_data</code>, <code>PLYLoader::parse_ascii_data</code></td>
 </tr>
 <tr>
 <td><code>nx,ny,nz</code></td>
 <td>No</td>
-<td>If present, loader enables 2D mode.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:323</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:327</code></td>
+<td>If all three are present, the loader enables 2D mode.</td>
+<td><code>PLYLoader::parse_binary_data</code></td>
 </tr>
 <tr>
-<td><code>palette_id,brush_axis_u,brush_axis_v,stroke_age</code></td>
+<td><code>palette_id,brush_override_id,brush_axis_u,brush_axis_v,stroke_age</code></td>
 <td>No</td>
 <td>Painterly metadata is loaded when present and written on save.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:331</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1108</code></td>
+<td><code>PLYLoader::parse_binary_data</code>, <code>GaussianData::save_to_file</code></td>
 </tr>
 <tr>
 <td><code>f_rest_*</code></td>
 <td>No</td>
-<td>Higher-order SH is repacked from channel-major to coefficient-major RGB.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:703</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:785</code></td>
+<td>Higher-order SH is repacked from channel-major to coefficient-major RGB on load. It is not written by <code>GaussianData.save_to_file()</code>.</td>
+<td><code>PLYLoader::assemble_sh_coefficients</code></td>
 </tr>
 </tbody>
 </table>
@@ -2002,19 +2015,19 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>ascii</code></td>
 <td>Yes</td>
 <td>No</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:158</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:517</code></td>
+<td><code>PLYLoader::parse_header</code>, <code>PLYLoader::parse_ascii_data</code></td>
 </tr>
 <tr>
 <td><code>binary_little_endian</code></td>
 <td>Yes</td>
 <td>Yes</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:152</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1074</code></td>
+<td><code>PLYLoader::parse_header</code>, <code>GaussianData::save_to_file</code></td>
 </tr>
 <tr>
 <td><code>binary_big_endian</code></td>
 <td>Yes</td>
 <td>No</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:155</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:807</code></td>
+<td><code>PLYLoader::parse_header</code>, <code>PLYLoader::read_float_property</code></td>
 </tr>
 </tbody>
 </table>
@@ -2031,73 +2044,92 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <tr>
 <td><code>quality/preset</code></td>
 <td>preset-specific</td>
-<td>Chooses preset baseline (<code>mobile</code> to <code>custom</code>).</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:175</code></td>
+<td>Chooses the preset baseline: <code>mobile</code>, <code>desktop</code>, <code>high</code>, <code>ultra</code>, <code>development</code>, or <code>custom</code>.</td>
+<td><code>ResourceImporterPLY::get_import_options</code></td>
 </tr>
 <tr>
 <td><code>quality/max_splats</code></td>
 <td>preset-specific</td>
-<td>Caps final splat count after import processing.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:185</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:308</code></td>
+<td>Caps the final splat count after import processing (<code>0</code> = no cap).</td>
+<td><code>ResourceImporterPLY::get_import_options</code>, <code>ResourceImporterPLY::import</code></td>
 </tr>
 <tr>
 <td><code>quality/density_multiplier</code></td>
 <td>preset-specific</td>
-<td>Reduces density and can merge source ranges.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:189</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:309</code></td>
+<td>Reduces density (clamped to <code>0.1..1.0</code>) and can merge source ranges.</td>
+<td><code>ResourceImporterPLY::get_import_options</code>, <code>ResourceImporterPLY::import</code></td>
 </tr>
 <tr>
 <td><code>validation/validate_required_properties</code></td>
 <td><code>true</code></td>
-<td>Fails import if required properties are missing or invalid.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:196</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:476</code></td>
+<td>Fails the import if required properties are missing or the first splats are invalid. Non-finite data is rejected even when this is off.</td>
+<td><code>ResourceImporterPLY::validate_ply_properties</code>, <code>ResourceImporterPLY::import</code></td>
 </tr>
 <tr>
 <td><code>validation/warn_missing_optional</code></td>
 <td><code>true</code></td>
 <td>Logs optional property presence and omissions.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:198</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:539</code></td>
+<td><code>ResourceImporterPLY::log_missing_properties</code></td>
 </tr>
 <tr>
 <td><code>preview/generate_thumbnail</code></td>
 <td><code>true</code></td>
-<td>Generates and stores thumbnail in imported asset metadata.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:214</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:381</code></td>
+<td>Generates a thumbnail and stores it as the asset's preview image.</td>
+<td><code>ResourceImporterPLY::import</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
+<p>Both examples are complete scripts. Attach one to a <code>Node</code> and point the path at a PLY in your project.</p>
 <div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
+
+<span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="n">load_and_save_ply</span><span class="p">()</span>
 
 <span class="k">func</span><span class="w"> </span><span class="n">load_and_save_ply</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianData</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">load_from_file</span><span class="p">(</span><span class="s2">"res://models/scan.ply"</span><span class="p">)</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
-<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"load_from_file failed: </span><span class="si">%d</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">err</span><span class="p">)</span>
+<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"load_from_file failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
 <span class="w">        </span><span class="k">return</span>
 
-<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Loaded splats:"</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get_count</span><span class="p">())</span>
-<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Bounds:"</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get_aabb</span><span class="p">())</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Loaded splats: "</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get_count</span><span class="p">())</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Bounds: "</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">get_aabb</span><span class="p">())</span>
 
+<span class="w">    </span><span class="c1"># Writes binary little-endian PLY. Higher-order SH (f_rest_*) is not written.</span>
 <span class="w">    </span><span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">save_to_file</span><span class="p">(</span><span class="s2">"user://scan_out.ply"</span><span class="p">)</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
-<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"save_to_file failed: </span><span class="si">%d</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">err</span><span class="p">)</span>
+<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"save_to_file failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
+
+<span class="k">const</span><span class="w"> </span><span class="n">REQUIRED_PROPERTIES</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="s2">"x"</span><span class="p">,</span><span class="w"> </span><span class="s2">"y"</span><span class="p">,</span><span class="w"> </span><span class="s2">"z"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"f_dc_0"</span><span class="p">,</span><span class="w"> </span><span class="s2">"f_dc_1"</span><span class="p">,</span><span class="w"> </span><span class="s2">"f_dc_2"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"scale_0"</span><span class="p">,</span><span class="w"> </span><span class="s2">"scale_1"</span><span class="p">,</span><span class="w"> </span><span class="s2">"scale_2"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"rot_0"</span><span class="p">,</span><span class="w"> </span><span class="s2">"rot_1"</span><span class="p">,</span><span class="w"> </span><span class="s2">"rot_2"</span><span class="p">,</span><span class="w"> </span><span class="s2">"rot_3"</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">"opacity"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="n">inspect_ply_header</span><span class="p">()</span>
 
 <span class="k">func</span><span class="w"> </span><span class="n">inspect_ply_header</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">loader</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">PLYLoader</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">load_file</span><span class="p">(</span><span class="s2">"res://models/scan.ply"</span><span class="p">)</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
-<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"PLYLoader.load_file failed: </span><span class="si">%d</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">err</span><span class="p">)</span>
+<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"PLYLoader.load_file failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
 <span class="w">        </span><span class="k">return</span>
 
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">stats</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">get_load_statistics</span><span class="p">()</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">summary</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">get_property_summary</span><span class="p">()</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Stats: "</span><span class="p">,</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">get_load_statistics</span><span class="p">())</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Properties: "</span><span class="p">,</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">get_property_names</span><span class="p">())</span>
 
-<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Stats:"</span><span class="p">,</span><span class="w"> </span><span class="n">stats</span><span class="p">)</span>
-<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Missing required:"</span><span class="p">,</span><span class="w"> </span><span class="n">summary</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"missing_required"</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">PackedStringArray</span><span class="p">()))</span>
-<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Missing optional:"</span><span class="p">,</span><span class="w"> </span><span class="n">summary</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"missing_optional"</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">PackedStringArray</span><span class="p">()))</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">missing_required</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">PackedStringArray</span><span class="p">()</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="n">property_name</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="n">REQUIRED_PROPERTIES</span><span class="p">:</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="n">property_name</span><span class="p">):</span>
+<span class="w">            </span><span class="n">missing_required</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">property_name</span><span class="p">)</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Missing required: "</span><span class="p">,</span><span class="w"> </span><span class="n">missing_required</span><span class="p">)</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Has normals (2D mode): "</span><span class="p">,</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"nx"</span><span class="p">)</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"ny"</span><span class="p">)</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"nz"</span><span class="p">))</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
 <table>
@@ -2111,28 +2143,34 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 </thead>
 <tbody>
 <tr>
-<td><code>ERR_FILE_CORRUPT</code> on load</td>
-<td>Required properties are missing in source PLY.</td>
-<td>Ensure <code>x,y,z</code>, <code>f_dc_0..2</code>, <code>scale_0..2</code>, <code>rot_0..3</code>, and <code>opacity</code> exist.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:911</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:977</code></td>
+<td><code>ERR_FILE_CORRUPT</code> from <code>GaussianData.load_from_file()</code></td>
+<td>Required properties are missing, or a splat has a NaN/Inf position, scale, rotation, or opacity.</td>
+<td>Ensure <code>x,y,z</code>, <code>f_dc_0..2</code>, <code>scale_0..2</code>, <code>rot_0..3</code>, and <code>opacity</code> exist and are finite.</td>
+<td><code>GaussianData::load_from_file</code></td>
+</tr>
+<tr>
+<td><code>ERR_FILE_UNRECOGNIZED</code> from <code>GaussianData.load_from_file()</code></td>
+<td>The file extension is neither <code>.ply</code> nor <code>.spz</code>, or the file does not start with a <code>ply</code> header.</td>
+<td>Use a <code>.ply</code> or <code>.spz</code> path.</td>
+<td><code>load_gaussian_data_from_file()</code> in <code>modules/gaussian_splatting/io/gaussian_data_loader.cpp</code>, <code>PLYLoader::parse_header</code></td>
 </tr>
 <tr>
 <td>Import fails during validation</td>
 <td>Validation found missing fields or invalid values.</td>
 <td>Re-export with required fields and finite position/scale/opacity values.</td>
-<td><code>modules/gaussian_splatting/io/resource_importer_ply.cpp:482</code>, <code>modules/gaussian_splatting/io/resource_importer_ply.cpp:531</code></td>
+<td><code>ResourceImporterPLY::validate_ply_properties</code></td>
 </tr>
 <tr>
 <td>2D surfel mode is not enabled</td>
-<td>Source PLY does not include full normal triplet.</td>
+<td>Source PLY does not include the full normal triplet.</td>
 <td>Export <code>nx,ny,nz</code> for each vertex.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:521</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:526</code></td>
+<td><code>PLYLoader::parse_binary_data</code></td>
 </tr>
 <tr>
 <td>Repeated loads are slower than expected</td>
 <td>Cache path is disabled or cache metadata mismatch prevents reuse.</td>
 <td>Enable <code>rendering/gaussian_splatting/import/use_gsplatworld_cache</code> and keep source timestamp and size stable.</td>
-<td><code>modules/gaussian_splatting/io/ply_loader.cpp:46</code>, <code>modules/gaussian_splatting/io/ply_loader.cpp:242</code></td>
+<td><code>_is_ply_cache_enabled()</code> in <code>modules/gaussian_splatting/io/ply_loader.cpp</code>, <code>PLYLoader::try_load_cache</code></td>
 </tr>
 </tbody>
 </table>
@@ -2156,7 +2194,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:58 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:55 UTC">October 1, 2026</span>
   </span>
 
     

@@ -2025,7 +2025,8 @@
 <p>Never walk the scene tree to match effectors to splats yourself. Never call director internals. Use layer 1 + 2 for authoring; use layer 3 for runtime queries.</p>
 <hr>
 <h2 id="authoring-a-sphereeffector3d-scene-file-or-script">Authoring a SphereEffector3D (scene file or script)<a class="headerlink" href="#authoring-a-sphereeffector3d-scene-file-or-script" title="Permanent link">¶</a></h2>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">effector</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># Runs inside any Node script (add_child() attaches the effector to this node).</span>
+<span class="k">var</span><span class="w"> </span><span class="n">effector</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span><span class="w">          </span><span class="c1"># default false — must set</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">radius</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">3.0</span><span class="w">            </span><span class="c1"># world-space units</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">strength</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">          </span><span class="c1"># position amplitude, -10..10</span>
@@ -2035,7 +2036,7 @@
 <span class="n">effector</span><span class="o">.</span><span class="n">affect_opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">false</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">opacity_strength</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">  </span><span class="c1"># 0..1, only used when affect_opacity = true</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">target_opacity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.0</span><span class="w">    </span><span class="c1"># 0..1, 1.0 = neutral (no change)</span>
-<span class="n">effector</span><span class="o">.</span><span class="n">layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">          </span><span class="c1"># bit field, matches GaussianSplatNode3D.layer_mask</span>
+<span class="n">effector</span><span class="o">.</span><span class="n">layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">          </span><span class="c1"># bit field, AND-ed with the node's rendering/scene_effector_layer_mask</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">scope_mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="o">.</span><span class="n">SCOPE_SUBTREE</span><span class="w">  </span><span class="c1"># WORLD, SUBTREE, EXPLICIT_ROOT</span>
 <span class="n">effector</span><span class="o">.</span><span class="n">priority</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="w">            </span><span class="c1"># tiebreaker for the 4-slot budget</span>
 
@@ -2081,10 +2082,13 @@
 <p><strong>Zero-radius and non-finite transforms are rejected</strong> before the 4-slot budget is applied. Don't rely on them for anything.</p>
 <hr>
 <h2 id="filter-state-on-gaussiansplatnode3d">Filter state on GaussianSplatNode3D<a class="headerlink" href="#filter-state-on-gaussiansplatnode3d" title="Permanent link">¶</a></h2>
-<p>Every <code>GaussianSplatNode3D</code> has three properties under <code>rendering/</code> that control which effectors apply:</p>
-<div class="highlight"><pre><span></span><code><span class="n">splat_node</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">scene_effectors_enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span><span class="w">   </span><span class="c1"># master toggle</span>
-<span class="n">splat_node</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">scene_effector_layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mh">0xFF</span><span class="w"> </span><span class="c1"># bit-AND with effector.layer_mask</span>
-<span class="n">splat_node</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">scene_effector_scope_root</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">NodePath</span><span class="p">(</span><span class="s2">"../SomeAncestor"</span><span class="p">)</span><span class="w">  </span><span class="c1"># optional</span>
+<p>Every <code>GaussianSplatNode3D</code> has three properties under <code>rendering/</code> that control which effectors apply.
+Grouped property names such as <code>rendering/scene_effectors_enabled</code> are single property names that contain a <code>/</code>; they cannot be reached with dot access (<code>splat_node.rendering.scene_effectors_enabled</code> fails at runtime). Use the bound setters, or <code>set("rendering/...", value)</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var splat_node: GaussianSplatNode3D</span>
+<span class="n">splat_node</span><span class="o">.</span><span class="n">set_scene_effectors_enabled</span><span class="p">(</span><span class="bp">true</span><span class="p">)</span><span class="w">       </span><span class="c1"># master toggle (default true)</span>
+<span class="n">splat_node</span><span class="o">.</span><span class="n">set_scene_effector_layer_mask</span><span class="p">(</span><span class="mh">0xFF</span><span class="p">)</span><span class="w">     </span><span class="c1"># bit-AND with effector.layer_mask (default 1)</span>
+<span class="n">splat_node</span><span class="o">.</span><span class="n">set_scene_effector_scope_root</span><span class="p">(</span><span class="nb nb-Type">NodePath</span><span class="p">(</span><span class="s2">"../SomeAncestor"</span><span class="p">))</span><span class="w">  </span><span class="c1"># optional</span>
+<span class="c1"># Equivalent: splat_node.set("rendering/scene_effector_layer_mask", 0xFF)</span>
 </code></pre></div>
 <ul>
 <li><code>scene_effectors_enabled = false</code> — the node receives zero scene effectors. Use this for opt-out.</li>
@@ -2094,20 +2098,22 @@
 <p><strong>Don't toggle these every frame.</strong> Each setter bumps the director's instance generation, which invalidates cached uploads. Set at spawn time; change only on state transitions.</p>
 <h3 id="per-node-response-scales">Per-node response scales<a class="headerlink" href="#per-node-response-scales" title="Permanent link">¶</a></h3>
 <p>Independent of which effectors match, each <code>GaussianSplatNode3D</code> has per-channel scale multipliers:</p>
-<div class="highlight"><pre><span></span><code><span class="n">splat_node</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">effect_position_scale</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">  </span><span class="c1"># 0..1, dampens position deformation</span>
-<span class="n">splat_node</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">effect_opacity_scale</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w">   </span><span class="c1"># 0..1, dampens opacity modulation</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var splat_node: GaussianSplatNode3D</span>
+<span class="n">splat_node</span><span class="o">.</span><span class="n">set_effect_position_scale</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span><span class="w">  </span><span class="c1"># default 1.0; inspector range 0..4 (or greater); &lt; 1 dampens position deformation</span>
+<span class="n">splat_node</span><span class="o">.</span><span class="n">set_effect_opacity_scale</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span><span class="w">   </span><span class="c1"># default 1.0; inspector range 0..4 (or greater); &lt; 1 dampens opacity modulation</span>
 </code></pre></div>
 <p>Use these for gameplay fade-in / fade-out without disabling the effector.</p>
 <hr>
 <h2 id="runtime-diagnostic-api-gameplay-should-use-this">Runtime diagnostic API — gameplay should use this<a class="headerlink" href="#runtime-diagnostic-api-gameplay-should-use-this" title="Permanent link">¶</a></h2>
 <p>When your gameplay code needs to know "is this splat being deformed right now", <strong>do not</strong> enumerate effectors yourself. Use the runtime API on <code>GaussianSplatNode3D</code>:</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Is the node's position being pushed this frame?</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var splat_node: GaussianSplatNode3D</span>
+<span class="c1"># Is the node's position being pushed this frame?</span>
 <span class="k">if</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">is_scene_effector_position_active</span><span class="p">():</span>
-<span class="w">    </span><span class="n">play_rustle_sound</span><span class="p">()</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"play the rustle sound here"</span><span class="p">)</span><span class="w">  </span><span class="c1"># your game code</span>
 
 <span class="c1"># Is opacity being modulated?</span>
 <span class="k">if</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">is_scene_effector_opacity_active</span><span class="p">():</span>
-<span class="w">    </span><span class="n">start_dissolve_vfx</span><span class="p">()</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"start the dissolve VFX here"</span><span class="p">)</span><span class="w">  </span><span class="c1"># your game code</span>
 
 <span class="c1"># Rich diagnostic dictionary for debug overlays / editor tools</span>
 <span class="k">var</span><span class="w"> </span><span class="n">state</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Dictionary</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">get_scene_effector_debug_state</span><span class="p">()</span>
@@ -2164,9 +2170,9 @@
 <li><code>effector.radius &gt; 0</code>.</li>
 <li><code>effector.affect_position || effector.affect_opacity</code>.</li>
 <li>At least one channel can contribute: <code>strength != 0</code> for position, <code>opacity_strength != 0 &amp;&amp; target_opacity != 1.0</code> for opacity.</li>
-<li><code>layer_mask &amp; splat_node.rendering.scene_effector_layer_mask != 0</code>.</li>
+<li><code>effector.layer_mask &amp; splat_node.get_scene_effector_layer_mask() != 0</code> (the node's <code>rendering/scene_effector_layer_mask</code> defaults to <code>1</code>).</li>
 <li>Scope matches: for <code>SCOPE_SUBTREE</code>, the effector's parent must be an ancestor of the splat node. For <code>SCOPE_EXPLICIT_ROOT</code>, the NodePath must resolve to a live Node that's an ancestor.</li>
-<li><code>splat_node.rendering.scene_effectors_enabled == true</code>.</li>
+<li><code>splat_node.is_scene_effectors_enabled() == true</code> (<code>rendering/scene_effectors_enabled</code>).</li>
 </ol>
 <p>Query <code>splat_node.get_scene_effector_debug_state()</code> and inspect <code>matched_count</code> + <code>bound_count</code>. If matched is 0, filter mismatch. If matched &gt; 0 but bound is 0, slot budget exhausted by higher-priority effectors.</p>
 <h3 id="i-added-6-effectors-and-only-4-apply">"I added 6 effectors and only 4 apply"<a class="headerlink" href="#i-added-6-effectors-and-only-4-apply" title="Permanent link">¶</a></h3>
@@ -2195,6 +2201,8 @@
 <span class="c1">#     └── Effector (SphereEffector3D)</span>
 
 <span class="c1"># Group.gd</span>
+<span class="k">extends</span><span class="w"> </span><span class="n">Node3D</span>
+
 <span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">effector</span><span class="p">:</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">$</span><span class="n">Effector</span>
 <span class="w">    </span><span class="n">effector</span><span class="o">.</span><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
@@ -2242,11 +2250,14 @@
 <h2 id="recipes">Recipes<a class="headerlink" href="#recipes" title="Permanent link">¶</a></h2>
 <h3 id="recipe-a-fade-a-prop-out-on-proximity-dissolve-vfx">Recipe A — Fade a prop out on proximity (dissolve VFX)<a class="headerlink" href="#recipe-a-fade-a-prop-out-on-proximity-dissolve-vfx" title="Permanent link">¶</a></h3>
 <div class="highlight"><pre><span></span><code><span class="c1"># PropWithDissolve.gd (attached to PropRoot)</span>
+<span class="k">extends</span><span class="w"> </span><span class="n">Node3D</span>
+
 <span class="err">@</span><span class="k">onready</span><span class="w"> </span><span class="k">var</span><span class="w"> </span><span class="n">effector</span><span class="p">:</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">$</span><span class="n">DissolveField</span>
 <span class="err">@</span><span class="k">onready</span><span class="w"> </span><span class="k">var</span><span class="w"> </span><span class="n">player</span><span class="p">:</span><span class="w"> </span><span class="n">Node3D</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">get_tree</span><span class="p">()</span><span class="o">.</span><span class="n">get_first_node_in_group</span><span class="p">(</span><span class="s2">"player"</span><span class="p">)</span>
 
 <span class="k">func</span><span class="w"> </span><span class="n">_process</span><span class="p">(</span><span class="n">_delta</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">float</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="n">effector</span><span class="o">.</span><span class="n">position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">player</span><span class="o">.</span><span class="n">global_position</span><span class="w">  </span><span class="c1"># field follows player</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">player</span><span class="p">:</span>
+<span class="w">        </span><span class="n">effector</span><span class="o">.</span><span class="n">global_position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">player</span><span class="o">.</span><span class="n">global_position</span><span class="w">  </span><span class="c1"># field follows player</span>
 </code></pre></div>
 <p>Authoring in the scene (Inspector):
 - <code>DissolveField.radius = 2.5</code>, <code>affect_opacity = true</code>, <code>target_opacity = 0.0</code>,
@@ -2267,17 +2278,19 @@
 - On each receiving <code>GaussianSplatNode3D</code>: <code>rendering/effect_position_scale = 1.0</code>, <code>rendering/effect_opacity_scale = 1.0</code>.</p>
 <h3 id="recipe-c-foliage-curtain-wind-sway">Recipe C — Foliage / curtain wind sway<a class="headerlink" href="#recipe-c-foliage-curtain-wind-sway" title="Permanent link">¶</a></h3>
 <p>Sphere effectors do radial motion, which is <em>not</em> what you want for wind. Use the instance-wind override instead:</p>
-<div class="highlight"><pre><span></span><code><span class="n">foliage_splat</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">wind_override_enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
-<span class="n">foliage_splat</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">wind_enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
-<span class="n">foliage_splat</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">wind_strength</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.0</span>
-<span class="n">foliage_splat</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">wind_direction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.2</span><span class="p">)</span><span class="o">.</span><span class="n">normalized</span><span class="p">()</span>
-<span class="n">foliage_splat</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">wind_frequency</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.5</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var foliage_splat: GaussianSplatNode3D</span>
+<span class="n">foliage_splat</span><span class="o">.</span><span class="n">set_wind_override_enabled</span><span class="p">(</span><span class="bp">true</span><span class="p">)</span><span class="w">   </span><span class="c1"># rendering/wind_override_enabled</span>
+<span class="n">foliage_splat</span><span class="o">.</span><span class="n">set_wind_enabled</span><span class="p">(</span><span class="bp">true</span><span class="p">)</span><span class="w">            </span><span class="c1"># rendering/wind_enabled</span>
+<span class="n">foliage_splat</span><span class="o">.</span><span class="n">set_wind_strength</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span><span class="w">            </span><span class="c1"># rendering/wind_strength</span>
+<span class="n">foliage_splat</span><span class="o">.</span><span class="n">set_wind_direction</span><span class="p">(</span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.2</span><span class="p">)</span><span class="o">.</span><span class="n">normalized</span><span class="p">())</span><span class="w">  </span><span class="c1"># rendering/wind_direction</span>
+<span class="n">foliage_splat</span><span class="o">.</span><span class="n">set_wind_frequency</span><span class="p">(</span><span class="mf">1.5</span><span class="p">)</span><span class="w">           </span><span class="c1"># rendering/wind_frequency</span>
 </code></pre></div>
 <p>This works standalone — no global wind setting required (Fix #3). The per-instance values take effect whenever the project wind_strength is 0, via a shader fallback.</p>
 <p>For scenes with <em>many</em> swaying splat instances sharing the same wind, set the project settings once (<code>ProjectSettings → rendering/gaussian_splatting/animation/wind_*</code>) and leave <code>wind_override_enabled = false</code> on each node — they'll inherit.</p>
 <h3 id="recipe-d-impact-shockwave-pulse">Recipe D — Impact / shockwave pulse<a class="headerlink" href="#recipe-d-impact-shockwave-pulse" title="Permanent link">¶</a></h3>
 <p>Combine displacement + dissolve on a momentary effector. Spawn it at the impact point, animate its <code>radius</code> from 0 → big over ~0.3s, then free it.</p>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">pulse</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var impact_point: Vector3</span>
+<span class="k">var</span><span class="w"> </span><span class="n">pulse</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">SphereEffector3D</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
 <span class="n">pulse</span><span class="o">.</span><span class="n">enabled</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
 <span class="n">pulse</span><span class="o">.</span><span class="n">affect_position</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">true</span>
 <span class="n">pulse</span><span class="o">.</span><span class="n">strength</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">2.5</span>
@@ -2294,18 +2307,21 @@
 </code></pre></div>
 <h3 id="recipe-e-per-instance-fade-via-effect__scale-no-effector-churn">Recipe E — Per-instance fade via <code>effect_*_scale</code> (no effector churn)<a class="headerlink" href="#recipe-e-per-instance-fade-via-effect__scale-no-effector-churn" title="Permanent link">¶</a></h3>
 <p>You want the effector stable, but the <em>individual splat</em> to ease in/out of the effect:</p>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">tween</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">create_tween</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var splat_node: GaussianSplatNode3D</span>
+<span class="c1"># Tweens accept the full grouped property name as the property path.</span>
+<span class="k">var</span><span class="w"> </span><span class="n">tween</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">create_tween</span><span class="p">()</span>
 <span class="n">tween</span><span class="o">.</span><span class="n">tween_property</span><span class="p">(</span><span class="n">splat_node</span><span class="p">,</span><span class="w"> </span><span class="s2">"rendering/effect_opacity_scale"</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span><span class="o">.</span><span class="n">from</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
-<span class="c1"># Later:</span>
+<span class="c1"># Later (tweeners run in sequence):</span>
 <span class="n">tween</span><span class="o">.</span><span class="n">tween_property</span><span class="p">(</span><span class="n">splat_node</span><span class="p">,</span><span class="w"> </span><span class="s2">"rendering/effect_opacity_scale"</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
 </code></pre></div>
 <p>Cheaper than toggling <code>scene_effectors_enabled</code> — no generation bump, no cache invalidation.</p>
 <h3 id="recipe-f-exclusive-group-this-effector-only-affects-props-a-b">Recipe F — Exclusive group (this effector only affects props A &amp; B)<a class="headerlink" href="#recipe-f-exclusive-group-this-effector-only-affects-props-a-b" title="Permanent link">¶</a></h3>
 <p>Layer masks:</p>
-<div class="highlight"><pre><span></span><code><span class="n">effector</span><span class="o">.</span><span class="n">layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w">   </span><span class="c1"># bit 3</span>
-<span class="n">prop_a</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">scene_effector_layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span>
-<span class="n">prop_b</span><span class="o">.</span><span class="n">rendering</span><span class="o">.</span><span class="n">scene_effector_layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span>
-<span class="c1"># Other props leave their default (usually 0xFF = match everything) or clear bit 3.</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var effector: SphereEffector3D; var prop_a: GaussianSplatNode3D; var prop_b: GaussianSplatNode3D</span>
+<span class="n">effector</span><span class="o">.</span><span class="n">layer_mask</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span><span class="w">   </span><span class="c1"># bit 3</span>
+<span class="n">prop_a</span><span class="o">.</span><span class="n">set_scene_effector_layer_mask</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span>
+<span class="n">prop_b</span><span class="o">.</span><span class="n">set_scene_effector_layer_mask</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&lt;&lt;</span><span class="w"> </span><span class="mi">3</span><span class="p">)</span>
+<span class="c1"># Other props keep their default mask (1 = bit 0 only), so they do not overlap bit 3.</span>
 </code></pre></div>
 <p>Effector won't match any splat whose layer mask doesn't overlap.</p>
 <h2 id="tuning-cheat-sheet">Tuning cheat sheet<a class="headerlink" href="#tuning-cheat-sheet" title="Permanent link">¶</a></h2>
@@ -2344,7 +2360,7 @@
 </tr>
 <tr>
 <td><code>effect_position_scale</code> (per-node)</td>
-<td>0..∞ multiplier on how much <em>this</em> splat responds to position. Clamp to 0..1 for sane game behavior.</td>
+<td>Multiplier on how much <em>this</em> splat responds to position (default 1.0; inspector range 0..4, or greater). Keep it in 0..1 for sane game behavior.</td>
 </tr>
 <tr>
 <td><code>effect_opacity_scale</code> (per-node)</td>
@@ -2355,7 +2371,8 @@
 <p><strong>Falloff × position in sphere → approximate weight</strong>: at a point <code>d</code> from the center with radius <code>r</code>, weight is <code>((r-d)/r)^falloff</code>. For a cabin 5 m from a 10 m sphere: <code>(0.5)^0.3 ≈ 0.81</code>, <code>(0.5)^2 ≈ 0.25</code>. That 3× difference is what makes the reference scene's moving-row feel "strong" vs "subtle".</p>
 <h2 id="debugging-is-my-effector-actually-doing-anything">Debugging: is my effector actually doing anything?<a class="headerlink" href="#debugging-is-my-effector-actually-doing-anything" title="Permanent link">¶</a></h2>
 <p>Before blaming the system, check the runtime diagnostic:</p>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">get_scene_effector_debug_state</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var splat_node: GaussianSplatNode3D</span>
+<span class="k">var</span><span class="w"> </span><span class="n">state</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">splat_node</span><span class="o">.</span><span class="n">get_scene_effector_debug_state</span><span class="p">()</span>
 <span class="nb">print</span><span class="p">(</span><span class="s2">"matched="</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="o">.</span><span class="n">matched_count</span><span class="p">,</span><span class="w"> </span><span class="s2">" bound="</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="o">.</span><span class="n">bound_count</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">" pos_active="</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="o">.</span><span class="n">position_active</span><span class="p">,</span><span class="w"> </span><span class="s2">" op_active="</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="o">.</span><span class="n">opacity_active</span><span class="p">,</span>
 <span class="w">      </span><span class="s2">" effectors="</span><span class="p">,</span><span class="w"> </span><span class="n">state</span><span class="o">.</span><span class="n">selected_effector_names</span><span class="p">)</span>
@@ -2414,7 +2431,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:46 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:45 UTC">October 1, 2026</span>
   </span>
 
     

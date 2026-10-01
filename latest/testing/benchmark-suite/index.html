@@ -2338,7 +2338,7 @@ exact build flags with any snapshot you add.</p>
 </div>
 <h2 id="standard-flags">Standard Flags<a class="headerlink" href="#standard-flags" title="Permanent link">¶</a></h2>
 <ul>
-<li><code>--profile</code> (<code>everything|quick|performance|synthetic-only|ab-only</code>)</li>
+<li><code>--profile</code> (<code>everything|quick|performance|synthetic-only|ab-only|sort32|steam-deck</code>)</li>
 <li><code>--godot-binary</code></li>
 <li><code>--project-path</code></li>
 <li><code>--output-dir</code></li>
@@ -2357,6 +2357,11 @@ exact build flags with any snapshot you add.</p>
 <li><code>performance</code>: canonical benchmark evidence profile</li>
 <li><code>synthetic-only</code>: synthetic scenes only</li>
 <li><code>ab-only</code>: instance pipeline serial vs single-pass lanes</li>
+<li><code>sort32</code>: four 32-bit sort-key stress lanes (<code>sort32_coplanar_alpha</code>, <code>sort32_near_camera_large</code>,
+  <code>sort32_depth_range</code>, <code>sort32_tile_bit_pressure</code>); they carry zero weight in every other profile</li>
+<li><code>steam-deck</code>: the two 800p handheld lanes (<code>deck_static_baseline</code>, <code>deck_streaming_baseline</code>), whose
+  scenes live in <code>tests/examples/godot/test_project_deck</code>; pass <code>--project-path</code> to point the runner
+  at that project</li>
 </ul>
 <h2 id="asset-policy">Asset Policy<a class="headerlink" href="#asset-policy" title="Permanent link">¶</a></h2>
 <p>Asset generation and mapping are canonicalized through:</p>
@@ -2482,15 +2487,19 @@ consumer copy is absent, unreadable, or below <code>ASSET_MIN_SPLAT_COUNTS</code
 <code>lightweight_smoke</code>; they are useful for proof-shape smoke coverage, but they are not chunked
 large-scene evidence.</p>
 <h2 id="ci-surfaces">CI Surfaces<a class="headerlink" href="#ci-surfaces" title="Permanent link">¶</a></h2>
-<p><code>streaming-gpu-ci</code> is the only blocking GPU-backed streaming gate. The benchmark proof
-surfaces below are evidence-only and should not be treated as a second streaming gate.</p>
+<p><code>streaming-gpu-ci</code> is the only GPU-backed streaming gate: it fails the <code>module-validation</code> job of
+<code>.github/workflows/gaussian_production_gates.yml</code> (self-hosted Windows GPU runner) when it fails. It
+is <strong>not</strong> a required status check — branch protection on <code>master</code> requires only <code>agentic-pr-gate</code>
+(see <a href="../../reference/build-test-ci/#ci-source-of-truth">Build / Test / CI reference</a>) — so a red run
+does not by itself block a merge. The benchmark proof surfaces below are evidence-only and should
+not be treated as a second streaming gate.</p>
 <table>
 <thead>
 <tr>
 <th>Surface</th>
 <th>Runner command</th>
 <th>Scope</th>
-<th>Blocking?</th>
+<th>Fails its workflow?</th>
 </tr>
 </thead>
 <tbody>
@@ -2498,7 +2507,7 @@ surfaces below are evidence-only and should not be treated as a second streaming
 <td><code>streaming-gpu-ci</code></td>
 <td><code>python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci</code></td>
 <td>Runtime validation for residency and world-streaming regressions</td>
-<td>Yes</td>
+<td>Yes (not a required check)</td>
 </tr>
 <tr>
 <td><code>openworld-proof-dev</code></td>
@@ -2586,7 +2595,7 @@ the blocking proof ladder for <code>Phase 4C.1</code>.</p>
 <li><code>openworld-proof-dev</code> = <code>open_world_corridor_proof</code> + <code>city_flyover</code></li>
 <li><code>openworld-proof-weekly</code> = <code>long_soak</code></li>
 <li>only <code>open_world_corridor_proof</code> is a large-world candidate lane today; <code>city_flyover</code> and <code>long_soak</code> remain smoke-support surfaces until the <code>50M boundary</code> and <code>100M city</code> lanes are runnable</li>
-<li>both surfaces are benchmark evidence only, while <code>streaming-gpu-ci</code> remains the only blocking gate</li>
+<li>both surfaces are benchmark evidence only, while <code>streaming-gpu-ci</code> remains the only streaming gate (advisory at the merge boundary)</li>
 </ul>
 <h2 id="large-world-proof-contract">Large-World Proof Contract<a class="headerlink" href="#large-world-proof-contract" title="Permanent link">¶</a></h2>
 <p>The benchmark proof contract is emitted per lane in runner JSON via:</p>
@@ -2812,7 +2821,7 @@ asset paths.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:25:07 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:32:02 UTC">October 1, 2026</span>
   </span>
 
     

@@ -1845,7 +1845,7 @@
 
 
 <h1 id="gaussian-splat-artist-pipeline">Gaussian Splat Artist Pipeline<a class="headerlink" href="#gaussian-splat-artist-pipeline" title="Permanent link">¶</a></h1>
-<p><em>Last verified: 2026-02-13.</em></p>
+<p><em>Last verified: 2026-09-30.</em></p>
 <div class="admonition info">
 <p class="admonition-title">Scope</p>
 <p>For artists and technical artists using inspector tools, hot reload, brush edits, and bake actions inside the editor.
@@ -1866,31 +1866,40 @@ It complements the canonical <a href="../../user/quickstart/">Artist Workflow Ov
 <tbody>
 <tr>
 <td>Import a source file</td>
-<td>Open the <code>Gaussian Splatting</code> bottom panel and click <code>Import Gaussian</code>, then select a <code>res://</code> <code>.ply</code> or <code>.spz</code> file.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:323</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:329</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:566</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:585</code></td>
+<td>Copy the <code>.ply</code> or <code>.spz</code> file into the project (<code>res://</code>). Godot imports it automatically with the <code>gaussian_splat_ply</code> / <code>gaussian_splat_spz</code> importer into a <code>GaussianSplatAsset</code>. Import options are in the Import dock. There is no Gaussian bottom panel or <code>Import Gaussian</code> button.</td>
+<td><code>ResourceImporterPLY::import</code>, <code>ResourceImporterSPZ::import</code></td>
+</tr>
+<tr>
+<td>Place the asset in a scene</td>
+<td>Drag the imported file from the FileSystem dock into the 3D viewport; the editor creates a <code>GaussianSplatNode3D</code> with <code>splat_asset</code> set. Or add a <code>GaussianSplatNode3D</code> yourself and assign the asset to its <code>splat_asset</code> property.</td>
+<td><code>Node3DEditorViewport::_create_gaussian_instance</code>, <code>GaussianSplatNode3D::set_splat_asset</code></td>
 </tr>
 <tr>
 <td>Reimport an existing asset</td>
-<td>In <code>GaussianSplatAsset</code> inspector, click <code>Reimport...</code> to reopen import settings from stored metadata.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:320</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1171</code></td>
+<td>In the <code>GaussianSplatAsset</code> inspector, click <code>Reimport...</code> to open the Gaussian import dialog with the saved settings.</td>
+<td><code>GaussianAssetInspectorPlugin::_on_reimport_pressed</code>, <code>GaussianEditorPlugin::request_asset_reimport</code></td>
 </tr>
 <tr>
 <td>Enable runtime debug view (debug builds)</td>
 <td>In <code>Gaussian Splat Overview</code>, toggle <code>Runtime Preview</code> and <code>Residency HUD</code>.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:753</code>, <code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:760</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:249</code></td>
+<td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code></td>
 </tr>
 <tr>
 <td>Apply brush edits</td>
-<td>Set center/radius/strength/hardness/color in <code>Painterly Brush Tools</code>, then click <code>Apply Brush</code>, <code>Commit</code>, or <code>Revert</code>.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:745</code>, <code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:755</code>, <code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:765</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:944</code></td>
+<td>Only shown when painterly is enabled on the node and its renderer holds CPU-side Gaussian data. Set center/radius/strength/hardness/color in <code>Painterly Brush Tools</code>, then click <code>Apply Brush</code>, <code>Commit</code>, or <code>Revert</code>. The brush values are session-only.</td>
+<td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code>, <code>GaussianEditorPlugin::_apply_brush_stroke</code></td>
 </tr>
 <tr>
 <td>Bake or restore color grading</td>
-<td>Use <code>Bake Color Grading</code> or <code>Restore Original</code> in the node inspector.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:788</code>, <code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:795</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821</code></td>
+<td>Use <code>Bake Color Grading</code> or <code>Restore Original</code> in the node inspector. See the limitation below.</td>
+<td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code>, <code>GaussianSplatNode3D::bake_color_grading</code></td>
 </tr>
 </tbody>
 </table>
+<div class="admonition warning">
+<p class="admonition-title">Color grading bake on asset-backed nodes</p>
+<p><code>GaussianSplatNode3D.bake_color_grading()</code> bakes into the node's CPU-side data (<code>renderer_data</code>). At this revision that data is created only by <code>set_splat_data()</code> (<code>GaussianSplatNode3D::_ensure_renderer_data_for_splats</code>); a node that renders a <code>splat_asset</code> does not create it. Code reading and a headless run both show <code>bake_color_grading()</code> returning <code>ERR_UNCONFIGURED</code> ("Cannot bake color grading: no gaussian data loaded") on an asset-backed node. This has not been confirmed on a GPU run yet. Until it is resolved, treat baking as available only for nodes populated with <code>set_splat_data()</code>, and check the returned <code>Error</code>.</p>
+</div>
 <table>
 <thead>
 <tr>
@@ -1902,23 +1911,23 @@ It complements the canonical <a href="../../user/quickstart/">Artist Workflow Ov
 <tbody>
 <tr>
 <td>Watch registration</td>
-<td>Opening import settings for a source file emits <code>watch_path_requested</code> before import confirmation.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_import_dialog.cpp:897</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1022</code></td>
+<td>Opening the Gaussian import dialog for a source file (for example through <code>Reimport...</code>) emits <code>watch_path_requested</code>, which registers a watch before the import is confirmed.</td>
+<td><code>GaussianImportDialog::configure_for_file</code>, <code>GaussianEditorPlugin::_on_import_dialog_watch</code></td>
 </tr>
 <tr>
 <td>Poll interval</td>
-<td>Watches are processed on a 0.1-second timer.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1068</code></td>
+<td>Watches are polled on a timer set by <code>rendering/gaussian_splatting/editor/hot_reload_poll_interval_sec</code> (default <code>1.0</code> s, clamped to <code>0.1</code>..<code>10</code>).</td>
+<td><code>_hot_reload_poll_interval_seconds()</code> in <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp</code>, <code>GaussianEditorPlugin::_schedule_hot_reload_poll</code></td>
 </tr>
 <tr>
-<td><code>.ply</code> changes</td>
-<td>The editor reimports with stored options and updates the bound node.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1125</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1153</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1164</code></td>
+<td><code>.ply</code> / <code>.spz</code> changes</td>
+<td>The editor reimports with the stored options and updates the watched nodes.</td>
+<td><code>GaussianEditorPlugin::_process_hot_reload_for_watch</code></td>
 </tr>
 <tr>
-<td>Non-<code>.ply</code> watched paths</td>
-<td>The resource is reloaded from disk and the node is force-updated.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1155</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:1164</code></td>
+<td>Other watched paths</td>
+<td>The resource is reloaded from disk and applied to the watched nodes.</td>
+<td><code>GaussianEditorPlugin::_process_hot_reload_for_watch</code>, <code>GaussianEditorPlugin::_apply_hot_reload_asset_to_nodes</code></td>
 </tr>
 </tbody>
 </table>
@@ -1935,52 +1944,53 @@ It complements the canonical <a href="../../user/quickstart/">Artist Workflow Ov
 <tr>
 <td><code>GaussianData.apply_brush_stroke(center, radius, color, opacity, hardness)</code></td>
 <td>Stages runtime color and opacity edits with radial falloff and records a capped brush history (<code>2048</code>).</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:893</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:907</code></td>
+<td><code>GaussianData::apply_brush_stroke</code></td>
 </tr>
 <tr>
 <td><code>GaussianData.commit_runtime_changes()</code></td>
 <td>Writes staged runtime data into base Gaussian data and clears runtime buffers.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:814</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:845</code></td>
+<td><code>GaussianData::commit_runtime_changes</code></td>
 </tr>
 <tr>
 <td><code>GaussianData.revert_runtime_changes()</code></td>
 <td>Discards staged runtime buffers without clearing recorded brush history.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:848</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:957</code></td>
+<td><code>GaussianData::revert_runtime_changes</code></td>
 </tr>
 <tr>
 <td><code>GaussianData.get_brush_strokes()</code></td>
 <td>Returns recorded strokes as dictionaries for tooling/serialization hooks.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:948</code></td>
+<td><code>GaussianData::get_brush_strokes</code></td>
 </tr>
 <tr>
 <td><code>GaussianSplatNode3D.set_runtime_preview_enabled(enabled)</code></td>
 <td>Switches renderer preview mode to runtime modifications and restores prior mode when disabled.</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:682</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:694</code></td>
+<td><code>GaussianSplatNodeDebugHelper::set_runtime_preview_enabled</code></td>
 </tr>
 <tr>
 <td><code>GaussianSplatNode3D.set_show_residency_hud(show)</code></td>
 <td>Toggles renderer residency HUD and persists the preference into project settings.</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp:701</code>, <code>modules/gaussian_splatting/core/gaussian_splat_settings_manager.cpp:114</code></td>
+<td><code>GaussianSplatNode3D::set_show_residency_hud</code>, <code>GaussianSplatNodeDebugHelper::set_show_residency_hud</code></td>
 </tr>
 <tr>
 <td><code>GaussianSplatNode3D.bake_color_grading()</code> / <code>restore_color_grading()</code></td>
-<td>Bakes grading into SH DC colors, disables live grading after bake, and restores original colors on demand.</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1813</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821</code></td>
+<td>Bakes grading into SH DC colors, disables live grading after bake, and restores original colors on demand. Both need the node's CPU-side data (see the warning above).</td>
+<td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code>, <code>GaussianSplatNode3D::restore_color_grading</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
+<p>These mirror what the inspector's brush buttons do (<code>GaussianEditorPlugin::_apply_brush_stroke</code>, <code>_commit_runtime_modifications</code>, <code>_revert_runtime_modifications</code>), without editor undo/redo. Both return early when the node's renderer holds no CPU-side <code>GaussianData</code>.</p>
 <div class="highlight"><pre><span></span><code><span class="err">@</span><span class="k">tool</span>
 <span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
 
-<span class="k">func</span><span class="w"> </span><span class="n">apply_and_commit_brush</span><span class="p">(</span><span class="n">node</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatNode3D</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="k">func</span><span class="w"> </span><span class="n">apply_and_commit_brush</span><span class="p">(</span><span class="n">node</span><span class="p">:</span><span class="w"> </span><span class="n">GaussianSplatNode3D</span><span class="p">,</span><span class="w"> </span><span class="n">world_center</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">.</span><span class="n">get_renderer</span><span class="p">()</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">renderer</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb nb-Type">null</span><span class="p">:</span>
 <span class="w">        </span><span class="k">return</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">renderer</span><span class="o">.</span><span class="n">get_gaussian_data</span><span class="p">()</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nb nb-Type">null</span><span class="p">:</span>
 <span class="w">        </span><span class="k">return</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">local_center</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">.</span><span class="n">to_local</span><span class="p">(</span><span class="n">node</span><span class="o">.</span><span class="n">global_position</span><span class="p">)</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">local_center</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">node</span><span class="o">.</span><span class="n">to_local</span><span class="p">(</span><span class="n">world_center</span><span class="p">)</span>
 <span class="w">    </span><span class="n">data</span><span class="o">.</span><span class="n">apply_brush_stroke</span><span class="p">(</span><span class="n">local_center</span><span class="p">,</span><span class="w"> </span><span class="mf">1.5</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Color</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.8</span><span class="p">,</span><span class="w"> </span><span class="mf">0.6</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">),</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">)</span>
 <span class="w">    </span><span class="n">data</span><span class="o">.</span><span class="n">commit_runtime_changes</span><span class="p">()</span>
 <span class="w">    </span><span class="n">node</span><span class="o">.</span><span class="n">force_update</span><span class="p">()</span>
@@ -2011,22 +2021,22 @@ It complements the canonical <a href="../../user/quickstart/">Artist Workflow Ov
 <tr>
 <td><code>Runtime Preview</code> or <code>Residency HUD</code> does not appear</td>
 <td>Use a debug build because the custom debug inspector controls are compiled only under <code>DEBUG_ENABLED</code> and debug properties are hidden in release.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:646</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:471</code></td>
+<td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code>, <code>GaussianSplatNode3D::_get</code></td>
 </tr>
 <tr>
-<td>Import dialog rejects the selected file</td>
-<td>Move the file under <code>res://</code> and retry because the importer rejects non-project paths.</td>
-<td><code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:566</code>, <code>modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp:577</code></td>
+<td><code>Painterly Brush Tools</code> does not appear</td>
+<td>Enable painterly on the node (<code>painterly/enabled</code>); the section also needs the node's renderer to hold CPU-side Gaussian data with at least one splat.</td>
+<td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code></td>
 </tr>
 <tr>
 <td>Brush edits disappear after reimport</td>
 <td>Commit edits before reimport because loading new file data resets runtime edits and clears recorded brush strokes.</td>
-<td><code>modules/gaussian_splatting/core/gaussian_data.cpp:1016</code>, <code>modules/gaussian_splatting/core/gaussian_data.cpp:1017</code></td>
+<td><code>GaussianData::_on_gaussian_storage_changed_locked</code>, <code>GaussianData::set_gaussian_payload</code></td>
 </tr>
 <tr>
 <td><code>Bake Color Grading</code> fails</td>
-<td>Assign a <code>ColorGradingResource</code> and load Gaussian data before baking.</td>
-<td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1795</code>, <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1800</code></td>
+<td>Assign a <code>ColorGradingResource</code>. On asset-backed nodes the bake is currently expected to fail with <code>ERR_UNCONFIGURED</code>; see the warning above.</td>
+<td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code></td>
 </tr>
 </tbody>
 </table>
@@ -2050,7 +2060,7 @@ It complements the canonical <a href="../../user/quickstart/">Artist Workflow Ov
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:57 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:54 UTC">October 1, 2026</span>
   </span>
 
     

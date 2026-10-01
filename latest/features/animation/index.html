@@ -1809,10 +1809,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#add-keyframes" class="md-nav__link">
+  <a href="#keyframes" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Add keyframes
+        Keyframes
       
     </span>
   </a>
@@ -1898,10 +1898,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#serialization" class="md-nav__link">
+  <a href="#saving-and-loading" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Serialization
+        Saving and loading
       
     </span>
   </a>
@@ -1952,12 +1952,18 @@
 
 <h1 id="animation">Animation<a class="headerlink" href="#animation" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Animate per-splat properties (position, color, opacity, scale, rotation) over time using <code>GaussianAnimationStateMachine</code>. The animation system provides clip-based playback, keyframe interpolation with multiple curve types, and weighted blending between clips.</p>
-<blockquote>
-<p><strong>Opt-in feature.</strong> <code>GaussianAnimationStateMachine</code> is a scripted <code>Resource</code> and is <strong>not</strong> instantiated automatically by the engine. Per-splat animation only runs when a project explicitly creates one (from GDScript or via the public C++ API) and attaches it through <code>GaussianData.set_animation_state_machine()</code>. By default <code>GaussianData.animation_state_machine</code> is <code>null</code> and <code>GaussianData.has_animation()</code> returns <code>false</code>.</p>
-</blockquote>
+<p>Describe per-splat property values (position, color, opacity, scale, rotation) over time with <code>GaussianAnimationStateMachine</code>. The class provides clips, keyframe interpolation, and playback control, and returns sampled values to your script.</p>
+<div class="admonition warning">
+<p class="admonition-title">Scope and limitations</p>
+<ul>
+<li><strong>Opt-in.</strong> <code>GaussianAnimationStateMachine</code> is a <code>Resource</code> that the engine never creates for you. Animation exists only when your project creates one and attaches it with <code>GaussianData.set_animation_state_machine()</code>. By default <code>GaussianData.get_animation_state_machine()</code> returns <code>null</code> and <code>GaussianData.has_animation()</code> returns <code>false</code>. (<code>animation_state_machine</code> is not a property; use the getter and setter.)</li>
+<li><strong>CPU sampling only; nothing renders it.</strong> No part of the renderer, the nodes, or the shaders reads the state machine. Its only consumers are <code>GaussianData</code>'s <code>get_animated_*()</code> accessors and the scene serializer. Sampling returns values to your script; attaching an animation to the <code>GaussianData</code> shown by a <code>GaussianSplatNode3D</code> does not make the splats move on screen.</li>
+<li><strong>No <code>AnimationPlayer</code> integration.</strong> The state machine exposes no animatable properties and has no tracks in Godot's animation system. Advance it by calling <code>update(delta)</code> yourself.</li>
+<li><strong>No cross-fade.</strong> Clip switching is a delayed hard cut (see <a href="#switching-between-clips">Switching between clips</a>).</li>
+</ul>
+</div>
 <h2 id="animation-system-overview">Animation system overview<a class="headerlink" href="#animation-system-overview" title="Permanent link">¶</a></h2>
-<p><code>GaussianAnimationStateMachine</code> is a <code>Resource</code>-derived class that holds animation clips, tracks, and keyframes. Each clip contains one or more tracks, and each track targets a specific <code>AnimationProperty</code>. Keyframes store timed values with configurable interpolation.</p>
+<p><code>GaussianAnimationStateMachine</code> is a <code>Resource</code>-derived class that holds animation clips, tracks, and keyframes. Each clip contains one or more tracks, and each track targets a specific <code>AnimationProperty</code>. Keyframes store timed values with an interpolation type. A keyframe value is either one value for every splat, or a packed array with one entry per splat (for example a <code>PackedVector3Array</code> for positions).</p>
 <table>
 <thead>
 <tr>
@@ -1970,42 +1976,84 @@
 <tr>
 <td>AnimationClip</td>
 <td>Named container with a duration, loop flag, and a set of tracks.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:44</code></td>
+<td><code>GaussianSplatting::AnimationClip</code></td>
 </tr>
 <tr>
 <td>AnimationTrack</td>
 <td>Targets one <code>AnimationProperty</code> and holds a sorted list of keyframes.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:34</code></td>
+<td><code>GaussianSplatting::AnimationTrack</code></td>
 </tr>
 <tr>
 <td>AnimationProperty</td>
-<td>Enum: <code>POSITION</code>, <code>COLOR</code>, <code>OPACITY</code>, <code>SCALE</code>, <code>ROTATION</code>.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:17</code></td>
+<td>Enum: <code>ANIMATION_PROPERTY_POSITION</code>, <code>_COLOR</code>, <code>_OPACITY</code>, <code>_SCALE</code>, <code>_ROTATION</code>.</td>
+<td><code>GaussianSplatting::AnimationProperty</code></td>
 </tr>
 <tr>
 <td>AnimationState</td>
-<td>Enum: <code>STOPPED</code>, <code>PLAYING</code>, <code>PAUSED</code>, <code>SEEKING</code>.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:25</code></td>
+<td>Enum: <code>ANIMATION_STATE_STOPPED</code>, <code>_PLAYING</code>, <code>_PAUSED</code>, <code>_SEEKING</code>.</td>
+<td><code>GaussianSplatting::AnimationState</code></td>
 </tr>
 <tr>
 <td>KeyframeInterpolator</td>
-<td>Handles value interpolation between keyframes using linear, constant, cubic Bezier, smooth-step, and smoother-step curves.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.h:13</code></td>
+<td>Interpolates between keyframes with constant, linear, cubic Bezier, smooth-step, and smoother-step curves.</td>
+<td><code>GaussianSplatting::KeyframeInterpolator</code>, <code>GaussianSplatting::InterpolationType</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="setting-up-animation-clips">Setting up animation clips<a class="headerlink" href="#setting-up-animation-clips" title="Permanent link">¶</a></h2>
 <h3 id="create-a-clip-and-add-tracks">Create a clip and add tracks<a class="headerlink" href="#create-a-clip-and-add-tracks" title="Permanent link">¶</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">var</span><span class="w"> </span><span class="n">anim</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">set_splat_count</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get_count</span><span class="p">())</span>
+<p>This is a complete script. Attach it to a <code>Node</code> and point the path at a PLY in your project.</p>
+<div class="admonition note">
+<p class="admonition-title">Pass <code>AnimationProperty</code> values through <code>int()</code></p>
+<p>The property enum is declared at namespace scope in C++ (<code>GaussianSplatting::AnimationProperty</code>) but its constants are bound on the class. The GDScript analyzer therefore types <code>GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION</code> and the method parameter as two different enums and rejects a direct pass with a parse error (<em>Cannot pass a value of type "GaussianAnimationStateMachine.AnimationProperty" as "GaussianSplatting.AnimationProperty"</em>). Wrapping the constant in <code>int()</code> compiles and works. This is a binding defect, not intended usage; it is tracked in <a href="https://github.com/klausi3D/godotGS/issues/1106">#1106</a>, and once that is fixed the <code>int()</code> wrapper is no longer needed.</p>
+</div>
+<div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
 
-<span class="c1"># Create a 2-second clip named "wobble"</span>
-<span class="k">var</span><span class="w"> </span><span class="n">clip_idx</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">add_clip</span><span class="p">(</span><span class="s2">"wobble"</span><span class="p">,</span><span class="w"> </span><span class="mf">2.0</span><span class="p">)</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">set_clip_looping</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="bp">true</span><span class="p">)</span>
+<span class="k">const</span><span class="w"> </span><span class="n">POSITION</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
+<span class="k">const</span><span class="w"> </span><span class="n">OPACITY</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">)</span>
 
-<span class="c1"># Add a position track and an opacity track</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">)</span>
+<span class="k">var</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianData</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="k">var</span><span class="w"> </span><span class="n">anim</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="k">var</span><span class="w"> </span><span class="n">clip_idx</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span>
+
+<span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">data</span><span class="o">.</span><span class="n">load_from_file</span><span class="p">(</span><span class="s2">"res://models/scan.ply"</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
+<span class="w">        </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"load_from_file failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+<span class="w">        </span><span class="k">return</span>
+
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">set_splat_count</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">get_count</span><span class="p">())</span>
+
+<span class="w">    </span><span class="c1"># Create a 2-second looping clip named "wobble".</span>
+<span class="w">    </span><span class="n">clip_idx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">add_clip</span><span class="p">(</span><span class="s2">"wobble"</span><span class="p">,</span><span class="w"> </span><span class="mf">2.0</span><span class="p">)</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">set_clip_looping</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="bp">true</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c1"># Add a position track and an opacity track.</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">POSITION</span><span class="p">)</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">OPACITY</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c1"># One value for every splat, linear interpolation.</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">POSITION</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">POSITION</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">POSITION</span><span class="p">,</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
+
+<span class="w">    </span><span class="c1"># Cubic Bezier keyframes for the opacity track.</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">OPACITY</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">OPACITY</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="o">-</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">OPACITY</span><span class="p">,</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="o">-</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
+
+<span class="w">    </span><span class="n">data</span><span class="o">.</span><span class="n">set_animation_state_machine</span><span class="p">(</span><span class="n">anim</span><span class="p">)</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">play</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">)</span>
+
+<span class="k">func</span><span class="w"> </span><span class="n">_process</span><span class="p">(</span><span class="n">delta</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">float</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="ow">not</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">is_playing</span><span class="p">():</span>
+<span class="w">        </span><span class="k">return</span>
+<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">delta</span><span class="p">)</span>
+<span class="w">    </span><span class="c1"># Sampled values are returned to the script; they are not rendered automatically.</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">pos</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">sample_position</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">opacity</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">sample_opacity</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">Engine</span><span class="o">.</span><span class="n">get_process_frames</span><span class="p">()</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">60</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span>
+<span class="w">        </span><span class="nb">print</span><span class="p">(</span><span class="s2">"t=</span><span class="si">%.2f</span><span class="s2"> splat0 position=</span><span class="si">%s</span><span class="s2"> opacity=</span><span class="si">%.2f</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="p">[</span><span class="n">anim</span><span class="o">.</span><span class="n">get_current_time</span><span class="p">(),</span><span class="w"> </span><span class="n">pos</span><span class="p">,</span><span class="w"> </span><span class="n">opacity</span><span class="p">])</span>
 </code></pre></div>
 <table>
 <thead>
@@ -2018,53 +2066,42 @@
 <tbody>
 <tr>
 <td><code>add_clip(name, duration)</code></td>
-<td>Creates a new clip. Returns the clip index.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:199</code></td>
+<td>Creates a new clip and returns its index, or <code>-1</code> (with an error) if the name already exists.</td>
+<td><code>GaussianAnimationStateMachine::add_clip</code></td>
 </tr>
 <tr>
 <td><code>set_clip_duration(index, duration)</code></td>
 <td>Changes the clip duration.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:205</code></td>
+<td><code>GaussianAnimationStateMachine::set_clip_duration</code></td>
 </tr>
 <tr>
 <td><code>set_clip_looping(index, looping)</code></td>
 <td>Enables or disables looping.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:207</code></td>
+<td><code>GaussianAnimationStateMachine::set_clip_looping</code></td>
 </tr>
 <tr>
 <td><code>add_track_to_clip(clip_index, property)</code></td>
 <td>Adds a track for the given property.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:210</code></td>
+<td><code>GaussianAnimationStateMachine::add_track_to_clip</code></td>
 </tr>
 <tr>
 <td><code>remove_track_from_clip(clip_index, property)</code></td>
 <td>Removes the track for the given property.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:211</code></td>
+<td><code>GaussianAnimationStateMachine::remove_track_from_clip</code></td>
 </tr>
 <tr>
 <td><code>has_track(clip_index, property)</code></td>
 <td>Returns whether the clip has a track for the property.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:212</code></td>
+<td><code>GaussianAnimationStateMachine::has_track</code></td>
+</tr>
+<tr>
+<td><code>set_splat_count(count)</code></td>
+<td>Sets how many splat indices can be sampled. <code>GaussianData</code> also updates it when data attached to it is resized.</td>
+<td><code>GaussianAnimationStateMachine::set_splat_count</code></td>
 </tr>
 </tbody>
 </table>
-<h3 id="add-keyframes">Add keyframes<a class="headerlink" href="#add-keyframes" title="Permanent link">¶</a></h3>
-<div class="highlight"><pre><span></span><code><span class="c1"># Linear keyframes</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">2.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">))</span>
-
-<span class="c1"># Bezier keyframes for smoother motion</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="o">-</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe_bezier</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">,</span>
-<span class="w">    </span><span class="mf">2.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="o">-</span><span class="mf">0.3</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">),</span><span class="w"> </span><span class="nb nb-Type">Vector2</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">))</span>
-</code></pre></div>
+<h3 id="keyframes">Keyframes<a class="headerlink" href="#keyframes" title="Permanent link">¶</a></h3>
 <table>
 <thead>
 <tr>
@@ -2076,38 +2113,38 @@
 <tbody>
 <tr>
 <td><code>add_keyframe(clip_index, property, time, value)</code></td>
-<td>Inserts a keyframe with default linear interpolation.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:215</code></td>
+<td>Inserts a keyframe with linear interpolation.</td>
+<td><code>GaussianAnimationStateMachine::add_keyframe</code></td>
 </tr>
 <tr>
 <td><code>add_keyframe_bezier(clip_index, property, time, value, in_handle, out_handle)</code></td>
 <td>Inserts a keyframe with cubic Bezier interpolation handles.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:216</code></td>
+<td><code>GaussianAnimationStateMachine::add_keyframe_bezier</code></td>
 </tr>
 <tr>
 <td><code>remove_keyframe(clip_index, property, keyframe_index)</code></td>
 <td>Removes a keyframe by index.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:217</code></td>
+<td><code>GaussianAnimationStateMachine::remove_keyframe</code></td>
 </tr>
 <tr>
 <td><code>get_keyframe_count(clip_index, property)</code></td>
 <td>Returns the number of keyframes on a track.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:218</code></td>
+<td><code>GaussianAnimationStateMachine::get_keyframe_count</code></td>
 </tr>
 <tr>
 <td><code>get_keyframe_time(clip_index, property, keyframe_index)</code></td>
 <td>Returns the time of a specific keyframe.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:219</code></td>
+<td><code>GaussianAnimationStateMachine::get_keyframe_time</code></td>
 </tr>
 <tr>
 <td><code>get_keyframe_value(clip_index, property, keyframe_index)</code></td>
 <td>Returns the value stored in a keyframe.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:220</code></td>
+<td><code>GaussianAnimationStateMachine::get_keyframe_value</code></td>
 </tr>
 </tbody>
 </table>
 <h3 id="interpolation-types">Interpolation types<a class="headerlink" href="#interpolation-types" title="Permanent link">¶</a></h3>
-<p>Keyframe interpolation is determined by the <code>InterpolationType</code> stored with each keyframe.</p>
+<p>Keyframe interpolation is determined by the <code>InterpolationType</code> stored with each keyframe. From GDScript only <code>LINEAR</code> (<code>add_keyframe()</code>) and <code>CUBIC_BEZIER</code> (<code>add_keyframe_bezier()</code>) can be created; the other types are reachable from C++ only.</p>
 <table>
 <thead>
 <tr>
@@ -2120,43 +2157,32 @@
 <tr>
 <td><code>CONSTANT</code></td>
 <td>Holds the keyframe value until the next keyframe.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.h:13</code></td>
+<td><code>GaussianSplatting::InterpolationType</code></td>
 </tr>
 <tr>
 <td><code>LINEAR</code></td>
 <td>Linear interpolation (<code>lerp</code> for scalars/vectors, <code>slerp</code> for quaternions).</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.cpp:88</code></td>
+<td><code>KeyframeInterpolator::_interpolate_vector3</code></td>
 </tr>
 <tr>
 <td><code>CUBIC_BEZIER</code></td>
 <td>Cubic Bezier curve using in/out handles.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.cpp:148</code></td>
+<td><code>KeyframeInterpolator::_cubic_bezier</code></td>
 </tr>
 <tr>
 <td><code>SMOOTH_STEP</code></td>
 <td>Hermite smooth-step: <code>t*t*(3-2t)</code>.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.cpp:204</code></td>
+<td><code>KeyframeInterpolator::smooth_step</code></td>
 </tr>
 <tr>
 <td><code>SMOOTHER_STEP</code></td>
 <td>Ken Perlin smoother-step: <code>t*t*t*(t*(6t-15)+10)</code>.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.cpp:208</code></td>
+<td><code>KeyframeInterpolator::smoother_step</code></td>
 </tr>
 </tbody>
 </table>
 <h2 id="playback-and-blending">Playback and blending<a class="headerlink" href="#playback-and-blending" title="Permanent link">¶</a></h2>
 <h3 id="playback-control">Playback control<a class="headerlink" href="#playback-control" title="Permanent link">¶</a></h3>
-<div class="highlight"><pre><span></span><code><span class="k">func</span><span class="w"> </span><span class="n">_ready</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">play</span><span class="p">(</span><span class="n">clip_idx</span><span class="p">)</span>
-
-<span class="k">func</span><span class="w"> </span><span class="n">_process</span><span class="p">(</span><span class="n">delta</span><span class="p">:</span><span class="w"> </span><span class="nb nb-Type">float</span><span class="p">)</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="n">anim</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">delta</span><span class="p">)</span>
-
-<span class="w">    </span><span class="c1"># Sample properties for rendering</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">pos</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">sample_position</span><span class="p">(</span><span class="n">splat_index</span><span class="p">)</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">col</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">sample_color</span><span class="p">(</span><span class="n">splat_index</span><span class="p">)</span>
-<span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">opa</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">sample_opacity</span><span class="p">(</span><span class="n">splat_index</span><span class="p">)</span>
-</code></pre></div>
 <table>
 <thead>
 <tr>
@@ -2169,45 +2195,46 @@
 <tr>
 <td><code>play(clip_index)</code></td>
 <td>Starts playback. Pass <code>-1</code> to resume the current clip.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:223</code></td>
+<td><code>GaussianAnimationStateMachine::play</code></td>
 </tr>
 <tr>
 <td><code>pause()</code></td>
 <td>Pauses playback at the current time.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:224</code></td>
+<td><code>GaussianAnimationStateMachine::pause</code></td>
 </tr>
 <tr>
 <td><code>stop()</code></td>
 <td>Stops playback and resets to the beginning.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:225</code></td>
+<td><code>GaussianAnimationStateMachine::stop</code></td>
 </tr>
 <tr>
 <td><code>seek(time)</code></td>
 <td>Jumps to a specific time in the current clip. Negative times clamp to <code>0</code>; a non-finite time is rejected with a warning (see below).</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:260</code></td>
+<td><code>GaussianAnimationStateMachine::seek</code></td>
 </tr>
 <tr>
 <td><code>set_playback_speed(speed)</code></td>
 <td>Changes the playback rate multiplier. A non-finite speed is rejected with a warning (see below).</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:261</code></td>
+<td><code>GaussianAnimationStateMachine::set_playback_speed</code></td>
 </tr>
 <tr>
 <td><code>update(delta)</code></td>
 <td>Advances the animation by <code>delta</code> seconds. Call this every frame. A non-finite <code>delta</code> skips the frame (see below).</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:279</code></td>
+<td><code>GaussianAnimationStateMachine::update</code></td>
 </tr>
 <tr>
 <td><code>is_playing()</code></td>
 <td>Returns <code>true</code> when the state machine is in the <code>PLAYING</code> state.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:234</code></td>
+<td><code>GaussianAnimationStateMachine::is_playing</code></td>
 </tr>
 <tr>
 <td><code>get_current_time()</code></td>
 <td>Returns the current playback position in seconds.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:232</code></td>
+<td><code>GaussianAnimationStateMachine::get_current_time</code></td>
 </tr>
 </tbody>
 </table>
+<p><code>GaussianData.update_animation(delta)</code> forwards to <code>update(delta)</code> when an animation is attached and animation is enabled on the <code>GaussianData</code> (<code>animation_enabled</code>, default <code>true</code>; turn it off with <code>set_animation_enabled(false)</code>).</p>
 <h4 id="non-finite-playback-values-are-rejected">Non-finite playback values are rejected<a class="headerlink" href="#non-finite-playback-values-are-rejected" title="Permanent link">¶</a></h4>
 <p><code>NAN</code>, <code>INF</code> and <code>-INF</code> are rejected at the point they enter the state machine,
 because a non-finite time or speed makes <em>every</em> later comparison against it
@@ -2234,7 +2261,7 @@ never wrap and never stop: it freezes silently, with no crash and no error.</p>
 <td>Warns, skips the frame; the current time is left untouched.</td>
 </tr>
 <tr>
-<td><code>from_dict()</code> with a non-finite <code>current_time</code> / <code>playback_speed</code></td>
+<td>Loading a saved animation (C++ <code>from_dict()</code>) with a non-finite <code>current_time</code> / <code>playback_speed</code></td>
 <td>Warns, substitutes <code>0</code> / <code>1.0</code>. Applies to loading a corrupt or hand-edited save.</td>
 </tr>
 </tbody>
@@ -2253,13 +2280,15 @@ target clip is never sampled or weighted during the delay. <code>set_clip_weight
 <code>get_clip_weight()</code> track a weight value that no sampler currently reads. Real
 weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 </blockquote>
-<div class="highlight"><pre><span></span><code><span class="c1"># Create a second clip</span>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var anim: GaussianAnimationStateMachine</span>
+<span class="c1"># Create a second clip.</span>
 <span class="k">var</span><span class="w"> </span><span class="n">idle_idx</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">add_clip</span><span class="p">(</span><span class="s2">"idle"</span><span class="p">,</span><span class="w"> </span><span class="mf">3.0</span><span class="p">)</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">set_clip_looping</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="bp">true</span><span class="p">)</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
-<span class="c1"># ... add keyframes ...</span>
+<span class="k">var</span><span class="w"> </span><span class="n">position_property</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
+<span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">position_property</span><span class="p">)</span>
+<span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">position_property</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="o">.</span><span class="n">ZERO</span><span class="p">)</span>
 
-<span class="c1"># Switch to "idle" after 0.5 seconds (delayed hard cut, not a cross-fade)</span>
+<span class="c1"># Switch to "idle" after 0.5 seconds (delayed hard cut, not a cross-fade).</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">switch_to_clip_delayed</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
 </code></pre></div>
 <table>
@@ -2274,27 +2303,27 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <tr>
 <td><code>switch_to_clip_delayed(clip_index, switch_delay)</code></td>
 <td>Schedules a delayed hard switch to the target clip after <code>switch_delay</code> seconds (default 0.3). Not a cross-fade.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
+<td><code>GaussianAnimationStateMachine::switch_to_clip_delayed</code></td>
 </tr>
 <tr>
 <td><code>blend_to_clip(clip_index, blend_duration)</code></td>
 <td><strong>Deprecated</strong> alias for <code>switch_to_clip_delayed()</code>; the name implied a cross-fade that is not implemented.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
+<td><code>GaussianAnimationStateMachine::blend_to_clip</code></td>
 </tr>
 <tr>
 <td><code>set_clip_weight(clip_index, weight)</code></td>
 <td>Sets a clip's blend weight. Stored but not yet consumed by any sampler.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
+<td><code>GaussianAnimationStateMachine::set_clip_weight</code></td>
 </tr>
 <tr>
 <td><code>get_clip_weight(clip_index)</code></td>
 <td>Returns the current stored blend weight.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp</code></td>
+<td><code>GaussianAnimationStateMachine::get_clip_weight</code></td>
 </tr>
 </tbody>
 </table>
 <h3 id="sampling">Sampling<a class="headerlink" href="#sampling" title="Permanent link">¶</a></h3>
-<p>Sample animated property values at the current playback time (or at an explicit time).</p>
+<p>Sample animated property values of the <strong>current clip</strong> at the current playback time (pass <code>time = -1</code>, the default) or at an explicit time. When the splat index is out of range, no clip is current, or the track is missing or empty, the sampler returns a fallback: <code>Vector3.ZERO</code> for position, <code>Color()</code> for color, <code>1.0</code> for opacity, <code>Vector3.ONE</code> for scale.</p>
 <table>
 <thead>
 <tr>
@@ -2309,45 +2338,50 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <td><code>sample_position(splat_index, time)</code></td>
 <td><code>Vector3</code></td>
 <td>Position at the given time (default: current time).</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:249</code></td>
+<td><code>GaussianAnimationStateMachine::sample_position</code></td>
 </tr>
 <tr>
 <td><code>sample_color(splat_index, time)</code></td>
 <td><code>Color</code></td>
 <td>Color at the given time.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:250</code></td>
+<td><code>GaussianAnimationStateMachine::sample_color</code></td>
 </tr>
 <tr>
 <td><code>sample_opacity(splat_index, time)</code></td>
 <td><code>float</code></td>
 <td>Opacity at the given time.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:251</code></td>
+<td><code>GaussianAnimationStateMachine::sample_opacity</code></td>
 </tr>
 <tr>
 <td><code>sample_scale(splat_index, time)</code></td>
 <td><code>Vector3</code></td>
 <td>Scale at the given time.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:252</code></td>
+<td><code>GaussianAnimationStateMachine::sample_scale</code></td>
 </tr>
 <tr>
 <td><code>sample_rotation(splat_index, time)</code></td>
 <td><code>Quaternion</code></td>
 <td>Rotation at the given time.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:253</code></td>
+<td><code>GaussianAnimationStateMachine::sample_rotation</code></td>
 </tr>
 </tbody>
 </table>
-<h3 id="serialization">Serialization<a class="headerlink" href="#serialization" title="Permanent link">¶</a></h3>
-<p>Animation data can be saved and restored through dictionary serialization.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># Save animation state</span>
-<span class="k">var</span><span class="w"> </span><span class="n">dict</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">to_dict</span><span class="p">()</span>
-<span class="k">var</span><span class="w"> </span><span class="n">file</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">FileAccess</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"user://animation.json"</span><span class="p">,</span><span class="w"> </span><span class="n">FileAccess</span><span class="o">.</span><span class="n">WRITE</span><span class="p">)</span>
-<span class="n">file</span><span class="o">.</span><span class="n">store_string</span><span class="p">(</span><span class="n">JSON</span><span class="o">.</span><span class="n">stringify</span><span class="p">(</span><span class="n">dict</span><span class="p">))</span>
-<span class="n">file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+<p><code>GaussianData.get_animated_position(index, time)</code> (and <code>_color</code>, <code>_opacity</code>, <code>_scale</code>, <code>_rotation</code>) samples the attached state machine through the <code>GaussianData</code> instead.</p>
+<h3 id="saving-and-loading">Saving and loading<a class="headerlink" href="#saving-and-loading" title="Permanent link">¶</a></h3>
+<p><code>GaussianAnimationStateMachine::to_dict()</code> and <code>from_dict()</code> exist in C++ only; they are not bound, so <code>anim.to_dict()</code> fails in GDScript. The class also exposes no stored properties, so <code>ResourceSaver.save()</code> on a state machine does not keep its clips.</p>
+<p>The scriptable way to persist an animation is the scene serializer, which writes the splat data and the animation into one <code>.gsf</code> file:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># assumes: var data: GaussianData; var anim: GaussianAnimationStateMachine</span>
+<span class="k">var</span><span class="w"> </span><span class="n">serializer</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianSceneSerializer</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">serializer</span><span class="o">.</span><span class="n">save_scene</span><span class="p">(</span><span class="s2">"user://animated_scene.gsf"</span><span class="p">,</span><span class="w"> </span><span class="n">data</span><span class="p">,</span><span class="w"> </span><span class="n">anim</span><span class="p">)</span>
+<span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
+<span class="w">    </span><span class="n">push_error</span><span class="p">(</span><span class="s2">"save_scene failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
 
-<span class="c1"># Restore animation state</span>
-<span class="k">var</span><span class="w"> </span><span class="n">loaded</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">JSON</span><span class="o">.</span><span class="n">parse_string</span><span class="p">(</span><span class="n">FileAccess</span><span class="o">.</span><span class="n">get_file_as_string</span><span class="p">(</span><span class="s2">"user://animation.json"</span><span class="p">))</span>
-<span class="n">anim</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">loaded</span><span class="p">)</span>
+<span class="c1"># Later: load into fresh objects.</span>
+<span class="k">var</span><span class="w"> </span><span class="n">loaded_data</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianData</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="k">var</span><span class="w"> </span><span class="n">loaded_anim</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
+<span class="n">err</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">serializer</span><span class="o">.</span><span class="n">load_scene</span><span class="p">(</span><span class="s2">"user://animated_scene.gsf"</span><span class="p">,</span><span class="w"> </span><span class="n">loaded_data</span><span class="p">,</span><span class="w"> </span><span class="n">loaded_anim</span><span class="p">)</span>
+<span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
+<span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"clips restored: "</span><span class="p">,</span><span class="w"> </span><span class="n">loaded_anim</span><span class="o">.</span><span class="n">get_clip_count</span><span class="p">())</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
 <table>
@@ -2361,34 +2395,40 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 </thead>
 <tbody>
 <tr>
-<td><code>add_clip</code> returns an error for duplicate name</td>
+<td><code>add_clip</code> returns <code>-1</code> and logs an error</td>
 <td>A clip with that name already exists.</td>
 <td>Use a unique name or remove the existing clip with <code>remove_clip_by_name()</code>.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:274</code></td>
+<td><code>GaussianAnimationStateMachine::add_clip</code></td>
 </tr>
 <tr>
 <td>Sampled values do not change over time</td>
-<td><code>update(delta)</code> is not being called each frame.</td>
-<td>Add <code>anim.update(delta)</code> to your <code>_process</code> callback.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.cpp:242</code></td>
+<td><code>update(delta)</code> is not being called each frame, or playback was never started.</td>
+<td>Call <code>anim.play(clip_idx)</code> once and <code>anim.update(delta)</code> in <code>_process</code>.</td>
+<td><code>GaussianAnimationStateMachine::update</code></td>
+</tr>
+<tr>
+<td>Splats do not move on screen</td>
+<td>Expected: the renderer does not read animation data.</td>
+<td>Use the sampled values in your own code.</td>
+<td><code>GaussianData::get_animated_position</code></td>
 </tr>
 <tr>
 <td>Rotation interpolation produces unexpected results</td>
 <td>Keyframe values are not normalized quaternions.</td>
 <td>Provide normalized <code>Quaternion</code> values; the interpolator uses <code>slerp</code>.</td>
-<td><code>modules/gaussian_splatting/animation/keyframe_interpolator.cpp:116</code></td>
+<td><code>KeyframeInterpolator::_interpolate_quaternion</code></td>
 </tr>
 <tr>
-<td>Blend transition has no visible effect</td>
-<td>Both clips animate different properties or one clip has no keyframes.</td>
-<td>Verify that both clips have tracks for the same <code>AnimationProperty</code> with at least two keyframes each.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:74</code></td>
+<td>Clip switch looks like a hard cut</td>
+<td>Expected: cross-fade is not implemented (#614).</td>
+<td>None yet.</td>
+<td><code>GaussianAnimationStateMachine::switch_to_clip_delayed</code></td>
 </tr>
 <tr>
-<td><code>sample_position</code> returns a default value</td>
-<td>No position track exists or the track has no keyframes.</td>
-<td>Add a position track with <code>add_track_to_clip</code> and insert keyframes.</td>
-<td><code>modules/gaussian_splatting/animation/animation_state_machine.h:159</code></td>
+<td><code>sample_position</code> returns <code>Vector3.ZERO</code></td>
+<td>No clip is current, the splat index is out of range, or no position track has keyframes.</td>
+<td>Call <code>play()</code>, check <code>set_splat_count()</code>, and add a position track with keyframes.</td>
+<td><code>GaussianAnimationStateMachine::sample_position</code></td>
 </tr>
 </tbody>
 </table>
@@ -2412,7 +2452,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:57 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:54 UTC">October 1, 2026</span>
   </span>
 
     
