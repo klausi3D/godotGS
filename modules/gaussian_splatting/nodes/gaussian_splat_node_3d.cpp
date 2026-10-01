@@ -2858,7 +2858,18 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
     LocalVector<ObjectID> peer_ids;
     director->collect_instance_node_ids_for_renderer(p_renderer.ptr(), peer_ids);
     const ObjectID self_id = get_instance_id();
+    // #1081: the overlay union is a function of the renderer's node set only, so
+    // every peer that pushes it computes the same value; after the first push
+    // the rest were memo-compare no-ops that each re-collected and re-unioned
+    // the whole set -- O(k^2) per registration here, O(N^3) for N adds, on top
+    // of the O(k^2) collection each push did before #1081. Push it once, from
+    // the first peer that can (push_debug_overlay_union() is a no-op on a node
+    // without a renderer or outside the tree/world), and give every other peer
+    // on the same renderer the per-node half of the reconcile only: its HUD
+    // control. The per-peer shared-state convergence is untouched.
+    bool overlay_union_pushed = false;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -2877,7 +2888,15 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
         // update mode actually runs update_splats(): under UPDATE_MODE_MANUAL
         // (or while a visibility-gated mode skips the node) nothing ever does,
         // so the stale overlay is permanent. Reconcile unconditionally.
+        const bool pushes_this_renderer = peer->renderer == p_renderer;
+        if (overlay_union_pushed && pushes_this_renderer) {
+            peer->_update_debug_hud_visibility();
+            continue;
+        }
         peer->_reconcile_debug_overlay_state();
+        if (pushes_this_renderer && peer->is_inside_tree() && peer->is_inside_world()) {
+            overlay_union_pushed = true;
+        }
     }
 }
 
@@ -2971,6 +2990,7 @@ void GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer(GaussianSplatRend
     LocalVector<ObjectID> peer_ids;
     director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

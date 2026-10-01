@@ -20,7 +20,9 @@
 #include "core/object/callable_method_pointer.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 #include "../lod/lod_config.h"
@@ -32,6 +34,11 @@
 #include <cmath>
 
 namespace {
+
+#ifdef TESTS_ENABLED
+// #1081: see GaussianSplatNodeDebugHelper::count_peer_walk_step().
+SafeNumeric<uint64_t> g_peer_walk_steps;
+#endif
 
 Mutex g_renderer_settings_owner_mutex;
 HashMap<ObjectID, ObjectID> g_renderer_settings_owner_lookup;
@@ -215,21 +222,22 @@ static bool _commit_debug_overlay_union(GaussianSplatRenderer *p_renderer, const
 // the instance record explicitly too. The filter below is therefore a safety
 // net for stale entries, not the mechanism.
 // ===========================================================================
+//
+// #1081: the per-renderer record is a HashSet, so a bind or unbind is O(1)
+// instead of a linear scan of every node already bound to that renderer. Its
+// iteration order is the one the LocalVector it replaces had (insert appends,
+// erase moves the last key into the hole, like remove_at_unordered()), and no
+// consumer depends on that order anyway: the overlay union is an OR.
 Mutex g_renderer_bound_nodes_mutex;
-HashMap<ObjectID, LocalVector<ObjectID>> g_renderer_bound_nodes;
+HashMap<ObjectID, HashSet<ObjectID>> g_renderer_bound_nodes;
 
 static void _note_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
     if (p_renderer_id == ObjectID() || p_node_id == ObjectID()) {
         return;
     }
     MutexLock lock(g_renderer_bound_nodes_mutex);
-    LocalVector<ObjectID> &nodes = g_renderer_bound_nodes[p_renderer_id];
-    for (uint32_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i] == p_node_id) {
-            return;
-        }
-    }
-    nodes.push_back(p_node_id);
+    GS_COUNT_PEER_WALK_STEP();
+    g_renderer_bound_nodes[p_renderer_id].insert(p_node_id);
 }
 
 static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
@@ -237,16 +245,12 @@ static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_
         return;
     }
     MutexLock lock(g_renderer_bound_nodes_mutex);
-    LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer_id);
+    HashSet<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer_id);
     if (!nodes) {
         return;
     }
-    for (uint32_t i = 0; i < nodes->size(); i++) {
-        if ((*nodes)[i] == p_node_id) {
-            nodes->remove_at_unordered(i);
-            break;
-        }
-    }
+    GS_COUNT_PEER_WALK_STEP();
+    nodes->erase(p_node_id);
     if (nodes->is_empty()) {
         // ObjectIDs are never reused, so a renderer whose last bound node left
         // can be dropped outright rather than accumulating an empty bucket.
@@ -278,21 +282,31 @@ static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_rende
     LocalVector<ObjectID> bound_ids;
     {
         MutexLock lock(g_renderer_bound_nodes_mutex);
-        if (const LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer->get_instance_id())) {
-            bound_ids = *nodes;
+        if (const HashSet<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer->get_instance_id())) {
+            bound_ids.reserve(nodes->size());
+            for (const ObjectID &bound_id : *nodes) {
+                bound_ids.push_back(bound_id);
+            }
         }
+    }
+    if (bound_ids.is_empty()) {
+        return;
+    }
+
+    // #1081: de-duplicate through a hash set. This used to scan r_peer_ids for
+    // every bound id, O(k^2) per call, and every registration made every peer
+    // call it, so adding N nodes cost O(N^4) overall.
+    HashSet<ObjectID> listed;
+    listed.reserve(r_peer_ids.size() + bound_ids.size());
+    for (uint32_t i = 0; i < r_peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
+        listed.insert(r_peer_ids[i]);
     }
 
     for (uint32_t i = 0; i < bound_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const ObjectID bound_id = bound_ids[i];
-        bool already_listed = false;
-        for (uint32_t j = 0; j < r_peer_ids.size(); j++) {
-            if (r_peer_ids[j] == bound_id) {
-                already_listed = true;
-                break;
-            }
-        }
-        if (already_listed) {
+        if (listed.has(bound_id)) {
             continue;
         }
         GaussianSplatNode3D *node = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(bound_id));
@@ -302,6 +316,7 @@ static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_rende
         if (node->get_renderer().ptr() != p_renderer) {
             continue;
         }
+        listed.insert(bound_id);
         r_peer_ids.push_back(bound_id);
     }
 }
@@ -451,6 +466,7 @@ static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, 
     const ObjectID settings_owner = _peek_renderer_settings_owner(p_renderer->get_instance_id());
     ObjectID first_eligible;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!_node_can_host_debug_hud(peer, p_renderer, p_viewport)) {
             continue;
@@ -1104,6 +1120,16 @@ void GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(GaussianSplatR
     _forget_renderer_bound_node(p_renderer->get_instance_id(), p_node->get_instance_id());
 }
 
+#ifdef TESTS_ENABLED
+void GaussianSplatNodeDebugHelper::count_peer_walk_step() {
+    g_peer_walk_steps.increment();
+}
+
+uint64_t GaussianSplatNodeDebugHelper::get_peer_walk_steps() {
+    return g_peer_walk_steps.get();
+}
+#endif
+
 void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     if (!owner.renderer.is_valid()) {
         return;
@@ -1127,6 +1153,7 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     _collect_overlay_union_peer_ids(owner.renderer.ptr(), peer_ids);
     const ObjectID self_id = owner.get_instance_id();
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -1192,6 +1219,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     LocalVector<ObjectID> peer_ids;
     _collect_overlay_union_peer_ids(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;
@@ -1215,6 +1243,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     // which is the whole point: nobody is left to be told, so the write above had
     // to happen here rather than being delegated.
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;
