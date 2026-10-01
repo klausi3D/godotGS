@@ -334,6 +334,11 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["scheduler_visible_scan_budget_effective"] =
             static_cast<int64_t>(scheduler.last_visible_scan_budget_effective);
     // #1086 needed-set / forward-progress telemetry (see streaming_queue_pressure_controller.h).
+    analytics_snapshot["needed_set_measured"] = scheduler.last_needed_set_measured;
+    analytics_snapshot["needed_chunks_completed"] = static_cast<int64_t>(scheduler.last_needed_chunks_completed);
+    analytics_snapshot["needed_set_net_progress"] = static_cast<int64_t>(scheduler.last_needed_set_net_progress);
+    analytics_snapshot["needed_set_displacement_debt"] = static_cast<int64_t>(scheduler.needed_set_displacement_debt);
+    analytics_snapshot["scheduler_visible_scan_starvation_eligible"] = scheduler.last_visible_scan_starvation_eligible;
     analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
     analytics_snapshot["needed_unserved_chunks"] = static_cast<int64_t>(scheduler.last_needed_unserved_chunk_count);

@@ -97,10 +97,19 @@ struct SchedulerState {
     uint32_t last_needed_resident_chunk_count = 0;
     uint32_t last_needed_unserved_chunk_count = 0;
     bool last_visible_scan_had_capacity = false;
+    bool last_visible_scan_starvation_eligible = false;
     bool last_visible_scan_starved = false;
+    // True only on frames where _build_visible_chunk_list ran, so "no demand"
+    // (needed_chunks == 0) is distinguishable from "not measured this frame".
+    bool last_needed_set_measured = false;
+    // Needed chunks whose upload retired this frame (counted in _process_upload_retirements).
+    uint32_t last_needed_chunks_completed = 0;
+    // Net-progress completions this frame (needed completions not repaying a displacement).
+    uint32_t last_needed_set_net_progress = 0;
     // Cumulative across frames (not per-frame reset); see
-    // StreamingQueuePressureController::advance_needed_set_stall_seconds.
+    // StreamingQueuePressureController::advance_needed_set_progress.
     float needed_set_stall_seconds = 0.0f;
+    uint32_t needed_set_displacement_debt = 0;
     uint32_t prefetch_loads_remaining_this_frame = DEFAULT_PREFETCH_LOADS_PER_FRAME;
     uint32_t prefetch_scan_budget_remaining_this_frame = 0;
     bool queue_pressure_candidate_scan_throttle_active = false;

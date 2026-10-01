@@ -82,32 +82,52 @@ public:
     // (exactly the set _load_visible_chunks treats as load candidates).
     //
     // Scan starvation: needed chunks sit unserved (not loaded, not upload-pending)
-    // while the visible scan had capacity to enqueue (enqueue headroom left and the
-    // queue-pressure throttle NOT engaged), yet the scan found no load candidate --
-    // i.e. the scan window never reached the demand. A scan cut to one chunk because
-    // pack jobs in flight hit max_pack_jobs_in_flight (headroom 0, throttle engaged)
-    // is the throttle doing its job, not starvation.
+    // while the visible scan had enqueue headroom, yet the scan found no load
+    // candidate -- the scan window never reached the demand. This is the case a
+    // throttled or capped scan produces when it restarts at a nearest prefix that is
+    // already resident. A scan cut to one chunk because pack jobs in flight hit
+    // max_pack_jobs_in_flight (headroom 0) is designed backpressure, not starvation.
+    // A frame is ELIGIBLE (could have starved) when the scan had capacity and needed
+    // chunks were unserved; with an uncapped, unthrottled scan every eligible frame
+    // finds candidates, so starvation needs a scan budget below the visible count.
     struct VisibleScanStarvationInput {
         uint32_t needed_unserved_chunks = 0;
         bool scan_had_capacity = false;
         uint32_t load_candidates = 0;
     };
+    static bool is_visible_scan_starvation_eligible(const VisibleScanStarvationInput &p_input);
     static bool is_visible_scan_starved(const VisibleScanStarvationInput &p_input);
-    // Whether the visible scan could have enqueued work this frame. p_scan_ran is
-    // false when the scan returned before scanning anything.
-    static bool visible_scan_had_capacity(bool p_scan_ran, uint32_t p_enqueue_headroom, bool p_throttle_active);
+    // Whether the visible scan could have enqueued work this frame: it ran and had
+    // enqueue headroom. p_scan_ran is false when the scan returned before scanning.
+    static bool visible_scan_had_capacity(bool p_scan_ran, uint32_t p_enqueue_headroom);
 
-    // Needed-set stall: wall time (sum of streaming frame deltas) for which the needed
-    // set has been incomplete while no chunk load completed. Frame-rate independent:
-    // a pipeline completing ~0.2 chunks per frame at 200 fps never accumulates more
-    // than a few frame deltas. Reset by any completion or by a complete needed set.
-    // The threshold is the engine's STALL_THRESHOLD_FRAMES (30) at the 60 fps
-    // reference frame delta, expressed in seconds so it no longer depends on the
-    // frame rate.
+    // Needed-set progress. A frame makes progress when a NEEDED chunk completes that
+    // did not merely replace another needed chunk: completions of non-needed chunks
+    // (prefetch) do not count, and a completion first pays off "displacement debt"
+    // -- one unit per needed (visible) chunk evicted to make room. Evict/reload
+    // churn of the needed set therefore makes no progress. Debt no pending load can
+    // repay is dropped (capped at the in-flight load count).
+    //
+    // The stall is the sum of streaming frame deltas (each clamped by
+    // _resolve_frame_delta_seconds to [0.0005, 0.25] s) for which the needed set has
+    // been incomplete without progress; it resets on progress or a complete needed
+    // set. The threshold is the engine's STALL_THRESHOLD_FRAMES (30) at the 60 fps
+    // reference delta, in seconds so the onset does not depend on the frame rate.
     static constexpr float NEEDED_SET_STALL_THRESHOLD_SECONDS = 0.5f;
-    static float advance_needed_set_stall_seconds(float p_previous_stall_seconds,
-            uint32_t p_needed_chunks, uint32_t p_needed_resident_chunks,
-            uint32_t p_chunks_completed_this_frame, float p_frame_delta_seconds);
+    struct NeededSetProgressInput {
+        uint32_t needed_chunks = 0;
+        uint32_t needed_resident_chunks = 0;
+        uint32_t needed_chunks_completed = 0;
+        uint32_t needed_chunks_evicted = 0;
+        uint32_t in_flight_loads = 0;
+        float frame_delta_seconds = 0.0f;
+    };
+    struct NeededSetProgressState {
+        float stall_seconds = 0.0f;
+        uint32_t displacement_debt = 0;
+    };
+    // Returns the number of net-progress completions this frame.
+    static uint32_t advance_needed_set_progress(NeededSetProgressState &r_state, const NeededSetProgressInput &p_input);
 
     static ScanBudgetResult compute_candidate_scan_budget(const ScanBudgetInput &p_input);
     static PressureSummary summarize(const PressureSample &p_sample);

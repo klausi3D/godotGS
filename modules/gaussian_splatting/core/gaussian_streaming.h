@@ -504,10 +504,10 @@ private:
     uint64_t _get_evictable_vram_usage_bytes() const;
     uint32_t _get_reserved_chunk_count() const;
     // #1087: the one demand predicate for visible primary chunks (load scan, needed
-    // set, sync-fallback drain): inside the VRAM-regulated load threshold and inside
-    // the load distance limit.
-    bool _is_chunk_within_load_distance(const StreamingChunk &p_chunk, float p_lod_mult) const {
-        return p_chunk.distance < STREAMING_LOAD_DISTANCE_BASE / p_lod_mult &&
+    // set and its completions, sync-fallback drain): inside the VRAM-regulated load
+    // threshold (_get_needed_set_load_threshold) and inside the load distance limit.
+    bool _is_chunk_within_load_distance(const StreamingChunk &p_chunk, float p_load_threshold) const {
+        return p_chunk.distance < p_load_threshold &&
                 StreamingVisibilityController::is_within_load_distance(
                         p_chunk.near_distance, visibility.load_distance_limit);
     }
@@ -522,6 +522,8 @@ private:
     void _evict_for_vram_budget(uint32_t &evictions_left, bool &eviction_blocked);
     void _load_visible_chunks(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
     void _build_visible_chunk_list();
+    // #1086: the load-candidate distance _load_visible_chunks uses; defines the needed set.
+    float _get_needed_set_load_threshold() const;
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
     void _log_streaming_frame_stats(uint32_t effective_max);

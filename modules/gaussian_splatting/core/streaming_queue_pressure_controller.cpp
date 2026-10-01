@@ -15,31 +15,42 @@ static void _set_error(String *r_error, const String &p_message) {
 
 } // namespace
 
+bool StreamingQueuePressureController::is_visible_scan_starvation_eligible(const VisibleScanStarvationInput &p_input) {
+    return p_input.needed_unserved_chunks > 0 && p_input.scan_had_capacity;
+}
+
 bool StreamingQueuePressureController::is_visible_scan_starved(const VisibleScanStarvationInput &p_input) {
-    return p_input.needed_unserved_chunks > 0 &&
-            p_input.scan_had_capacity &&
-            p_input.load_candidates == 0;
+    return is_visible_scan_starvation_eligible(p_input) && p_input.load_candidates == 0;
 }
 
-bool StreamingQueuePressureController::visible_scan_had_capacity(bool p_scan_ran, uint32_t p_enqueue_headroom,
-        bool p_throttle_active) {
-    return p_scan_ran && p_enqueue_headroom > 0 && !p_throttle_active;
+bool StreamingQueuePressureController::visible_scan_had_capacity(bool p_scan_ran, uint32_t p_enqueue_headroom) {
+    return p_scan_ran && p_enqueue_headroom > 0;
 }
 
-float StreamingQueuePressureController::advance_needed_set_stall_seconds(float p_previous_stall_seconds,
-        uint32_t p_needed_chunks, uint32_t p_needed_resident_chunks,
-        uint32_t p_chunks_completed_this_frame, float p_frame_delta_seconds) {
-    const bool needed_set_incomplete = p_needed_resident_chunks < p_needed_chunks;
-    if (!needed_set_incomplete || p_chunks_completed_this_frame > 0) {
-        return 0.0f;
+uint32_t StreamingQueuePressureController::advance_needed_set_progress(NeededSetProgressState &r_state,
+        const NeededSetProgressInput &p_input) {
+    // Every needed eviction is a slot a later needed completion merely refills.
+    uint32_t debt = r_state.displacement_debt + p_input.needed_chunks_evicted;
+    const uint32_t repaid = MIN(debt, p_input.needed_chunks_completed);
+    debt -= repaid;
+    const uint32_t net_progress = p_input.needed_chunks_completed - repaid;
+    // A displacement that no pending load can repay is forgotten, so a cancelled or
+    // failed reload cannot suppress progress forever.
+    r_state.displacement_debt = MIN(debt, p_input.in_flight_loads);
+
+    const bool needed_set_incomplete = p_input.needed_resident_chunks < p_input.needed_chunks;
+    if (!needed_set_incomplete || net_progress > 0) {
+        r_state.stall_seconds = 0.0f;
+        return net_progress;
     }
-    const float previous = (Math::is_finite(p_previous_stall_seconds) && p_previous_stall_seconds > 0.0f)
-            ? p_previous_stall_seconds
+    const float previous = (Math::is_finite(r_state.stall_seconds) && r_state.stall_seconds > 0.0f)
+            ? r_state.stall_seconds
             : 0.0f;
-    const float delta = (Math::is_finite(p_frame_delta_seconds) && p_frame_delta_seconds > 0.0f)
-            ? p_frame_delta_seconds
+    const float delta = (Math::is_finite(p_input.frame_delta_seconds) && p_input.frame_delta_seconds > 0.0f)
+            ? p_input.frame_delta_seconds
             : 0.0f;
-    return previous + delta;
+    r_state.stall_seconds = previous + delta;
+    return net_progress;
 }
 
 StreamingQueuePressureController::ScanBudgetResult StreamingQueuePressureController::compute_candidate_scan_budget(
