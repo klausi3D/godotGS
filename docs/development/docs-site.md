@@ -145,12 +145,38 @@ Operational policy:
 
 ## Public Scope
 
-The staged docs copy excludes internal docs directories:
+`scripts/stage_public_docs.py` leaves internal and historical material out of the
+staged copy, so it is neither published nor searchable. The list is
+`DEFAULT_EXCLUSIONS` in that script, with the reason for each entry next to it.
+Patterns are paths relative to `docs/`, matched on whole path components: a
+directory excludes everything beneath it, and a `**/` prefix matches at any depth.
 
-- `docs/agent_memory/`
-- `docs/archive/`
+| Excluded | Why |
+| --- | --- |
+| `docs/agent_memory/` | Legacy agent coordination memory; not a source of truth. |
+| `archive/` at any depth (`docs/archive/`, `docs/reports/archive/`) | Superseded material. |
+| `docs/reports/` | Point-in-time investigations, audits and documentation-coverage dumps. |
+| `docs/programs/` | Agent work programs; live status is in GitHub issues. |
+| `docs/architecture/gaussian-renderer-refactor-memory.md` | Working journal of the completed renderer refactor. |
+| `docs/architecture/refactor-phase-runner.md` | How-to for that refactor's phase runner script. |
+| `docs/architecture/gaussian-pipeline-unification-plan.md` | Refactor plan whose stages 0-3 landed; its current-state section is stale. |
+| `docs/architecture/gaussian-pipeline-deprecation-deletion-plan.md` | Cleanup plan the code has since overtaken. |
+| `docs/architecture/resolve_lighting_redesign_spec.md` | Design proposal, not implemented. |
+| `docs/architecture/tier2_cluster_culling_spec.md` | Unimplemented spec; no cluster-culling code exists. |
 
-Out-of-scope relative links are rewritten to GitHub `blob`/`tree` URLs so public pages remain navigable.
+The files stay in the repository. Excluding at stage time, and not with the MkDocs
+`exclude_docs` option, keeps inbound links working: a relative link from a
+published page to a file that was not staged is rewritten to a GitHub `blob`/`tree`
+URL when `--repo-url` and `--ref` are set, as they are in CI. `exclude_docs` would
+stage the file and leave the link unchanged, so the published link would point at a
+page that does not exist; `mkdocs build --strict` reports that only at `INFO` level
+and still passes. Staging fails if an entry matches no file, so a renamed
+or deleted file forces the list to be updated.
+
+The generated architecture pack (`docs/architecture/generated/`) is published but
+not in the navigation. Its pages set `search: exclude: true` in their front matter,
+so they do not appear in site search. `scripts/generate_architecture_diagrams.py`
+does not write that front matter; keep it when you regenerate the pack.
 
 The published MkDocs config enables instant navigation, top tabs, sticky tabs, section indexes, navigation path breadcrumbs, and footer next/previous links on the staged docs tree.
 
