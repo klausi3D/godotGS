@@ -111,11 +111,25 @@ growing the count:
   maintainer's written approval**, recorded as a link to that comment in
   `MAX_EXPIRY_APPROVALS`. The guard rejects a ceiling above the last approved
   one, a link that is not a comment anchor in this repo, and a link reused for
-  a second raise. It cannot check offline who wrote the comment, so the
-  reviewer opens the link.
+  a second raise. The history is **append-only**: the floor
+  (`MAX_EXPIRY_UNAPPROVED_CEILING_UTC`) and the sealed rows are hashed into
+  `MAX_EXPIRY_APPROVALS_SEAL`. Appending a row needs no seal edit, but raising
+  the floor or deleting, re-dating or replacing a sealed row breaks the seal.
+  The guard cannot check offline who wrote the comment, so the reviewer opens
+  the link.
 - `LANE_DUE_NO_RENEWAL` - declarations the maintainer accepted for **one**
-  renewal only. Each pin caps that declaration's `expires_utc` regardless of
-  `MAX_EXPIRY_UTC`, so a later ceiling raise does not renew it again.
+  renewal only (#1123). Each pinned declaration's `expires_utc` is capped at
+  `LANE_DUE_DEADLINE_UTC` regardless of `MAX_EXPIRY_UTC`. The deadline may not
+  be later than the sealed approval row that granted the renewal. The pin set
+  and the deadline are sealed in `LANE_DUE_SEAL`. Pins are permanent: a laned
+  declaration's pin is simply inert, so no legitimate change removes one.
+
+These pins catch single-constant edits. A PR that edits the guard together with
+its constants (new seals, a deleted rule) cannot be stopped by any in-repo
+check, and authorship of an approval comment cannot be verified mechanically,
+because every agent posts as the repo owner's account. For that class, the
+defence is review of the diff. See the docstring of
+`tests/ci/test_quarantine_manifest.py`.
 - `MANIFEST_TOP_LEVEL_KEYS` - the manifest's legitimate homes are pinned, so a
   new top-level array cannot be introduced as a fresh unratcheted place to park
   declarations.

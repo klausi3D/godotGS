@@ -6,6 +6,20 @@ the schema guard, the loader, and the doctest-lane wiring against temporary
 manifest fixtures. They never write a non-empty manifest into the repo: every
 fixture lives in a TemporaryDirectory and the module's QUARANTINE_MANIFEST_PATH
 global is patched to point at it.
+
+What the pins in this file can and cannot do (#1119, declined by merit):
+every pin, seal and fingerprint here catches a SINGLE-constant edit, such as a
+raised ceiling, a moved deadline, a deleted pin or a rewritten approval row.
+None of them can stop a PR that edits the guard together with its own
+constants (a new seal, a new rule, or a deleted check). That class is
+declined deliberately. Any in-repo guard can be edited by the same PR it
+judges. An external reference, such as the merge-base copy of this file, would
+need git history on every runner, would fail closed on shallow clones and
+local runs, and could still be removed by that same PR. Authorship cannot be
+checked mechanically either: every agent posts as the repo owner's account, so
+a "maintainer comment" link proves that a link exists, not who wrote it. The
+defence for that class is human review of the diff. A change to any seal,
+floor, pin set or approval row is a change to recorded maintainer decisions.
 """
 
 from __future__ import annotations
@@ -226,13 +240,33 @@ MAX_EXPIRY_UTC = "2026-11-30T00:00:00Z"
 #
 # What this cannot check offline: that the linked comment really is the
 # maintainer's. A reviewer must open the link. The guard guarantees the link
-# exists, is a comment anchor, and is new.
+# exists, is a comment anchor, and is new. (See the module docstring for the
+# limit of any in-file pin.)
+#
+# APPEND-ONLY, SEALED (round 2, #1119 re-review): the floor and the first
+# MAX_EXPIRY_APPROVALS_SEALED rows are hashed into MAX_EXPIRY_APPROVALS_SEAL
+# (approval_seal()). APPENDING a new approval row needs no seal edit. Raising
+# the floor, deleting a sealed row, or replacing one (e.g. re-dating it while
+# reusing its link) breaks the seal. So does changing the sealed count alone.
+# A renewal has no reason to touch the seal, so a seal edit in a diff is an
+# edit to approval history, and reviewers should read it as one. When the
+# maintainer later wants a new row sealed, advance MAX_EXPIRY_APPROVALS_SEALED
+# and recompute the seal with approval_seal() (there is deliberately no writer).
+#
+# Not done, by merit: requiring MAX_EXPIRY_UTC to EQUAL the last approved
+# ceiling. The rule above already fails any ceiling ABOVE it. Equality would
+# also forbid LOWERING the ceiling, which is always safe, and since rows must
+# strictly increase, a lowering could then never be recorded at all.
 MAX_EXPIRY_UNAPPROVED_CEILING_UTC = "2026-10-15T00:00:00Z"
 MAX_EXPIRY_APPROVALS: tuple[tuple[str, str], ...] = (
     (
         "2026-11-30T00:00:00Z",
         "https://github.com/klausi3D/godotGS/pull/1119#issuecomment-5935556044",
     ),
+)
+MAX_EXPIRY_APPROVALS_SEALED = 1
+MAX_EXPIRY_APPROVALS_SEAL = (
+    "f4eac8d95d6dd4ea1e7b931cb8a7964b0f43e93b01d765d7dfec4c2027950671"
 )
 MAINTAINER_APPROVAL_URL_RE = re.compile(
     r"^https://github\.com/klausi3D/godotGS/(?:pull|issues)/[0-9]+"
@@ -241,19 +275,32 @@ MAINTAINER_APPROVAL_URL_RE = re.compile(
 
 # Declarations the maintainer accepted for ONE renewal only (#1119, 2026-10-01):
 # every case in them already passes, so they must get a lane by the date below,
-# not a second renewal. Tracked in #1123. Each pin caps that declaration's
-# expires_utc INDEPENDENTLY of MAX_EXPIRY_UTC, so a future ceiling raise does not
-# quietly renew them too. When a declaration is laned and deleted, remove its pin
-# in the same re-pin; every key must name a UNLANED_BASELINE pattern, so a typo
-# cannot turn a pin into a no-op.
-LANE_DUE_NO_RENEWAL: dict[str, str] = {
-    "[GaussianSplatting][GeneratePLY]*": "2026-11-30T00:00:00Z",
-    "[GaussianSplatting][NodeSurface][World]*": "2026-11-30T00:00:00Z",
-    "[VisualCompare]*": "2026-11-30T00:00:00Z",
-    "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption": "2026-11-30T00:00:00Z",
-    "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state": "2026-11-30T00:00:00Z",
-    "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails": "2026-11-30T00:00:00Z",
-}
+# not a second renewal. Tracked in #1123. The pin caps each such declaration's
+# expires_utc at LANE_DUE_DEADLINE_UTC INDEPENDENTLY of MAX_EXPIRY_UTC, so a
+# later ceiling raise does not quietly renew them too.
+#
+# Round 2 (#1119 re-review), three single-constant bypasses closed:
+#   * the deadline may not be later than the ceiling of the SEALED approval row
+#     that granted this one renewal (MAX_EXPIRY_APPROVALS[0], 2026-11-30), so
+#     moving it to 2027 fails;
+#   * the pattern set and the deadline are hashed into LANE_DUE_SEAL, so
+#     deleting a pin (while the declaration stays and is renewed) fails;
+#   * pins are PERMANENT: a pin whose declaration was laned and deleted is
+#     simply inert, so laning never requires removing a pin, and no legitimate
+#     change ever touches the seal. (A pattern string with a typo would also
+#     break the seal; at sealing on 2026-10-01 all six matched a declaration.)
+LANE_DUE_DEADLINE_UTC = "2026-11-30T00:00:00Z"
+LANE_DUE_NO_RENEWAL: frozenset[str] = frozenset({
+    "[GaussianSplatting][GeneratePLY]*",
+    "[GaussianSplatting][NodeSurface][World]*",
+    "[VisualCompare]*",
+    "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption",
+    "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state",
+    "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails",
+})
+LANE_DUE_SEAL = (
+    "1512a0303529734d027aae181e866335b970d2f5d89c0d1e23bfa5a3ff918dd9"
+)
 
 # ---------------------------------------------------------------------------
 # Tracking-issue liveness, checked OFFLINE.
@@ -1204,45 +1251,109 @@ def ceiling_approval_problems(
     return problems
 
 
-def lane_due_problems(declarations: object, pins: object, baseline_patterns: object) -> list:
+def approval_seal(floor_raw: object, rows: object) -> str:
+    """sha256 over the floor and the given approval rows, in order."""
+    payload = json.dumps(
+        [floor_raw, [list(row) if isinstance(row, tuple) else row for row in rows]],
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def approval_seal_problems(
+    floor_raw: object, approvals: object, sealed_count: object, seal: object
+) -> list:
+    """Approval history is append-only: the floor and the sealed prefix may not move."""
+    if not isinstance(approvals, tuple):
+        return [f"MAX_EXPIRY_APPROVALS must be a tuple, got {approvals!r}."]
+    if (
+        not isinstance(sealed_count, int)
+        or isinstance(sealed_count, bool)
+        or sealed_count < 1
+        or sealed_count > len(approvals)
+    ):
+        return [
+            f"MAX_EXPIRY_APPROVALS_SEALED={sealed_count!r} must be an int between 1 and "
+            f"len(MAX_EXPIRY_APPROVALS)={len(approvals)}. Approval rows are append-only: a sealed "
+            f"row cannot be deleted. This fails closed."
+        ]
+    actual = approval_seal(floor_raw, approvals[:sealed_count])
+    if actual != seal:
+        return [
+            f"MAX_EXPIRY_APPROVALS_SEAL does not match the floor and the first "
+            f"{sealed_count} approval row(s) (got {actual}). Approval history is APPEND-ONLY: "
+            f"raising MAX_EXPIRY_UNAPPROVED_CEILING_UTC, or deleting, re-dating or replacing a "
+            f"sealed row, rewrites the record of what the maintainer approved. Append a new "
+            f"row for a new raise instead."
+        ]
+    return []
+
+
+def lane_due_seal(deadline_raw: object, patterns: object) -> str:
+    """sha256 over the lane-due deadline and the sorted pinned patterns."""
+    payload = json.dumps([deadline_raw, sorted(patterns)], separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def lane_due_problems(
+    declarations: object,
+    patterns: object,
+    deadline_raw: object,
+    seal: object,
+    approvals: object,
+) -> list:
     """Declarations accepted for one renewal only may not be renewed again (#1123).
 
-    Each pin caps a declaration's expires_utc regardless of MAX_EXPIRY_UTC, and
-    every pinned key must be a pinned baseline pattern so a typo is not a no-op.
+    The deadline is bounded by the sealed approval row that granted the renewal,
+    the pattern set and deadline are sealed, and each pinned declaration's
+    expires_utc is capped at the deadline regardless of MAX_EXPIRY_UTC.
     """
+    if not isinstance(patterns, frozenset) or not all(isinstance(p, str) for p in patterns):
+        return [f"LANE_DUE_NO_RENEWAL must be a frozenset of patterns, got {patterns!r}."]
+    deadline = _parse_utc(deadline_raw)
+    if deadline is None:
+        return [
+            f"LANE_DUE_DEADLINE_UTC={deadline_raw!r} is not a parseable UTC timestamp. This "
+            f"fails closed."
+        ]
     problems: list = []
-    if not isinstance(pins, dict):
-        return [f"LANE_DUE_NO_RENEWAL must be a dict, got {pins!r}."]
-    known = set(baseline_patterns)
-    for pattern, deadline_raw in pins.items():
-        if pattern not in known:
-            problems.append(
-                f"LANE_DUE_NO_RENEWAL pins {pattern!r}, which is not a UNLANED_BASELINE "
-                f"pattern. A pin that matches no declaration enforces nothing: remove it when its "
-                f"declaration is laned, and never misspell it."
-            )
-        if _parse_utc(deadline_raw) is None:
-            problems.append(
-                f"LANE_DUE_NO_RENEWAL[{pattern!r}] deadline {deadline_raw!r} is not a parseable "
-                f"UTC timestamp. This fails closed."
-            )
+    granted = None
+    if isinstance(approvals, tuple) and approvals and isinstance(approvals[0], tuple):
+        granted = _parse_utc(approvals[0][0])
+    if granted is None:
+        problems.append(
+            "LANE_DUE_DEADLINE_UTC cannot be bounded: MAX_EXPIRY_APPROVALS[0], the approval "
+            "that granted the one renewal, is missing or unparseable. This fails closed."
+        )
+    elif deadline > granted:
+        problems.append(
+            f"LANE_DUE_DEADLINE_UTC={deadline_raw} is later than {approvals[0][0]}, the ceiling "
+            f"of the approval that granted these declarations their ONE renewal "
+            f"(MAX_EXPIRY_APPROVALS[0]). Moving the deadline is a second renewal (#1123)."
+        )
+    actual = lane_due_seal(deadline_raw, patterns)
+    if actual != seal:
+        problems.append(
+            f"LANE_DUE_SEAL does not match LANE_DUE_DEADLINE_UTC and LANE_DUE_NO_RENEWAL (got "
+            f"{actual}). Pins are PERMANENT: a laned declaration's pin is simply inert, so no "
+            f"legitimate change removes, renames or re-dates one. Deleting a pin while its "
+            f"declaration stays is a second renewal (#1123)."
+        )
     if not isinstance(declarations, list):
         return problems
     for index, declaration in enumerate(declarations):
         if not isinstance(declaration, dict):
             continue
         pattern = declaration.get("test_case")
-        if pattern not in pins:
+        if pattern not in patterns:
             continue
-        deadline = _parse_utc(pins[pattern])
         expires = _parse_utc(declaration.get("expires_utc"))
-        if deadline is None:
-            continue
         if expires is None or expires > deadline:
             problems.append(
                 f"unlaned_tests[{index}] ({pattern!r}) 'expires_utc' "
-                f"{declaration.get('expires_utc')!r} is past its LANE_DUE_NO_RENEWAL deadline "
-                f"{pins[pattern]}. The maintainer accepted ONE renewal for this proven-green "
+                f"{declaration.get('expires_utc')!r} is past LANE_DUE_DEADLINE_UTC "
+                f"{deadline_raw}. The maintainer accepted ONE renewal for this proven-green "
                 f"declaration (#1119); it must get a lane (#1123), not a second renewal."
             )
     return problems
@@ -1688,13 +1799,21 @@ class QuarantineManifestRatchetTests(unittest.TestCase):
         problems = ceiling_approval_problems(
             MAX_EXPIRY_UTC, MAX_EXPIRY_UNAPPROVED_CEILING_UTC, MAX_EXPIRY_APPROVALS
         )
+        problems += approval_seal_problems(
+            MAX_EXPIRY_UNAPPROVED_CEILING_UTC,
+            MAX_EXPIRY_APPROVALS,
+            MAX_EXPIRY_APPROVALS_SEALED,
+            MAX_EXPIRY_APPROVALS_SEAL,
+        )
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
 
     def test_proven_green_declarations_are_not_renewed_again(self) -> None:
         problems = lane_due_problems(
             self.declarations,
             LANE_DUE_NO_RENEWAL,
-            [pattern for pattern, _ in UNLANED_BASELINE],
+            LANE_DUE_DEADLINE_UTC,
+            LANE_DUE_SEAL,
+            MAX_EXPIRY_APPROVALS,
         )
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
 
@@ -1955,23 +2074,56 @@ class CeilingApprovalAndLaneDueTests(unittest.TestCase):
     def _decl(self, pattern: str, expires: str) -> dict:
         return {"test_case": pattern, "expires_utc": expires}
 
+    DEADLINE = "2026-11-30T00:00:00Z"
+    PINS = frozenset({"[VisualCompare]*"})
+
+    def _lane_due(self, declarations, pins=None, deadline=None, seal=None, approvals=None) -> str:
+        pins = self.PINS if pins is None else pins
+        deadline = self.DEADLINE if deadline is None else deadline
+        seal = lane_due_seal(deadline, pins) if seal is None else seal
+        approvals = ((self.DEADLINE, self.URL_A),) if approvals is None else approvals
+        return "\n".join(lane_due_problems(declarations, pins, deadline, seal, approvals))
+
     def test_lane_due_pin_rejects_a_second_renewal(self) -> None:
-        pins = {"[VisualCompare]*": "2026-11-30T00:00:00Z"}
-        baseline = ["[VisualCompare]*", "[Other]*"]
         ok = [self._decl("[VisualCompare]*", "2026-11-30T00:00:00Z")]
         renewed = [self._decl("[VisualCompare]*", "2026-12-01T00:00:00Z")]
         unpinned = [self._decl("[Other]*", "2027-01-31T00:00:00Z")]
-        self.assertEqual(lane_due_problems(ok, pins, baseline), [])
-        self.assertEqual(lane_due_problems(unpinned, pins, baseline), [])
-        self.assertIn("second renewal", "\n".join(lane_due_problems(renewed, pins, baseline)))
+        self.assertEqual(self._lane_due(ok), "")
+        self.assertEqual(self._lane_due(unpinned), "")
+        self.assertIn("second renewal", self._lane_due(renewed))
 
-    def test_lane_due_pin_on_an_unknown_pattern_is_rejected(self) -> None:
-        out = "\n".join(lane_due_problems([], {"[VisualCompar]*": "2026-11-30T00:00:00Z"}, ["[VisualCompare]*"]))
-        self.assertIn("not a UNLANED_BASELINE pattern", out)
+    def test_lane_due_deadline_cannot_pass_the_granting_approval(self) -> None:
+        # Re-dating the deadline AND re-sealing it still fails: the bound is the
+        # sealed approval row that granted the one renewal.
+        out = self._lane_due([], deadline="2027-01-31T00:00:00Z")
+        self.assertIn("later than", out)
+        self.assertIn("fails closed", self._lane_due([], approvals=()))
+
+    def test_lane_due_pin_deletion_breaks_the_seal(self) -> None:
+        sealed = lane_due_seal(self.DEADLINE, frozenset({"[VisualCompare]*", "[Other]*"}))
+        out = self._lane_due([], pins=frozenset({"[Other]*"}), seal=sealed)
+        self.assertIn("LANE_DUE_SEAL does not match", out)
 
     def test_lane_due_pin_with_unparseable_deadline_fails_closed(self) -> None:
-        out = "\n".join(lane_due_problems([], {"[VisualCompare]*": "soon"}, ["[VisualCompare]*"]))
-        self.assertIn("fails closed", out)
+        self.assertIn("fails closed", self._lane_due([], deadline="soon"))
+
+    def test_approval_history_is_append_only(self) -> None:
+        rows = ((self.DEADLINE, self.URL_A),)
+        seal = approval_seal(self.FLOOR, rows)
+        self.assertEqual(approval_seal_problems(self.FLOOR, rows, 1, seal), [])
+        # appending a new row needs no seal edit
+        self.assertEqual(
+            approval_seal_problems(self.FLOOR, rows + (("2027-01-31T00:00:00Z", self.URL_B),), 1, seal),
+            [],
+        )
+        for name, floor, approvals, count in (
+            ("floor raised", "2026-12-31T00:00:00Z", rows, 1),
+            ("row deleted", self.FLOOR, (), 1),
+            ("row re-dated, link reused", self.FLOOR, (("2027-01-31T00:00:00Z", self.URL_A),), 1),
+            ("sealed count lowered", self.FLOOR, rows, 0),
+        ):
+            with self.subTest(mutation=name):
+                self.assertNotEqual(approval_seal_problems(floor, approvals, count, seal), [])
 
 
 class IssueVerificationFreshnessTests(unittest.TestCase):
