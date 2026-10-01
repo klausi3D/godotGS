@@ -82,7 +82,9 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
     vec4 shadow_bias_config;
     // Lighting mode:
     // x=direct_lighting_mode (0=resolve adds direct, 1=per-splat binning bakes direct),
-    // yzw=reserved. The two passes own DISJOINT modes; there is no "both" mode.
+    // yz=raster pixel -> light-cluster grid pixel scale as float bits (#1078; 1.0 when
+    // the raster runs at the engine render size), w=reserved. The two passes own
+    // DISJOINT modes; there is no "both" mode.
     uvec4 lighting_mode;
     // Light counts:
     // x=omni_light_count, y=spot_light_count, z=cluster_enabled, w=light_mask

@@ -1,5 +1,29 @@
 # Project Settings Reference
 
+> **Stability (manual annotation, 2026-09-26; [#1010](https://github.com/klausi3D/godotGS/issues/1010)).**
+> No setting on this page carries a stability promise during the public alpha. Any key
+> may be renamed, change meaning or default, or be removed in any release, without a
+> deprecation period (maintainer decision, 2026-09-27; a deprecation lifecycle begins at
+> v1.0); see [API Stability](../development/api-stability.md). The `publicness` field in
+> `modules/gaussian_splatting/config/project_settings_manifest.json` does not change
+> that: it is a v1.0 classification exercise in progress. As of `12f2feb61da` (counts
+> hand-copied; the manifest is the authority), 153 of the 193 settings resolve to
+> `public`, 150 of them by inheriting a family default rather than by a decision about
+> that key, and 139 of the 193 are `test_coverage: inventory_only`, with nothing
+> verifying they do anything. Read `public` as "the bucket this key's family defaults to
+> today", not as "supported".
+>
+> `modules/gaussian_splatting/config/project_settings_public_api_baseline.json` is a
+> **change record**, not a promise either. Its guard compares the baseline against the
+> default branch's history: the merge-base with `origin/main`, `main`, `origin/master` or
+> `master`, or the ref in `GS_PROJECT_SETTINGS_MANIFEST_BASE_REF`. A key present there
+> has to stay listed and gain a `retired_settings` entry when it is removed. The
+> comparison does not cover a stacked PR's own base, and it is skipped when none of
+> those refs resolves. The [migration notes](gaussian-project-settings-migration.md)
+> describe each recorded removal.
+> A recorded removal is still a removal, and during the alpha it may happen in any
+> release, with or without a deprecated alias first.
+>
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:
 >
