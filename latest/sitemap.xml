@@ -133,19 +133,7 @@
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/gaussian-pipeline-deprecation-deletion-plan/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/gaussian-pipeline-unification-plan/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/gaussian-project-settings-contract/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/gaussian-renderer-refactor-memory/</loc>
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
@@ -161,10 +149,6 @@
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/refactor-phase-runner/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/render-pipeline/</loc>
          <lastmod>2026-10-01</lastmod>
     </url>
@@ -173,15 +157,7 @@
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/resolve_lighting_redesign_spec/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/architecture/stage-first-ownership-inventory/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/architecture/tier2_cluster_culling_spec/</loc>
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
@@ -337,10 +313,6 @@
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/programs/godotgs-continuation-2026-08/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
          <loc>https://klausi3d.github.io/godotGS/latest/reference/</loc>
          <lastmod>2026-10-01</lastmod>
     </url>
@@ -374,58 +346,6 @@
     </url>
     <url>
          <loc>https://klausi3d.github.io/godotGS/latest/reference/test-quarantine/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/ci_release_audit_2026-04-16/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/corridor_black_screen_investigation/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/docs_remediation_summary/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/documentation-coverage/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/documentation-gaps/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/editor_startup_investigation_2026-04-16/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/latest-assessment/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/timestamp_monitor_investigation/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/archive/docs_assessment_2026-03-19/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/archive/docs_assessment_2026-03-29/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/archive/streaming_tier2_execution_roadmap_2026-04-09/</loc>
-         <lastmod>2026-10-01</lastmod>
-    </url>
-    <url>
-         <loc>https://klausi3d.github.io/godotGS/latest/reports/archive/streaming_tier2_phase4c1_issue_backlog_2026-04-09/</loc>
          <lastmod>2026-10-01</lastmod>
     </url>
     <url>
