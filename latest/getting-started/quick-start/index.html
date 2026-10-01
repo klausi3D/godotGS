@@ -1966,7 +1966,7 @@
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="nv">$env:GODOT_BINARY</span><span class="p">=</span><span class="s2">"C:\absolute\path\to\your\godot-editor.exe"</span>
 </code></pre></div>
-<p>Need a binary first? Open <a href="https://github.com/klausi3D/godotGS/releases">GitHub Releases</a> and grab the most recent <code>nightly-YYYYMMDD</code> prerelease — Linux tarball or Windows zip. macOS users <a href="../../BUILDING/">Build from Source</a>, then come back here and set <code>GODOT_BINARY</code> to the binary you have.</p>
+<p>Need a binary first? Open <a href="https://github.com/klausi3D/godotGS/releases">GitHub Releases</a> and grab the most recent <code>nightly-YYYYMMDD</code> prerelease for the Linux tarball. The Windows zip is attached only to nightlies whose Windows lane passed, so on Windows take the most recent nightly that lists <code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code> (see <a href="../downloads/">Downloads</a>). macOS users <a href="../../BUILDING/">Build from Source</a>, then come back here and set <code>GODOT_BINARY</code> to the binary you have.</p>
 <div class="admonition warning">
 <p class="admonition-title">The Linux nightly download is an unoptimized <code>-O0</code> build</p>
 <p>The published Linux nightly editor is compiled with <code>dev_build=yes</code>, i.e. <code>-O0</code>,
@@ -1978,11 +1978,6 @@ performance, and read the
 <a href="../../performance/#measurement-environment">Performance Dashboard</a> for what
 an optimized build measures.</p>
 </div>
-<p>After a successful build, point <code>GODOT_BINARY</code> at the editor binary:</p>
-<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">GODOT_BINARY</span><span class="o">=</span>/absolute/path/to/your/godot-editor
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="nv">$env:GODOT_BINARY</span><span class="p">=</span><span class="s2">"C:\absolute\path\to\your\godot-editor.exe"</span>
-</code></pre></div>
 <p>You should have a working editor binary before continuing.</p>
 <h2 id="2-open-the-sample-project">2. Open the Sample Project<a class="headerlink" href="#2-open-the-sample-project" title="Permanent link">¶</a></h2>
 <p>The sample project ships in this repository, not in the nightly archive. Clone the
@@ -1990,13 +1985,13 @@ repository first if you have not already, and run the commands below from its ro
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>https://github.com/klausi3D/godotGS.git
 <span class="nb">cd</span><span class="w"> </span>godotGS
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="nv">$GODOT_BINARY</span><span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
+<div class="highlight"><pre><span></span><code><span class="nv">$GODOT_BINARY</span><span class="w"> </span>-e<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
 </code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
+<div class="highlight"><pre><span></span><code><span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="n">-e</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
 </code></pre></div>
-<p>You should see the sample project open in the editor.</p>
+<p>You should see the sample project open in the editor. The <code>-e</code> flag matters: without it, <code>--path</code> runs the project's main scene directly instead of opening the editor.</p>
 <h2 id="3-open-the-public-evaluator">3. Open the Public Evaluator<a class="headerlink" href="#3-open-the-public-evaluator" title="Permanent link">¶</a></h2>
-<p>Press Play. The sample project now opens <code>res://scenes/public_evaluator.tscn</code> by default.</p>
+<p>Press Play. The sample project now opens <code>res://scenes/public_evaluator.tscn</code> by default. It shows a small synthetic sample (a 1,024-splat test fixture), not a real capture.</p>
 <p>You should see:
 - a visible splat in the viewport
 - the evaluator scene already loaded</p>
@@ -2032,7 +2027,7 @@ repository first if you have not already, and run the commands below from its ro
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:55 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:38:58 UTC">October 1, 2026</span>
   </span>
 
     

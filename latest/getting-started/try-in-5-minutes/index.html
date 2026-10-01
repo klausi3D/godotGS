@@ -1960,10 +1960,10 @@
 <h1 id="try-in-5-minutes">Try in 5 Minutes<a class="headerlink" href="#try-in-5-minutes" title="Permanent link">¶</a></h1>
 <p>This is the shortest honest path to a visible result: download the latest nightly editor for your platform, open the sample project, and confirm the public evaluator in the viewport. macOS still starts with <a href="../../BUILDING/">Build from Source</a>.</p>
 <h2 id="1-get-the-nightly-editor">1. Get the Nightly Editor<a class="headerlink" href="#1-get-the-nightly-editor" title="Permanent link">¶</a></h2>
-<p>Open the <a href="https://github.com/klausi3D/godotGS/releases">GitHub Releases</a> page, pick the most recent <code>nightly-YYYYMMDD</code> entry at the top of the list, and download the archive that matches your platform:</p>
+<p>Open the <a href="https://github.com/klausi3D/godotGS/releases">GitHub Releases</a> page and download the archive that matches your platform:</p>
 <ul>
-<li><strong>Linux:</strong> <code>godotgs-linux-x86_64-&lt;date&gt;.tar.xz</code></li>
-<li><strong>Windows:</strong> <code>godotgs-windows-x86_64-&lt;date&gt;.zip</code> (contains both the GUI editor and the console wrapper — pick whichever fits your workflow). Do not take <code>godotgs-export-template-windows-x86_64-&lt;date&gt;.zip</code> by mistake: that is the export template for shipping a game, not the editor.</li>
+<li><strong>Linux:</strong> <code>godotgs-linux-x86_64-&lt;date&gt;.tar.xz</code> from the most recent <code>nightly-YYYYMMDD</code> entry at the top of the list. Every nightly has it.</li>
+<li><strong>Windows:</strong> <code>godotgs-windows-x86_64-&lt;date&gt;.zip</code> from the most recent nightly that lists it. The Windows zip is attached only when that night's Windows build lane passed, so the newest nightly may be Linux-only. The zip contains both the GUI editor and the console wrapper; pick whichever fits your workflow. Do not take <code>godotgs-export-template-windows-x86_64-&lt;date&gt;.zip</code> by mistake: that is the export template for shipping a game, not the editor.</li>
 <li><strong>macOS:</strong> no published binary; stop here and use <a href="../../BUILDING/">Build from Source</a>.</li>
 </ul>
 <p>See the <a href="../downloads/">Downloads page</a> for verification and integrity-check details.</p>
@@ -1986,13 +1986,14 @@ enough and is far quicker than the full engine history:</p>
 <p>Point <code>GODOT_BINARY</code> at the editor you downloaded, then open the sample project
 from the clone (paths below are relative to the repository root):</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">GODOT_BINARY</span><span class="o">=</span>/absolute/path/to/godot.linuxbsd.editor.dev.x86_64
-<span class="nv">$GODOT_BINARY</span><span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
+<span class="nv">$GODOT_BINARY</span><span class="w"> </span>-e<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="nv">$env:GODOT_BINARY</span><span class="p">=</span><span class="s2">"C:\absolute\path\to\godot.windows.editor.x86_64.exe"</span>
-<span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
+<span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="n">-e</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
 </code></pre></div>
+<p>The <code>-e</code> flag opens the editor; without it, <code>--path</code> runs the project's main scene directly.</p>
 <h2 id="4-verify-the-public-evaluator">4. Verify the Public Evaluator<a class="headerlink" href="#4-verify-the-public-evaluator" title="Permanent link">¶</a></h2>
-<p>Press Play. The sample project opens <code>res://scenes/public_evaluator.tscn</code> by default.</p>
+<p>Press Play. The sample project opens <code>res://scenes/public_evaluator.tscn</code> by default. It shows a small synthetic sample (a 1,024-splat test fixture), not a real capture.</p>
 <p>You should see:</p>
 <ul>
 <li>a visible splat in the viewport</li>
@@ -2024,7 +2025,7 @@ from the clone (paths below are relative to the repository root):</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:31:56 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:38:58 UTC">October 1, 2026</span>
   </span>
 
     
