@@ -3895,25 +3895,42 @@ TEST_CASE("[Streaming Pipeline] Scan starvation excludes pack saturation but cat
     CHECK_FALSE(bool(unmeasured.get("needed_set_measured", true)));
     CHECK_FALSE(bool(unmeasured.get("scheduler_visible_scan_starvation_eligible", true)));
 
-    system->begin_frame();
-    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
-    system->_test_set_visible_scan_result(false, 0); // saturated: backpressure
-    system->_test_build_visible_chunk_list();
-    system->end_frame();
-    const Dictionary saturated_frame = system->get_streaming_analytics();
+    // The visible list is nearest-first: [0 (resident), 1 (unserved), 2 (unserved)].
+    const auto scan_frame = [&](bool p_had_capacity, uint32_t p_candidates, uint32_t p_scanned) -> Dictionary {
+        system->begin_frame();
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        system->_test_record_visible_scan_starvation(p_had_capacity, p_candidates, 0, p_scanned);
+        system->_test_build_visible_chunk_list();
+        system->end_frame();
+        return system->get_streaming_analytics();
+    };
+
+    // Pack-saturated (no headroom) scan of the nearest chunk only: backpressure.
+    const Dictionary saturated_frame = scan_frame(false, 0, 1);
     CHECK(bool(saturated_frame.get("needed_set_measured", false)));
+    CHECK(int64_t(saturated_frame.get("needed_unserved_chunks", int64_t(-1))) == 2);
     CHECK_FALSE(bool(saturated_frame.get("scheduler_visible_scan_starvation_eligible", true)));
     CHECK_FALSE(bool(saturated_frame.get("scheduler_visible_scan_starved", true)));
 
-    system->begin_frame();
-    system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
-    system->_test_set_visible_scan_result(true, 0); // room, but the scan found nothing
-    system->_test_build_visible_chunk_list();
-    system->end_frame();
-    const Dictionary starved = system->get_streaming_analytics();
-    CHECK(int64_t(starved.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    // Room, but a capped scan restarted at the resident nearest chunk and stopped:
+    // the two unserved chunks behind it were never reached. Starved.
+    const Dictionary starved = scan_frame(true, 0, 1);
     CHECK(bool(starved.get("scheduler_visible_scan_starvation_eligible", false)));
     CHECK(bool(starved.get("scheduler_visible_scan_starved", false)));
+
+    // A full scan that found no candidate cannot have starved, even though chunks
+    // are unserved by the time the needed set is built (e.g. evicted at upload
+    // admission after the scan). This is the false positive the first round-2 GPU
+    // run showed when starvation was judged at build time.
+    const Dictionary full_scan = scan_frame(true, 0, 3);
+    CHECK(int64_t(full_scan.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    CHECK_FALSE(bool(full_scan.get("scheduler_visible_scan_starvation_eligible", true)));
+    CHECK_FALSE(bool(full_scan.get("scheduler_visible_scan_starved", true)));
+
+    // The scan reached the demand: eligible, not starved.
+    const Dictionary reached = scan_frame(true, 2, 3);
+    CHECK(bool(reached.get("scheduler_visible_scan_starvation_eligible", false)));
+    CHECK_FALSE(bool(reached.get("scheduler_visible_scan_starved", true)));
 }
 
 namespace {
