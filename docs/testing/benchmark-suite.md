@@ -317,8 +317,11 @@ build the needed set (`needed_set_measured == false`) is counted in
   candidate.
   - `scan_starvation_eligible_frames` counts the frames that *could* have starved. When it is 0,
     `scan_starved_frames` is `null`.
-  - With an unthrottled scan whose budget covers the visible list (the default), an eligible
-    frame always finds candidates, so starvation needs a capped or throttled scan.
+  - Starvation is judged against what the scan saw: it needs a scan budget below the visible
+    count. That happens with `max_visible_chunk_scan_per_frame` below the visible count, or with
+    the queue-pressure throttle, which is on by default
+    (`queue_pressure_candidate_scan_throttle_enabled`, `gaussian_splat_manager.cpp`). The throttle
+    shrinks the budget under queue depth, and the scan then restarts at the nearest prefix.
   - It used to count `scheduler_visible_scan_budget_effective <= 1`. That is what the throttle
     deliberately produces when pack jobs in flight reach `max_pack_jobs_in_flight`, which leaves
     zero headroom.
