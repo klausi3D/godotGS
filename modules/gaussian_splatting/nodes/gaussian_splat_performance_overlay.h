@@ -67,7 +67,7 @@ public:
 
 	/// Statistics are polled once per refresh window, and a window is never
 	/// shorter than this (D5 of #1084). get_render_stats() itself runs on the
-	/// render thread (see _read_render_stats(), #1030); the cap bounds how often
+	/// render thread (see _read_renderer_side(), #1030); the cap bounds how often
 	/// that read stalls the main thread.
 	static constexpr double MIN_UPDATE_INTERVAL = 0.25;
 	static constexpr double MAX_UPDATE_INTERVAL = 2.0;
@@ -155,13 +155,17 @@ public:
 
 	static void build_report(const ReportInputs &p_in, Vector<String> &r_lines, Dictionary &r_snapshot);
 
-	/// The callable the render-thread statistics read hands to its dispatcher,
-	/// which binds the request id onto it. It fills p_out and completes the
-	/// request. Exposed (unbound) so a test can invoke it the way the
-	/// dispatcher does; get_render_stats_reads_completed() is the dispatcher's
-	/// completed request id.
-	static Callable make_render_stats_read_callable(const Ref<GaussianSplatRenderer> &p_renderer, const Dictionary &p_out);
+	/// The callable the render-thread read of renderer statistics and custom
+	/// monitors hands to its dispatcher, which binds the request id onto it. It
+	/// fills p_out ("render_stats" when p_want_stats, plus the monitor values and
+	/// match flags) and completes the request. Exposed (unbound) so a test can
+	/// invoke it the way the dispatcher does; get_render_stats_reads_completed()
+	/// is the dispatcher's completed request id.
+	static Callable make_renderer_read_callable(const Ref<GaussianSplatRenderer> &p_renderer, uint32_t p_sections, bool p_want_stats, const Dictionary &p_out);
 	static uint64_t get_render_stats_reads_completed();
+	/// Reads the custom monitors into r_in. Must run where renderer state is not
+	/// being written concurrently (see _read_renderer_side()).
+	static void read_monitors(ReportInputs &r_in, const GaussianSplatRenderer *p_target_renderer);
 
 private:
 	NodePath target_path;
@@ -173,6 +177,7 @@ private:
 	int font_size = 13;
 
 	ObjectID target_id;
+	bool target_auto = false; // target_id came from discovery, not set_target()
 	FrameClock frame_clock;
 	Dictionary last_snapshot;
 	uint64_t last_refresh_usec = 0;
@@ -193,9 +198,8 @@ private:
 	Node *_resolve_target(String &r_problem);
 	Node *_discover_target() const;
 	Viewport *_get_display_viewport() const;
-	static Dictionary _read_render_stats(const Ref<GaussianSplatRenderer> &p_renderer);
+	static void _read_renderer_side(ReportInputs &r_in, const Ref<GaussianSplatRenderer> &p_renderer, bool p_want_stats);
 	void _gather(ReportInputs &r_in, Node *p_target, const String &p_problem) const;
-	void _read_monitors(ReportInputs &r_in, const GaussianSplatRenderer *p_target_renderer) const;
 	void _refresh();
 	static void _split_columns(const Vector<String> &p_lines, Vector<String> &r_left, Vector<String> &r_right);
 	void _apply_column(int p_column, const Vector<String> &p_sections);

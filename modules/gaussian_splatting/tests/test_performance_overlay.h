@@ -434,17 +434,31 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats
 		return;
 	}
 	Dictionary out;
-	const uint64_t request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
+	uint64_t request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
 	// Exactly what RenderThreadDispatcher::dispatch_call_on_render_thread_blocking
 	// and RenderingServerDefault::_call_on_render_thread do with it:
 	// call_on_render_thread(p_callable.bind(request_id)), then .call() with no
 	// arguments on the render thread.
-	const Callable dispatched = gs_overlay_test::Overlay::make_render_stats_read_callable(renderer, out).bind(request_id);
-	dispatched.call();
+	gs_overlay_test::Overlay::make_renderer_read_callable(renderer, gs_overlay_test::Overlay::SECTION_ALL, true, out)
+			.bind(request_id)
+			.call();
 	CHECK_MESSAGE(gs_overlay_test::Overlay::get_render_stats_reads_completed() >= request_id,
 			"the read never completed its request: the dispatcher would wait out its timeout");
-	CHECK_FALSE(out.is_empty());
-	CHECK(out.has("painterly_enabled"));
+	const Dictionary stats = out.get("render_stats", Dictionary());
+	CHECK(stats.has("painterly_enabled"));
+	// The custom monitors are read in the same render-thread call (#1030).
+	CHECK(out.get("monitors", Variant()).get_type() == Variant::DICTIONARY);
+	CHECK(out.has("monitor_mismatch"));
+
+	// No target renderer: the call still completes, and still reads the monitors.
+	Dictionary no_target;
+	request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
+	gs_overlay_test::Overlay::make_renderer_read_callable(Ref<GaussianSplatRenderer>(), gs_overlay_test::Overlay::SECTION_ALL, false, no_target)
+			.bind(request_id)
+			.call();
+	CHECK(gs_overlay_test::Overlay::get_render_stats_reads_completed() >= request_id);
+	CHECK_FALSE(no_target.has("render_stats"));
+	CHECK(String(no_target.get("monitor_mismatch", String())).length() > 0);
 }
 
 TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A custom_viewport overlay reports that viewport's camera") {
@@ -586,6 +600,11 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Performance overlay shows
 	root->add_child(split);
 	split->refresh_now();
 	CHECK(split->get_target() == decoy);
+	// Re-pointed at runtime (set_custom_viewport() rewires the layer in place,
+	// no exit/enter): the discovered target follows the display viewport.
+	split->set_custom_viewport(root);
+	split->refresh_now();
+	CHECK(split->get_target() == node);
 	root->remove_child(split);
 	memdelete(split);
 
