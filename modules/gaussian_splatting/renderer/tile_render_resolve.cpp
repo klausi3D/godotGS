@@ -914,7 +914,8 @@ RID TileRenderer::TileResolveStage::create_lighting_uniform_set(RenderingDevice 
     }
 
     const GaussianSplatting::TileLightingClusterABIConfig cluster_config =
-            GaussianSplatting::TileLightingSetABI::compute_cluster_config(p_params.viewport_size,
+            GaussianSplatting::TileLightingSetABI::compute_cluster_config(
+                    GaussianSplatting::tile_cluster_grid_viewport(p_params),
                     p_params.cluster_size, p_params.cluster_max_elements, p_params.cluster_buffer.is_valid());
     RID cluster_buffer = p_params.cluster_buffer;
     if (!cluster_config.enabled) {
