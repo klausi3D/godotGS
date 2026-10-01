@@ -107,7 +107,15 @@ growing the count:
 - `MAX_EXPIRY_UTC` - an absolute ceiling on `expires_utc`, on top of the
   relative `EXPIRY_HORIZON_DAYS = 180` rule. The relative horizon alone never
   stops **serial** renewal: a PR could push every expiry out by 179 days
-  forever. The ceiling makes each renewal a guard edit.
+  forever. The ceiling makes each renewal a guard edit. **Raising it needs the
+  maintainer's written approval**, recorded as a link to that comment in
+  `MAX_EXPIRY_APPROVALS`. The guard rejects a ceiling above the last approved
+  one, a link that is not a comment anchor in this repo, and a link reused for
+  a second raise. It cannot check offline who wrote the comment, so the
+  reviewer opens the link.
+- `LANE_DUE_NO_RENEWAL` - declarations the maintainer accepted for **one**
+  renewal only. Each pin caps that declaration's `expires_utc` regardless of
+  `MAX_EXPIRY_UTC`, so a later ceiling raise does not renew it again.
 - `MANIFEST_TOP_LEVEL_KEYS` - the manifest's legitimate homes are pinned, so a
   new top-level array cannot be introduced as a fresh unratcheted place to park
   declarations.
@@ -142,7 +150,10 @@ granted in bulk:
    case names (not its wildcard, which also selects laned cases) several times
    under both `--headless --test` and `--gs-gpu-test`, and record **per-case
    assertion counts**. A case that "passes" with 0 assertions, or takes a
-   `Skipping` return, did not run.
+   `Skipping` return, did not run. **Compare each case's assertion count across
+   the two modes**: a lower count in one mode is a partial early return, not a
+   pass (for example `[GPU Memory Stream] Initialization` asserts 1 headless and
+   4 under `--gs-gpu-test`).
 2. **Classify each declaration.** If the cause is fixed (a lane now selects the
    cases and they pass), shrink it with the re-pin procedure above, not a
    renewal. If the cause is live and the issue is OPEN, renew it with a fresh
@@ -150,12 +161,24 @@ granted in bulk:
    live, reopen it or point the declaration at an OPEN issue, and remove the
    closed one from `ISSUES_VERIFIED_OPEN`. If the test is obsolete, propose
    deleting it in a separate change.
-3. **Keep the window short.** The new `expires_utc` may not be further out than
-   the shortest window any declaration was originally granted. Raise
-   `MAX_EXPIRY_UTC` to exactly that date in the same PR, with the previous value
-   recorded for audit. Refresh `ISSUES_VERIFIED_OPEN_UTC` after re-checking every
-   cited issue with `gh issue view`.
-4. Re-pin `UNLANED_FINGERPRINT` with `--print-fingerprint`. The tool refuses to
+   The issue must own **every** case in the declaration, not one of them: an
+   issue that tracks a single failing case closes when that case is fixed and
+   strands the rest again.
+3. **Get the maintainer's written decision before raising the ceiling.** A
+   renewal past `MAX_EXPIRY_UTC` is not a checklist step. Propose the new
+   ceiling and the evidence in the PR. Raise `MAX_EXPIRY_UTC` only after the
+   maintainer has approved that raise in a comment, and append a
+   `(ceiling, comment link)` row to `MAX_EXPIRY_APPROVALS` in the same PR. The
+   guard fails without that row. Keep the window short: no further out than the
+   shortest window any declaration was originally granted. Record the previous
+   value for audit, and refresh `ISSUES_VERIFIED_OPEN_UTC` after re-checking
+   every cited issue with `gh issue view`.
+4. **A declaration that was already renewed once without lane or fix progress
+   is not renewed by default.** At its next expiry it needs an explicit
+   maintainer decision: lane it, fix it, delete the test, or accept it again with
+   a reason. Declarations whose cases already pass are pinned in
+   `LANE_DUE_NO_RENEWAL` and cannot be renewed past their deadline at all.
+5. Re-pin `UNLANED_FINGERPRINT` with `--print-fingerprint`. The tool refuses to
    print if the renewal grew or added anything.
 
 ### Renewal log
@@ -166,14 +189,24 @@ built from that tree: 10 runs per mode, all 83 cases. No declaration's cause
 had been fixed, because no lane was added for any family since it was declared,
 so all 19 were renewed. The window is 60 days, the shortest any declaration was
 originally granted: T4 set 2026-08-16 to 2026-10-15, and #658 granted 88
-days. One declaration was re-pointed off a closed issue (#641 to #876).
+days. One declaration was re-pointed off a closed issue: `[Integration]*`
+moved from #641 to **#1122**, which owns all nine cases (#876 remains the
+reference for the one failing case).
+
+The maintainer accepted this renewal **once**, in
+[a comment on #1119](https://github.com/klausi3D/godotGS/pull/1119#issuecomment-5935556044),
+on three conditions: future ceiling raises need a recorded maintainer approval
+(`MAX_EXPIRY_APPROVALS`); `[Integration]*` cites an issue that owns all nine
+cases (#1122); and the six proven-green declarations in the first row below
+get a lane by **2026-11-30**, not a second renewal (**#1123**, pinned in
+`LANE_DUE_NO_RENEWAL`).
 
 What the runs showed matters more than the dates. Laning a family is **not**
 the whole fix for most of them:
 
 | state when run | declarations |
 | --- | --- |
-| all cases pass with real assertions (ready for a lane) | `[GeneratePLY]` (deliberately unlaned), `[NodeSurface][World]`, `[VisualCompare]`, `[RendererSceneCull]`, `Memory validator reset`, `[Importer] ... legacy ImageTexture thumbnails` |
+| all cases pass with real assertions (ready for a lane; due by 2026-11-30, #1123) | `[GeneratePLY]` (unlaned by design so far; #1123 says how to lane it or retire the exclusion), `[NodeSurface][World]`, `[VisualCompare]`, `[RendererSceneCull]`, `Memory validator reset`, `[Importer] ... legacy ImageTexture thumbnails` |
 | at least one case **fails** | `[Thumbnail]` (#814), `[GPU Memory Stream]` (`Memory Defragmentation`; see #73), `[Integration]` (#876), `[World]` (#1115), `OutputCompositor` (`CopyEffects subsystem unavailable` under the harness) |
 | at least one case asserts nothing, even under `--gs-gpu-test` | `[Streaming VRAM]`, `[Integration]` (3 cases), `RenderDeviceManager` (7, silently), `GPUBufferManager` (2, silently), `GPU memory leak detection with renderer lifecycle`, `Phase 1 Integration`, `Debug projection ... golden gradient`, 36 of the 38 `test_renderer_pipeline.h` cases |
 
@@ -201,8 +234,9 @@ It happened again, and the allowlist did not catch it. **#641** was closed on
 the guard stayed green for five weeks because `ISSUES_VERIFIED_OPEN` still
 listed it. An offline allowlist can only notice a closed issue when a person
 re-checks it, and nobody re-checks until the next renewal. The 2026-10-01
-renewal removed #641 and re-pointed the declaration at **#876**, which tracks
-that declaration's failing case.
+renewal removed #641 and re-pointed the declaration at **#1122**, filed to own
+all nine of its cases. Pointing it at #876, which tracks only the one failing
+case, would have repeated the #641 shape when #876 closes.
 
 The check is deliberately **offline**. A guard that needs the GitHub API is a
 guard that fails when the API does, and CI would then block on rate limits or

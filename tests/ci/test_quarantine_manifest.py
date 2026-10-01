@@ -165,8 +165,13 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
 # declaration SET is unchanged -- 19 declarations, 83 cases, LOST 0 / GAINED 0
 # -- so UNLANED_MAX_* and UNLANED_BASELINE are untouched above. Previous value,
 # for audit: ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02.
+# Re-pinned again in the same PR after the maintainer disposition: [Integration]*
+# re-pointed #876 -> #1122 (owns all nine cases), and the six proven-green
+# declarations' reasons cite #1123 (lane due 2026-11-30, no second renewal).
+# Same set, LOST 0 / GAINED 0. Previous value, for audit:
+# b68577c99a956162266ca5838dbdbf92735c9de14daeaa214a533b821feb103c.
 UNLANED_FINGERPRINT = (
-    "b68577c99a956162266ca5838dbdbf92735c9de14daeaa214a533b821feb103c"
+    "3717f28440def21872d290e6d8b189b07fade1cbe9cd184d255fb5e960e0f944"
 )
 
 # ---------------------------------------------------------------------------
@@ -204,6 +209,52 @@ EXPIRY_HORIZON_DAYS = 180
 # Previous value, for audit: 2026-10-15T00:00:00Z.
 MAX_EXPIRY_UTC = "2026-11-30T00:00:00Z"
 
+# Every raise of MAX_EXPIRY_UTC needs the MAINTAINER'S WRITTEN APPROVAL, recorded
+# as a link to a maintainer comment (maintainer disposition on #1119,
+# 2026-10-01). Before this, raising the ceiling was review-visible but nothing
+# made it require anything: the #1119 renewal procedure even listed "raise
+# MAX_EXPIRY_UTC" as a routine checklist step, which is the serial renewal the
+# ceiling was pinned to stop.
+#
+# Rule (ceiling_approval_problems): MAX_EXPIRY_UTC may not exceed
+# MAX_EXPIRY_UNAPPROVED_CEILING_UTC (the last ceiling set before this rule
+# existed) unless the LAST row below approves a ceiling at least that high. Rows
+# are append-only history: ceilings strictly increase, every link is a
+# comment/review anchor in this repo, and no link is reused, so one approval
+# cannot be stretched over a second raise. Lowering the ceiling never needs a
+# row.
+#
+# What this cannot check offline: that the linked comment really is the
+# maintainer's. A reviewer must open the link. The guard guarantees the link
+# exists, is a comment anchor, and is new.
+MAX_EXPIRY_UNAPPROVED_CEILING_UTC = "2026-10-15T00:00:00Z"
+MAX_EXPIRY_APPROVALS: tuple[tuple[str, str], ...] = (
+    (
+        "2026-11-30T00:00:00Z",
+        "https://github.com/klausi3D/godotGS/pull/1119#issuecomment-5935556044",
+    ),
+)
+MAINTAINER_APPROVAL_URL_RE = re.compile(
+    r"^https://github\.com/klausi3D/godotGS/(?:pull|issues)/[0-9]+"
+    r"#(?:issuecomment-[0-9]+|pullrequestreview-[0-9]+|discussion_r[0-9]+)$"
+)
+
+# Declarations the maintainer accepted for ONE renewal only (#1119, 2026-10-01):
+# every case in them already passes, so they must get a lane by the date below,
+# not a second renewal. Tracked in #1123. Each pin caps that declaration's
+# expires_utc INDEPENDENTLY of MAX_EXPIRY_UTC, so a future ceiling raise does not
+# quietly renew them too. When a declaration is laned and deleted, remove its pin
+# in the same re-pin; every key must name a UNLANED_BASELINE pattern, so a typo
+# cannot turn a pin into a no-op.
+LANE_DUE_NO_RENEWAL: dict[str, str] = {
+    "[GaussianSplatting][GeneratePLY]*": "2026-11-30T00:00:00Z",
+    "[GaussianSplatting][NodeSurface][World]*": "2026-11-30T00:00:00Z",
+    "[VisualCompare]*": "2026-11-30T00:00:00Z",
+    "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption": "2026-11-30T00:00:00Z",
+    "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state": "2026-11-30T00:00:00Z",
+    "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails": "2026-11-30T00:00:00Z",
+}
+
 # ---------------------------------------------------------------------------
 # Tracking-issue liveness, checked OFFLINE.
 #
@@ -232,7 +283,10 @@ MAX_EXPIRY_UTC = "2026-11-30T00:00:00Z"
 # to catch. The [Integration]* declaration now cites #876, verified OPEN, which
 # tracks that declaration's failing case. #814, #819, #906, #907 and #910
 # re-verified OPEN the same day; #641 verified CLOSED and deliberately not listed.
-ISSUES_VERIFIED_OPEN = frozenset({814, 819, 876, 906, 907, 910})
+# Same day, after the maintainer disposition on #1119: [Integration]* moved from
+# #876 (which owns only 1 of its 9 cases) to #1122, filed to own all nine; #876
+# stays cited in the reason as the failing-case reference. #1122 verified OPEN.
+ISSUES_VERIFIED_OPEN = frozenset({814, 819, 906, 907, 910, 1122})
 ISSUES_VERIFIED_OPEN_UTC = "2026-10-01T00:00:00Z"
 # An allowlist can only answer "was this open when a human last looked". Bound
 # how stale that answer may get, so the verification cannot silently become
@@ -1086,6 +1140,114 @@ def issue_verification_problems(verified_raw: object, now: datetime) -> list:
     return []
 
 
+def ceiling_approval_problems(
+    ceiling_raw: object, unapproved_raw: object, approvals: object
+) -> list:
+    """A MAX_EXPIRY_UTC raise must carry a recorded maintainer approval link.
+
+    Maintainer disposition on #1119 (2026-10-01). Fails closed on any pin that
+    cannot be evaluated. See MAX_EXPIRY_APPROVALS for the rule.
+    """
+    problems: list = []
+    ceiling = _parse_utc(ceiling_raw)
+    unapproved = _parse_utc(unapproved_raw)
+    if ceiling is None or unapproved is None:
+        return [
+            f"MAX_EXPIRY_UTC={ceiling_raw!r} or MAX_EXPIRY_UNAPPROVED_CEILING_UTC="
+            f"{unapproved_raw!r} is not a parseable ISO-8601 UTC timestamp, so whether the "
+            f"ceiling was raised without approval cannot be established. This fails closed."
+        ]
+    if not isinstance(approvals, tuple):
+        return [f"MAX_EXPIRY_APPROVALS must be a tuple of (ceiling, url) rows, got {approvals!r}."]
+
+    approved_max = unapproved
+    seen_urls: set = set()
+    for index, row in enumerate(approvals):
+        label = f"MAX_EXPIRY_APPROVALS[{index}]"
+        if not (isinstance(row, tuple) and len(row) == 2):
+            problems.append(f"{label} must be a (ceiling_utc, approval_url) pair, got {row!r}.")
+            continue
+        row_ceiling_raw, url = row
+        row_ceiling = _parse_utc(row_ceiling_raw)
+        if row_ceiling is None:
+            problems.append(f"{label} ceiling {row_ceiling_raw!r} is not a parseable UTC timestamp.")
+            continue
+        if row_ceiling <= approved_max:
+            problems.append(
+                f"{label} approves {row_ceiling_raw}, which does not RAISE the ceiling above "
+                f"{approved_max.isoformat()}. Rows are append-only history of raises; ceilings "
+                f"must strictly increase."
+            )
+        if not isinstance(url, str) or not MAINTAINER_APPROVAL_URL_RE.match(url.strip()):
+            problems.append(
+                f"{label} approval {url!r} does not match MAINTAINER_APPROVAL_URL_RE. It must "
+                f"link to a maintainer COMMENT in klausi3D/godotGS (#issuecomment-N, "
+                f"#pullrequestreview-N or #discussion_rN), not a bare PR, issue or prose."
+            )
+        elif url.strip() in seen_urls:
+            problems.append(
+                f"{label} reuses approval {url!r}. One written approval covers one raise; a "
+                f"second raise needs a second approval."
+            )
+        else:
+            seen_urls.add(url.strip())
+        approved_max = max(approved_max, row_ceiling)
+
+    if ceiling > approved_max:
+        problems.append(
+            f"MAX_EXPIRY_UTC={ceiling_raw} is above the highest approved ceiling "
+            f"{approved_max.isoformat()}. Raising the quarantine expiry ceiling needs the "
+            f"maintainer's WRITTEN approval: append a (ceiling, comment-link) row to "
+            f"MAX_EXPIRY_APPROVALS that links the maintainer's comment approving this raise "
+            f"(docs/reference/test-quarantine.md, renewal procedure)."
+        )
+    return problems
+
+
+def lane_due_problems(declarations: object, pins: object, baseline_patterns: object) -> list:
+    """Declarations accepted for one renewal only may not be renewed again (#1123).
+
+    Each pin caps a declaration's expires_utc regardless of MAX_EXPIRY_UTC, and
+    every pinned key must be a pinned baseline pattern so a typo is not a no-op.
+    """
+    problems: list = []
+    if not isinstance(pins, dict):
+        return [f"LANE_DUE_NO_RENEWAL must be a dict, got {pins!r}."]
+    known = set(baseline_patterns)
+    for pattern, deadline_raw in pins.items():
+        if pattern not in known:
+            problems.append(
+                f"LANE_DUE_NO_RENEWAL pins {pattern!r}, which is not a UNLANED_BASELINE "
+                f"pattern. A pin that matches no declaration enforces nothing: remove it when its "
+                f"declaration is laned, and never misspell it."
+            )
+        if _parse_utc(deadline_raw) is None:
+            problems.append(
+                f"LANE_DUE_NO_RENEWAL[{pattern!r}] deadline {deadline_raw!r} is not a parseable "
+                f"UTC timestamp. This fails closed."
+            )
+    if not isinstance(declarations, list):
+        return problems
+    for index, declaration in enumerate(declarations):
+        if not isinstance(declaration, dict):
+            continue
+        pattern = declaration.get("test_case")
+        if pattern not in pins:
+            continue
+        deadline = _parse_utc(pins[pattern])
+        expires = _parse_utc(declaration.get("expires_utc"))
+        if deadline is None:
+            continue
+        if expires is None or expires > deadline:
+            problems.append(
+                f"unlaned_tests[{index}] ({pattern!r}) 'expires_utc' "
+                f"{declaration.get('expires_utc')!r} is past its LANE_DUE_NO_RENEWAL deadline "
+                f"{pins[pattern]}. The maintainer accepted ONE renewal for this proven-green "
+                f"declaration (#1119); it must get a lane (#1123), not a second renewal."
+            )
+    return problems
+
+
 def _perturb(value: object) -> object:
     """Return a value that is JSON-different from `value`, whatever its type.
 
@@ -1213,7 +1375,8 @@ def declaration_problems(kind: str, index: int, declaration: object, now: dateti
                 f"{label} 'expires_utc' {expires_raw} is beyond the pinned MAX_EXPIRY_UTC="
                 f"{MAX_EXPIRY_UTC}. The relative horizon alone never stops SERIAL renewal, so the "
                 f"ceiling is pinned in the guard and renewing is a deliberate two-file diff. Do "
-                f"NOT raise MAX_EXPIRY_UTC to make this pass."
+                f"NOT raise MAX_EXPIRY_UTC to make this pass: a raise needs the maintainer's "
+                f"written approval, linked in MAX_EXPIRY_APPROVALS."
             )
 
     risk = declaration.get("risk")
@@ -1521,6 +1684,20 @@ class QuarantineManifestRatchetTests(unittest.TestCase):
         )
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
 
+    def test_expiry_ceiling_raise_has_a_recorded_maintainer_approval(self) -> None:
+        problems = ceiling_approval_problems(
+            MAX_EXPIRY_UTC, MAX_EXPIRY_UNAPPROVED_CEILING_UTC, MAX_EXPIRY_APPROVALS
+        )
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
+
+    def test_proven_green_declarations_are_not_renewed_again(self) -> None:
+        problems = lane_due_problems(
+            self.declarations,
+            LANE_DUE_NO_RENEWAL,
+            [pattern for pattern, _ in UNLANED_BASELINE],
+        )
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems))
+
     def test_pinned_time_and_size_constants_are_evaluable(self) -> None:
         """A pin that cannot be evaluated disables the rule it enforces.
 
@@ -1715,6 +1892,85 @@ class QuarantineDeclarationContentRuleTests(unittest.TestCase):
         with mock.patch.object(module, "MAX_EXPIRY_UTC", "not a timestamp"):
             out = self._problems("unlaned_tests", declaration)
         self.assertIn("MAX_EXPIRY_UTC", out)
+        self.assertIn("fails closed", out)
+
+
+class CeilingApprovalAndLaneDueTests(unittest.TestCase):
+    """The #1119 maintainer conditions DISCRIMINATE, against synthetic input."""
+
+    FLOOR = "2026-10-15T00:00:00Z"
+    URL_A = "https://github.com/klausi3D/godotGS/pull/1119#issuecomment-5935556044"
+    URL_B = "https://github.com/klausi3D/godotGS/issues/1123#issuecomment-1"
+
+    def _ceiling(self, ceiling: str, approvals: object) -> str:
+        return "\n".join(ceiling_approval_problems(ceiling, self.FLOOR, approvals))
+
+    def test_ceiling_at_or_below_the_unapproved_floor_needs_no_row(self) -> None:
+        self.assertEqual(ceiling_approval_problems(self.FLOOR, self.FLOOR, ()), [])
+        self.assertEqual(ceiling_approval_problems("2026-09-01T00:00:00Z", self.FLOOR, ()), [])
+
+    def test_raise_without_an_approval_row_is_rejected(self) -> None:
+        self.assertIn("WRITTEN approval", self._ceiling("2026-11-30T00:00:00Z", ()))
+
+    def test_raise_past_the_last_approved_ceiling_is_rejected(self) -> None:
+        out = self._ceiling("2026-12-01T00:00:00Z", (("2026-11-30T00:00:00Z", self.URL_A),))
+        self.assertIn("WRITTEN approval", out)
+
+    def test_approved_raise_and_later_lowering_are_accepted(self) -> None:
+        rows = (("2026-11-30T00:00:00Z", self.URL_A),)
+        self.assertEqual(ceiling_approval_problems("2026-11-30T00:00:00Z", self.FLOOR, rows), [])
+        self.assertEqual(ceiling_approval_problems("2026-11-01T00:00:00Z", self.FLOOR, rows), [])
+
+    def test_approval_must_be_a_comment_link_in_this_repo(self) -> None:
+        for url in (
+            "https://github.com/klausi3D/godotGS/pull/1119",
+            "https://github.com/example/repo/pull/1#issuecomment-1",
+            "approved by the maintainer in chat",
+            "",
+        ):
+            with self.subTest(url=url):
+                out = self._ceiling("2026-11-30T00:00:00Z", (("2026-11-30T00:00:00Z", url),))
+                self.assertIn("MAINTAINER_APPROVAL_URL_RE", out)
+        for url in (
+            self.URL_A,
+            "https://github.com/klausi3D/godotGS/pull/1#pullrequestreview-9",
+            "https://github.com/klausi3D/godotGS/pull/1#discussion_r9",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(
+                    self._ceiling("2026-11-30T00:00:00Z", (("2026-11-30T00:00:00Z", url),)), ""
+                )
+
+    def test_one_approval_cannot_cover_two_raises(self) -> None:
+        rows = (("2026-11-30T00:00:00Z", self.URL_A), ("2027-01-31T00:00:00Z", self.URL_A))
+        self.assertIn("reuses approval", self._ceiling("2027-01-31T00:00:00Z", rows))
+
+    def test_rows_must_strictly_raise(self) -> None:
+        rows = (("2026-11-30T00:00:00Z", self.URL_A), ("2026-11-30T00:00:00Z", self.URL_B))
+        self.assertIn("strictly increase", self._ceiling("2026-11-30T00:00:00Z", rows))
+
+    def test_unparseable_ceiling_fails_closed(self) -> None:
+        self.assertIn("fails closed", self._ceiling("not a date", ()))
+
+    def _decl(self, pattern: str, expires: str) -> dict:
+        return {"test_case": pattern, "expires_utc": expires}
+
+    def test_lane_due_pin_rejects_a_second_renewal(self) -> None:
+        pins = {"[VisualCompare]*": "2026-11-30T00:00:00Z"}
+        baseline = ["[VisualCompare]*", "[Other]*"]
+        ok = [self._decl("[VisualCompare]*", "2026-11-30T00:00:00Z")]
+        renewed = [self._decl("[VisualCompare]*", "2026-12-01T00:00:00Z")]
+        unpinned = [self._decl("[Other]*", "2027-01-31T00:00:00Z")]
+        self.assertEqual(lane_due_problems(ok, pins, baseline), [])
+        self.assertEqual(lane_due_problems(unpinned, pins, baseline), [])
+        self.assertIn("second renewal", "\n".join(lane_due_problems(renewed, pins, baseline)))
+
+    def test_lane_due_pin_on_an_unknown_pattern_is_rejected(self) -> None:
+        out = "\n".join(lane_due_problems([], {"[VisualCompar]*": "2026-11-30T00:00:00Z"}, ["[VisualCompare]*"]))
+        self.assertIn("not a UNLANED_BASELINE pattern", out)
+
+    def test_lane_due_pin_with_unparseable_deadline_fails_closed(self) -> None:
+        out = "\n".join(lane_due_problems([], {"[VisualCompare]*": "soon"}, ["[VisualCompare]*"]))
         self.assertIn("fails closed", out)
 
 
