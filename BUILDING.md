@@ -8,8 +8,12 @@ Run all commands from the repository root.
 
 Common prerequisites:
 
-- Python 3.10 or newer
-- SCons 4.5 or newer
+- Python 3.8 or newer and SCons 4.0 or newer. That is the floor `SConstruct` enforces
+  (`EnsurePythonVersion(3, 8)`, `EnsureSConsVersion(4, 0)`), not a tested range. CI builds
+  with Python 3.11 and SCons 4.10.1 (Windows; pinned in `tests/ci/requirements-scons.txt`) and
+  with Ubuntu's packaged `scons` (4.5.2 in the 2026-10-01 Linux release build). Versions
+  between the floor and those are not exercised by CI, and the Python runners under `tests/`
+  run only on Python 3.11 in CI.
 
 Platform prerequisites:
 

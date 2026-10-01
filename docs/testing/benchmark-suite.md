@@ -70,7 +70,7 @@ breakdown, variance, and caveats live on the [Performance Dashboard](../performa
 
 ## Standard Flags
 
-- `--profile` (`everything|quick|performance|synthetic-only|ab-only`)
+- `--profile` (`everything|quick|performance|synthetic-only|ab-only|sort32|steam-deck`)
 - `--godot-binary`
 - `--project-path`
 - `--output-dir`
@@ -93,6 +93,11 @@ It launches one Godot subprocess per benchmark lane, writes per-lane JSON and lo
 - `performance`: canonical benchmark evidence profile
 - `synthetic-only`: synthetic scenes only
 - `ab-only`: instance pipeline serial vs single-pass lanes
+- `sort32`: four 32-bit sort-key stress lanes (`sort32_coplanar_alpha`, `sort32_near_camera_large`,
+  `sort32_depth_range`, `sort32_tile_bit_pressure`); they carry zero weight in every other profile
+- `steam-deck`: the two 800p handheld lanes (`deck_static_baseline`, `deck_streaming_baseline`), whose
+  scenes live in `tests/examples/godot/test_project_deck`; pass `--project-path` to point the runner
+  at that project
 
 ## Asset Policy
 
@@ -213,12 +218,16 @@ large-scene evidence.
 
 ## CI Surfaces
 
-`streaming-gpu-ci` is the only blocking GPU-backed streaming gate. The benchmark proof
-surfaces below are evidence-only and should not be treated as a second streaming gate.
+`streaming-gpu-ci` is the only GPU-backed streaming gate: it fails the `module-validation` job of
+`.github/workflows/gaussian_production_gates.yml` (self-hosted Windows GPU runner) when it fails. It
+is **not** a required status check — branch protection on `master` requires only `agentic-pr-gate`
+(see [Build / Test / CI reference](../reference/build-test-ci.md#ci-source-of-truth)) — so a red run
+does not by itself block a merge. The benchmark proof surfaces below are evidence-only and should
+not be treated as a second streaming gate.
 
-| Surface | Runner command | Scope | Blocking? |
+| Surface | Runner command | Scope | Fails its workflow? |
 | --- | --- | --- | --- |
-| `streaming-gpu-ci` | `python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci` | Runtime validation for residency and world-streaming regressions | Yes |
+| `streaming-gpu-ci` | `python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci` | Runtime validation for residency and world-streaming regressions | Yes (not a required check) |
 | `openworld-proof-dev` | `python3 tests/runtime/run_benchmark.py --profile performance --lane open_world_corridor_proof --lane city_flyover` | `20M corridor` candidate + boundary-crossing smoke support | No |
 | `openworld-proof-weekly` | `python3 tests/runtime/run_benchmark.py --profile performance --lane long_soak` | City-roam soak smoke support | No |
 
@@ -253,7 +262,7 @@ The benchmark lanes above compose the evidence surfaces as follows:
 - `openworld-proof-dev` = `open_world_corridor_proof` + `city_flyover`
 - `openworld-proof-weekly` = `long_soak`
 - only `open_world_corridor_proof` is a large-world candidate lane today; `city_flyover` and `long_soak` remain smoke-support surfaces until the `50M boundary` and `100M city` lanes are runnable
-- both surfaces are benchmark evidence only, while `streaming-gpu-ci` remains the only blocking gate
+- both surfaces are benchmark evidence only, while `streaming-gpu-ci` remains the only streaming gate (advisory at the merge boundary)
 
 ## Large-World Proof Contract
 
