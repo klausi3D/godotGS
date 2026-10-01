@@ -88,8 +88,8 @@ it by default; no frame-time measurement for that tier is published here.
   in `renderer/gaussian_gpu_layout.h`), while a
   full band-3 asset carries 15 non-DC coefficients — so **3 third-order coefficients are
   dropped even at full quality**. The quantized layout has only **6** non-DC slots
-  (`PackedGaussianQuantized::sh_encoded[6]`, `GS_QUANTIZED_SH_ENCODED_SLOTS` in
-  `renderer/gaussian_gpu_layout.cpp`), dropping **9 of 15**: two second-order and all
+  (`PackedGaussianQuantized::sh_encoded[6]` in `renderer/gaussian_gpu_layout.h`,
+  `GS_QUANTIZED_SH_ENCODED_SLOTS` in `renderer/gaussian_gpu_layout.cpp`), dropping **9 of 15**: two second-order and all
   seven third-order. Nothing logs or meters the truncation. The `[SHEncoding]` doctests
   (`tests/test_sh_encoding.h`) check that the stored coefficients round-trip; no test
   measures the visual effect of the dropped ones.

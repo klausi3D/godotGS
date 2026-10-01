@@ -6,8 +6,8 @@ Use this page when you need prerequisites, toolchain setup, or an editor built f
 
 | Requirement | Details |
 | --- | --- |
-| Python | 3.8 or newer (enforced by `SConstruct`); CI uses 3.11 |
-| SCons | 4.0 or newer (enforced by `SConstruct`); CI uses 4.10.1 on Windows and Ubuntu's packaged 4.5.2 on Linux |
+| Python | 3.10 or newer to run the test and CI scripts under `tests/`; building alone needs 3.8 (enforced by `SConstruct`, untested). CI uses 3.11, except that Linux SCons runs under Ubuntu's system `python3` |
+| SCons | 4.0 or newer (enforced by `SConstruct`, untested); CI uses 4.10.1 on Windows and Ubuntu's packaged 4.5.2 on Linux |
 | Compiler | Platform C++ toolchain compatible with Godot 4.5 |
 | Linux packages | Install the Linux package set listed in [Build from Source](../BUILDING.md) before running `scons` |
 | GPU | Vulkan 1.1 minimum for runtime rendering (shaders are compiled to SPIR-V 1.3); tested only on Vulkan 1.4 (NVIDIA GeForce RTX 3090, Windows) |

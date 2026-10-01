@@ -18,7 +18,7 @@
       "fail_on_skip": true
     },
     "release-ci": {
-      "description": "Canonical release-ready runtime validation profile: the non-headless GDScript runtime suite plus a required renderer proof. Wired as a nightly + workflow_dispatch evidence lane in .github/workflows/release_ci_runtime.yml on the self-hosted Windows GPU runner (GDScript tests only, --skip-cpp). NOT run by baseline QA CI, which runs headless-ci; the blocking streaming GPU gate is streaming-gpu-ci.",
+      "description": "Canonical release-ready runtime validation profile: the non-headless GDScript runtime suite plus a required renderer proof. Wired as a nightly + workflow_dispatch evidence lane in .github/workflows/release_ci_runtime.yml on the self-hosted Windows GPU runner (GDScript tests only, --skip-cpp). NOT run by baseline QA CI, which runs headless-ci; the GPU-backed streaming gate is streaming-gpu-ci.",
       "gd_mode": "non-headless",
       "cpp_tests": [
         "Runtime Modifications",
