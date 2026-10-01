@@ -97,14 +97,7 @@ nav:
           - reference/renderer-release-gates.md
           - reference/test-quarantine.md
           - api/internal-classes.md
-          - Plans and Specs:
-              - architecture/gaussian-pipeline-unification-plan.md
-              - architecture/gaussian-pipeline-deprecation-deletion-plan.md
-              - architecture/gaussian-renderer-refactor-memory.md
-              - architecture/refactor-phase-runner.md
-              - architecture/tier2_cluster_culling_spec.md
-              - architecture/resolve_lighting_redesign_spec.md
-              - architecture/g2-malformed-corpus.md
+          - architecture/g2-malformed-corpus.md
           - Decision Records:
               - Advisory Lane Result Ledger: architecture/adr-advisory-lane-ledger.md
               - Decompose GaussianSplatNode3D: architecture/adr-decompose-node3d.md
