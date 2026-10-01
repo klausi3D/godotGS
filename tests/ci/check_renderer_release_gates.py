@@ -1423,16 +1423,50 @@ def _corridor_proof_contract_failures(group: Any, lane_id: str, document: dict[s
     outcome = runner._evaluate_large_world_proof_contract(lane_id, document)
     if outcome.get("proof_valid") is True:
         return []
-    issues = [
-        str(issue.get("message", ""))
-        for key in ("proof_failures", "proof_missing_telemetry")
-        for issue in outcome.get(key) or []
-    ]
     return [
         f"candidate artifact {group} fails the {lane_id} proof contract "
-        f"(proof_status={outcome.get('proof_status')!r}): "
-        + ("; ".join(issues) if issues else "no detail reported")
+        f"(proof_status={outcome.get('proof_status')!r}): " + _proof_outcome_detail(outcome)
     ]
+
+
+def _proof_outcome_detail(outcome: dict[str, Any]) -> str:
+    """Name why a proof contract was not met, saying WHY a metric is null where it can.
+
+    #1086/#1112 made the corridor metrics null rather than a defaulted 0 whenever they
+    were not measured: ``scan_starved_frames`` is null when no proof-window frame was
+    eligible to starve, and ``residency_ratio`` is null when no frame had needed-set
+    demand. The harness reports both as missing telemetry, and the gate keeps refusing
+    them: in a corridor run that actually streams, newly visible chunks create unserved
+    demand while the scan has headroom, so zero eligible (or zero demand) frames means
+    the check was never exercised -- the run did not stream under demand -- and an
+    unexercised check is not a pass (AGENTS.md: absence of a signal is never a passing
+    signal). What changes is only the message, so "never exercised" is not misread as
+    "telemetry broken" and the opposite.
+    """
+    metrics = outcome.get("proof_metrics")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    issues: list[str] = []
+    for key in ("proof_failures", "proof_missing_telemetry"):
+        for issue in outcome.get(key) or []:
+            message = str(issue.get("message", ""))
+            metric = issue.get("metric")
+            if key == "proof_missing_telemetry" and metric == "scan_starved_frames":
+                eligible = metrics.get("scan_starvation_eligible_frames")
+                if _is_json_number(eligible) and eligible == 0:
+                    message += (
+                        " (the check was never exercised: 0 proof-window frames were "
+                        "eligible to starve, so this run never had unserved demand with scan "
+                        "headroom -- not a pass)"
+                    )
+            elif key == "proof_missing_telemetry" and metric == "residency_ratio":
+                demand = metrics.get("residency_demand_frames")
+                if _is_json_number(demand) and demand == 0:
+                    message += (
+                        " (no proof-window frame had needed-set demand; "
+                        f"needed_set_unmeasured_frames={metrics.get('needed_set_unmeasured_frames')!r})"
+                    )
+            issues.append(message)
+    return "; ".join(issues) if issues else "no detail reported"
 
 
 # The single registry of content-validator kinds. `_CONTENT_VALIDATOR_KINDS` is DERIVED
@@ -2048,15 +2082,10 @@ def _candidate_lane_proof_contract_failures(lane_id: str, row: dict[str, Any]) -
     outcome = runner._evaluate_large_world_proof_contract(lane_id, row.get("report"))
     if outcome.get("proof_valid") is True and outcome.get("proof_status") in _ACCEPTED_PROOF_STATUSES:
         return []
-    issues = [
-        str(issue.get("message", ""))
-        for key in ("proof_failures", "proof_missing_telemetry")
-        for issue in outcome.get(key) or []
-    ]
     return [
         f"candidate benchmark lane {lane_id} fails its proof contract when re-scored from its "
         f"report (proof_status={outcome.get('proof_status')!r}, row claimed "
-        f"{row.get('proof_status')!r}): " + ("; ".join(issues) if issues else "no detail reported")
+        f"{row.get('proof_status')!r}): " + _proof_outcome_detail(outcome)
     ]
 
 

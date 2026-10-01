@@ -4006,6 +4006,51 @@ class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
     def _failures(self, lane_id: str, row: dict[str, Any]) -> list[str]:
         return checker._candidate_lane_streaming_evidence_failures(lane_id, row)
 
+    @staticmethod
+    def _post_1086_report() -> dict[str, Any]:
+        """The honest report carrying #1112's (#1086) needed-set fields, all measured."""
+        report = _honest_corridor_proof_report()
+        report["proof_metrics"].update({
+            "residency_demand_frames": 240, "needed_set_unmeasured_frames": 3,
+            "residency_ratio_min": 0.6, "residency_full_frame_fraction": 0.7,
+            "no_progress_episodes": 0, "no_progress_stall_seconds_max": 0.0,
+            "scan_starvation_eligible_frames": 41,
+        })
+        return report
+
+    def test_post_1086_measured_report_is_accepted(self) -> None:
+        row = self._measured_row()
+        row["report"] = self._post_1086_report()
+        self.assertEqual(self._failures(self.PROOF_LANE, row), [])
+        self.assertEqual(
+            checker._corridor_proof_contract_failures("open_world_proof", self.PROOF_LANE, row["report"]), []
+        )
+
+    def test_unexercised_starvation_check_stays_refused_and_says_why(self) -> None:
+        """#1112: scan_starved_frames is null with 0 eligible frames. Still a refusal, not a pass."""
+        unexercised = self._post_1086_report()
+        unexercised["proof_metrics"].update(scan_starved_frames=None, scan_starvation_eligible_frames=0)
+        unpublished = self._post_1086_report()  # an older binary: no eligibility count at all
+        unpublished["proof_metrics"].update(scan_starved_frames=None)
+        unpublished["proof_metrics"].pop("scan_starvation_eligible_frames")
+        for report, says_never_exercised in ((unexercised, True), (unpublished, False)):
+            row = self._measured_row()
+            row["report"] = report
+            for failures in (
+                self._failures(self.PROOF_LANE, row),
+                checker._corridor_proof_contract_failures("open_world_proof", self.PROOF_LANE, report),
+            ):
+                self.assertTrue(any("scan_starved_frames" in f for f in failures), failures)
+                self.assertEqual(
+                    any("never exercised" in f for f in failures), says_never_exercised, failures
+                )
+
+    def test_no_demand_residency_stays_refused_and_says_why(self) -> None:
+        report = self._post_1086_report()
+        report["proof_metrics"].update(residency_ratio=None, residency_demand_frames=0)
+        failures = checker._corridor_proof_contract_failures("open_world_proof", self.PROOF_LANE, report)
+        self.assertTrue(any("no proof-window frame had needed-set demand" in f for f in failures), failures)
+
     def test_lane_roles_come_from_the_repository_policy(self) -> None:
         self.assertEqual(checker._lane_declares_proof_evidence_by_policy(self.PROOF_LANE)[0], True)
         self.assertEqual(

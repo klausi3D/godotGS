@@ -322,6 +322,12 @@ via `--artifact-sha`.
 >   `report_unavailable` verdict is refused. That contract covers `first_visible_ms`,
 >   `residency_ratio`, queue-pressure, no-progress and scan-starved frames, and VRAM cap
 >   hits. A `warn` verdict, which means only soft timing budgets were missed, is accepted.
+>   Under the #1086 definitions, `scan_starved_frames` is null when no proof-window frame
+>   was eligible to starve, and `residency_ratio` is null when no frame had needed-set
+>   demand. Both remain refusals, with the reason named (`_proof_outcome_detail`). A
+>   corridor run that streams creates unserved demand while the scan has headroom, so zero
+>   eligible frames means the check was never exercised, and an unexercised check is not
+>   a pass.
 >
 > `--mode contract` also fails if the `open_world_proof` validator is removed from the
 > manifest (`_validate_content_validation_coverage`, `:828`). What the gate still does
