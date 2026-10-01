@@ -27,13 +27,16 @@ disclosure and the disposition are drafted together and cannot drift; nothing in
 section may be cited as an `accepted_alpha_limitation`. If you are looking for what the
 alpha actually ships with, read everything *above* that heading.
 
-> That list is **human-maintained, and today the machine gate cannot see most of it.** The
+> That list is **human-maintained, and the machine gate cannot see all of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blocker #851 carries none of those (it is
-> `priority:P2`), so nothing automated stops a release on it. (Three more were in that
-> list: #929 until it closed on 2026-09-20, carrying only `program:prod-ready`; #54
-> until it was accepted on 2026-09-25, and it is now listed under [Rendering](#rendering);
-> and #833 until it was struck on 2026-09-30, fixed by #1027, #1031 and #1032 — §11 item 9.) Read "it is in
+> `release blocker`. None of §11's ten ranked defects still blocks, but the last four to
+> block carried none of those labels, so nothing automated would have stopped a release on
+> them. The streaming items §11 still lists (#320, #786, #883) are `priority:P1` and
+> visible to the gate; its 50M-asset lane item has no issue at all.
+> (#851 was in that list until it closed on 2026-10-01, fixed by #1078 — §11 item 8; #929
+> until it closed on 2026-09-20, carrying only `program:prod-ready`; #54 until it was
+> accepted on 2026-09-25, and it is now listed under [Rendering](#rendering); and #833
+> until it was struck on 2026-09-30, fixed by #1027, #1031 and #1032 — §11 item 9.) Read "it is in
 > the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
@@ -327,9 +330,10 @@ are the ones found so far rather than the complete set.
 - **Lighting-mode fields** are tracked as
   [#851](https://github.com/klausi3D/godotGS/issues/851): with painterly enabled you get
   **black contour lines**, and `shadow_strength` is **inert** — resolve-time lighting
-  (mode 0) does not receive what the baseline stage assigns it. That one is in the
-  **blocker** set rather than here, but its symptom is named so a user who sees it can
-  find the issue.
+  (mode 0) does not receive what the baseline stage assigns it. **Fixed** by
+  [#1078](https://github.com/klausi3D/godotGS/pull/1078) (issue closed 2026-10-01):
+  painterly is now lit through the baseline's per-splat path. The symptom stays named here
+  so a user on an older build can find the issue.
 
 **Workaround:** none. Do not rely on wind, or on any per-pass control, while painterly is
 active.

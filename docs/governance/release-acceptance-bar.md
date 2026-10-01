@@ -391,9 +391,11 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > #351 and #352 are closed and must appear in `resolved_manifest_issues` with
 > `state: CLOSED`, because an open-only snapshot will not contain them.
 >
-> **A gap in the other direction.** The one defect §11 still calls an alpha blocker is
-> invisible to this population: #851 is `priority:P2`. (Three more have left the
-> list. #833 was fixed on master by #1027, #1031 and #1032 (§11 item 9). #929 closed on 2026-09-20; it carried only `program:prod-ready` and was never visible
+> **A gap in the other direction.** None of §11's ten ranked items still blocks, but the
+> last four to block — #851, #833, #929 and #54 — were all invisible to this population.
+> (The streaming items #1016 admitted, #320, #786 and #883, are `priority:P1` and so are
+> visible to it; the 50M-asset lane has no issue at all.) All four have left the list. (#851, still
+> `priority:P2`, was fixed by #1078 and closed on 2026-10-01 (§11 item 8). #833 was fixed on master by #1027, #1031 and #1032 (§11 item 9). #929 closed on 2026-09-20; it carried only `program:prod-ready` and was never visible
 > here either. #54 was accepted on 2026-09-25; it is still `priority:P2`, and its ledger
 > entry answers for it only if a snapshot contains it — see its §8.1 row.)
 > **#1030 is unlabelled** and invisible the same way — §11 does not list it as
@@ -637,14 +639,16 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 12 identified, 10 fixed or closed, 1 accepted as a limitation, 1 open, 0 refuted**
-(re-counted 2026-09-30: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
+**Status: 12 identified, 11 fixed or closed, 1 accepted as a limitation, 0 open, 0 refuted**
+(re-counted 2026-10-01: **#851 fixed on master** by #1078 (`eed9879edb1`), and the issue
+is closed — see item 8; that moves the count from 10/1/1 to 11/1/0. Re-counted before that
+on 2026-09-30: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
 run time on 2026-09-27 and signed off by the maintainer on 2026-09-30 — see item 9; that moves the count from 9/1/2 to 10/1/1, and the one
-still open is #851. Re-counted before that on 2026-09-25: **#54 accepted** by the maintainer as a disclosed public-alpha
+then still open was #851. Re-counted before that on 2026-09-25: **#54 accepted** by the maintainer as a disclosed public-alpha
 limitation, [#54 comment 5838456717](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717).
 It stays open as the tracking issue for the engineering fix, so it is counted as accepted
 rather than folded into the closed column; that moves the count from 9/3 to 9/1/2. The two
-still open are #851 and #833. Re-counted before that on
+then still open were #851 and #833. Re-counted before that on
 2026-09-20: #862, #986 and #987 closed since this list was written, fixed on
 master by #1009 and #999; **#930 closed FIXED by #999** on 2026-09-17, so it is no longer
 "refuted" and sits in the fixed column; and **#929 closed by hand on 2026-09-20** — the
@@ -747,9 +751,18 @@ rather than a ceiling.
    default. It was **downstream of #986, not independent:** the standard
    composite it fell through to demands `raster_output.depth`, which
    `render_painterly_stage` never assigned, so repairing #986 resolved it.
-8. **#851** — black contours and inert shadows with painterly enabled. Its
-   premise ("ships today on both painterly paths") held only because the QA pin
-   sets `depth_test=false`; re-test at the shipped default once #986 lands.
+8. ~~**#851** — black contours and inert shadows with painterly enabled.~~ **Struck on
+   2026-10-01: fixed on master** by #1078 (`eed9879edb1`), and the issue is closed. The
+   painterly producer now writes the whole lighting family through the same applier as the
+   baseline, which sets the per-splat `direct_lighting_mode = 1`
+   (`interfaces/painterly_renderer.cpp:1765`), so painterly is lit by the scene and can no
+   longer reach resolve-time mode 0. The re-test this entry asked for was made at the shipped
+   `composite/depth_test=true` (real scan, NVIDIA only; the evidence is in #1078). Shadows now
+   respond, and with stylization off painterly's tile output is bit-identical to the baseline,
+   so the mode-0 contours cannot appear. The entry is kept struck rather than deleted so the
+   disposition stays readable. **Still open, and not #851:** lit painterly changes the
+   stylized look and keeps some dark specks from the stroke passes, which #1078 hands to the
+   §10 real-scan visual pass.
 9. ~~**#833** — starter-template overlay never updates.~~ **Struck on 2026-09-30: fixed on
    master** by #1027 (`511acdc0fc9`: the template's scripts parse and attach, plus the static
    `check_shipped_project_scripts.py` guard), #1031 (`e2f1c2f6850`: every displayed row reads
