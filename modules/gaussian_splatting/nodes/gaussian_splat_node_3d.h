@@ -445,6 +445,8 @@ private:
     void _on_asset_changed();
     void _on_color_grading_changed();
     bool _has_local_source_data() const;
+    // #1105: true for a splat_asset node with no set_splat_data() payload to bake.
+    bool _is_bake_unsupported_asset_node() const;
     bool _can_push_color_grading_to_renderer() const;
     bool _push_color_grading_to_renderer(bool p_allow_null, bool p_force_refresh = false);
 
@@ -739,13 +741,17 @@ public:
      * This permanently applies color grading to the base colors (SH DC coefficients).
      * The original colors are backed up and can be restored via restore_color_grading().
      * Baked color grading has zero runtime cost.
+     *
+     * Only data supplied through set_splat_data() can be baked. A node that renders a
+     * splat_asset returns ERR_UNAVAILABLE (#1105): its live color grading already applies
+     * per instance, and the asset is shared and must not be rewritten.
      */
     Error bake_color_grading();
 
     /**
      * @brief Bakes a provided color grading snapshot into the splat data.
      * @param p_grading_snapshot Color grading parameters captured at action creation time.
-     * @return OK on success, error code on failure.
+     * @return OK on success, ERR_UNAVAILABLE on a splat_asset node (#1105), other error code on failure.
      */
     Error bake_color_grading_snapshot(const Ref<class ColorGradingResource> &p_grading_snapshot);
 
@@ -753,12 +759,22 @@ public:
      * @brief Restores original colors before any color grading was baked.
      *
      * This reverts all splat colors to their state before the first bake_color_grading() call.
-     * Does nothing if no baking has been applied.
+     * Does nothing (and returns OK) if no baking has been applied.
+     * @return OK, ERR_UNAVAILABLE on a splat_asset node (#1105), or ERR_UNCONFIGURED with no data.
      */
-    void restore_color_grading();
+    Error restore_color_grading();
 
     /** @brief Returns true if color grading has been baked into the splat data. */
     bool is_color_grading_baked() const;
+
+    /**
+     * @brief Returns true if this node holds its own bakeable data (set_splat_data()).
+     *
+     * False for a node that renders a splat_asset (#1105) and for a node with no data.
+     * The inspector gates its Bake/Restore section on this, not on the shared renderer's
+     * data, which can belong to a peer node.
+     */
+    bool can_bake_color_grading() const;
 
     /// @}
 

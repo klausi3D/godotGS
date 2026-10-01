@@ -434,13 +434,13 @@ See also: `docs/api/sphere_effector_workflow.md`.
     </tr>
     <tr>
       <td><code>bake_color_grading()</code></td>
-      <td>Bakes grading into data, disables grading resource, and returns <code>Error</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794</code></td>
+      <td>Bakes grading into data, disables grading resource, and returns <code>Error</code>. <code>set_splat_data()</code> nodes only: a node that renders a <code>splat_asset</code> returns <code>ERR_UNAVAILABLE</code> and changes nothing; its live grade already applies (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>).</td>
+      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3183</code></td>
     </tr>
     <tr>
       <td><code>restore_color_grading()</code></td>
-      <td>Restores original colors and re-enables grading resource if present.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821</code></td>
+      <td>Restores original colors and re-enables grading resource if present. Returns <code>Error</code>: <code>OK</code>, or <code>ERR_UNAVAILABLE</code> on a <code>splat_asset</code> node.</td>
+      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3236</code></td>
     </tr>
     <tr>
       <td><code>is_color_grading_baked()</code></td>

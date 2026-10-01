@@ -839,11 +839,14 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         }
     }
 
-    // Color Grading section: only shown when the node has valid GaussianData.
+    // Color Grading bake section: only shown when the node holds its OWN bakeable data
+    // (set_splat_data()). #1105: this used to read the shared renderer's GaussianData,
+    // which is not the node's and was null on the instance-pipeline path, so the section
+    // was hidden even for a set_splat_data() node that CAN bake (measured on an RTX 3090:
+    // the old gate offered Bake to neither node in the #1105 GPU case). Baking is
+    // unsupported on splat_asset nodes; live grading applies there.
     {
-        Ref<GaussianSplatRenderer> cg_renderer = node->get_renderer();
-        Ref<::GaussianData> cg_data = cg_renderer.is_valid() ? cg_renderer->get_gaussian_data() : Ref<::GaussianData>();
-        const bool cg_has_valid_data = cg_data.is_valid() && cg_data->get_count() > 0;
+        const bool cg_has_valid_data = node->can_bake_color_grading();
 
         if (cg_has_valid_data) {
             HSeparator *color_grading_separator = memnew(HSeparator);

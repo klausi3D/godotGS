@@ -8,6 +8,17 @@
 
 Use `ColorGradingResource` on `GaussianSplatNode3D` for real-time grading and optional baking into SH DC color data.
 
+!!! warning "Baking limitation"
+    Baking works only on a node whose splats come from `set_splat_data()`. A node that renders a
+    `splat_asset` (the normal import path) cannot bake: `bake_color_grading()`,
+    `bake_color_grading_snapshot()` and `restore_color_grading()` return `ERR_UNAVAILABLE` and change
+    nothing, and the inspector does not show the Bake section for it
+    ([#1105](https://github.com/klausi3D/godotGS/issues/1105)). You lose nothing by it: the live
+    grade from steps 1-3 already applies to that node, per instance, so keep `enabled = true`.
+    The asset may be shared by other nodes and is never rewritten.
+    Separately, a bake does not yet reproduce the live look exactly
+    ([#1124](https://github.com/klausi3D/godotGS/issues/1124)).
+
 ## Usage
 
 | Step | Action | Implementation reference |
@@ -15,8 +26,8 @@ Use `ColorGradingResource` on `GaussianSplatNode3D` for real-time grading and op
 | 1 | Assign a `ColorGradingResource` to `rendering/color_grading` on the node. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:192` |
 | 2 | Tune `exposure`, `contrast`, `saturation`, `temperature`, `tint`, and `hue_shift` on the resource. | `modules/gaussian_splatting/resources/color_grading_resource.cpp:20` |
 | 3 | Keep `enabled = true` for real-time grading in tile binning. | `modules/gaussian_splatting/resources/color_grading_resource.cpp:15`, `modules/gaussian_splatting/shaders/includes/color_grading_binning.glsl:32` |
-| 4 | Run `bake_color_grading()` or click `Bake Color Grading` to write grading into base SH DC values. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794`, `modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:788` |
-| 5 | Run `restore_color_grading()` or click `Restore Original` to restore pre-bake colors. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821`, `modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:795` |
+| 4 | `set_splat_data()` nodes only: run `bake_color_grading()` or click `Bake Color Grading` to write grading into base SH DC values. A `splat_asset` node returns `ERR_UNAVAILABLE` (see Baking limitation). | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3183`, `modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:465` |
+| 5 | `set_splat_data()` nodes only: run `restore_color_grading()` or click `Restore Original` to restore pre-bake colors. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3236`, `modules/gaussian_splatting/editor/gaussian_inspector_plugins.cpp:493` |
 
 ## API
 
@@ -24,8 +35,8 @@ Use `ColorGradingResource` on `GaussianSplatNode3D` for real-time grading and op
 | --- | --- | --- | --- |
 | `rendering/color_grading` | Node property | Stores the grading resource used by the renderer. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:192` |
 | `set_color_grading(grading)` | Method | Updates node state and marks render state dirty for re-upload. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1788` |
-| `bake_color_grading()` | Method | Applies grading on CPU to SH DC coefficients and disables grading to avoid double-application. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1794`, `modules/gaussian_splatting/core/gaussian_data.cpp:1816` |
-| `restore_color_grading()` | Method | Restores original SH DC coefficients and re-enables grading. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1821`, `modules/gaussian_splatting/core/gaussian_data.cpp:1855` |
+| `bake_color_grading()` | Method | Applies grading on CPU to SH DC coefficients and disables grading to avoid double-application. Returns `ERR_UNAVAILABLE` on a `splat_asset` node (`modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3207`). | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3183`, `modules/gaussian_splatting/core/gaussian_data.cpp:1816` |
+| `restore_color_grading()` | Method | Restores original SH DC coefficients and re-enables grading. Returns `Error`: `OK`, or `ERR_UNAVAILABLE` on a `splat_asset` node (`modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3236`). | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3236`, `modules/gaussian_splatting/core/gaussian_data.cpp:1855` |
 | `is_color_grading_baked()` | Method | Reports whether bake state is active in `GaussianData`. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1837`, `modules/gaussian_splatting/core/gaussian_data.h:763` |
 
 | `ColorGradingResource` field | Default | Clamp range | Implementation reference |
@@ -77,7 +88,8 @@ func restore_grading() -> void:
 
 | Symptom | Cause | Fix | Implementation reference |
 | --- | --- | --- | --- |
-| `bake_color_grading()` returns an error | No grading resource or no loaded gaussian data. | Assign `rendering/color_grading` and load data before baking. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1795`, `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1800` |
+| `bake_color_grading()` returns `ERR_UNAVAILABLE` | The node renders a `splat_asset`; baking is not supported there (#1105). | Nothing to fix: keep the grading resource enabled, the live grade already applies. Bake only `set_splat_data()` nodes. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3204` |
+| `bake_color_grading()` returns `ERR_UNCONFIGURED` | No grading resource, or the node has no splat data at all. | Assign `rendering/color_grading`, and supply data through `set_splat_data()`. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3212`, `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:3217` |
 | Inspector changes have no visible effect | Grading is disabled or resource is not assigned. | Set `enabled = true` and re-check the node property assignment. | `modules/gaussian_splatting/resources/color_grading_resource.cpp:15`, `modules/gaussian_splatting/renderer/tile_render_stages.cpp:322` |
 | Colors look graded twice after manual workflow changes | Grading remained enabled after custom bake flow. | Disable grading after bake or call node bake API which already disables it. | `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:1811` |
 | Restore does not bring back expected base colors | No previous bake state was recorded. | Bake once before expecting restore behavior. | `modules/gaussian_splatting/core/gaussian_data.cpp:1822`, `modules/gaussian_splatting/core/gaussian_data.cpp:1857` |

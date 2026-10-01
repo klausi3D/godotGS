@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 165,
-    "sha256": "573c8c3fef6e1fe1934c7d38e992a65e56eacc4b6274de4a2871af11e7fc232f",
-    "sha256_last_changed_by": "#1081 (adding N GaussianSplatNode3D that share one renderer cost O(N^4) peer-walk work; 800 nodes took 110 s to enter the tree): INCREASE 164 -> 165 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_gaussian_splat_node.h, tagged [GaussianSplatting][Node][SceneTree][RequiresGPU] (\"Adding and removing N nodes on a shared renderer costs at most quadratic peer-walk work (#1081)\"), selected by the NodeSceneTree batch (37 -> 38 cases; not a REQUIRED batch, #724). It adds and removes 40 and 160 nodes sharing one renderer and bounds the growth of a TESTS_ENABLED-only peer-walk step counter at 32x (quadratic = 16x, the pre-fix quartic = 256x), so the verdict does not depend on wall time. running_in_a_named_batch 98 -> 99, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: fb4cd428337895c28ccffea13a6c86b2ecb31865e1fb1e8fa47b2ce00b3092b7 (count 164, #1054 / #1063).",
+    "test_count": 166,
+    "sha256": "4e1392a7f71711dc5d81f428507315a96cfd9b4b197f3a92ed2a9c31c4583f90",
+    "sha256_last_changed_by": "#1105 (bake_color_grading() on a splat_asset node reported ERR_UNCONFIGURED / \"no gaussian data loaded\"; baking there is now unsupported by decision and refused with ERR_UNAVAILABLE): INCREASE 165 -> 166 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_gaussian_splat_node.h, tagged [GaussianSplatting][Node][SceneTree][RequiresGPU] (\"#1105 A set_splat_data node still bakes and restores while a splat_asset peer is refused\"), selected by the NodeSceneTree batch (38 -> 39 cases; not a REQUIRED batch, #724). It puts a splat_asset node and a set_splat_data() node on one shared renderer and asserts the asset node is refused with the unsupported-path message while its live grade still reaches the director, the set_splat_data() node still bakes and restores, and the inspector offers Bake only on the node that can bake. running_in_a_named_batch 99 -> 100, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 573c8c3fef6e1fe1934c7d38e992a65e56eacc4b6274de4a2871af11e7fc232f (count 165, #1081).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -476,8 +476,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 165,
-      "running_in_a_named_batch": 99,
+      "requires_gpu_total": 166,
+      "running_in_a_named_batch": 100,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },

@@ -3184,14 +3184,36 @@ Error GaussianSplatNode3D::bake_color_grading() {
     return bake_color_grading_snapshot(color_grading);
 }
 
+// #1105: baking rewrites the node's own CPU-side GaussianData (renderer_data), which only
+// set_splat_data() creates. A node that renders a splat_asset has none: its splats reach
+// the GPU through the director from the (shared, sealed-after-handout) asset, and its live
+// ColorGradingResource is already applied per instance (InstanceGradingGPU). Baking is
+// therefore unsupported there, and says so instead of reporting "no data".
+static const char *GS_BAKE_UNSUPPORTED_ON_ASSET_MSG =
+        "baking is not supported on a GaussianSplatNode3D that renders a splat_asset (#1105). "
+        "Live color grading already applies to this node; keep the ColorGradingResource enabled. "
+        "Only data supplied through set_splat_data() can be baked. "
+        "See docs/features/color-grading-quick-start.md (Baking limitation).";
+static const char *GS_BAKE_NO_DATA_MSG =
+        "this node has no splat data. Only data supplied through set_splat_data() can be baked.";
+
+bool GaussianSplatNode3D::_is_bake_unsupported_asset_node() const {
+    return renderer_data.is_null() && splat_asset.is_valid();
+}
+
 Error GaussianSplatNode3D::bake_color_grading_snapshot(const Ref<ColorGradingResource> &p_grading_snapshot) {
+    if (_is_bake_unsupported_asset_node()) {
+        ERR_PRINT(vformat("Cannot bake color grading: %s", GS_BAKE_UNSUPPORTED_ON_ASSET_MSG));
+        return ERR_UNAVAILABLE;
+    }
+
     if (!p_grading_snapshot.is_valid()) {
         ERR_PRINT("Cannot bake color grading: no ColorGradingResource assigned");
         return ERR_UNCONFIGURED;
     }
 
     if (!renderer_data.is_valid()) {
-        ERR_PRINT("Cannot bake color grading: no gaussian data loaded");
+        ERR_PRINT(vformat("Cannot bake color grading: %s", GS_BAKE_NO_DATA_MSG));
         return ERR_UNCONFIGURED;
     }
 
@@ -3211,10 +3233,15 @@ Error GaussianSplatNode3D::bake_color_grading_snapshot(const Ref<ColorGradingRes
     return OK;
 }
 
-void GaussianSplatNode3D::restore_color_grading() {
+Error GaussianSplatNode3D::restore_color_grading() {
+    if (_is_bake_unsupported_asset_node()) {
+        ERR_PRINT(vformat("Cannot restore color grading: %s", GS_BAKE_UNSUPPORTED_ON_ASSET_MSG));
+        return ERR_UNAVAILABLE;
+    }
+
     if (!renderer_data.is_valid()) {
-        ERR_PRINT("Cannot restore color grading: no gaussian data loaded");
-        return;
+        ERR_PRINT(vformat("Cannot restore color grading: %s", GS_BAKE_NO_DATA_MSG));
+        return ERR_UNCONFIGURED;
     }
 
     renderer_data->restore_original_colors();
@@ -3225,6 +3252,11 @@ void GaussianSplatNode3D::restore_color_grading() {
     }
 
     render_state_dirty = true;
+    return OK;
+}
+
+bool GaussianSplatNode3D::can_bake_color_grading() const {
+    return renderer_data.is_valid() && renderer_data->get_count() > 0;
 }
 
 bool GaussianSplatNode3D::is_color_grading_baked() const {
