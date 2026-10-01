@@ -1754,7 +1754,7 @@ struct RenderPipelineStages::RasterStage {
 				RenderDataRD *p_render_data, uint32_t p_sorted_splat_count, GaussianSplatRenderer::IndexDomain p_sorted_index_domain,
 				const GaussianSplatRenderer::IFrameStateView &p_state_view,
 				GaussianSplatRenderer::IFrameMutationAccess &p_mutation_access,
-				RID &r_color_output, RID &r_depth_output);
+				RID &r_color_output, RID &r_depth_output, uint32_t &r_rastered_splat_count);
 	StageResult resolve_painterly_output(const GaussianSplatRenderer::RasterStageInput &p_input,
 			GaussianSplatRenderer::RasterStageOutput &r_output);
 	bool try_reuse_cached_render(const GaussianSplatRenderer::RasterStageInput &p_input,
@@ -2069,7 +2069,8 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 		RenderDataRD *p_render_data, uint32_t p_sorted_splat_count, GaussianSplatRenderer::IndexDomain p_sorted_index_domain,
 		const GaussianSplatRenderer::IFrameStateView &p_state_view,
 		GaussianSplatRenderer::IFrameMutationAccess &p_mutation_access,
-		RID &r_color_output, RID &r_depth_output) {
+		RID &r_color_output, RID &r_depth_output, uint32_t &r_rastered_splat_count) {
+	r_rastered_splat_count = 0;
 	const GaussianSplatRenderer::IFrameStateView &state_view = p_state_view;
 	GaussianSplatRenderer::SubsystemState &subsystem_state = p_mutation_access.get_subsystem_state_mut();
 	const GaussianSplatRenderer::SubsystemState &subsystem_state_view = state_view.get_subsystem_state_view();
@@ -2408,6 +2409,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	if (!r_color_output.is_valid()) {
 		return FAILED;
 	}
+	r_rastered_splat_count = render_params.splat_count;
 
 
 	// Track outputs
@@ -2579,7 +2581,7 @@ RenderPipelineStages::StageResult RenderPipelineStages::RasterStage::render_base
 	Error fallback_err = render_tile_fallback(p_input.viewport_size, p_input.viewport_format,
 			p_input.world_to_camera_transform, p_input.projection, p_input.render_projection,
 			p_input.render_data, p_input.sorted_splat_count, p_input.sorted_index_domain,
-			state_view, state_mut, r_output.color, r_output.depth);
+			state_view, state_mut, r_output.color, r_output.depth, r_output.rastered_splat_count);
 	r_output.raster_path = performance_state.metrics.raster_path;
 	uint64_t fallback_end = OS::get_singleton()->get_ticks_usec();
 	const float render_time_ms = (fallback_end - fallback_start) / 1000.0f;
