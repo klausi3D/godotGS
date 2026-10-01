@@ -9,7 +9,8 @@ each exactly once:
   regenerating, or a row was deleted by hand);
 - a page key missing from the manifest fails (a key was removed or renamed
   without regenerating, or a row was invented by hand);
-- a key listed twice fails.
+- a key listed twice fails;
+- a page without the hand-maintained block's marker line fails.
 
 Only the first cell of each table row in the generated region (after the
 hand-maintained block's marker line) counts, so keys mentioned in prose or in
@@ -38,13 +39,20 @@ MD_ROW_KEY_RE = re.compile(rf"^\|\s*`({KEY})`\s*\|", re.M)
 
 
 def page_keys(page_text: str) -> list[str]:
-    """Keys in the first cell of every table row of the generated region."""
+    """Keys in the first cell of every table row of the generated region.
+
+    Raises ValueError when the marker line is absent: the generated region is
+    then unknown, and scanning the whole page would let hand-maintained rows
+    stand in for missing generated ones.
+    """
     lines = page_text.splitlines()
-    start = 0
+    start = None
     for index, line in enumerate(lines):
         if line.startswith(MARKER_PREFIX):
             start = index + 1
             break
+    if start is None:
+        raise ValueError(f"no line starts with {MARKER_PREFIX!r}, so the generated region is unknown")
     generated = "\n".join(lines[start:])
     return HTML_ROW_KEY_RE.findall(generated) + MD_ROW_KEY_RE.findall(generated)
 
@@ -78,7 +86,11 @@ def main() -> int:
     except (OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
-    page = page_keys(page_text)
+    try:
+        page = page_keys(page_text)
+    except ValueError as exc:
+        print(f"ERROR: {PAGE_PATH.name}: {exc}", file=sys.stderr)
+        return 1
     manifest_list = manifest_keys(manifest)
     failures = compare(page, manifest_list)
     if failures:

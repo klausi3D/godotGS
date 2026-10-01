@@ -66,6 +66,11 @@ class GuardTest(unittest.TestCase):
     def test_prose_mentions_do_not_count(self) -> None:
         self.assertNotIn(C, guard.page_keys(PAGE))
 
+    def test_missing_marker_fails(self) -> None:
+        page = PAGE.replace("> This block is hand-maintained.", "> This block is maintained by hand.")
+        with self.assertRaisesRegex(ValueError, "generated region is unknown"):
+            guard.page_keys(page)
+
     def test_empty_manifest_is_not_a_pass(self) -> None:
         self.assertTrue(guard.compare([], []))
 
