@@ -29,8 +29,8 @@
 >
 > | Key | Status | Where it goes today |
 > |---|---|---|
-> | `octree_max_depth` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_octree_max_depth`, consumed in `ensure_hierarchical_structure()`. |
-> | `min_gaussians_per_leaf` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_min_gaussians`. |
+> | `octree_max_depth` | **fallback only** | Read into `GPUCuller::CullingState::culling_octree_max_depth` and consumed in `ensure_hierarchical_structure()`, which only the CPU octree fallback of `GPUCuller::cull_for_view` calls. The default path is the GPU instance/chunk cull, which does not read it; the fallback runs only when that cull fails or outside the frame pipeline (see [Culling and hierarchy](../architecture/culling-and-hierarchy.md); status corrected 2026-10-01). |
+> | `min_gaussians_per_leaf` | **fallback only** | Read into `GPUCuller::CullingState::culling_min_gaussians`; like `octree_max_depth`, it reaches only the CPU octree fallback through `ensure_hierarchical_structure()`. |
 > | `opacity_aware_bounds` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/opacity_aware_culling` property (bound in `GaussianSplatRenderer::_bind_methods()`). An explicit per-node value overrides the global. Registered default `true` equals the construction default, so the wiring is behavior-neutral. |
 > | `visibility_threshold` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/visibility_threshold` property (bound in `GaussianSplatRenderer::_bind_methods()`), clamped to `0.0001..0.1`. Explicit per-node value wins. Registered default `gs::RASTER_ALPHA_THRESHOLD` (1/255) equals the construction default. |
 >

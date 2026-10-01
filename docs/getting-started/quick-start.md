@@ -16,7 +16,7 @@ export GODOT_BINARY=/absolute/path/to/your/godot-editor
 $env:GODOT_BINARY="C:\absolute\path\to\your\godot-editor.exe"
 ```
 
-Need a binary first? Open [GitHub Releases](https://github.com/klausi3D/godotGS/releases) and grab the most recent `nightly-YYYYMMDD` prerelease — Linux tarball or Windows zip. macOS users [Build from Source](../BUILDING.md), then come back here and set `GODOT_BINARY` to the binary you have.
+Need a binary first? Open [GitHub Releases](https://github.com/klausi3D/godotGS/releases) and grab the most recent `nightly-YYYYMMDD` prerelease for the Linux tarball. The Windows zip is attached only to nightlies whose Windows lane passed, so on Windows take the most recent nightly that lists `godotgs-windows-x86_64-<tag>.zip` (see [Downloads](downloads.md)). macOS users [Build from Source](../BUILDING.md), then come back here and set `GODOT_BINARY` to the binary you have.
 
 !!! warning "The Linux nightly download is an unoptimized `-O0` build"
     The published Linux nightly editor is compiled with `dev_build=yes`, i.e. `-O0`,
@@ -27,16 +27,6 @@ Need a binary first? Open [GitHub Releases](https://github.com/klausi3D/godotGS/
     performance, and read the
     [Performance Dashboard](../performance/index.md#measurement-environment) for what
     an optimized build measures.
-
-After a successful build, point `GODOT_BINARY` at the editor binary:
-
-```bash
-export GODOT_BINARY=/absolute/path/to/your/godot-editor
-```
-
-```powershell
-$env:GODOT_BINARY="C:\absolute\path\to\your\godot-editor.exe"
-```
 
 You should have a working editor binary before continuing.
 
@@ -51,18 +41,18 @@ cd godotGS
 ```
 
 ```bash
-$GODOT_BINARY --path tests/examples/godot/test_project
+$GODOT_BINARY -e --path tests/examples/godot/test_project
 ```
 
 ```powershell
-& $env:GODOT_BINARY --path .\tests\examples\godot\test_project
+& $env:GODOT_BINARY -e --path .\tests\examples\godot\test_project
 ```
 
-You should see the sample project open in the editor.
+You should see the sample project open in the editor. The `-e` flag matters: without it, `--path` runs the project's main scene directly instead of opening the editor.
 
 ## 3. Open the Public Evaluator
 
-Press Play. The sample project now opens `res://scenes/public_evaluator.tscn` by default.
+Press Play. The sample project now opens `res://scenes/public_evaluator.tscn` by default. It shows a small synthetic sample (a 1,024-splat test fixture), not a real capture.
 
 You should see:
 - a visible splat in the viewport

@@ -228,7 +228,7 @@ Painterly datasets live in `tests/painterly_scenes/`. Each JSON descriptor feeds
 ## Test Requirements
 
 ### Hardware Requirements
-- GPU with Vulkan 1.3+ support
+- GPU with Vulkan 1.1+ support
 - At least 2GB VRAM
 - Desktop OS supported by module config (`windows`, `linuxbsd`, `macos`)
 

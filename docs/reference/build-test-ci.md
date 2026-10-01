@@ -28,7 +28,11 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
   - `--guard-only` includes the renderer release-gate contract check.
   - `--lane-report <path>` additionally writes the per-lane ledger below as JSON (see [Per-lane result ledger](#per-lane-result-ledger)).
 - Runtime validation:
-  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
+  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile headless-ci`
+  - Always pass `--profile`. Without it the runner uses the scenario config's `default_profile`, which is
+    `release-ci`: the non-headless suite with a required renderer proof, which needs a GPU and a display.
+    `headless-ci` is what baseline QA runs; `--gd-mode` defaults to the profile's own mode.
+    `--list-profiles` prints every profile and marks the default.
 - Benchmark suite:
   - `python3 tests/runtime/run_benchmark.py --godot-binary <module-built-binary> --profile everything`
 - GPU test harness (visual gate):
@@ -39,8 +43,8 @@ For module-only build commands and SCons targets, see [Gaussian Splatting Build 
 
 ## Per-lane result ledger
 
-`tests/ci/run_module_tests.py` declares 28 doctest lanes in `MODULE_TEST_FILTERS`:
-**22 strict, 6 advisory** (`strict=False`).
+`tests/ci/run_module_tests.py` declares 29 doctest lanes in `MODULE_TEST_FILTERS`:
+**23 strict, 6 advisory** (`strict=False`), as derived at the time of writing.
 
 These counts are **derived, not hand-tallied** — re-derive them from the tuple itself
 (`strict` is index 3) rather than recounting the source by eye, which is how they last
@@ -203,13 +207,13 @@ opt-in GPU lanes are covered by the same totality check rather than escaping it.
 
 The `--gs-gpu-test` entrypoint in `main/main.cpp` is a second doctest runner that boots `RenderingDevice` offscreen (no window) for tests tagged `[RequiresGPU]`. `tests/ci/run_gpu_harness.py` is the Python supervisor that drives it in per-batch subprocesses so a driver hang or GPU OOM in one batch can't corrupt the next.
 
-Since #329 the harness also registers the mock `DisplayServer` driver, so `[SceneTree]`-tagged `[RequiresGPU]` cases **do** get a full `SceneTree` — they run in the `NodeSceneTree` / `WorldSceneTree` / `SceneDirectorSceneTree` batches, which pass explicit `--test-case=` filters. (A bare `--gs-gpu-test` with no filter still excludes `*[SceneTree]*` as a conservative convenience default, which is why the harness can look `SceneTree`-less when invoked by hand.) This page previously said the harness has "no `SceneTree`"; that has not been true since #329, and the stale line was cited as evidence that a device-plus-`SceneTree` lane still had to be built (#675).
+Since #329 the harness also registers the mock `DisplayServer` driver, so `[SceneTree]`-tagged `[RequiresGPU]` cases **do** get a full `SceneTree` — they run in the `NodeSceneTree` / `WorldSceneTree` / `SceneDirectorSceneTree` / `RendererSceneTree` batches, which pass explicit `--test-case=` filters. (A bare `--gs-gpu-test` with no filter still excludes `*[SceneTree]*` as a conservative convenience default, which is why the harness can look `SceneTree`-less when invoked by hand.) This page previously said the harness has "no `SceneTree`"; that has not been true since #329, and the stale line was cited as evidence that a device-plus-`SceneTree` lane still had to be built (#675).
 
 - Canonical detail (per-batch table, contracts, troubleshooting): [Testing Setup Guide — GPU Test Harness](../testing/setup-guide.md#gpu-test-harness-gs-gpu-test).
 - Per-batch filter table and listener semantics: [`modules/gaussian_splatting/tests/README.md`](../../modules/gaussian_splatting/tests/README.md).
 - Seeded golden captures and recapture workflow: [`tests/visual_baselines/README.md`](../../tests/visual_baselines/README.md).
 
-Required-batch contract: `REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree"}` is asserted at import in `tests/ci/run_gpu_harness.py`. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical `#256` regression batch, `#351`'s route/stage cascade coverage, `#352`'s GPU-resource lifetime proof, or the SceneTree/OutputCompositor coverage promoted in #724. `NodeSceneTree` is deliberately NOT required — its wall time is only ~1.6× under budget on the shared self-hosted runner and #630's contention variance would make it a flaky gate; it stays advisory until #630 is resolved.
+Required-batch contract: `REQUIRED_BATCHES = {"CompositorHazard", "RendererPipeline", "Lifetime", "OutputCompositor", "RendererSceneTree", "WorldSceneTree", "SceneDirectorSceneTree", "GpuSorting"}` in `tests/ci/run_gpu_harness.py`; an import-time assertion checks that every name in it is a defined batch. A required batch whose doctest filter matches zero test cases fails the gate — this prevents a silently-green CI when a rename empties the canonical `#256` regression batch, `#351`'s route/stage cascade coverage, `#352`'s GPU-resource lifetime proof, the SceneTree/OutputCompositor coverage promoted in #724, or the `GpuSorting` sort-pipeline and sort-order cases promoted in #744. `NodeSceneTree` is deliberately NOT required — #630's contention variance on the shared self-hosted runner would make it a flaky gate (its measured wall times and its 300 s budget are recorded beside its `BatchSpec` in `tests/ci/run_gpu_harness.py`); it stays advisory until #630 is resolved.
 
 ### Render-thread dispatch characterization (live RenderingServer)
 
@@ -241,7 +245,7 @@ Fork-PR safety gate: the `gpu-tests` and `gpu-harness` jobs in `baseline_qa.yml`
 Required status checks on `master`: exactly one, the GitHub-hosted
 `agentic-pr-gate` job in `.github/workflows/agentic_pr_gate.yml`. Live protection
 read back with `gh api repos/klausi3D/godotGS/branches/master/protection` on
-2026-08-14: `contexts: ["agentic-pr-gate"]`, `strict: false`,
+2026-10-01 (same values as the 2026-08-14 read-back): `contexts: ["agentic-pr-gate"]`, `strict: false`,
 `enforce_admins: true`, `required_conversation_resolution: true`,
 `required_approving_review_count: 0`, force pushes and branch deletion blocked, no
 rulesets. Every other lane in this document — GPU, runtime, visual, release — is

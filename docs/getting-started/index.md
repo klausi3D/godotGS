@@ -10,7 +10,7 @@ hide:
 
 Reach a first visible splat quickly and decide whether godotGS is the right evaluation target for your project.
 
-Alpha today. Linux and Windows nightly editor builds are published on GitHub Releases; macOS still means building from source.
+Alpha today. Every nightly on GitHub Releases has the Linux editor; the Windows editor is attached only to nightlies whose Windows build lane passed. macOS still means building from source.
 
 Visual captures for the user journey are still pending, so the linked workflow pages stay text-first until real editor screenshots are available.
 
@@ -26,7 +26,7 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
     ---
 
-    Get a Linux tarball or Windows zip from GitHub Releases. macOS users still need a source build.
+    Get a Linux tarball or, from a nightly whose Windows lane passed, a Windows zip from GitHub Releases. macOS users still need a source build.
 
     [Open downloads](downloads.md)
 
@@ -34,7 +34,7 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
     ---
 
-    Use the latest Linux or Windows nightly editor for the shortest honest evaluation loop through the public evaluator.
+    Use a nightly Linux or Windows editor for the shortest honest evaluation loop through the public evaluator.
 
     [Open try in 5 minutes](try-in-5-minutes.md)
 

@@ -2,8 +2,17 @@
 
 - **Program:** Production-Readiness (audit 2026-07-07), ledger #458.
 - **Risk class:** R3 (persistence / on-disk format read paths).
-- **Status:** Proposed — implemented incrementally; each slice is a separate PR
-  referencing this ADR. R3 gate: CODEOWNER + human approval before merge.
+- **Status:** Implemented (Phase A, slices A1–A4). Status updated 2026-10-01:
+  - A1: compressed `.gsplatworld` `splat_count` bound, #460.
+  - A2: SPZ `fractional_bits` range check, #462.
+  - A3: atomic persistence saves through `gs_atomic_file_write`, #464.
+  - A4: integer-typed PLY properties converted to float, #467.
+
+  All four landed. The regression corpus is realized as the G2 lanes (#496–#499; see
+  [`g2-malformed-corpus.md`](g2-malformed-corpus.md)). A4's second half, "wider importer
+  validation" (the importer checks only splat 0), was not re-verified for this update. The body
+  below is unchanged. Original status line: "Proposed — implemented incrementally; each slice is
+  a separate PR referencing this ADR. R3 gate: CODEOWNER + human approval before merge."
 - **Date:** 2026-07-08
 - **Baseline:** `eda1c261457`
 
