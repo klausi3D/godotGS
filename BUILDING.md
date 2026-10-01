@@ -8,8 +8,14 @@ Run all commands from the repository root.
 
 Common prerequisites:
 
-- Python 3.10 or newer
-- SCons 4.5 or newer
+- Python 3.10 or newer to run the test and CI scripts under `tests/`. They use runtime
+  `X | None` type aliases (for example `tests/ci/run_module_tests.py:2486`), which Python 3.9
+  rejects at import. Building alone needs Python 3.8 and SCons 4.0, the floor `SConstruct`
+  enforces (`EnsurePythonVersion(3, 8)`, `EnsureSConsVersion(4, 0)`); that floor is not tested.
+- CI runs the scripts and the Windows build on Python 3.11, with SCons 4.10.1 pinned in
+  `tests/ci/requirements-scons.txt`. Linux CI builds with Ubuntu's packaged `scons` (4.5.2 in
+  the 2026-10-01 Linux release build), which runs under the image's system `python3`. CI
+  exercises no other versions.
 
 Platform prerequisites:
 

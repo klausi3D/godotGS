@@ -18,7 +18,7 @@ Real troubleshooting screenshots are still pending, so this page stays text-firs
 - run baseline sorting lane:
   - `python3 tests/ci/run_baseline_qa.py --category sorting`
 - run runtime validation:
-  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
+  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile headless-ci`
 
 ### Typical Fixes
 - verify shader and host sort contracts are synchronized

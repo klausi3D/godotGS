@@ -20,7 +20,9 @@
 #include "core/object/callable_method_pointer.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/local_vector.h"
+#include "core/templates/safe_refcount.h"
 #include "core/variant/dictionary.h"
 #include "core/variant/variant.h"
 #include "../lod/lod_config.h"
@@ -32,6 +34,11 @@
 #include <cmath>
 
 namespace {
+
+#ifdef TESTS_ENABLED
+// #1081: see GaussianSplatNodeDebugHelper::count_peer_walk_step().
+SafeNumeric<uint64_t> g_peer_walk_steps;
+#endif
 
 Mutex g_renderer_settings_owner_mutex;
 HashMap<ObjectID, ObjectID> g_renderer_settings_owner_lookup;
@@ -215,21 +222,22 @@ static bool _commit_debug_overlay_union(GaussianSplatRenderer *p_renderer, const
 // the instance record explicitly too. The filter below is therefore a safety
 // net for stale entries, not the mechanism.
 // ===========================================================================
+//
+// #1081: the per-renderer record is a HashSet, so a bind or unbind is O(1)
+// instead of a linear scan of every node already bound to that renderer. Its
+// iteration order is the one the LocalVector it replaces had (insert appends,
+// erase moves the last key into the hole, like remove_at_unordered()), and no
+// consumer depends on that order anyway: the overlay union is an OR.
 Mutex g_renderer_bound_nodes_mutex;
-HashMap<ObjectID, LocalVector<ObjectID>> g_renderer_bound_nodes;
+HashMap<ObjectID, HashSet<ObjectID>> g_renderer_bound_nodes;
 
 static void _note_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
     if (p_renderer_id == ObjectID() || p_node_id == ObjectID()) {
         return;
     }
     MutexLock lock(g_renderer_bound_nodes_mutex);
-    LocalVector<ObjectID> &nodes = g_renderer_bound_nodes[p_renderer_id];
-    for (uint32_t i = 0; i < nodes.size(); i++) {
-        if (nodes[i] == p_node_id) {
-            return;
-        }
-    }
-    nodes.push_back(p_node_id);
+    GS_COUNT_PEER_WALK_STEP();
+    g_renderer_bound_nodes[p_renderer_id].insert(p_node_id);
 }
 
 static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_id) {
@@ -237,16 +245,12 @@ static void _forget_renderer_bound_node(ObjectID p_renderer_id, ObjectID p_node_
         return;
     }
     MutexLock lock(g_renderer_bound_nodes_mutex);
-    LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer_id);
+    HashSet<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer_id);
     if (!nodes) {
         return;
     }
-    for (uint32_t i = 0; i < nodes->size(); i++) {
-        if ((*nodes)[i] == p_node_id) {
-            nodes->remove_at_unordered(i);
-            break;
-        }
-    }
+    GS_COUNT_PEER_WALK_STEP();
+    nodes->erase(p_node_id);
     if (nodes->is_empty()) {
         // ObjectIDs are never reused, so a renderer whose last bound node left
         // can be dropped outright rather than accumulating an empty bucket.
@@ -278,21 +282,31 @@ static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_rende
     LocalVector<ObjectID> bound_ids;
     {
         MutexLock lock(g_renderer_bound_nodes_mutex);
-        if (const LocalVector<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer->get_instance_id())) {
-            bound_ids = *nodes;
+        if (const HashSet<ObjectID> *nodes = g_renderer_bound_nodes.getptr(p_renderer->get_instance_id())) {
+            bound_ids.reserve(nodes->size());
+            for (const ObjectID &bound_id : *nodes) {
+                bound_ids.push_back(bound_id);
+            }
         }
+    }
+    if (bound_ids.is_empty()) {
+        return;
+    }
+
+    // #1081: de-duplicate through a hash set. This used to scan r_peer_ids for
+    // every bound id, O(k^2) per call, and every registration made every peer
+    // call it, so adding N nodes cost O(N^4) overall.
+    HashSet<ObjectID> listed;
+    listed.reserve(r_peer_ids.size() + bound_ids.size());
+    for (uint32_t i = 0; i < r_peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
+        listed.insert(r_peer_ids[i]);
     }
 
     for (uint32_t i = 0; i < bound_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const ObjectID bound_id = bound_ids[i];
-        bool already_listed = false;
-        for (uint32_t j = 0; j < r_peer_ids.size(); j++) {
-            if (r_peer_ids[j] == bound_id) {
-                already_listed = true;
-                break;
-            }
-        }
-        if (already_listed) {
+        if (listed.has(bound_id)) {
             continue;
         }
         GaussianSplatNode3D *node = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(bound_id));
@@ -302,6 +316,7 @@ static void _collect_overlay_union_peer_ids(const GaussianSplatRenderer *p_rende
         if (node->get_renderer().ptr() != p_renderer) {
             continue;
         }
+        listed.insert(bound_id);
         r_peer_ids.push_back(bound_id);
     }
 }
@@ -451,6 +466,7 @@ static ObjectID _elect_debug_hud_owner(const GaussianSplatRenderer *p_renderer, 
     const ObjectID settings_owner = _peek_renderer_settings_owner(p_renderer->get_instance_id());
     ObjectID first_eligible;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!_node_can_host_debug_hud(peer, p_renderer, p_viewport)) {
             continue;
@@ -729,6 +745,17 @@ void GaussianSplatNodeViewportHelper::update_cached_render_target(Viewport *p_vi
 
     ensure_viewport_texture_binding(p_viewport);
 
+    // #1092: this runs every frame. Once READY, the render target and its texture
+    // do not change for the viewport's lifetime: RendererViewport::viewport_initialize()
+    // creates the render target once, and TextureStorage::_update_render_target()
+    // keeps rt->texture across resizes. Re-query only when the viewport, its RID or
+    // its visible size changed (size_changed also invalidates the cache), so a
+    // steady frame makes no RenderingServer getter call and, under thread_model=2,
+    // no main/render-thread sync.
+    if (is_cached_render_target_current(p_viewport)) {
+        return;
+    }
+
     GaussianSplatNode3D::ViewportTextureState previous_state = owner.viewport_texture_state;
     bool ready = acquire_viewport_render_target(p_viewport);
 
@@ -767,6 +794,8 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
         owner.cached_viewport_render_target = RID();
         owner.cached_viewport_render_texture = RID();
         owner.cached_viewport_size = Vector2i();
+        owner.cached_viewport_rid = RID();
+        owner.cached_viewport_acquired_size = Vector2i();
         owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::INACTIVE;
         owner.viewport_texture_missing_reported = false;
         owner.first_frame_render_deferred = false;
@@ -785,11 +814,7 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
     RID render_texture;
     RenderingServer *rs = RS::get_singleton();
     if (rs) {
-        RID viewport_rid = p_viewport->get_viewport_rid();
-        if (viewport_rid.is_valid()) {
-            render_target = rs->viewport_get_render_target(viewport_rid);
-            render_texture = rs->viewport_get_texture(viewport_rid);
-        }
+        query_viewport_render_target(rs, p_viewport->get_viewport_rid(), render_target, render_texture);
     }
 
 #ifdef DEBUG_ENABLED
@@ -806,18 +831,63 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
     }
 
     if (render_target.is_valid()) {
-        owner.cached_viewport_render_target = render_target;
-        owner.cached_viewport_render_texture = render_texture;
-        owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::READY;
-        owner.viewport_texture_missing_reported = false;
+        commit_acquired_render_target(p_viewport, viewport_size, render_target, render_texture);
         return true;
     }
 
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::WAITING_FOR_TEXTURE;
     owner.first_frame_render_deferred = false;
     return false;
+}
+
+void GaussianSplatNodeViewportHelper::query_viewport_render_target(RenderingServer *p_rs, const RID &p_viewport_rid,
+        RID &r_render_target, RID &r_render_texture) {
+    r_render_target = RID();
+    r_render_texture = RID();
+    if (!p_rs || !p_viewport_rid.is_valid()) {
+        return;
+    }
+#ifdef TESTS_ENABLED
+    owner.viewport_render_target_query_count++;
+#endif
+    r_render_target = p_rs->viewport_get_render_target(p_viewport_rid);
+    r_render_texture = p_rs->viewport_get_texture(p_viewport_rid);
+}
+
+bool GaussianSplatNodeViewportHelper::is_cached_render_target_current(Viewport *p_viewport) const {
+    if (!p_viewport || p_viewport != owner.observed_viewport) {
+        return false;
+    }
+    if (owner.viewport_texture_state != GaussianSplatNode3D::ViewportTextureState::READY ||
+            !owner.cached_viewport_render_target.is_valid()) {
+        return false;
+    }
+    if (owner.cached_viewport_id != p_viewport->get_instance_id() ||
+            owner.cached_viewport_rid != p_viewport->get_viewport_rid()) {
+        return false;
+    }
+    // Belt and braces next to the size_changed observer: a visible-size change
+    // that did not reach on_viewport_size_changed() still forces a re-query.
+    Size2i viewport_size = p_viewport->get_visible_rect().size;
+    if (viewport_size.x <= 0 || viewport_size.y <= 0) {
+        viewport_size = Size2i(1, 1);
+    }
+    return owner.cached_viewport_acquired_size == Vector2i(viewport_size.x, viewport_size.y);
+}
+
+void GaussianSplatNodeViewportHelper::commit_acquired_render_target(Viewport *p_viewport, const Vector2i &p_visible_size,
+        const RID &p_render_target, const RID &p_render_texture) {
+    owner.cached_viewport_id = p_viewport->get_instance_id();
+    owner.cached_viewport_rid = p_viewport->get_viewport_rid();
+    owner.cached_viewport_acquired_size = p_visible_size;
+    owner.cached_viewport_render_target = p_render_target;
+    owner.cached_viewport_render_texture = p_render_texture;
+    owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::READY;
+    owner.viewport_texture_missing_reported = false;
 }
 
 void GaussianSplatNodeViewportHelper::connect_viewport_observers(Viewport *p_viewport) {
@@ -869,6 +939,8 @@ void GaussianSplatNodeViewportHelper::disconnect_viewport_observers() {
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
     owner.cached_viewport_size = Vector2i();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::INACTIVE;
     owner.viewport_bootstrap_deferred = false;
     owner.first_frame_render_deferred = false;
@@ -970,6 +1042,8 @@ void GaussianSplatNodeViewportHelper::on_viewport_size_changed() {
     owner.cached_viewport_size = Vector2i(viewport_size.x, viewport_size.y);
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::WAITING_FOR_TEXTURE;
     owner.viewport_texture_missing_reported = false;
     owner.first_frame_render_deferred = false;
@@ -1046,6 +1120,16 @@ void GaussianSplatNodeDebugHelper::unregister_renderer_bound_node(GaussianSplatR
     _forget_renderer_bound_node(p_renderer->get_instance_id(), p_node->get_instance_id());
 }
 
+#ifdef TESTS_ENABLED
+void GaussianSplatNodeDebugHelper::count_peer_walk_step() {
+    g_peer_walk_steps.increment();
+}
+
+uint64_t GaussianSplatNodeDebugHelper::get_peer_walk_steps() {
+    return g_peer_walk_steps.get();
+}
+#endif
+
 void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     if (!owner.renderer.is_valid()) {
         return;
@@ -1069,6 +1153,7 @@ void GaussianSplatNodeDebugHelper::push_debug_overlay_union() {
     _collect_overlay_union_peer_ids(owner.renderer.ptr(), peer_ids);
     const ObjectID self_id = owner.get_instance_id();
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -1134,6 +1219,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     LocalVector<ObjectID> peer_ids;
     _collect_overlay_union_peer_ids(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         const GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;
@@ -1157,6 +1243,7 @@ void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_union_for_renderer(Ga
     // which is the whole point: nobody is left to be told, so the write above had
     // to happen here rather than being delegated.
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

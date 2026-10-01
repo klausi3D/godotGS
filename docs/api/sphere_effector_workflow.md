@@ -34,7 +34,6 @@ ProjectSettings under `rendering/gaussian_splatting/effects/*` remain available 
 - The renderer binds at most `4` scene-authored effectors per pass.
 - If more than `4` scene-authored effectors match one node, the highest-priority deterministic four are bound and the rest stay logical matches only.
 - Deterministic ordering uses priority first, then scope specificity, then registration order, then object id.
-- `get_primary_sphere_effector_for_instance()` is now a compatibility query only. It still returns one match even though the renderer can bind multiple.
 - ProjectSettings fallback effectors remain single-global and are still governed by `rendering/gaussian_splatting/effects/max_effectors` clamped to `0..1`.
 - `target_opacity = 1.0` is a neutral target. Matching nodes still count as matched, but no visible opacity change is produced and opacity diagnostics stay inactive.
 
