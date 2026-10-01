@@ -1048,7 +1048,7 @@
 			Minimum projected screen size in pixels below which splats are culled.
 		</member>
 		<member name="lod_max_distance" type="float" setter="set_lod_max_distance" getter="get_lod_max_distance" default="500.0">
-			Maximum distance from camera beyond which splats are culled.
+			Maximum distance from camera beyond which splats are culled (divided by the LOD bias, and only while LOD is enabled). Streaming applies the same limit to chunk demand: a chunk whose bounds lie entirely beyond it is neither discovered nor loaded. [code]0[/code] disables the limit.
 		</member>
 		<member name="cull/importance_threshold" type="float" setter="set_importance_cull_threshold" getter="get_importance_cull_threshold" default="0.0">
 			Importance culling threshold. Splats below this value are discarded.

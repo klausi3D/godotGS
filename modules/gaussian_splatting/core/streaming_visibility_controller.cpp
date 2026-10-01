@@ -339,6 +339,9 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
         for (uint32_t i = 0; i < cnt; i++) {
             const uint32_t ci = iptr[i];
             chunks_ptr[ci].distance = recovery_pos.distance_to(chunks_ptr[ci].center);
+            // #1087: forced-visible chunks past the load distance stay undemanded.
+            chunks_ptr[ci].near_distance = compute_chunk_near_distance(
+                    chunks_ptr[ci].bounds, chunks_ptr[ci].center, recovery_pos);
         }
         if (cnt > 1) {
             // Same insertion sort as the normal path — nearest-first.
@@ -448,6 +451,10 @@ void StreamingVisibilityController::update_chunk_visibility(
         if (z_far > 0.0 && float(z_far) < discovery_dist) {
             discovery_dist = float(z_far);
         }
+        // #1087: nothing beyond the render distance can be drawn, so don't discover it.
+        if (load_distance_limit > 0.0f && load_distance_limit < discovery_dist) {
+            discovery_dist = load_distance_limit;
+        }
         AABB query_aabb(
                 camera_pos - Vector3(discovery_dist, discovery_dist, discovery_dist),
                 Vector3(discovery_dist * 2.0f, discovery_dist * 2.0f, discovery_dist * 2.0f));
@@ -476,6 +483,14 @@ void StreamingVisibilityController::update_chunk_visibility(
             grid_query_visited[i] = 1;
 
             system.chunks[i].distance = camera_pos.distance_to(system.chunks[i].center);
+            system.chunks[i].near_distance = compute_chunk_near_distance(
+                    system.chunks[i].bounds, system.chunks[i].center, camera_pos);
+            if (!is_within_load_distance(system.chunks[i].near_distance, load_distance_limit)) {
+                // The discovery box is a cube; its corners reach past the limit.
+                system.chunks[i].is_visible = false;
+                culling_stats.distance_culled_chunks++;
+                continue;
+            }
 
             if (chunk_frustum_culling_enabled) {
                 AABB padded_bounds = system.chunks[i].bounds;
@@ -512,6 +527,13 @@ void StreamingVisibilityController::update_chunk_visibility(
         visibility_flags_chunk_count = chunk_count;
         for (uint32_t i = 0; i < chunk_count; i++) {
             system.chunks[i].distance = camera_pos.distance_to(system.chunks[i].center);
+            system.chunks[i].near_distance = compute_chunk_near_distance(
+                    system.chunks[i].bounds, system.chunks[i].center, camera_pos);
+            if (!is_within_load_distance(system.chunks[i].near_distance, load_distance_limit)) {
+                system.chunks[i].is_visible = false;
+                culling_stats.distance_culled_chunks++;
+                continue;
+            }
 
             if (chunk_frustum_culling_enabled) {
                 AABB padded_bounds = system.chunks[i].bounds;
@@ -570,6 +592,20 @@ void StreamingVisibilityController::update_chunk_visibility(
                 culling_stats.total_chunks > 0 ? (culling_stats.frustum_culled_chunks * 100.0f / culling_stats.total_chunks) : 0.0f,
                 use_spatial_grid ? "yes" : "no"));
     }
+}
+
+float StreamingVisibilityController::compute_chunk_near_distance(const AABB &p_bounds, const Vector3 &p_center, const Vector3 &p_camera_pos) {
+    if (p_bounds.size == Vector3()) {
+        return p_camera_pos.distance_to(p_center);
+    }
+    // The depth pass culls on splat centers, which lie inside the chunk bounds, so
+    // a chunk whose nearest bounds point is beyond the limit has nothing to draw.
+    const Vector3 nearest = p_camera_pos.clamp(p_bounds.position, p_bounds.get_end());
+    return p_camera_pos.distance_to(nearest);
+}
+
+void StreamingVisibilityController::set_load_distance_limit(float p_limit) {
+    load_distance_limit = (Math::is_finite(p_limit) && p_limit > 0.0f) ? p_limit : 0.0f;
 }
 
 bool StreamingVisibilityController::is_chunk_in_frustum(const AABB &bounds, const Vector<Plane> &frustum_planes) const {

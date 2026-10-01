@@ -274,6 +274,11 @@ public:
     float get_chunk_frustum_padding() const { return visibility.chunk_frustum_padding; }
     void set_chunk_radius_multiplier(float p_multiplier);
     float get_chunk_radius_multiplier() const { return visibility.chunk_radius_multiplier; }
+    // #1087: bound chunk demand (discovery and load candidates) to this distance from
+    // the camera, measured to the nearest point of each chunk's bounds. The renderer
+    // pushes its effective render distance every frame; <= 0 means unbounded.
+    void set_load_distance_limit(float p_limit) { visibility.set_load_distance_limit(p_limit); }
+    float get_load_distance_limit() const { return visibility.get_load_distance_limit(); }
 
     // Debug statistics for chunk culling
     Dictionary get_chunk_culling_stats() const;
@@ -498,6 +503,14 @@ private:
     uint64_t _get_total_vram_usage_bytes() const;
     uint64_t _get_evictable_vram_usage_bytes() const;
     uint32_t _get_reserved_chunk_count() const;
+    // #1087: the one demand predicate for visible primary chunks (load scan, needed
+    // set, sync-fallback drain): inside the VRAM-regulated load threshold and inside
+    // the load distance limit.
+    bool _is_chunk_within_load_distance(const StreamingChunk &p_chunk, float p_lod_mult) const {
+        return p_chunk.distance < STREAMING_LOAD_DISTANCE_BASE / p_lod_mult &&
+                StreamingVisibilityController::is_within_load_distance(
+                        p_chunk.near_distance, visibility.load_distance_limit);
+    }
     uint64_t _get_pending_upload_bytes_for_diagnostics() const;
     void _load_zero_visible_recovery_config_from_project_settings();
     void _update_camera_tracking(const Vector3 &camera_pos, float p_frame_delta_seconds);

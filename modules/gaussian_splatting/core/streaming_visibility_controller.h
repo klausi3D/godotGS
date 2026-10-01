@@ -58,6 +58,7 @@ public:
         uint32_t total_chunks = 0;
         uint32_t visible_chunks = 0;
         uint32_t frustum_culled_chunks = 0;
+        uint32_t distance_culled_chunks = 0;
         uint32_t loaded_chunks = 0;
         uint32_t resident_chunks = 0;
         uint32_t visibility_flag_reset_scan_count = 0;
@@ -68,6 +69,7 @@ public:
             total_chunks = 0;
             visible_chunks = 0;
             frustum_culled_chunks = 0;
+            distance_culled_chunks = 0;
             loaded_chunks = 0;
             resident_chunks = 0;
             visibility_flag_reset_scan_count = 0;
@@ -123,6 +125,16 @@ public:
     static constexpr uint32_t SPATIAL_GRID_MIN_CHUNKS = 64;
     static constexpr int RECOVERY_MAX_CELL_RADIUS = 5;
 
+    // #1087: camera distance to the nearest point of a chunk's bounds (0 inside);
+    // the center distance when the bounds are empty.
+    static float compute_chunk_near_distance(const AABB &p_bounds, const Vector3 &p_center, const Vector3 &p_camera_pos);
+    // #1087: true when a chunk at p_near_distance may be demanded under p_limit (<= 0 = unbounded).
+    static bool is_within_load_distance(float p_near_distance, float p_limit) {
+        return !(p_limit > 0.0f) || p_near_distance <= p_limit;
+    }
+    void set_load_distance_limit(float p_limit);
+    float get_load_distance_limit() const { return load_distance_limit; }
+
 private:
     uint32_t get_prefetch_limit(GaussianStreamingSystem &system, uint32_t available_slots, uint32_t load_budget) const;
     void collect_prefetch_candidates(GaussianStreamingSystem &system, const Vector3 &predicted_pos,
@@ -141,6 +153,10 @@ private:
     float chunk_frustum_padding = 1.5f;
     float chunk_radius_multiplier = 1.0f;
     float max_discovery_distance = 10000.0f;
+    // #1087: farthest a chunk may be (nearest point of its bounds) and still be
+    // discovered or demanded. Fed each frame from the renderer's effective render
+    // distance (lod_max_distance / lod_bias); 0 = unbounded (camera far plane only).
+    float load_distance_limit = 0.0f;
     ChunkCullingStats culling_stats;
     LocalVector<uint32_t> visible_chunk_indices;
     LocalVector<uint32_t> previous_visible_chunk_indices;

@@ -184,14 +184,9 @@ void GPUCuller::update_lod_cache() {
             ? culling_config.lod_min_screen_size * effective_bias
             : 0.0f;
 
-    if (culling_config.lod_max_distance > 0.0f) {
-        float adjusted = culling_config.lod_max_distance / effective_bias;
-        culling_config.lod_cached_max_distance = adjusted;
-        culling_config.lod_cached_max_distance_sq = adjusted * adjusted;
-    } else {
-        culling_config.lod_cached_max_distance = 0.0f;
-        culling_config.lod_cached_max_distance_sq = 0.0f;
-    }
+    const float adjusted = compute_effective_max_distance(culling_config);
+    culling_config.lod_cached_max_distance = adjusted;
+    culling_config.lod_cached_max_distance_sq = adjusted * adjusted;
 
     culling_config.lod_cache_dirty = false;
 }

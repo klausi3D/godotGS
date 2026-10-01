@@ -556,6 +556,61 @@ TEST_CASE("[GaussianSplatting] Renderer LOD bias and distance affect culling") {
     memdelete(manager);
 }
 
+TEST_CASE("[GaussianSplatting] Streaming load distance limit is the renderer's draw distance (#1087)") {
+    // The renderer hands streaming the distance past which it draws nothing, so a
+    // streamed chunk is demanded exactly when it could be drawn. Check the limit
+    // against what culling actually keeps, not against the formula.
+    GaussianSplatManager *manager = memnew(GaussianSplatManager);
+    CHECK(manager != nullptr);
+    if (manager == nullptr) {
+        return;
+    }
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate(manager->get_primary_rendering_device());
+
+    // The corridor lane's world settings: lod_max_distance 500, lod_bias 1.15.
+    renderer->set_lod_enabled(true);
+    renderer->set_lod_min_screen_size(0.0f);
+    renderer->set_lod_max_distance(500.0f);
+    renderer->set_lod_bias(1.15f);
+    renderer->set_frustum_culling(true);
+    const float limit = renderer->get_streaming_load_distance_limit();
+    CHECK(limit == doctest::Approx(500.0f / 1.15f));
+
+    // One splat 2 m inside the limit, one 2 m beyond it, both on the view axis.
+    Vector<Vector3> positions;
+    positions.push_back(Vector3(0.0f, 0.0f, -(limit - 2.0f)));
+    positions.push_back(Vector3(0.0f, 0.0f, -(limit + 2.0f)));
+    Vector<Vector3> scales;
+    // Large enough that ~435 m away they stay well above the tiny-splat cull.
+    scales.push_back(Vector3(10.0f, 10.0f, 10.0f));
+    scales.push_back(Vector3(10.0f, 10.0f, 10.0f));
+    renderer->test_set_test_splats(positions, scales);
+    const Transform3D cam_transform;
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Size2i viewport(1280, 720);
+    int visible = renderer->test_cull_visible_count(cam_transform, projection, viewport);
+    CHECK_MESSAGE(visible == 1, "Only the splat inside the streaming load distance limit may be drawn");
+    CHECK(int(renderer->get_render_stats()["culled_by_distance"]) == 1);
+
+    // LOD off: nothing is distance-culled, so streaming must not be bounded either.
+    renderer->set_lod_enabled(false);
+    CHECK(renderer->get_streaming_load_distance_limit() == 0.0f);
+    visible = renderer->test_cull_visible_count(cam_transform, projection, viewport);
+    CHECK(visible == 2);
+
+    // lod_max_distance 0 means "no maximum": unbounded as well.
+    renderer->set_lod_enabled(true);
+    renderer->set_lod_max_distance(0.0f);
+    CHECK(renderer->get_streaming_load_distance_limit() == 0.0f);
+    visible = renderer->test_cull_visible_count(cam_transform, projection, viewport);
+    CHECK(visible == 2);
+
+    renderer.unref();
+    memdelete(manager);
+}
+
 TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical LOD query keeps index and weight cardinality") {
     GaussianSplatting::Tests::LODSystemTest fixture;
     Vector<GaussianSplatting::GaussianData> splats = fixture.generate_test_splats(4096, 40.0f);

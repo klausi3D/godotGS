@@ -2998,7 +2998,6 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
     const float lod_mult = budget.vram_regulator.is_valid()
             ? budget.vram_regulator->get_lod_distance_multiplier()
             : 1.0f;
-    const float load_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
     uint32_t load_candidates = 0;
     bool blocked_by_chunk_cap = false;
 
@@ -3019,7 +3018,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             continue;
         }
         StreamingChunk &chunk = chunks[chunk_idx];
-        if (chunk.distance >= load_threshold || chunk.is_loaded || chunk.upload_pending) {
+        if (!_is_chunk_within_load_distance(chunk, lod_mult) || chunk.is_loaded || chunk.upload_pending) {
             continue;
         }
         load_candidates++;
@@ -3108,9 +3107,8 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     const float lod_mult = budget.vram_regulator.is_valid()
             ? budget.vram_regulator->get_lod_distance_multiplier()
             : 1.0f;
-    // Same threshold _load_visible_chunks uses to decide load candidates, so the
+    // Same predicate _load_visible_chunks uses to decide load candidates, so the
     // needed set here is exactly the set the scheduler is trying to make resident.
-    const float visible_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
 
     uint32_t needed_chunks = 0;
     uint32_t needed_unserved_chunks = 0;
@@ -3119,7 +3117,7 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
             continue;
         }
         StreamingChunk &chunk = chunks[chunk_idx];
-        if (chunk.distance >= visible_threshold) {
+        if (!_is_chunk_within_load_distance(chunk, lod_mult)) {
             continue;
         }
         needed_chunks++;
@@ -4379,7 +4377,6 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const float lod_mult = budget.vram_regulator.is_valid()
             ? budget.vram_regulator->get_lod_distance_multiplier()
             : 1.0f;
-    const float primary_load_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
     const bool primary_prefetch_enabled = visibility.predictive_prefetch_enabled &&
             visibility.prefetch_lookahead_distance > 0.0f &&
             visibility.camera_tracker.has_previous_position &&
@@ -4388,7 +4385,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
     const auto is_primary_chunk_relevant = [&](const StreamingChunk &p_chunk) -> bool {
-        if (p_chunk.is_visible && p_chunk.distance < primary_load_threshold) {
+        if (p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, lod_mult)) {
             return true;
         }
         if (!primary_prefetch_enabled) {
