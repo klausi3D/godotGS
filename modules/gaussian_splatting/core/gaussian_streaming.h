@@ -458,6 +458,34 @@ public:
         _record_visible_scan_starvation(p_scan_origin, p_scanned_chunks, _get_needed_set_load_threshold());
     }
     void _test_build_visible_chunk_list() { _build_visible_chunk_list(); }
+    // #1087: let _load_visible_chunks reach its candidate scan without a device. With no
+    // pack thread the scan only enqueues into the sync-fallback queue, so no GPU work
+    // happens; the placeholder buffer RID is never dereferenced and is cleared again by
+    // _test_end_device_free_load_scan() before teardown.
+    void _test_begin_device_free_load_scan(const Ref<::GaussianData> &p_data, uint32_t p_capacity_chunks) {
+        source_data = p_data;
+        _register_primary_asset();
+        atlas_allocator.reset(p_capacity_chunks);
+        persistent_buffer = RID::from_uint64(1);
+        persistent_buffer_size = uint32_t(uint64_t(p_capacity_chunks) * CHUNK_SIZE * _atlas_gaussian_stride_bytes());
+        streaming_initialized = true;
+    }
+    void _test_end_device_free_load_scan() {
+        persistent_buffer = RID();
+        persistent_buffer_size = 0;
+        streaming_initialized = false;
+    }
+    uint32_t _test_load_visible_chunks(uint32_t p_effective_max) {
+        uint32_t evictions_left = 0;
+        bool eviction_blocked = false;
+        _load_visible_chunks(p_effective_max, evictions_left, eviction_blocked);
+        return scheduler.last_load_candidate_count;
+    }
+    bool _test_sync_fallback_queued(uint32_t p_asset_id, uint32_t p_chunk_idx) const {
+        return scheduler.sync_fallback_chunk_load_set.has(_make_chunk_key(p_asset_id, p_chunk_idx));
+    }
+    uint32_t _test_get_sync_fallback_stalled_count() const { return scheduler.last_sync_fallback_stalled_count; }
+    uint32_t _test_get_sync_fallback_attempted_count() const { return scheduler.last_sync_fallback_attempted_count; }
     // Field-level accessors for the global atlas registry. Returning the
     // registry by reference would expose private fields the registry's
     // friendship with this class doesn't grant onward — these forward only

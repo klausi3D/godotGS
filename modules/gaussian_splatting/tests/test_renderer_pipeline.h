@@ -1783,6 +1783,10 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     }
     Ref<GaussianSplatRenderer> renderer = fixture.renderer;
     renderer->test_release_current_streaming_system();
+    // #1087: give the renderer a finite draw distance well past the fixture, so the
+    // wiring check below compares two non-zero values.
+    renderer->set_lod_enabled(true);
+    renderer->set_lod_max_distance(5000.0f);
 
     // #690: attempt a REAL render target, but do NOT require one.
     //
@@ -1898,6 +1902,16 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     CHECK_MESSAGE(valid_data_source, vformat("Unexpected render stats data_source: %s", data_source));
     CHECK(stats.get("gpu_sorter_ready", false));
     CHECK(bool(stats.get("instance_contract_ready", false)));
+    // #1087 wiring: the streaming frame must carry the renderer's draw distance into
+    // the streaming system (render_streaming_orchestrator pushes it every frame).
+    {
+        const Dictionary streaming_state = stats.get("streaming_state", Dictionary());
+        const float expected_limit = renderer->get_streaming_load_distance_limit();
+        CHECK(expected_limit > 0.0f);
+        CHECK_MESSAGE(streaming_state.has("load_distance_limit"),
+                "streaming analytics must publish load_distance_limit (#1087)");
+        CHECK(float(double(streaming_state.get("load_distance_limit", -1.0))) == doctest::Approx(expected_limit));
+    }
     CHECK(stats.get("instance_contract_shape", String()) == String("atlas_emulation"));
 
     Dictionary sort_metrics = renderer->get_last_sort_metrics();
