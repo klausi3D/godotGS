@@ -27,6 +27,7 @@
 #include "core/object/ref_counted.h"
 #include "core/os/keyboard.h"
 #include "core/templates/vector.h"
+#include "core/variant/callable.h"
 #include "core/variant/dictionary.h"
 #include "scene/main/canvas_layer.h"
 
@@ -153,6 +154,14 @@ public:
 	};
 
 	static void build_report(const ReportInputs &p_in, Vector<String> &r_lines, Dictionary &r_snapshot);
+
+	/// The callable the render-thread statistics read hands to its dispatcher,
+	/// which binds the request id onto it. It fills p_out and completes the
+	/// request. Exposed (unbound) so a test can invoke it the way the
+	/// dispatcher does; get_render_stats_reads_completed() is the dispatcher's
+	/// completed request id.
+	static Callable make_render_stats_read_callable(const Ref<GaussianSplatRenderer> &p_renderer, const Dictionary &p_out);
+	static uint64_t get_render_stats_reads_completed();
 
 private:
 	NodePath target_path;

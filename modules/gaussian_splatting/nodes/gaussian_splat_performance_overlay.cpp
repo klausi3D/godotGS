@@ -21,6 +21,8 @@
 #include "scene/main/window.h"
 #include "scene/resources/style_box_flat.h"
 
+#include <atomic>
+
 // ============================================================================
 // FrameClock -- the #1084 frame-pacing spec, as pure bookkeeping.
 // ============================================================================
@@ -219,7 +221,7 @@ void header(Vector<String> &r_lines, const char *p_title) {
 }
 
 String no_target_line(const GaussianSplatPerformanceOverlay::ReportInputs &p_in) {
-	return vformat("no splat node or world to describe — %s (%s)", NA,
+	return vformat(U"no splat node or world to describe — %s (%s)", NA,
 			p_in.target_problem.is_empty() ? String("none found") : p_in.target_problem);
 }
 
@@ -290,7 +292,7 @@ void section_camera(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, V
 	header(r_lines, "CAMERA");
 	Dictionary s;
 	if (!p_in.has_camera) {
-		r_lines.push_back(vformat("no current Camera3D in this viewport — %s", NA));
+		r_lines.push_back(vformat(U"no current Camera3D in this viewport — %s", NA));
 		s["position"] = Variant();
 		s["rotation_degrees"] = Variant();
 		s["projection"] = Variant();
@@ -311,7 +313,7 @@ void section_camera(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, V
 		label = "Frustum";
 		name = "frustum";
 	}
-	r_lines.push_back(vformat("Projection: %s | FOV: %.1f° | Size: %.2f",
+	r_lines.push_back(vformat(U"Projection: %s | FOV: %.1f° | Size: %.2f",
 			label, p_in.camera_fov, p_in.camera_size));
 	s["position"] = o;
 	s["rotation_degrees"] = deg;
@@ -325,7 +327,7 @@ void section_gpu_passes(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 	Dictionary s;
 	const Dictionary &st = p_in.render_stats;
 	if (!p_in.has_target || st.is_empty()) {
-		r_lines.push_back(p_in.has_target ? vformat("no renderer statistics this refresh — %s", NA) : no_target_line(p_in));
+		r_lines.push_back(p_in.has_target ? vformat(U"no renderer statistics this refresh — %s", NA) : no_target_line(p_in));
 		for (const GpuPassRow &row : GPU_PASSES) {
 			s[row.snapshot_key] = Variant();
 		}
@@ -363,7 +365,7 @@ void section_gpu_passes(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 		if (delta <= SUM_EPSILON_MS) {
 			r_lines.push_back(vformat("Pass total: %s (= sum of the six rows)", fmt_ms(reported)));
 		} else {
-			r_lines.push_back(vformat("Pass total: %s | rows sum to %s | [color=orange]Δ %.4f ms[/color]",
+			r_lines.push_back(vformat(U"Pass total: %s | rows sum to %s | [color=orange]Δ %.4f ms[/color]",
 					fmt_ms(reported), fmt_plain_ms(sum_ms), delta));
 		}
 	}
@@ -439,7 +441,7 @@ void section_visibility(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 		s[k] = Variant();
 	}
 	if (!p_in.has_target || st.is_empty()) {
-		r_lines.push_back(p_in.has_target ? vformat("no renderer statistics this refresh — %s", NA) : no_target_line(p_in));
+		r_lines.push_back(p_in.has_target ? vformat(U"no renderer statistics this refresh — %s", NA) : no_target_line(p_in));
 		r_snap["visibility"] = s;
 		return;
 	}
@@ -458,7 +460,7 @@ void section_visibility(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 		const String domain = fmt_text(stat(st, "stage_cull_visible_domain"));
 		const Variant visible = stat(st, "stage_cull_visible_count");
 		const Variant candidates = stat(st, "stage_cull_candidate_count");
-		r_lines.push_back(vformat("Cull domain: %s — %s of %s visible", domain == NA ? String("unknown") : domain,
+		r_lines.push_back(vformat(U"Cull domain: %s — %s of %s visible", domain == NA ? String("unknown") : domain,
 				fmt_count(visible), fmt_count(candidates)));
 		const Variant fr = stat(st, "culled_by_frustum");
 		const Variant di = stat(st, "culled_by_distance");
@@ -569,7 +571,7 @@ void section_device_vram(const GaussianSplatPerformanceOverlay::ReportInputs &p_
 	const Variant percent = monitor(p_in, "gaussian_splatting/vram_usage_percent");
 	String warning;
 	if (flag(monitor(p_in, "gaussian_splatting/vram_budget_warning_active")) > 0) {
-		warning = "[color=orange]⚠ WARNING[/color] ";
+		warning = U"[color=orange]⚠ WARNING[/color] ";
 	}
 	String percent_text = NA;
 	if (!is_na(percent)) {
@@ -617,7 +619,7 @@ void section_lod(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, Vect
 			fmt_num(monitor(p_in, "gaussian_splatting/lod_opacity_multiplier"), 2),
 			fmt_count(monitor(p_in, "gaussian_splatting/lod_chunks_in_transition"))));
 	if (flag(monitor(p_in, "gaussian_splatting/lod_quality_degradation_active")) > 0) {
-		r_lines.push_back("[color=orange]⚠ Quality degradation active (VRAM pressure)[/color]");
+		r_lines.push_back(U"[color=orange]⚠ Quality degradation active (VRAM pressure)[/color]");
 	}
 	s["level"] = level;
 	s["reduction_pct"] = reduction;
@@ -785,7 +787,7 @@ void section_manager(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, 
 		s["total_gaussians"] = stat(p_in.manager_stats, "total_gaussians");
 		s["total_memory_mb"] = stat(p_in.manager_stats, "total_memory_mb");
 	} else {
-		r_lines.push_back(vformat("Buffer registry: empty — per-node route registers none, so its totals are %s", NA));
+		r_lines.push_back(vformat(U"Buffer registry: empty — per-node route registers none, so its totals are %s", NA));
 		s["buffer_count"] = Variant();
 		s["total_gaussians"] = Variant();
 		s["total_memory_mb"] = Variant();
@@ -1107,11 +1109,27 @@ static RenderThreadDispatcher &gs_overlay_stats_dispatcher() {
 	return dispatcher;
 }
 
-static void gs_overlay_collect_render_stats(const Ref<GaussianSplatRenderer> &p_renderer, Dictionary p_out, uint64_t p_request_id) {
+// Set once a read was dispatched but never completed: later reads show n/a
+// instead of stalling the main thread for the dispatcher timeout every refresh.
+static std::atomic<bool> gs_overlay_stats_read_failed{ false };
+
+// p_request_id comes FIRST. The dispatcher wraps the callable it is given in
+// .bind(request_id) (render_thread_dispatcher.cpp), and a bound callable puts
+// its call arguments before its own binds (CallableCustomBind::call), so the
+// callee sees (request_id, <binds made here>).
+static void gs_overlay_collect_render_stats(uint64_t p_request_id, const Ref<GaussianSplatRenderer> &p_renderer, Dictionary p_out) {
 	if (p_renderer.is_valid()) {
 		p_out.merge(p_renderer->get_render_stats());
 	}
 	gs_overlay_stats_dispatcher().notify_completed(p_request_id);
+}
+
+Callable GaussianSplatPerformanceOverlay::make_render_stats_read_callable(const Ref<GaussianSplatRenderer> &p_renderer, const Dictionary &p_out) {
+	return callable_mp_static(&gs_overlay_collect_render_stats).bind(p_renderer, p_out);
+}
+
+uint64_t GaussianSplatPerformanceOverlay::get_render_stats_reads_completed() {
+	return gs_overlay_stats_dispatcher().get_completed_request_id();
 }
 
 Dictionary GaussianSplatPerformanceOverlay::_read_render_stats(const Ref<GaussianSplatRenderer> &p_renderer) {
@@ -1126,11 +1144,18 @@ Dictionary GaussianSplatPerformanceOverlay::_read_render_stats(const Ref<Gaussia
 	if (!dispatcher.is_render_thread_dispatch_path_active()) {
 		return p_renderer->get_render_stats();
 	}
+	if (gs_overlay_stats_read_failed.load(std::memory_order_acquire)) {
+		return Dictionary();
+	}
 	Dictionary out; // shared with the bound copy, filled on the render thread
-	if (dispatcher.dispatch_call_on_render_thread_blocking(
-				callable_mp_static(&gs_overlay_collect_render_stats).bind(p_renderer, out),
-				nullptr, true, nullptr, "[GaussianSplatPerformanceOverlay] render-stats read")) {
+	bool dispatched = false;
+	if (dispatcher.dispatch_call_on_render_thread_blocking(make_render_stats_read_callable(p_renderer, out),
+				&dispatched, true, nullptr, "[GaussianSplatPerformanceOverlay] render-stats read")) {
 		return out;
+	}
+	if (dispatched && !gs_overlay_stats_read_failed.exchange(true, std::memory_order_acq_rel)) {
+		ERR_PRINT("[GaussianSplatPerformanceOverlay] A render-thread statistics read did not complete before the dispatcher timeout. "
+				  "Renderer statistics rows show n/a for the rest of this run; the overlay will not read them unsynchronized (#1030).");
 	}
 	// Timed out or not dispatched: show n/a rather than read unsynchronized.
 	return Dictionary();

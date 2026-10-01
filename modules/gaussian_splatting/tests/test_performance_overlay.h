@@ -411,7 +411,40 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 		gs_overlay_test::Overlay::build_report(in, lines, snap);
 		CHECK_MESSAGE(String(gs_overlay_test::section(snap, "camera")["projection"]) == String(c.name), c.name);
 		CHECK_MESSAGE(gs_overlay_test::joined(lines).contains(c.label), c.label);
+		// Non-ASCII text is decoded as UTF-8, not Latin-1 ("Â°" mojibake).
+		CHECK(gs_overlay_test::joined(lines).contains(String::utf8("FOV: 0.0° |")));
 	}
+	in.has_camera = false;
+	Vector<String> lines;
+	Dictionary snap;
+	gs_overlay_test::Overlay::build_report(in, lines, snap);
+	CHECK(gs_overlay_test::joined(lines).contains(String::utf8("in this viewport — ")));
+}
+
+TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats read completes when invoked as the dispatcher invokes it") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	if (!renderer.is_valid()) {
+		FAIL("a GaussianSplatRenderer could not be created");
+		return;
+	}
+	const Dictionary direct = renderer->get_render_stats();
+	if (direct.is_empty()) {
+		FAIL("get_render_stats() returned nothing to compare against");
+		return;
+	}
+	Dictionary out;
+	const uint64_t request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
+	// Exactly what RenderThreadDispatcher::dispatch_call_on_render_thread_blocking
+	// and RenderingServerDefault::_call_on_render_thread do with it:
+	// call_on_render_thread(p_callable.bind(request_id)), then .call() with no
+	// arguments on the render thread.
+	const Callable dispatched = gs_overlay_test::Overlay::make_render_stats_read_callable(renderer, out).bind(request_id);
+	dispatched.call();
+	CHECK_MESSAGE(gs_overlay_test::Overlay::get_render_stats_reads_completed() >= request_id,
+			"the read never completed its request: the dispatcher would wait out its timeout");
+	CHECK_FALSE(out.is_empty());
+	CHECK(out.has("painterly_enabled"));
 }
 
 TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A custom_viewport overlay reports that viewport's camera") {
