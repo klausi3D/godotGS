@@ -1,5 +1,13 @@
 # Gaussian Renderer Refactor Memory
 
+> **Historical working log (status checked 2026-10-01).** This page records refactor work from
+> 2026-05 against the branches and commits named in each section. It is kept for history and is
+> not maintained. Its `file:line` anchors refer to those commits, not to current `master`, and
+> several of the states it describes have since changed. For current behaviour, read
+> [Render pipeline architecture](render-pipeline.md),
+> [Renderer lifetime ownership](renderer-lifetime-ownership.md) and
+> [Resident-instanced renderer contract](gaussian-resident-instanced-contract.md).
+
 Owner role: Rendering architecture lead / refactor orchestrator  
 Branch context: `/mnt/c/projects/godotgs-clean-refactor` (`refactor/gs-renderer-architecture`, dirty worktree)
 

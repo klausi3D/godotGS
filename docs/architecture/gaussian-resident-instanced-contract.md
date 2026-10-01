@@ -1,8 +1,41 @@
 # Resident-Instanced Renderer Contract
 
-Status: Stage 2A design checkpoint  
+Status: implemented (Stage 2B shipped). Historical Stage 2A design checkpoint; status re-verified 2026-10-01  
 Scope: resident-instanced backend contract for the shared instance renderer  
 Audience: rendering and pipeline engineers
+
+> **Status, verified against the code on 2026-10-01.** This page is the Stage 2A design
+> checkpoint. Its body is kept as written, for history. Stage 2B has shipped, and the code
+> now differs from the text in these ways:
+>
+> - **Resident publisher exists.** `ResidentInstanceContractPublisher::publish_resident_direct_data_contract`
+>   (`renderer/resident_instance_contract_publisher.*`) publishes the atlas-shaped
+>   `InstancePipelineBuffers` contract without a `GaussianStreamingSystem`. The dense asset-ID remap
+>   is the renderer-owned sidecar `PublishedInstanceAssetRemap`, published with the buffers by
+>   `GaussianSplatRenderer::publish_instance_pipeline_contract`. The route is
+>   `INSTANCE.RESIDENT` ("Resident instanced path", in `render_route_labels.cpp`).
+> - **Blockers 1–6 below are resolved.** `RenderDataOrchestrator` no longer creates a streaming
+>   system when the resident backend is preferred. Instanced readiness
+>   (`RenderInstancingOrchestrator::evaluate_instance_pipeline_readiness`) no longer checks for a
+>   streaming system: `STREAMING_SYSTEM_UNAVAILABLE` is gone, and the failure modes are now
+>   `INSTANCE_BACKEND_CONTRACT_UNAVAILABLE`, `INSTANCE_PIPELINE_BUFFERS_UNAVAILABLE` and
+>   `INSTANCE_PIPELINE_BUFFERS_INVALID`. `GaussianSplatRenderer::get_active_data_source()` accepts
+>   resident atlas publication.
+> - **No legacy resident fallback.** #280 removed the fallback described in the last bullet of
+>   [Accepted Stage 2B Behavior](#accepted-stage-2b-behavior-and-current-limits). If the resident
+>   contract cannot be published, `_try_render_resident_frame` returns false and the frame is
+>   not rendered under the single-route-per-frame rule. When the resident backend is preferred,
+>   the skip is published as `COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*`. On the explicit-resident
+>   policy (streaming not requested) no typed skip route is published.
+> - **Resident quantization is supported.** #455 (GS-PERF-Q80B) made the resident atlas pack
+>   per-chunk quantized data, so the `resident_quantization_unsupported` rejection no longer
+>   occurs. The label table still knows the token.
+> - **No same-frame resident→streaming retry.** A rejected resident attempt skips the frame (see
+>   [Render pipeline architecture](render-pipeline.md)). The renderer no longer produces a
+>   `backend_selection_reason` chained with ` -> `. The label formatter still accepts that format.
+>
+> For the current route and stage flow, read [Render pipeline architecture](render-pipeline.md)
+> and [Culling and hierarchy](culling-and-hierarchy.md).
 
 ## Purpose
 
@@ -25,7 +58,7 @@ The answer is: Stage 2B should keep the current atlas-shaped instance-stage cont
 - Minimal acceptable Stage 2B result: a resident scene can publish a valid `InstancePipelineBuffers` contract, pass readiness, and render through the shared instance path with no `current_streaming_system`.
 - Explicit non-goal for Stage 2B: do not redesign cull/sort/raster around a second resident-only input model.
 
-## Current Contract, As Implemented
+## Current Contract, As Implemented (pre-Stage 2B; historical)
 
 The current shared renderer path is already stage-driven, but the instance contract is atlas-shaped and still produced by the streaming backend:
 
@@ -195,9 +228,9 @@ Stage 2B is acceptable if all of the following are true together:
 - tile runtime bindings still validate without a resident-only branch
 - the renderer can render a resident scene through the shared instance path and report that route explicitly
 
-## Current Assumptions Blocking Resident Instancing
+## Current Assumptions Blocking Resident Instancing (resolved by Stage 2B)
 
-These are the concrete blockers today.
+These were the concrete blockers when this checkpoint was written. All six are resolved; see the status note at the top.
 
 ### 1. Upload path is hardwired to streaming-system creation
 
@@ -345,10 +378,10 @@ Resident failures should use the same validation surface, but with resident-rele
 
 ## Accepted Stage 2B Behavior And Current Limits
 
-- The resident atlas publisher intentionally rejects per-chunk quantization. That rejection is surfaced as `resident_quantization_unsupported` and is treated as a backend-selection input, not as a trigger to invent a second resident-only stage contract.
-- When resident publication is rejected and the renderer then succeeds on streaming, `backend_selection_reason` intentionally preserves both parts of the story with ` -> ` chaining, for example `submission_hint_resident:world_submission_not_feasible:resident_quantization_unsupported -> streaming_contract_published`.
+- *Superseded by #455:* The resident atlas publisher intentionally rejects per-chunk quantization. That rejection is surfaced as `resident_quantization_unsupported` and is treated as a backend-selection input, not as a trigger to invent a second resident-only stage contract.
+- *Superseded (single route per frame):* When resident publication is rejected and the renderer then succeeds on streaming, `backend_selection_reason` intentionally preserves both parts of the story with ` -> ` chaining, for example `submission_hint_resident:world_submission_not_feasible:resident_quantization_unsupported -> streaming_contract_published`.
 - Submission-hint collapse is conservative in the accepted implementation. Conflicting instance-submission hints on one shared renderer collapse to no effective hint (`mixed_instance_submissions`), while preview submissions and active world submissions still take precedence over instance hints. Cross-source mixed-hint normalization is intentionally deferred because it would change backend-policy semantics.
-- Explicit resident route requests may still render through the legacy resident path when resident atlas publication is rejected. That fallback is an accepted Stage 2B compatibility behavior, not an accidental bypass of the shared instance contract.
+- *Removed by #280:* Explicit resident route requests may still render through the legacy resident path when resident atlas publication is rejected. That fallback is an accepted Stage 2B compatibility behavior, not an accidental bypass of the shared instance contract.
 
 ## Likely Stage 2B Tests
 
