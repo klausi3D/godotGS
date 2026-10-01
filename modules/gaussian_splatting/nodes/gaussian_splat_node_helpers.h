@@ -8,6 +8,9 @@ class Dictionary;
 class GaussianSplatNode3D;
 class GaussianSplatRenderer;
 class Viewport;
+class RenderingServer;
+class RID;
+struct Vector2i;
 
 class GaussianSplatNodeAssetHelper {
 public:
@@ -35,6 +38,16 @@ public:
     void on_viewport_texture_ready();
     void on_viewport_size_changed();
     void on_observed_viewport_exited();
+
+    // #1092: the only route to RenderingServer::viewport_get_render_target() and
+    // viewport_get_texture() in the node. Both are FUNC1RC getters: under
+    // rendering/driver/threads/thread_model=2 each call blocks the main thread on
+    // the render thread, so they must not run on every frame.
+    void query_viewport_render_target(RenderingServer *p_rs, const RID &p_viewport_rid, RID &r_render_target, RID &r_render_texture);
+    // True while the cached render target still belongs to p_viewport at its
+    // current size, i.e. the per-frame step may skip the RenderingServer query.
+    bool is_cached_render_target_current(Viewport *p_viewport) const;
+    void commit_acquired_render_target(Viewport *p_viewport, const Vector2i &p_visible_size, const RID &p_render_target, const RID &p_render_texture);
 
 private:
     GaussianSplatNode3D &owner;

@@ -1708,8 +1708,9 @@ void GaussianSplatNode3D::_update_viewport_render_state(RenderingServer *rs, int
         }
 #endif
         if (viewport_rid.is_valid()) {
-            cached_viewport_render_target = rs->viewport_get_render_target(viewport_rid);
-            cached_viewport_render_texture = rs->viewport_get_texture(viewport_rid);
+            // Reached only while the render target is unresolved, never in steady
+            // state (#1092: each getter is a main/render-thread sync under thread_model=2).
+            viewport_helper.query_viewport_render_target(rs, viewport_rid, cached_viewport_render_target, cached_viewport_render_texture);
 #ifndef GS_SILENCE_LOGS
             if (_is_frame_log_enabled() && update_call_count <= 10) {
                 GS_LOG_RENDERER_DEBUG(vformat("[update_splats] Got render_target valid=%s, texture valid=%s",
@@ -2539,6 +2540,29 @@ void GaussianSplatNode3D::_dispatch_first_frame_render() {
     _mark_render_state_dirty();
     force_update();
 }
+
+#ifdef TESTS_ENABLED
+void GaussianSplatNode3D::test_update_viewport_render_target() {
+    // Same viewport resolution as _update_viewport_render_state().
+    _update_cached_render_target(Engine::get_singleton()->is_editor_hint() ? _find_editor_scene_viewport() : get_viewport());
+}
+
+void GaussianSplatNode3D::test_mark_viewport_render_target_acquired(const RID &p_render_target, const RID &p_render_texture) {
+    Viewport *viewport = observed_viewport;
+    if (!viewport) {
+        return;
+    }
+    Size2i viewport_size = viewport->get_visible_rect().size;
+    if (viewport_size.x <= 0 || viewport_size.y <= 0) {
+        viewport_size = Size2i(1, 1);
+    }
+    viewport_helper.commit_acquired_render_target(viewport, Vector2i(viewport_size.x, viewport_size.y), p_render_target, p_render_texture);
+}
+
+bool GaussianSplatNode3D::test_is_viewport_render_target_ready() const {
+    return viewport_texture_state == ViewportTextureState::READY && cached_viewport_render_target.is_valid();
+}
+#endif
 
 void GaussianSplatNode3D::_on_viewport_texture_ready() {
     viewport_helper.on_viewport_texture_ready();

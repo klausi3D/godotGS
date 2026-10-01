@@ -729,6 +729,17 @@ void GaussianSplatNodeViewportHelper::update_cached_render_target(Viewport *p_vi
 
     ensure_viewport_texture_binding(p_viewport);
 
+    // #1092: this runs every frame. Once READY, the render target and its texture
+    // do not change for the viewport's lifetime: RendererViewport::viewport_initialize()
+    // creates the render target once, and TextureStorage::_update_render_target()
+    // keeps rt->texture across resizes. Re-query only when the viewport, its RID or
+    // its visible size changed (size_changed also invalidates the cache), so a
+    // steady frame makes no RenderingServer getter call and, under thread_model=2,
+    // no main/render-thread sync.
+    if (is_cached_render_target_current(p_viewport)) {
+        return;
+    }
+
     GaussianSplatNode3D::ViewportTextureState previous_state = owner.viewport_texture_state;
     bool ready = acquire_viewport_render_target(p_viewport);
 
@@ -767,6 +778,8 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
         owner.cached_viewport_render_target = RID();
         owner.cached_viewport_render_texture = RID();
         owner.cached_viewport_size = Vector2i();
+        owner.cached_viewport_rid = RID();
+        owner.cached_viewport_acquired_size = Vector2i();
         owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::INACTIVE;
         owner.viewport_texture_missing_reported = false;
         owner.first_frame_render_deferred = false;
@@ -785,11 +798,7 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
     RID render_texture;
     RenderingServer *rs = RS::get_singleton();
     if (rs) {
-        RID viewport_rid = p_viewport->get_viewport_rid();
-        if (viewport_rid.is_valid()) {
-            render_target = rs->viewport_get_render_target(viewport_rid);
-            render_texture = rs->viewport_get_texture(viewport_rid);
-        }
+        query_viewport_render_target(rs, p_viewport->get_viewport_rid(), render_target, render_texture);
     }
 
 #ifdef DEBUG_ENABLED
@@ -806,18 +815,63 @@ bool GaussianSplatNodeViewportHelper::acquire_viewport_render_target(Viewport *p
     }
 
     if (render_target.is_valid()) {
-        owner.cached_viewport_render_target = render_target;
-        owner.cached_viewport_render_texture = render_texture;
-        owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::READY;
-        owner.viewport_texture_missing_reported = false;
+        commit_acquired_render_target(p_viewport, viewport_size, render_target, render_texture);
         return true;
     }
 
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::WAITING_FOR_TEXTURE;
     owner.first_frame_render_deferred = false;
     return false;
+}
+
+void GaussianSplatNodeViewportHelper::query_viewport_render_target(RenderingServer *p_rs, const RID &p_viewport_rid,
+        RID &r_render_target, RID &r_render_texture) {
+    r_render_target = RID();
+    r_render_texture = RID();
+    if (!p_rs || !p_viewport_rid.is_valid()) {
+        return;
+    }
+#ifdef TESTS_ENABLED
+    owner.viewport_render_target_query_count++;
+#endif
+    r_render_target = p_rs->viewport_get_render_target(p_viewport_rid);
+    r_render_texture = p_rs->viewport_get_texture(p_viewport_rid);
+}
+
+bool GaussianSplatNodeViewportHelper::is_cached_render_target_current(Viewport *p_viewport) const {
+    if (!p_viewport || p_viewport != owner.observed_viewport) {
+        return false;
+    }
+    if (owner.viewport_texture_state != GaussianSplatNode3D::ViewportTextureState::READY ||
+            !owner.cached_viewport_render_target.is_valid()) {
+        return false;
+    }
+    if (owner.cached_viewport_id != p_viewport->get_instance_id() ||
+            owner.cached_viewport_rid != p_viewport->get_viewport_rid()) {
+        return false;
+    }
+    // Belt and braces next to the size_changed observer: a visible-size change
+    // that did not reach on_viewport_size_changed() still forces a re-query.
+    Size2i viewport_size = p_viewport->get_visible_rect().size;
+    if (viewport_size.x <= 0 || viewport_size.y <= 0) {
+        viewport_size = Size2i(1, 1);
+    }
+    return owner.cached_viewport_acquired_size == Vector2i(viewport_size.x, viewport_size.y);
+}
+
+void GaussianSplatNodeViewportHelper::commit_acquired_render_target(Viewport *p_viewport, const Vector2i &p_visible_size,
+        const RID &p_render_target, const RID &p_render_texture) {
+    owner.cached_viewport_id = p_viewport->get_instance_id();
+    owner.cached_viewport_rid = p_viewport->get_viewport_rid();
+    owner.cached_viewport_acquired_size = p_visible_size;
+    owner.cached_viewport_render_target = p_render_target;
+    owner.cached_viewport_render_texture = p_render_texture;
+    owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::READY;
+    owner.viewport_texture_missing_reported = false;
 }
 
 void GaussianSplatNodeViewportHelper::connect_viewport_observers(Viewport *p_viewport) {
@@ -869,6 +923,8 @@ void GaussianSplatNodeViewportHelper::disconnect_viewport_observers() {
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
     owner.cached_viewport_size = Vector2i();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::INACTIVE;
     owner.viewport_bootstrap_deferred = false;
     owner.first_frame_render_deferred = false;
@@ -970,6 +1026,8 @@ void GaussianSplatNodeViewportHelper::on_viewport_size_changed() {
     owner.cached_viewport_size = Vector2i(viewport_size.x, viewport_size.y);
     owner.cached_viewport_render_target = RID();
     owner.cached_viewport_render_texture = RID();
+    owner.cached_viewport_rid = RID();
+    owner.cached_viewport_acquired_size = Vector2i();
     owner.viewport_texture_state = GaussianSplatNode3D::ViewportTextureState::WAITING_FOR_TEXTURE;
     owner.viewport_texture_missing_reported = false;
     owner.first_frame_render_deferred = false;
