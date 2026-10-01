@@ -96,7 +96,7 @@ The renderer returned there is shared by every Gaussian node in the same `World3
       <td><code>PainterlyMaterial</code></td>
       <td><code>set_painterly_material</code>, <code>get_painterly_material</code></td>
       <td>Material resource for stylized rendering configuration.</td>
-      <td><code>GaussianSplatNode3D::painterly_material</code></td>
+      <td><code>GaussianSplatRenderer::set_painterly_material</code></td>
     </tr>
     <tr>
       <td><code>render_mode</code></td>

@@ -181,7 +181,7 @@ A `GaussianSplatNode3D` is always resident (it never streams; see [Streaming](..
       <td><code>rendering/cast_shadow</code></td>
       <td><code>bool</code></td>
       <td><code>set_cast_shadow</code>, <code>get_cast_shadow</code></td>
-      <td>Applies cast shadow state to render instance.</td>
+      <td>Applies cast shadow state to render instance. Default <code>false</code>. Known issue: with a shadow-casting light, turning this on can make the splat cloud shadow itself and render nearly black, depending on camera placement (<a href="https://github.com/klausi3D/godotGS/issues/1089">#1089</a>).</td>
       <td><code>GaussianSplatNode3D::set_cast_shadow</code></td>
     </tr>
     <tr>

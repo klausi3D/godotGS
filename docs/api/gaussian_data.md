@@ -78,7 +78,7 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
       <td><code>animation_enabled</code></td>
       <td><code>bool</code></td>
       <td><code>set_animation_enabled</code>, <code>is_animation_enabled</code></td>
-      <td>Controls whether <code>update_animation()</code> advances the attached state machine and whether <code>get_animated_*()</code> samples it. CPU-side only; the renderer does not read animation.</td>
+      <td>Controls whether <code>update_animation()</code> advances the attached state machine and whether <code>get_animated_*()</code> samples it. Default <code>true</code>. CPU-side only; the renderer does not read animation.</td>
       <td><code>GaussianData::set_animation_enabled</code></td>
     </tr>
   </tbody>
@@ -308,7 +308,7 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
     </tr>
     <tr>
       <td><code>update_animation(delta: float)</code></td>
-      <td>Advances animation state by <code>delta</code> seconds and refreshes the animation cache. Does nothing unless an animation is assigned and <code>set_animation_enabled(true)</code> was called. The former <code>apply_animation_at_time()</code> was removed; sample a pose with the <code>get_animated_*()</code> methods instead. Animation is CPU-side only: the renderer does not read it (see the Animation feature page).</td>
+      <td>Advances animation state by <code>delta</code> seconds. Does nothing unless an animation is assigned and animation is enabled (<code>animation_enabled</code>, default <code>true</code>). The former <code>apply_animation_at_time()</code> was removed; sample a pose with the <code>get_animated_*()</code> methods instead. Animation is CPU-side only: the renderer does not read it (see the Animation feature page).</td>
       <td><code>GaussianData::update_animation</code></td>
     </tr>
     <tr>
