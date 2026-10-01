@@ -443,6 +443,10 @@ struct TileRenderParams {
 	uint32_t cluster_size = 0;
 	uint32_t cluster_max_elements = 0;
 	uint32_t light_mask = 0xFFFFFFFFu;
+	// Pixel size the engine built `cluster_buffer` for (RenderSceneBuffersRD
+	// internal size). Zero = same as viewport_size. Painterly rasterizes at its
+	// own internal_scale, so its pixels must be mapped into this grid (#1078).
+	Vector2i cluster_viewport_size;
 	Vector2i viewport_size;
 	Transform3D world_to_camera_transform;
 	Projection projection;
@@ -601,6 +605,88 @@ inline void apply_wind_to_render_params(TileRenderParams &r_params,
 	r_params.wind_frequency = MAX(0.0f, p_settings.frequency);
 	r_params.wind_spatial_frequency = p_settings.spatial_frequency;
 	r_params.wind_time_seconds = gs::settings::compute_wind_time_seconds(p_settings, p_animation_time_seconds);
+}
+
+/**
+ * @brief The engine-side scene lighting a raster pass consumes. #851.
+ *
+ * Gathered once per frame from RenderDataRD + LightStorage by the raster stage
+ * (renderer/render_pipeline_stages.cpp) and handed to every TileRenderParams
+ * producer, so the baseline and painterly producers light a frame from the same
+ * inputs. The defaults are the "no scene" answer (shadow pass with null
+ * render_data): no lights, clustering off, permissive mask.
+ */
+struct TileSceneLightingInputs {
+	RID scene_uniform_buffer;
+	RID directional_light_buffer;
+	RID cluster_buffer;
+	RID shadow_atlas;
+	uint32_t omni_light_count = 0;
+	uint32_t spot_light_count = 0;
+	uint32_t cluster_size = 0;
+	uint32_t cluster_max_elements = 0;
+	uint32_t light_mask = 0xFFFFFFFFu;
+	Vector2i cluster_viewport_size;
+};
+
+/**
+ * @brief Write the whole lighting/shadow/cluster field family into TileRenderParams. #851.
+ *
+ * THE ONLY supported way to populate these nineteen fields. The baseline
+ * producer assigned them member-by-member; the painterly producer assigned
+ * none, so every painterly frame shipped `direct_lighting_mode = 0` (the struct
+ * default) with zero light counts and an invalid scene UBO. Mode 0 is the
+ * resolve-time lighting path, which lights a pixel at the alpha-weighted mean
+ * depth of every splat under it (black contours) with a zero receiver bias
+ * (inert shadows) -- and with no lights bound it contributed nothing at all.
+ *
+ * Mode 1 is the per-splat path the baseline has always shipped: binning lights
+ * each splat at its own position with a radius-scaled receiver bias. Writing
+ * the mode here, rather than in each producer, means no producer can reach
+ * mode 0 by forgetting to set it.
+ */
+inline void apply_lighting_to_render_params(TileRenderParams &r_params,
+		const gs::settings::GSLightingSettings &p_settings, const TileSceneLightingInputs &p_scene) {
+	r_params.scene_uniform_buffer = p_scene.scene_uniform_buffer;
+	r_params.directional_light_buffer = p_scene.directional_light_buffer;
+	r_params.cluster_buffer = p_scene.cluster_buffer;
+	r_params.shadow_atlas = p_scene.shadow_atlas;
+	r_params.omni_light_count = p_scene.omni_light_count;
+	r_params.spot_light_count = p_scene.spot_light_count;
+	r_params.cluster_size = p_scene.cluster_size;
+	r_params.cluster_max_elements = p_scene.cluster_max_elements;
+	r_params.light_mask = p_scene.light_mask;
+	r_params.cluster_viewport_size = p_scene.cluster_viewport_size;
+	r_params.direct_light_scale = CLAMP(p_settings.direct_light_scale, 0.0f, 4.0f);
+	r_params.indirect_sh_scale = CLAMP(p_settings.indirect_sh_scale, 0.0f, 4.0f);
+	r_params.shadow_strength = CLAMP(p_settings.shadow_strength, 0.0f, 1.0f);
+	r_params.shadow_receiver_bias_scale = MAX(0.0f, p_settings.shadow_receiver_bias_scale);
+	r_params.shadow_receiver_bias_min = MAX(0.0f, p_settings.shadow_receiver_bias_min);
+	r_params.shadow_receiver_bias_max = MAX(0.0f, p_settings.shadow_receiver_bias_max);
+	r_params.enable_direct_lighting = true;
+	r_params.normal_mode = 0;
+	// Mode 0 (resolve-time, per-pixel "deferred" direct lighting in
+	// tile_resolve.glsl) is unused by every route after #1078. It has known
+	// defects (black silhouette contours from lighting at the blended depth and
+	// normal; no shadow input -- receiver bias hard-wired to 0) and is KEPT for
+	// evaluation against this per-splat mode 1: #1083.
+	r_params.direct_lighting_mode = 1;
+}
+
+/**
+ * @brief The pixel grid the engine's light-cluster buffer is laid out in. #1078.
+ *
+ * The cluster buffer is built for the scene's render size. A producer that
+ * rasterizes at another size (painterly at internal_scale < 1 or low_end_mode)
+ * must compute the cluster layout -- row stride and omni/spot section offset --
+ * from THIS size and map its own pixels into it; the shader does the mapping
+ * with the scale written to TileRenderParamsGPU::lighting_mode.yz.
+ */
+inline Vector2i tile_cluster_grid_viewport(const TileRenderParams &p_params) {
+	if (p_params.cluster_viewport_size.x > 0 && p_params.cluster_viewport_size.y > 0) {
+		return p_params.cluster_viewport_size;
+	}
+	return p_params.viewport_size;
 }
 
 struct BufferOwnership {

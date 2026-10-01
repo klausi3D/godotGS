@@ -259,6 +259,11 @@ void main() {
     //   lighting_mode == 0u -> this pass (resolve) adds direct; binning bakes NOTHING.
     //   lighting_mode == 1u -> binning bakes direct; this pass adds NOTHING.
     // The two passes must never both apply direct lighting, or it double-counts.
+    // Mode 0 (this resolve-time, per-pixel "deferred" direct lighting) is unused
+    // by every route after #1078: all producers set mode 1 via
+    // apply_lighting_to_render_params(). Known defects: black silhouette contours
+    // (lighting at the blended depth/normal) and no shadow input (receiver bias
+    // hard-wired to 0 below). Kept for evaluation against mode 1: #1083.
     bool resolve_direct = (lighting_mode == 0u);
     if (params.debug_overlay_flags.w > 0.5 && resolve_direct) {
         base_color = vec3(0.7);  // Neutral grey to see lighting clearly

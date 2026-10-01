@@ -1,117 +1,126 @@
 # Culling and Hierarchy
 
-This page documents the **truthful** state of coarse culling and spatial hierarchy in the Gaussian
-Splatting module. It exists because several project settings, code symbols, and earlier docs imply
-that a cluster-culling stage is part of the live render path. As of 2026-04-26 it is not.
+This page describes how coarse culling works in the Gaussian Splatting module today, and which
+spatial-hierarchy code is a fallback rather than the production path. It was re-verified against
+the code on 2026-10-01.
 
-Read this page before assuming any cluster-culling project setting reaches a live code branch.
+There is no cluster-culling stage in the render path, and no project setting for one. The cluster
+stack (`ClusterCuller`, `ClusterBuilder`, `cluster_cull.glsl`) was deleted; see
+[Removed cluster stack](#removed-cluster-stack).
 
-## Current active coarse culling path
+## Current coarse culling path: GPU instance/chunk frustum cull
 
-The live coarse culling path is the LOD-driven octree query inside `GPUCuller`.
+Both production routes publish the same atlas-shaped instance contract and run the same cull
+stage. The resident route reaches it through `RenderInstancingOrchestrator::render_instanced`, once
+per instance pass. The streaming route reaches it through
+`RenderStreamingOrchestrator::render_streaming_frame` and `RenderPipelineStages::execute_frame_entry`
+(see [Render pipeline architecture](render-pipeline.md)). The coarse cull is a GPU frustum test
+over the chunks of the published contract (see
+[Resident-instanced renderer contract](gaussian-resident-instanced-contract.md)).
 
-- Entry point: [../../modules/gaussian_splatting/interfaces/gpu_culler.cpp](../../modules/gaussian_splatting/interfaces/gpu_culler.cpp)
-  — `GPUCuller::cull_for_view()` and the helper `GPUCuller::ensure_hierarchical_structure()`.
-- Hierarchy implementation: [../../modules/gaussian_splatting/lod/hierarchical_splat_structure.h](../../modules/gaussian_splatting/lod/hierarchical_splat_structure.h)
-  / [.cpp](../../modules/gaussian_splatting/lod/hierarchical_splat_structure.cpp) —
-  `GaussianSplatting::HierarchicalSplatStructure`, an octree built from the loaded
-  `GaussianData` storage and queried with `query_visible_splats(frustum, camera, lod_bias, max_query)`.
-- Owning state: `GPUCuller::CullingState::hierarchical_structure` in [../../modules/gaussian_splatting/interfaces/gpu_culler.h](../../modules/gaussian_splatting/interfaces/gpu_culler.h).
-- LOD config feeding the query: [../../modules/gaussian_splatting/lod/lod_config.h](../../modules/gaussian_splatting/lod/lod_config.h)
-  / [.cpp](../../modules/gaussian_splatting/lod/lod_config.cpp), with `LOD_CONFIG_*` settings under
-  `rendering/gaussian_splatting/lod/`.
+Call chain from the cull stage:
 
-### Inputs
+`RenderPipelineStages::execute_cull_stage` -> `RenderPipelineStages::cull_for_view` ->
+`GaussianSplatRenderer::_cull_for_view` -> `RenderQualityOrchestrator::cull_for_view` ->
+`GPUCuller::cull_for_view` -> `GPUCuller::_gpu_frustum_cull_instance` -> sort stage
+(`RenderPipelineStages::execute_sort_stage`).
 
-- `GaussianData` storage (positions, scales, opacity, importance) from the loaded splat asset.
-- Camera position, frustum planes, and viewport extracted by `GPUCuller` from the active view.
-- `culling_state.culling_octree_max_depth` (default `8`) and
-  `culling_state.culling_min_gaussians` (default `32`).
-- `culling_config.lod_bias` (effective bias from `lod_config.h`).
+- The cull stage requires the instance cull buffers. It checks
+  `GaussianSplatRenderer::has_instance_pipeline_buffers()` and
+  `InstancePipelineContract::has_cull_buffers()`, then hands the buffers to the culler with
+  `GPUCuller::set_instance_pipeline_inputs()`. If the buffers are missing, the stage is skipped
+  with route `COMMON.SKIP.NO_DATA` ("Culling skipped: instance buffers missing"). No other culler
+  runs in that case.
+- `GPUCuller::cull_for_view` tries the instance path first. `_gpu_frustum_cull_instance` dispatches
+  [`compute/frustum_cull.glsl`](../../modules/gaussian_splatting/compute/frustum_cull.glsl), which
+  tests each chunk's bounds, transformed by its instance transform, against the frustum planes. It
+  writes visible chunk references into `visible_chunk_buffer` and updates the chunk counters. The
+  summary reports route `INSTANCE.CULL.GPU` and the output domain is chunk references
+  (`IndexDomain::CHUNK_REF`).
+- Per-splat work happens in the sort stage, not in the culler. `GPUSortingPipeline` expands the
+  visible chunks with
+  [`instance_chunk_dispatch.glsl`](../../modules/gaussian_splatting/compute/instance_chunk_dispatch.glsl),
+  [`depth_compute.glsl`](../../modules/gaussian_splatting/compute/depth_compute.glsl) (which
+  emits `splat_ref_buffer` entries and sort keys) and
+  [`instance_count_clamp.glsl`](../../modules/gaussian_splatting/compute/instance_count_clamp.glsl).
 
-### Outputs
+Sources: [`interfaces/gpu_culler.h`](../../modules/gaussian_splatting/interfaces/gpu_culler.h) /
+[`.cpp`](../../modules/gaussian_splatting/interfaces/gpu_culler.cpp),
+[`renderer/render_pipeline_stages.cpp`](../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp),
+[`renderer/render_instancing_orchestrator.cpp`](../../modules/gaussian_splatting/renderer/render_instancing_orchestrator.cpp),
+[`interfaces/gpu_sorting_pipeline.cpp`](../../modules/gaussian_splatting/interfaces/gpu_sorting_pipeline.cpp).
 
-- `QueryResult { visible_indices, lod_weights }` from the octree query, fed into
-  `culling_state.culled_indices` / `culled_importance_weights`.
-- Down the pipe these flow into the GPU sort and tile raster stages described in
-  [render-pipeline.md](render-pipeline.md).
+## Fallback: CPU cull over `GaussianData` (static chunks or octree)
 
-### Renderer integration
+`GPUCuller::cull_for_view` still contains an older CPU cull, marked "Legacy path" in the source.
+It works on the renderer's primary `GaussianData` (`SceneState::gaussian_data`) or on test
+positions, and outputs global gaussian indices (`IndexDomain::GAUSSIAN_GLOBAL`).
 
-The active call chain is:
+When it runs:
 
-`GaussianSplatRenderer::render_scene_instance` -> `RenderPipelineStages::execute_cull_stage` ->
-`GPUCuller::cull_for_view` -> `ensure_hierarchical_structure` ->
-`HierarchicalSplatStructure::query_visible_splats` -> sort/raster stages.
+1. **The instance cull failed inside the frame pipeline.** The instance buffers were present, but
+   `_gpu_frustum_cull_instance` returned false: an invalid device or buffer, or no cull
+   shader/pipeline. The summary route becomes `INSTANCE.CULL.CPU_FALLBACK`. The CPU cull then runs
+   only if `SceneState::gaussian_data` is valid. Otherwise the route is `COMMON.SKIP.NO_DATA` with
+   reason `instance_pipeline_failed_no_fallback`.
+2. **Outside the frame pipeline, with no instance inputs set.** One caller is
+   `RenderSortingOrchestrator::force_sort_for_view` (`GaussianSplatRenderer::force_sort_for_view`, a
+   runtime-validation entry point). It falls through to cull + sort when the streaming route is not
+   ready, or when the resident route is preferred. The other caller is the test hook
+   `GaussianSplatRenderer::test_cull_visible_count`, which clears `gaussian_data` and culls test
+   positions. Neither caller clears the culler's instance inputs, and `GPUCuller` keeps them
+   after a pipeline frame: only the cull-skip path of `RenderPipelineStages::execute_cull_stage`
+   calls `clear_instance_pipeline_inputs()`. So once a frame has set them, both callers take the
+   GPU instance path, and this case applies only before any frame or after a cull-skip frame.
 
-The cluster-cull stack below is **not** part of this chain.
+Inside the fallback there are two candidate sources:
 
-## Removed experimental / legacy cluster stack
+- **Static chunks.** When `GPUCuller::CullingState::static_chunks` is non-empty, chunk bounding
+  spheres are frustum-tested first.
+- **Octree.** Otherwise `GPUCuller::ensure_hierarchical_structure()` builds a
+  `GaussianSplatting::HierarchicalSplatStructure`
+  ([`lod/hierarchical_splat_structure.h`](../../modules/gaussian_splatting/lod/hierarchical_splat_structure.h)),
+  stored as `GPUCuller::CullingState::hierarchical_structure`. It is queried with
+  `query_visible_splats(frustum, camera, lod_bias, max_query)`, and the result
+  (`QueryResult { visible_indices, lod_weights }`) supplies the candidates. The octree is built with
+  `culling_state.culling_octree_max_depth` (default `8`) and `culling_state.culling_min_gaussians`
+  (default `32`), using `culling_config.lod_bias` from the LOD config
+  ([`lod/lod_config.h`](../../modules/gaussian_splatting/lod/lod_config.h)). If the structure is
+  not ready, every gaussian is a candidate.
 
-The following code was deleted after verification that it was never instantiated or invoked from
-the production render path. It was dead weight on the surface: do not assume historical project
-settings flowed through it.
+The candidates are then filtered per splat on the CPU (frustum, distance, screen size,
+importance). The results go to `culling_state.culled_indices`, `culled_distances_sq` and
+`culled_importance_weights`.
 
-- `modules/gaussian_splatting/interfaces/cluster_culler.h` / `.cpp` — deleted `ClusterCuller`
-  resource. It read `rendering/gaussian_splatting/culling/cluster_culling_enabled` and
-  `cluster_target_size`. The third related key, `cluster_frustum_slack`, was registered in
-  [../../modules/gaussian_splatting/core/gaussian_splat_manager.cpp](../../modules/gaussian_splatting/core/gaussian_splat_manager.cpp)
-  and consumed only as pipeline-state hash input in
-  [../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp](../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp);
-  `ClusterCuller` itself did not read it. No production call site constructed `ClusterCuller`.
-- `modules/gaussian_splatting/lod/cluster_builder.h` / `.cpp` — deleted CPU Morton clustering
-  helper. It was only referenced by `cluster_culler.{h,cpp}`, not by `GPUCuller` or any pipeline
-  stage.
-- `modules/gaussian_splatting/compute/cluster_cull.glsl` (and its build-time-generated
-  `cluster_cull.glsl.gen.h` header, produced by SCons, not source-controlled) — deleted coarse-pass
-  GPU shader. It was loaded only by the dormant `ClusterCuller`, not bound by
-  `RenderPipelineStages` or `GPUSortingPipeline`.
-- [../../modules/gaussian_splatting/interfaces/gpu_culler.h](../../modules/gaussian_splatting/interfaces/gpu_culler.h)
-  previously carried a `Ref<ClusterCuller> cluster_culler;` field on `GPUCuller`. It was **never
-  assigned anywhere in the module** (verified 2026-04-26 via full-tree grep for
-  `cluster_culler =`, `cluster_culler.instantiate`, `memnew(ClusterCuller`, `new ClusterCuller`)
-  and has now been removed.
-- [../../modules/gaussian_splatting/renderer/pipeline_io_contracts.h](../../modules/gaussian_splatting/renderer/pipeline_io_contracts.h)
-  previously carried the `ClusterCullIndirectDispatchLayout` struct and its `static_assert` size
-  checks. The layout existed for the dormant shader; no production producer or consumer filled it.
-
-The class registration at [../../modules/gaussian_splatting/register_types.cpp](../../modules/gaussian_splatting/register_types.cpp)
-(`GDREGISTER_CLASS(ClusterCuller);`) was removed with the class. Do not assume project settings
-reach this path.
-
-The `culling_config.cluster_culling_enabled`, `cluster_target_size`, `cluster_frustum_slack`,
-`cluster_use_morton_order`, and `cluster_use_indirect_dispatch` fields on
-`GPUCuller::CullingConfig` (see [../../modules/gaussian_splatting/interfaces/gpu_culler.h](../../modules/gaussian_splatting/interfaces/gpu_culler.h))
-were only consumed by pipeline-state hashing in
-[../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp](../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp)
-and were removed with that dead hash input. They influenced cache keys but did not gate any live
-cull work.
+What has not been measured: whether the fallback is ever hit in a default production scene. The
+analysis above is structural. The `cull_route_uid` render stat (`INSTANCE.CULL.GPU` vs
+`INSTANCE.CULL.CPU_FALLBACK`) is the runtime signal to check.
 
 ### Note on `GaussianData::octree`
 
-`GaussianData` carries its own octree (see [../../modules/gaussian_splatting/core/gaussian_data.h](../../modules/gaussian_splatting/core/gaussian_data.h),
-`build_octree(...)` / `query_octree(AABB)`). This is a **separate query utility** for asset-side
-spatial lookups (asset queries, debug tooling, importer paths). It is **not** the active culler
-and not the same structure as `HierarchicalSplatStructure`. Do not conflate the two.
+`GaussianData` carries its own octree (`GaussianData::build_octree(...)` /
+`GaussianData::query_octree(AABB)` in
+[`core/gaussian_data.h`](../../modules/gaussian_splatting/core/gaussian_data.h)). It is a separate
+query utility for asset-side spatial lookups. It is not the culler and not the same structure as
+`HierarchicalSplatStructure`. Do not conflate the two.
 
-## Future tier-2 cluster-culling rewrite, if pursued
+## Removed cluster stack
 
-If cluster culling is revived, the design target is the tier-2 spec, not the dormant code above:
+The cluster stack was deleted in #307 (`2a1fa29ddd1`) after it was found to be dormant: nothing
+in the render path constructed or invoked it. The deleted pieces were the `ClusterCuller`
+resource (`interfaces/cluster_culler.*`), the CPU Morton helper `ClusterBuilder`
+(`lod/cluster_builder.*`), the `compute/cluster_cull.glsl` shader, the unused
+`GPUCuller::cluster_culler` field, the `ClusterCullIndirectDispatchLayout` struct, the
+`GDREGISTER_CLASS(ClusterCuller)` registration, and the `cluster_*` fields of
+`GPUCuller::CullingConfig`, which only fed a pipeline-state hash. The project settings it read
+(`culling/cluster_culling_enabled`, `cluster_target_size`, `cluster_frustum_slack`) were removed
+with it. [Project settings](../reference/project-settings.md) lists them as deleted.
 
-- Spec: [tier2_cluster_culling_spec.md](tier2_cluster_culling_spec.md).
-- Landed in PR
-  [#246 — docs: design specs for cluster culling and resolve-mode lighting](https://github.com/klausi3D/godotGS/pull/246)
-  (merge commit `0e38870268e7f108065a4f381a60ff4fabf06c1d`).
+## Possible future cluster culling
 
-The spec is explicit (Section 2, Section 3) that the existing `ClusterCuller` / `ClusterBuilder`
-operate on whole-scene `GaussianData` and pack legacy AABB data, not tier-2 chunk-local instance
-metadata. Any reuse must be a rewrite, not a revival: cluster records become chunk-local, the
-data flow runs through `visible_chunk_buffer` and `splat_ref_buffer`, and new shader sources
-(`instance_cluster_dispatch.glsl`, `cluster_cull_instance.glsl`,
-`cluster_range_dispatch.glsl`, `cluster_depth_compute.glsl`) would replace the deleted legacy
-`modules/gaussian_splatting/compute/cluster_cull.glsl` shader.
-The current names and project settings may be reused, but the implementation must be redone
-from the tier-2 instance contract.
-
-Until that work lands, the live coarse culling path is the LOD/octree path described in section
-1 above.
+Cluster culling inside chunks is an unimplemented proposal:
+[tier2_cluster_culling_spec.md](tier2_cluster_culling_spec.md), added in
+[#246](https://github.com/klausi3D/godotGS/pull/246). It would add a stage between the chunk
+frustum cull and `depth_compute.glsl`, with chunk-local cluster records and four new shaders. None
+of that code exists. Any implementation must be written against the tier-2 instance contract; the
+deleted stack worked on whole-scene `GaussianData` and cannot be revived.

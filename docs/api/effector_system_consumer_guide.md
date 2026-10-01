@@ -21,6 +21,7 @@ Never walk the scene tree to match effectors to splats yourself. Never call dire
 ## Authoring a SphereEffector3D (scene file or script)
 
 ```gdscript
+# Runs inside any Node script (add_child() attaches the effector to this node).
 var effector := SphereEffector3D.new()
 effector.enabled = true          # default false — must set
 effector.radius = 3.0            # world-space units
@@ -31,7 +32,7 @@ effector.affect_position = true
 effector.affect_opacity = false
 effector.opacity_strength = 1.0  # 0..1, only used when affect_opacity = true
 effector.target_opacity = 0.0    # 0..1, 1.0 = neutral (no change)
-effector.layer_mask = 1          # bit field, matches GaussianSplatNode3D.layer_mask
+effector.layer_mask = 1          # bit field, AND-ed with the node's rendering/scene_effector_layer_mask
 effector.scope_mode = SphereEffector3D.SCOPE_SUBTREE  # WORLD, SUBTREE, EXPLICIT_ROOT
 effector.priority = 0            # tiebreaker for the 4-slot budget
 
@@ -65,12 +66,15 @@ add_child(effector)
 
 ## Filter state on GaussianSplatNode3D
 
-Every `GaussianSplatNode3D` has three properties under `rendering/` that control which effectors apply:
+Every `GaussianSplatNode3D` has three properties under `rendering/` that control which effectors apply.
+Grouped property names such as `rendering/scene_effectors_enabled` are single property names that contain a `/`; they cannot be reached with dot access (`splat_node.rendering.scene_effectors_enabled` fails at runtime). Use the bound setters, or `set("rendering/...", value)`:
 
 ```gdscript
-splat_node.rendering.scene_effectors_enabled = true   # master toggle
-splat_node.rendering.scene_effector_layer_mask = 0xFF # bit-AND with effector.layer_mask
-splat_node.rendering.scene_effector_scope_root = NodePath("../SomeAncestor")  # optional
+# assumes: var splat_node: GaussianSplatNode3D
+splat_node.set_scene_effectors_enabled(true)       # master toggle (default true)
+splat_node.set_scene_effector_layer_mask(0xFF)     # bit-AND with effector.layer_mask (default 1)
+splat_node.set_scene_effector_scope_root(NodePath("../SomeAncestor"))  # optional
+# Equivalent: splat_node.set("rendering/scene_effector_layer_mask", 0xFF)
 ```
 
 - `scene_effectors_enabled = false` — the node receives zero scene effectors. Use this for opt-out.
@@ -84,8 +88,9 @@ splat_node.rendering.scene_effector_scope_root = NodePath("../SomeAncestor")  # 
 Independent of which effectors match, each `GaussianSplatNode3D` has per-channel scale multipliers:
 
 ```gdscript
-splat_node.rendering.effect_position_scale = 1.0  # 0..1, dampens position deformation
-splat_node.rendering.effect_opacity_scale = 1.0   # 0..1, dampens opacity modulation
+# assumes: var splat_node: GaussianSplatNode3D
+splat_node.set_effect_position_scale(1.0)  # default 1.0; inspector range 0..4 (or greater); < 1 dampens position deformation
+splat_node.set_effect_opacity_scale(1.0)   # default 1.0; inspector range 0..4 (or greater); < 1 dampens opacity modulation
 ```
 
 Use these for gameplay fade-in / fade-out without disabling the effector.
@@ -97,13 +102,14 @@ Use these for gameplay fade-in / fade-out without disabling the effector.
 When your gameplay code needs to know "is this splat being deformed right now", **do not** enumerate effectors yourself. Use the runtime API on `GaussianSplatNode3D`:
 
 ```gdscript
+# assumes: var splat_node: GaussianSplatNode3D
 # Is the node's position being pushed this frame?
 if splat_node.is_scene_effector_position_active():
-    play_rustle_sound()
+    print("play the rustle sound here")  # your game code
 
 # Is opacity being modulated?
 if splat_node.is_scene_effector_opacity_active():
-    start_dissolve_vfx()
+    print("start the dissolve VFX here")  # your game code
 
 # Rich diagnostic dictionary for debug overlays / editor tools
 var state: Dictionary = splat_node.get_scene_effector_debug_state()
@@ -173,9 +179,9 @@ Check in order:
 2. `effector.radius > 0`.
 3. `effector.affect_position || effector.affect_opacity`.
 4. At least one channel can contribute: `strength != 0` for position, `opacity_strength != 0 && target_opacity != 1.0` for opacity.
-5. `layer_mask & splat_node.rendering.scene_effector_layer_mask != 0`.
+5. `effector.layer_mask & splat_node.get_scene_effector_layer_mask() != 0` (the node's `rendering/scene_effector_layer_mask` defaults to `1`).
 6. Scope matches: for `SCOPE_SUBTREE`, the effector's parent must be an ancestor of the splat node. For `SCOPE_EXPLICIT_ROOT`, the NodePath must resolve to a live Node that's an ancestor.
-7. `splat_node.rendering.scene_effectors_enabled == true`.
+7. `splat_node.is_scene_effectors_enabled() == true` (`rendering/scene_effectors_enabled`).
 
 Query `splat_node.get_scene_effector_debug_state()` and inspect `matched_count` + `bound_count`. If matched is 0, filter mismatch. If matched > 0 but bound is 0, slot budget exhausted by higher-priority effectors.
 
@@ -217,6 +223,8 @@ Expected if scope is `SCOPE_SUBTREE`. The implicit scope is the effector's paren
 #     └── Effector (SphereEffector3D)
 
 # Group.gd
+extends Node3D
+
 func _ready() -> void:
     var effector: SphereEffector3D = $Effector
     effector.enabled = true
@@ -277,11 +285,14 @@ No director calls. No per-frame re-registration. The node handles it.
 
 ```gdscript
 # PropWithDissolve.gd (attached to PropRoot)
+extends Node3D
+
 @onready var effector: SphereEffector3D = $DissolveField
 @onready var player: Node3D = get_tree().get_first_node_in_group("player")
 
 func _process(_delta: float) -> void:
-    effector.position = player.global_position  # field follows player
+    if player:
+        effector.global_position = player.global_position  # field follows player
 ```
 
 Authoring in the scene (Inspector):
@@ -312,11 +323,12 @@ Tune for "strong sweep" (matches the reference scene's moving row):
 Sphere effectors do radial motion, which is *not* what you want for wind. Use the instance-wind override instead:
 
 ```gdscript
-foliage_splat.rendering.wind_override_enabled = true
-foliage_splat.rendering.wind_enabled = true
-foliage_splat.rendering.wind_strength = 1.0
-foliage_splat.rendering.wind_direction = Vector3(1, 0, 0.2).normalized()
-foliage_splat.rendering.wind_frequency = 1.5
+# assumes: var foliage_splat: GaussianSplatNode3D
+foliage_splat.set_wind_override_enabled(true)   # rendering/wind_override_enabled
+foliage_splat.set_wind_enabled(true)            # rendering/wind_enabled
+foliage_splat.set_wind_strength(1.0)            # rendering/wind_strength
+foliage_splat.set_wind_direction(Vector3(1, 0, 0.2).normalized())  # rendering/wind_direction
+foliage_splat.set_wind_frequency(1.5)           # rendering/wind_frequency
 ```
 
 This works standalone — no global wind setting required (Fix #3). The per-instance values take effect whenever the project wind_strength is 0, via a shader fallback.
@@ -328,6 +340,7 @@ For scenes with *many* swaying splat instances sharing the same wind, set the pr
 Combine displacement + dissolve on a momentary effector. Spawn it at the impact point, animate its `radius` from 0 → big over ~0.3s, then free it.
 
 ```gdscript
+# assumes: var impact_point: Vector3
 var pulse := SphereEffector3D.new()
 pulse.enabled = true
 pulse.affect_position = true
@@ -349,9 +362,11 @@ tween.tween_callback(pulse.queue_free)
 You want the effector stable, but the *individual splat* to ease in/out of the effect:
 
 ```gdscript
+# assumes: var splat_node: GaussianSplatNode3D
+# Tweens accept the full grouped property name as the property path.
 var tween := create_tween()
 tween.tween_property(splat_node, "rendering/effect_opacity_scale", 1.0, 0.5).from(0.0)
-# Later:
+# Later (tweeners run in sequence):
 tween.tween_property(splat_node, "rendering/effect_opacity_scale", 0.0, 0.5)
 ```
 
@@ -362,10 +377,11 @@ Cheaper than toggling `scene_effectors_enabled` — no generation bump, no cache
 Layer masks:
 
 ```gdscript
+# assumes: var effector: SphereEffector3D; var prop_a: GaussianSplatNode3D; var prop_b: GaussianSplatNode3D
 effector.layer_mask = 1 << 3   # bit 3
-prop_a.rendering.scene_effector_layer_mask = 1 << 3
-prop_b.rendering.scene_effector_layer_mask = 1 << 3
-# Other props leave their default (usually 0xFF = match everything) or clear bit 3.
+prop_a.set_scene_effector_layer_mask(1 << 3)
+prop_b.set_scene_effector_layer_mask(1 << 3)
+# Other props keep their default mask (1 = bit 0 only), so they do not overlap bit 3.
 ```
 
 Effector won't match any splat whose layer mask doesn't overlap.
@@ -382,7 +398,7 @@ Reading a sphere effector's effect in your head:
 | `frequency` | Oscillation rate in Hz for position sway. **1–2 Hz** = wind-like; **>5 Hz** starts looking like trembling. Opacity path ignores this after the #1 fix — dissolve is a steady spatial envelope. |
 | `target_opacity` | 0.0 = invisible inside the sphere; 1.0 = neutral (no change — API reports the effector inert). |
 | `opacity_strength` | Per-frame push-toward-target. 1.0 = reach target fully; 0.5 = half-blend. |
-| `effect_position_scale` (per-node) | 0..∞ multiplier on how much *this* splat responds to position. Clamp to 0..1 for sane game behavior. |
+| `effect_position_scale` (per-node) | Multiplier on how much *this* splat responds to position (default 1.0; inspector range 0..4, or greater). Keep it in 0..1 for sane game behavior. |
 | `effect_opacity_scale` (per-node) | Same for opacity. |
 
 **Falloff × position in sphere → approximate weight**: at a point `d` from the center with radius `r`, weight is `((r-d)/r)^falloff`. For a cabin 5 m from a 10 m sphere: `(0.5)^0.3 ≈ 0.81`, `(0.5)^2 ≈ 0.25`. That 3× difference is what makes the reference scene's moving-row feel "strong" vs "subtle".
@@ -392,6 +408,7 @@ Reading a sphere effector's effect in your head:
 Before blaming the system, check the runtime diagnostic:
 
 ```gdscript
+# assumes: var splat_node: GaussianSplatNode3D
 var state := splat_node.get_scene_effector_debug_state()
 print("matched=", state.matched_count, " bound=", state.bound_count,
       " pos_active=", state.position_active, " op_active=", state.opacity_active,
