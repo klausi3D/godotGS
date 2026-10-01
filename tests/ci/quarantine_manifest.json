@@ -49,8 +49,8 @@
     },
     {
       "test_case": "[GaussianSplatting][World]*",
-      "count": 3,
-      "reason": "The headline orphan of #520. run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. The neighbouring [Node]/[Container] exclusions DO dedupe against real lanes, which camouflaged this one. 3 of the 7 carry no [RequiresGPU]; the other 4 were previously credited to the opt-in [requires-RD] catalogue, which blocking CI never runs - so they looked laned while being just as invisible (Codex, PR #658). Adding a strict [World] lane is the fix for the 3, and the 4 need a GPU harness batch; both need a proven-green run. #520 is CLOSED; re-pointed to its live successor #819.",
+      "count": 2,
+      "reason": "3 -> 2 (#1115): the tier-streaming-budget case was retagged [RequiresGPU] (its expectation corrected) and now runs in the WorldSceneTree GPU batch; the remaining 2 carry no [RequiresGPU]. The headline orphan of #520. run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. The neighbouring [Node]/[Container] exclusions DO dedupe against real lanes, which camouflaged this one. 3 of the 7 carry no [RequiresGPU]; the other 4 were previously credited to the opt-in [requires-RD] catalogue, which blocking CI never runs - so they looked laned while being just as invisible (Codex, PR #658). Adding a strict [World] lane is the fix for the 3, and the 4 need a GPU harness batch; both need a proven-green run. #520 is CLOSED; re-pointed to its live successor #819.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",

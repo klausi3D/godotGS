@@ -593,7 +593,7 @@
       "owner": "gaussian-splatting-module",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/595",
       "conversion_slice": "GS-595-B",
-      "count": 8,
+      "count": 7,
       "sites": [
         "message|378c2fdbcf|3ef67563d0",
         "message|378c2fdbcf|93f520998b",
@@ -601,7 +601,6 @@
         "message|378c2fdbcf|f9959177be",
         "message|93aa6132ad|93f520998b",
         "message|93aa6132ad|bfdeb2682b",
-        "message|93aa6132ad|f623e52c08",
         "message|93aa6132ad|f9959177be"
       ]
     },

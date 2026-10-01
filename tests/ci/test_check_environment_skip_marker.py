@@ -1695,7 +1695,10 @@ class RealTreeTests(IsolatedTestCase):
         # running out, i.e. by a wall-clock race rather than by anything the
         # machine failed to supply -- so they were never environment skips, and a
         # deadline that ends in a silent "skip" is indistinguishable from the bug.
-        self.assertEqual(377, sum(len(v) for v in found.values()))
+        # 377 -> 376 (#1115): the tier-streaming-budget case in
+        # test_scene_director_submission_scaffolding.h became [SceneTree][RequiresGPU]
+        # and runs in the WorldSceneTree batch; its renderer-unavailable skip became a FAIL.
+        self.assertEqual(376, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:

@@ -126,7 +126,7 @@ QUARANTINE_ENTRIES_FINGERPRINT = (
 # the SAME-PR re-pin exception in the block comment above exists for, not the
 # path-of-least-resistance growth the max refuses.
 UNLANED_MAX_DECLARATIONS = 19
-UNLANED_MAX_TOTAL_COUNT = 83
+UNLANED_MAX_TOTAL_COUNT = 82
 UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
     ("[GPU Memory Stream]*", 6),
     ("[GaussianSplatting][GeneratePLY]*", 1),
@@ -142,7 +142,7 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
     ("[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components", 1),
     ("[GaussianSplatting][RequiresGPU] RenderDeviceManager*", 7),
     ("[GaussianSplatting][Thumbnail]*", 2),
-    ("[GaussianSplatting][World]*", 3),
+    ("[GaussianSplatting][World]*", 2),
     ("[Integration]*", 9),
     ("[RendererSceneCull] Hidden indexing policy gates Gaussian exemption", 1),
     ("[Streaming VRAM]*", 1),
@@ -159,8 +159,12 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
 # Re-pinned by T4 alongside the split above; the fingerprint moves because the
 # declaration OBJECTS moved (one entry replaced by ten). Previous value, for
 # audit: 16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7.
+# Re-pinned by #1115, a SHRINK: [GaussianSplatting][World]* 3 -> 2 (total 83 ->
+# 82) because its tier-streaming-budget case now carries [RequiresGPU] and runs
+# in the WorldSceneTree GPU batch. Previous value, for audit:
+# ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02.
 UNLANED_FINGERPRINT = (
-    "ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02"
+    "50ac05df063a382dd1288b90f21da91637e51f971821a6f9d69269ad36cb2df1"
 )
 
 # ---------------------------------------------------------------------------
