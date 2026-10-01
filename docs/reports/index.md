@@ -9,7 +9,7 @@ Use these pages as supporting records, not as the primary entry point for the cu
 
 ## Architecture truthfulness pages
 
-- [Culling and hierarchy](../architecture/culling-and-hierarchy.md) — live LOD/octree path;
+- [Culling and hierarchy](../architecture/culling-and-hierarchy.md) — GPU instance/chunk frustum cull, with the octree as a CPU fallback;
   documents the dormant cluster stack that was deleted per
   [#293](https://github.com/klausi3D/godotGS/issues/293).
 

@@ -56,13 +56,12 @@ camera_pan={
 [rendering]
 renderer/rendering_method="forward_plus"
 driver/threads/thread_model=2
-rendering/anti_aliasing/quality/msaa_3d=1
-rendering/environment/defaults/default_environment="res://scenes/environment.tres"
-rendering/gaussian_splatting/gpu_sorting_enabled=true
-rendering/gaussian_splatting/async_compute_enabled=false
-rendering/gaussian_splatting/culling/octree_max_depth=8
-rendering/gaussian_splatting/culling/min_gaussians_per_leaf=32
-rendering/gaussian_splatting/lod/min_screen_size_pixels=1.5
-rendering/gaussian_splatting/lod/max_distance=150.0
-rendering/gaussian_splatting/lod/bias=1.0
+anti_aliasing/quality/msaa_3d=1
+environment/defaults/default_environment="res://scenes/environment.tres"
+gaussian_splatting/gpu_sorting_enabled=true
+gaussian_splatting/culling/octree_max_depth=8
+gaussian_splatting/culling/min_gaussians_per_leaf=32
+gaussian_splatting/lod/min_screen_size_pixels=1.5
+gaussian_splatting/lod/max_distance=150.0
+gaussian_splatting/lod/bias=1.0
 

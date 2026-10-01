@@ -317,11 +317,11 @@ via `--artifact-sha`.
 **GPU harness report.** `supervisor_exit` must be **present** and `0` — a report without
 it is refused outright, which closes the delete-the-field laundering path. If present,
 `totals_authoritative` must be `true`, and the run-verdict list/scalar fields must be
-empty/zero. `batches` must be a **list** of objects each carrying `name`. All eight
-`gpu_harness_policy.required_batches` must appear, each meeting its
-`minimum_test_cases`: `CompositorHazard` (1), `RendererPipeline` (4), `Lifetime` (4),
-`OutputCompositor` (4), `RendererSceneTree` (3), `WorldSceneTree` (5),
-`SceneDirectorSceneTree` (14), `GpuSorting` (1). Every batch additionally needs
+empty/zero. `batches` must be a **list** of objects each carrying `name`. Every batch in
+`gpu_harness_policy.required_batches` must appear and meet its own `minimum_test_cases`.
+The per-batch minimums live in `docs/reference/renderer_release_gate_manifest.json`, and
+that manifest is the only source for them. They are not repeated here because a copy drifts
+(this page once said `RendererSceneTree` needed 1 while the manifest required 2). Every batch additionally needs
 `test_cases` and `assertions` as **objects**, `summary_parse_ok: true`,
 `case_assert_audit_ok: true`, a `zero_assertion_cases` list, and a `zero_assert_reported`
 count that reconciles with that list's length. Zero RID leaks, no timeout, `rc` 0.

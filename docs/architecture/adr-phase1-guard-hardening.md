@@ -1,8 +1,19 @@
 # ADR: Phase-1 guard hardening — a closed cluster of remediations (#891–#910)
 
-- **Status:** Proposed. **Filed before implementation**, which is what R3 asks for and what
+- **Status:** Partly implemented. Status updated 2026-10-01; the body below is unchanged.
+  These members have landed on `master`:
+  - T3 advisory ladder step 1: #915 (#891 is still open).
+  - T4: #920 (#892 is closed).
+  - T5: #931 (#893 is closed).
+  - T6: #933 (#894 is closed).
+  - T7a: #934 (#895 is closed).
+  - T10 QA scenes: #965 and #968 (#903 is still open).
+
+  Still open: #896, #897, #898, #899, #900, #901, #902, #904 and #905. The original status
+  line read: "Proposed. **Filed before implementation**, which is what R3 asks for and what
   [`adr-gate-evaluates-pr-diff.md`](adr-gate-evaluates-pr-diff.md) could not claim. No code in
-  this cluster has been written. Nothing here is a report of work already done.
+  this cluster has been written. Nothing here is a report of work already done." The last two
+  sentences were true when the ADR was filed in #913. They no longer hold.
 - **Risk class:** this document is R0 (`docs/**`). The changes it covers classify R1–R3; §1
   records each member's class as **measured** by `scripts/agentic/classify_change.py` at
   `adcd6916dbd`, not as planned.

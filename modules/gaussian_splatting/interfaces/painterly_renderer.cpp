@@ -1075,7 +1075,8 @@ void PainterlyRenderer::ensure_painterly_resources(GaussianSplatRenderer *p_rend
 
 Error PainterlyRenderer::render_painterly_frame(GaussianSplatRenderer *p_renderer, const Size2i &p_viewport_size,
         RD::DataFormat p_target_format, const Transform3D &p_world_to_camera_transform, const Projection &p_projection,
-        const Projection &p_render_projection, RID &r_final_output, Size2i &r_internal_size, float &r_render_time_ms) {
+        const Projection &p_render_projection, const GaussianSplatting::TileSceneLightingInputs &p_scene_lighting,
+        RID &r_final_output, Size2i &r_internal_size, float &r_render_time_ms) {
     r_final_output = RID();
     r_internal_size = p_viewport_size;
     r_render_time_ms = 0.0f;
@@ -1099,7 +1100,8 @@ Error PainterlyRenderer::render_painterly_frame(GaussianSplatRenderer *p_rendere
     r_internal_size = pass_graph->get_internal_size();
 
     uint64_t populate_start = OS::get_singleton()->get_ticks_usec();
-    Error populate_err = populate_painterly_gbuffer(p_renderer, r_internal_size, p_world_to_camera_transform, p_projection, p_render_projection);
+    Error populate_err = populate_painterly_gbuffer(p_renderer, r_internal_size, p_world_to_camera_transform, p_projection, p_render_projection,
+            p_scene_lighting);
     uint64_t populate_end = OS::get_singleton()->get_ticks_usec();
     if (populate_err != OK) {
         return populate_err;
@@ -1504,7 +1506,8 @@ void PainterlyRenderer::update_painterly_gpu_resources(GaussianSplatRenderer *p_
 }
 
 Error PainterlyRenderer::populate_painterly_gbuffer(GaussianSplatRenderer *p_renderer, const Size2i &p_internal_size,
-        const Transform3D &p_world_to_camera_transform, const Projection &p_projection, const Projection &p_render_projection) {
+        const Transform3D &p_world_to_camera_transform, const Projection &p_projection, const Projection &p_render_projection,
+        const GaussianSplatting::TileSceneLightingInputs &p_scene_lighting) {
     if (!p_renderer || !pass_graph) {
         return ERR_UNCONFIGURED;
     }
@@ -1748,6 +1751,20 @@ Error PainterlyRenderer::populate_painterly_gbuffer(GaussianSplatRenderer *p_ren
     apply_wind_to_render_params(render_params,
             gs::settings::get_wind_settings(ProjectSettings::get_singleton()),
             frame_state.animation_time_seconds);
+
+    // #851: painterly assigned NONE of the eighteen lighting/shadow/cluster
+    // fields. It therefore shipped direct_lighting_mode = 0 (the struct
+    // default: resolve-time lighting, which shades a pixel at the blended
+    // depth of every splat under it with a zero receiver bias -- black
+    // contours, inert shadows) and, with no scene UBO and zero light counts,
+    // that path lit nothing at all: every scene light and shadow caster, and
+    // all six lighting/* ProjectSettings, were invisible to painterly.
+    //
+    // Same reader, same applier and same gathered scene inputs as the baseline
+    // producer, so painterly lights each splat exactly as the baseline does.
+    apply_lighting_to_render_params(render_params,
+            gs::settings::get_lighting_settings(ProjectSettings::get_singleton()),
+            p_scene_lighting);
 
     // Jacobian diagnostic toggles for radial stretching investigation
     render_params.jacobian_bypass_radius_depth_floor = jacobian_debug.bypass_radius_depth_floor;

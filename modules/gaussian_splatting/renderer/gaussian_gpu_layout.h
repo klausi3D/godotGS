@@ -411,7 +411,9 @@ struct alignas(16) TileRenderParamsGPU {
     float shadow_bias_config[4];
     // Lighting mode:
     // lighting_mode: x=direct_lighting_mode (0=resolve adds direct, 1=per-splat binning
-    // bakes direct), yzw=reserved. The two passes own DISJOINT modes; no "both" mode.
+    // bakes direct), yz=raster pixel -> light-cluster grid pixel scale as float bits
+    // (#1078; 1.0 when the raster runs at the engine render size), w=reserved.
+    // The two passes own DISJOINT modes; no "both" mode.
     uint32_t lighting_mode[4];
     // Light counts:
     // light_counts: x=omni_light_count, y=spot_light_count, z=cluster_enabled, w=light_mask
