@@ -64,7 +64,7 @@
       "requires_renderer_proof": false
     },
     "streaming-gpu-ci": {
-      "description": "Canonical blocking GPU-backed streaming validation gate for runtime residency and world-streaming regressions; benchmark proof surfaces live in the benchmark workflow.",
+      "description": "Canonical GPU-backed streaming validation gate for runtime residency and world-streaming regressions; fails the module-validation job of gaussian_production_gates.yml but is not a required status check; benchmark proof surfaces live in the benchmark workflow.",
       "gd_mode": "windows-vulkan",
       "cpp_tests": [],
       "gd_tests": [
