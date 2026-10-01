@@ -63,13 +63,24 @@ failure, not an implicit deferral.
 
 ## External Status Checks
 
-The local renderer release gate only treats repo-owned checks and required
-branch-protection contexts as release blockers. As of 2026-10-01, GitHub branch
-protection for `master` requires exactly one status check, `agentic-pr-gate`, and
-not `qlty check` (when this policy was written on 2026-05-21 it required none), and
-the repo does not track a qlty configuration file. Therefore `qlty check` is an advisory
-external signal for this gate. A failing, pending, absent, or login-gated qlty
-result must not fail `tests/ci/check_renderer_release_gates.py`.
+The local renderer release gate (`tests/ci/check_renderer_release_gates.py`)
+reads no GitHub status-check or check-run result. In the manifest,
+`external_status_check_policy.branch_protection_required_status_checks` is a
+recorded snapshot of `master` branch protection, checked for consistency only:
+`_validate_external_status_check_policy` (`check_renderer_release_gates.py:304-350`)
+requires each entry to be a non-empty string and rejects a context that is both
+required and listed as non-blocking. The `release_candidate_gate` job passes the
+script only the candidate evidence bundle, the issues JSON, the expected commit
+and the archive digests (`.github/workflows/release_builds.yml:1483-1520`). A
+missing or failed `agentic-pr-gate` result on the released commit therefore does
+not fail this gate; that context is enforced only by branch protection when a PR
+merges into `master`. `required_for_public_alpha` is empty.
+
+As of 2026-10-01, GitHub branch protection for `master` requires exactly one
+status check, `agentic-pr-gate`, and not `qlty check` (when this policy was written
+on 2026-05-21 it required none), and the repo does not track a qlty configuration
+file. Therefore `qlty check` is an advisory external signal for this gate. A
+failing, pending, absent, or login-gated qlty result must not fail `tests/ci/check_renderer_release_gates.py`.
 
 If qlty later becomes branch-protection-required or gets a repo-owned actionable
 configuration/log contract, update `external_status_check_policy` in the

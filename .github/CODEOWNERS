@@ -5,8 +5,11 @@
 # required_approving_review_count: 0, so a PR touching a listed path can merge
 # without an owner approval. There is intentionally no global owner. The
 # sensitive surfaces below (CI/security, agent governance, the GPU render path,
-# on-disk formats, the Godot engine delta, and tests) are meant to get maintainer
-# review, but that is a convention.
+# on-disk formats, the Godot engine delta, and tests) need maintainer review:
+# .agentic/policy.json requires human approval for every risk class and, for R3,
+# two independent reviews plus CODEOWNER approval (see
+# docs/governance/agentic-engineering.md). That rule stands; GitHub does not
+# enforce it.
 #
 # See docs/governance/github-settings.md for the live settings and for the
 # setting that would make CODEOWNER review enforceable.

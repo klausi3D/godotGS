@@ -76,4 +76,6 @@ blocker and waiver rules are therefore upheld by reviewers and the merging human
 not by GitHub. The full split is in
 [agentic engineering](agentic-engineering.md#what-is-enforced-and-what-is-process).
 Required conversation resolution is the one mechanical backstop: an open review
-thread blocks the merge until someone resolves it.
+thread blocks the merge until someone resolves it. Anyone with write access,
+including the PR's author, can resolve a thread, so this proves that someone
+dispositioned the thread, not that a reviewer agreed.
