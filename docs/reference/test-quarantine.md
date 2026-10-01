@@ -52,9 +52,9 @@ checked by anything, and it had already drifted. Measured on a headless
   into real lanes),
 - one was fixed by **#653 / #655** (the test itself was wrong),
 - one **survives**: `[GaussianSplatting][Thumbnail] Generator caches deterministic
-  asset+settings keys` fails at
-  `modules/gaussian_splatting/tests/test_gaussian_importer.h:1181`, where
-  `CHECK(misses >= 2)` reports `CHECK( 0 >= 2 )`. Tracked in **#814**.
+  asset+settings keys` fails on its `CHECK(misses >= 2)`, which reports
+  `CHECK( 0 >= 2 )` (`modules/gaussian_splatting/tests/test_gaussian_importer.h`;
+  re-measured failing 20/20 at `eff00db450c` on 2026-10-01). Tracked in **#814**.
 
 **The survivor cannot be enrolled in `entries`.** An entry names a lane in
 `MODULE_TEST_FILTERS`, and the harness fails a quarantined lane that does not
@@ -131,6 +131,59 @@ There is no path in this repo that regenerates the pinned block from the current
 tree, and deleting the manifest does not bootstrap a fresh one: the guard fails
 closed on a missing, unreadable or unparseable manifest.
 
+### Renewal procedure (when declarations near `MAX_EXPIRY_UTC`)
+
+A renewal changes no counts, so it is not a re-pin in the shrink sense. It is
+still a deliberate two-file diff, and it is earned per declaration rather than
+granted in bulk:
+
+1. **Run every stranded case.** Do not reason about the cases from the manifest.
+   Use a module-enabled binary built at the base, run each declaration's exact
+   case names (not its wildcard, which also selects laned cases) several times
+   under both `--headless --test` and `--gs-gpu-test`, and record **per-case
+   assertion counts**. A case that "passes" with 0 assertions, or takes a
+   `Skipping` return, did not run.
+2. **Classify each declaration.** If the cause is fixed (a lane now selects the
+   cases and they pass), shrink it with the re-pin procedure above, not a
+   renewal. If the cause is live and the issue is OPEN, renew it with a fresh
+   reason that carries the evidence date. If the issue is CLOSED but the cause is
+   live, reopen it or point the declaration at an OPEN issue, and remove the
+   closed one from `ISSUES_VERIFIED_OPEN`. If the test is obsolete, propose
+   deleting it in a separate change.
+3. **Keep the window short.** The new `expires_utc` may not be further out than
+   the shortest window any declaration was originally granted. Raise
+   `MAX_EXPIRY_UTC` to exactly that date in the same PR, with the previous value
+   recorded for audit. Refresh `ISSUES_VERIFIED_OPEN_UTC` after re-checking every
+   cited issue with `gh issue view`.
+4. Re-pin `UNLANED_FINGERPRINT` with `--print-fingerprint`. The tool refuses to
+   print if the renewal grew or added anything.
+
+### Renewal log
+
+**2026-10-01, expiry 2026-10-15 renewed to 2026-11-30.** Measured at
+`origin/master` `eff00db450c` with a `dev_build=yes tests=yes` editor binary
+built from that tree: 10 runs per mode, all 83 cases. No declaration's cause
+had been fixed, because no lane was added for any family since it was declared,
+so all 19 were renewed. The window is 60 days, the shortest any declaration was
+originally granted: T4 set 2026-08-16 to 2026-10-15, and #658 granted 88
+days. One declaration was re-pointed off a closed issue (#641 to #876).
+
+What the runs showed matters more than the dates. Laning a family is **not**
+the whole fix for most of them:
+
+| state when run | declarations |
+| --- | --- |
+| all cases pass with real assertions (ready for a lane) | `[GeneratePLY]` (deliberately unlaned), `[NodeSurface][World]`, `[VisualCompare]`, `[RendererSceneCull]`, `Memory validator reset`, `[Importer] ... legacy ImageTexture thumbnails` |
+| at least one case **fails** | `[Thumbnail]` (#814), `[GPU Memory Stream]` (`Memory Defragmentation`; see #73), `[Integration]` (#876), `[World]` (#1115), `OutputCompositor` (`CopyEffects subsystem unavailable` under the harness) |
+| at least one case asserts nothing, even under `--gs-gpu-test` | `[Streaming VRAM]`, `[Integration]` (3 cases), `RenderDeviceManager` (7, silently), `GPUBufferManager` (2, silently), `GPU memory leak detection with renderer lifecycle`, `Phase 1 Integration`, `Debug projection ... golden gradient`, 36 of the 38 `test_renderer_pipeline.h` cases |
+
+The last row is the important one: those cases return early when
+`RenderingServer::get_singleton()` is null. That is what `--gs-gpu-test` gives a
+case without `[SceneTree]`. Retagging them into a GPU batch would produce a green
+batch that asserts nothing. They need a bootstrap that runs them, not only a
+filter that selects them. Each declaration's `reason` carries its per-case
+numbers.
+
 ### Tracking-issue liveness, checked offline
 
 Every `issue_url` in either array must reference an issue that a human has
@@ -142,6 +195,14 @@ This is not hypothetical. #650 found that **9 of the 10** `unlaned_tests`
 declarations pointed at closed issues - eight at **#520** and the 59-case
 `[RequiresGPU]` catch-all at **#329** - and nothing had noticed, because nothing
 had ever checked. They were re-pointed at live successors (#819, #820, #814).
+
+It happened again, and the allowlist did not catch it. **#641** was closed on
+2026-08-27 while the nine-case `[Integration]*` declaration still cited it, and
+the guard stayed green for five weeks because `ISSUES_VERIFIED_OPEN` still
+listed it. An offline allowlist can only notice a closed issue when a person
+re-checks it, and nobody re-checks until the next renewal. The 2026-10-01
+renewal removed #641 and re-pointed the declaration at **#876**, which tracks
+that declaration's failing case.
 
 The check is deliberately **offline**. A guard that needs the GitHub API is a
 guard that fails when the API does, and CI would then block on rate limits or

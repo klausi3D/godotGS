@@ -159,8 +159,14 @@ UNLANED_BASELINE: tuple[tuple[str, int], ...] = (
 # Re-pinned by T4 alongside the split above; the fingerprint moves because the
 # declaration OBJECTS moved (one entry replaced by ten). Previous value, for
 # audit: 16d05a33e1ffa19ceca12e86896f77f66d02e07f24a90358dcce810fa87300f7.
+# Re-pinned by the 2026-10-01 renewal triage: every declaration's reason was
+# rewritten with that day's run evidence, every expires_utc moved to
+# 2026-11-30, and [Integration]* re-pointed from CLOSED #641 to OPEN #876. The
+# declaration SET is unchanged -- 19 declarations, 83 cases, LOST 0 / GAINED 0
+# -- so UNLANED_MAX_* and UNLANED_BASELINE are untouched above. Previous value,
+# for audit: ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02.
 UNLANED_FINGERPRINT = (
-    "ceaa42bff6d619aa0ac0e83314fa3990a8824b90ad2ba85fc6164a7a8ac44d02"
+    "b68577c99a956162266ca5838dbdbf92735c9de14daeaa214a533b821feb103c"
 )
 
 # ---------------------------------------------------------------------------
@@ -186,7 +192,17 @@ EXPIRY_HORIZON_DAYS = 180
 # stop SERIAL renewal: a PR could push every expiry out by 179 days, forever,
 # and never trip it. Moving the ceiling is a guard edit, so a renewal is
 # review-visible. Lowering it is always fine; raising it is the red flag.
-MAX_EXPIRY_UTC = "2026-10-15T00:00:00Z"
+#
+# Raised 2026-10-15 -> 2026-11-30 by the 2026-10-01 renewal triage. This is
+# that red flag, raised deliberately and evidenced: every one of the 83 stranded
+# cases was run at origin/master eff00db450c (10x per mode under --headless
+# --test and --gs-gpu-test); per-case verdicts are in the PR body. No
+# declaration's cause had been fixed (no lane was added for any family since it
+# was declared), so all 19 are renewals. The window is 60 days, the SHORTEST
+# window any declaration was originally granted (T4 set 2026-08-16 ->
+# 2026-10-15; #658 granted 88 days), so no declaration gets longer than it had.
+# Previous value, for audit: 2026-10-15T00:00:00Z.
+MAX_EXPIRY_UTC = "2026-11-30T00:00:00Z"
 
 # ---------------------------------------------------------------------------
 # Tracking-issue liveness, checked OFFLINE.
@@ -211,8 +227,13 @@ MAX_EXPIRY_UTC = "2026-10-15T00:00:00Z"
 # "*][RequiresGPU]*" catch-all cite them); #820 removed -- no declaration cites
 # it any more, and the T4 PR closes it as superseded by that split. #641, #814
 # and #819 re-verified OPEN on the same date.
-ISSUES_VERIFIED_OPEN = frozenset({641, 814, 819, 906, 907, 910})
-ISSUES_VERIFIED_OPEN_UTC = "2026-08-15T00:00:00Z"
+# 2026-10-01 renewal: #641 REMOVED -- it was CLOSED 2026-08-27 (fixed by #646 for
+# the [RequiresGPU] subset only), the silent-expiry shape this allowlist exists
+# to catch. The [Integration]* declaration now cites #876, verified OPEN, which
+# tracks that declaration's failing case. #814, #819, #906, #907 and #910
+# re-verified OPEN the same day; #641 verified CLOSED and deliberately not listed.
+ISSUES_VERIFIED_OPEN = frozenset({814, 819, 876, 906, 907, 910})
+ISSUES_VERIFIED_OPEN_UTC = "2026-10-01T00:00:00Z"
 # An allowlist can only answer "was this open when a human last looked". Bound
 # how stale that answer may get, so the verification cannot silently become
 # folklore. This horizon is deliberately LATER than MAX_EXPIRY_UTC: every
