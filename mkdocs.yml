@@ -8,6 +8,31 @@ site_dir: .site/site
 use_directory_urls: true
 exclude_docs: /README.md
 
+# Every published page must be in the nav (docs/.pages) or listed here. With
+# omitted_files: warn, `mkdocs build --strict` fails on a page that is neither,
+# so a new orphan page cannot ship unnoticed.
+#
+# The entries after /architecture/generated/ are the internal and historical
+# pages that scripts/stage_public_docs.py keeps off the public stage. Where the
+# stage excludes them they are never staged and these lines match nothing (a
+# no-op); they are kept out of the nav so the nav never names a page the stage
+# may drop, which `mkdocs build --strict` would reject as a missing nav item.
+not_in_nav: |
+  /index.md
+  /architecture/generated/
+  /reports/
+  /programs/
+  /architecture/gaussian-pipeline-unification-plan.md
+  /architecture/gaussian-pipeline-deprecation-deletion-plan.md
+  /architecture/gaussian-renderer-refactor-memory.md
+  /architecture/refactor-phase-runner.md
+  /architecture/tier2_cluster_culling_spec.md
+  /architecture/resolve_lighting_redesign_spec.md
+
+validation:
+  nav:
+    omitted_files: warn
+
 theme:
   name: material
   custom_dir: overrides
@@ -67,7 +92,13 @@ plugins:
       enable_git_follow: false
   - redirects:
       # README.md -> index.md normalization keeps the same published section URLs.
-      redirect_maps: {}
+      # A page merged into another keeps its old URL as a redirect to the page
+      # that now holds its content.
+      redirect_maps:
+        getting-started/try-in-5-minutes.md: getting-started/quick-start.md
+        user/quickstart.md: user/index.md
+        user/manual/index.md: user/index.md
+        user/manual/workflows.md: user/index.md
   - charts
 
 extra:
