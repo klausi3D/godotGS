@@ -33,12 +33,11 @@ fixed them.
 | Splats trail by about 1.5 px under TAA in motion | [#1025](https://github.com/klausi3D/godotGS/issues/1025) | Accepted |
 | The bottom of the frame can go empty when overlap records run out | [#54](https://github.com/klausi3D/godotGS/issues/54) | Accepted |
 | Transparent viewports are opaque under TAA or FSR2 | [#989](https://github.com/klausi3D/godotGS/issues/989) | Engine limitation |
-| Shadow-casting splats darken themselves; the starter template renders nearly black | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | Active |
-| Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) | Mitigated |
-| Painterly ignores lights, effectors and depth-clip settings the baseline honours | [#851](https://github.com/klausi3D/godotGS/issues/851) | Active (the lighting part is a blocker) |
+| Shadow-casting splats darken themselves; the starter template renders dark | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | Active |
+| Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) (closed) | Mitigated |
+| Painterly ignores sphere effectors and per-splat depth clipping | [#1079](https://github.com/klausi3D/godotGS/issues/1079) | Active |
 | The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
-| Two render-thread syncs per frame under `thread_model=2` | [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Active |
 | The starter template exits abnormally at shutdown | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | Active |
 | A world and a `GaussianSplatNode3D` in one scene: one of them renders nothing | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
@@ -56,8 +55,9 @@ fixed them.
 
 **Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
-what we ship knowing about. The one blocker named here is #851, inside the painterly entry
-that shares its cause, so that a user who sees the symptom can find the issue.
+what we ship knowing about. No §11 blocker has an entry here today. The last one this page
+named, #851 (painterly ignoring scene lighting), closed on 2026-10-01, fixed by #1078; see
+[Recently resolved](#recently-resolved).
 
 The other exception is the clearly-fenced **"Proposed, not yet accepted"** section near
 the bottom. A defect lands there when someone has proposed shipping it but no named human has
@@ -67,17 +67,15 @@ section may be cited as an `accepted_alpha_limitation`. If you are looking for w
 alpha actually ships with, read everything *above* that heading. The "Recently resolved"
 section after it lists only fixed defects.
 
-> That list is **human-maintained, and today the machine gate cannot see most of it.** The
+> That list is **human-maintained, and the machine gate cannot see most of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
-> `release blocker`; the §11 alpha blocker #851 carries none of those (it is
-> `priority:P2`), so nothing automated stops a release on it. (Two more have left that
-> list: #929 when it closed on 2026-09-20, carrying only `program:prod-ready`, and #54
-> when it was accepted on 2026-09-25; #54 is now listed under [Rendering](#rendering).
-> Issue #833 is also `priority:P2`. It closed on 2026-09-27, fixed by #1027, #1031 and
-> PR #1032, but striking it from §11 is a separate change to the bar,
-> [PR #1076](https://github.com/klausi3D/godotGS/pull/1076). Until that lands, §11 still
-> names #833, and the bar is the release disposition of record.) Read "it is in
-> the blocker set" as "a human has to hold the
+> `release blocker`. The §11 blockers this page has named carried none of those, so nothing
+> automated would have stopped a release on them. Four have left that list: #929 when it
+> closed on 2026-09-20, carrying only `program:prod-ready`; #54 when it was accepted on
+> 2026-09-25 (it is now listed under [Rendering](#rendering)); #833 when it was struck from
+> §11 (item 9) on 2026-09-30, fixed by #1027, #1031 and #1032; and #851, which is
+> `priority:P2`, when it closed on 2026-10-01, fixed by #1078. The bar's §11 count has not
+> yet been updated for #851. Read "it is in the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
 
@@ -112,7 +110,7 @@ says so. **Every other entry here is still machine-invisible**, and adding a led
 an R3 manifest edit, not a docs change. Read an entry on this page as a disclosure to a reader, not as
 something a release candidate may cite, unless the ledger says otherwise.
 
-**Every entry was re-verified against `dbc0f49aa8b` (2026-09-27)**: the issue's state, the
+**Every entry was re-verified against `eff00db450c` (2026-10-01)**: the issue's state, the
 merged changes that reference it, and the code it describes. Measurements were not retaken
 for that revision. They are as reported, on the binaries they were taken on. The #1025 figures come from the pre-fix and
 post-#1026 binaries (the entry was first verified at `bc77ce31e9c`). The #54 figures come from
@@ -329,7 +327,7 @@ cannot be fixed from this module.
 > temporal behaviour silently**, with no test that would notice. Measure FSR2 ghosting
 > before and after any #989 fix.
 
-### Shadow-casting splats darken themselves, and the starter template renders nearly black ([#1089](https://github.com/klausi3D/godotGS/issues/1089))
+### Shadow-casting splats darken themselves, and the starter template renders dark ([#1089](https://github.com/klausi3D/godotGS/issues/1089))
 
 **Status: Active — not accepted, pending a maintainer decision.** Nobody has accepted this
 as a public-alpha limitation, and it is not in the acceptance bar's §11 list either. Whether
@@ -352,9 +350,12 @@ than the light. A node that is hidden can keep casting the last frame's shadow.
 
 The shipped starter template (`templates/gaussian_splat_template`, `scenes/main.tscn`) hits
 this out of the box. Its `GaussianSplatNode3D` sets `rendering/cast_shadow = true` and its
-`DirectionalLight3D` sets `shadow_enabled = true`. Measured on #1089 (RTX 3090, 1280×720):
-from the camera position the template settles on, the white splat cloud renders at a mean
-luma of 0.06–0.10 instead of about 0.8.
+`DirectionalLight3D` sets `shadow_enabled = true`. Measured on #1089 (RTX 3090, 1280×720),
+before #1093: from the camera position the template settles on, the white splat cloud
+rendered at a mean luma of 0.06–0.10 instead of about 0.8. #1093 then made the template's
+`[rendering]` settings take effect, including its default environment, whose ambient light
+lifts the cloud. Measured on #1093 in the same framing, the cloud is at **0.31**, against
+**0.88** with the light's shadows off. It is still dark.
 
 **Workaround:** turn off `rendering/cast_shadow` on the splat node, or shadows on the light.
 Either restores full brightness. Splats then cast no shadow, which is also what they
@@ -362,8 +363,10 @@ effectively do today.
 
 ### Painterly's GPU path is covered by one nightly test that does not gate anything ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
-**Status: Mitigated.** The original defect was fixed by #1028 on 2026-09-20 (see
-[Recently resolved](#recently-resolved)). This entry covers what is still open.
+**Status: Mitigated.** The original defect was fixed by #1028 on 2026-09-20, and #997
+closed on 2026-10-01 (see [Recently resolved](#recently-resolved)). This entry covers a
+remainder that no open issue tracks as a whole; #1034 tracks the CPU-only
+`painterly_scenes` harness listed below.
 
 Painterly needs two things, and `painterly/enabled` is only one of them: a valid
 `PainterlyMaterial` must also reach the renderer, or the raster stage reports
@@ -389,7 +392,7 @@ next nightly. The rest of the painterly coverage does not touch the GPU path:
   to read `stage_raster_painterly`, so they can no longer pass on a baseline frame. That
   guard checks what a test reads, not that the test ran on a GPU.
 
-Painterly also renders without lighting and ignores several controls. See the next entry.
+Painterly also ignores sphere effectors and per-splat depth clipping. See the next entry.
 
 **Workaround:** treat painterly as experimental. Confirm you are actually on the painterly
 path before drawing conclusions: `get_renderer().get_render_stats()["stage_raster_painterly"]`
@@ -397,44 +400,35 @@ is `true` on a painterly frame. The flag survives render-cache reuse, so it can 
 after you change settings. Check it against the image as well. Validate visually in your own
 scene.
 
-### Painterly ignores lights, effectors and depth-clip settings the baseline pipeline honours ([#851](https://github.com/klausi3D/godotGS/issues/851))
+### Painterly ignores sphere effectors and per-splat depth clipping ([#1079](https://github.com/klausi3D/godotGS/issues/1079))
 
-**Status: Active.** The lighting part is #851, which is in the acceptance bar's §11
-**blocker** set rather than accepted. It is described here so that a user who sees it can
-find the issue.
+**Status: Active.**
 
 The painterly path fills its render parameters in `PainterlyRenderer::populate_painterly_gbuffer`.
 The baseline path fills its own in `RenderPipelineStages::RasterStage::render_tile_fallback`.
 The painterly producer sets only a subset of the fields, and the rest keep their struct
 defaults, so controls that work on the baseline path do nothing under painterly. This is a
 class of defect, not a single bug. The instances below were verified in code at
-`dbc0f49aa8b`, and they are the ones found so far, not a complete list.
+`eff00db450c`, and they are the ones found so far, not a complete list.
 
-- **No scene lighting.** The painterly producer assigns none of the lighting, shadow or
-  light-cluster fields, and it leaves `direct_lighting_mode` at its default of `0`
-  (resolve-time lighting). The baseline sets `1`. So `DirectionalLight3D`, `OmniLight3D`,
-  `SpotLight3D`, shadows and the `lighting/*` project settings, including `shadow_strength`,
-  have no effect on a painterly frame. The 2026-09-17 measurement on #851 used a real
-  300,000-splat scan at shipped defaults. The painterly image was about a third darker than
-  the baseline (painterly/standard luminance **0.6742**), and every painterly frame logged
-  `Resolve lighting set 2 binding 0 (SceneDataBlock) using fallback`. #851's own title
-  describes black contour artifacts. Those were observed on a rig that was not on the
-  painterly path, so they are not confirmed on a real painterly frame.
-- **`SphereEffector3D` does nothing under painterly.** The baseline fills the
+- **`SphereEffector3D` does nothing under painterly** (#1079, item 1). The baseline fills the
   `sphere_effector_*` fields from scene effectors and project settings. The painterly
   producer assigns none of them.
 - **Per-splat depth clipping is off under painterly.** The baseline fills the
   `scene_depth_*` fields and enables `scene_depth_clip_enabled` when
-  `composite/per_splat_depth_clip` asks for it. The painterly producer does not. Occlusion
-  against meshes then relies only on the painterly composite's depth test.
+  `composite/per_splat_depth_clip` asks for it. The painterly producer does not, and the
+  baseline's code comment lists painterly among the paths that keep the defaults. Occlusion
+  against meshes then relies only on the painterly composite's depth test. No open issue
+  tracks this part.
 
-Wind used to be on this list. It was fixed by #1033 (see [Recently resolved](#recently-resolved)),
-which added one shared writer for the wind fields (`apply_wind_to_render_params`) and a
-guard, `tests/ci/check_render_param_family_producers.py`. Today that guard covers only the
-wind fields.
+Wind and lighting used to be on this list. Wind was fixed by #1033 and lighting by #1078
+(see [Recently resolved](#recently-resolved)). Each added one shared writer that both
+producers call: `apply_wind_to_render_params` and `apply_lighting_to_render_params`. The
+guard `tests/ci/check_render_param_family_producers.py` fails if a producer stops calling
+the wind writer. It does not cover the lighting writer yet; #1079 (item 3) tracks that.
 
-**Workaround:** none. Do not rely on lights, shadows, effectors or per-splat depth clipping
-while painterly is active.
+**Workaround:** none. Do not rely on effectors or per-splat depth clipping while painterly is
+active.
 
 ### The painterly composite's `blend_strength` is a no-op ([#1001](https://github.com/klausi3D/godotGS/issues/1001))
 
@@ -460,8 +454,9 @@ quantity and does work.
 per-node HUD. Called **once per rendered frame** from GDScript it intermittently takes the
 process down with a `CrashHandlerException` inside the call. It builds a large `Dictionary`
 that includes everything `GaussianSplatRenderer::get_render_stats()` returns, read from live
-metrics structures that the render thread is mutating concurrently under the default
-multi-threaded `rendering/driver/threads/thread_model=2`.
+metrics structures that the render thread is mutating concurrently under
+`rendering/driver/threads/thread_model=2` (a separate render thread), which the starter
+template ships. Godot's own default is `1`.
 
 **Workaround:** poll it at **4 Hz or slower** — roughly every 15th frame, which is the rate
 the starter template's performance overlay refreshes at (`update_interval = 0.25`). A
@@ -499,23 +494,8 @@ lane renders a splat node or the starter template in this mode. That case is jud
 verdict markers, not its exit code, because its own comment records that shutdown in this
 mode is unstable.
 
-### Every `GaussianSplatNode3D` forces two render-thread syncs per frame ([#1092](https://github.com/klausi3D/godotGS/issues/1092))
-
-**Status: Active.**
-
-Every frame, `GaussianSplatNode3D::_update_viewport_render_state` calls
-`GaussianSplatNodeViewportHelper::acquire_viewport_render_target`. That calls
-`RenderingServer::viewport_get_render_target` and `viewport_get_texture` unconditionally,
-even when the viewport has not changed. Under `thread_model=2` both are synchronous calls,
-so the main thread waits for the render thread twice per frame, and the log fills with
-"causing RenderingServer synchronizations on every frame".
-
-Measured on #1092 with the optimized `nightly-20260926` editor, RTX 3090, 1280×720, vsync
-60 Hz: the starter template ran at **43 FPS with 768 splats** and **24 FPS with a
-252k-splat scan**, against a locked 60 FPS with `thread_model=1`.
-
-**Workaround:** set `rendering/driver/threads/thread_model` to `1` (Godot's default) in
-projects that use Gaussian splats, including projects made from the starter template.
+The per-frame render-thread syncs that #1092 reported are fixed by #1094 (see
+[Recently resolved](#recently-resolved)).
 
 ### The starter template exits abnormally at shutdown ([#1077](https://github.com/klausi3D/godotGS/issues/1077))
 
@@ -535,7 +515,7 @@ module-owned RIDs are freed from the main thread during teardown, which a separa
 thread rejects; that is not verified. Whether the editor or an exported game shows a crash
 dialog on quit has not been checked.
 
-**Workaround:** set `thread_model` to `1`, as for the entry above. That this avoids the
+**Workaround:** set `rendering/driver/threads/thread_model` to `1` (Godot's default). That this avoids the
 crash is **not** measured. A non-zero exit is attributable to this entry only when it comes
 **after** the scene has quit and is preceded by the `RenderingDevice::free ... can only be
 called from the render thread` errors above. A failure before quit, or with a different
@@ -790,10 +770,12 @@ that acceptance lapses stated in the entry.
 
 These defects were listed or named on this page and have since been fixed on master. If you
 read an earlier version of this page, the claims below are no longer true. Each fix was
-re-checked in code at `dbc0f49aa8b`.
+re-checked in code at `eff00db450c`.
 
 | Issue | What this page used to say | Fixed by | Date | Now |
 | --- | --- | --- | --- | --- |
-| [#997](https://github.com/klausi3D/godotGS/issues/997) | The painterly material cannot be assigned from a scene, because `GaussianSplatNode3D` does not bind `painterly/material`. The demo scenes' assignment is discarded at load, and no in-repo test exercises the painterly GPU path. | [#1028](https://github.com/klausi3D/godotGS/pull/1028) | 2026-09-20 | `GaussianSplatNode3D` binds `painterly/material` and pushes it to the renderer. The `Painterly Material Render` runtime scenario fails when painterly does not run. What is still open is listed under Rendering as **Mitigated**. The issue is still open. |
-| [#1018](https://github.com/klausi3D/godotGS/issues/1018) | Per-node wind freezes mid-sway under painterly, because `wind_time_seconds` is never advanced. | [#1033](https://github.com/klausi3D/godotGS/pull/1033) | 2026-09-20 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_wind_to_render_params`, and `tests/ci/check_render_param_family_producers.py` fails if a producer stops doing so. The issue is still open, because the PR referenced it without closing it. |
-| [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Issue closed. Its removal from the bar's §11 list is [PR #1076](https://github.com/klausi3D/godotGS/pull/1076); until that lands, §11 still names it. |
+| [#997](https://github.com/klausi3D/godotGS/issues/997) | The painterly material cannot be assigned from a scene, because `GaussianSplatNode3D` does not bind `painterly/material`. The demo scenes' assignment is discarded at load, and no in-repo test exercises the painterly GPU path. | [#1028](https://github.com/klausi3D/godotGS/pull/1028) | 2026-09-20 | `GaussianSplatNode3D` binds `painterly/material` and pushes it to the renderer. The `Painterly Material Render` runtime scenario fails when painterly does not run. What is still open is listed under Rendering as **Mitigated**. Issue closed 2026-10-01. |
+| [#1018](https://github.com/klausi3D/godotGS/issues/1018) | Per-node wind freezes mid-sway under painterly, because `wind_time_seconds` is never advanced. | [#1033](https://github.com/klausi3D/godotGS/pull/1033) | 2026-09-20 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_wind_to_render_params`, and `tests/ci/check_render_param_family_producers.py` fails if a producer stops doing so. Issue closed 2026-10-01. |
+| [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Issue closed. Struck from the bar's §11 list (item 9) on 2026-09-30. |
+| [#851](https://github.com/klausi3D/godotGS/issues/851) | Painterly ignores scene lighting: it assigns none of the lighting, shadow or light-cluster fields and leaves `direct_lighting_mode` at `0`, so lights, shadows and the `lighting/*` project settings have no effect on a painterly frame. Named as a §11 alpha blocker. | [#1078](https://github.com/klausi3D/godotGS/pull/1078) | 2026-10-01 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_lighting_to_render_params`, the writer the baseline uses, which sets `direct_lighting_mode = 1`. Issue closed 2026-10-01. No PR-gating guard covers the lighting writer yet ([#1079](https://github.com/klausi3D/godotGS/issues/1079), item 3). |
+| [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Every `GaussianSplatNode3D` re-queries the viewport's render target and texture every frame, which under `thread_model=2` forces two render-thread syncs per frame: the starter template ran at 43 FPS with 768 splats and 24 FPS with a 252k-splat scan. The workaround was `thread_model=1`. | [#1094](https://github.com/klausi3D/godotGS/pull/1094) | 2026-10-01 | The node re-queries only when the viewport or its size changes. Measured on #1094 (optimized build, RTX 3090, 1280×720, vsync 60 Hz, `thread_model=2`): the template went from 44.1–46.8 to 59.1–59.8 FPS with no sync warnings. **The issue is still open**: the 252k-splat scan went from 24.3–25.4 to 29.3–31.9 FPS, still below vsync, and was not measured under `thread_model=1`, so whether `thread_model=2` still costs it anything is unknown. |
