@@ -131,6 +131,23 @@ class GeneratorScanTest(unittest.TestCase):
             },
         )
 
+    def test_every_global_def_variant_registers(self) -> None:
+        variants = (
+            "GLOBAL_DEF_NOVAL",
+            "GLOBAL_DEF_RST_NOVAL",
+            "GLOBAL_DEF_NOVAL_BASIC",
+            "GLOBAL_DEF_RST_NOVAL_BASIC",
+            "GLOBAL_DEF_INTERNAL",
+            "_GLOBAL_DEF",
+        )
+        body = "".join(f'  {macro}("rendering/gaussian_splatting/v/{macro.lower().strip("_")}", {i});\n' for i, macro in enumerate(variants))
+        registrations, errors = self.scan(_source("x.cpp", "void f() {\n" + body + "}\n"))
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            {r.key: r.default for r in registrations},
+            {f"rendering/gaussian_splatting/v/{macro.lower().strip('_')}": str(i) for i, macro in enumerate(variants)},
+        )
+
     def test_helper_forwarding_a_default_uses_call_site_defaults(self) -> None:
         helper = _source(
             "h.h",

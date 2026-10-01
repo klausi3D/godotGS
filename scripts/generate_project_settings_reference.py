@@ -98,7 +98,12 @@ CTOR_RE = re.compile(
     rf"(?:\bstatic\s+|\bconst\s+)*(?:String|StringName)\s+({QUALIFIED_RE})\s*\(\s*(\"(?:[^\"\\\n]|\\.)*\")\s*\)\s*;"
 )
 FUNC_RETURN_RE = re.compile(rf"({QUALIFIED_RE})\s*\(\s*\)\s*(?:const\s*)?\{{\s*return\b([^;]*);", re.S)
-REGISTRATION_CALL_RE = re.compile(r"\b(GLOBAL_DEF(?:_RST|_BASIC|_NOVAL|_RST_NOVAL|_RST_BASIC)?)\s*\(|(?:->|\.)\s*(set_initial_value)\s*\(")
+# Every macro of the GLOBAL_DEF family (core/config/project_settings.h: _RST,
+# _NOVAL, _BASIC, _INTERNAL and their combinations, plus _GLOBAL_DEF itself)
+# takes (key, default) first, so the whole family is matched by prefix rather
+# than enumerated: a variant missing from a list would otherwise be reported
+# as "read but not registered" without its default.
+REGISTRATION_CALL_RE = re.compile(r"(?<![A-Za-z0-9])(_?GLOBAL_DEF[A-Z0-9_]*)\s*\(|(?:->|\.)\s*(set_initial_value)\s*\(")
 FUNC_HEADER_RE = re.compile(rf"\b({QUALIFIED_RE})\s*\(([^()]*)\)\s*(?:const\s*)?\{{")
 EXPR_TOKEN_RE = re.compile(rf'"((?:[^"\\]|\\.)*)"|({QUALIFIED_RE})(\s*\(\s*\))?')
 WRAPPER_TOKENS = {"String", "StringName", "SNAME", "_SNAME"}
