@@ -36,6 +36,11 @@
     {
       key: "linux-editor",
       label: "Linux editor",
+      // This table renders above the page's build-flavor warning, and the
+      // static download-flavor guard (tests/ci/check_download_build_flavor_warning.py)
+      // cannot see JS-built links, so the row carries its own -O0 marker.
+      flavor: "dev_build=yes, -O0: do not benchmark",
+      flavorHref: "#build-flavor-and-performance",
       pattern: /^godotgs-linux-x86_64-.+\.tar\.xz$/,
       ext: ".tar.xz",
     },
@@ -278,7 +283,14 @@
     var tbody = el("tbody");
     picks.forEach(function (p) {
       var tr = el("tr");
-      tr.appendChild(el("td", p.platform.label));
+      var platformCell = el("td", p.platform.label);
+      if (p.platform.flavor) {
+        platformCell.appendChild(el("br"));
+        var flavorNote = el("small");
+        flavorNote.appendChild(link(p.platform.flavorHref, p.platform.flavor));
+        platformCell.appendChild(flavorNote);
+      }
+      tr.appendChild(platformCell);
       if (!p.release) {
         var none = el("td");
         none.colSpan = 4;
