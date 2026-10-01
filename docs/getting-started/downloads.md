@@ -8,6 +8,8 @@ Public binaries for godotGS are published as nightly prereleases on GitHub. Ther
 
 Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when the Windows build and its export smoke test succeed** for that run; when the Windows lane fails, the nightly is published Linux-only. Several consecutive nightlies can be Linux-only, so on Windows pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`, which is not necessarily the newest entry.
 
+<div id="gs-latest-nightlies" data-repo="klausi3D/godotGS" hidden></div>
+
 | Asset | Platform | Contents |
 | --- | --- | --- |
 | `godotgs-linux-x86_64-<tag>.tar.xz` | Linux x86_64 | Editor binary (`dev_build=yes`, `-O0`) |
@@ -17,6 +19,8 @@ Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. T
 | `BUILD-INFO.txt` | shared | Channel, commit hash, binary names, generation timestamp |
 
 macOS is not yet covered by a published binary — [Build from Source](../BUILDING.md).
+
+## Build Flavor and Performance
 
 !!! warning "The Linux nightly is an unoptimized `-O0` build"
     The published Linux nightly editor is compiled with `dev_build=yes`, which means
@@ -71,11 +75,7 @@ Get-FileHash -Algorithm SHA256 .\godotgs-windows-x86_64-<tag>.zip
 
 Nightlies are prereleases by design — they may break at any time. They are intended for evaluation, prototypes, and contributor work, not production. See the [stability column in Release Channels](../development/release-channels.md#channels) for the per-channel guarantees.
 
-The Linux nightly is also **not performance-representative**: it is a `dev_build=yes`
-/ `-O0` binary, so anything you measure on it is an artifact of the build flavor
-rather than of godotGS. Use the optimized Windows nightly, or build an optimized
-editor ([Build Flavors](../BUILDING.md#build-flavors)), before drawing any conclusion
-about speed.
+The Linux nightly is also not performance-representative; anything you measure on it is an artifact of the build flavor rather than of godotGS. See [Build Flavor and Performance](#build-flavor-and-performance).
 
 ## Building From Source
 
