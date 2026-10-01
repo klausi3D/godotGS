@@ -3135,7 +3135,7 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (chunk.distance < p_load_threshold && !chunk.is_loaded && !chunk.upload_pending) {
+            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending) {
                 unscanned_unserved++;
             }
         }
