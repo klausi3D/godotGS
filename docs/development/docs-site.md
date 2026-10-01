@@ -80,7 +80,13 @@ manual dispatch. It has a read-only token and never deploys. Steps, in order:
    `docs/api/shader_reference.md`, `docs/reference/compatibility-matrix.md`,
    `docs/reference/project-settings.md`, `docs/assets/data/benchmark_latest.json`
    and `docs/assets/benchmarks/`. Fix a failure by running the second command
-   above and committing the result. Not checked: the engine patch report,
+   above and committing the result. The project-settings generator takes its
+   key set from `modules/gaussian_splatting/config/project_settings_manifest.json`
+   and refuses to write the page when the manifest and the source registrations
+   disagree. Separately, `tests/ci/check_project_settings_reference.py` (run by
+   `run_module_tests.py --guard-only`, so also in the required
+   `agentic-pr-gate`) fails when the page and the manifest list different keys.
+   Not checked: the engine patch report,
    `docs/reports/documentation-*.md`, and the Doxygen output (not committed).
 3. Stage public docs:
    - `python3 scripts/stage_public_docs.py --source docs --output .site/public-docs --repo-url https://github.com/<owner>/<repo> --ref <sha>`

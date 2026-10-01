@@ -36,6 +36,8 @@ CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
+PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_project_settings_reference.py"
+PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_project_settings_reference.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
 REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_null_deref.py"
@@ -875,6 +877,27 @@ def _run_gaussian_layout_guard() -> tuple[bool, list[str]]:
     for label, script in (
         ("Gaussian layout guard unit test", GAUSSIAN_LAYOUT_TEST_SCRIPT),
         ("Gaussian layout guard", GAUSSIAN_LAYOUT_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_project_settings_reference_guard() -> tuple[bool, list[str]]:
+    """docs/reference/project-settings.md must list exactly the manifest's keys.
+    Runs the guard's own unit test first (it also covers the generator's
+    fail-on-disagreement contract), mirroring the layout guard."""
+    output_lines: list[str] = []
+    for label, script in (
+        ("Project settings reference guard unit test", PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT),
+        ("Project settings reference guard", PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT),
     ):
         if not script.is_file():
             return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
@@ -3501,6 +3524,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_project_settings_manifest_guard,
             "ProjectSettings manifest guard failed.",
             "ProjectSettings manifest guard passed.",
+        ),
+        (
+            True,
+            _run_project_settings_reference_guard,
+            "Project settings reference completeness guard failed.",
+            "Project settings reference completeness guard passed.",
         ),
         (
             True,
