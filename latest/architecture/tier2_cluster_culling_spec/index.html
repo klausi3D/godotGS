@@ -1911,9 +1911,18 @@
 
 
 <h1 id="tier-2-cluster-culling-spec">Tier-2 Cluster Culling Spec<a class="headerlink" href="#tier-2-cluster-culling-spec" title="Permanent link">¶</a></h1>
-<p>Status: implementation spec<br>
+<p>Status: proposed, not implemented (re-statused 2026-10-01; this page was previously labelled "implementation spec")<br>
 Scope: tier-2-native coarse culling for the instance/chunk pipeline<br>
 Audience: renderer, streaming, and GPU-pipeline engineers</p>
+<blockquote>
+<p><strong>Status, verified 2026-10-01.</strong> Nothing in this spec has been implemented. None of the four
+proposed shaders (<code>instance_cluster_dispatch.glsl</code>, <code>cluster_cull_instance.glsl</code>,
+<code>cluster_range_dispatch.glsl</code>, <code>cluster_depth_compute.glsl</code>) exists, and neither do the
+cluster buffers, <code>ClusterMetaGPU</code>, <code>test_cluster_culling.h</code> or the cluster metrics. The live
+coarse cull is the chunk frustum pass described in §2; see
+<a href="../culling-and-hierarchy/">Culling and hierarchy</a>. Read this page as a design proposal, not as
+a description of the code.</p>
+</blockquote>
 <h2 id="1-summary">1. Summary<a class="headerlink" href="#1-summary" title="Permanent link">¶</a></h2>
 <p>Cluster culling adds a coarse rejection stage between tier-2 chunk culling and per-splat depth/projection work: each visible chunk is subdivided into chunk-local clusters, each cluster has a conservative bound plus a splat range, and invisible clusters are rejected before <code>depth_compute.glsl</code> emits <code>splat_ref_buffer</code> entries. The goal is to reduce per-splat projection, sort-key generation, and downstream tile pressure for large chunks. Non-goals: replacing chunk culling, changing tile binning heuristics from PR #237, redesigning the tier-2 instance contract, or introducing an alternative resident-only render path.</p>
 <h2 id="2-current-architecture-relevant-files">2. Current Architecture Relevant Files<a class="headerlink" href="#2-current-architecture-relevant-files" title="Permanent link">¶</a></h2>
@@ -1950,7 +1959,7 @@ Audience: renderer, streaming, and GPU-pipeline engineers</p>
 <li><code>cluster_splat_ranges_buffer</code>: compacted fine-pass input <code>{ visible_chunk_index, splat_offset, splat_count, pad }</code></li>
 <li><code>cluster_dispatch_buffer</code>: indirect dispatch for the fine cluster-expansion pass</li>
 <li><code>frustum_cull.glsl</code> remains unchanged and produces <code>visible_chunk_buffer</code>.</li>
-<li>New <code>instance_cluster_dispatch.glsl</code> reads the visible-chunk counter and writes indirect dispatch for the cluster pass: <code>x = ceil(max_clusters_per_chunk / 64)</code>, <code>y = min(visible_chunk_count, max_visible_chunks)</code>, <code>z = 1</code>. It also clears the shared counter buffer for cluster counting. <strong>The clamp to <code>max_visible_chunks</code> is required</strong>: <code>frustum_cull.glsl:136-140</code> increments <code>visible_chunk_count</code> via <code>atomicAdd</code> <em>before</em> checking the cap and only writes <code>visible_chunk_buffer</code> entries for in-range indices; overflowed chunks are counted but not stored. Using the raw counter as <code>y</code> would let the cluster pass read past initialized entries. This is the same clamp pattern as <code>instance_chunk_dispatch.glsl:26-27</code> (<code>min(raw_count, max_visible_chunks)</code>).</li>
+<li>New <code>instance_cluster_dispatch.glsl</code> reads the visible-chunk counter and writes indirect dispatch for the cluster pass: <code>x = ceil(max_clusters_per_chunk / 64)</code>, <code>y = min(visible_chunk_count, max_visible_chunks)</code>, <code>z = 1</code>. It also clears the shared counter buffer for cluster counting. <strong>The clamp to <code>max_visible_chunks</code> is required</strong>: <code>main()</code> in <code>frustum_cull.glsl</code> increments <code>visible_chunk_count</code> via <code>atomicAdd</code> <em>before</em> checking the cap (<code>params.max_visible_chunks</code>) and only writes <code>visible_chunk_buffer</code> entries for in-range indices; overflowed chunks are counted (<code>overflowed_chunks</code>) but not stored. Using the raw counter as <code>y</code> would let the cluster pass read past initialized entries. This is the same clamp pattern as <code>main()</code> in <code>instance_chunk_dispatch.glsl</code> (<code>min(raw_count, params.max_visible_chunks)</code>).</li>
 <li>New cluster-cull pass reads <code>visible_chunk_buffer</code>, <code>chunk_meta_buffer</code>, <code>chunk_cluster_range_buffer</code>, <code>cluster_meta_buffer</code>, and <code>instance_buffer</code>; it frustum-tests each cluster, compacts visible clusters into <code>cluster_visible_buffer</code>, writes <code>cluster_splat_ranges_buffer</code>, and increments <code>visible_cluster_count</code>. Apply the same overflow discipline as <code>frustum_cull.glsl</code>: count under cap, drop above cap, expose an overflow counter.</li>
 <li>New <code>cluster_range_dispatch.glsl</code> converts <code>visible_cluster_count</code> into <code>cluster_dispatch_buffer</code>: <code>x = ceil(max_cluster_splats / 256)</code>, <code>y = min(visible_cluster_count, max_visible_clusters)</code>, <code>z = 1</code>; then it clears the shared counter buffer for visible splat counting. Same clamp rationale as step 3.</li>
 <li>New cluster-aware depth pass expands only visible cluster ranges into <code>splat_ref_buffer</code>, <code>sort_key_buffer</code>, and <code>sort_value_buffer</code>, then <code>instance_count_clamp.glsl</code> continues unchanged and publishes <code>visible_splat_count</code>.</li>
@@ -2051,7 +2060,7 @@ Audience: renderer, streaming, and GPU-pipeline engineers</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 01:03:03 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:54 UTC">October 1, 2026</span>
   </span>
 
     

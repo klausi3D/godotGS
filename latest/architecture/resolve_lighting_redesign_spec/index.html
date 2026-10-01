@@ -2056,9 +2056,26 @@
 
 
 <h1 id="resolve-mode-lighting-redesign-spec">Resolve-Mode Lighting Redesign Spec<a class="headerlink" href="#resolve-mode-lighting-redesign-spec" title="Permanent link">¶</a></h1>
-<p><strong>Status</strong>: design, not implemented
+<p><strong>Status</strong>: design, not implemented</p>
+<blockquote>
+<p><strong>Status note, verified 2026-10-01.</strong> Still not implemented. The <code>shadow_normal</code> / <code>h_normal</code>
+flips and the <code>sh_occlusion = max(sh_occlusion, 1.0 - shadow)</code> coupling are still in
+<code>gs_accumulate_directional_lights()</code> (<code>shaders/includes/gs_lighting_common.glsl</code>). Two
+things have changed since this spec was written:</p>
+<ul>
+<li><strong>No route runs the resolve-mode path.</strong> Since #1078, every route uses per-splat direct
+  lighting in <code>tile_binning.glsl</code> (<code>direct_lighting_mode = 1</code>, written by
+  <code>apply_lighting_to_render_params()</code>). Mode 0 is kept only for evaluation (#1083). See
+  <a href="../lighting-system/">Lighting system architecture</a>.</li>
+<li><strong>The shared helpers also serve mode 1.</strong> <code>gs_lighting_common.glsl</code>, which this spec
+  changes, is included by <code>tile_binning.glsl</code> as well as <code>tile_resolve.glsl</code>. Implementing the
+  spec now means re-scoping it against mode 1.</li>
+</ul>
+<p>The <code>file:line</code> anchors below date from this spec's original commit (#246, target
+<code>e53d60ff77</code>) and have drifted. Re-derive them before implementing.
 <strong>Target</strong>: post-tier-2 master (<code>e53d60ff77</code> or later)
 <strong>Supersedes</strong>: the deferred portions of PR #220's resolve-lighting overhaul that were intentionally dropped during the PR #243 salvage</p>
+</blockquote>
 <h2 id="1-summary">1. Summary<a class="headerlink" href="#1-summary" title="Permanent link">¶</a></h2>
 <p>The Gaussian splatting resolve pass produces per-pixel lit output from blended splat fragments. PR #220 reported three resolve-mode lighting artifacts (chrome noise, dark patches, view-dependent brightness shifts) and bundled the fixes with a larger redesign that never fully landed. PR #243 ported the safe subset (weighted receiver depth, α-coverage weighting, SH double-scale fix, cascade-validity guards); the remaining normal-handling, ambient, and SH-occlusion changes were explicitly deferred because they require behavior decisions and cross-scene verification.</p>
 <p>This spec defines the deferred work as a single focused design task. <strong>It is not a cherry-pick.</strong> The original commits targeted a slightly older codebase; the intent survives, the specific code needs re-derivation against current master.</p>
@@ -2337,7 +2354,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 01:03:02 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:53 UTC">October 1, 2026</span>
   </span>
 
     

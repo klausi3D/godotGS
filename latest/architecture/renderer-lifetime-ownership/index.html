@@ -2016,931 +2016,903 @@
 
 
 <h1 id="renderer-lifetime-ownership">Renderer Lifetime Ownership<a class="headerlink" href="#renderer-lifetime-ownership" title="Permanent link">¶</a></h1>
-<p>PR 2 of work package #352 (Renderer Lifetime Proof). Anchored to <code>master</code> at
-<code>b7e7f05a77</code> on 2026-05-22.</p>
+<p>Work package #352 (Renderer Lifetime Proof). First written against <code>b7e7f05a77</code> (2026-05-22).</p>
+<blockquote>
+<p><strong>Status: re-verified against the code on 2026-10-01 (<code>eff00db450c</code>).</strong> The first version
+cited about 155 <code>file:line</code> anchors, and most had drifted. This revision cites symbols
+(<code>Class::method</code>, <code>Class::member</code>, plus the file) instead of line numbers. It also corrects
+claims that no longer hold. Claims that were not re-checked are marked <strong>unverified</strong>.
+Destruction orders below were read from the function bodies at that commit. They were not
+exercised at run time for this revision.</p>
+<p>Follow-up PRs of #352 that have landed since the first version:</p>
+<ul>
+<li>Streaming failed-init guards, #383. Its commit message names a separate "PR 1b" for the
+  director half-initialization that caused the 602-event cascade. No landed commit for PR 1b
+  was found.</li>
+<li>PR 3: the lifetime-proof fixture <code>tests/test_renderer_lifetime_proof.h</code>, #386.</li>
+<li>PR 4: explicit <code>SharedWorld</code> teardown, #387, squashed into #386.</li>
+<li>PR 5: the <code>OutputCompositor</code> framebuffer LRU bound, #388.</li>
+<li>PR 6: release of module-owned static <code>StringName</code>s, #389.</li>
+</ul>
+</blockquote>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>This document enumerates every GPU-resource owner inside the <code>gaussian_splatting</code>
-module with <code>file:line</code> precision, recording who creates each resource, who
-destroys it, whether the destruction path is idempotent, and what
-mutexes/threading rules guard the owner. It exists because the F6 reload leak
-documented at <code>modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp:351</code>
-and the 602-event failed-init crash cascade can only be reasoned about against
-a single authoritative ownership map, and no such map existed before this PR.</p>
+<p>This document lists the GPU-resource owners inside the <code>gaussian_splatting</code> module. For each
+one it records who creates the resource, who destroys it, whether destruction is idempotent, and
+which mutexes or threading rules guard the owner. It exists because leaks such as the F6 reload
+leak and failed-init cascades can only be reasoned about against one ownership map.</p>
 <p>The doc complements:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/ARCHITECTURE.md"><code>modules/gaussian_splatting/ARCHITECTURE.md</code></a>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/ARCHITECTURE.md"><code>modules/gaussian_splatting/ARCHITECTURE.md</code></a>
   — subsystem composition and data flow.</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md"><code>modules/gaussian_splatting/MEMORY_SUBSYSTEM.md</code></a>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md"><code>modules/gaussian_splatting/MEMORY_SUBSYSTEM.md</code></a>
   — VRAM-budget policy and persistent-buffer sizing.</li>
 <li><a href="../stage-first-ownership-inventory/"><code>docs/architecture/stage-first-ownership-inventory.md</code></a>
-  — stage-level write-ownership for the decomposition work package (#356).</li>
+  — stage-level write ownership for the decomposition work package (#356). That page is a
+  2026-05-20 snapshot.</li>
 </ul>
-<p>What those three docs leave undocumented — and what this doc adds — is the
-<strong>destruction contract and idempotency</strong> of each owner. That is the missing
-piece the rest of work package #352 needs.</p>
 <h2 id="how-to-read-this-doc">How to read this doc<a class="headerlink" href="#how-to-read-this-doc" title="Permanent link">¶</a></h2>
 <p>Every owner subsection has six fields:</p>
 <ol>
-<li><strong>Owner identity</strong> — the class name and <code>file:line</code> of the storage
-   declaration in the header.</li>
-<li><strong>What it owns</strong> — the concrete GPU resources (RIDs, buffers, textures,
-   pipelines, framebuffers, shaders, scratch pools, etc.) by storage-member
-   name.</li>
-<li><strong>Created where</strong> — the function and <code>file:line</code> that allocates the
-   resource, with thread context (render thread vs. main thread) and
-   eager-vs-lazy noted.</li>
-<li><strong>Destroyed where</strong> — the destructor or explicit shutdown function and
-   <code>file:line</code>, with an explicit note on whether the cleanup is idempotent.</li>
-<li><strong>Threading / locking</strong> — the mutexes the owner acquires, including the
-   shared <code>GaussianSplatManager</code> L1-L4 lock hierarchy at
-   <code>gaussian_splat_manager.h:54-71</code> when applicable.</li>
-<li><strong>Known leak vectors / TODOs</strong> — file:line citations for known leak vectors
-   or open contract gaps in the current code.</li>
+<li><strong>Owner identity</strong>: the class and the file that declares it.</li>
+<li><strong>What it owns</strong>: the concrete GPU resources by member name.</li>
+<li><strong>Created where</strong>: the function that allocates them, with thread context where known.</li>
+<li><strong>Destroyed where</strong>: the destructor or shutdown function, its release order, and whether a
+   second call is safe (and which guard makes it safe).</li>
+<li><strong>Threading / locking</strong>: the mutexes the owner uses.</li>
+<li><strong>Known leak vectors / open gaps</strong>.</li>
 </ol>
-<p>Line numbers are anchored to <code>b7e7f05a77</code>. PRs 3/4/5/6 that consume this doc
-should re-confirm any line citation they quote.</p>
+<p>Paths are relative to <code>modules/gaussian_splatting/</code>.</p>
 <h2 id="top-level-ownership-graph">Top-level ownership graph<a class="headerlink" href="#top-level-ownership-graph" title="Permanent link">¶</a></h2>
-<div class="highlight"><pre><span></span><code>GaussianSplatManager (singleton)                    [core/gaussian_splat_manager.h:73]
-├── primary_local_device                            [render thread]
-├── shared_submission_device                        [render thread]
-├── gaussian_buffers (HashMap&lt;ObjectID, BufferEntry&gt;)
-├── buffer_lookup / gaussian_buffer_owner_devices
-├── dynamic_asset_cache / dynamic_asset_owner_devices
+<div class="highlight"><pre><span></span><code>GaussianSplatManager (singleton)                    core/gaussian_splat_manager.h
+├── primary_local_device / shared_submission_device (std::atomic&lt;RenderingDevice *&gt;)
+├── gaussian_buffers (HashMap&lt;ObjectID, BufferEntry&gt;), buffer_lookup, gaussian_buffer_owner_devices
+├── dynamic_asset_cache, dynamic_asset_owner_devices
 ├── active_nodes (HashSet&lt;ObjectID&gt;)
 └── submission_mutex (static SafeBinaryMutex)
 
-GaussianSplatSceneDirector (singleton)              [core/gaussian_splat_scene_director.h:26]
-└── worlds: HashMap&lt;RID, SharedWorld&gt;               [scene_director.h:356]
-    └── SharedWorld                                  [scene_director.h:319]
-        ├── Ref&lt;GaussianSplatRenderer&gt; renderer
-        ├── instances + sphere_effectors + world_submission + asset_records
-        └── (destructor relies on worlds.clear() in director dtor:353)
+GaussianSplatSceneDirector (singleton)              core/gaussian_splat_scene_director.h
+└── world_registry (WorldRegistry)
+    └── worlds: HashMap&lt;RID, SharedWorld&gt;
+        └── SharedWorld
+            ├── renderer_owner (RendererLifecycleOwner) ── Ref&lt;GaussianSplatRenderer&gt; renderer
+            ├── instance_store (InstanceStore)          ── asset_records
+            ├── sphere_effector_store, submission_store
+            └── lod_cache_owner (LODCacheOwner)
 
-GaussianSplatRenderer                               [renderer/gaussian_splat_renderer.h:144]
-├── SubsystemState                                  [renderer/render_types/render_facade_state_types.h:135]
-│   ├── Ref&lt;RenderDeviceManager&gt;          ── owns resource_owner_map etc.
-│   ├── Ref&lt;DebugOverlaySystem&gt;
-│   ├── Ref&lt;InteractiveStateManager&gt;
-│   ├── Ref&lt;TileRasterizer&gt;
-│   ├── Ref&lt;GPUCuller&gt;                    ── owns cull shader/pipeline/buffers
-│   ├── Ref&lt;OutputCompositor&gt;             ── owns framebuffer cache + scratch pool
-│   ├── Ref&lt;GPUSortingPipeline&gt;
-│   ├── Ref&lt;OverflowAutoTuner&gt;
-│   ├── Ref&lt;PainterlyRenderer&gt;
-│   └── Ref&lt;PainterlyMaterialManager&gt;
-├── ResourceState                                   [render_facade_state_types.h:46]
-│   ├── Ref&lt;GPUBufferManager&gt; buffer_manager
-│   ├── DeferredDeletionQueue deletion_queue
-│   ├── instance_buffer / instance_grading_buffer / instance_visible_chunk_buffer / …
-│   └── resident_atlas_*_buffer (4 atlas-shape buffers)
-├── StreamingState                                  [render_types/render_state_types.h:77]
-│   ├── Ref&lt;GaussianMemoryStream&gt; memory_stream
-│   ├── Ref&lt;GaussianStreamingSystem&gt; current_streaming_system
-│   └── registered_gaussian_buffer (handed back to manager on teardown)
-├── SortingState                                    [render_state_types.h:114]
-│   └── Ref&lt;IGPUSorter&gt; gpu_sorter
-├── TileRendererState                               [render_facade_state_types.h:129]
-│   ├── Ref&lt;TileRenderer&gt; renderer
-│   └── GPUPerformanceMonitor
-├── PipelineState                                   [gaussian_splat_renderer.h:200]
-│   └── gaussian_shader + gaussian_shader_version
-├── ShadowBlitState                                 [render_facade_state_types.h:148]
-└── Ref&lt;OutputCompositor&gt; shadow_output_compositor  [renderer/gaussian_splat_renderer.h:732]
+GaussianSplatRenderer                               renderer/gaussian_splat_renderer.h
+├── subsystem_state (SubsystemState)                renderer/render_types/render_facade_state_types.h
+│   ├── Ref&lt;RenderDeviceManager&gt; device_manager
+│   ├── Ref&lt;DebugOverlaySystem&gt;, Ref&lt;InteractiveStateManager&gt;, Ref&lt;TileRasterizer&gt; rasterizer
+│   ├── Ref&lt;GPUCuller&gt; gpu_culler, Ref&lt;OutputCompositor&gt; output_compositor
+│   ├── Ref&lt;GPUSortingPipeline&gt; sorting_pipeline, Ref&lt;OverflowAutoTuner&gt;
+│   └── Ref&lt;PainterlyRenderer&gt;, Ref&lt;PainterlyMaterialManager&gt;
+├── tile_renderer_state (TileRendererState)         ── Ref&lt;TileRenderer&gt; renderer
+├── test_data_state (TestDataState)                 ── test vertex/position/scale/rotation/SH buffers
+├── shadow_output_compositor (Ref&lt;OutputCompositor&gt;), shadow_blit_state (ShadowBlitState)
+├── render_thread_dispatcher (std::unique_ptr&lt;IRenderThreadDispatcher&gt;)
+├── resource_orchestrator (RenderResourceOrchestrator)
+│   ├── resource_state (ResourceState)              ── Ref&lt;GPUBufferManager&gt; buffer_manager,
+│   │                                                  deletion_queue, 8 instance-pipeline buffers,
+│   │                                                  5 resident_* contract buffers
+│   └── pipeline_state (GaussianSplatRenderer::PipelineState) ── gaussian_shader(_version/_source)
+├── data orchestrator (RenderDataOrchestrator)
+│   └── streaming_state (StreamingState)            renderer/render_types/render_state_types.h
+│       ├── Ref&lt;GaussianMemoryStream&gt; memory_stream
+│       ├── Ref&lt;GaussianStreamingSystem&gt; current_streaming_system
+│       └── registered_gaussian_buffer (handed back to the manager on teardown)
+└── sorting orchestrator (RenderSortingOrchestrator)
+    └── sorting_state (SortingState)                ── Ref&lt;IGPUSorter&gt; gpu_sorter
 
-GaussianStreamingSystem                             [core/gaussian_streaming.h:29]
-├── persistent_buffer                                [gaussian_streaming.h:90]
-├── chunks[*].gpu_buffer                             [gaussian_streaming.h:86]
-├── quantization buffers                             (via streaming_quantization.h)
-└── StreamingGlobalAtlasRegistry global_atlas_registry [gaussian_streaming.h:83]
-    ├── asset_meta_buffer                            [streaming_global_atlas_registry.h:88]
-    ├── chunk_meta_buffer                            [streaming_global_atlas_registry.h:89]
-    └── asset_chunk_index_buffer                     [streaming_global_atlas_registry.h:90]
+GaussianStreamingSystem                             core/gaussian_streaming.h
+├── persistent_buffer (RID; chunks occupy buffer_slot ranges inside it)
+├── quantization_buffer (plain member)
+├── upload_pipeline (StreamingUploadPipeline: pack threads, pending uploads)
+└── global_atlas_registry (StreamingGlobalAtlasRegistry)
+    └── asset_meta_buffer, chunk_meta_buffer, asset_chunk_index_buffer
 
-TileRenderer                                        [renderer/tile_renderer.h]
-├── TileRenderTargets (output/depth/normal/resolved)
-├── TileShaderResources (binning/prefix/raster/resolve shaders + pipelines)
-├── TileGlobalSortResources (sort scratch + per-tile counts)
-├── TileUniformBuffers / TileProjectionBuffers
-├── TileSHCacheBuffers / TileSubpixelHistoryBuffers / TileSubpixelVisibilityBuffers
-└── TileResourceController (tracks output color/depth)
+TileRenderer                                        renderer/tile_renderer.h
+├── TileRenderTargets, TileShaderResources, TileGlobalSortResources (Ref&lt;IGPUSorter&gt; sorter)
+├── TileUniformBuffers, TileProjectionBuffers, TileSHCacheBuffers
+├── TileSubpixelHistoryBuffers, TileSubpixelVisibilityBuffers
+└── TileResourceController (tracks output colour/depth)
 
-GaussianSplatNode3D (per-instance, scene-side)      [nodes/gaussian_splat_node_3d.h]
-├── Ref&lt;GaussianSplatRenderer&gt; renderer             [node_3d.h:230]
-├── render_instance (RS instance RID)               [node_3d.h:207]
-├── gaussian_base (RS base RID)                     [node_3d.h:208]
-└── cached_viewport_render_target / texture         [node_3d.h:220-222]
+GaussianSplatNode3D (per node, scene side)          nodes/gaussian_splat_node_3d.h
+├── Ref&lt;GaussianSplatRenderer&gt; renderer, Ref&lt;GaussianData&gt; renderer_data
+├── render_instance (RS instance RID), gaussian_base (RS base RID)
+└── cached_viewport_render_target / _render_texture / _texture
 </code></pre></div>
 <h2 id="owners">Owners<a class="headerlink" href="#owners" title="Permanent link">¶</a></h2>
 <h3 id="gaussiansplatmanager">GaussianSplatManager<a class="headerlink" href="#gaussiansplatmanager" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianSplatManager</code> at
-   <code>modules/gaussian_splatting/core/gaussian_splat_manager.h:73</code>. Process-wide
-   singleton (<code>singleton</code> member at <code>:88</code>).</li>
-<li><strong>What it owns:</strong></li>
-<li><code>primary_local_device</code> (<code>std::atomic&lt;RenderingDevice *&gt;</code> at <code>:118</code>).</li>
-<li><code>shared_submission_device</code> (<code>std::atomic&lt;RenderingDevice *&gt;</code> at <code>:120</code>).</li>
-<li>GPU-buffer registry <code>gaussian_buffers</code> (<code>HashMap&lt;ObjectID, BufferEntry&gt;</code>
-     at <code>:104</code>) and the parallel <code>buffer_lookup</code> (<code>:105</code>) and
-     <code>gaussian_buffer_owner_devices</code> (<code>:106</code>) maps.</li>
-<li>Dynamic asset cache <code>dynamic_asset_cache</code> (<code>:107</code>) and
-     <code>dynamic_asset_owner_devices</code> (<code>:108</code>).</li>
-<li><code>active_nodes</code> (<code>HashSet&lt;ObjectID&gt;</code> at <code>:111</code>) — registered nodes for
-     per-frame processing.</li>
-<li>The static <code>submission_mutex</code> (<code>SafeBinaryMutex&lt;SUBMISSION_MUTEX_TAG&gt;</code>
-     at <code>:132</code>).</li>
-<li>The deferred device-destroy dispatcher
-     <code>local_device_destroy_dispatcher</code> (<code>:127</code>) plus pending pointers at
-     <code>:128</code>-<code>:129</code>.</li>
+<li><strong>Owner identity:</strong> <code>GaussianSplatManager</code> (<code>core/gaussian_splat_manager.h</code>), a process-wide
+   singleton (<code>GaussianSplatManager::singleton</code>). The constructor fails if a singleton already
+   exists.</li>
+<li><strong>What it owns:</strong> <code>primary_local_device</code> and <code>shared_submission_device</code>
+   (<code>std::atomic&lt;RenderingDevice *&gt;</code>). The buffer registry <code>gaussian_buffers</code>, with
+   <code>buffer_lookup</code> and <code>gaussian_buffer_owner_devices</code>. <code>dynamic_asset_cache</code> and
+   <code>dynamic_asset_owner_devices</code>. <code>active_nodes</code>. The static <code>submission_mutex</code>. The deferred
+   device-destroy dispatcher <code>local_device_destroy_dispatcher</code> and its pending device pointers.</li>
 <li><strong>Created where:</strong></li>
-<li>Singleton instantiated by <code>register_types.cpp:117</code> during
-     <code>MODULE_INITIALIZATION_LEVEL_SCENE</code>.</li>
-<li>Local <code>RenderingDevice</code> instances created lazily on the render thread via
-     <code>_create_local_device_on_render_thread()</code> (called from
-     <code>_request_primary_local_device()</code> / <code>_request_shared_local_device()</code>,
-     wrapped by <code>GS_STARTUP_SCOPE("device_request_primary")</code> at
-     <code>gaussian_splat_manager.cpp:255</code> and <code>"device_request_shared"</code> at
-     <code>:259</code>).</li>
-<li>Constructor itself wrapped by <code>GS_STARTUP_SCOPE("manager_construct")</code> at
-     <code>gaussian_splat_manager.cpp:219</code>.</li>
+<li><code>initialize_gaussian_splatting_module()</code> (<code>register_types.cpp</code>), at the SCENE level: <code>memnew</code>,
+     then <code>initialize_module()</code>, then <code>add_singleton("GaussianSplatManager")</code>.</li>
+<li>The constructor runs under <code>GS_STARTUP_SCOPE("manager_construct")</code>. It <em>requests</em> the local
+     devices through <code>_request_primary_local_device()</code> and <code>_request_shared_local_device()</code>
+     (scopes <code>device_request_primary</code> / <code>device_request_shared</code>). These post
+     <code>_create_local_device_on_render_thread</code> to the render thread, unless RenderDoc compatibility
+     mode is on. The devices themselves are created on the render thread.</li>
+<li><code>GaussianSplatManager::get_primary_rendering_device()</code> returns the main RenderingServer
+     device. It falls back to <code>primary_local_device</code> only when that is unavailable.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gaussian_splat_manager.cpp:666</code> performs sequential
-     teardown: <code>_disconnect_frame_callbacks()</code> →
-     <code>active_nodes.clear()</code> under <code>active_nodes_mutex</code> →
-     <code>_release_registered_resources()</code> (line <code>:676</code>) →
-     <code>_destroy_local_devices()</code> (line <code>:677</code>) → <code>singleton = nullptr</code>.</li>
-<li><code>finalize_module()</code> at <code>gaussian_splat_manager.cpp:1194</code> is called from
-     <code>register_types.cpp:242</code> and is a soft shutdown
-     (<code>_release_registered_resources</code> + <code>active_nodes.clear</code> +
-     <code>_disconnect_frame_callbacks</code>) that the destructor's full path then
-     finishes.</li>
-<li><strong>Idempotent:</strong> Yes for <code>_release_registered_resources()</code> (uses
-     <code>registered_resources_released</code> flag at <code>:110</code>) and
-     <code>_disconnect_frame_callbacks()</code> (gated by
-     <code>frame_callbacks_connected</code> at <code>:150</code>). The local-device destroy path
-     is single-shot under its own mutex.</li>
-<li><strong>Threading / locking:</strong> This is the canonical lock-hierarchy owner.</li>
-<li>Level 1 <code>submission_mutex</code> (static, <code>:132</code>).</li>
-<li>Level 2 <code>resource_maps_mutex</code> (<code>Mutex</code> at <code>:109</code>) — protects
-     <code>gaussian_buffers</code>, <code>buffer_lookup</code>, <code>dynamic_asset_cache</code>, and the
-     two <code>*_owner_devices</code> maps.</li>
-<li>Level 3 <code>active_nodes_mutex</code> (<code>Mutex</code> at <code>:112</code>).</li>
-<li>Level 4 <code>local_device_destroy_request_mutex</code> (<code>:125</code>) and
-     <code>local_device_destroy_pending_mutex</code> (<code>:126</code>).</li>
-<li>The full ordering and rules are spelled out in the header comment at
-     <code>gaussian_splat_manager.h:54-71</code>. DEV_ENABLED builds runtime-validate
-     via <code>_gs_lock_level_guard</code>.</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>Local-device creation requests are deferred to the render thread via
-     <code>_dispatch_local_device_destroy_on_render_thread</code> (see
-     <code>gaussian_splat_manager.h:145</code>); if the render thread is gone before
-     the dispatch lands, the devices fall through to
-     <code>_destroy_local_devices_immediate</code> (<code>:146</code>). This is the contract PR 1
-     hardens against init-failure cascades.</li>
+<li>Module shutdown (<code>uninitialize_gaussian_splatting_module()</code>) calls <code>remove_singleton</code>, then
+     <code>finalize_module()</code>, then <code>memdelete</code>. The director is deleted <em>before</em> the manager (#628).</li>
+<li><code>GaussianSplatManager::finalize_module()</code> is a soft shutdown: <code>_release_registered_resources()</code>,
+     then <code>active_nodes.clear()</code> under <code>active_nodes_mutex</code>, then <code>_disconnect_frame_callbacks()</code>.</li>
+<li><code>~GaussianSplatManager()</code> then runs, in order:<ol>
+<li><code>_disconnect_frame_callbacks()</code></li>
+<li><code>active_nodes.clear()</code> under <code>active_nodes_mutex</code></li>
+<li><code>_release_registered_resources()</code></li>
+<li><code>_destroy_local_devices()</code></li>
+<li><code>singleton = nullptr</code> (only if <code>singleton == this</code>)</li>
 </ol>
+</li>
+<li><strong>Idempotent:</strong> yes.<ul>
+<li><code>_release_registered_resources()</code> returns early once <code>registered_resources_released</code> is
+   set and both maps are empty. Entries whose owner device is unknown are kept and retried on
+   the next call.</li>
+<li><code>_disconnect_frame_callbacks()</code> returns early when <code>frame_callbacks_connected</code> is false.</li>
+<li><code>_destroy_local_devices()</code> is single-shot because it <code>exchange(nullptr)</code>s both device
+   atomics and returns if both were already null. The level-4 mutexes protect the dispatch
+   handoff, not idempotency.</li>
+</ul>
+</li>
+<li><strong>Threading / locking:</strong> this is the owner of the L1–L4 lock hierarchy, documented in the
+   header comment of <code>core/gaussian_splat_manager.h</code>:</li>
+<li>L1: static <code>submission_mutex</code>.</li>
+<li>L2: <code>resource_maps_mutex</code> (the buffer and dynamic-asset maps).</li>
+<li>L3: <code>active_nodes_mutex</code>.</li>
+<li>L4: <code>local_device_destroy_request_mutex</code> and <code>local_device_destroy_pending_mutex</code>.</li>
+</ol>
+<p>Development builds validate the order at run time through the <code>GS_LOCK_ORDER_GUARD</code> macro
+   (<code>_GSLockLevelGuard</code>, thread-local <code>_gs_held_lock_level</code>). The header comment still calls this
+   <code>_gs_lock_level_guard</code>.
+6. <strong>Known leak vectors / open gaps:</strong>
+   - <code>_dispatch_local_device_destroy_on_render_thread()</code> returns false in three cases: no
+     RenderingServer, already on the render thread, or render loop disabled. In those cases
+     <code>_destroy_local_devices_immediate()</code> runs on the calling thread.
+   - If the dispatch is submitted but times out, it returns true with a warning and does not
+     destroy anything immediately. Destruction is left to <code>_destroy_local_devices_on_render_thread()</code>.
+     If that callback never runs, the local devices are not freed. This follows from reading the
+     code and was <strong>not observed</strong> at run time.</p>
 <h3 id="gaussiansplatscenedirector">GaussianSplatSceneDirector<a class="headerlink" href="#gaussiansplatscenedirector" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianSplatSceneDirector</code> at
-   <code>modules/gaussian_splatting/core/gaussian_splat_scene_director.h:26</code>.
-   Singleton at <code>:353</code>.</li>
-<li><strong>What it owns:</strong></li>
-<li><code>worlds</code>: <code>HashMap&lt;RID, SharedWorld&gt;</code> at <code>scene_director.h:356</code>. Each
-     <code>SharedWorld</code> (<code>:319</code>) holds:<ul>
-<li><code>Ref&lt;GaussianSplatRenderer&gt; renderer</code> at <code>:321</code>. <strong>This is the strong
-   reference whose release is the only path that drops the renderer and
-   its entire GPU-resource graph.</strong></li>
-<li>Instance records, sphere effectors, world-submission record, and
-   asset records (<code>asset_records</code> <code>HashMap</code> at <code>:350</code>).</li>
-</ul>
-</li>
-<li><code>scene_effector_multi_match_warned_nodes</code> (<code>HashSet&lt;ObjectID&gt;</code> at <code>:357</code>)
-     — diagnostic state, no GPU resources.</li>
-<li><strong>Created where:</strong></li>
-<li>Singleton instantiated at <code>register_types.cpp:147</code>.</li>
-<li><code>SharedWorld</code> entries created lazily by
-     <code>_get_or_create_world_for_scenario()</code> at
-     <code>gaussian_splat_scene_director.cpp:362</code>. The renderer for the world is
-     constructed eagerly there at line <code>:390</code> (<code>Ref&lt;GaussianSplatRenderer&gt;(memnew(GaussianSplatRenderer(device)))</code>).</li>
-<li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gaussian_splat_scene_director.cpp:348</code> clears <code>worlds</code>
-     (line <code>:353</code>). The intent is captured in the comment that begins at
-     line <code>349</code> and continues through line <code>352</code>:
-     <div class="highlight"><pre><span></span><code>// Release all SharedWorld entries so their Ref&lt;GaussianSplatRenderer&gt;
-// instances are unreferenced, allowing GPU resources (compute/shader
-// RIDs, buffers) to be freed.  Without this, each F6 runtime cycle
-// leaks an entire renderer's worth of GPU allocations.
-</code></pre></div>
-     The literal text at line 351 is: <code>// RIDs, buffers) to be freed.  Without this, each F6 runtime cycle</code>.</li>
-<li>Per-scenario pruning is also wired via <code>_prune_world_if_unused()</code>
-     declared at <code>scene_director.h:396</code> (called from instance/effector
-     unregister paths once the world has nothing live left to track).</li>
-<li><strong>Idempotent:</strong> <code>worlds.clear()</code> is idempotent; subsequent destructor
-     calls (impossible — singleton) would no-op.</li>
-<li><strong>Threading / locking:</strong> <code>mutable Mutex world_mutex</code> at
-   <code>scene_director.h:355</code>. <strong>Every</strong> mutating and most reading methods take
-   this lock; nested lock acquisition with <code>GaussianSplatManager</code> locks is
-   never performed (the director does not enter the manager's L1-L4
-   hierarchy while holding <code>world_mutex</code>).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li><strong>F6 reload leak:</strong> Documented in the destructor comment cited above.
-     If the director is leaked (not destroyed at module finalization), every
-     <code>SharedWorld</code> keeps its renderer alive and the renderer's entire GPU
-     graph leaks. Module shutdown at <code>register_types.cpp:250</code>
-     (<code>memdelete(gaussian_splat_scene_director_singleton)</code>) is the only
-     normal release path. <strong>This is the canonical leak vector PR 4
-     (explicit SharedWorld teardown contract) formalizes.</strong></li>
-<li>The renderer creation path at <code>scene_director.cpp:390</code> runs even when
-     no <code>RenderingDevice</code> is available (early-returns at <code>:387</code> with a warn).
-     The retry on next <code>_get_or_create_world_for_scenario()</code> call relies on
-     <code>entry-&gt;renderer.is_valid()</code> being false — i.e. the
-     <code>worlds.insert(p_scenario, world)</code> at <code>:371</code> leaves an entry that other
-     code paths must tolerate without a renderer.</li>
+<li><strong>Owner identity:</strong> <code>GaussianSplatSceneDirector</code> (<code>core/gaussian_splat_scene_director.h</code>),
+   a singleton. The constructor sets <code>singleton</code> only if it is still null, and reports no error
+   otherwise.</li>
+<li><strong>What it owns:</strong> <code>world_registry</code> (<code>WorldRegistry</code>). It holds <code>worlds</code>, a
+   <code>HashMap&lt;RID, SharedWorld&gt;</code> keyed by scenario, introduced by #747 (#610 S8). Each
+   <code>SharedWorld</code> holds:</li>
+<li><code>scenario</code>;</li>
+<li><code>renderer_owner</code> (<code>RendererLifecycleOwner</code>), whose <code>renderer</code> member is the strong
+     <code>Ref&lt;GaussianSplatRenderer&gt;</code>. Releasing this reference is how a world drops its renderer and
+     the renderer's whole GPU graph;</li>
+<li><code>instance_store</code> (<code>InstanceStore</code>, which holds <code>asset_records</code>);</li>
+<li><code>sphere_effector_store</code>, <code>submission_store</code> and <code>lod_cache_owner</code>.</li>
 </ol>
+<p>The old <code>scene_effector_multi_match_warned_nodes</code> member no longer exists.
+3. <strong>Created where:</strong>
+   - <code>initialize_gaussian_splatting_module()</code>, SCENE level, after the manager: <code>memnew</code>, then
+     <code>add_singleton("GaussianSplatSceneDirector")</code>.
+   - <code>SharedWorld</code> entries are created lazily by
+     <code>GaussianSplatSceneDirector::_get_or_create_world_for_scenario()</code> through
+     <code>world_registry.insert</code>.
+   - When a renderer is required and none exists, <code>RendererLifecycleOwner::create()</code> constructs
+     it. GPU <code>initialize()</code> is deferred to <code>_initialize_world_renderer()</code>.
+   - If no <code>RenderingDevice</code> is available, the function logs an error once and returns the
+     inserted entry with no renderer. Other code paths must tolerate a world without a renderer.
+4. <strong>Destroyed where:</strong>
+   - <code>~GaussianSplatSceneDirector()</code> calls <code>world_registry.clear()</code>, then <code>singleton = nullptr</code>
+     (only if <code>singleton == this</code>). The F6 comment about releasing every <code>SharedWorld</code> is still
+     there. The destructor does <strong>not</strong> take <code>world_mutex</code>.
+   - Per-world release paths:
+     - <code>_prune_world_if_unused()</code> moves the renderer reference into the caller's deferred-release
+       list and erases the entry. Callers: <code>unregister_instance</code>, <code>update_sphere_effector</code>,
+       <code>unregister_sphere_effector</code>, <code>release_world_submission</code>, and the public
+       <code>try_prune_world_if_unused</code> (which <code>submit_world_submission</code> and the <code>NOTIFICATION_PREDELETE</code>
+       handlers of <code>GaussianSplatNode3D</code> and <code>GaussianSplatWorld3D</code> use).
+     - <code>teardown_world_for_scenario()</code> (#387) runs this order:
+       1. Under <code>world_mutex</code>: clear <code>instance_store</code> and <code>sphere_effector_store</code>, reset
+          <code>submission_store</code>, <code>renderer_owner.release()</code> into a local, erase the world.
+       2. Unlock, then <code>clear_world_submission_contract()</code>.
+       3. The local reference drops, so <code>~GaussianSplatRenderer</code> runs outside the lock.</p>
+<pre><code>   A missing entry returns early, which makes the call idempotent.
+ - `release_all_worlds()` snapshots the keys under the lock and calls
+   `teardown_world_for_scenario` for each one. At `eff00db450c` only the GPU test runner
+   (`tests/gs_gpu_test_runner.cpp`) calls it. Module shutdown does not; it relies on
+   `memdelete` → `world_registry.clear()`.
+</code></pre>
+<ul>
+<li><strong>Idempotent:</strong> yes. <code>clear()</code> on an empty registry is a no-op, and
+     <code>teardown_world_for_scenario</code> returns early for a missing world.</li>
+<li><strong>Threading / locking:</strong></li>
+<li><code>world_mutex</code> is a <code>GaussianSplatting::ThreadOwnedMutex</code>, a recursive mutex that records
+     its owner, and is taken through <code>ThreadOwnedMutexLock</code>.</li>
+<li><code>world_submission_apply_mutex</code> is always taken before <code>world_mutex</code>, and only in
+     <code>submit_world_submission</code>.</li>
+<li>Renderer references are released outside <code>world_mutex</code> by design (#611/#628; see
+     <code>RendererContractWorkQueue</code>).</li>
+<li>The director does not directly call into the manager's L1–L4 locks while holding
+     <code>world_mutex</code>. Its one manager call is <code>get_primary_rendering_device()</code>, which takes no
+     manager mutex. However, <code>RendererLifecycleOwner::create()</code> runs the <code>GaussianSplatRenderer</code>
+     constructor under <code>world_mutex</code>. Whether that constructor reaches a manager lock
+     transitively is <strong>unverified</strong>, and so is whether every director method takes the lock.</li>
+<li><strong>Known leak vectors / open gaps:</strong></li>
+<li><strong>F6 reload leak.</strong> A director that is never destroyed keeps every <code>SharedWorld</code>, and so
+     every renderer, alive. Since #387 there are explicit per-world release paths (the list above
+     and the PREDELETE prune), and the lifetime fixture covers the F6 scenario through
+     <code>teardown_world_for_scenario</code>. Module shutdown still releases worlds only through
+     <code>memdelete</code>, without the lock.</li>
+</ul>
 <h3 id="gaussiansplatrenderer">GaussianSplatRenderer<a class="headerlink" href="#gaussiansplatrenderer" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianSplatRenderer</code> (RefCounted) at
-   <code>modules/gaussian_splatting/renderer/gaussian_splat_renderer.h:144</code>. Storage
-   members live at <code>:595</code>-<code>:624</code> (state buckets and orchestrators) plus
-   <code>:732</code> (<code>shadow_output_compositor</code>).</li>
-<li><strong>What it owns:</strong> Composes the following sub-owners, each via a <code>Ref&lt;&gt;</code> in
-   <code>SubsystemState</code> (<code>render_facade_state_types.h:135</code>), <code>ResourceState</code>
-   (<code>:46</code>), <code>StreamingState</code> (<code>render_state_types.h:77</code>), <code>SortingState</code>
-   (<code>:114</code>), or <code>TileRendererState</code> (<code>:129</code>):</li>
-<li><code>SubsystemState::device_manager</code> (Ref<renderdevicemanager>) at
-     <code>render_facade_state_types.h:136</code>.</renderdevicemanager></li>
-<li><code>SubsystemState::debug_overlay_system</code>, <code>interactive_state_manager</code>,
-     <code>rasterizer</code>, <code>gpu_culler</code>, <code>output_compositor</code>, <code>sorting_pipeline</code>,
-     <code>overflow_auto_tuner</code>, <code>painterly_renderer</code>,
-     <code>painterly_material_manager</code> at <code>:137</code>-<code>:145</code>.</li>
-<li><code>ResourceState::buffer_manager</code> (Ref<gpubuffermanager>) at <code>:49</code>.</gpubuffermanager></li>
-<li><code>ResourceState::deletion_queue</code> (<code>GPUBufferManager::DeferredDeletionQueue</code>)
-     at <code>:51</code>.</li>
-<li><code>ResourceState</code> instance-pipeline buffers
-     (<code>instance_buffer</code>, <code>instance_grading_buffer</code>,
-     <code>instance_visible_chunk_buffer</code>, <code>instance_splat_ref_buffer</code>,
-     <code>instance_counter_buffer</code>, <code>instance_chunk_dispatch_buffer</code>,
-     <code>instance_indirect_count_buffer</code>, <code>instance_count_buffer</code>) at <code>:52</code>-<code>:79</code>.</li>
-<li>Resident atlas mirror buffers
-     (<code>resident_atlas_gaussian_buffer</code>, <code>resident_asset_meta_buffer</code>,
-     <code>resident_asset_chunk_index_buffer</code>, <code>resident_chunk_meta_buffer</code>,
-     <code>resident_quantization_buffer</code>) at <code>:80</code>-<code>:89</code>.</li>
-<li><code>StreamingState::memory_stream</code> (Ref<gaussianmemorystream>) at <code>:78</code> and
-     <code>current_streaming_system</code> (Ref<gaussianstreamingsystem>) at <code>:79</code>.</gaussianstreamingsystem></gaussianmemorystream></li>
-<li><code>StreamingState::registered_gaussian_buffer</code> at <code>render_state_types.h:84</code>
-     — the RID handed back to the manager on teardown.</li>
-<li><code>SortingState::gpu_sorter</code> (Ref<igpusorter>) at <code>:115</code>.</igpusorter></li>
-<li><code>TileRendererState::renderer</code> (Ref<tilerenderer>) at <code>:130</code>.</tilerenderer></li>
-<li><code>PipelineState::gaussian_shader</code> / <code>gaussian_shader_version</code> at
-     <code>gaussian_splat_renderer.h:201</code>-<code>:202</code>.</li>
-<li><code>TestDataState</code> vertex/position/scale/rotation/sh buffers at
-     <code>render_facade_state_types.h:119</code>-<code>:123</code>.</li>
-<li><code>shadow_output_compositor</code> (Ref<outputcompositor>) at
-     <code>gaussian_splat_renderer.h:732</code>.</outputcompositor></li>
-<li><code>ShadowBlitState</code> shader/pipeline cache/sampler at
-     <code>render_facade_state_types.h:148</code>-<code>:158</code>.</li>
+<li><strong>Owner identity:</strong> <code>GaussianSplatRenderer</code> (<code>renderer/gaussian_splat_renderer.h</code>), a
+   <code>RefCounted</code> that also implements <code>IRenderer</code>, <code>ISortResultSink</code> and <code>ISortBufferHostContext</code>.</li>
+<li><strong>What it owns:</strong> its state buckets do not all live on the renderer object; see the graph
+   above. The buckets are:</li>
+<li>On the renderer: <code>SubsystemState</code> (the ten <code>Ref&lt;&gt;</code> sub-owners), <code>TileRendererState</code>,
+     <code>TestDataState</code> (vertex, position, scale, rotation and SH buffers), <code>ShadowBlitState</code>
+     (<code>shader_source</code>, <code>shader</code>, <code>shader_owner</code>, <code>pipeline_cache</code>, <code>sampler</code>, <code>sampler_owner</code>)
+     and <code>shadow_output_compositor</code>.</li>
+<li>In <code>RenderResourceOrchestrator</code>: <code>ResourceState</code>. It holds <code>buffer_manager</code>, the
+     <code>deletion_queue</code>, eight instance-pipeline buffers (<code>instance_buffer</code>,
+     <code>instance_grading_buffer</code>, <code>instance_visible_chunk_buffer</code>, <code>instance_splat_ref_buffer</code>,
+     <code>instance_counter_buffer</code>, <code>instance_chunk_dispatch_buffer</code>, <code>instance_indirect_count_buffer</code>,
+     <code>instance_count_buffer</code>) and five resident contract buffers (<code>resident_atlas_gaussian_buffer</code>,
+     <code>resident_asset_meta_buffer</code>, <code>resident_asset_chunk_index_buffer</code>,
+     <code>resident_chunk_meta_buffer</code>, <code>resident_quantization_buffer</code>). It also holds <code>PipelineState</code>
+     (<code>gaussian_shader</code>, <code>gaussian_shader_version</code>, <code>gaussian_shader_source</code>,
+     <code>gaussian_shader_initialized</code>).</li>
+<li>In <code>RenderDataOrchestrator</code>: <code>StreamingState</code> (<code>memory_stream</code>, <code>current_streaming_system</code>,
+     <code>registered_gaussian_buffer</code>).</li>
+<li>In <code>RenderSortingOrchestrator</code>: <code>SortingState</code> (<code>gpu_sorter</code>).</li>
 <li><strong>Created where:</strong></li>
-<li>Constructor at <code>gaussian_splat_renderer.cpp:870</code>, wrapped by
-     <code>GS_STARTUP_SCOPE("renderer_construct")</code> at line <code>:871</code>. Called from
-     <code>GaussianSplatSceneDirector::_get_or_create_world_for_scenario()</code> at
-     <code>gaussian_splat_scene_director.cpp:390</code>. Sub-owners are instantiated
-     lazily during <code>_initialize_on_render_thread()</code> (declared at
-     <code>gaussian_splat_renderer.h:661</code>).</li>
+<li>The constructor <code>GaussianSplatRenderer(RenderingDevice *)</code>, under
+     <code>GS_STARTUP_SCOPE("renderer_construct")</code>, is called from
+     <code>GaussianSplatSceneDirector::RendererLifecycleOwner::create()</code>.</li>
+<li>The constructor eagerly instantiates every <code>SubsystemState</code> sub-owner except <code>rasterizer</code>,
+     including <code>device_manager</code>, which it also initializes.</li>
+<li><code>buffer_manager</code> is created in the <code>RenderResourceOrchestrator</code> constructor and
+     <code>memory_stream</code> in the <code>RenderDataOrchestrator</code> constructor.</li>
+<li><code>tile_renderer_state.renderer</code> and <code>rasterizer</code> are created in
+     <code>RenderResourceOrchestrator::create_gpu_resources_safe()</code>, which also initializes
+     <code>GPUBufferManager</code> under <code>GS_STARTUP_SCOPE("gpu_buffer_manager_init")</code>.</li>
+<li><code>shadow_output_compositor</code> is created on demand by <code>_ensure_shadow_output_compositor()</code>.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gaussian_splat_renderer.cpp:1216</code> performs the
-     project-settings disconnect, diagnostics unregister, and performance
-     monitor unregister, then attempts
-     <code>_dispatch_call_on_render_thread_blocking(_teardown_on_render_thread)</code>.
-     If the dispatch is rejected, it falls back to a synchronous
-     <code>_teardown_resources()</code> (line <code>:1239</code>).</li>
-<li><code>_teardown_resources()</code> at <code>gaussian_splat_renderer.cpp:1242</code> is the
-     full release path. It is <strong>explicitly idempotent</strong>: a
-     <code>std::atomic&lt;bool&gt; teardown_resources_started</code> (at
-     <code>gaussian_splat_renderer.h:624</code>) is <code>compare_exchange_strong</code>-flipped
-     at line <code>:1244</code>; second entry returns immediately.</li>
-<li>Order of release inside <code>_teardown_resources()</code>:<ul>
-<li><code>_release_shared_dynamic_asset()</code> (<code>:1248</code>) →
-   <code>get_resource_state().deletion_queue.flush_all()</code> (<code>:1249</code>).</li>
-<li>Both <code>OutputCompositor</code>s shutdown + <code>clear_cached_framebuffers()</code> +
-   <code>clear_viewport_blit_resources()</code> (<code>:1253</code>-<code>:1264</code>).</li>
-<li><code>streaming_state.registered_gaussian_buffer</code> handed back to the
-   manager via <code>unregister_gaussian_buffer()</code> (<code>:1271</code>-<code>:1279</code>).</li>
-<li><code>TileRenderer::cleanup()</code> (<code>:1284</code>).</li>
-<li><code>StreamingState::current_streaming_system.unref()</code> (<code>:1293</code>) and
-   <code>memory_stream-&gt;shutdown()</code> + <code>unref()</code> (<code>:1296</code>-<code>:1297</code>).</li>
-<li><code>gpu_culler-&gt;shutdown()</code> (<code>:1304</code>), <code>interactive_state_manager</code>
-   shutdown (<code>:1308</code>), <code>debug_overlay_system</code> shutdown (<code>:1312</code>),
-   <code>sorting_pipeline-&gt;release_sort_buffers()</code> + <code>shutdown()</code>
-   (<code>:1318</code>-<code>:1319</code>), <code>painterly_renderer-&gt;free_painterly_resources()</code>
-   (<code>:1324</code>).</li>
-<li><code>buffer_manager.unref()</code> (<code>:1329</code>),
-   <code>gpu_sorter-&gt;shutdown()</code> (<code>:1334</code>).</li>
-<li><code>_release_resident_contract_buffers()</code> (<code>:1338</code>, defined at <code>:1387</code>)
-   releases the 4 resident_atlas_*_buffer RIDs.</li>
-<li>Direct <code>_free_owned_resource()</code> calls for the instance-pipeline
-   buffers and TestData buffers (<code>:1349</code>-<code>:1365</code>).</li>
-<li><code>pipeline_state.gaussian_shader_source</code> <code>memdelete</code> (<code>:1371</code>).</li>
-<li><code>device_manager-&gt;shutdown()</code> last (<code>:1377</code>).</li>
-</ul>
+<li><code>~GaussianSplatRenderer()</code> runs, in order:<ol>
+<li>Disconnect the ProjectSettings <code>settings_changed</code> handler.</li>
+<li><code>GaussianRenderingDiagnostics::unregister_renderer(this)</code>.</li>
+<li><code>GaussianSplattingPerformanceMonitors::unregister_splat_renderer(this)</code>.</li>
+<li><code>_dispatch_call_on_render_thread_blocking(_teardown_on_render_thread, …, allow_timeout = false)</code>.
+    If the dispatch was submitted, return.</li>
+<li>Otherwise, call <code>_teardown_resources()</code> synchronously.</li>
+</ol>
 </li>
-<li><strong>Idempotent:</strong> Yes — <code>teardown_resources_started</code> guard at <code>:1244</code>
-     guarantees single-shot.</li>
-<li><strong>Threading / locking:</strong> Teardown is dispatched onto the render thread
-   when possible (see <code>IRenderThreadDispatcher</code> contract at
-   <code>interfaces/render_thread_dispatcher.h:10</code>-<code>:25</code>). The renderer itself
-   does not own a process-wide mutex; orchestrators and sub-owners use their
-   own locks (e.g. <code>GaussianSplatManager::ScopedSubmissionLock</code> via
-   <code>acquire_submission_lock()</code>).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>If the renderer is leaked through its <code>Ref&lt;&gt;</code> (e.g. director leak,
-     see F6 leak vector), <code>_teardown_resources()</code> never runs and <strong>every
-     sub-owner above leaks transitively</strong>. This is precisely why PR 4
-     formalizes the director's SharedWorld teardown.</li>
-<li><code>RenderResourceOrchestrator</code> (<code>renderer/render_resource_orchestrator.*</code>,
-     declared at <code>gaussian_splat_renderer.h:620</code>) initializes
-     <code>GPUBufferManager</code> under <code>GS_STARTUP_SCOPE("gpu_buffer_manager_init")</code>
-     at <code>render_resource_orchestrator.cpp:165</code>. Failed init must roll back to
-     match <code>_teardown_resources()</code> expectations — this is PR 3's
-     instrumentation surface.</li>
+<li>
+<p><code>GaussianSplatRenderer::_teardown_resources()</code> is the full release path. Its order:</p>
+<ol>
+<li><code>teardown_resources_started.compare_exchange_strong(false → true)</code>. Return if it was
+    already set.</li>
+<li><code>_release_shared_dynamic_asset()</code>, then <code>deletion_queue.flush_all()</code>.</li>
+<li>Primary <code>output_compositor</code>: <code>clear_cached_framebuffers()</code>,
+    <code>clear_viewport_blit_resources()</code>, <code>shutdown()</code>, <code>unref()</code>.</li>
+<li><code>shadow_output_compositor</code>: the same four calls.</li>
+<li><code>shadow_blit_state.clear(rd)</code>.</li>
+<li><code>registered_gaussian_buffer</code>: forget its owner, then
+    <code>GaussianSplatManager::unregister_gaussian_buffer()</code>, then reset it.</li>
+<li>TileRenderer: <code>_forget_tile_renderer_outputs()</code>, <code>cleanup()</code>, <code>unref()</code>.</li>
+<li><code>test_data_state.mesh_instances.clear()</code>.</li>
+<li><code>current_streaming_system.unref()</code>.</li>
+<li><code>memory_stream-&gt;shutdown()</code>, then <code>unref()</code>.</li>
+<li><code>_invalidate_static_chunk_caches(true)</code>.</li>
+<li><code>gpu_culler</code>, <code>interactive_state_manager</code>, <code>debug_overlay_system</code>: <code>shutdown()</code> then
+     <code>unref()</code> each, in that order.</li>
+<li><code>sorting_pipeline</code>: rebind sink and host context, <code>release_sort_buffers()</code>,
+     <code>shutdown()</code>, <code>unref()</code>.</li>
+<li><code>painterly_renderer-&gt;free_painterly_resources(this)</code>, then <code>unref()</code>.</li>
+<li><code>buffer_manager.unref()</code>.</li>
+<li><code>gpu_sorter-&gt;shutdown()</code>, then <code>unref()</code>.</li>
+<li><code>_release_resident_contract_buffers()</code>: frees the five resident contract buffers
+     through their recorded owner (an RID with no owner is just nulled), then zeroes the
+     atlas counters.</li>
+<li>Only if the device is non-null: <code>version_free</code> the gaussian shader, then
+     <code>_free_owned_resource()</code> on the eight instance-pipeline buffers and then the five
+     TestData buffers.</li>
+<li><code>memdelete(gaussian_shader_source)</code>.</li>
+<li><code>device_manager-&gt;shutdown()</code>, snapshot its counts for the lifetime fixture, then
+     <code>unref()</code>. The device manager is released last.</li>
+</ol>
+<p><code>painterly_material_manager</code>, <code>overflow_auto_tuner</code>, <code>rasterizer</code> and the orchestrators are
+ not released explicitly. They drop when the renderer's members are destroyed.
+   - <strong>Idempotent:</strong> yes. The <code>teardown_resources_started</code> atomic guarantees one entry.
+5. <strong>Threading / locking:</strong>
+   - Teardown is dispatched to the render thread when possible (see
+ <a href="#thread-safety-contracts">Thread-safety contracts</a>).
+   - The renderer owns no process-wide mutex. It owns a per-instance <code>render_thread_dispatcher</code>,
+ whose <code>RenderThreadDispatcher</code> has its own <code>dispatch_mutex</code>.
+   - Sub-owners that submit GPU work take <code>GaussianSplatManager::ScopedSubmissionLock</code> through
+ <code>acquire_submission_lock()</code>.
+6. <strong>Known leak vectors / open gaps:</strong>
+   - If the renderer <code>Ref&lt;&gt;</code> is leaked (for example through a leaked director),
+ <code>_teardown_resources()</code> never runs and every sub-owner leaks with it.
+   - When <code>GPUBufferManager</code> initialization fails in <code>create_gpu_resources_safe()</code>, the
+ orchestrator only marks <code>buffer_manager_initialized = false</code>. The partial-allocation
+ rollback is inside <code>GPUBufferManager::create_buffers()</code>, which calls <code>cleanup_buffers()</code>.</p>
+</li>
 </ol>
 <h3 id="renderdevicemanager">RenderDeviceManager<a class="headerlink" href="#renderdevicemanager" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class RenderDeviceManager</code> (RefCounted) at
-   <code>modules/gaussian_splatting/interfaces/render_device_manager.h:51</code>. Field
-   storage at <code>:124</code>-<code>:150</code>.</li>
+<li><strong>Owner identity:</strong> <code>RenderDeviceManager</code> (<code>interfaces/render_device_manager.h</code>), a
+   <code>RefCounted</code> that implements <code>IRenderDeviceManager</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>main_rd</code>, <code>local_rd</code>, <code>submission_rd</code> device pointers (<code>:124</code>-<code>:126</code>).</li>
-<li><code>resource_owner_map</code> (<code>HashMap&lt;uint64_t, RenderingDevice *&gt;</code> at <code>:142</code>)
-     and the parallel <code>resource_owner_instance_id_map</code> (<code>:143</code>),
-     <code>resource_ownership_map</code> (<code>:144</code>), <code>resource_label_map</code> (<code>:145</code>),
-     <code>resource_type_map</code> (<code>:146</code>).</li>
-<li><code>texture_owner_map</code> (<code>HashMap&lt;uint64_t, RenderingDevice *&gt;</code> at <code>:147</code>)
-     — textures are tracked separately.</li>
-<li>Diagnostic counters
-     <code>last_shutdown_tracked_resource_count</code> (<code>:148</code>),
-     <code>last_shutdown_owned_resource_count</code> (<code>:149</code>),
-     <code>last_shutdown_borrowed_resource_count</code> (<code>:150</code>); accessors at
-     <code>:115</code>-<code>:117</code>.</li>
-<li>Diagnostics ring buffers <code>texture_trace</code> (<code>:153</code>),
-     <code>cross_device_ops</code> (<code>:154</code>), capped at <code>MAX_TRACE_ENTRIES = 1000</code> (<code>:155</code>).</li>
-<li><strong>Created where:</strong> Default-constructed at
-   <code>render_device_manager.cpp:84</code>. <code>initialize()</code> at <code>:91</code> binds the primary
-   <code>RenderingDevice</code>. Instantiated by <code>RenderResourceOrchestrator</code> during
-   renderer init (entry into <code>SubsystemState::device_manager</code>).</li>
+<li>The device pointers <code>main_rd</code>, <code>local_rd</code>, <code>submission_rd</code> and the flag <code>owns_local_rd</code>.</li>
+<li>Tracking maps: <code>resource_owner_map</code>, <code>resource_owner_instance_id_map</code>,
+     <code>resource_ownership_map</code>, <code>resource_label_map</code>, <code>resource_type_map</code>, <code>texture_owner_map</code>.</li>
+<li>Shutdown counters <code>last_shutdown_tracked_resource_count</code>,
+     <code>last_shutdown_owned_resource_count</code> and <code>last_shutdown_borrowed_resource_count</code>, with their
+     accessors.</li>
+<li>The trace buffers <code>texture_trace</code> and <code>cross_device_ops</code>, capped at <code>MAX_TRACE_ENTRIES</code>
+     (1000).</li>
+<li><strong>Created where:</strong> instantiated and initialized (<code>RenderDeviceManager::initialize()</code>) in the
+   <code>GaussianSplatRenderer</code> constructor.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>render_device_manager.cpp:87</code> calls <code>shutdown()</code>.</li>
-<li><code>shutdown()</code> at <code>:119</code>: snapshots <code>last_shutdown_*</code> counts
-     (<code>:120</code>-<code>:122</code>), <code>ERR_PRINT</code>s if owned resources remain (<code>:123</code>-<code>:126</code>),
-     clears all six tracking maps + texture/cross-device traces
-     (<code>:128</code>-<code>:135</code>), drops device pointers (<code>:142</code>-<code>:144</code>), clears
-     <code>owns_local_rd</code> (<code>:145</code>).</li>
-<li><strong>Idempotent:</strong> Yes — <code>shutdown()</code> re-runs are no-ops because all maps
-     are already empty and pointers are already null.</li>
-<li><strong>Threading / locking:</strong> No internal mutex; the manager is expected to be
-   accessed from a single owning thread context (the renderer's
-   render-thread teardown path).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>The <code>ERR_PRINT</code> at <code>:123</code>-<code>:126</code> is the only diagnostic that fires when
-     a renderer drops the device manager with un-freed RIDs. PR 3's
-     lifetime-proof fixture should assert
-     <code>get_last_shutdown_owned_resource_count() == 0</code> after a clean teardown.</li>
+<li><code>~RenderDeviceManager()</code> calls <code>shutdown()</code>.</li>
+<li><code>RenderDeviceManager::shutdown()</code> runs, in order:<ol>
+<li>Snapshot the tracked, owned and borrowed counts.</li>
+<li><code>ERR_PRINT</code> if any owned resources remain.</li>
+<li>Clear the six maps and both traces.</li>
+<li>Null <code>local_rd</code> if it is owned and differs from <code>main_rd</code>.</li>
+<li>Null all three device pointers.</li>
+<li>Clear <code>owns_local_rd</code>.</li>
+</ol>
+</li>
+<li><strong>Idempotent:</strong> for resources, yes. There is no guard, but a second run finds empty maps.
+     A second run does overwrite the <code>last_shutdown_*</code> counters with zero, and the destructor
+     always runs one after the renderer's explicit call. The renderer therefore snapshots the
+     counts before <code>unref()</code>.</li>
+<li><strong>Threading / locking:</strong> no internal mutex. It is used from the renderer's owning thread
+   context.</li>
+<li><strong>Known leak vectors / open gaps:</strong> the <code>ERR_PRINT</code> in <code>shutdown()</code> is the only built-in
+   signal for un-freed owned RIDs. The lifetime fixture asserts on the snapshot through
+   <code>GaussianSplatRenderer::test_get_last_teardown_rdm_owned_count()</code>.</li>
 </ol>
 <h3 id="outputcompositor">OutputCompositor<a class="headerlink" href="#outputcompositor" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class OutputCompositor</code> (RefCounted) at
-   <code>modules/gaussian_splatting/interfaces/output_compositor.h:22</code>. Field
-   storage at <code>:222</code>-<code>:243</code>.</li>
+<li><strong>Owner identity:</strong> <code>OutputCompositor</code> (<code>interfaces/output_compositor.h</code>), a <code>RefCounted</code>
+   that implements <code>IOutputCompositor</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>output_cache.cached_framebuffers</code> — <code>HashMap&lt;uint64_t, CachedFramebuffer&gt;</code>
-     at <code>output_compositor.h:115</code>. <strong>Unbounded.</strong> One entry per
-     <code>(device, attachment-key)</code> combination; editor viewport reformats /
-     device switches accumulate entries indefinitely.</li>
-<li><code>output_cache.framebuffer_validation_cache</code> — <code>HashMap</code> at <code>:116</code>,
-     same unboundedness profile.</li>
-<li><code>viewport_blit_variants</code> (<code>HashMap&lt;uint64_t, ViewportBlitVariant&gt;</code> at
-     <code>:235</code>) — shader + pipeline per <code>(device, format)</code>.</li>
-<li><code>viewport_blit_samplers</code> (<code>:236</code>).</li>
-<li><code>viewport_blit_scratch</code> (<code>HashMap&lt;uint64_t, ViewportBlitScratch&gt;</code> at
-     <code>:237</code>) — bounded LRU; per-<code>(device, format)</code> entry cap is
-     <code>VIEWPORT_BLIT_SCRATCH_MAX_PER_KIND = 4</code> at <code>output_compositor.h:220</code>.</li>
-<li><code>viewport_blit_shader_source</code> (<code>ViewportBlitShaderRD *</code> at <code>:238</code>).</li>
-<li><code>srgb_format_cache</code> (<code>HashMap&lt;uint64_t, bool&gt;</code> at <code>:232</code>).</li>
-<li><code>final_render_texture</code> RID (<code>:243</code>).</li>
-<li><strong>Created where:</strong> Constructed via <code>Ref&lt;OutputCompositor&gt;</code> inside the
-   renderer's <code>SubsystemState</code> (<code>output_compositor</code> field at
-   <code>render_facade_state_types.h:141</code>) and as <code>shadow_output_compositor</code> at
-   <code>gaussian_splat_renderer.h:732</code>. <code>initialize(RenderingDevice *)</code> is the
-   first-use entry point declared at <code>output_compositor.h:31</code>. Cached
-   framebuffers are created lazily by <code>get_cached_framebuffer()</code> (<code>:40</code>).
-   Scratch entries by <code>_ensure_viewport_blit_scratch()</code> (<code>:259</code>).</li>
+<li>Two framebuffer caches in <code>OutputCacheState</code>: <code>cached_framebuffers</code> (keyed by texture ID)
+     and <code>framebuffer_validation_cache</code>. Both are LRU-capped at
+     <code>MAX_CACHED_FRAMEBUFFER_FORMATS</code> (8) since #388.</li>
+<li><code>viewport_blit_variants</code>, <code>viewport_blit_samplers</code>, <code>viewport_blit_shader_source</code> and
+     <code>srgb_format_cache</code>.</li>
+<li><code>viewport_blit_scratch</code>, an LRU with <code>VIEWPORT_BLIT_SCRATCH_MAX_PER_KIND</code> (4) entries per
+     kind.</li>
+<li><code>final_render_texture</code>, plus a <code>Ref&lt;RenderDeviceManager&gt; device_manager</code>.</li>
+<li><strong>Created where:</strong></li>
+<li>The primary compositor is instantiated in the <code>GaussianSplatRenderer</code> constructor; the
+     shadow compositor in <code>_ensure_shadow_output_compositor()</code>.</li>
+<li><code>initialize()</code> is called by <code>RenderOutputOrchestrator</code>, by the raster stage, and by the
+     shadow path.</li>
+<li>Framebuffers are created lazily by <code>get_cached_framebuffer()</code>, and scratch entries by
+     <code>_ensure_viewport_blit_scratch()</code>.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor declared at <code>output_compositor.h:28</code>.</li>
-<li><code>shutdown()</code> declared at <code>:32</code>; renderer calls it from
-     <code>_teardown_resources()</code> at <code>gaussian_splat_renderer.cpp:1256</code> (primary)
-     and <code>:1262</code> (shadow), preceded by <code>clear_cached_framebuffers()</code> (<code>:41</code>)
-     and <code>clear_viewport_blit_resources()</code> (<code>:42</code>).</li>
-<li><strong>Idempotent:</strong> Tracked via <code>bool initialized</code> at <code>output_compositor.h:224</code>
-     and the <code>rd</code> device pointer at <code>:225</code>; <code>is_initialized()</code> (<code>:33</code>)
-     gates re-entry.</li>
-<li><strong>Threading / locking:</strong> Single-owner; no internal mutex. Renderer
-   serializes calls on the render thread.</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li><strong><code>cached_framebuffers</code> is unbounded</strong> — see <code>output_compositor.h:115</code>
-     and the comment block at <code>:216</code>-<code>:219</code> explaining why the scratch
-     pool needed an LRU. The same reasoning applies to the framebuffer
-     cache but the bound is not yet in place. <strong>This is the canonical
-     motivation for PR 5 (OutputCompositor LRU bound).</strong></li>
-<li><code>framebuffer_validation_cache</code> shares the same unboundedness profile
-     and should be sized in the same change.</li>
+<li><code>~OutputCompositor()</code> calls <code>shutdown()</code>.</li>
+<li>
+<p><code>OutputCompositor::shutdown()</code> runs, in order:</p>
+<ol>
+<li><code>clear_cached_framebuffers()</code></li>
+<li><code>clear_viewport_blit_resources()</code></li>
+<li>Delete <code>viewport_blit_shader_source</code>.</li>
+<li>Reset <code>final_render_texture</code>, <code>output_cache</code> and the reuse flag.</li>
+<li><code>initialized = false</code>.</li>
+<li><code>rd = nullptr</code>.</li>
+</ol>
+<p>The renderer calls both clears itself before <code>shutdown()</code>, so they run twice.
+   - <strong>Idempotent:</strong> yes, but only because the clears over empty maps are no-ops. Nothing
+ guards it, and <code>is_initialized()</code> does not gate <code>shutdown()</code>.
+5. <strong>Threading / locking:</strong> single owner, no internal mutex. The renderer serializes calls on the
+   render thread.
+6. <strong>Known leak vectors / open gaps:</strong> the unbounded framebuffer-cache vector from the first
+   version was fixed by #388. The eviction is in <code>_evict_oldest_cached_framebuffer_if_needed()</code>
+   and <code>_evict_oldest_framebuffer_validation_if_needed()</code>.</p>
+</li>
 </ol>
 <h3 id="gaussianstreamingsystem">GaussianStreamingSystem<a class="headerlink" href="#gaussianstreamingsystem" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianStreamingSystem</code> (RefCounted) at
-   <code>modules/gaussian_splatting/core/gaussian_streaming.h:29</code>. Field storage
-   at <code>:67</code>-<code>:120</code>.</li>
+<li><strong>Owner identity:</strong> <code>GaussianStreamingSystem</code> (<code>core/gaussian_streaming.h</code>), a <code>RefCounted</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>persistent_buffer</code> (RID) at <code>gaussian_streaming.h:90</code>.</li>
-<li><code>persistent_buffer_size</code> and right-sizing counters
-     (<code>streaming_initial_capacity</code>, <code>streaming_current_capacity</code>,
-     <code>streaming_max_capacity</code>, <code>streaming_grow_count</code>) at <code>:91</code>-<code>:97</code>.</li>
-<li><code>chunks[*].gpu_buffer</code> (per-chunk RIDs in <code>LocalVector&lt;StreamingChunk&gt;</code>
-     at <code>:86</code>).</li>
-<li>Quantization buffer state (in <code>StreamingQuantization</code> aggregate;
-     released by <code>_release_quantization_buffer()</code>).</li>
-<li><code>frame_data[RING_BUFFER_FRAMES]</code> ring (<code>:67</code>) with
-     <code>RING_BUFFER_FRAMES = 3</code> at <code>:39</code>.</li>
-<li><code>atlas_allocator</code> (<code>GaussianAtlasAllocator</code> at <code>:82</code>) — CPU-side slot
-     bookkeeping.</li>
-<li><code>global_atlas_registry</code> (<code>StreamingGlobalAtlasRegistry</code> at <code>:83</code>) — sub-owner
-     of asset/chunk meta buffers (see next section).</li>
-<li><code>upload_pipeline</code> (<code>StreamingUploadPipeline</code> at <code>:75</code>) — pack threads
-     and pending upload payloads.</li>
-<li><strong>Created where:</strong> Constructor at <code>gaussian_streaming.cpp:893</code>. The
-   <code>persistent_buffer</code> is allocated by <code>initialize()</code> (anchored by
-   <code>GS_STARTUP_SCOPE("streaming_persistent_buffer_alloc")</code> at
-   <code>gaussian_streaming.cpp:1266</code>); growth in
-   <code>_grow_persistent_buffer()</code> at <code>:967</code>. Atlas registry CPU state built at
-   <code>GS_STARTUP_SCOPE("streaming_atlas_build_cpu")</code> at <code>:1314</code>; GPU sync at
-   <code>"streaming_atlas_sync_gpu"</code> at <code>:1318</code>.</li>
+<li><code>persistent_buffer</code> and its right-sizing counters (<code>streaming_initial_capacity</code>,
+     <code>streaming_current_capacity</code>, <code>streaming_max_capacity</code>, <code>streaming_grow_count</code>).</li>
+<li>Chunks hold no RID of their own. A <code>StreamingChunk</code> (<code>core/streaming_asset_types.h</code>) records
+     a <code>buffer_slot</code> inside <code>persistent_buffer</code> and its <code>upload_device</code>.</li>
+<li>Quantization state is plain members (<code>quantization_buffer</code>, <code>quantization_buffer_size</code>,
+     <code>quantization_gpu_data</code>, …). There is no <code>StreamingQuantization</code> aggregate.
+     <code>_release_quantization_buffer()</code> is defined in <code>core/streaming_quantization.cpp</code>.</li>
+<li>The <code>frame_data[RING_BUFFER_FRAMES]</code> ring (3 frames), <code>atlas_allocator</code> (CPU slot
+     bookkeeping), <code>global_atlas_registry</code>, and <code>upload_pipeline</code> (<code>StreamingUploadPipeline</code>,
+     which owns the pack threads and pending uploads).</li>
+<li><strong>Created where:</strong></li>
+<li>The constructor runs first.</li>
+<li><code>GaussianStreamingSystem::initialize()</code> allocates <code>persistent_buffer</code> under
+     <code>GS_STARTUP_SCOPE("streaming_persistent_buffer_alloc")</code>, then builds the atlas registry
+     (<code>streaming_atlas_build_cpu</code>) and syncs it to the GPU (<code>streaming_atlas_sync_gpu</code>).</li>
+<li><code>initialize_empty()</code> also allocates <code>persistent_buffer</code>.</li>
+<li><code>_grow_persistent_buffer()</code> grows it.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gaussian_streaming.cpp:921</code>:<ul>
-<li><code>_layout_hint_reset_state()</code> + <code>_stop_pack_threads()</code> +
-   <code>_clear_pending_uploads()</code> (<code>:922</code>-<code>:924</code>).</li>
-<li>Resolves the upload device by falling back through
-   <code>primary_device_override</code> → <code>last_upload_device</code> →
-   <code>manager-&gt;get_primary_rendering_device()</code> (<code>:928</code>-<code>:930</code>).</li>
-<li><code>_release_persistent_buffer(rd, "destructor")</code> (<code>:931</code>) — defined at
-   <code>:944</code>; guards against null-RID and null-device cases.</li>
-<li><code>global_atlas_registry.cleanup(rd)</code> (<code>:932</code>).</li>
-<li>Loop frees each <code>chunk.gpu_buffer</code> (<code>:934</code>-<code>:938</code>).</li>
-<li><code>_release_quantization_buffer(rd, "destructor", false)</code> (<code>:941</code>).</li>
-</ul>
+<li>
+<p><code>~GaussianStreamingSystem()</code> runs, in order:</p>
+<ol>
+<li><code>_layout_hint_reset_state(this)</code>.</li>
+<li><code>_stop_pack_threads()</code>, which delegates to <code>upload_pipeline</code>.</li>
+<li><code>_clear_pending_uploads()</code>.</li>
+<li>Resolve <code>rd</code>: <code>primary_device_override</code>, then <code>last_upload_device</code>, then
+    <code>GaussianSplatManager::get_primary_rendering_device()</code>, else null.</li>
+<li><code>_release_persistent_buffer(rd, "destructor")</code>.</li>
+<li><code>global_atlas_registry.cleanup(rd)</code>.</li>
+<li><code>_release_quantization_buffer(rd, "destructor", false)</code>.</li>
+</ol>
+<p>The per-chunk free loop of the first version no longer exists.
+   - <strong>Idempotent:</strong> yes. <code>_release_persistent_buffer()</code> returns early on an invalid RID and
+ always clears the RID and size. <code>_release_quantization_buffer()</code> returns early on an
+ invalid RID.
+5. <strong>Threading / locking:</strong> pack threads are stopped first, in the destructor. Whether the rest
+   of the system is single-threaded is <strong>unverified</strong>.
+6. <strong>Known leak vectors / open gaps:</strong> if <code>rd</code> cannot be resolved,
+   <code>_release_persistent_buffer()</code> and <code>_release_quantization_buffer()</code> each <code>WARN_PRINT</code> and drop
+   the RID without freeing it. The upstream owner that destroyed the device first is charged with
+   the leak.</p>
 </li>
-<li><strong>Idempotent:</strong> <code>_release_persistent_buffer()</code> re-resets fields to
-     zero on each entry, so a second destruction would no-op. Per-chunk
-     frees guard on <code>chunk.gpu_buffer.is_valid()</code> (<code>:935</code>).</li>
-<li><strong>Threading / locking:</strong> Pack threads spun up by <code>upload_pipeline</code> are
-   stopped explicitly at destructor entry (<code>:923</code>); single-thread main
-   path otherwise.</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>The destructor depends on resolving a <code>RenderingDevice</code> at line <code>:928</code>.
-     If both <code>primary_device_override</code> and <code>last_upload_device</code> are null and
-     the manager singleton is already gone (rare during partial shutdown),
-     <code>_release_persistent_buffer()</code> <code>WARN_PRINT</code>s and drops the RID
-     handle without calling <code>rd-&gt;free()</code> (see <code>:957</code>-<code>:961</code>). That is a
-     resource leak charged to the upstream owner that destroyed the
-     manager first.</li>
 </ol>
 <h3 id="streamingglobalatlasregistry">StreamingGlobalAtlasRegistry<a class="headerlink" href="#streamingglobalatlasregistry" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class StreamingGlobalAtlasRegistry</code> at
-   <code>modules/gaussian_splatting/core/streaming_global_atlas_registry.h:22</code>.
-   Stored by value as a member of <code>GaussianStreamingSystem</code>
-   (<code>global_atlas_registry</code> at <code>gaussian_streaming.h:83</code>).</li>
+<li><strong>Owner identity:</strong> <code>StreamingGlobalAtlasRegistry</code>
+   (<code>core/streaming_global_atlas_registry.h</code>). It is not <code>RefCounted</code>. It is stored by value as
+   <code>GaussianStreamingSystem::global_atlas_registry</code> and is a friend of that class.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>asset_meta_buffer</code> (RID) at
-     <code>streaming_global_atlas_registry.h:88</code>.</li>
-<li><code>chunk_meta_buffer</code> (RID) at <code>:89</code>.</li>
-<li><code>asset_chunk_index_buffer</code> (RID) at <code>:90</code>.</li>
-<li>Companion CPU-side mirrors <code>asset_meta_cpu</code> (<code>:94</code>), <code>chunk_meta_cpu</code>
-     (<code>:95</code>), <code>asset_chunk_index_cpu</code> (<code>:96</code>) plus dirty-tracking vectors.</li>
-<li><code>global_atlas_state</code> (<code>GlobalAtlasState</code>, defined at <code>:12</code>) which
-     republishes the same RIDs plus the atlas-wide
-     <code>atlas_gaussian_buffer</code> and <code>quantization_buffer</code> for renderer
-     consumption.</li>
-<li><strong>Created where:</strong> Buffers built by <code>sync_to_gpu()</code> (declared at <code>:48</code>),
-   called from the streaming frame pipeline at
-   <code>GS_STARTUP_SCOPE("streaming_atlas_sync_gpu")</code> at
-   <code>gaussian_streaming.cpp:1318</code>.</li>
-<li><strong>Destroyed where:</strong> <code>cleanup(RenderingDevice *)</code> declared at
-   <code>streaming_global_atlas_registry.h:42</code>. Called from
-   <code>GaussianStreamingSystem</code>'s destructor at <code>gaussian_streaming.cpp:932</code>.
-   <strong>Idempotent:</strong> Yes — frees each RID under an <code>.is_valid()</code> guard.</li>
-<li><strong>Threading / locking:</strong> Owned exclusively by <code>GaussianStreamingSystem</code>;
-   no independent locking.</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>Same null-device leak vector as the parent system (see above) — when
-     the parent's destructor cannot resolve <code>rd</code>, <code>cleanup(nullptr)</code> will
-     drop the RID handles silently.</li>
+<li><code>asset_meta_buffer</code>, <code>chunk_meta_buffer</code> and <code>asset_chunk_index_buffer</code>, each with a size
+     member.</li>
+<li>CPU mirrors (<code>asset_meta_cpu</code>, <code>chunk_meta_cpu</code>, <code>asset_chunk_index_cpu</code>) and dirty
+     tracking.</li>
+<li><code>global_atlas_state</code> (<code>GlobalAtlasState</code>). It republishes those RIDs plus
+     <code>atlas_gaussian_buffer</code> and <code>quantization_buffer</code>, which are borrowed aliases of the parent
+     system's buffers and not owned by the registry.</li>
+<li><strong>Created where:</strong> <code>StreamingGlobalAtlasRegistry::sync_to_gpu()</code>, called from
+   <code>GaussianStreamingSystem::initialize()</code>, <code>initialize_empty()</code> and
+   <code>_run_streaming_frame_pipeline()</code>.</li>
+<li><strong>Destroyed where:</strong></li>
+<li><code>StreamingGlobalAtlasRegistry::cleanup(RenderingDevice *)</code> is called from the parent's
+     destructor, and from the re-initialization paths in <code>initialize()</code> / <code>initialize_empty()</code>
+     after a <code>safe_submit_and_sync</code>.</li>
+<li>Its order:<ol>
+<li>Release the three buffers. Each is freed only if valid; with a null device it
+    <code>WARN_PRINT</code>s instead of freeing. Each RID and size is then reset.</li>
+<li>Clear the CPU mirrors and dirty state.</li>
+<li>Zero <code>global_atlas_state</code> and the per-asset maxima.</li>
+</ol>
+</li>
+<li><strong>Idempotent:</strong> yes (an <code>is_valid()</code> guard per buffer).</li>
+<li><strong>Threading / locking:</strong> owned exclusively by <code>GaussianStreamingSystem</code>. No locking of its
+   own.</li>
+<li><strong>Known leak vectors / open gaps:</strong> the parent's null-device case. Handles are dropped with a
+   warning per buffer, not silently.</li>
 </ol>
 <h3 id="gpubuffermanager">GPUBufferManager<a class="headerlink" href="#gpubuffermanager" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GPUBufferManager</code> (RefCounted) at
-   <code>modules/gaussian_splatting/renderer/gpu_buffer_manager.h:10</code>. Field
-   storage at <code>:98</code>-<code>:153</code>.</li>
+<li><strong>Owner identity:</strong> <code>GPUBufferManager</code> (<code>renderer/gpu_buffer_manager.h</code>), a <code>RefCounted</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li>Double-buffered <code>BufferSet buffer_sets[BUFFER_COUNT]</code> at <code>:134</code> (with
-     <code>BUFFER_COUNT = 2</code> at <code>:132</code>). Each <code>BufferSet</code> (<code>:100</code>) owns
-     <code>gaussian_buffer</code>, <code>sort_key_buffer</code>, <code>sorted_indices_buffer</code>, and
-     <code>fence</code> RIDs.</li>
-<li><code>uniform_buffer</code> (RID) at <code>:135</code>, plus <code>uniform_buffer_device</code> pointer
-     at <code>:136</code>.</li>
-<li><code>DeferredDeletionQueue</code> (defined inline at <code>:29</code>) — note: the
-     <strong>renderer's</strong> <code>ResourceState::deletion_queue</code> at
-     <code>render_facade_state_types.h:51</code> is a separate instance of this type,
-     owned by the renderer (not by the buffer manager).</li>
+<li><code>buffer_sets[BUFFER_COUNT]</code> (double-buffered, <code>BUFFER_COUNT</code> = 2). Each <code>BufferSet</code> holds
+     the <code>gaussian_buffer</code>, <code>sort_key_buffer</code>, <code>sorted_indices_buffer</code> and <code>fence</code> RIDs.</li>
+<li><code>uniform_buffer</code>, plus <code>uniform_buffer_device</code>.</li>
+<li><code>GPUBufferManager::DeferredDeletionQueue</code> is only a nested type. The manager owns no
+     instance of it. The only instance is the renderer's <code>ResourceState::deletion_queue</code>.</li>
 <li><strong>Created where:</strong></li>
-<li>Constructor at <code>gpu_buffer_manager.cpp:38</code>. Initialized by
-     <code>initialize(RenderingDevice *, uint32_t)</code> declared at
-     <code>gpu_buffer_manager.h:179</code>. Buffers allocated via <code>create_buffers()</code>
-     (<code>:154</code>) and <code>_create_buffer_set()</code> (<code>:156</code>).</li>
-<li>Renderer construction site wrapped by
-     <code>GS_STARTUP_SCOPE("gpu_buffer_manager_init")</code> at
-     <code>render_resource_orchestrator.cpp:165</code>.</li>
+<li>Instantiated in the <code>RenderResourceOrchestrator</code> constructor.</li>
+<li>Initialized by <code>GPUBufferManager::initialize()</code> from
+     <code>RenderResourceOrchestrator::create_gpu_resources_safe()</code>, under
+     <code>gpu_buffer_manager_init</code>. <code>initialize()</code> first cleans up any existing buffers, then calls
+     <code>create_buffers()</code>, which rolls back with <code>cleanup_buffers()</code> on a partial failure.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gpu_buffer_manager.cpp:42</code>. Calls <code>cleanup_buffers()</code>
-     (<code>:155</code>) which iterates <code>_destroy_buffer_set()</code> per set.</li>
-<li>Renderer drops the <code>Ref&lt;&gt;</code> at <code>gaussian_splat_renderer.cpp:1329</code>
-     (<code>get_resource_state().buffer_manager.unref()</code>).</li>
-<li><strong>Idempotent:</strong> Yes — <code>_has_allocated_resources()</code> (<code>:158</code>) gates
-     re-entry; <code>_reset_state()</code> (<code>:159</code>) clears handles.</li>
-<li><strong>Threading / locking:</strong> Single-owner on the render thread.</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>The <code>DeferredDeletionQueue::flush_all()</code> is invoked from the
-     renderer at <code>gaussian_splat_renderer.cpp:1249</code> before sub-owners
-     release their RIDs. Any RID queued for deferred deletion after this
-     point will not be freed if the renderer is mid-teardown — this is
-     the contract the lifetime-proof fixture must protect.</li>
+<li>
+<p><code>~GPUBufferManager()</code> calls <code>cleanup_buffers()</code>, which runs:</p>
+<ol>
+<li>If nothing is allocated (<code>_has_allocated_resources()</code>), reset state and return.</li>
+<li>If there is a device, flush the pending submission and <code>safe_submit_and_sync</code>.</li>
+<li><code>_destroy_buffer_set()</code> for each set.</li>
+<li>Free <code>uniform_buffer</code>.</li>
+<li><code>_reset_state(true)</code>.</li>
+</ol>
+<p>Steps 3 and 4 run under <code>ScopedSubmissionLock</code>.
+   - The renderer drops its reference in <code>_teardown_resources()</code>.
+   - <strong>Idempotent:</strong> yes (the <code>_has_allocated_resources()</code> early return).
+5. <strong>Threading / locking:</strong> allocation and free take <code>GaussianSplatManager::ScopedSubmissionLock</code>
+   (manager L1).
+6. <strong>Known leak vectors / open gaps:</strong> the renderer calls <code>deletion_queue.flush_all()</code> near the
+   start of <code>_teardown_resources()</code>. An RID queued for deferred deletion after that point is not
+   freed by the queue. This is the contract the lifetime fixture is meant to protect.</p>
+</li>
 </ol>
 <h3 id="gaussianmemorystream">GaussianMemoryStream<a class="headerlink" href="#gaussianmemorystream" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianMemoryStream</code> (RefCounted) at
-   <code>modules/gaussian_splatting/renderer/gpu_memory_stream.h:36</code>. Field
-   storage at <code>:96</code>-<code>:130</code>.</li>
+<li><strong>Owner identity:</strong> <code>GaussianMemoryStream</code> (<code>renderer/gpu_memory_stream.h</code>), a <code>RefCounted</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>StreamBuffer buffers[BUFFER_COUNT]</code> at <code>gpu_memory_stream.h:98</code> with
-     <code>BUFFER_COUNT = 3</code> at <code>:97</code> — each <code>StreamBuffer</code> (<code>:48</code>) owns one
-     <code>gpu_buffer</code> RID and a <code>gpu_allocation_device</code> pointer (<code>:50</code>-<code>:51</code>).</li>
-<li><code>MemoryPool gpu_memory_pool</code> at <code>:110</code> — CPU-side suballocation
-     bookkeeping over the GPU buffers.</li>
-<li>Pool blocks (<code>MemoryPool::Block</code> at <code>:77</code>) carry offset/size/free state.</li>
-<li><strong>Created where:</strong> Constructor at <code>gpu_memory_stream.cpp:59</code>.
-   <code>initialize()</code> at <code>:105</code> allocates the three stream buffers via
-   <code>_create_buffer()</code> (<code>:183</code>).</li>
+<li><code>buffers[BUFFER_COUNT]</code> (<code>BUFFER_COUNT</code> = 3). Each <code>StreamBuffer</code> holds one <code>gpu_buffer</code>
+     and its allocation device (<code>gpu_allocation_device</code>, <code>gpu_allocation_device_id</code>).</li>
+<li><code>gpu_memory_pool</code> (CPU-side <code>MemoryPool</code> sub-allocation over the buffers).</li>
+<li>A <code>Ref&lt;RenderDeviceManager&gt; device_manager</code>.</li>
+<li><strong>Created where:</strong> instantiated in the <code>RenderDataOrchestrator</code> constructor.
+   <code>GaussianMemoryStream::initialize()</code> creates the three buffers through <code>_create_buffer()</code>. It
+   is called from <code>RenderDataOrchestrator::update_gpu_buffers_with_real_data()</code> and from the
+   streaming orchestrator.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gpu_memory_stream.cpp:63</code>. Renderer-side ownership
-     drops at <code>gaussian_splat_renderer.cpp:1297</code>.</li>
-<li><code>shutdown()</code> at <code>gpu_memory_stream.cpp:164</code> is the explicit release
-     path: <code>wait_for_all_uploads()</code> → <code>_destroy_buffer()</code> for each
-     <code>BUFFER_COUNT</code> slot (<code>:170</code>-<code>:172</code>) → clears the memory pool
-     (<code>:175</code>-<code>:177</code>) → nulls <code>rd</code> (<code>:179</code>).</li>
-<li><strong>Idempotent:</strong> Yes — <code>shutdown()</code> early-returns at <code>:165</code> when
-     <code>rd</code> is already null.</li>
-<li><strong>Threading / locking:</strong> <code>StreamBuffer::state</code> is <code>std::atomic</code>; the
-   ring is also tracked via <code>std::atomic&lt;int&gt;</code> write/read/upload indices at
-   <code>:99</code>-<code>:102</code>. No internal mutex.</li>
-<li><strong>Known leak vectors / TODOs:</strong> None known beyond the manager-coupled
-   destructor ordering noted under <code>GaussianStreamingSystem</code>.</li>
+<li><code>~GaussianMemoryStream()</code> calls <code>shutdown()</code>. The renderer calls <code>shutdown()</code> then
+     <code>unref()</code> in <code>_teardown_resources()</code>.</li>
+<li><code>GaussianMemoryStream::shutdown()</code> runs:<ol>
+<li>Return if <code>rd</code> is null.</li>
+<li><code>wait_for_all_uploads()</code>.</li>
+<li><code>_destroy_buffer()</code> for each slot, freeing through <code>device_manager</code> when set.</li>
+<li>Clear the pool.</li>
+<li><code>rd = nullptr</code>.</li>
+</ol>
+</li>
+<li><strong>Idempotent:</strong> yes (the null-<code>rd</code> early return).</li>
+<li><strong>Threading / locking:</strong> <code>buffer_mutex</code> and <code>pool_mutex</code> guard the buffers and the pool.
+   <code>StreamBuffer::state</code> and the ring indices are atomics.</li>
+<li><strong>Known leak vectors / open gaps:</strong> none known beyond the device-ordering note under
+   <code>GaussianStreamingSystem</code>.</li>
 </ol>
 <h3 id="gpuculler">GPUCuller<a class="headerlink" href="#gpuculler" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GPUCuller</code> (RefCounted) at
-   <code>modules/gaussian_splatting/interfaces/gpu_culler.h:32</code>. Field storage
-   at <code>:265</code>-<code>:305</code>.</li>
+<li><strong>Owner identity:</strong> <code>GPUCuller</code> (<code>interfaces/gpu_culler.h</code>), a <code>RefCounted</code> that implements
+   <code>ICuller</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>shader</code> (RID) at <code>gpu_culler.h:267</code>,
-     <code>frustum_shader_version</code> (<code>:268</code>), <code>pipeline</code> (<code>:269</code>).</li>
-<li>Per-pass buffers: <code>param_buffer</code> (<code>:274</code>), <code>counter_buffer</code> (<code>:275</code>),
-     <code>visible_buffer</code> (<code>:276</code>), <code>distance_buffer</code> (<code>:277</code>),
-     <code>importance_buffer</code> (<code>:278</code>), <code>consolidated_buffer</code> (<code>:279</code>).</li>
-<li><code>instance_param_buffer</code> at <code>:280</code> and the
-     <code>InstanceUniformSetCache instance_uniform_set_cache</code> (<code>:252</code>) at
-     <code>:299</code> — caches <code>uniform_set</code> keyed on input RIDs.</li>
-<li><code>Ref&lt;BatchedAsyncReadback&gt; batched_readback</code> at <code>:305</code> — async-readback
-     coalescer.</li>
-<li>CPU staging buffers <code>param_bytes</code> (<code>:288</code>), <code>counter_bytes</code> (<code>:289</code>),
-     <code>instance_param_bytes</code> (<code>:290</code>).</li>
+<li><code>shader</code>, <code>frustum_shader_version</code> and <code>pipeline</code>. <code>shader</code> comes from the shader version
+     and is released by <code>version_free</code>, not freed directly.</li>
+<li>Buffers <code>param_buffer</code>, <code>counter_buffer</code>, <code>visible_buffer</code>, <code>distance_buffer</code>,
+     <code>importance_buffer</code>, <code>consolidated_buffer</code> and <code>instance_param_buffer</code>, with their owner
+     devices <code>resource_device</code> and <code>instance_resource_device</code>.</li>
+<li><code>instance_uniform_set_cache</code>, <code>batched_readback</code> (<code>Ref&lt;BatchedAsyncReadback&gt;</code>) and the CPU
+     staging vectors.</li>
+<li><code>culling_state.gpu_visible_indices_buffer</code> is a borrowed alias of the instance
+     <code>visible_chunk_buffer</code>, not owned.</li>
 <li><strong>Created where:</strong></li>
-<li>Constructor at <code>gpu_culler.cpp:83</code>. <code>initialize()</code> at <code>:107</code> binds the
-     <code>RenderingDevice</code> and instantiates the shader/pipeline via
-     <code>_ensure_shader()</code> (declared at <code>:309</code>). Per-frame buffers grown by
-     <code>_ensure_buffers()</code> (<code>:310</code>).</li>
+<li>Instantiated in the renderer constructor.</li>
+<li><code>GPUCuller::initialize()</code> returns early if already initialized. It calls <code>_ensure_shader()</code>
+     and creates and initializes <code>batched_readback</code>.</li>
+<li>Buffers come from <code>_ensure_buffers()</code> and <code>_ensure_instance_param_buffer()</code>.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gpu_culler.cpp:103</code>.</li>
-<li><code>shutdown()</code> at <code>gpu_culler.cpp:143</code> is the explicit release path; the
-     renderer calls it at <code>gaussian_splat_renderer.cpp:1304</code>. Releases
-     buffers via <code>_release_resources()</code> (declared at <code>gpu_culler.h:314</code>)
-     and invalidates <code>instance_uniform_set_cache</code> via
-     <code>_invalidate_instance_uniform_set_cache()</code> (<code>:313</code>).</li>
-<li><strong>Idempotent:</strong> Yes — <code>bool initialized</code> at <code>:293</code> gates entry.</li>
-<li><strong>Threading / locking:</strong> Async readback path uses
-   <code>BatchedAsyncReadback</code> which has its own internal synchronization;
-   per-frame state is single-thread (render thread).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li><code>instance_uniform_set_cache</code> is keyed by input RIDs; if upstream
-     producers change buffers without calling
-     <code>_invalidate_instance_uniform_set_cache()</code> the cached uniform set
-     dangles on the wrong device. Currently only the cull path itself
-     drives invalidation.</li>
+<li><code>~GPUCuller()</code> calls <code>shutdown()</code>. The renderer calls <code>shutdown()</code> then <code>unref()</code>.</li>
+<li><code>GPUCuller::shutdown()</code> runs:<ol>
+<li><code>batched_readback-&gt;shutdown()</code>, then <code>unref()</code>, if valid.</li>
+<li><code>_release_resources()</code>.</li>
+<li><code>rd = nullptr</code>.</li>
+<li><code>initialized = false</code>.</li>
+</ol>
+</li>
+<li><code>_release_resources()</code> runs:<ol>
+<li>Reset the async-readback state.</li>
+<li><code>_invalidate_instance_uniform_set_cache()</code>.</li>
+<li><code>version_free</code> the shader.</li>
+<li>Only if <code>resource_device</code> is set: free the pipeline and the seven buffers
+    (<code>instance_param_buffer</code> on its own device).</li>
+<li>Zero all handles and both device pointers.</li>
+</ol>
+</li>
+<li><strong>Idempotent:</strong> yes, but not through <code>initialized</code>, which gates only <code>initialize()</code>. A
+     second call finds no valid handles and a null <code>resource_device</code>.</li>
+<li><strong>Threading / locking:</strong> per-frame state is used on the render thread. <code>BatchedAsyncReadback</code>
+   has <strong>no</strong> internal synchronization (no mutex or atomics in
+   <code>renderer/batched_async_readback.*</code>). The first version claimed it did; that was wrong.</li>
+<li><strong>Known leak vectors / open gaps:</strong></li>
+<li>If <code>resource_device</code> is null, <code>_release_resources()</code> zeroes the buffer and pipeline handles
+     without freeing them and without a warning.</li>
+<li>The instance uniform-set cache matches on device, shader, every input RID and
+     <code>param_buffer</code>, and is invalidated on a miss, on a device change and on release. All of
+     these are internal to the culler.</li>
 </ol>
 <h3 id="gpusorter-igpusorter-implementations">GPUSorter (<code>IGPUSorter</code> implementations)<a class="headerlink" href="#gpusorter-igpusorter-implementations" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class IGPUSorter</code> (RefCounted) at
-   <code>modules/gaussian_splatting/renderer/gpu_sorter.h:149</code>. Concrete
-   implementations <code>BitonicSort</code> (<code>:245</code>), <code>RadixSort</code>, <code>OneSweepSort</code>.
-   Stored by <code>Ref&lt;&gt;</code> in <code>SortingState::gpu_sorter</code> at
-   <code>render_state_types.h:115</code>.</li>
-<li><strong>What it owns:</strong> Per-algorithm, a shader + pipeline + scratch buffers.
-   <code>BitonicSort</code> holds <code>bitonic_shader</code> and <code>bitonic_pipeline</code> (<code>gpu_sorter.h:257</code>-<code>:258</code>)
-   plus <code>uniform_set</code>; <code>RadixSort</code> and <code>OneSweepSort</code> hold equivalent
-   pass-specific buffers (chained-scan buffer for OneSweep).</li>
-<li><strong>Created where:</strong></li>
-<li><code>BitonicSort::initialize()</code> at <code>gpu_sorter.cpp:556</code>,
-     <code>RadixSort::initialize()</code> at <code>:2002</code>, <code>OneSweepSort::initialize()</code> at
-     <code>:2675</code>. Variant selection wrapped by
-     <code>GS_STARTUP_SCOPE("sorter_create_variant")</code> at <code>:1478</code>.</li>
+<li><strong>Owner identity:</strong> <code>IGPUSorter</code> (<code>renderer/gpu_sorter.h</code>, a <code>RefCounted</code>) with the concrete
+   classes <code>BitonicSort</code>, <code>RadixSort</code> and <code>OneSweepSort</code> (same header), created by
+   <code>GPUSorterFactory::create_sorter</code>. Two owners hold sorters: <code>SortingState::gpu_sorter</code> and
+   <code>TileGlobalSortResources::sorter</code>.</li>
+<li><strong>What it owns:</strong></li>
+<li><code>BitonicSort</code>: <code>bitonic_shader</code>, <code>bitonic_pipeline</code>, <code>uniform_set</code>.</li>
+<li><code>RadixSort</code>: shaders and pipelines per <code>RadixVariant</code>, histogram/prefix/temporary key-value
+     buffers, and indirect-dispatch resources.</li>
+<li><code>OneSweepSort</code>: four shaders and pipelines, plus the <code>global_histogram</code>, <code>digit_histogram</code>,
+     <code>chained_scan</code> and temporary key-value buffers.</li>
+<li><strong>Created where:</strong> <code>BitonicSort::initialize()</code>, <code>RadixSort::initialize()</code> and
+   <code>OneSweepSort::initialize()</code>. <code>GS_STARTUP_SCOPE("sorter_create_variant")</code> is inside
+   <code>RadixSort::create_variant()</code>.</li>
 <li><strong>Destroyed where:</strong></li>
-<li><code>BitonicSort::shutdown()</code> at <code>gpu_sorter.cpp:682</code>,
-     <code>RadixSort::shutdown()</code> at <code>:2293</code>, <code>OneSweepSort::shutdown()</code> at
-     <code>:3074</code>. Renderer calls <code>gpu_sorter-&gt;shutdown()</code> at
-     <code>gaussian_splat_renderer.cpp:1334</code>.</li>
-<li><strong>Idempotent:</strong> Yes — <code>BitonicSort::shutdown()</code> (<code>:682</code>) validates the
-     device against the current submission device and against
-     <code>resource_device_generation</code> (see comment block at <code>:686</code>-<code>:693</code>)
-     before calling <code>rd-&gt;free</code>; stale-device case zeros RIDs without
-     freeing. <code>SAFE_FREE</code> macro at <code>:697</code> guards on <code>is_valid()</code>.</li>
-<li><strong>Threading / locking:</strong> Each sorter owns a <code>std::atomic&lt;bool&gt; is_sorting</code>
-   at <code>gpu_sorter.h:156</code> so callers can detect in-flight async sort.
-   Resource-device validation is delegated to
-   <code>ResourceOwnerMismatchContract</code> (see ISSUE-010 referenced at <code>:689</code>).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>The stale-device branch at <code>gpu_sorter.cpp:710</code>-onward zeros RIDs
-     without freeing — by design, because the device they belong to is
-     gone. PR 3's lifetime fixture should not flag this case but should
-     verify it does not fire during a clean teardown.</li>
+<li>Each destructor calls <code>shutdown()</code>. The renderer calls <code>gpu_sorter-&gt;shutdown()</code> then
+     <code>unref()</code>. <code>TileRenderer::cleanup()</code> shuts down its own sorter through
+     <code>global_sort_resources.release</code>.</li>
+<li><code>BitonicSort::shutdown()</code> checks two things: whether <code>resource_device</code> is still a live
+     device (<code>_device_is_active</code>), and, when one was recorded, the device generation
+     (<code>ResourceOwnerMismatchContract</code>). If valid, it <code>SAFE_FREE</code>s the pipeline, shader and
+     uniform set. If stale, it zeroes them without freeing. It does not wait for in-flight work.</li>
+<li><code>RadixSort::shutdown()</code> and <code>OneSweepSort::shutdown()</code> first call <code>wait_for_completion()</code>,
+     then make the same validity check. Radix frees through <code>_cleanup_partial_init()</code>.</li>
+<li><strong>Idempotent:</strong> yes. RIDs are freed under <code>is_valid()</code> / <code>SAFE_FREE</code>, and <code>resource_device</code>
+     is nulled, so a second call takes the stale branch.</li>
+<li><strong>Threading / locking:</strong> <code>IGPUSorter::is_sorting</code> (a <code>std::atomic&lt;bool&gt;</code> on the base class)
+   signals an in-flight sort. Device validation uses <code>ResourceOwnerMismatchContract</code>
+   (<code>renderer/resource_owner_mismatch_contract.h</code>).</li>
+<li><strong>Known leak vectors / open gaps:</strong></li>
+<li>The stale-device branches zero RIDs without freeing. This is by design, because the device
+     is gone.</li>
+<li><code>_device_is_active()</code> returns true when both the manager and the RD singleton are gone,
+     which trusts the stored pointer at shutdown.</li>
 </ol>
 <h3 id="tilerenderer">TileRenderer<a class="headerlink" href="#tilerenderer" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class TileRenderer</code> (RefCounted) at
-   <code>modules/gaussian_splatting/renderer/tile_renderer.h</code>. Stored as
-   <code>Ref&lt;TileRenderer&gt; TileRendererState::renderer</code> at
-   <code>render_facade_state_types.h:130</code>.</li>
-<li><strong>What it owns:</strong> Composed of resource controllers declared in
-   <code>renderer/tile_render_resources.h</code>:</li>
-<li><code>TileRenderTargets</code> (<code>tile_render_resources.h:35</code>) — <code>output_texture</code>,
-     <code>depth_texture</code>, <code>normal_texture</code>, <code>output_texture_external</code>,
-     <code>depth_texture_external</code>, <code>resolved_texture</code>,
-     <code>resolved_depth_texture</code>, <code>tile_framebuffer</code> (<code>:49</code>-<code>:58</code>) and
-     <code>tile_framebuffer_format</code> (<code>:59</code>).</li>
-<li><code>TileResourceController</code> (<code>:76</code>) — caches <code>tracked_color_output</code> and
-     <code>tracked_depth_output</code> RIDs plus a <code>RenderDeviceManager *</code> pointer
-     (<code>:95</code>) used to forget tracked resources on shutdown.</li>
-<li><code>TileShaderResources</code> (<code>:107</code>) — <code>tile_binning_shader/pipeline</code>,
-     <code>tile_binning_count_shader/pipeline</code>, <code>tile_prefix_shader[_pass2/3]</code>
-     and pipelines, <code>tile_raster_shader/pipeline</code>,
-     <code>tile_raster_compute_shader/pipeline</code>, <code>tile_resolve_shader/pipeline</code>
-     plus the <code>*_shader_source</code> GLSL-text owners (<code>:115</code>-<code>:141</code>).</li>
-<li><code>TileGlobalSortResources</code> (<code>:154</code>) — <code>Ref&lt;IGPUSorter&gt; sorter</code> (<code>:162</code>),
-     <code>keys_buffer</code> (<code>:168</code>), <code>values_buffer</code> (<code>:169</code>),
-     <code>tile_counts_buffers[2]</code> (<code>:170</code>), <code>tile_ranges_buffer</code>,
-     <code>prefix_total_buffer</code>, <code>indirect_dispatch_buffer</code>, <code>wg_sums_buffer</code>,
-     <code>wg_offsets_buffer</code> (<code>:174</code>-<code>:178</code>).</li>
-<li><code>TileUniformBuffers</code> (<code>:200</code>) — <code>param_uniform_buffer</code> (<code>:210</code>),
-     <code>prefix_param_uniform_buffer</code> (<code>:212</code>),
-     <code>default_state_uniform_buffer</code> (<code>:214</code>).</li>
-<li><code>TileProjectionBuffers</code> (<code>:218</code>) — <code>projection_buffer</code> (<code>:226</code>).</li>
-<li><code>TileSHCacheBuffers</code> (<code>:234</code>) — <code>sh_color_cache</code> (<code>:242</code>).</li>
-<li><code>TileSubpixelHistoryBuffers</code> (<code>:248</code>) — <code>subpixel_history_buffer</code> (<code>:256</code>).</li>
-<li><code>TileSubpixelVisibilityBuffers</code> (<code>:261</code>) — <code>subpixel_visibility_buffer</code> (<code>:269</code>).</li>
+<li><strong>Owner identity:</strong> <code>TileRenderer</code> (<code>renderer/tile_renderer.h</code>), a <code>RefCounted</code>, held as
+   <code>TileRendererState::renderer</code>.</li>
+<li><strong>What it owns:</strong> resource controllers declared in <code>renderer/tile_render_resources.h</code>:</li>
+<li><code>TileRenderTargets</code>: output, depth, normal and resolved textures (plus their <code>_external</code>
+     variants), <code>tile_framebuffer</code> and its format.</li>
+<li><code>TileResourceController</code>: tracked colour and depth outputs and the <code>tracked_device_manager</code>.</li>
+<li><code>TileShaderResources</code>: the binning, binning-count, prefix (three passes), raster,
+     compute-raster and resolve shaders and pipelines, with their shader-source owners.</li>
+<li><code>TileGlobalSortResources</code>: the <code>sorter</code> (<code>Ref&lt;IGPUSorter&gt;</code>), keys/values buffers, tile
+     counts and ranges, prefix-total, indirect-dispatch and workgroup-sum/offset buffers.</li>
+<li><code>TileUniformBuffers</code>, <code>TileProjectionBuffers</code>, <code>TileSHCacheBuffers</code>,
+     <code>TileSubpixelHistoryBuffers</code> and <code>TileSubpixelVisibilityBuffers</code>.</li>
 <li><strong>Created where:</strong></li>
-<li>Constructor at <code>tile_renderer.cpp:1301</code>.</li>
-<li><code>initialize()</code> at <code>tile_renderer.cpp:1440</code>: compiles shaders via
-     <code>_compile_tile_shaders()</code> (line <code>:1462</code>), allocates output textures
-     via <code>_ensure_resources()</code> (<code>:1469</code>), eager-creates the graphics
-     raster pipeline (post-<code>_ensure_resources</code> block at <code>:1480</code>+ — see
-     <code>GS_STARTUP_SCOPE("first_frame_raster_pipeline_create")</code> at
-     <code>tile_render_rasterizer_stage.cpp:172</code> for the lazy fallback that
-     this eager path replaces).</li>
+<li>The constructor, then <code>TileRenderer::initialize()</code>.</li>
+<li><code>initialize()</code> sets the resource device, then <code>_compile_tile_shaders()</code>, then
+     <code>_ensure_resources()</code>, then an eager raster-pipeline create. The eager create runs only when
+     <code>rendering/gaussian_splatting/init/eager_raster_pipeline</code> is set. The lazy fallback is
+     <code>GS_STARTUP_SCOPE("first_frame_raster_pipeline_create")</code> in
+     <code>TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer()</code>.</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>tile_renderer.cpp:1431</code>: clears adaptive-overlap
-     runtime state, unregisters from performance monitors, then calls
-     <code>cleanup()</code> (line <code>:1437</code>).</li>
-<li><code>cleanup()</code> at <code>tile_renderer.cpp:1611</code>: in order, calls
-     <code>clear_output_resource_tracking()</code> (<code>:1612</code>), then on each resource
-     controller <code>release(device)</code>:
-     <code>projection_buffers.release</code> (<code>:1617</code>),
-     <code>sh_cache_buffers.release</code> (<code>:1618</code>),
-     <code>subpixel_history_buffers.release</code> (<code>:1619</code>),
-     <code>subpixel_visibility_buffers.release</code> (<code>:1620</code>),
-     <code>debug_stats.free_buffers</code> (<code>:1621</code>),
-     <code>global_sort_resources.release</code> (<code>:1622</code>),
-     <code>shader_resources.release(device, pipeline_owner)</code> (<code>:1624</code>),
-     <code>render_targets.tile_framebuffer</code> (<code>:1625</code>-<code>:1631</code>),
-     resolve_stage samplers (<code>:1632</code>-<code>:1651</code>),
-     <code>resolve_stage.free_fallback_lighting_buffers</code> (<code>:1652</code>),
-     <code>uniform_buffers.release</code> (<code>:1653</code>).</li>
-<li>Renderer drives cleanup at <code>gaussian_splat_renderer.cpp:1284</code>.</li>
-<li><strong>Idempotent:</strong> Yes — each release path checks <code>device</code> validity and
-     each resource controller's <code>release()</code> is implemented with
-     <code>is_valid()</code> guards. Re-entry no-ops.</li>
-<li><strong>Threading / locking:</strong> Single-owner; relies on the renderer's
-   render-thread dispatch ordering. <code>_get_resource_device()</code> (called at
-   <code>:1614</code>) may return null if the manager singleton is already gone,
-   which falls through to <code>uniform_buffers.reset_state()</code> at <code>:1655</code>
-   (drops handles without freeing).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>The null-device fallback at <code>:1654</code>-<code>:1656</code> is a structural leak
-     vector when ordering is wrong (manager shut down before renderer).
-     PR 3 should assert this branch is not taken on the happy path.</li>
+<li><code>~TileRenderer()</code> clears the adaptive-overlap runtime state, unregisters from the
+     performance monitors, and calls <code>cleanup()</code>.</li>
+<li><code>TileRenderer::cleanup()</code> runs, in order:<ol>
+<li><code>clear_output_resource_tracking()</code>, then clear the adaptive-overlap state.</li>
+<li><code>device = _get_resource_device()</code>.</li>
+<li>If <code>device</code> is set, release in this order: projection, SH-cache, subpixel-history and
+    subpixel-visibility buffers; debug-stat buffers; <code>global_sort_resources</code> (sorter
+    <code>shutdown()</code> and buffers); <code>tile_framebuffer</code>; the resolve and shadow samplers; the
+    fallback lighting buffers; uniform buffers. Otherwise, <code>uniform_buffers.reset_state()</code>.</li>
+<li><code>_release_compiled_shaders()</code>, which runs whether or not <code>device</code> is set.</li>
+<li>Invalidate the descriptor cache.</li>
+<li>Reset the controllers' state. With no device, <code>global_sort_resources.reset_state(true)</code>,
+    which drops the sorter <code>Ref</code>; the sorter's destructor still calls <code>shutdown()</code>.</li>
+<li><code>_destroy_output_textures()</code>.</li>
+<li>Reset frame, grid, metrics and config state, and null the resource and submission
+    devices.</li>
+</ol>
+</li>
+<li>The renderer drives it: <code>_forget_tile_renderer_outputs()</code>, <code>cleanup()</code>, <code>unref()</code>.</li>
+<li><strong>Idempotent:</strong> yes. <code>cleanup()</code> nulls the resource device at the end, so a second call
+     takes the no-device branch, and the controllers free through <code>is_valid()</code> guards.</li>
+<li><strong>Threading / locking:</strong> single owner; relies on the renderer's render-thread ordering.</li>
+<li><strong>Known leak vectors / open gaps:</strong> <code>_get_resource_device()</code> returns the device recorded at
+   <code>initialize()</code>. It does not consult the manager singleton. The no-device branch is reached only
+   for a renderer that was never initialized, or on a repeat <code>cleanup()</code>. In that branch the
+   uniform, projection, SH, subpixel and global-sort buffer handles are reset without being freed.
+   Shaders and pipelines are still released.</li>
 </ol>
 <h3 id="gaussiansplatnode3d">GaussianSplatNode3D<a class="headerlink" href="#gaussiansplatnode3d" title="Permanent link">¶</a></h3>
 <ol>
-<li><strong>Owner identity:</strong> <code>class GaussianSplatNode3D</code> (Node3D) at
-   <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h</code>. Field
-   storage at <code>:200</code>-<code>:248</code>.</li>
+<li><strong>Owner identity:</strong> <code>GaussianSplatNode3D</code> (<code>nodes/gaussian_splat_node_3d.h</code>), a <code>Node3D</code>.</li>
 <li><strong>What it owns:</strong></li>
-<li><code>Ref&lt;GaussianSplatRenderer&gt; renderer</code> at
-     <code>gaussian_splat_node_3d.h:230</code> and <code>Ref&lt;GaussianData&gt; renderer_data</code>
-     at <code>:231</code> — the strong refs that propagate into the director's
-     SharedWorld.</li>
-<li><code>render_instance</code> (RID, RenderingServer instance) at <code>:207</code>.</li>
-<li><code>gaussian_base</code> (RID, RenderingServer base) at <code>:208</code>.</li>
-<li><code>cached_viewport_render_target</code> (<code>:220</code>),
-     <code>cached_viewport_render_texture</code> (<code>:221</code>),
-     <code>Ref&lt;ViewportTexture&gt; cached_viewport_texture</code> (<code>:222</code>) — viewport
-     bookkeeping for editor and runtime preview.</li>
-<li><code>Ref&lt;ColorGradingResource&gt; color_grading</code> at <code>:177</code>.</li>
-<li><code>Ref&lt;GaussianSplatAsset&gt; splat_asset</code> (<code>:131</code>) and
-     <code>runtime_asset</code> (<code>:132</code>).</li>
+<li><code>renderer</code> (<code>Ref&lt;GaussianSplatRenderer&gt;</code>): a strong reference to the shared renderer of the
+     director's <code>SharedWorld</code>, set by <code>GaussianSplatNodeRendererHelper::ensure_renderer()</code> from
+     <code>GaussianSplatSceneDirector::get_shared_renderer()</code>. The node holds a reference; the world
+     owns the renderer.</li>
+<li><code>renderer_data</code> (<code>Ref&lt;GaussianData&gt;</code>): node-local. The node creates it itself in
+     <code>_ensure_renderer_data_for_splats()</code> (<code>renderer_data.instantiate()</code>) and resizes it there; it
+     is not shared through the director.</li>
+<li><code>render_instance</code> (RenderingServer instance RID) and <code>gaussian_base</code> (RenderingServer base
+     RID).</li>
+<li><code>cached_viewport_texture</code> (<code>Ref&lt;ViewportTexture&gt;</code>), a reference taken from
+     <code>Viewport::get_texture()</code> in <code>GaussianSplatNodeViewportHelper::ensure_viewport_texture_binding()</code>.</li>
+<li><code>color_grading</code>, <code>splat_asset</code> and <code>runtime_asset</code>.</li>
+<li><strong>Borrowed, not owned:</strong> <code>cached_viewport_render_target</code> and <code>cached_viewport_render_texture</code>.
+     <code>GaussianSplatNodeViewportHelper::query_viewport_render_target()</code> reads them from
+     <code>RenderingServer::viewport_get_render_target()</code> and <code>viewport_get_texture()</code>; the viewport
+     owns them. Since #1094 the node queries them only while the cached target is invalid, not
+     every frame. The node only resets these handles to <code>RID()</code>; it must never free them.</li>
 <li><strong>Created where:</strong></li>
-<li><code>_notification_enter_tree()</code> at <code>gaussian_splat_node_3d.cpp:349</code>:
-     registers with <code>GaussianSplatManager::register_node()</code> (line <code>:357</code>)
-     and triggers <code>_ensure_renderer()</code> + <code>_update_render_instance()</code> +
-     <code>_register_shared_renderer()</code> (<code>:371</code>-<code>:373</code>).</li>
-<li><code>_notification_enter_world()</code> at <code>:377</code>: same enter sequence after
-     world attach.</li>
+<li><code>gaussian_base</code> is created in the constructor through <code>_ensure_gaussian_base()</code>, and again
+     by <code>_update_render_instance()</code> / <code>_update_bounds()</code> when needed. <code>render_instance</code> is
+     created by <code>_update_render_instance()</code>.</li>
+<li><code>_notification_enter_tree()</code>:<ol>
+<li>Register with <code>GaussianSplatManager::register_node()</code>, only if the manager exists.</li>
+<li><code>_update_bounds()</code>, <code>_update_visibility()</code>, <code>_update_cached_render_target(…)</code>.</li>
+<li><code>_ensure_renderer()</code>, <code>_update_render_instance()</code>, <code>_register_shared_renderer()</code>.</li>
+<li><code>_update_debug_hud_visibility()</code>.</li>
+</ol>
+</li>
+<li><code>_notification_enter_world()</code>:<ol>
+<li><code>_ensure_renderer()</code>, <code>_update_render_instance()</code>, <code>_register_shared_renderer()</code>.</li>
+<li><code>_replay_color_grading_if_pending()</code>.</li>
+<li>Apply the renderer debug settings.</li>
+<li><code>_update_debug_hud_visibility()</code>, <code>notify_property_list_changed()</code>.</li>
+</ol>
+</li>
 <li><strong>Destroyed where:</strong></li>
-<li>Destructor at <code>gaussian_splat_node_3d.cpp:338</code>:
-     <code>_disconnect_viewport_observers()</code> → <code>_clear_asset()</code> →
-     <code>_release_gaussian_base()</code> → <code>_clear_parent_visibility_tracking()</code> →
-     frees <code>render_instance</code> via <code>RS::free()</code> (line <code>:345</code>).</li>
-<li><code>_notification_exit_tree()</code> at <code>:387</code> is the scene-attached release
-     path: destroys debug HUD control, calls
-     <code>renderer_helper.release_renderer_settings_ownership()</code> (<code>:393</code>),
-     <code>_unregister_shared_renderer()</code> (<code>:394</code>),
-     <code>_release_gaussian_base()</code> (<code>:407</code>), frees <code>render_instance</code> (<code>:409</code>-<code>:412</code>),
-     and calls <code>manager-&gt;unregister_node(this)</code> (<code>:415</code>).</li>
-<li><strong>Idempotent:</strong> <code>is_valid()</code> guards on <code>render_instance</code>; the
-     destructor and <code>_notification_exit_tree()</code> share the same release
-     calls and tolerate prior release.</li>
-<li><strong>Threading / locking:</strong> Main thread only (Godot scene-tree contract).
-   The <code>GaussianSplatManager::register_node()</code> path under
-   <code>active_nodes_mutex</code> (manager Level 3 lock).</li>
-<li><strong>Known leak vectors / TODOs:</strong></li>
-<li>When <code>_exit_tree</code> runs but the node is later re-attached, the
-     renderer ref is intentionally retained — see the comment block at
-     <code>gaussian_splat_node_3d.cpp:396</code>-<code>:403</code> explaining why
-     <code>grading_pushed_for_current_data</code> is not reset here. This is a
-     deliberate sticky reference into the director-owned SharedWorld;
-     PR 4 should preserve this semantic.</li>
+<li><code>~GaussianSplatNode3D()</code>: <code>_disconnect_viewport_observers()</code>, <code>_clear_asset()</code>,
+     <code>_release_gaussian_base()</code>, <code>_clear_parent_visibility_tracking()</code>, then <code>RS::free</code> of
+     <code>render_instance</code> if valid.</li>
+<li><code>_notification_exit_tree()</code> runs, in order:<ol>
+<li>Destroy the debug HUD control.</li>
+<li>Mark the node not visible and <code>_update_visibility()</code>.</li>
+<li><code>_clear_parent_visibility_tracking()</code>.</li>
+<li><code>_update_cached_render_target(nullptr)</code>.</li>
+<li><code>release_renderer_settings_ownership()</code>.</li>
+<li><code>_unbind_renderer_binding_record()</code> (#839).</li>
+<li><code>_unregister_shared_renderer()</code>.</li>
+<li><code>_release_gaussian_base()</code>.</li>
+<li>Free <code>render_instance</code>.</li>
+<li><code>GaussianSplatManager::unregister_node()</code>, if the manager exists.</li>
+</ol>
+</li>
+<li><code>NOTIFICATION_EXIT_WORLD</code> unbinds the renderer binding record and unregisters the shared
+     renderer.</li>
+<li><code>NOTIFICATION_PREDELETE</code> runs: unbind, <code>renderer.unref()</code>, <code>_unregister_shared_renderer()</code>,
+     then <code>GaussianSplatSceneDirector::try_prune_world_if_unused()</code> for the last known scenario.</li>
+<li><strong>Idempotent:</strong> yes. Guards are <code>render_instance.is_valid()</code> and the early return in
+     <code>_release_gaussian_base()</code>.</li>
+<li><strong>Threading / locking:</strong> main thread only (the scene-tree contract).
+   <code>GaussianSplatManager::register_node()</code> takes <code>active_nodes_mutex</code> (manager L3).</li>
+<li><strong>Known leak vectors / open gaps:</strong> <code>_notification_exit_tree()</code> deliberately keeps the renderer
+   reference so that a re-attached node reuses it. See the comment there about
+   <code>grading_pushed_for_current_data</code>. The reference is dropped in <code>NOTIFICATION_PREDELETE</code>.</li>
 </ol>
 <h2 id="known-leak-vectors">Known leak vectors<a class="headerlink" href="#known-leak-vectors" title="Permanent link">¶</a></h2>
 <ul>
-<li><strong>F6 reload leak</strong> — <code>modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp:351</code>
-  (and the surrounding comment block at <code>:349</code>-<code>:352</code>). If the director
-  singleton is not destroyed at module finalization, every <code>SharedWorld</code>
-  retains its <code>Ref&lt;GaussianSplatRenderer&gt;</code> and the entire renderer GPU
-  graph leaks. <strong>PR 4 (explicit SharedWorld teardown contract) formalizes
-  this.</strong></li>
-<li><strong>Failed-init crash cascade (602 events)</strong> — When
-  <code>GaussianSplatRenderer::_initialize_on_render_thread()</code> (declared at
-  <code>gaussian_splat_renderer.h:661</code>) fails partway through sub-owner
-  instantiation, <code>_teardown_resources()</code> (<code>gaussian_splat_renderer.cpp:1242</code>)
-  must be invariant under partially-constructed state. The
-  <code>teardown_resources_started</code> guard at <code>gaussian_splat_renderer.h:624</code>
-  protects against double-entry, but each sub-owner's <code>shutdown()</code> must
-  itself be safe when never <code>initialize()</code>d. <strong>PR 1 hardens this; PR 3
-  proves it by instrumenting every owner with a lifetime counter.</strong></li>
-<li><strong>OutputCompositor framebuffer-format cache unbounded</strong> —
-  <code>cached_framebuffers</code> at <code>interfaces/output_compositor.h:115</code> and the
-  parallel <code>framebuffer_validation_cache</code> at <code>:116</code>. No LRU; editor
-  viewport reformat and device-switch cycles accumulate entries
-  indefinitely. The scratch pool comment at <code>:216</code>-<code>:219</code> documents the
-  exact reasoning that should be applied here. <strong>PR 5 (OutputCompositor
-  LRU bound).</strong></li>
-<li><strong>Orphan StringNames at exit</strong> — <code>GSStartupTraceScope::phase</code> (a
-  <code>StringName</code> field at <code>modules/gaussian_splatting/logger/startup_trace.h:90</code>)
-  is constructed from a string literal at each <code>GS_STARTUP_SCOPE(name)</code>
-  call site (<code>:103</code>). At process exit these StringNames are not
-  explicitly released. Known sites (from <code>register_types.cpp:78</code> and
-  the smoke-test capture):</li>
-<li><code>"module_register"</code> — <code>modules/gaussian_splatting/register_types.cpp:78</code>.</li>
-<li><code>"manager_construct"</code> — <code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:219</code>.</li>
-<li><code>"device_request_primary"</code> — <code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:255</code>.</li>
-<li><code>"device_request_shared"</code> — <code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp:259</code>.</li>
-<li><code>"renderer_construct"</code> — <code>modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp:871</code>.</li>
-<li><code>"gpu_buffer_manager_init"</code> — <code>modules/gaussian_splatting/renderer/render_resource_orchestrator.cpp:165</code>.</li>
-<li><code>"sorter_create_variant"</code> — <code>modules/gaussian_splatting/renderer/gpu_sorter.cpp:1478</code>.</li>
-<li><code>"first_frame_raster_pipeline_create"</code> — <code>modules/gaussian_splatting/renderer/tile_render_rasterizer_stage.cpp:172</code>.</li>
-<li><code>"shader_compile_binning"</code> / <code>"shader_compile_prefix"</code> /
-    <code>"shader_compile_raster"</code> — <code>modules/gaussian_splatting/renderer/shader_compilation_helper.cpp:384</code>, <code>:423</code>, <code>:476</code>.</li>
-<li><code>"streaming_persistent_buffer_alloc"</code> / <code>"streaming_atlas_build_cpu"</code> /
-    <code>"streaming_atlas_sync_gpu"</code> —
-    <code>modules/gaussian_splatting/core/gaussian_streaming.cpp:1266</code>, <code>:1314</code>, <code>:1318</code>.</li>
-<li><code>"asset_populate_gaussian_data"</code> /
-    <code>"asset_prefetch_parallel"</code> —
-    <code>modules/gaussian_splatting/core/gaussian_splat_asset.cpp:1570</code>, <code>:1511</code>.</li>
-<li><code>"ply_payload_parse"</code> —
-    <code>modules/gaussian_splatting/io/ply_loader.cpp:176</code>.
-  <strong>PR 6 (orphan StringName cleanup) releases these.</strong></li>
-<li><strong>Null-device destruction races</strong> — <code>GaussianStreamingSystem::~GaussianStreamingSystem</code>
-  (<code>modules/gaussian_splatting/core/gaussian_streaming.cpp:921</code>),
-  <code>StreamingGlobalAtlasRegistry::cleanup</code>, and <code>TileRenderer::cleanup</code>
-  (<code>modules/gaussian_splatting/renderer/tile_renderer.cpp:1611</code>) all
-  tolerate a null <code>RenderingDevice</code> and drop RID handles silently. This
-  is benign when the manager has already destroyed the device, but it
-  becomes a leak when ordering inverts (renderer destroyed before
-  manager-shutdown completes). The fixture in PR 3 should detect
-  inverted ordering by asserting <code>rd != nullptr</code> on each release path.</li>
+<li><strong>F6 reload leak.</strong> A director that is not destroyed keeps every <code>SharedWorld</code>, and so every
+  renderer, alive. Since #387 there are explicit per-world release paths
+  (<code>teardown_world_for_scenario</code>, <code>release_all_worlds</code>, the prune paths and the PREDELETE prune),
+  and the lifetime fixture covers the scenario. Module shutdown still relies on <code>memdelete</code> of
+  the director. See <a href="#gaussiansplatscenedirector">GaussianSplatSceneDirector</a>.</li>
+<li><strong>Failed-init crash cascade.</strong> <code>_teardown_resources()</code> must be safe on partially constructed
+  state; the <code>teardown_resources_started</code> guard prevents double entry. #383 states that the
+  602-event cascade came from director half-initialization when device acquisition failed, and
+  added streaming failed-init guards. It filed the director fix as a separate "PR 1b", and no landed
+  commit for PR 1b was found. Two things are <strong>unverified</strong>: whether the cascade is fully closed,
+  and whether every sub-owner's <code>shutdown()</code> is safe when <code>initialize()</code> never ran. The
+  lifetime fixture (#386) measures device-manager owned/tracked counts and GS-owned bytes, not a
+  counter per owner.</li>
+<li><strong>OutputCompositor framebuffer caches.</strong> Fixed by #388 (LRU-capped at 8 entries).</li>
+<li><strong>Orphan StringNames at exit.</strong> <code>GSStartupTraceScope::phase</code> is a <code>StringName</code>, built in the
+  <code>GSStartupTraceScope</code> constructor. The copies that live until exit are in
+  <code>GSStartupTrace::totals_usec</code> and <code>insertion_order</code>. Since #389,
+  <code>GSStartupTrace::release_module_strings()</code> clears them at module unregister, alongside
+  <code>gs::release_module_string_names()</code> and <code>release_pipeline_feature_set_module_strings()</code>. The
+  <code>GS_STARTUP_SCOPE</code> sites:</li>
 </ul>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>Function</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>module_register</code></td>
+<td><code>initialize_gaussian_splatting_module()</code></td>
+</tr>
+<tr>
+<td><code>manager_construct</code>, <code>device_request_primary</code>, <code>device_request_shared</code></td>
+<td><code>GaussianSplatManager::GaussianSplatManager()</code></td>
+</tr>
+<tr>
+<td><code>renderer_construct</code></td>
+<td><code>GaussianSplatRenderer::GaussianSplatRenderer(RenderingDevice *)</code></td>
+</tr>
+<tr>
+<td><code>gpu_buffer_manager_init</code></td>
+<td><code>RenderResourceOrchestrator::create_gpu_resources_safe()</code></td>
+</tr>
+<tr>
+<td><code>sorter_create_variant</code></td>
+<td><code>RadixSort::create_variant()</code></td>
+</tr>
+<tr>
+<td><code>first_frame_raster_pipeline_create</code></td>
+<td><code>TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer()</code></td>
+</tr>
+<tr>
+<td><code>shader_compile_binning</code>, <code>shader_compile_prefix</code>, <code>shader_compile_raster</code></td>
+<td><code>ShaderCompilationManager::compile_binning_shaders()</code> / <code>compile_prefix_shaders()</code> / <code>compile_raster_shaders()</code></td>
+</tr>
+<tr>
+<td><code>streaming_persistent_buffer_alloc</code>, <code>streaming_atlas_build_cpu</code>, <code>streaming_atlas_sync_gpu</code></td>
+<td><code>GaussianStreamingSystem::initialize()</code></td>
+</tr>
+<tr>
+<td><code>asset_prefetch_parallel</code></td>
+<td><code>GaussianSplatAsset::prefetch_gaussian_data_parallel()</code></td>
+</tr>
+<tr>
+<td><code>asset_populate_gaussian_data</code></td>
+<td><code>GaussianSplatAsset::populate_gaussian_data()</code></td>
+</tr>
+<tr>
+<td><code>ply_payload_parse</code></td>
+<td><code>PLYLoader::load_file()</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Null-device destruction.</strong> Several release paths drop handles when they have no device:</li>
+<li><code>~GaussianStreamingSystem</code> and <code>StreamingGlobalAtlasRegistry::cleanup</code> drop RIDs with a
+    <code>WARN_PRINT</code>.</li>
+<li><code>GPUCuller::_release_resources()</code> drops its handles silently when <code>resource_device</code> is null.</li>
+<li>The sorters' stale-device branches zero RIDs by design.</li>
+<li><code>TileRenderer::cleanup()</code> drops buffer handles only when it was never initialized or has
+    already been cleaned up.</li>
+</ul>
+<p>The first two become leaks when the device is destroyed before its users.</p>
 <h2 id="thread-safety-contracts">Thread-safety contracts<a class="headerlink" href="#thread-safety-contracts" title="Permanent link">¶</a></h2>
 <ul>
-<li><strong><code>GaussianSplatManager</code> L1-L4 lock hierarchy.</strong> The canonical ordering
-  rules live in the header comment at
-  <code>modules/gaussian_splatting/core/gaussian_splat_manager.h:54-71</code>:</li>
-<li>Level 1 <code>submission_mutex</code> (static, outermost) — serializes GPU
-    submission. Public constants <code>LOCK_LEVEL_SUBMISSION = 1</code> etc. at
-    <code>:82</code>-<code>:85</code>.</li>
-<li>Level 2 <code>resource_maps_mutex</code> — protects <code>gaussian_buffers</code> /
-    <code>buffer_lookup</code> / <code>dynamic_asset_cache</code> and the two <code>*_owner_devices</code>
-    maps.</li>
-<li>Level 3 <code>active_nodes_mutex</code> — protects the registered-node set.</li>
-<li>Level 4 <code>local_device_destroy_request_mutex</code> /
-    <code>local_device_destroy_pending_mutex</code> (innermost) — local-device
-    teardown dispatch and pending-device handoff.</li>
+<li><strong><code>GaussianSplatManager</code> L1–L4 lock hierarchy.</strong> The rules are in the header comment of
+  <code>core/gaussian_splat_manager.h</code>, with the constants <code>LOCK_LEVEL_SUBMISSION</code> and the rest.</li>
+<li>L1 <code>submission_mutex</code> (static, outermost) serializes GPU submission.</li>
+<li>L2 <code>resource_maps_mutex</code> guards the buffer and dynamic-asset maps.</li>
+<li>L3 <code>active_nodes_mutex</code> guards the registered-node set.</li>
+<li>L4 <code>local_device_destroy_request_mutex</code> and <code>local_device_destroy_pending_mutex</code> (innermost)
+    guard the local-device teardown handoff.</li>
 </ul>
-<p>Rules: never acquire a lower-numbered lock while holding a
-  higher-numbered one. In practice no method currently nests two of
-  these locks in the same scope. The destructor at
-  <code>gaussian_splat_manager.cpp:666</code> enforces the sequential rule by
-  releasing each lock before acquiring the next. DEV_ENABLED builds
-  runtime-validate via <code>_gs_lock_level_guard</code>.</p>
-<ul>
-<li>
-<p><strong><code>GaussianSplatSceneDirector::world_mutex</code></strong> at
-  <code>core/gaussian_splat_scene_director.h:355</code> guards every read and write
-  of <code>worlds</code>. The director does not call into the manager's L1-L4
-  hierarchy while holding <code>world_mutex</code>.</p>
-</li>
-<li>
-<p><strong>Renderer teardown idempotency</strong> is enforced by
-  <code>std::atomic&lt;bool&gt; teardown_resources_started</code> at
-  <code>renderer/gaussian_splat_renderer.h:624</code>, flipped via
-  <code>compare_exchange_strong</code> at <code>gaussian_splat_renderer.cpp:1244</code>. This is
-  the primary contract any new teardown caller (e.g. the lifetime-proof
-  fixture in PR 3) must respect.</p>
-</li>
-<li>
-<p><strong>Render-thread dispatch</strong> is brokered by <code>IRenderThreadDispatcher</code>
-  (<code>interfaces/render_thread_dispatcher.h:10</code>-<code>:25</code>); state at
-  <code>:44</code>-<code>:51</code>. Renderer destructor at <code>gaussian_splat_renderer.cpp:1233</code>
-  uses <code>_dispatch_call_on_render_thread_blocking()</code> to route
-  <code>_teardown_on_render_thread()</code> to the render thread when possible,
-  with a synchronous fallback at <code>:1239</code> when dispatch is rejected.</p>
-</li>
-<li>
-<p><strong>Per-sub-owner locking</strong> is documented per owner above. The pattern is
-  consistent: sub-owners do not introduce process-global locks; they
-  either rely on the renderer's render-thread dispatch ordering or use
-  <code>std::atomic</code> for ring-buffer indices and async-readback flags.</p>
-</li>
-</ul>
+<p>Never acquire a lower-numbered lock while holding a higher-numbered one. Two notes:
+  - One method nests two locks: <code>_dispatch_local_device_destroy_on_render_thread()</code> takes the
+    pending mutex while holding the request mutex. Both are L4, and only the outer one goes
+    through the guard.
+  - The destructor takes each lock in turn and releases it before taking the next. Its inline
+    comment names a mutex (<code>local_device_destroy_dispatch_mutex</code>) that does not exist.</p>
+<p>Development builds validate the order through <code>GS_LOCK_ORDER_GUARD</code>.
+- <strong><code>GaussianSplatSceneDirector::world_mutex</code></strong> (<code>ThreadOwnedMutex</code>) guards the world
+  registry. Two exceptions:
+  - The destructor clears the registry without taking it.
+  - <code>submit_world_submission</code> takes <code>world_submission_apply_mutex</code> first.</p>
+<p>Renderer references are released outside the lock.
+- <strong>Renderer teardown idempotency</strong> is enforced by the <code>std::atomic&lt;bool&gt;</code>
+  <code>GaussianSplatRenderer::teardown_resources_started</code>, flipped with <code>compare_exchange_strong</code> at
+  the top of <code>_teardown_resources()</code>. Any new teardown caller must go through that function.
+- <strong>Render-thread dispatch</strong> is brokered by <code>IRenderThreadDispatcher</code>
+  (<code>interfaces/render_thread_dispatcher.h</code>). <code>RenderThreadDispatcher</code> holds the
+  <code>dispatch_mutex</code>, the semaphore and the request state.
+  - <code>RenderThreadDispatcher::dispatch_call_on_render_thread_blocking()</code> returns false without
+    dispatching in three cases: no RenderingServer, the caller is already on the render thread,
+    or the render loop is disabled. Only then does the renderer destructor fall back to a
+    synchronous <code>_teardown_resources()</code>.
+  - Once submitted with <code>allow_timeout = false</code>, the call waits indefinitely (logging stalls
+    every 5 s) and returns true. So the synchronous fallback never runs after a submission.
+- <strong>Per-sub-owner locking</strong> is documented per owner above. Sub-owners do not introduce
+  process-global locks. The exceptions to "no mutex" are <code>GaussianMemoryStream</code> (<code>buffer_mutex</code>,
+  <code>pool_mutex</code>) and the submission lock taken by <code>GPUBufferManager</code>.</p>
 <h2 id="cross-references">Cross-references<a class="headerlink" href="#cross-references" title="Permanent link">¶</a></h2>
 <ul>
 <li><a href="../stage-first-ownership-inventory/"><code>docs/architecture/stage-first-ownership-inventory.md</code></a>
-  — stage-level write-ownership for #356 (W0 characterization). Read
-  alongside this doc for the W0→W3 decomposition work.</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/ARCHITECTURE.md"><code>modules/gaussian_splatting/ARCHITECTURE.md</code></a>
+  — stage-level write ownership for #356 (a 2026-05-20 snapshot).</li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/ARCHITECTURE.md"><code>modules/gaussian_splatting/ARCHITECTURE.md</code></a>
   — subsystem map and data flow.</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md"><code>modules/gaussian_splatting/MEMORY_SUBSYSTEM.md</code></a>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md"><code>modules/gaussian_splatting/MEMORY_SUBSYSTEM.md</code></a>
   — VRAM budget policy and persistent-buffer right-sizing (PR #344).</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/READING_ORDER.md"><code>modules/gaussian_splatting/READING_ORDER.md</code></a>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/READING_ORDER.md"><code>modules/gaussian_splatting/READING_ORDER.md</code></a>
   — recommended reading sequence for new contributors.</li>
-<li>Related work-package issues / PRs:</li>
-<li><strong>#352</strong> — Renderer Lifetime Proof (this work package).</li>
-<li><strong>#327</strong> — earlier teardown-ordering hardening.</li>
-<li><strong>#298</strong> — RID leak inventory (predecessor inventory effort).</li>
-<li><strong>#316</strong> — render-thread dispatch contract.</li>
-<li>PRs 1, 3, 4, 5, 6 of #352 will land alongside this doc; PR numbers
-    to be filled in once assigned.</li>
+<li>Related work-package issues and PRs:</li>
+<li><strong>#352</strong>: Renderer Lifetime Proof (this work package). Follow-ups #383, #386, #387, #388
+    and #389.</li>
+<li><strong>#327</strong>: earlier teardown-ordering hardening.</li>
+<li><strong>#298</strong>: RID leak inventory (the predecessor inventory).</li>
+<li><strong>#316</strong>: render-thread dispatch contract.</li>
+<li><strong>#628</strong>: renderer teardown outside <code>world_mutex</code>, and the reversed module teardown order.</li>
 </ul>
 
 
@@ -2962,7 +2934,7 @@ GaussianSplatNode3D (per-instance, scene-side)      [nodes/gaussian_splat_node_3
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 01:03:02 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:53 UTC">October 1, 2026</span>
   </span>
 
     

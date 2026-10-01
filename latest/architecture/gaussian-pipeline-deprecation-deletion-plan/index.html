@@ -1962,100 +1962,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#tests-that-currently-block-deletion" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tests That Currently Block Deletion
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#recommended-execution-order" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recommended Execution Order
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Recommended Execution Order">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pass-1-safe-consolidation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 1: Safe Consolidation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-2-remove-easy-compatibility-debt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 2: Remove Easy Compatibility Debt
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-3-product-workflow-deprecation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 3: Product Workflow Deprecation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pass-4-optional-further-narrowing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Pass 4: Optional Further Narrowing
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#completion-criteria" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Completion Criteria
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#relationship-to-existing-docs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Relationship To Existing Docs
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -2101,8 +2007,8 @@ Audience: rendering, tools, editor, and test engineers</p>
 <h2 id="what-the-refactor-already-consolidated">What The Refactor Already Consolidated<a class="headerlink" href="#what-the-refactor-already-consolidated" title="Permanent link">¶</a></h2>
 <p>The main structural split is already fixed:</p>
 <ul>
-<li><code>GaussianSplatWorld3D</code> no longer owns the runtime render route. It submits through the director in <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
-<li>The shared instance renderer can now run resident data without a <code>GaussianStreamingSystem</code>, with backend choice resolved through <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a> and the resident atlas publisher.</li>
+<li><code>GaussianSplatWorld3D</code> no longer owns the runtime render route. It submits through the director in <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/nodes/gaussian_splat_world_3d.cpp">gaussian_splat_world_3d.cpp</a>.</li>
+<li>The shared instance renderer can now run resident data without a <code>GaussianStreamingSystem</code>, with backend choice resolved through <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a> and the resident atlas publisher.</li>
 <li>Route/debug/effective-settings surfaces now explain the active path and provenance through existing HUD/editor/diagnostics surfaces.</li>
 <li>The editor no longer dual-writes <code>splat_asset</code> and <code>ply_file_path</code> during normal import flows.</li>
 </ul>
@@ -2181,10 +2087,10 @@ Audience: rendering, tools, editor, and test engineers</p>
 </tr>
 <tr>
 <td>Explicit-resident legacy resident fallback</td>
-<td>Accepted runtime fallback when resident atlas publish is infeasible</td>
-<td>Runtime compatibility behavior</td>
-<td>Keep until resident atlas covers explicit-resident edge cases or the fallback is intentionally retired</td>
-<td>Bucket C</td>
+<td>Removed by #280 (Wave 1 fallback cleanup). On the explicit-resident policy, a resident contract that cannot be published now leaves the frame unrendered without a typed skip route (<code>route_uid</code> stays <code>COMMON.UNSET.ROUTE</code>); only the preferred-resident branch publishes <code>COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*</code>. Per-chunk quantization, the main rejection case, is supported on the resident atlas since #455</td>
+<td>Removed</td>
+<td>None; see section 8</td>
+<td>Complete</td>
 </tr>
 </tbody>
 </table>
@@ -2214,9 +2120,9 @@ Audience: rendering, tools, editor, and test engineers</p>
 <h3 id="1-legacy-streamingenabled">1. Legacy <code>streaming/enabled</code><a class="headerlink" href="#1-legacy-streamingenabled" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_manager.cpp">gaussian_splat_manager.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/effective_config_snapshot.h">effective_config_snapshot.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gs_project_settings.h">gs_project_settings.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_manager.cpp">gaussian_splat_manager.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/effective_config_snapshot.h">effective_config_snapshot.h</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2239,8 +2145,8 @@ Audience: rendering, tools, editor, and test engineers</p>
 <h3 id="2-upsert_world_submission-unregister_world_submission">2. <code>upsert_world_submission()</code> / <code>unregister_world_submission()</code><a class="headerlink" href="#2-upsert_world_submission-unregister_world_submission" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2259,9 +2165,9 @@ Audience: rendering, tools, editor, and test engineers</p>
 <h3 id="3-editor-preview-direct-upload">3. Editor Preview Direct Upload<a class="headerlink" href="#3-editor-preview-direct-upload" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_scene_director.h">gaussian_splat_scene_director.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2299,9 +2205,9 @@ path no longer exists and should not be reintroduced.</p>
 <h3 id="5-gaussiansplatnode3dply_file_path">5. <code>GaussianSplatNode3D::ply_file_path</code><a class="headerlink" href="#5-gaussiansplatnode3dply_file_path" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h">gaussian_splat_node_3d.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h">gaussian_splat_node_3d.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp">gaussian_splat_node_helpers.cpp</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2330,7 +2236,7 @@ path no longer exists and should not be reintroduced.</p>
 </ol>
 <p>Blockers:</p>
 <ul>
-<li>Tests in <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a> still treat it as supported behavior.</li>
+<li>Tests in <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a> still treat it as supported behavior.</li>
 <li>Class docs and examples still show <code>ply_file_path</code>.</li>
 </ul>
 <p>Deletion criteria:</p>
@@ -2342,11 +2248,11 @@ path no longer exists and should not be reintroduced.</p>
 <h3 id="6-gaussiansplatrendererset_gaussian_data">6. <code>GaussianSplatRenderer::set_gaussian_data()</code><a class="headerlink" href="#6-gaussiansplatrendererset_gaussian_data" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/renderer/gaussian_splat_renderer.h">gaussian_splat_renderer.h</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">render_streaming_orchestrator.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/interfaces/gpu_culler.cpp">gpu_culler.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/renderer/gaussian_splat_renderer.h">gaussian_splat_renderer.h</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/renderer/render_data_orchestrator.cpp">render_data_orchestrator.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/core/gaussian_splat_scene_director.cpp">gaussian_splat_scene_director.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/renderer/render_streaming_orchestrator.cpp">render_streaming_orchestrator.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/interfaces/gpu_culler.cpp">gpu_culler.cpp</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2367,7 +2273,7 @@ path no longer exists and should not be reintroduced.</p>
 </ul>
 <p>Secondary callers that should not drive the keep/remove decision by themselves:</p>
 <ul>
-<li>Editor preview direct upload in <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
+<li>Editor preview direct upload in <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
 <li><code>GaussianSplatContainer::apply_to_renderer()</code> was removed in Wave 1 cleanup; container tooling now hands off through <code>apply_to_node()</code> or world export only.</li>
 </ul>
 <p>Why it still exists:</p>
@@ -2393,15 +2299,15 @@ path no longer exists and should not be reintroduced.</p>
 <ul>
 <li>World-backed runtime no longer realizes submissions through primary <code>gaussian_data</code>.</li>
 <li>Streaming bootstrap no longer depends on primary raw scene data or synthetic primary fallback instances.</li>
-<li>Explicit-resident fallback no longer needs the legacy non-instance route.</li>
+<li>Explicit-resident fallback no longer needs the legacy non-instance route. (Met: #280 removed the fallback.)</li>
 <li>Editor preview no longer depends on it directly.</li>
 <li>Low-level tests have replacement helpers or intentionally keep this as a supported low-level API.</li>
 </ul>
 <h3 id="7-duplicated-source-path-resolution">7. Duplicated Source-Path Resolution<a class="headerlink" href="#7-duplicated-source-path-resolution" title="Permanent link">¶</a></h3>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/editor/gaussian_editor_plugin.cpp">gaussian_editor_plugin.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp">gaussian_splat_node_3d.cpp</a></li>
 </ul>
 <p>Current state:</p>
 <ul>
@@ -2420,9 +2326,22 @@ path no longer exists and should not be reintroduced.</p>
 <li>Editor and node warnings/origin labels share the same rules.</li>
 </ul>
 <h3 id="8-explicit-resident-legacy-fallback">8. Explicit-Resident Legacy Fallback<a class="headerlink" href="#8-explicit-resident-legacy-fallback" title="Permanent link">¶</a></h3>
+<blockquote>
+<p><strong>Status, verified 2026-10-01: removed by #280.</strong> <code>GaussianSplatRenderer::_try_render_resident_frame</code>
+has no legacy fallback. When <code>ResidentInstanceContractPublisher</code> cannot publish the contract,
+the attempt returns false and the frame is not rendered; no other route is tried on that frame.
+Only the preferred-resident branch of <code>render_scene_instance</code> publishes a typed skip route
+(<code>COMMON.SKIP.RESIDENT_NOT_FEASIBLE.*</code>). The explicit-resident branch reaches the attempt
+through <code>_render_resident_frame</code>, which discards the result, so that skip publishes no route
+decision and leaves <code>route_uid</code> at <code>COMMON.UNSET.ROUTE</code>. The resident atlas has supported per-chunk quantization since</p>
+<h1 id="455-gs-perf-q80b-the-regression-test">455 (GS-PERF-Q80B). The regression test<a class="headerlink" href="#455-gs-perf-q80b-the-regression-test" title="Permanent link">¶</a></h1>
+<p><code>Asset-backed GaussianSplatNode3D renders without direct set_gaussian_data</code> in
+<code>tests/test_scene_director_submission_scaffolding.h</code> records the removal. The body below is
+the pre-#280 analysis, kept for history.</p>
+</blockquote>
 <p>Canonical files:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp">gaussian_splat_renderer.cpp</a></li>
 <li><a href="../gaussian-resident-instanced-contract/">gaussian-resident-instanced-contract.md</a></li>
 </ul>
 <p>Current state:</p>
@@ -2450,10 +2369,10 @@ path no longer exists and should not be reintroduced.</p>
 <p>The current test suite still locks in several compatibility surfaces:</p>
 <ul>
 <li><code>ply_file_path</code> as a supported node workflow:
-  <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a></li>
+  <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/tests/test_gaussian_splat_node.h">test_gaussian_splat_node.h</a></li>
 <li>diagnostic chaining and mixed-hint behavior:
-  <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/tests/test_integration.cpp">test_integration.cpp</a>,
-  <a href="https://github.com/klausi3D/godotGS/blob/eff00db450c26f50035cfdc8149f529044ee8d62/modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h">test_scene_director_submission_scaffolding.h</a></li>
+  <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/tests/test_integration.cpp">test_integration.cpp</a>,
+  <a href="https://github.com/klausi3D/godotGS/blob/7642e798fdc7dcd02a52a5b9cfd2b8f8220880f7/modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h">test_scene_director_submission_scaffolding.h</a></li>
 </ul>
 <p>This is useful: it tells us exactly what must migrate before deletion is honest rather than accidental.</p>
 <h2 id="recommended-execution-order">Recommended Execution Order<a class="headerlink" href="#recommended-execution-order" title="Permanent link">¶</a></h2>
@@ -2517,7 +2436,7 @@ path no longer exists and should not be reintroduced.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 01:03:01 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 16:24:52 UTC">October 1, 2026</span>
   </span>
 
     
