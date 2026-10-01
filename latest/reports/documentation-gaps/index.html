@@ -4800,17 +4800,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#scriptscoregaussian_splatting_managergd" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4826,6 +4815,17 @@
     <span class="md-ellipsis">
       
         tests/runtime/test_gpu_streaming_stress.gd
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp
       
     </span>
   </a>
@@ -4987,10 +4987,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingnodesgaussian_splat_node_3dcpp" class="md-nav__link">
+  <a href="#modulesgaussian_splattingrenderergpu_performance_monitorh" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp
+        modules/gaussian_splatting/renderer/gpu_performance_monitor.h
       
     </span>
   </a>
@@ -4998,10 +4998,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#modulesgaussian_splattingrenderergpu_performance_monitorh" class="md-nav__link">
+  <a href="#modulesgaussian_splattingnodesgaussian_splat_node_3dcpp" class="md-nav__link">
     <span class="md-ellipsis">
       
-        modules/gaussian_splatting/renderer/gpu_performance_monitor.h
+        modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp
       
     </span>
   </a>
@@ -10929,62 +10929,6 @@
 <li>line 157: AABB get_bounds() const { return root ? root-&gt;bounds : AABB(...</li>
 <li>line 200: inline uint32_t HierarchicalSplatStructure::OctreeNode::get_...</li>
 </ul>
-<h2 id="modulesgaussian_splattingnodesgaussian_splat_node_helperscpp">modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 65: static void _prune_dead_debug_overlay_push_records() {...</li>
-<li>line 107: static bool _commit_debug_overlay_union(GaussianSplatRendere...</li>
-<li>line 221: static void _note_renderer_bound_node(ObjectID p_renderer_id...</li>
-<li>line 235: static void <em>forget_renderer_bound_node(ObjectID p_renderer</em>...</li>
-<li>line 309: static bool _settings_owner_is_live(ObjectID p_owner_id) {...</li>
-<li>line 317: static bool _claim_renderer_settings_owner(ObjectID p_render...</li>
-<li>line 338: static void _release_renderer_settings_owner(ObjectID p_rend...</li>
-<li>line 357: static ObjectID _peek_renderer_settings_owner(ObjectID p_ren...</li>
-<li>line 437: static ObjectID _elect_debug_hud_owner(const GaussianSplatRe...</li>
-<li>line 468: static GaussianSplatRenderer::DebugPreviewMode _node_debug_d...</li>
-<li>line 483: static bool _is_renderer_shared_with_other_content(GaussianS...</li>
-<li>line 499: static String _quality_preset_name(GaussianSplatNode3D::Qual...</li>
-<li>line 513: static String _quality_value_source_label(GaussianSplatNode3...</li>
-<li>line 522: void GaussianSplatNodeAssetHelper::update_asset() {...</li>
-<li>line 636: void GaussianSplatNodeAssetHelper::clear_asset() {...</li>
-<li>line 712: void GaussianSplatNodeViewportHelper::update_cached_render_t...</li>
-<li>line 775: bool GaussianSplatNodeViewportHelper::acquire_viewport_rende...</li>
-<li>line 845: bool GaussianSplatNodeViewportHelper::is_cached_render_targe...</li>
-<li>line 877: void GaussianSplatNodeViewportHelper::connect_viewport_obser...</li>
-<li>line 900: void GaussianSplatNodeViewportHelper::disconnect_viewport_ob...</li>
-<li>line 934: void GaussianSplatNodeViewportHelper::ensure_viewport_textur...</li>
-<li>line 956: void GaussianSplatNodeViewportHelper::queue_viewport_bootstr...</li>
-<li>line 965: void GaussianSplatNodeViewportHelper::deferred_viewport_boot...</li>
-<li>line 979: void GaussianSplatNodeViewportHelper::on_viewport_texture_re...</li>
-<li>line 1012: void GaussianSplatNodeViewportHelper::on_viewport_size_chang...</li>
-<li>line 1039: void GaussianSplatNodeViewportHelper::on_observed_viewport_e...</li>
-<li>line 1050: bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const...</li>
-<li>line 1107: void GaussianSplatNodeDebugHelper::push_debug_overlay_union(...</li>
-<li>line 1180: void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_u...</li>
-<li>line 1226: void GaussianSplatNodeDebugHelper::apply_renderer_debug_sett...</li>
-<li>line 1256: void GaussianSplatNodeDebugHelper::set_show_tile_grid(bool p...</li>
-<li>line 1268: void GaussianSplatNodeDebugHelper::set_show_density_heatmap(...</li>
-<li>line 1280: void GaussianSplatNodeDebugHelper::set_show_performance_hud(...</li>
-<li>line 1298: void GaussianSplatNodeDebugHelper::set_show_lod_spheres(bool...</li>
-<li>line 1307: void GaussianSplatNodeDebugHelper::set_show_performance_over...</li>
-<li>line 1316: void GaussianSplatNodeDebugHelper::set_debug_overlay_opacity...</li>
-<li>line 1329: void GaussianSplatNodeDebugHelper::set_debug_draw_mode(int p...</li>
-<li>line 1349: void GaussianSplatNodeDebugHelper::set_runtime_preview_enabl...</li>
-<li>line 1368: void GaussianSplatNodeDebugHelper::set_show_residency_hud(bo...</li>
-<li>line 1382: void GaussianSplatNodeQualityHelper::apply_quality_preset() ...</li>
-<li>line 1406: void GaussianSplatNodeQualityHelper::update_quality_settings...</li>
-<li>line 1705: void GaussianSplatNodeQualityHelper::fill_preset_config(int ...</li>
-<li>line 1831: void GaussianSplatNodeVisibilityHelper::clear_parent_visibil...</li>
-<li>line 1848: void GaussianSplatNodeVisibilityHelper::update_parent_visibi...</li>
-<li>line 1890: void GaussianSplatNodeVisibilityHelper::update_parent_visibi...</li>
-<li>line 1903: void GaussianSplatNodeVisibilityHelper::on_parent_visibility...</li>
-<li>line 1908: void GaussianSplatNodeVisibilityHelper::on_parent_visibility...</li>
-<li>line 1916: bool GaussianSplatNodeRendererHelper::can_apply_renderer_set...</li>
-<li>line 1949: void GaussianSplatNodeRendererHelper::release_renderer_setti...</li>
-<li>line 1958: void GaussianSplatNodeRendererHelper::ensure_renderer() {...</li>
-<li>line 2005: void GaussianSplatNodeRendererHelper::apply_renderer_setting...</li>
-<li>line 2153: void GaussianSplatNodeRendererHelper::upload_asset_to_render...</li>
-<li>line 2188: void GaussianSplatNodeRendererHelper::mark_render_state_dirt...</li>
-</ul>
 <h2 id="scriptscoregaussian_splatting_managergd">scripts/core/gaussian_splatting_manager.gd<a class="headerlink" href="#scriptscoregaussian_splatting_managergd" title="Permanent link">¶</a></h2>
 <ul>
 <li>line 50: func _gs_debug_flag() -&gt; String:...</li>
@@ -11000,6 +10944,64 @@
 <li>line 934: func _build_world_resource(dataset: GaussianData) -&gt; Gaussia...</li>
 <li>line 940: func _setup_world_scene(dataset: GaussianData) -&gt; bool:...</li>
 <li>line 961: func _teardown_world_scene() -&gt; void:...</li>
+</ul>
+<h2 id="modulesgaussian_splattingnodesgaussian_splat_node_helperscpp">modules/gaussian_splatting/nodes/gaussian_splat_node_helpers.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_helperscpp" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 72: static void _prune_dead_debug_overlay_push_records() {...</li>
+<li>line 114: static bool _commit_debug_overlay_union(GaussianSplatRendere...</li>
+<li>line 234: static void _note_renderer_bound_node(ObjectID p_renderer_id...</li>
+<li>line 243: static void <em>forget_renderer_bound_node(ObjectID p_renderer</em>...</li>
+<li>line 324: static bool _settings_owner_is_live(ObjectID p_owner_id) {...</li>
+<li>line 332: static bool _claim_renderer_settings_owner(ObjectID p_render...</li>
+<li>line 353: static void _release_renderer_settings_owner(ObjectID p_rend...</li>
+<li>line 372: static ObjectID _peek_renderer_settings_owner(ObjectID p_ren...</li>
+<li>line 452: static ObjectID _elect_debug_hud_owner(const GaussianSplatRe...</li>
+<li>line 484: static GaussianSplatRenderer::DebugPreviewMode _node_debug_d...</li>
+<li>line 499: static bool _is_renderer_shared_with_other_content(GaussianS...</li>
+<li>line 515: static String _quality_preset_name(GaussianSplatNode3D::Qual...</li>
+<li>line 529: static String _quality_value_source_label(GaussianSplatNode3...</li>
+<li>line 538: void GaussianSplatNodeAssetHelper::update_asset() {...</li>
+<li>line 652: void GaussianSplatNodeAssetHelper::clear_asset() {...</li>
+<li>line 728: void GaussianSplatNodeViewportHelper::update_cached_render_t...</li>
+<li>line 791: bool GaussianSplatNodeViewportHelper::acquire_viewport_rende...</li>
+<li>line 861: bool GaussianSplatNodeViewportHelper::is_cached_render_targe...</li>
+<li>line 893: void GaussianSplatNodeViewportHelper::connect_viewport_obser...</li>
+<li>line 916: void GaussianSplatNodeViewportHelper::disconnect_viewport_ob...</li>
+<li>line 950: void GaussianSplatNodeViewportHelper::ensure_viewport_textur...</li>
+<li>line 972: void GaussianSplatNodeViewportHelper::queue_viewport_bootstr...</li>
+<li>line 981: void GaussianSplatNodeViewportHelper::deferred_viewport_boot...</li>
+<li>line 995: void GaussianSplatNodeViewportHelper::on_viewport_texture_re...</li>
+<li>line 1028: void GaussianSplatNodeViewportHelper::on_viewport_size_chang...</li>
+<li>line 1055: void GaussianSplatNodeViewportHelper::on_observed_viewport_e...</li>
+<li>line 1066: bool GaussianSplatNodeDebugHelper::can_own_debug_hud() const...</li>
+<li>line 1124: void GaussianSplatNodeDebugHelper::count_peer_walk_step() {...</li>
+<li>line 1128: uint64_t GaussianSplatNodeDebugHelper::get_peer_walk_steps()...</li>
+<li>line 1133: void GaussianSplatNodeDebugHelper::push_debug_overlay_union(...</li>
+<li>line 1207: void GaussianSplatNodeDebugHelper::reconcile_debug_overlay_u...</li>
+<li>line 1255: void GaussianSplatNodeDebugHelper::apply_renderer_debug_sett...</li>
+<li>line 1285: void GaussianSplatNodeDebugHelper::set_show_tile_grid(bool p...</li>
+<li>line 1297: void GaussianSplatNodeDebugHelper::set_show_density_heatmap(...</li>
+<li>line 1309: void GaussianSplatNodeDebugHelper::set_show_performance_hud(...</li>
+<li>line 1327: void GaussianSplatNodeDebugHelper::set_show_lod_spheres(bool...</li>
+<li>line 1336: void GaussianSplatNodeDebugHelper::set_show_performance_over...</li>
+<li>line 1345: void GaussianSplatNodeDebugHelper::set_debug_overlay_opacity...</li>
+<li>line 1358: void GaussianSplatNodeDebugHelper::set_debug_draw_mode(int p...</li>
+<li>line 1378: void GaussianSplatNodeDebugHelper::set_runtime_preview_enabl...</li>
+<li>line 1397: void GaussianSplatNodeDebugHelper::set_show_residency_hud(bo...</li>
+<li>line 1411: void GaussianSplatNodeQualityHelper::apply_quality_preset() ...</li>
+<li>line 1435: void GaussianSplatNodeQualityHelper::update_quality_settings...</li>
+<li>line 1734: void GaussianSplatNodeQualityHelper::fill_preset_config(int ...</li>
+<li>line 1860: void GaussianSplatNodeVisibilityHelper::clear_parent_visibil...</li>
+<li>line 1877: void GaussianSplatNodeVisibilityHelper::update_parent_visibi...</li>
+<li>line 1919: void GaussianSplatNodeVisibilityHelper::update_parent_visibi...</li>
+<li>line 1932: void GaussianSplatNodeVisibilityHelper::on_parent_visibility...</li>
+<li>line 1937: void GaussianSplatNodeVisibilityHelper::on_parent_visibility...</li>
+<li>line 1945: bool GaussianSplatNodeRendererHelper::can_apply_renderer_set...</li>
+<li>line 1978: void GaussianSplatNodeRendererHelper::release_renderer_setti...</li>
+<li>line 1987: void GaussianSplatNodeRendererHelper::ensure_renderer() {...</li>
+<li>line 2034: void GaussianSplatNodeRendererHelper::apply_renderer_setting...</li>
+<li>line 2182: void GaussianSplatNodeRendererHelper::upload_asset_to_render...</li>
+<li>line 2217: void GaussianSplatNodeRendererHelper::mark_render_state_dirt...</li>
 </ul>
 <h2 id="testsexamplesgodottest_projectscriptsqa_test_runnergd">tests/examples/godot/test_project/scripts/qa_test_runner.gd<a class="headerlink" href="#testsexamplesgodottest_projectscriptsqa_test_runnergd" title="Permanent link">¶</a></h2>
 <ul>
@@ -11063,13 +11065,13 @@
 <li>line 439: explicit operator bool() const { return node != nullptr; }...</li>
 <li>line 448: void reset() {...</li>
 <li>line 488: ScopedTestNodeExitObservation take_scoped_test_node_setup_fa...</li>
-<li>line 4953: bool gs862_is_registered(GaussianSplatWorld3D *p_node) {...</li>
-<li>line 4964: bool gs862_record_has_resident_payload(const GaussianSplatSc...</li>
-<li>line 4971: int gs862_changed_connection_count(const Ref&lt;GaussianSplatWo...</li>
-<li>line 4986: int gs862_total_changed_connections(const Ref&lt;GaussianSplatW...</li>
-<li>line 5395: void on_changed() { count++; }...</li>
-<li>line 5573: bool find_property_info(Object *p_object, const StringName &amp;...</li>
-<li>line 5679: void collect_debug_replacement_controls(Node *p_control, Has...</li>
+<li>line 5055: bool gs862_is_registered(GaussianSplatWorld3D *p_node) {...</li>
+<li>line 5066: bool gs862_record_has_resident_payload(const GaussianSplatSc...</li>
+<li>line 5073: int gs862_changed_connection_count(const Ref&lt;GaussianSplatWo...</li>
+<li>line 5088: int gs862_total_changed_connections(const Ref&lt;GaussianSplatW...</li>
+<li>line 5497: void on_changed() { count++; }...</li>
+<li>line 5675: bool find_property_info(Object *p_object, const StringName &amp;...</li>
+<li>line 5781: void collect_debug_replacement_controls(Node *p_control, Has...</li>
 </ul>
 <h2 id="modulesgaussian_splattingteststest_output_compositor_composite_hazardh">modules/gaussian_splatting/tests/test_output_compositor_composite_hazard.h<a class="headerlink" href="#modulesgaussian_splattingteststest_output_compositor_composite_hazardh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11187,6 +11189,16 @@
 <li>line 67: func _is_gpu_required_ci_mode() -&gt; bool:...</li>
 <li>line 74: func _run_suite():...</li>
 <li>line 98: func _apply_suite_gates():...</li>
+</ul>
+<h2 id="modulesgaussian_splattingrenderergpu_performance_monitorh">modules/gaussian_splatting/renderer/gpu_performance_monitor.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_performance_monitorh" title="Permanent link">¶</a></h2>
+<ul>
+<li>line 24: bool poll_timeline_value(RID p_timeline_semaphore, uint64_t ...</li>
+<li>line 51: uint64_t get_submit_timeline_value() const { return submit_f...</li>
+<li>line 52: uint64_t get_complete_timeline_value() const { return comple...</li>
+<li>line 53: float get_gpu_utilization() const { return completion_rate; ...</li>
+<li>line 65: uint64_t get_last_timeline_value() const { return last_frame...</li>
+<li>line 75: void set_timeline_manager(TimelineSemaphoreManager *p_manage...</li>
+<li>line 85: float get_gpu_utilization_async() { return get_cached_comple...</li>
 </ul>
 <h2 id="modulesgaussian_splattingnodesgaussian_splat_node_3dcpp">modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp<a class="headerlink" href="#modulesgaussian_splattingnodesgaussian_splat_node_3dcpp" title="Permanent link">¶</a></h2>
 <ul>
@@ -11318,43 +11330,33 @@
 <li>line 2758: void GaussianSplatNode3D::_update_instance_params_in_directo...</li>
 <li>line 2797: void GaussianSplatNode3D::_converge_shared_renderer_state() ...</li>
 <li>line 2850: void GaussianSplatNode3D::_notify_renderer_peers_shared_stat...</li>
-<li>line 2903: void GaussianSplatNode3D::_on_renderer_peer_set_changed(cons...</li>
-<li>line 2933: void GaussianSplatNode3D::_reconcile_debug_overlay_state() {...</li>
-<li>line 2938: void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_d...</li>
-<li>line 2960: void GaussianSplatNode3D::_notify_debug_hud_dirty_for_render...</li>
-<li>line 2982: void GaussianSplatNode3D::_register_shared_renderer() {...</li>
-<li>line 3005: void GaussianSplatNode3D::_unregister_shared_renderer() {...</li>
-<li>line 3048: void GaussianSplatNode3D::_unbind_renderer_binding_record() ...</li>
-<li>line 3055: void GaussianSplatNode3D::_update_shared_transform() {...</li>
-<li>line 3059: void GaussianSplatNode3D::_on_asset_changed() {...</li>
-<li>line 3066: void GaussianSplatNode3D::_on_color_grading_changed() {...</li>
-<li>line 3082: void GaussianSplatNode3D::_on_transform_changed() {...</li>
-<li>line 3089: void GaussianSplatNode3D::_clear_parent_visibility_tracking(...</li>
-<li>line 3093: void GaussianSplatNode3D::_update_parent_visibility_tracking...</li>
-<li>line 3097: void GaussianSplatNode3D::_update_parent_visibility_state() ...</li>
-<li>line 3101: void GaussianSplatNode3D::_on_parent_visibility_changed_with...</li>
-<li>line 3105: void GaussianSplatNode3D::_on_parent_visibility_changed() {...</li>
-<li>line 3109: void GaussianSplatNode3D::_apply_quality_preset() {...</li>
-<li>line 3113: Dictionary GaussianSplatNode3D::_get_preset_config(QualityPr...</li>
-<li>line 3121: void GaussianSplatNode3D::_fill_preset_config(QualityPreset ...</li>
-<li>line 3125: Ref<gaussiansplatrenderer> GaussianSplatNode3D::get_renderer...</gaussiansplatrenderer></li>
-<li>line 3134: void GaussianSplatNode3D::set_color_grading(const Ref&lt;ColorG...</li>
-<li>line 3163: Error GaussianSplatNode3D::bake_color_grading() {...</li>
-<li>line 3167: Error GaussianSplatNode3D::bake_color_grading_snapshot(const...</li>
-<li>line 3194: void GaussianSplatNode3D::restore_color_grading() {...</li>
-<li>line 3210: bool GaussianSplatNode3D::is_color_grading_baked() const {...</li>
-<li>line 3218: bool GaussianSplatNode3D::<em>can_drop_data_fw(const Point2 &amp;p</em>...</li>
-<li>line 3237: void GaussianSplatNode3D::_drop_data_fw(const Point2 &amp;p_poin...</li>
-</ul>
-<h2 id="modulesgaussian_splattingrenderergpu_performance_monitorh">modules/gaussian_splatting/renderer/gpu_performance_monitor.h<a class="headerlink" href="#modulesgaussian_splattingrenderergpu_performance_monitorh" title="Permanent link">¶</a></h2>
-<ul>
-<li>line 24: bool poll_timeline_value(RID p_timeline_semaphore, uint64_t ...</li>
-<li>line 51: uint64_t get_submit_timeline_value() const { return submit_f...</li>
-<li>line 52: uint64_t get_complete_timeline_value() const { return comple...</li>
-<li>line 53: float get_gpu_utilization() const { return completion_rate; ...</li>
-<li>line 65: uint64_t get_last_timeline_value() const { return last_frame...</li>
-<li>line 75: void set_timeline_manager(TimelineSemaphoreManager *p_manage...</li>
-<li>line 85: float get_gpu_utilization_async() { return get_cached_comple...</li>
+<li>line 2922: void GaussianSplatNode3D::_on_renderer_peer_set_changed(cons...</li>
+<li>line 2952: void GaussianSplatNode3D::_reconcile_debug_overlay_state() {...</li>
+<li>line 2957: void GaussianSplatNode3D::_notify_renderer_peers_debug_hud_d...</li>
+<li>line 2979: void GaussianSplatNode3D::_notify_debug_hud_dirty_for_render...</li>
+<li>line 3002: void GaussianSplatNode3D::_register_shared_renderer() {...</li>
+<li>line 3025: void GaussianSplatNode3D::_unregister_shared_renderer() {...</li>
+<li>line 3068: void GaussianSplatNode3D::_unbind_renderer_binding_record() ...</li>
+<li>line 3075: void GaussianSplatNode3D::_update_shared_transform() {...</li>
+<li>line 3079: void GaussianSplatNode3D::_on_asset_changed() {...</li>
+<li>line 3086: void GaussianSplatNode3D::_on_color_grading_changed() {...</li>
+<li>line 3102: void GaussianSplatNode3D::_on_transform_changed() {...</li>
+<li>line 3109: void GaussianSplatNode3D::_clear_parent_visibility_tracking(...</li>
+<li>line 3113: void GaussianSplatNode3D::_update_parent_visibility_tracking...</li>
+<li>line 3117: void GaussianSplatNode3D::_update_parent_visibility_state() ...</li>
+<li>line 3121: void GaussianSplatNode3D::_on_parent_visibility_changed_with...</li>
+<li>line 3125: void GaussianSplatNode3D::_on_parent_visibility_changed() {...</li>
+<li>line 3129: void GaussianSplatNode3D::_apply_quality_preset() {...</li>
+<li>line 3133: Dictionary GaussianSplatNode3D::_get_preset_config(QualityPr...</li>
+<li>line 3141: void GaussianSplatNode3D::_fill_preset_config(QualityPreset ...</li>
+<li>line 3145: Ref<gaussiansplatrenderer> GaussianSplatNode3D::get_renderer...</gaussiansplatrenderer></li>
+<li>line 3154: void GaussianSplatNode3D::set_color_grading(const Ref&lt;ColorG...</li>
+<li>line 3183: Error GaussianSplatNode3D::bake_color_grading() {...</li>
+<li>line 3187: Error GaussianSplatNode3D::bake_color_grading_snapshot(const...</li>
+<li>line 3214: void GaussianSplatNode3D::restore_color_grading() {...</li>
+<li>line 3230: bool GaussianSplatNode3D::is_color_grading_baked() const {...</li>
+<li>line 3238: bool GaussianSplatNode3D::<em>can_drop_data_fw(const Point2 &amp;p</em>...</li>
+<li>line 3257: void GaussianSplatNode3D::_drop_data_fw(const Point2 &amp;p_poin...</li>
 </ul>
 <h2 id="modulesgaussian_splattingeditorgaussian_editor_pluginh">modules/gaussian_splatting/editor/gaussian_editor_plugin.h<a class="headerlink" href="#modulesgaussian_splattingeditorgaussian_editor_pluginh" title="Permanent link">¶</a></h2>
 <ul>
@@ -11846,9 +11848,9 @@
 <li>line 17: explicit GaussianSplatNodeAssetHelper(GaussianSplatNode3D &amp;p...</li>
 <li>line 28: explicit GaussianSplatNodeViewportHelper(GaussianSplatNode3D...</li>
 <li>line 58: explicit GaussianSplatNodeDebugHelper(GaussianSplatNode3D &amp;p...</li>
-<li>line 129: explicit GaussianSplatNodeQualityHelper(GaussianSplatNode3D ...</li>
-<li>line 152: explicit GaussianSplatNodeVisibilityHelper(GaussianSplatNode...</li>
-<li>line 166: explicit GaussianSplatNodeRendererHelper(GaussianSplatNode3D...</li>
+<li>line 146: explicit GaussianSplatNodeQualityHelper(GaussianSplatNode3D ...</li>
+<li>line 169: explicit GaussianSplatNodeVisibilityHelper(GaussianSplatNode...</li>
+<li>line 183: explicit GaussianSplatNodeRendererHelper(GaussianSplatNode3D...</li>
 </ul>
 <h2 id="modulesgaussian_splattingcorestreaming_chunk_payload_sourceh">modules/gaussian_splatting/core/streaming_chunk_payload_source.h<a class="headerlink" href="#modulesgaussian_splattingcorestreaming_chunk_payload_sourceh" title="Permanent link">¶</a></h2>
 <ul>
@@ -12259,7 +12261,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 00:42:58 UTC">October 1, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 1, 2026 01:03:13 UTC">October 1, 2026</span>
   </span>
 
     
