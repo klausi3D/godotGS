@@ -3116,6 +3116,41 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
     budget.vram_chunk_cap_hit_this_frame = blocked_by_chunk_cap;
     evictions_left = admission_budget.evictions_left;
     eviction_blocked = admission_budget.eviction_blocked;
+    _record_visible_scan_starvation(scan_origin, scanned_chunks, load_threshold);
+}
+
+void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_origin, uint32_t p_scanned_chunks,
+        float p_load_threshold) {
+    // #1086: decided here, against the state the scan itself saw. Judging it later
+    // (after the upload queue may have evicted a visible chunk at admission) would
+    // count chunks that became unserved after the scan as scan starvation.
+    const LocalVector<uint32_t> &visible_chunks = visibility.visible_chunk_indices;
+    const uint32_t visible_count = visible_chunks.size();
+    uint32_t unscanned_unserved = 0;
+    // Only when the scan had room and found nothing is the unscanned remainder
+    // relevant: unserved demand there is demand the scan window never reached. A
+    // scan that covered the whole visible list cannot have starved.
+    if (scheduler.last_visible_scan_had_capacity && scheduler.last_load_candidate_count == 0 &&
+            p_scanned_chunks < visible_count) {
+        for (uint32_t i = p_scanned_chunks; i < visible_count; i++) {
+            const uint32_t chunk_idx = visible_chunks[(p_scan_origin + i) % visible_count];
+            if (chunk_idx >= chunks.size()) {
+                continue;
+            }
+            const StreamingChunk &chunk = chunks[chunk_idx];
+            if (chunk.distance < p_load_threshold && !chunk.is_loaded && !chunk.upload_pending) {
+                unscanned_unserved++;
+            }
+        }
+    }
+    StreamingQueuePressureController::VisibleScanStarvationInput starvation_input;
+    // Unserved demand known at scan time: the candidates it found plus any it missed.
+    starvation_input.needed_unserved_chunks = scheduler.last_load_candidate_count + unscanned_unserved;
+    starvation_input.scan_had_capacity = scheduler.last_visible_scan_had_capacity;
+    starvation_input.load_candidates = scheduler.last_load_candidate_count;
+    scheduler.last_visible_scan_starvation_eligible =
+            StreamingQueuePressureController::is_visible_scan_starvation_eligible(starvation_input);
+    scheduler.last_visible_scan_starved = StreamingQueuePressureController::is_visible_scan_starved(starvation_input);
 }
 
 float GaussianStreamingSystem::_get_needed_set_load_threshold() const {
@@ -3131,8 +3166,6 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
     scheduler.last_needed_unserved_chunk_count = 0;
-    scheduler.last_visible_scan_starvation_eligible = false;
-    scheduler.last_visible_scan_starved = false;
     scheduler.last_needed_set_measured = true;
 
     const LocalVector<uint32_t> &visible_chunks = visibility.visible_chunk_indices;
@@ -3168,13 +3201,6 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
     scheduler.last_needed_chunk_count = needed_chunks;
     scheduler.last_needed_resident_chunk_count = frame.visible_chunks.size();
     scheduler.last_needed_unserved_chunk_count = needed_unserved_chunks;
-    StreamingQueuePressureController::VisibleScanStarvationInput starvation_input;
-    starvation_input.needed_unserved_chunks = needed_unserved_chunks;
-    starvation_input.scan_had_capacity = scheduler.last_visible_scan_had_capacity;
-    starvation_input.load_candidates = scheduler.last_load_candidate_count;
-    scheduler.last_visible_scan_starvation_eligible =
-            StreamingQueuePressureController::is_visible_scan_starvation_eligible(starvation_input);
-    scheduler.last_visible_scan_starved = StreamingQueuePressureController::is_visible_scan_starved(starvation_input);
 }
 
 void GaussianStreamingSystem::_handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max) {

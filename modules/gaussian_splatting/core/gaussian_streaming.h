@@ -445,6 +445,13 @@ public:
         scheduler.last_visible_scan_had_capacity = p_had_capacity;
         scheduler.last_load_candidate_count = p_load_candidates;
     }
+    // Runs the end-of-scan starvation decision _load_visible_chunks makes, for a scan
+    // that covered p_scanned_chunks of the visible list starting at p_scan_origin.
+    void _test_record_visible_scan_starvation(bool p_had_capacity, uint32_t p_load_candidates,
+            uint32_t p_scan_origin, uint32_t p_scanned_chunks) {
+        _test_set_visible_scan_result(p_had_capacity, p_load_candidates);
+        _record_visible_scan_starvation(p_scan_origin, p_scanned_chunks, _get_needed_set_load_threshold());
+    }
     void _test_build_visible_chunk_list() { _build_visible_chunk_list(); }
     // Field-level accessors for the global atlas registry. Returning the
     // registry by reference would expose private fields the registry's
@@ -511,6 +518,7 @@ private:
     void _build_visible_chunk_list();
     // #1086: the load-candidate distance _load_visible_chunks uses; defines the needed set.
     float _get_needed_set_load_threshold() const;
+    void _record_visible_scan_starvation(uint32_t p_scan_origin, uint32_t p_scanned_chunks, float p_load_threshold);
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
     void _log_streaming_frame_stats(uint32_t effective_max);
