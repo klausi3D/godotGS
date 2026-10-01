@@ -170,8 +170,13 @@ human uphold it):
 - Every review requirement in the risk-class table: one review for R0, the
   correctness review, the GPU/performance review for R2+, and for R3 the two
   reviews and the CODEOWNER and human approval. With 0 required approvals and
-  code-owner review off, a PR with no approval merges once the gate is green and
-  its conversations are resolved.
+  code-owner review off, a PR with no approval merges once the gate is green, its
+  conversations are resolved, and no "Request changes" review is outstanding.
+  `required_pull_request_reviews` is enabled, so such a review from someone with
+  write access holds the PR until that reviewer approves or the review is
+  dismissed, and resolving its threads does not clear it. Today the only
+  collaborator is the repository owner, who cannot request changes on a PR they
+  authored, so on owner-authored PRs no one can place this hold.
   `.github/CODEOWNERS` names owners but does not block.
 - The R3 design record (ADR or design-change issue) before implementation, and the
   evidence each class lists (`evidence_requirements`). `adr_required` and the

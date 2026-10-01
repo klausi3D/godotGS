@@ -75,7 +75,13 @@ and **no code-owner review**. Layers 2 to 4 above, the R3 two-review rule, and t
 blocker and waiver rules are therefore upheld by reviewers and the merging human,
 not by GitHub. The full split is in
 [agentic engineering](agentic-engineering.md#what-is-enforced-and-what-is-process).
-Required conversation resolution is the one mechanical backstop: an open review
+Two mechanical backstops remain. Required conversation resolution: an open review
 thread blocks the merge until someone resolves it. Anyone with write access,
 including the PR's author, can resolve a thread, so this proves that someone
-dispositioned the thread, not that a reviewer agreed.
+dispositioned the thread, not that a reviewer agreed. And because
+`required_pull_request_reviews` is enabled, an outstanding "Request changes"
+review from someone with write access holds the PR until that reviewer approves
+or the review is dismissed, even with 0 required approvals; resolving its threads
+does not clear it. The repository owner is today the only collaborator and cannot
+request changes on a PR they authored, so on owner-authored PRs this second
+backstop cannot be triggered.
