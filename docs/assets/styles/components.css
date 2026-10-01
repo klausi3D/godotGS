@@ -227,6 +227,18 @@
   scrollbar-width: thin;
   scrollbar-color: var(--gs-faint) transparent;
 }
+/* Material bleeds the scroll area 0.8rem past the column on each side. On
+   phones that reaches the screen edge (kept); wider, it would overhang the
+   reading column, so the scroll area is the column exactly. */
+@media screen and (min-width: 45em) {
+  .md-typeset__scrollwrap {
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .md-typeset__table {
+    padding: 0;
+  }
+}
 /* Engines without scrollbar-color (Safari) keep a classic, visible thin bar. */
 .md-typeset__scrollwrap::-webkit-scrollbar {
   height: 8px;

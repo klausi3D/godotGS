@@ -196,6 +196,8 @@
 @media screen and (max-width: 560px) {
   .gs-marketing .gsm-foot-grid { grid-template-columns: 1fr; }
   .gs-marketing .gsm-stat .n { font-size: 40px; }
-  .gs-marketing .gsm-cmd { font-size: 12px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+  /* The command wraps (left-aligned, like a shell line) rather than scrolling:
+     a clipped URL gives no sign that more of it is hidden. */
+  .gs-marketing .gsm-cmd { font-size: 12px; max-width: 100%; align-items: baseline; text-align: left; overflow-wrap: anywhere; }
   .gs-marketing .gsm-rd { display: none; }
 }

@@ -60,8 +60,8 @@
   /* Layout */
   --gs-container: 1220px;
   /* Reading measure: body copy stops at ~72 characters per line (Geist body
-     text averages ~0.5em per character). rem-based so every prose element
-     shares one right edge; tables, code and figures keep the full column. */
+     text averages ~0.5em per character). Applied to the whole article, so
+     tables, code and figures share the prose's right edge. */
   --gs-measure: 31rem;
 
   /* Reading type scale */
@@ -235,7 +235,7 @@
   --md-code-hl-name-color: #c6d2e2;
   --md-code-hl-operator-color: #98a5b6;
   --md-code-hl-punctuation-color: #98a5b6;
-  --md-code-hl-comment-color: #6c7a8c;
+  --md-code-hl-comment-color: #7d8a9c; /* 5.51:1 on --gs-code-bg (AA) */
   --md-code-hl-generic-color: #98a5b6;
   --md-code-hl-variable-color: #c6d2e2;
 
@@ -266,9 +266,11 @@ button {
   color: var(--gs-prose);
 }
 
-/* Prose measure: running text and callouts stop at --gs-measure; tables, code
-   blocks, figures and card grids are not listed, so they keep the full column. */
-.md-typeset > :is(p, ul, ol, dl, blockquote, .admonition, details) {
+/* Reading column: the whole article stops at --gs-measure, so prose, tables,
+   code blocks, figures and card grids share one right edge. Content wider than
+   the column scrolls inside it (tables in Material's scroll wrapper, code in its
+   <pre>) instead of overhanging the text. */
+.md-content__inner {
   max-width: var(--gs-measure);
 }
 
@@ -429,13 +431,6 @@ button {
    spacer that pushes the palette toggle, search and repo link to the right. */
 .md-header__title {
   visibility: hidden;
-}
-/* Below the desktop breakpoint the drawer (menu) button leads, as in stock
-   Material (which hides the logo there; this theme keeps the wordmark). */
-@media screen and (max-width: 76.234375em) {
-  .md-header__button[for="__drawer"] {
-    order: -1;
-  }
 }
 
 /* Header controls inherit the graphite-on-glass treatment */
