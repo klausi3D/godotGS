@@ -11,18 +11,18 @@ This report lists fork deltas against pinned upstream Godot source for files tha
 | Upstream ref (configured) | `876b290332ec6f2e6d173d08162a02aa7e6ca46d` |
 | Upstream commit (resolved) | `876b290332ec6f2e6d173d08162a02aa7e6ca46d` |
 | Fork-base commit (merge-base) | `876b290332ec6f2e6d173d08162a02aa7e6ca46d` |
-| Head ref | `4cc28822021ed7e8a032cd64bd1202d8a38ac32d` |
-| Head commit | `4cc28822021ed7e8a032cd64bd1202d8a38ac32d` |
+| Head ref | `eff00db450c26f50035cfdc8149f529044ee8d62` |
+| Head commit | `eff00db450c26f50035cfdc8149f529044ee8d62` |
 | Rename threshold | `-M70%` |
 
 ## Summary
 
 | Metric | Count |
 | --- | ---: |
-| Total upstream-origin changed files | 134 |
-| Modified (`M`) | 95 |
+| Total upstream-origin changed files | 144 |
+| Modified (`M`) | 107 |
 | Renamed (`R*`) | 0 |
-| Deleted (`D`) | 39 |
+| Deleted (`D`) | 37 |
 
 ## Engine-source-only summary
 
@@ -30,8 +30,8 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 
 | Metric | Count |
 | --- | ---: |
-| Total engine-source changed files | 32 |
-| Modified (`M`) | 32 |
+| Total engine-source changed files | 40 |
+| Modified (`M`) | 40 |
 | Renamed (`R*`) | 0 |
 | Deleted (`D`) | 0 |
 
@@ -41,32 +41,40 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | --- | --- | --- | ---: | ---: | --- |
 | `M` | `core/config/engine.cpp` | `core` | 4 | 0 | `aeeb1475cb34` |
 | `M` | `core/config/engine.h` | `core` | 6 | 5 | `aeeb1475cb34` |
+| `M` | `core/config/project_settings.cpp` | `core` | 10 | 5 | `e79de592c1d1` |
 | `M` | `drivers/gles3/rasterizer_gles3.h` | `drivers` | 5 | 4 | `aeeb1475cb34` |
 | `M` | `drivers/gles3/rasterizer_scene_gles3.cpp` | `drivers` | 1 | 1 | `aeeb1475cb34` |
 | `M` | `drivers/gles3/rasterizer_scene_gles3.h` | `drivers` | 1 | 1 | `aeeb1475cb34` |
-| `M` | `editor/docks/scene_tree_dock.cpp` | `editor` | 75 | 1 | `aeeb1475cb34` |
+| `M` | `drivers/vulkan/rendering_device_driver_vulkan.cpp` | `drivers` | 68 | 0 | `2687700e1e52` |
+| `M` | `drivers/vulkan/rendering_device_driver_vulkan.h` | `drivers` | 1 | 0 | `2687700e1e52` |
+| `M` | `editor/docks/scene_tree_dock.cpp` | `editor` | 83 | 1 | `27035f2d9868` |
 | `M` | `editor/docks/scene_tree_dock.h` | `editor` | 3 | 0 | `aeeb1475cb34` |
-| `M` | `main/main.cpp` | `main` | 8 | 4 | `aeeb1475cb34` |
+| `M` | `editor/editor_node.cpp` | `editor` | 23 | 0 | `47bf18f81abb` |
+| `M` | `editor/scene/3d/node_3d_editor_plugin.cpp` | `editor` | 71 | 1 | `27035f2d9868` |
+| `M` | `editor/scene/3d/node_3d_editor_plugin.h` | `editor` | 2 | 0 | `c6b0b1951f26` |
+| `M` | `main/main.cpp` | `main` | 74 | 4 | `d11c70687add` |
+| `M` | `main/main.h` | `main` | 12 | 0 | `47bf18f81abb` |
 | `M` | `platform/windows/os_windows.cpp` | `platform/windows` | 3 | 2 | `aeeb1475cb34` |
 | `M` | `servers/rendering/dummy/rasterizer_dummy.h` | `servers` | 4 | 3 | `aeeb1475cb34` |
 | `M` | `servers/rendering/dummy/rasterizer_scene_dummy.h` | `servers` | 1 | 1 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_compositor.h` | `servers` | 8 | 3 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_rd/effects/copy_effects.cpp` | `servers` | 65 | 22 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_rd/effects/copy_effects.h` | `servers` | 15 | 8 | `aeeb1475cb34` |
-| `M` | `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` | `servers` | 252 | 1 | `aeeb1475cb34` |
+| `M` | `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` | `servers` | 282 | 1 | `873025f5783c` |
 | `M` | `servers/rendering/renderer_rd/renderer_compositor_rd.cpp` | `servers` | 10 | 8 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_rd/renderer_compositor_rd.h` | `servers` | 14 | 11 | `aeeb1475cb34` |
-| `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` | `servers` | 119 | 9 | `aeeb1475cb34` |
+| `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` | `servers` | 135 | 9 | `873025f5783c` |
 | `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.h` | `servers` | 10 | 4 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_rd/storage_rd/light_storage.h` | `servers` | 2 | 0 | `aeeb1475cb34` |
-| `M` | `servers/rendering/renderer_rd/storage_rd/render_data_rd.h` | `servers` | 17 | 3 | `aeeb1475cb34` |
+| `M` | `servers/rendering/renderer_rd/storage_rd/render_data_rd.h` | `servers` | 29 | 3 | `873025f5783c` |
 | `M` | `servers/rendering/renderer_rd/storage_rd/utilities.cpp` | `servers` | 16 | 9 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_scene_cull.cpp` | `servers` | 179 | 45 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_scene_cull.h` | `servers` | 45 | 25 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_scene_render.h` | `servers` | 1 | 1 | `aeeb1475cb34` |
 | `M` | `servers/rendering/renderer_viewport.cpp` | `servers` | 4 | 0 | `aeeb1475cb34` |
-| `M` | `servers/rendering/rendering_device.cpp` | `servers` | 44 | 11 | `aeeb1475cb34` |
-| `M` | `servers/rendering/rendering_device.h` | `servers` | 14 | 7 | `aeeb1475cb34` |
+| `M` | `servers/rendering/rendering_device.cpp` | `servers` | 48 | 11 | `2687700e1e52` |
+| `M` | `servers/rendering/rendering_device.h` | `servers` | 25 | 7 | `79fef1833f86` |
+| `M` | `servers/rendering/rendering_device_driver.h` | `servers` | 5 | 0 | `2687700e1e52` |
 | `M` | `servers/rendering/rendering_server_default.cpp` | `servers` | 5 | 4 | `aeeb1475cb34` |
 | `M` | `servers/rendering/rendering_server_globals.cpp` | `servers` | 1 | 0 | `aeeb1475cb34` |
 | `M` | `servers/rendering/rendering_server_globals.h` | `servers` | 8 | 3 | `aeeb1475cb34` |
@@ -83,20 +91,21 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | `CHANGELOG.md` | 1 |
 | `CONTRIBUTING.md` | 1 |
 | `README.md` | 1 |
-| `core` | 2 |
+| `SConstruct` | 1 |
+| `core` | 3 |
 | `doc` | 12 |
-| `drivers` | 3 |
-| `editor` | 18 |
+| `drivers` | 5 |
+| `editor` | 21 |
 | `glsl_builders.py` | 1 |
-| `main` | 1 |
+| `main` | 2 |
 | `misc` | 17 |
 | `modules/gdscript` | 1 |
 | `modules/mono` | 18 |
 | `platform/android` | 1 |
 | `platform/web` | 1 |
 | `platform/windows` | 1 |
-| `servers` | 24 |
-| `tests` | 2 |
+| `servers` | 25 |
+| `tests` | 3 |
 | `thirdparty` | 3 |
 | `version.py` | 1 |
 
@@ -105,10 +114,8 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | Status | Path | Subsystem | + | - | Last touch | Deletion commit | Pre-deletion commit |
 | --- | --- | --- | ---: | ---: | --- | --- | --- |
 | `M` | `.gitattributes` | `.gitattributes` | 5 | 0 | `d9f052c12dd4` | `-` | `-` |
-| `D` | `.github/CODEOWNERS` | `.github` | 0 | 259 | `aeeb1475cb34` | `aeeb1475cb34` | `8bb22eb66802` |
 | `D` | `.github/ISSUE_TEMPLATE/bug_report.yml` | `.github` | 0 | 72 | `aeeb1475cb34` | `aeeb1475cb34` | `41a81f5360d2` |
 | `D` | `.github/ISSUE_TEMPLATE/config.yml` | `.github` | 0 | 14 | `aeeb1475cb34` | `aeeb1475cb34` | `389227bff13c` |
-| `D` | `.github/PULL_REQUEST_TEMPLATE.md` | `.github` | 0 | 8 | `aeeb1475cb34` | `aeeb1475cb34` | `500c83305dbb` |
 | `D` | `.github/actions/download-artifact/action.yml` | `.github` | 0 | 20 | `aeeb1475cb34` | `aeeb1475cb34` | `41a81f5360d2` |
 | `D` | `.github/actions/godot-build/action.yml` | `.github` | 0 | 42 | `aeeb1475cb34` | `aeeb1475cb34` | `d38bda7e7d21` |
 | `D` | `.github/actions/godot-cache-restore/action.yml` | `.github` | 0 | 39 | `aeeb1475cb34` | `aeeb1475cb34` | `423ba3da00f9` |
@@ -127,13 +134,17 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | `D` | `.github/workflows/static_checks.yml` | `.github` | 0 | 46 | `aeeb1475cb34` | `aeeb1475cb34` | `2820bc97de6c` |
 | `D` | `.github/workflows/web_builds.yml` | `.github` | 0 | 77 | `aeeb1475cb34` | `aeeb1475cb34` | `c5bf809d160b` |
 | `D` | `.github/workflows/windows_builds.yml` | `.github` | 0 | 128 | `aeeb1475cb34` | `aeeb1475cb34` | `dd0387fcb0fc` |
-| `M` | `.gitignore` | `.gitignore` | 124 | 0 | `4cc28822021e` | `-` | `-` |
+| `M` | `.github/CODEOWNERS` | `.github` | 52 | 259 | `66b5ddc88480` | `-` | `-` |
+| `M` | `.github/PULL_REQUEST_TEMPLATE.md` | `.github` | 79 | 5 | `66b5ddc88480` | `-` | `-` |
+| `M` | `.gitignore` | `.gitignore` | 174 | 0 | `511acdc0fc91` | `-` | `-` |
 | `M` | `.pre-commit-config.yaml` | `.pre-commit-config.yaml` | 23 | 25 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `CHANGELOG.md` | `CHANGELOG.md` | 36 | 2518 | `a9aa717a87f8` | `-` | `-` |
-| `M` | `CONTRIBUTING.md` | `CONTRIBUTING.md` | 6 | 208 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `README.md` | `README.md` | 25 | 66 | `d9f052c12dd4` | `-` | `-` |
+| `M` | `CHANGELOG.md` | `CHANGELOG.md` | 48 | 2518 | `ac546a26837d` | `-` | `-` |
+| `M` | `CONTRIBUTING.md` | `CONTRIBUTING.md` | 9 | 207 | `b46c39ca61e3` | `-` | `-` |
+| `M` | `README.md` | `README.md` | 54 | 56 | `bc77ce31e9cc` | `-` | `-` |
+| `M` | `SConstruct` | `SConstruct` | 12 | 1 | `1b0a1c48dd1c` | `-` | `-` |
 | `M` | `core/config/engine.cpp` | `core` | 4 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `core/config/engine.h` | `core` | 6 | 5 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `core/config/project_settings.cpp` | `core` | 10 | 5 | `e79de592c1d1` | `-` | `-` |
 | `M` | `doc/tools/doc_status.py` | `doc` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `doc/tools/make_rst.py` | `doc` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `doc/translations/es.po` | `doc` | 321 | 11446 | `aeeb1475cb34` | `-` | `-` |
@@ -149,8 +160,13 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | `M` | `drivers/gles3/rasterizer_gles3.h` | `drivers` | 5 | 4 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `drivers/gles3/rasterizer_scene_gles3.cpp` | `drivers` | 1 | 1 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `drivers/gles3/rasterizer_scene_gles3.h` | `drivers` | 1 | 1 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `editor/docks/scene_tree_dock.cpp` | `editor` | 75 | 1 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `drivers/vulkan/rendering_device_driver_vulkan.cpp` | `drivers` | 68 | 0 | `2687700e1e52` | `-` | `-` |
+| `M` | `drivers/vulkan/rendering_device_driver_vulkan.h` | `drivers` | 1 | 0 | `2687700e1e52` | `-` | `-` |
+| `M` | `editor/docks/scene_tree_dock.cpp` | `editor` | 83 | 1 | `27035f2d9868` | `-` | `-` |
 | `M` | `editor/docks/scene_tree_dock.h` | `editor` | 3 | 0 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `editor/editor_node.cpp` | `editor` | 23 | 0 | `47bf18f81abb` | `-` | `-` |
+| `M` | `editor/scene/3d/node_3d_editor_plugin.cpp` | `editor` | 71 | 1 | `27035f2d9868` | `-` | `-` |
+| `M` | `editor/scene/3d/node_3d_editor_plugin.h` | `editor` | 2 | 0 | `c6b0b1951f26` | `-` | `-` |
 | `M` | `editor/translations/editor/de.po` | `editor` | 2 | 36 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `editor/translations/editor/es.po` | `editor` | 22 | 72 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `editor/translations/editor/fa.po` | `editor` | 1 | 60 | `aeeb1475cb34` | `-` | `-` |
@@ -168,7 +184,8 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | `M` | `editor/translations/properties/ru.po` | `editor` | 3 | 7 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `editor/translations/properties/zh_CN.po` | `editor` | 2 | 5 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `glsl_builders.py` | `glsl_builders.py` | 21 | 0 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `main/main.cpp` | `main` | 8 | 4 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `main/main.cpp` | `main` | 74 | 4 | `d11c70687add` | `-` | `-` |
+| `M` | `main/main.h` | `main` | 12 | 0 | `47bf18f81abb` | `-` | `-` |
 | `M` | `misc/dist/visionos_xcode/libgodot.visionos.debug.xcframework/Info.plist` | `misc` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `misc/dist/visionos_xcode/libgodot.visionos.release.xcframework/Info.plist` | `misc` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `misc/scripts/char_range_fetch.py` | `misc` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
@@ -214,26 +231,28 @@ Filter: files under runtime engine source roots with code/shader extensions (C/C
 | `M` | `servers/rendering/renderer_rd/effects/SCsub` | `servers` | 1 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/effects/copy_effects.cpp` | `servers` | 65 | 22 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/effects/copy_effects.h` | `servers` | 15 | 8 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` | `servers` | 252 | 1 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` | `servers` | 282 | 1 | `873025f5783c` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/renderer_compositor_rd.cpp` | `servers` | 10 | 8 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/renderer_compositor_rd.h` | `servers` | 14 | 11 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` | `servers` | 119 | 9 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.cpp` | `servers` | 135 | 9 | `873025f5783c` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/renderer_scene_render_rd.h` | `servers` | 10 | 4 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/storage_rd/light_storage.h` | `servers` | 2 | 0 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `servers/rendering/renderer_rd/storage_rd/render_data_rd.h` | `servers` | 17 | 3 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `servers/rendering/renderer_rd/storage_rd/render_data_rd.h` | `servers` | 29 | 3 | `873025f5783c` | `-` | `-` |
 | `M` | `servers/rendering/renderer_rd/storage_rd/utilities.cpp` | `servers` | 16 | 9 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_scene_cull.cpp` | `servers` | 179 | 45 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_scene_cull.h` | `servers` | 45 | 25 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_scene_render.h` | `servers` | 1 | 1 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/renderer_viewport.cpp` | `servers` | 4 | 0 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `servers/rendering/rendering_device.cpp` | `servers` | 44 | 11 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `servers/rendering/rendering_device.h` | `servers` | 14 | 7 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `servers/rendering/rendering_device.cpp` | `servers` | 48 | 11 | `2687700e1e52` | `-` | `-` |
+| `M` | `servers/rendering/rendering_device.h` | `servers` | 25 | 7 | `79fef1833f86` | `-` | `-` |
+| `M` | `servers/rendering/rendering_device_driver.h` | `servers` | 5 | 0 | `2687700e1e52` | `-` | `-` |
 | `M` | `servers/rendering/rendering_server_default.cpp` | `servers` | 5 | 4 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/rendering_server_globals.cpp` | `servers` | 1 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering/rendering_server_globals.h` | `servers` | 8 | 3 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `servers/rendering_server.h` | `servers` | 5 | 4 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `tests/SCsub` | `tests` | 3 | 0 | `7c9a815f0300` | `-` | `-` |
 | `M` | `tests/create_test.py` | `tests` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
-| `M` | `tests/test_main.cpp` | `tests` | 3 | 0 | `aeeb1475cb34` | `-` | `-` |
+| `M` | `tests/test_main.cpp` | `tests` | 21 | 14 | `d9180a5be777` | `-` | `-` |
 | `M` | `thirdparty/basis_universal/encoder/basisu_astc_hdr_6x6_enc.h` | `thirdparty` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `thirdparty/sdl/update-sdl.sh` | `thirdparty` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |
 | `M` | `thirdparty/thorvg/update-thorvg.sh` | `thirdparty` | 0 | 0 | `aeeb1475cb34` | `-` | `-` |

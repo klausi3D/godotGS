@@ -73,6 +73,10 @@ When `Custom` is active, start from the settings that already work and change on
 3. Render distance
 4. Advanced streaming or sorting controls only if needed
 
+## When VRAM Is the Limit
+
+If the scene runs out of VRAM rather than frame time, the project setting `rendering/gaussian_splatting/compression/per_chunk_quantization` trades VRAM for extra GPU work per splat. Its default, `-1`, follows the quality tier in `rendering/gaussian_splatting/quality/tier_preset`; with the default `custom` tier it is off. Read [Per-chunk quantization: the VRAM ↔ compute tradeoff](../../performance/gs_quantization_tradeoff.md) before you enable it.
+
 ## Validate Changes
 
 - Use [Build / Test / CI Command Reference](../../reference/build-test-ci.md) when you need the maintained validation commands.

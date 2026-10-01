@@ -7,11 +7,51 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Sequence
+from typing import Iterable, Sequence
 from urllib.parse import quote, urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_EXCLUDED_DIRS = ("agent_memory", "archive")
+
+# Public-stage exclusions: the single list of what never reaches the public site
+# or its search index. Each pattern is a docs/-relative POSIX path matched on
+# whole path components:
+#   "reports"            -> docs/reports and everything beneath it (prefix match)
+#   "architecture/x.md"  -> exactly that file
+#   "**/archive"         -> a directory named `archive` at ANY depth
+# Excluding here, not with mkdocs `exclude_docs`, is deliberate: an excluded file
+# is never staged, so the link rewriter below turns every inbound link from a
+# public page into a GitHub blob/tree URL instead of leaving it dangling.
+# Every entry must still match a source path; a stale entry fails the stage
+# (see find_unmatched_exclusions) so this list cannot rot silently.
+DEFAULT_EXCLUSIONS: tuple[str, ...] = (
+    # Legacy multi-agent coordination memory; AGENTS.md: "Not source of truth".
+    "agent_memory",
+    # Superseded material, wherever it lives (docs/archive/, docs/reports/archive/).
+    "**/archive",
+    # Point-in-time investigations, audits and doc-coverage dumps (incl. the
+    # generated documentation-gaps.md); records, not current documentation.
+    "reports",
+    # Agent work programs; live status is in GitHub issues, not the public site.
+    "programs",
+    # Agent working journal of the completed renderer refactor ("dirty worktree"
+    # branch context, per-slice logs); its own closeout says the refactor is done.
+    "architecture/gaussian-renderer-refactor-memory.md",
+    # How-to for scripts/refactor_phase_runner.py, which drives that finished
+    # refactor's phases from a WSL checkout.
+    "architecture/refactor-phase-runner.md",
+    # Working plan for the pipeline unification; stages 0-3 landed and its
+    # "current state" section is stale (e.g. ply_file_path is now removed).
+    "architecture/gaussian-pipeline-unification-plan.md",
+    # Post-refactor cleanup plan, overtaken by the code: ply_file_path is a
+    # one-release migration shim and the duplicated source-path helper is gone.
+    "architecture/gaussian-pipeline-deprecation-deletion-plan.md",
+    # Design proposal marked "design, not implemented"; the shaders still carry
+    # the sh_occlusion coupling the spec would remove.
+    "architecture/resolve_lighting_redesign_spec.md",
+    # Unimplemented tier-2 cluster-culling spec; no cluster-cull code exists and
+    # the legacy ClusterCuller stack was deleted (#293).
+    "architecture/tier2_cluster_culling_spec.md",
+)
 MARKDOWN_LINK_PATTERN = re.compile(r"(!?\[[^\]]+\]\()([^)]+)(\))")
 HTML_ATTR_PATTERN = re.compile(
     r'(<(?:a|img|video|source)\b[^>]*?\s(?:href|src)=["\'])([^"\']+)(["\'])',
@@ -54,8 +94,40 @@ def build_raw_url(repo_url: str, ref: str, relative_path: Path) -> str:
     return f"https://raw.githubusercontent.com/{owner}/{repo}/{quote(ref)}/{encoded_path}"
 
 
-def should_exclude(relative_path: Path, excluded_dirs: set[str]) -> bool:
-    return bool(relative_path.parts) and relative_path.parts[0] in excluded_dirs
+def parse_exclusion(pattern: str) -> tuple[bool, tuple[str, ...]]:
+    """Split a pattern into (matches_at_any_depth, path components)."""
+    normalized = pattern.strip().replace("\\", "/").strip("/")
+    any_depth = normalized.startswith("**/")
+    if any_depth:
+        normalized = normalized[3:]
+    parts = tuple(part for part in normalized.split("/") if part)
+    if not parts or any(part in {".", "..", "**"} for part in parts):
+        raise ValueError(f"Invalid public-docs exclusion pattern: {pattern!r}")
+    return any_depth, parts
+
+
+def exclusion_matches(relative_path: Path, pattern: str) -> bool:
+    any_depth, pattern_parts = parse_exclusion(pattern)
+    path_parts = relative_path.parts
+    width = len(pattern_parts)
+    starts = range(len(path_parts) - width + 1) if any_depth else range(1)
+    return any(path_parts[start : start + width] == pattern_parts for start in starts)
+
+
+def should_exclude(relative_path: Path, exclusions: Iterable[str]) -> bool:
+    return bool(relative_path.parts) and any(
+        exclusion_matches(relative_path, pattern) for pattern in exclusions
+    )
+
+
+def find_unmatched_exclusions(source_root: Path, exclusions: Iterable[str]) -> list[str]:
+    """Patterns that match no path under source_root (a stale list entry)."""
+    relative_paths = [path.relative_to(source_root) for path in source_root.rglob("*")]
+    return sorted(
+        pattern
+        for pattern in set(exclusions)
+        if not any(exclusion_matches(relative, pattern) for relative in relative_paths)
+    )
 
 
 def split_target_token(token: str) -> tuple[str, str]:
@@ -92,7 +164,7 @@ def rewrite_target(
     staged_file: Path,
     source_root: Path,
     staged_root: Path,
-    excluded_dirs: set[str],
+    exclusions: Sequence[str],
     repo_url: str | None,
     ref: str | None,
 ) -> str:
@@ -112,7 +184,7 @@ def rewrite_target(
         return target
     if path_is_within(source_candidate, source_root):
         rel_from_source = source_candidate.relative_to(source_root)
-        if not should_exclude(rel_from_source, excluded_dirs):
+        if not should_exclude(rel_from_source, exclusions):
             return target
 
     if not repo_url or not ref:
@@ -137,7 +209,7 @@ def rewrite_markdown(
     staged_file: Path,
     source_root: Path,
     staged_root: Path,
-    excluded_dirs: set[str],
+    exclusions: Sequence[str],
     repo_url: str | None,
     ref: str | None,
 ) -> str:
@@ -151,7 +223,7 @@ def rewrite_markdown(
             staged_file=staged_file,
             source_root=source_root,
             staged_root=staged_root,
-            excluded_dirs=excluded_dirs,
+            exclusions=exclusions,
             repo_url=repo_url,
             ref=ref,
         )
@@ -168,7 +240,7 @@ def rewrite_markdown(
             staged_file=staged_file,
             source_root=source_root,
             staged_root=staged_root,
-            excluded_dirs=excluded_dirs,
+            exclusions=exclusions,
             repo_url=repo_url,
             ref=ref,
         )
@@ -183,7 +255,7 @@ def copy_docs_tree(
     *,
     source_root: Path,
     output_root: Path,
-    excluded_dirs: set[str],
+    exclusions: Sequence[str],
     repo_url: str | None,
     ref: str | None,
 ) -> tuple[int, int]:
@@ -198,7 +270,7 @@ def copy_docs_tree(
         if source_file.is_dir():
             continue
         relative_path = source_file.relative_to(source_root)
-        if should_exclude(relative_path, excluded_dirs):
+        if should_exclude(relative_path, exclusions):
             continue
 
         destination_file = output_root / relative_path
@@ -212,7 +284,7 @@ def copy_docs_tree(
                 staged_file=destination_file,
                 source_root=source_root,
                 staged_root=output_root,
-                excluded_dirs=excluded_dirs,
+                exclusions=exclusions,
                 repo_url=repo_url,
                 ref=ref,
             )
@@ -237,14 +309,15 @@ def default_ref() -> str | None:
     return os.environ.get("GITHUB_SHA")
 
 
-def parse_excluded_dirs(value: Sequence[str]) -> set[str]:
-    excluded: set[str] = set()
+def parse_exclusions(value: Sequence[str]) -> tuple[str, ...]:
+    exclusions: list[str] = []
     for item in value:
         for chunk in item.split(","):
             normalized = chunk.strip()
-            if normalized:
-                excluded.add(normalized)
-    return excluded
+            if normalized and normalized not in exclusions:
+                parse_exclusion(normalized)  # reject malformed patterns up front
+                exclusions.append(normalized)
+    return tuple(exclusions)
 
 
 def parse_args() -> argparse.Namespace:
@@ -256,10 +329,16 @@ def parse_args() -> argparse.Namespace:
         help="Output directory for staged public docs (relative to repo root).",
     )
     parser.add_argument(
+        "--exclude",
         "--exclude-dir",
+        dest="exclude",
         action="append",
-        default=list(DEFAULT_EXCLUDED_DIRS),
-        help="Top-level docs directory name to exclude. May be repeated or comma-separated.",
+        default=list(DEFAULT_EXCLUSIONS),
+        help=(
+            "Extra docs-relative path pattern to exclude, added to DEFAULT_EXCLUSIONS "
+            "(prefix match on path components; '**/name' matches at any depth). "
+            "May be repeated or comma-separated."
+        ),
     )
     parser.add_argument("--repo-url", default=default_repo_url(), help="GitHub repository URL for rewritten links.")
     parser.add_argument("--ref", default=default_ref(), help="Git ref/SHA used for rewritten GitHub links.")
@@ -271,22 +350,32 @@ def main() -> int:
 
     source_root = (REPO_ROOT / args.source).resolve()
     output_root = (REPO_ROOT / args.output).resolve()
-    excluded_dirs = parse_excluded_dirs(args.exclude_dir)
+    try:
+        exclusions = parse_exclusions(args.exclude)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if not source_root.is_dir():
         raise SystemExit(f"Source directory does not exist: {source_root}")
 
+    unmatched = find_unmatched_exclusions(source_root, exclusions)
+    if unmatched:
+        raise SystemExit(
+            "Public-docs exclusion patterns match nothing under "
+            f"{source_root} (stale entry? update DEFAULT_EXCLUSIONS): {unmatched}"
+        )
+
     copied_files, rewritten_markdown = copy_docs_tree(
         source_root=source_root,
         output_root=output_root,
-        excluded_dirs=excluded_dirs,
+        exclusions=exclusions,
         repo_url=args.repo_url,
         ref=args.ref,
     )
 
     print(f"[docs-site] Source: {source_root}")
     print(f"[docs-site] Output: {output_root}")
-    print(f"[docs-site] Excluded top-level directories: {sorted(excluded_dirs)}")
+    print(f"[docs-site] Excluded paths: {list(exclusions)}")
     if args.repo_url and args.ref:
         print(f"[docs-site] Out-of-scope links rewritten to: {args.repo_url}@{args.ref}")
     else:
