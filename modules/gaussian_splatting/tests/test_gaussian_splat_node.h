@@ -6396,6 +6396,27 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] #1105 A set_splat_d
     // Restoring with nothing baked is a successful no-op.
     CHECK_EQ(manual_node->restore_color_grading(), OK);
 
+    // A restore that cannot happen must say so (#1128 review): bake, then replace the data
+    // with a different splat count, so the saved colors no longer match. The restore must
+    // fail and must not re-enable live grading over the still-baked colors.
+    CHECK_EQ(manual_node->bake_color_grading(), OK);
+    positions.push_back(Vector3(9612.0f, 0.0f, 0.0f));
+    colors.push_back(Color(0.2f, 0.8f, 0.2f, 1.0f));
+    scales.push_back(Vector3(0.1f, 0.1f, 0.1f));
+    opacities.push_back(1.0f);
+    rotations.push_back(Quaternion());
+    manual_node->set_splat_data(positions, colors, scales, opacities, rotations,
+            PackedFloat32Array(), PackedInt32Array(), PackedInt32Array(), PackedVector3Array(),
+            PackedVector2Array(), PackedFloat32Array(), false);
+    tree->process(0.0);
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(manual_node->restore_color_grading(), ERR_INVALID_DATA);
+        CHECK_MESSAGE(errors.joined().contains("replaced since the bake"), "got: ", errors.joined());
+    }
+    CHECK_FALSE_MESSAGE(manual_grading->get_enabled(),
+            "a failed restore must not re-enable live grading over the still-baked colors");
+
 #ifdef TOOLS_ENABLED
     // The inspector offers Bake on the node that can bake, and not on its asset peer,
     // although both see the same renderer. (Under the old renderer-data gate the first

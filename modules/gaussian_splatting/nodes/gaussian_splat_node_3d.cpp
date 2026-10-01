@@ -3244,7 +3244,12 @@ Error GaussianSplatNode3D::restore_color_grading() {
         return ERR_UNCONFIGURED;
     }
 
-    renderer_data->restore_original_colors();
+    const Error restore_err = renderer_data->restore_original_colors();
+    if (restore_err != OK) {
+        // Nothing was restored: leave grading disabled (the baked colors are still in
+        // the data) rather than double-applying it, and tell the caller.
+        return restore_err;
+    }
 
     // Re-enable color grading so it can be applied in real-time again
     if (color_grading.is_valid()) {

@@ -760,7 +760,9 @@ public:
      *
      * This reverts all splat colors to their state before the first bake_color_grading() call.
      * Does nothing (and returns OK) if no baking has been applied.
-     * @return OK, ERR_UNAVAILABLE on a splat_asset node (#1105), or ERR_UNCONFIGURED with no data.
+     * @return OK, ERR_UNAVAILABLE on a splat_asset node (#1105), ERR_UNCONFIGURED with no data,
+     *         or ERR_INVALID_DATA when set_splat_data() replaced the data since the bake (nothing
+     *         restored; grading stays disabled).
      */
     Error restore_color_grading();
 
