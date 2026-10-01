@@ -25,8 +25,10 @@ on in development and benchmark builds is the recommended default.
 
 ## Where the Trace Arms
 
-The trace is armed only at the three `GaussianSplatNode3D` asset-load entry
-points (`modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp`).
+The trace is armed only at the four `GaussianSplatNode3D` asset-load entry
+points in `modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp`:
+`_set()` (scene-load migration of the deprecated `ply_file_path` property), `set_splat_asset()`, `_load_asset()` and the
+editor drag-and-drop handler `_drop_data_fw()`.
 Leaf loaders (`ply_loader`, `spz_loader`, `GaussianSplatAsset::load_from_file`,
 the editor import path, headless test fixtures, direct `GaussianSplatAsset`
 consumers) do **not** call `begin_asset_open()`. This is intentional: those
@@ -47,10 +49,10 @@ Format is stable and intended to be machine-parseable:
 [StartupTrace] <phase1>=<ms> <phase2>=<ms> ... total=<ms>
 ```
 
-Sample:
+Illustrative sample (not a measurement):
 
 ```
-[StartupTrace] module_register=0.42ms manager_construct=1.10ms device_request_primary=8.31ms device_request_shared=0.05ms renderer_construct=2.04ms gpu_buffer_manager_init=0.71ms shader_compile_binning=143.22ms shader_compile_prefix=58.40ms shader_compile_raster=212.18ms sorter_create_variant=4.66ms streaming_persistent_buffer_alloc=11.93ms streaming_atlas_build_cpu=27.55ms streaming_atlas_sync_gpu=9.04ms first_frame_raster_pipeline_create=0.00ms ply_payload_parse=361.42ms asset_populate_gaussian_data=84.27ms total=925.30ms
+[StartupTrace] module_register=0.42ms manager_construct=1.1ms device_request_primary=8.31ms device_request_shared=0.05ms renderer_construct=2.04ms gpu_buffer_manager_init=0.71ms shader_compile_binning=143.22ms shader_compile_prefix=58.4ms shader_compile_raster=212.18ms sorter_create_variant=4.66ms streaming_persistent_buffer_alloc=11.93ms streaming_atlas_build_cpu=27.55ms streaming_atlas_sync_gpu=9.04ms first_frame_raster_pipeline_create=0.0ms ply_payload_parse=361.42ms asset_populate_gaussian_data=84.27ms total=925.3ms
 ```
 
 Field rules:
@@ -61,7 +63,9 @@ Field rules:
 - `total=` is measured from the `begin_asset_open()` call to the moment the
   flush emits, not the sum of the listed phases. The gap captures phases that
   ran outside any instrumented scope.
-- All values are milliseconds with two decimal places.
+- All values are milliseconds with up to two decimal places. They are printed with
+  `String::num(value, 2)`, which drops trailing zeros but keeps one digit after the point:
+  `1.1ms`, `0.0ms`, not `1.10ms`, `0.00ms`.
 - Back-to-back opens that arrive before the renderer drains the prior trace
   are sealed and emitted in arrival order, one line each.
 
@@ -87,6 +91,7 @@ new init code in `GS_STARTUP_SCOPE("name")`. Current phases (roughly ordered):
 | `streaming_atlas_sync_gpu` | `core/gaussian_streaming.cpp` | Atlas GPU upload. |
 | `first_frame_raster_pipeline_create` | `renderer/tile_render_rasterizer_stage.cpp` | Should be ~0 with `init/eager_raster_pipeline=true`. |
 | `ply_payload_parse` | `io/ply_loader.cpp` | PLY-side parse. |
+| `asset_prefetch_parallel` | `core/gaussian_splat_asset.cpp` | `GaussianSplatAsset::prefetch_gaussian_data_parallel()`: materializing several assets' runtime data on worker threads. |
 | `asset_populate_gaussian_data` | `core/gaussian_splat_asset.cpp` | Filling the asset's runtime arrays. |
 
 ## Reading the Trace
