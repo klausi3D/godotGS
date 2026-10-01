@@ -16,6 +16,8 @@
 #include "gaussian_gpu_layout.h"
 #include "../interfaces/output_compositor_interfaces.h"
 #include "tile_lighting_abi.h"
+
+#include <cstring>
 #include "core/error/error_macros.h"
 #include "core/os/os.h"
 #include "core/math/vector3.h"
@@ -376,12 +378,19 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.shadow_bias_config[2] = p_params.shadow_receiver_bias_max;
 	params.shadow_bias_config[3] = 0.0f;
 	params.lighting_mode[0] = static_cast<uint32_t>(p_params.direct_lighting_mode);
-	params.lighting_mode[1] = 0u;
-	params.lighting_mode[2] = 0u;
+	// #1078: lighting_mode.yz = raster pixel -> cluster-grid pixel scale, as
+	// float bits. 1.0 when the raster runs at the size the engine built the
+	// cluster buffer for (baseline). Painterly at internal_scale < 1 or
+	// low_end_mode rasterizes smaller and maps its pixels up into that grid.
+	const Vector2i cluster_grid_viewport = GaussianSplatting::tile_cluster_grid_viewport(p_params);
+	const float cluster_scale_x = p_params.viewport_size.x > 0 ? float(cluster_grid_viewport.x) / float(p_params.viewport_size.x) : 1.0f;
+	const float cluster_scale_y = p_params.viewport_size.y > 0 ? float(cluster_grid_viewport.y) / float(p_params.viewport_size.y) : 1.0f;
+	std::memcpy(&params.lighting_mode[1], &cluster_scale_x, sizeof(float));
+	std::memcpy(&params.lighting_mode[2], &cluster_scale_y, sizeof(float));
 	params.lighting_mode[3] = 0u;
 
 	const GaussianSplatting::TileLightingClusterABIConfig cluster_config =
-			GaussianSplatting::TileLightingSetABI::compute_cluster_config(p_params.viewport_size,
+			GaussianSplatting::TileLightingSetABI::compute_cluster_config(cluster_grid_viewport,
 					p_params.cluster_size, p_params.cluster_max_elements, p_params.cluster_buffer.is_valid());
 
 	params.light_counts[0] = p_params.omni_light_count;
