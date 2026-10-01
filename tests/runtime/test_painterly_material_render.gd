@@ -40,6 +40,15 @@ extends SceneTree
 #      baseline capture by more than MIN_PAINTERLY_DELTA_RATIO of the covered
 #      pixels. Binding the property but producing a bit-identical frame is the
 #      failure mode that "painterly ran" alone would not catch.
+#   4. PAINTERLY IS LIT (#851). Hiding a shadowed DirectionalLight3D, and
+#      setting lighting/shadow_strength 1.0 -> 0.0, must each move painterly
+#      pixels by a fraction of what they move on the baseline path in the same
+#      run. Before #851 painterly bound no scene lights and moved 0 px on both.
+#   5. CLUSTERED LIGHTS LAND WHERE THEY SHOULD (#1078). At painterly
+#      internal_scale 0.5 an off-centre omni light must brighten the same
+#      region as on the baseline (IoU floor). Indexing the engine's cluster
+#      grid with painterly's own smaller pixel coordinates measured IoU 0.15;
+#      the mapped lookup measured 0.96.
 #
 # Mutation contract: reverting the `painterly/material` binding in
 # modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp turns check 2 red
@@ -85,6 +94,24 @@ const VIEWPORT_HEIGHT := 540
 # measured 335,356 vs 357,345 = ratio 0.94.
 const MIN_WIND_CONTROL_DIFFER_PX := 200
 const MIN_WIND_PAINTERLY_RATIO := 0.10
+# #851 scene lighting. Same shape as the wind check: the baseline path in the
+# same run is the control that proves a light / shadow toggle is observable at
+# all, and painterly has to reach a fraction of the baseline's response. Before
+# #851 painterly supplied no lighting inputs and shipped resolve-time lighting
+# mode 0, so neither toggle moved a painterly pixel.
+const MIN_LIGHTING_CONTROL_DIFFER_PX := 200
+const MIN_LIGHTING_PAINTERLY_RATIO := 0.10
+const LIGHTING_SHADOW_PATH := "rendering/gaussian_splatting/lighting/shadow_strength"
+# #1078 clustered-light mapping. Painterly at internal_scale < 1 rasterizes at a
+# smaller size than the engine built its light-cluster grid for; before the fix
+# it indexed that grid with its own pixel coordinates, so omni/spot lights lit
+# the wrong screen regions. The check compares the region an off-centre omni
+# light brightens on painterly (stylization off, internal_scale 0.5) with the
+# region it brightens on the baseline.
+const CLUSTER_MAPPING_INTERNAL_SCALE := 0.5
+const MIN_CLUSTER_CONTROL_BRIGHT_PX := 200
+const MIN_CLUSTER_MAPPING_IOU := 0.5
+const CLUSTER_BRIGHT_LUMA_DELTA := 0.02
 
 var _report := GsRuntimeReport.new("Painterly Material Render")
 
@@ -133,6 +160,17 @@ var metrics: Dictionary = {
 	"wind_baseline_frames_differ_px": -1,
 	"wind_painterly_frames_differ_px": -1,
 	"wind_painterly_over_baseline_ratio": 0.0,
+	# #851 scene-lighting response. Fail-safe defaults: unset reads as a fail.
+	"lighting_baseline_light_differ_px": -1,
+	"lighting_painterly_light_differ_px": -1,
+	"lighting_painterly_over_baseline_light_ratio": 0.0,
+	"lighting_baseline_shadow_differ_px": -1,
+	"lighting_painterly_shadow_differ_px": -1,
+	"lighting_painterly_over_baseline_shadow_ratio": 0.0,
+	"cluster_baseline_bright_px": -1,
+	"cluster_painterly_bright_px": -1,
+	"cluster_mapping_iou": -1.0,
+	"cluster_effective_internal_scale": -1.0,
 	"renderer_route_valid_immediately": false,
 	"renderer_route_valid_after_frames": false,
 	"renderer_route_painterly_active": false,
@@ -577,6 +615,16 @@ func _run() -> void:
 		return
 	_report.ok()
 
+	# Phase F -- #851. Does painterly respond to scene lights and shadows?
+	# Run before the wind phase so animation cannot contribute pixel deltas.
+	if not await _measure_scene_lighting_response():
+		return
+
+	# Phase G -- #1078. A clustered omni light at painterly internal_scale 0.5
+	# must light the same screen region as on the baseline.
+	if not await _measure_clustered_light_mapping():
+		return
+
 	# Phase D -- #1018. Does painterly's wind clock advance?
 	#
 	# This is measured RELATIVE TO THE BASELINE PATH, not against a fixed floor.
@@ -595,7 +643,8 @@ func _run() -> void:
 		return
 
 	_pass(
-		"Painterly rendered with an authored PainterlyMaterial: %d/%d covered px, delta %d px (%.4f), painterly/standard luma %.4f; wind moved %d px vs baseline %d px."
+		("Painterly rendered with an authored PainterlyMaterial: %d/%d covered px, delta %d px (%.4f), painterly/standard luma %.4f; wind moved %d px vs baseline %d px; "
+		+ "light hide moved %d px vs baseline %d px, shadow toggle %d px vs %d px; omni at internal_scale %.2f IoU %.3f.")
 		% [
 			int(metrics["covered_px_painterly_on"]),
 			int(metrics["sample_count"]),
@@ -604,6 +653,12 @@ func _run() -> void:
 			float(metrics["painterly_over_standard_luma"]),
 			int(metrics["wind_painterly_frames_differ_px"]),
 			int(metrics["wind_baseline_frames_differ_px"]),
+			int(metrics["lighting_painterly_light_differ_px"]),
+			int(metrics["lighting_baseline_light_differ_px"]),
+			int(metrics["lighting_painterly_shadow_differ_px"]),
+			int(metrics["lighting_baseline_shadow_differ_px"]),
+			CLUSTER_MAPPING_INTERNAL_SCALE,
+			float(metrics["cluster_mapping_iou"]),
 		]
 	)
 
@@ -718,6 +773,242 @@ func _measure_wind_animation() -> bool:
 				float(metrics["wind_painterly_over_baseline_ratio"]), MIN_WIND_PAINTERLY_RATIO,
 			]
 			+ "Painterly's wind clock is not advancing (#1018)."
+		)
+		return false
+	_report.ok()
+	return true
+
+func _count_changed(a: Image, b: Image) -> int:
+	if a == null or b == null:
+		return -1
+	var changed := 0
+	for y in range(0, a.get_height(), SAMPLE_STRIDE):
+		for x in range(0, a.get_width(), SAMPLE_STRIDE):
+			if _channel_delta(a.get_pixel(x, y), b.get_pixel(x, y)) > CHANNEL_DELTA_TOLERANCE:
+				changed += 1
+	return changed
+
+
+# Capture on a KNOWN path. Returns null (after failing the run) if the frame
+# came from the other path: a lighting delta measured on the baseline fallback
+# would say nothing about painterly (#997).
+func _capture_on_path(want_painterly: bool, label: String) -> Image:
+	var cap: Dictionary = await _settle_and_capture(EXPECT_PAINTERLY if want_painterly else EXPECT_BASELINE)
+	if not bool(cap.get("has_painterly_key", false)) or bool(cap.get("painterly_active", not want_painterly)) != want_painterly:
+		_fail("Lighting capture '%s' ran on the wrong raster path (painterly_active=%s, raster_path=%s, reason='%s')." % [
+			label, cap.get("painterly_active"), cap.get("raster_path"), cap.get("stage_raster_reason")])
+		return null
+	var image: Image = cap.get("image")
+	if image == null:
+		_fail("Lighting capture '%s' returned no image." % label)
+	return image
+
+
+# Light on vs. hidden, and shadow_strength 1.0 vs. 0.0, on one path.
+# Returns [light_differ_px, shadow_differ_px], or [] after failing the run.
+func _lighting_deltas(want_painterly: bool, light: DirectionalLight3D) -> Array:
+	var prefix := "painterly" if want_painterly else "baseline"
+	splat_node.set_enable_painterly(want_painterly)
+	light.visible = true
+	ProjectSettings.set_setting(LIGHTING_SHADOW_PATH, 1.0)
+	var lit: Image = await _capture_on_path(want_painterly, prefix + "_lit")
+	if lit == null:
+		return []
+	ProjectSettings.set_setting(LIGHTING_SHADOW_PATH, 0.0)
+	var unshadowed: Image = await _capture_on_path(want_painterly, prefix + "_shadow_off")
+	if unshadowed == null:
+		return []
+	ProjectSettings.set_setting(LIGHTING_SHADOW_PATH, 1.0)
+	light.visible = false
+	var unlit: Image = await _capture_on_path(want_painterly, prefix + "_light_hidden")
+	if unlit == null:
+		return []
+	light.visible = true
+	return [_count_changed(lit, unlit), _count_changed(lit, unshadowed)]
+
+
+# Phase F -- #851. A shadowed DirectionalLight3D plus a shadow-only occluder.
+# Painterly used to assign none of the lighting/shadow/cluster TileRenderParams
+# fields, so it bound no scene lights and ran resolve-time lighting mode 0 --
+# hiding the light and zeroing shadow_strength changed no painterly pixel.
+func _measure_scene_lighting_response() -> bool:
+	var light := DirectionalLight3D.new()
+	light.name = "PainterlyProofLight"
+	light.shadow_enabled = true
+	light.light_energy = 2.0
+	scene_root.add_child(light)
+	# Oblique, so the light has a direct (N.L > 0) contribution on the fixture
+	# as well as a shadow: straight down, the fixture's splat normals receive no
+	# direct light and "light hidden" degenerates into the shadow check.
+	light.rotation_degrees = Vector3(-60.0, 20.0, 0.0)
+	# The occluder sits 5 m up-light of the fixture's centre (a +-3 m cloud at
+	# the origin), so its shadow is a column through the middle of the cloud.
+	var light_dir: Vector3 = -light.global_transform.basis.z
+	var occluder := MeshInstance3D.new()
+	occluder.name = "PainterlyProofOccluder"
+	var box := BoxMesh.new()
+	box.size = Vector3(3.5, 0.2, 3.5)
+	occluder.mesh = box
+	# Casts, is never drawn: the camera sees only the splats' response.
+	occluder.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+	occluder.position = -light_dir * 5.0
+	scene_root.add_child(occluder)
+	var had_shadow_setting := ProjectSettings.has_setting(LIGHTING_SHADOW_PATH)
+	var previous_shadow = ProjectSettings.get_setting(LIGHTING_SHADOW_PATH) if had_shadow_setting else null
+
+	var ok := await _measure_scene_lighting_with(light)
+
+	if had_shadow_setting:
+		ProjectSettings.set_setting(LIGHTING_SHADOW_PATH, previous_shadow)
+	light.queue_free()
+	occluder.queue_free()
+	return ok
+
+
+func _measure_scene_lighting_with(light: DirectionalLight3D) -> bool:
+	var baseline: Array = await _lighting_deltas(false, light)
+	if baseline.is_empty():
+		return false
+	metrics["lighting_baseline_light_differ_px"] = int(baseline[0])
+	metrics["lighting_baseline_shadow_differ_px"] = int(baseline[1])
+	if int(baseline[0]) < MIN_LIGHTING_CONTROL_DIFFER_PX or int(baseline[1]) < MIN_LIGHTING_CONTROL_DIFFER_PX:
+		_fail(
+			"Baseline control: hiding the light moved %d px and shadow_strength 1->0 moved %d px (floor %d each). "
+			% [int(baseline[0]), int(baseline[1]), MIN_LIGHTING_CONTROL_DIFFER_PX]
+			+ "Scene lighting is not observable in this run, so nothing can be concluded about painterly."
+		)
+		return false
+	_report.ok()
+
+	var painterly: Array = await _lighting_deltas(true, light)
+	if painterly.is_empty():
+		return false
+	metrics["lighting_painterly_light_differ_px"] = int(painterly[0])
+	metrics["lighting_painterly_shadow_differ_px"] = int(painterly[1])
+	metrics["lighting_painterly_over_baseline_light_ratio"] = float(painterly[0]) / float(max(int(baseline[0]), 1))
+	metrics["lighting_painterly_over_baseline_shadow_ratio"] = float(painterly[1]) / float(max(int(baseline[1]), 1))
+	if float(metrics["lighting_painterly_over_baseline_light_ratio"]) < MIN_LIGHTING_PAINTERLY_RATIO:
+		_fail(
+			"Hiding the DirectionalLight3D moved %d painterly px vs %d baseline px (ratio %.4f, floor %.4f). "
+			% [int(painterly[0]), int(baseline[0]), float(metrics["lighting_painterly_over_baseline_light_ratio"]), MIN_LIGHTING_PAINTERLY_RATIO]
+			+ "Painterly is not consuming scene lights (#851)."
+		)
+		return false
+	_report.ok()
+	if float(metrics["lighting_painterly_over_baseline_shadow_ratio"]) < MIN_LIGHTING_PAINTERLY_RATIO:
+		_fail(
+			"shadow_strength 1.0 -> 0.0 moved %d painterly px vs %d baseline px (ratio %.4f, floor %.4f). "
+			% [int(painterly[1]), int(baseline[1]), float(metrics["lighting_painterly_over_baseline_shadow_ratio"]), MIN_LIGHTING_PAINTERLY_RATIO]
+			+ "Painterly shadows are inert (#851)."
+		)
+		return false
+	_report.ok()
+	return true
+
+
+# Sampled pixels the light brightens: 1 where lit luma > unlit luma + delta.
+func _bright_mask(lit: Image, unlit: Image) -> PackedByteArray:
+	var mask := PackedByteArray()
+	for y in range(0, lit.get_height(), SAMPLE_STRIDE):
+		for x in range(0, lit.get_width(), SAMPLE_STRIDE):
+			var brighter := _luma(lit.get_pixel(x, y)) > _luma(unlit.get_pixel(x, y)) + CLUSTER_BRIGHT_LUMA_DELTA
+			mask.append(1 if brighter else 0)
+	return mask
+
+
+func _mask_count(mask: PackedByteArray) -> int:
+	var n := 0
+	for v in mask:
+		n += v
+	return n
+
+
+func _omni_bright_mask(want_painterly: bool, light: OmniLight3D, label: String) -> PackedByteArray:
+	splat_node.set_enable_painterly(want_painterly)
+	light.visible = true
+	var lit: Image = await _capture_on_path(want_painterly, label + "_omni_lit")
+	if lit == null:
+		return PackedByteArray()
+	light.visible = false
+	var unlit: Image = await _capture_on_path(want_painterly, label + "_omni_hidden")
+	if unlit == null:
+		return PackedByteArray()
+	light.visible = true
+	return _bright_mask(lit, unlit)
+
+
+# Phase G -- #1078.
+func _measure_clustered_light_mapping() -> bool:
+	var light := OmniLight3D.new()
+	light.name = "PainterlyProofOmni"
+	light.omni_range = 3.0
+	light.light_energy = 6.0
+	light.shadow_enabled = false
+	# Off-centre (upper right of the +-3 m fixture cloud), so a mis-indexed
+	# cluster grid moves the lit region rather than leaving it in place.
+	light.position = Vector3(2.0, 1.5, 3.0)
+	scene_root.add_child(light)
+	var previous_strokes = renderer.get("painterly/enable_strokes")
+	var previous_scale = renderer.get("painterly/internal_scale")
+
+	var ok := await _measure_clustered_light_mapping_with(light)
+
+	renderer.set("painterly/enable_strokes", previous_strokes)
+	renderer.set("painterly/internal_scale", previous_scale)
+	light.queue_free()
+	return ok
+
+
+func _measure_clustered_light_mapping_with(light: OmniLight3D) -> bool:
+	var baseline_mask := await _omni_bright_mask(false, light, "baseline")
+	if baseline_mask.is_empty():
+		return false
+	metrics["cluster_baseline_bright_px"] = _mask_count(baseline_mask)
+	if int(metrics["cluster_baseline_bright_px"]) < MIN_CLUSTER_CONTROL_BRIGHT_PX:
+		_fail(
+			"Baseline control: the omni light brightened only %d sampled px (floor %d); clustered lighting is not observable in this run."
+			% [int(metrics["cluster_baseline_bright_px"]), MIN_CLUSTER_CONTROL_BRIGHT_PX]
+		)
+		return false
+	_report.ok()
+
+	# Stylization off: the painterly frame is then painterly's own tile output,
+	# so the stroke/outline passes cannot move the lit region.
+	renderer.set("painterly/enable_strokes", false)
+	renderer.set("painterly/internal_scale", CLUSTER_MAPPING_INTERNAL_SCALE)
+	var painterly_mask := await _omni_bright_mask(true, light, "painterly_half_scale")
+	if painterly_mask.is_empty():
+		return false
+	metrics["cluster_painterly_bright_px"] = _mask_count(painterly_mask)
+	# Premise: the painterly pass graph really ran at the reduced scale. If the
+	# setter stopped applying, painterly would rasterize at full size, the IoU
+	# would be ~1.0 and this phase would pass without testing the mapping.
+	# `painterly_internal_scale` is the pass graph's APPLIED scale
+	# (render_diagnostics_orchestrator.cpp), not the requested one.
+	var scale_stats := _read_renderer_stats()
+	metrics["cluster_effective_internal_scale"] = float(scale_stats.get("painterly_internal_scale", -1.0))
+	if absf(float(metrics["cluster_effective_internal_scale"]) - CLUSTER_MAPPING_INTERNAL_SCALE) > 0.01:
+		_fail(
+			"Phase G premise failed: painterly ran at effective internal_scale %.3f, not %.2f (stats key present=%s). "
+			% [float(metrics["cluster_effective_internal_scale"]), CLUSTER_MAPPING_INTERNAL_SCALE, scale_stats.has("painterly_internal_scale")]
+			+ "The clustered-light mapping check would be vacuous at full scale."
+		)
+		return false
+	_report.ok()
+	var inter := 0
+	var uni := 0
+	for i in range(min(baseline_mask.size(), painterly_mask.size())):
+		if baseline_mask[i] == 1 or painterly_mask[i] == 1:
+			uni += 1
+			if baseline_mask[i] == 1 and painterly_mask[i] == 1:
+				inter += 1
+	metrics["cluster_mapping_iou"] = float(inter) / float(max(uni, 1))
+	if float(metrics["cluster_mapping_iou"]) < MIN_CLUSTER_MAPPING_IOU:
+		_fail(
+			"At painterly internal_scale %.2f the omni light brightened a region overlapping the baseline's by IoU %.3f (floor %.2f; %d vs %d px). "
+			% [CLUSTER_MAPPING_INTERNAL_SCALE, float(metrics["cluster_mapping_iou"]), MIN_CLUSTER_MAPPING_IOU,
+				int(metrics["cluster_painterly_bright_px"]), int(metrics["cluster_baseline_bright_px"])]
+			+ "Painterly is indexing the light-cluster grid with its own pixel coordinates (#1078)."
 		)
 		return false
 	_report.ok()
