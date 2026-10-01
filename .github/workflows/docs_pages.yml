@@ -127,6 +127,13 @@ jobs:
           fi
           echo "Generated docs are fresh."
 
+      # The generators (incl. Doxygen) have run, so links into gitignored
+      # generated output (docs/api/cpp) must resolve here; the PR gate's link
+      # check runs without that output and only reports such links as skipped.
+      - name: Check docs links incl. generated output
+        run: |
+          python scripts/docs/check_links.py --require-generated docs README.md BUILDING.md CONTRIBUTING.md
+
       - name: Stage public docs
         run: |
           python scripts/stage_public_docs.py \
