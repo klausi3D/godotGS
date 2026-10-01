@@ -86,6 +86,5 @@ func discard_staged_brush_edits(node: GaussianSplatNode3D) -> void:
 | --- | --- | --- |
 | `Runtime Preview` or `Residency HUD` does not appear | Use a debug build because the custom debug inspector controls are compiled only under `DEBUG_ENABLED` and debug properties are hidden in release. | `GaussianSplatNodeInspectorPlugin::parse_begin`, `GaussianSplatNode3D::_get` |
 | `Painterly Brush Tools` does not appear | Enable painterly on the node (`painterly/enabled`); the section also needs the node's renderer to hold CPU-side Gaussian data with at least one splat. | `GaussianSplatNodeInspectorPlugin::parse_begin` |
-| Import dialog rejects the selected file | Move the file under `res://` and retry because the importer rejects non-project paths. | `GaussianEditorPlugin::_on_import_file_selected` |
 | Brush edits disappear after reimport | Commit edits before reimport because loading new file data resets runtime edits and clears recorded brush strokes. | `GaussianData::_on_gaussian_storage_changed_locked`, `GaussianData::set_gaussian_payload` |
 | `Bake Color Grading` fails | Assign a `ColorGradingResource`. On asset-backed nodes the bake is currently expected to fail with `ERR_UNCONFIGURED`; see the warning above. | `GaussianSplatNode3D::bake_color_grading_snapshot` |

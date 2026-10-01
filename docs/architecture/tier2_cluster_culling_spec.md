@@ -1,8 +1,16 @@
 # Tier-2 Cluster Culling Spec
 
-Status: implementation spec  
+Status: proposed, not implemented (re-statused 2026-10-01; this page was previously labelled "implementation spec")  
 Scope: tier-2-native coarse culling for the instance/chunk pipeline  
 Audience: renderer, streaming, and GPU-pipeline engineers
+
+> **Status, verified 2026-10-01.** Nothing in this spec has been implemented. None of the four
+> proposed shaders (`instance_cluster_dispatch.glsl`, `cluster_cull_instance.glsl`,
+> `cluster_range_dispatch.glsl`, `cluster_depth_compute.glsl`) exists, and neither do the
+> cluster buffers, `ClusterMetaGPU`, `test_cluster_culling.h` or the cluster metrics. The live
+> coarse cull is the chunk frustum pass described in §2; see
+> [Culling and hierarchy](culling-and-hierarchy.md). Read this page as a design proposal, not as
+> a description of the code.
 
 ## 1. Summary
 
@@ -47,7 +55,7 @@ This is sphere-based, not AABB-based, because tier-2 already transforms chunk-lo
    - `cluster_splat_ranges_buffer`: compacted fine-pass input `{ visible_chunk_index, splat_offset, splat_count, pad }`
    - `cluster_dispatch_buffer`: indirect dispatch for the fine cluster-expansion pass
 2. `frustum_cull.glsl` remains unchanged and produces `visible_chunk_buffer`.
-3. New `instance_cluster_dispatch.glsl` reads the visible-chunk counter and writes indirect dispatch for the cluster pass: `x = ceil(max_clusters_per_chunk / 64)`, `y = min(visible_chunk_count, max_visible_chunks)`, `z = 1`. It also clears the shared counter buffer for cluster counting. **The clamp to `max_visible_chunks` is required**: `frustum_cull.glsl:136-140` increments `visible_chunk_count` via `atomicAdd` *before* checking the cap and only writes `visible_chunk_buffer` entries for in-range indices; overflowed chunks are counted but not stored. Using the raw counter as `y` would let the cluster pass read past initialized entries. This is the same clamp pattern as `instance_chunk_dispatch.glsl:26-27` (`min(raw_count, max_visible_chunks)`).
+3. New `instance_cluster_dispatch.glsl` reads the visible-chunk counter and writes indirect dispatch for the cluster pass: `x = ceil(max_clusters_per_chunk / 64)`, `y = min(visible_chunk_count, max_visible_chunks)`, `z = 1`. It also clears the shared counter buffer for cluster counting. **The clamp to `max_visible_chunks` is required**: `main()` in `frustum_cull.glsl` increments `visible_chunk_count` via `atomicAdd` *before* checking the cap (`params.max_visible_chunks`) and only writes `visible_chunk_buffer` entries for in-range indices; overflowed chunks are counted (`overflowed_chunks`) but not stored. Using the raw counter as `y` would let the cluster pass read past initialized entries. This is the same clamp pattern as `main()` in `instance_chunk_dispatch.glsl` (`min(raw_count, params.max_visible_chunks)`).
 4. New cluster-cull pass reads `visible_chunk_buffer`, `chunk_meta_buffer`, `chunk_cluster_range_buffer`, `cluster_meta_buffer`, and `instance_buffer`; it frustum-tests each cluster, compacts visible clusters into `cluster_visible_buffer`, writes `cluster_splat_ranges_buffer`, and increments `visible_cluster_count`. Apply the same overflow discipline as `frustum_cull.glsl`: count under cap, drop above cap, expose an overflow counter.
 5. New `cluster_range_dispatch.glsl` converts `visible_cluster_count` into `cluster_dispatch_buffer`: `x = ceil(max_cluster_splats / 256)`, `y = min(visible_cluster_count, max_visible_clusters)`, `z = 1`; then it clears the shared counter buffer for visible splat counting. Same clamp rationale as step 3.
 6. New cluster-aware depth pass expands only visible cluster ranges into `splat_ref_buffer`, `sort_key_buffer`, and `sort_value_buffer`, then `instance_count_clamp.glsl` continues unchanged and publishes `visible_splat_count`.

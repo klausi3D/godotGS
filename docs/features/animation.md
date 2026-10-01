@@ -29,7 +29,7 @@ Describe per-splat property values (position, color, opacity, scale, rotation) o
 This is a complete script. Attach it to a `Node` and point the path at a PLY in your project.
 
 !!! note "Pass `AnimationProperty` values through `int()`"
-    The property enum is declared at namespace scope in C++ (`GaussianSplatting::AnimationProperty`) but its constants are bound on the class. The GDScript analyzer therefore types `GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION` and the method parameter as two different enums and rejects a direct pass with a parse error (*Cannot pass a value of type "GaussianAnimationStateMachine.AnimationProperty" as "GaussianSplatting.AnimationProperty"*). Wrapping the constant in `int()` compiles and works. This is a binding defect, not intended usage.
+    The property enum is declared at namespace scope in C++ (`GaussianSplatting::AnimationProperty`) but its constants are bound on the class. The GDScript analyzer therefore types `GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION` and the method parameter as two different enums and rejects a direct pass with a parse error (*Cannot pass a value of type "GaussianAnimationStateMachine.AnimationProperty" as "GaussianSplatting.AnimationProperty"*). Wrapping the constant in `int()` compiles and works. This is a binding defect, not intended usage; it is tracked in [#1106](https://github.com/klausi3D/godotGS/issues/1106), and once that is fixed the `int()` wrapper is no longer needed.
 
 ```gdscript
 extends Node
@@ -129,7 +129,7 @@ Keyframe interpolation is determined by the `InterpolationType` stored with each
 | `is_playing()` | Returns `true` when the state machine is in the `PLAYING` state. | `GaussianAnimationStateMachine::is_playing` |
 | `get_current_time()` | Returns the current playback position in seconds. | `GaussianAnimationStateMachine::get_current_time` |
 
-`GaussianData.update_animation(delta)` forwards to `update(delta)` when an animation is attached and `set_animation_enabled(true)` has been called on the `GaussianData`.
+`GaussianData.update_animation(delta)` forwards to `update(delta)` when an animation is attached and animation is enabled on the `GaussianData` (`animation_enabled`, default `true`; turn it off with `set_animation_enabled(false)`).
 
 #### Non-finite playback values are rejected
 
