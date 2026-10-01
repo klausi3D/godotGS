@@ -1240,16 +1240,28 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 func _new_needed_set_window() -> Dictionary:
 	return {
 		"frames": 0,
+		"unmeasured_frames": 0,
 		"demand_frames": 0,
 		"ratio_sum": 0.0,
 		"ratio_min": 1.0,
 		"full_frames": 0,
+		"stall_frames_seen": 0,
 		"stalled_frames": 0,
+		"stall_episodes": 0,
+		"stall_seconds_max": 0.0,
+		"was_stalled": false,
+		"starvation_frames_seen": 0,
+		"starvation_eligible_frames": 0,
 		"scan_starved_frames": 0,
 	}
 
 func _accumulate_needed_set_window(window: Dictionary, stream_state: Dictionary) -> void:
 	window["frames"] = int(window.get("frames", 0)) + 1
+	# A frame on which the engine never built the needed set (update_streaming
+	# returned early) is unmeasured, not "no demand"; it is kept out of every ratio.
+	if stream_state.has("needed_set_measured") and not bool(stream_state["needed_set_measured"]):
+		window["unmeasured_frames"] = int(window.get("unmeasured_frames", 0)) + 1
+		return
 	var needed := _read_stat_int(stream_state, ["needed_chunks"])
 	var resident := _read_stat_int(stream_state, ["needed_resident_chunks"])
 	if needed > 0:
@@ -1261,14 +1273,27 @@ func _accumulate_needed_set_window(window: Dictionary, stream_state: Dictionary)
 		window["ratio_min"] = minf(float(window.get("ratio_min", 1.0)), ratio)
 		if resident >= needed:
 			window["full_frames"] = int(window.get("full_frames", 0)) + 1
-	# needed_set_stalled: the needed set has been incomplete with no chunk completion
-	# for at least NEEDED_SET_STALL_THRESHOLD_SECONDS of wall time.
-	if bool(stream_state.get("needed_set_stalled", false)):
-		window["stalled_frames"] = int(window.get("stalled_frames", 0)) + 1
-	# scheduler_visible_scan_starved: unserved needed chunks, the scan had enqueue
-	# capacity (not throttled by pack saturation), and it found no load candidate.
-	if bool(stream_state.get("scheduler_visible_scan_starved", false)):
-		window["scan_starved_frames"] = int(window.get("scan_starved_frames", 0)) + 1
+	# needed_set_stalled: the needed set has been incomplete with no net needed-set
+	# progress for NEEDED_SET_STALL_THRESHOLD_SECONDS (0.5 s of clamped frame deltas).
+	# Each key is read only when published, so a binary without it reads null, not 0.
+	if stream_state.has("needed_set_stalled"):
+		window["stall_frames_seen"] = int(window.get("stall_frames_seen", 0)) + 1
+		var stalled := bool(stream_state["needed_set_stalled"])
+		if stalled:
+			window["stalled_frames"] = int(window.get("stalled_frames", 0)) + 1
+			if not bool(window.get("was_stalled", false)):
+				window["stall_episodes"] = int(window.get("stall_episodes", 0)) + 1
+		window["was_stalled"] = stalled
+		window["stall_seconds_max"] = maxf(float(window.get("stall_seconds_max", 0.0)),
+				float(stream_state.get("needed_set_stall_seconds", 0.0)))
+	# Starvation: eligible = unserved needed chunks while the scan had enqueue
+	# headroom; starved = eligible and the scan found no load candidate.
+	if stream_state.has("scheduler_visible_scan_starved") and stream_state.has("scheduler_visible_scan_starvation_eligible"):
+		window["starvation_frames_seen"] = int(window.get("starvation_frames_seen", 0)) + 1
+		if bool(stream_state["scheduler_visible_scan_starvation_eligible"]):
+			window["starvation_eligible_frames"] = int(window.get("starvation_eligible_frames", 0)) + 1
+		if bool(stream_state["scheduler_visible_scan_starved"]):
+			window["scan_starved_frames"] = int(window.get("scan_starved_frames", 0)) + 1
 
 func _proof_metric_summary(samples: Array) -> Dictionary:
 	if samples.is_empty():
@@ -1317,6 +1342,15 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		residency_ratio = float(needed_window["ratio_sum"]) / float(demand_frames)
 		residency_ratio_min = float(needed_window["ratio_min"])
 		residency_full_frame_fraction = float(needed_window["full_frames"]) / float(demand_frames)
+	var no_progress_frames = null
+	if int(needed_window.get("stall_frames_seen", 0)) > 0:
+		no_progress_frames = int(needed_window["stalled_frames"])
+	# null unless at least one frame COULD have starved: with no eligible frame the
+	# check was never exercised, and a 0 would be the absence of a signal, not a pass.
+	var starvation_eligible_frames := int(needed_window.get("starvation_eligible_frames", 0))
+	var scan_starved_frames = null
+	if int(needed_window.get("starvation_frames_seen", 0)) > 0 and starvation_eligible_frames > 0:
+		scan_starved_frames = int(needed_window["scan_starved_frames"])
 
 	return {
 		"proof_window": proof_window,
@@ -1326,6 +1360,9 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"residency_ratio_min": residency_ratio_min,
 		"residency_full_frame_fraction": residency_full_frame_fraction,
 		"residency_demand_frames": demand_frames if _proof_needed_set_available else null,
+		"needed_set_unmeasured_frames": (
+			int(needed_window.get("unmeasured_frames", 0)) if _proof_needed_set_available else null
+		),
 		"frame_p95_ms": p95_frame_ms if proof_samples > 0 else null,
 		"frame_p95_to_avg_ratio": (
 			p95_frame_ms / maxf(0.001, avg_frame_ms) if proof_samples > 0 else null
@@ -1334,13 +1371,20 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"queue_pressure_candidate_frames": (
 			_proof_queue_pressure_candidate_frames if _proof_streaming_state_available else null
 		),
-		# #1086: proof-window frames on which the needed set had gone without any chunk
-		# completion for >= 0.5 s of wall time (engine: needed_set_stalled), and on
-		# which the visible scan had capacity but reached none of the unserved demand
-		# (engine: scheduler_visible_scan_starved). null when the binary does not
-		# publish them, so an older build reads as missing telemetry, not as 0.
-		"no_progress_frames": int(needed_window.get("stalled_frames", 0)) if _proof_needed_set_available else null,
-		"scan_starved_frames": int(needed_window.get("scan_starved_frames", 0)) if _proof_needed_set_available else null,
+		# #1086: proof-window frames on which the needed set had gone >= 0.5 s without
+		# net needed-set progress (engine: needed_set_stalled; churn and prefetch are not
+		# progress), and on which the visible scan had headroom but reached none of the
+		# unserved demand (engine: scheduler_visible_scan_starved). null when the binary
+		# does not publish the key, and scan_starved_frames is also null when no frame
+		# was eligible to starve. Episodes and the longest stall are time-based, unlike
+		# the frame count, for a contract that wants to gate on wall time.
+		"no_progress_frames": no_progress_frames,
+		"no_progress_episodes": int(needed_window["stall_episodes"]) if no_progress_frames != null else null,
+		"no_progress_stall_seconds_max": float(needed_window["stall_seconds_max"]) if no_progress_frames != null else null,
+		"scan_starved_frames": scan_starved_frames,
+		"scan_starvation_eligible_frames": (
+			starvation_eligible_frames if int(needed_window.get("starvation_frames_seen", 0)) > 0 else null
+		),
 		"vram_cap_hit_frames": _proof_vram_cap_hit_frames if _proof_vram_cap_hit_available else null,
 		"chunk_loads_per_frame_avg": chunk_loads_summary.get("avg"),
 		"chunk_loads_per_frame_p95": chunk_loads_summary.get("p95"),

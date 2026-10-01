@@ -3823,10 +3823,10 @@ TEST_CASE("[Streaming Pipeline] Needed-set residency counts resident needed chun
     CHECK(int64_t(complete.get("needed_unserved_chunks", int64_t(-1))) == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Scan starvation excludes designed pack-saturation backpressure (#1086)") {
-    // The throttle's own output for "pack jobs in flight == max_pack_jobs_in_flight":
-    // the scan budget is cut to exactly one chunk. The old lane metric
-    // (scheduler_visible_scan_budget_effective <= 1) scored this as starvation.
+TEST_CASE("[Streaming Pipeline] Scan starvation excludes pack saturation but catches a throttled near-prefix scan (#1086)") {
+    // Pack saturation: when pack jobs in flight reach max_pack_jobs_in_flight the
+    // throttle cuts the scan to one chunk with zero headroom. The old lane metric
+    // (scheduler_visible_scan_budget_effective <= 1) scored that as starvation.
     StreamingQueuePressureController::ScanBudgetInput saturated;
     saturated.base_scan_budget = 64;
     saturated.throttle_enabled = true;
@@ -3837,36 +3837,47 @@ TEST_CASE("[Streaming Pipeline] Scan starvation excludes designed pack-saturatio
     const StreamingQueuePressureController::ScanBudgetResult saturated_result =
             StreamingQueuePressureController::compute_candidate_scan_budget(saturated);
     CHECK(saturated_result.scan_budget == 1);
-    CHECK(saturated_result.throttle_active);
-    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(
-            true, saturated.enqueue_headroom, saturated_result.throttle_active));
-    // Same with the throttle disabled: zero headroom still means the scan could not
-    // enqueue anything, so it is backpressure, not starvation.
-    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(true, 0, false));
-    // A scan that never ran had no capacity to use.
-    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(false, UINT32_MAX, false));
+    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(true, saturated.enqueue_headroom));
+    CHECK_FALSE(StreamingQueuePressureController::visible_scan_had_capacity(false, UINT32_MAX));
 
     StreamingQueuePressureController::VisibleScanStarvationInput input;
     input.needed_unserved_chunks = 5;
     input.load_candidates = 0;
     input.scan_had_capacity = false;
+    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starvation_eligible(input));
     CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
 
-    // Real starvation: the pipeline had room, demand sat unserved, and the scan
-    // window found none of it (e.g. a capped scan that restarts at the nearest,
-    // already-resident prefix every frame).
-    input.scan_had_capacity = StreamingQueuePressureController::visible_scan_had_capacity(true, 3, false);
+    // A queue-depth throttle with headroom left: the budget shrinks below the visible
+    // count, so the scan restarts at the nearest prefix. If that prefix is resident
+    // the demand is never reached. This must count: the throttle being on is no
+    // excuse while the pipeline has room.
+    StreamingQueuePressureController::ScanBudgetInput throttled;
+    throttled.base_scan_budget = 64;
+    throttled.throttle_enabled = true;
+    throttled.throttle_min_queue_depth = 1;
+    throttled.observed_queue_depth = 3;
+    throttled.throttle_scan_cap = 8;
+    throttled.enqueue_headroom = 2;
+    const StreamingQueuePressureController::ScanBudgetResult throttled_result =
+            StreamingQueuePressureController::compute_candidate_scan_budget(throttled);
+    CHECK(throttled_result.throttle_active);
+    CHECK(throttled_result.scan_budget < throttled.base_scan_budget);
+    input.scan_had_capacity = StreamingQueuePressureController::visible_scan_had_capacity(true, throttled.enqueue_headroom);
     CHECK(input.scan_had_capacity);
+    CHECK(StreamingQueuePressureController::is_visible_scan_starvation_eligible(input));
     CHECK(StreamingQueuePressureController::is_visible_scan_starved(input));
-    // The scan reached the demand; whatever happens next (admission, cap) is not scan starvation.
+    // The scan reached the demand: eligible, not starved.
     input.load_candidates = 2;
+    CHECK(StreamingQueuePressureController::is_visible_scan_starvation_eligible(input));
     CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
-    // No unserved demand (everything needed is resident or already in flight).
+    // No unserved demand: not even eligible.
     input.load_candidates = 0;
     input.needed_unserved_chunks = 0;
-    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starved(input));
+    CHECK_FALSE(StreamingQueuePressureController::is_visible_scan_starvation_eligible(input));
 
-    // Through the system: the published flag follows the needed set it computed.
+    // Through the system: published flags follow the needed set it computed, and a
+    // frame on which the needed set was never built says so instead of reading as
+    // "no demand".
     Ref<GaussianStreamingSystem> system;
     system.instantiate();
     LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
@@ -3877,12 +3888,22 @@ TEST_CASE("[Streaming Pipeline] Scan starvation excludes designed pack-saturatio
     Projection projection;
     projection.set_perspective(60.0f, 1.0f, 0.1f, 1000.0f);
     Transform3D camera_transform;
+
+    system->begin_frame();
+    system->end_frame(); // update_streaming never ran this frame
+    const Dictionary unmeasured = system->get_streaming_analytics();
+    CHECK_FALSE(bool(unmeasured.get("needed_set_measured", true)));
+    CHECK_FALSE(bool(unmeasured.get("scheduler_visible_scan_starvation_eligible", true)));
+
     system->begin_frame();
     system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
     system->_test_set_visible_scan_result(false, 0); // saturated: backpressure
     system->_test_build_visible_chunk_list();
     system->end_frame();
-    CHECK_FALSE(bool(system->get_streaming_analytics().get("scheduler_visible_scan_starved", true)));
+    const Dictionary saturated_frame = system->get_streaming_analytics();
+    CHECK(bool(saturated_frame.get("needed_set_measured", false)));
+    CHECK_FALSE(bool(saturated_frame.get("scheduler_visible_scan_starvation_eligible", true)));
+    CHECK_FALSE(bool(saturated_frame.get("scheduler_visible_scan_starved", true)));
 
     system->begin_frame();
     system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
@@ -3891,49 +3912,105 @@ TEST_CASE("[Streaming Pipeline] Scan starvation excludes designed pack-saturatio
     system->end_frame();
     const Dictionary starved = system->get_streaming_analytics();
     CHECK(int64_t(starved.get("needed_unserved_chunks", int64_t(-1))) == 2);
+    CHECK(bool(starved.get("scheduler_visible_scan_starvation_eligible", false)));
     CHECK(bool(starved.get("scheduler_visible_scan_starved", false)));
 }
 
-TEST_CASE("[Streaming Pipeline] Needed-set stall is measured in time, so a throttled 200 fps pipeline is not stalled (#1086)") {
-    const float threshold = StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;
+namespace {
 
-    // Healthy, throttled pipeline: 200 fps, one completion every 5th frame (40
-    // chunks/s; the measured corridor rate is ~37/s), needed set never complete.
-    const float dt_200 = 1.0f / 200.0f;
-    float stall = 0.0f;
+struct NeededSetRun {
     uint32_t stalled_frames = 0;
     uint32_t zero_completion_frames = 0;
-    for (uint32_t frame = 0; frame < 2000; frame++) {
-        const uint32_t completed = (frame % 5 == 4) ? 1u : 0u;
-        zero_completion_frames += completed == 0 ? 1u : 0u;
-        stall = StreamingQueuePressureController::advance_needed_set_stall_seconds(stall, 100, 60, completed, dt_200);
-        stalled_frames += stall >= threshold ? 1u : 0u;
-    }
-    CHECK(stalled_frames == 0);
-    // What the old per-frame count saw on the same run: 80% of frames.
-    CHECK(zero_completion_frames == 1600);
+    float first_stalled_time = -1.0f;
+};
 
-    // A genuine stall trips at the same wall time whatever the frame rate.
-    const auto first_stalled_time = [&](float p_dt) -> float {
-        float s = 0.0f;
-        for (uint32_t frame = 1; frame <= 10000; frame++) {
-            s = StreamingQueuePressureController::advance_needed_set_stall_seconds(s, 100, 60, 0, p_dt);
-            if (s >= threshold) {
-                return float(frame) * p_dt;
+// Drives advance_needed_set_progress for p_frames frames at p_dt. A needed chunk
+// completes on every p_completion_period-th frame (never when the period is 0);
+// with p_churn, each completion refills a slot freed by evicting a needed chunk
+// p_lag frames earlier.
+NeededSetRun _run_needed_set_progress(uint32_t p_frames, float p_dt, uint32_t p_completion_period, bool p_churn,
+        uint32_t p_lag = 3) {
+    NeededSetRun run;
+    StreamingQueuePressureController::NeededSetProgressState state;
+    for (uint32_t frame = 0; frame < p_frames; frame++) {
+        StreamingQueuePressureController::NeededSetProgressInput in;
+        in.needed_chunks = 1000;
+        in.needed_resident_chunks = 384; // capacity-bound: the needed set cannot complete
+        const bool completes = p_completion_period > 0 && frame % p_completion_period == p_completion_period - 1;
+        const bool evicts = p_churn && p_completion_period > 0 &&
+                (frame + p_lag) % p_completion_period == p_completion_period - 1;
+        in.needed_chunks_completed = completes ? 1u : 0u;
+        in.needed_chunks_evicted = evicts ? 1u : 0u;
+        in.in_flight_loads = 12;
+        in.frame_delta_seconds = p_dt;
+        StreamingQueuePressureController::advance_needed_set_progress(state, in);
+        run.zero_completion_frames += completes ? 0u : 1u;
+        if (state.stall_seconds >= StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS) {
+            run.stalled_frames++;
+            if (run.first_stalled_time < 0.0f) {
+                run.first_stalled_time = float(frame + 1) * p_dt;
             }
         }
-        return -1.0f;
-    };
-    const float t_200 = first_stalled_time(dt_200);
-    const float t_30 = first_stalled_time(1.0f / 30.0f);
-    CHECK(t_200 >= threshold - 0.001f);
-    CHECK(t_200 < threshold + 2.0f * dt_200);
-    CHECK(t_30 >= threshold - 0.001f);
-    CHECK(t_30 < threshold + 2.0f * (1.0f / 30.0f));
+    }
+    return run;
+}
 
-    // A complete needed set is not a stall even with no completions (static camera,
-    // everything resident), and a single completion resets an accumulating stall.
-    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(10.0f, 100, 100, 0, dt_200) == 0.0f);
-    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(10.0f, 100, 60, 1, dt_200) == 0.0f);
-    CHECK(StreamingQueuePressureController::advance_needed_set_stall_seconds(0.0f, 0, 0, 0, dt_200) == 0.0f);
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Needed-set progress: throttled loading is progress, needed-set churn and prefetch are not (#1086)") {
+    const float threshold = StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS;
+    const float dt_200 = 1.0f / 200.0f;
+
+    // Throttled but genuine progress: 200 fps, a needed chunk every 5th frame
+    // (40/s; the corridor measured ~37/s), nothing needed evicted.
+    const NeededSetRun healthy = _run_needed_set_progress(2000, dt_200, 5, false);
+    CHECK(healthy.stalled_frames == 0);
+    // The old per-frame count on the same run: 80% of frames.
+    CHECK(healthy.zero_completion_frames == 1600);
+
+    // Same completion rate, but every completion refills a slot freed by evicting
+    // another needed chunk (capacity-bound evict/reload churn): no progress. The
+    // first version of this metric reset on ANY completion and could not see this.
+    const NeededSetRun churn = _run_needed_set_progress(2000, dt_200, 5, true);
+    CHECK(churn.stalled_frames > 0);
+    CHECK(churn.first_stalled_time >= threshold - 0.001f);
+    CHECK(churn.first_stalled_time < threshold + 2.0f * dt_200);
+
+    // Only prefetch (non-needed) completions: needed_chunks_completed stays 0.
+    const NeededSetRun prefetch_only = _run_needed_set_progress(2000, dt_200, 0, false);
+    CHECK(prefetch_only.stalled_frames > 0);
+
+    // The onset is time-based: the same churn trips at ~0.5 s at 30 fps too.
+    const NeededSetRun churn_30 = _run_needed_set_progress(300, 1.0f / 30.0f, 2, true, 1);
+    CHECK(churn_30.first_stalled_time >= threshold - 0.001f);
+    CHECK(churn_30.first_stalled_time < threshold + 2.0f / 30.0f);
+
+    // A complete needed set is never a stall.
+    StreamingQueuePressureController::NeededSetProgressState state;
+    state.stall_seconds = 10.0f;
+    StreamingQueuePressureController::NeededSetProgressInput complete;
+    complete.needed_chunks = 100;
+    complete.needed_resident_chunks = 100;
+    complete.frame_delta_seconds = dt_200;
+    StreamingQueuePressureController::advance_needed_set_progress(state, complete);
+    CHECK(state.stall_seconds == 0.0f);
+
+    // Displacement debt is capped by the loads in flight, so a reload that never
+    // arrives cannot suppress progress forever.
+    StreamingQueuePressureController::NeededSetProgressInput evicted;
+    evicted.needed_chunks = 100;
+    evicted.needed_resident_chunks = 50;
+    evicted.needed_chunks_evicted = 5;
+    evicted.in_flight_loads = 0;
+    evicted.frame_delta_seconds = dt_200;
+    StreamingQueuePressureController::advance_needed_set_progress(state, evicted);
+    CHECK(state.displacement_debt == 0);
+    StreamingQueuePressureController::NeededSetProgressInput completes;
+    completes.needed_chunks = 100;
+    completes.needed_resident_chunks = 51;
+    completes.needed_chunks_completed = 1;
+    completes.frame_delta_seconds = dt_200;
+    state.stall_seconds = 1.0f;
+    CHECK(StreamingQueuePressureController::advance_needed_set_progress(state, completes) == 1);
+    CHECK(state.stall_seconds == 0.0f);
 }

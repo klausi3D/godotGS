@@ -509,6 +509,8 @@ private:
     void _evict_for_vram_budget(uint32_t &evictions_left, bool &eviction_blocked);
     void _load_visible_chunks(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
     void _build_visible_chunk_list();
+    // #1086: the load-candidate distance _load_visible_chunks uses; defines the needed set.
+    float _get_needed_set_load_threshold() const;
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
     void _log_streaming_frame_stats(uint32_t effective_max);
