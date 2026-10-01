@@ -15,6 +15,7 @@ tests/ci would only run if it were wired into tests/ci/run_module_tests.py.
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -168,6 +169,27 @@ class StagingTest(unittest.TestCase):
 
         staged = (self.out / "guide" / "page.md").read_text(encoding="utf-8")
         self.assertEqual(staged, "[api](../api/index.md)\n")
+
+    def _run_main(self, *extra_args: str) -> int:
+        argv = ["stage_public_docs.py", "--source", "docs", "--output", ".site/public-docs", *extra_args]
+        with mock.patch("sys.argv", argv), mock.patch("builtins.print"):
+            return stage.main()
+
+    def test_cli_aborts_on_a_stale_exclusion_before_staging(self):
+        # A synthetic tree in which every DEFAULT_EXCLUSIONS entry matches, so the
+        # only possible stale entry is the one passed on the command line.
+        _write(self.docs / "index.md")
+        for pattern in stage.DEFAULT_EXCLUSIONS:
+            target = pattern[3:] if pattern.startswith("**/") else pattern
+            _write(self.docs / target if target.endswith(".md") else self.docs / target / "page.md")
+
+        self.assertEqual(self._run_main(), 0)  # control: the defaults alone stage
+        shutil.rmtree(self.out)
+
+        with self.assertRaises(SystemExit) as raised:
+            self._run_main("--exclude", "architecture/does-not-exist.md")
+        self.assertIn("'architecture/does-not-exist.md'", str(raised.exception.code))
+        self.assertFalse(self.out.exists(), "a stale exclusion must abort before anything is staged")
 
 
 class RepositoryPublicScopeTest(unittest.TestCase):
