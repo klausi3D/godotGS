@@ -1,12 +1,15 @@
 # Code owners for GodotGS.
 #
-# Listed paths require review from @klausi3D before merge. There is intentionally
-# no global owner so that unlisted, low-risk paths are not blocked; the sensitive
-# surfaces below — CI/security, agent governance, the GPU render path, on-disk
-# formats, the Godot engine delta, and tests — always need maintainer review.
+# Listed paths are owned by @klausi3D. This file identifies the owner; it is NOT
+# enforced: master branch protection has require_code_owner_reviews: false and
+# required_approving_review_count: 0, so a PR touching a listed path can merge
+# without an owner approval. There is intentionally no global owner. The
+# sensitive surfaces below (CI/security, agent governance, the GPU render path,
+# on-disk formats, the Godot engine delta, and tests) are meant to get maintainer
+# review, but that is a convention.
 #
-# See docs/governance/github-settings.md for the branch-protection settings that
-# make CODEOWNER review enforceable.
+# See docs/governance/github-settings.md for the live settings and for the
+# setting that would make CODEOWNER review enforceable.
 
 /.github/                                    @klausi3D
 /.agentic/                                   @klausi3D
