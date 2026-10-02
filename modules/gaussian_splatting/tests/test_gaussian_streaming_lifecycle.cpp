@@ -1090,6 +1090,38 @@ TEST_CASE("[Streaming Pipeline] A view whose chunks all lie past the load distan
     }
 }
 
+TEST_CASE("[Streaming Pipeline] Zero-visible recovery stays armed when an in-range chunk was frustum-rejected (#1087)") {
+    // Mixed view: the chunks ahead are past the limit, but one chunk inside the limit
+    // (behind the camera) was rejected by the frustum. That rejection may be a frustum
+    // false negative, which is what recovery exists for, so the bound must not
+    // suppress it.
+    const uint32_t chunk_count = 16;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    _setup_load_distance_chunks(*system.ptr(), chunk_count, 100.0f);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+    chunks[0].center = Vector3(0.0f, 0.0f, 20.0f); // behind the camera, 18 m away
+    chunks[0].bounds = AABB(chunks[0].center - half, half * 2.0f);
+    system->set_load_distance_limit(50.0f);
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+    system->begin_frame();
+    visibility.update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    const Dictionary culling = system->get_chunk_culling_stats();
+    if (int(culling.get("visible_chunks", -1)) != 0 || int(culling.get("frustum_culled_chunks", -1)) != 1 ||
+            int(culling.get("distance_culled_chunks", -1)) != int(chunk_count - 1)) {
+        FAIL("fixture precondition: expected 0 visible, 1 frustum-culled, ", chunk_count - 1, " distance-culled");
+        return;
+    }
+    visibility.handle_zero_visible_chunk_recovery(*system.ptr());
+    system->end_frame();
+    CHECK(int(system->get_streaming_analytics().get("zero_visible_recoveries_triggered", -1)) >= 1);
+}
+
 TEST_CASE("[Streaming Pipeline] Load scan and sync drain never queue a chunk past the load distance limit (#1087)") {
     // The visibility pass is not the only gate: the load scan and the sync-fallback
     // drain apply the same bound themselves. Here visibility ran unbounded, so the far
