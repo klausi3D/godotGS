@@ -312,8 +312,8 @@ larger allocation in-place.
 
 Surfaced metrics (read via `RenderDiagnosticsOrchestrator`):
 
-- `streaming_initial_capacity` - chunks reserved on init
-- `streaming_current_capacity` - chunks the persistent buffer currently fits
+- `streaming_initial_capacity` - atlas pages (1,024 splats each) reserved on init (#1088)
+- `streaming_current_capacity` - atlas pages the persistent buffer currently holds (#1088)
 - `streaming_grow_count` - times the buffer has grown since init
 
 See [Memory Subsystem Guide](../../modules/gaussian_splatting/MEMORY_SUBSYSTEM.md)

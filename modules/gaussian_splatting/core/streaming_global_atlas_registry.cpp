@@ -436,12 +436,20 @@ void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 
 	const GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[chunk_idx];
 	ChunkMetaGPU meta = {};
-	const bool resident = chunk.is_loaded && chunk.gpu_resident && !chunk.upload_pending && chunk.buffer_slot != UINT32_MAX;
-	const uint32_t effective_splat_count = MIN(chunk.effective_count, chunk.count);
+	// #1088: publish from the run the allocator actually holds for this chunk, and never let the
+	// shader read past it (a neighbouring chunk's pages follow it directly).
+	GaussianAtlasAllocator::PageRun run;
+	const bool has_run = chunk.buffer_slot != UINT32_MAX &&
+			system.atlas_allocator.get_run(system._make_chunk_key(asset_id, chunk_idx), run) &&
+			run.first_page == chunk.buffer_slot;
+	const bool resident = chunk.is_loaded && chunk.gpu_resident && !chunk.upload_pending && has_run;
+	const uint32_t effective_splat_count = has_run
+			? MIN(MIN(chunk.effective_count, chunk.count), run.page_count * GaussianStreamingSystem::ATLAS_PAGE_SPLATS)
+			: 0u;
 	const uint32_t sh_band_limit = uint32_t(CLAMP(chunk.sh_band_level, 0, 3));
 	if (resident) {
 		// #1088: buffer_slot is the first page of the chunk's run.
-		meta.atlas_base = chunk.buffer_slot * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+		meta.atlas_base = run.first_page * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
 		meta.splat_count = effective_splat_count;
 	} else {
 		meta.atlas_base = 0;

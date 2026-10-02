@@ -926,6 +926,7 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
     upload_pipeline.cancel_asset_jobs(*this, PRIMARY_ASSET_ID);
     for (uint32_t i = 0; i < chunks.size(); i++) {
         StreamingChunk &chunk = chunks[i];
+        const uint64_t chunk_bytes = _chunk_atlas_bytes(PRIMARY_ASSET_ID, i, chunk); // before the run is released
         if (chunk.buffer_slot != UINT32_MAX &&
                 !(chunk.upload_pending && _has_pending_upload_retirement(PRIMARY_ASSET_ID, i, chunk.buffer_slot))) {
             atlas_allocator.release_slot(_make_chunk_key(PRIMARY_ASSET_ID, i));
@@ -935,7 +936,6 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -1383,6 +1383,7 @@ void GaussianStreamingSystem::register_asset(uint32_t asset_id, const Ref<Gaussi
         LocalVector<StreamingChunk> &existing_chunks = _get_asset_chunks(*existing);
         for (uint32_t i = 0; i < existing_chunks.size(); i++) {
             StreamingChunk &chunk = existing_chunks[i];
+            const uint64_t chunk_bytes = _chunk_atlas_bytes(asset_id, i, chunk); // before the run is released
             if (chunk.buffer_slot != UINT32_MAX &&
                     !(chunk.upload_pending && _has_pending_upload_retirement(asset_id, i, chunk.buffer_slot))) {
                 atlas_allocator.release_slot(_make_chunk_key(asset_id, i));
@@ -1392,7 +1393,6 @@ void GaussianStreamingSystem::register_asset(uint32_t asset_id, const Ref<Gaussi
                 if (budget.loaded_chunks_count > 0) {
                     budget.loaded_chunks_count--;
                 }
-                const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
                 const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
                 budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
                 budget.evicted_bytes_total += evicted_bytes;
@@ -1442,6 +1442,7 @@ void GaussianStreamingSystem::unregister_asset(uint32_t asset_id) {
     LocalVector<StreamingChunk> &asset_chunks = _get_asset_chunks(*asset);
     for (uint32_t i = 0; i < asset_chunks.size(); i++) {
         StreamingChunk &chunk = asset_chunks[i];
+        const uint64_t chunk_bytes = _chunk_atlas_bytes(asset_id, i, chunk); // before the run is released
         if (chunk.buffer_slot != UINT32_MAX &&
                 !(chunk.upload_pending && _has_pending_upload_retirement(asset_id, i, chunk.buffer_slot))) {
             atlas_allocator.release_slot(_make_chunk_key(asset_id, i));
@@ -1451,7 +1452,6 @@ void GaussianStreamingSystem::unregister_asset(uint32_t asset_id) {
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -2450,7 +2450,7 @@ void GaussianStreamingSystem::_test_mark_chunk_loaded_for_eviction(uint32_t p_as
 			"[Streaming][Test] Failed to allocate atlas slot for synthetic eviction resident chunk.");
 	if (!chunk.is_loaded) {
 		budget.loaded_chunks_count++;
-		budget.vram_usage += _chunk_atlas_bytes(chunk);
+		budget.vram_usage += _chunk_atlas_bytes(p_asset_id, p_chunk_id, chunk);
 	}
 	chunk.is_loaded = true;
 	chunk.gpu_resident = true;
@@ -2738,8 +2738,53 @@ uint64_t GaussianStreamingSystem::_atlas_page_bytes() const {
     return uint64_t(ATLAS_PAGE_SPLATS) * _atlas_gaussian_stride_bytes();
 }
 
-uint64_t GaussianStreamingSystem::_chunk_atlas_bytes(const StreamingChunk &p_chunk) const {
-    return uint64_t(atlas_pages_for_splats(p_chunk.count)) * _atlas_page_bytes();
+uint64_t GaussianStreamingSystem::_chunk_atlas_bytes(uint32_t p_asset_id, uint32_t p_chunk_idx,
+        const StreamingChunk &p_chunk) const {
+    GaussianAtlasAllocator::PageRun run;
+    const uint32_t pages = atlas_allocator.get_run(_make_chunk_key(p_asset_id, p_chunk_idx), run)
+            ? run.page_count
+            : atlas_pages_for_splats(p_chunk.count);
+    return uint64_t(pages) * _atlas_page_bytes();
+}
+
+uint64_t GaussianStreamingSystem::_estimate_auxiliary_vram_overhead_bytes() const {
+    uint64_t chunk_count = 0;
+    for (uint32_t asset_id : asset_registry.atlas_asset_order) {
+        if (const AtlasAssetState *asset = _get_asset_state(asset_id)) {
+            chunk_count += _get_asset_chunks(*asset).size();
+        }
+    }
+    uint64_t estimate = chunk_count * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU)) +
+            uint64_t(asset_registry.atlas_asset_order.size()) * sizeof(AssetMetaGPU);
+    if (per_chunk_quantization_enabled) {
+        estimate += chunk_count * sizeof(ChunkQuantizationGPU);
+    }
+    return MAX(estimate, _get_auxiliary_vram_overhead_bytes());
+}
+
+uint32_t GaussianStreamingSystem::_atlas_occupancy_target_pages() const {
+    const uint32_t ceiling = streaming_max_capacity;
+    return ceiling > ATLAS_PAGES_PER_MAX_CHUNK ? ceiling - ATLAS_PAGES_PER_MAX_CHUNK : ceiling;
+}
+
+uint64_t GaussianStreamingSystem::_get_regulator_decision_usage_bytes() const {
+    // #1088: the atlas is the streaming VRAM, already clamped to the budget in bytes, so the
+    // regulator should act on how full it is, not on payload bytes against the whole budget.
+    // Before, payload was compared to the budget and proactive eviction fired at 85% x 0.9 =
+    // 76.5% of it, which left ~20% of a budget-sized atlas permanently empty. Map page occupancy
+    // so the warning threshold is reached exactly at the occupancy target (ceiling minus one
+    // full-size chunk of headroom).
+    const uint32_t target = _atlas_occupancy_target_pages();
+    if (!budget.vram_regulator.is_valid() || target == 0) {
+        return _get_evictable_vram_usage_bytes();
+    }
+    const uint64_t budget_bytes = budget.vram_regulator->get_debug_stats().budget_bytes;
+    const uint32_t threshold_percent = budget.vram_regulator->get_config().warning_threshold_percent;
+    if (budget_bytes == 0 || threshold_percent == 0) {
+        return _get_evictable_vram_usage_bytes();
+    }
+    const double occupancy = double(atlas_allocator.get_used_page_count()) / double(target);
+    return uint64_t(occupancy * double(budget_bytes) * double(threshold_percent) / 100.0);
 }
 
 uint32_t GaussianStreamingSystem::_compute_atlas_page_ceiling(uint32_t p_max_chunks) const {
@@ -2756,7 +2801,8 @@ uint32_t GaussianStreamingSystem::_compute_atlas_page_ceiling(uint32_t p_max_chu
     if (budget.vram_regulator.is_valid()) {
         const uint64_t budget_bytes = budget.vram_regulator->get_debug_stats().budget_bytes;
         if (budget_bytes > 0) {
-            const uint64_t aux_bytes = _get_auxiliary_vram_overhead_bytes();
+            // At startup the meta/index buffers do not exist yet; estimate them from the chunk counts.
+            const uint64_t aux_bytes = _estimate_auxiliary_vram_overhead_bytes();
             const uint64_t budget_pages = (budget_bytes > aux_bytes ? budget_bytes - aux_bytes : 0) / page_bytes;
             ceiling = MIN(ceiling, MAX(budget_pages, uint64_t(ATLAS_PAGES_PER_MAX_CHUNK)));
         }
@@ -2888,14 +2934,23 @@ void GaussianStreamingSystem::_evict_for_vram_budget(uint32_t &evictions_left, b
         force_visible_eviction = budget_bytes > 0 && evictable_vram_usage > budget_bytes;
     }
 
-    if (!budget.vram_regulator.is_valid() ||
-            !budget.vram_regulator->should_trigger_eviction(evictable_vram_usage)) {
+    // #1088: evict ahead of demand only when the atlas is past its occupancy target (ceiling minus
+    // one full-size chunk) or the resident bytes exceed the budget (e.g. the budget was lowered).
+    // The regulator's own trigger (85% x 0.9 of the budget) would keep ~20% of the budget-sized
+    // atlas empty; admission still evicts on demand (evict-until-fit) when a chunk has no run.
+    const uint32_t occupancy_target = _atlas_occupancy_target_pages();
+    const uint64_t budget_limit_bytes = budget.vram_regulator.is_valid()
+            ? uint64_t(budget.vram_regulator->get_config().budget_mb) * BYTES_PER_MB
+            : 0;
+    auto over_target = [&]() -> bool {
+        return (occupancy_target > 0 && atlas_allocator.get_used_page_count() > occupancy_target) ||
+                (budget_limit_bytes > 0 && _get_evictable_vram_usage_bytes() > budget_limit_bytes);
+    };
+    if (!budget.vram_regulator.is_valid() || !over_target()) {
         return;
     }
 
-    while (budget.loaded_chunks_count > 0 &&
-            budget.vram_regulator->should_trigger_eviction(_get_evictable_vram_usage_bytes()) &&
-            evictions_left > 0) {
+    while (budget.loaded_chunks_count > 0 && over_target() && evictions_left > 0) {
         // Non-primary-first eviction keeps primary visible residency stable
         // under budget pressure. _evict_non_primary_lru() now returns
         // EvictionResult and does NOT internally record (matches
@@ -2924,8 +2979,14 @@ void GaussianStreamingSystem::_evict_for_vram_budget(uint32_t &evictions_left, b
 // VRAM-budget eviction stays on _evict_for_vram_budget() because it has
 // separate budget accounting and fallback semantics.
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admission_gate(
-        const ResidencyBudgetController::AdmissionGate &p_admission_gate, bool &r_visible_fallback_attempted) {
+        const ResidencyBudgetController::AdmissionGate &p_admission_gate, bool &r_visible_fallback_attempted,
+        uint32_t p_required_pages) {
     r_visible_fallback_attempted = false;
+    // #1088: while the incoming chunk has no contiguous run, only a visible victim whose release
+    // completes one may be taken. Otherwise an on-screen chunk could be popped and the frame's
+    // eviction budget run out before anything loads.
+    const uint32_t visible_fit_pages =
+            p_required_pages > 0 && !atlas_allocator.can_allocate(p_required_pages) ? p_required_pages : 0;
 
     // Prefer evicting a non-primary-asset chunk first under atlas-slot
     // pressure. `_evict_least_recently_used()` walks `system.chunks`
@@ -2947,7 +3008,7 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
     if (result == EvictionResult::SkippedAllVisible &&
             ResidencyBudgetController::should_attempt_visible_evict_fallback(p_admission_gate)) {
         r_visible_fallback_attempted = true;
-        result = _evict_least_recently_used(true);
+        result = _evict_least_recently_used(true, visible_fit_pages);
     }
 
     return result;
@@ -2960,12 +3021,16 @@ bool GaussianStreamingSystem::_evict_until_atlas_fit(const ResidencyBudgetContro
     // a contiguous run of the chunk's pages exists. No compaction. The loop is bounded by the
     // frame's eviction budget, so a fragmented atlas costs at most max_evictions_per_frame
     // evictions per frame; the freed pages stay usable by smaller chunks if the run never forms.
+    if (p_required_pages == 0) {
+        return false; // nothing to fit: never evict for it
+    }
     while (!atlas_allocator.can_allocate(p_required_pages)) {
         if (r_frame_budget.evictions_left == 0 || r_frame_budget.eviction_blocked) {
             return false;
         }
         bool visible_fallback_attempted = false;
-        const EvictionResult result = _evict_for_admission_gate(p_admission_gate, visible_fallback_attempted);
+        const EvictionResult result = _evict_for_admission_gate(p_admission_gate, visible_fallback_attempted,
+                p_required_pages);
         const bool evicted = result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible;
         if (visible_fallback_attempted) {
             diagnostics.visible_evict_fallback_attempts++;
@@ -3139,7 +3204,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                 get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !atlas_allocator.can_allocate(required_pages);
+        admission_policy.atlas_slots_full = required_pages > 0 && !atlas_allocator.can_allocate(required_pages);
 
         const ResidencyBudgetController::AdmissionGate admission_gate =
                 ResidencyBudgetController::compute_admission_gate(
@@ -3159,7 +3224,8 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         if (decision == ResidencyBudgetController::AdmissionDecision::EvictThenLoad) {
             blocked_by_chunk_cap = true;
             bool visible_fallback_attempted = false;
-            EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted);
+            EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted,
+                    admission_gate.context.atlas_slots_full ? required_pages : 0u);
             if (visible_fallback_attempted) {
                 diagnostics.visible_evict_fallback_attempts++;
                 if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
@@ -3388,7 +3454,7 @@ void GaussianStreamingSystem::_update_vram_regulator() {
     // budget.vram_usage, never the persistent-buffer allocation, so decisions must not gate on
     // the non-reclaimable allocation (it would deny loads / ratchet the cap down while no VRAM
     // can be freed); but the overlay must still show the true footprint. (Codex #411)
-    budget.vram_regulator->update(_get_total_vram_usage_bytes(), _get_evictable_vram_usage_bytes(),
+    budget.vram_regulator->update(_get_total_vram_usage_bytes(), _get_regulator_decision_usage_bytes(),
             budget.loaded_chunks_count, budget.chunks_loaded_this_frame,
             eviction_controller.get_chunks_evicted_this_frame(), total_frame_count);
 }
@@ -4040,7 +4106,7 @@ void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uin
     budget.loaded_chunks_count++;
     // #1088: account the chunk's whole page run (the bytes it actually holds and that
     // evicting it frees), not just its payload.
-    budget.vram_usage += _chunk_atlas_bytes(chunk);
+    budget.vram_usage += _chunk_atlas_bytes(asset_id, chunk_idx, chunk);
     eviction_controller.note_chunk_loaded(asset_id, chunk_idx);
     AtlasAssetState *asset = _get_asset_state(asset_id);
     if (asset) {
@@ -4083,6 +4149,7 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
 
     StreamingChunk &chunk = asset_chunks[chunk_idx];
     _assert_chunk_state_invariant(asset_id, chunk_idx, chunk, "_unload_chunk.pre");
+    const uint64_t chunk_bytes = _chunk_atlas_bytes(asset_id, chunk_idx, chunk); // before the run is released
     if (chunk.buffer_slot != UINT32_MAX) {
         atlas_allocator.release_slot(_make_chunk_key(asset_id, chunk_idx));
     }
@@ -4102,14 +4169,14 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
     global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     _assert_chunk_state_invariant(asset_id, chunk_idx, chunk, "_unload_chunk.post");
     budget.loaded_chunks_count--;
-    const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
     const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
     budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
     budget.evicted_bytes_total += evicted_bytes;
 }
 
-GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_recently_used(bool p_allow_visible_eviction) {
-    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction);
+GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_recently_used(bool p_allow_visible_eviction,
+        uint32_t p_visible_fit_pages) {
+    return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages);
 }
 
 GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru() {
@@ -4622,7 +4689,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
                 get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !atlas_allocator.can_allocate(required_pages);
+        admission_policy.atlas_slots_full = required_pages > 0 && !atlas_allocator.can_allocate(required_pages);
 
         const ResidencyBudgetController::AdmissionGate admission_gate =
                 ResidencyBudgetController::compute_admission_gate(
@@ -4641,7 +4708,8 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         }
         if (decision == ResidencyBudgetController::AdmissionDecision::EvictThenLoad) {
             bool visible_fallback_attempted = false;
-            EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted);
+            EvictionResult result = _evict_for_admission_gate(admission_gate, visible_fallback_attempted,
+                    admission_gate.context.atlas_slots_full ? required_pages : 0u);
             if (visible_fallback_attempted) {
                 diagnostics.visible_evict_fallback_attempts++;
                 if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {

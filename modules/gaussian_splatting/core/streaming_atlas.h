@@ -55,6 +55,9 @@ public:
 	void release_slot(uint64_t p_chunk_key);
 	bool get_slot(uint64_t p_chunk_key, uint32_t &r_slot) const;
 	bool get_run(uint64_t p_chunk_key, PageRun &r_run) const;
+	// Length of the free run that releasing `p_run` would leave (the run plus any free
+	// neighbours it coalesces with).
+	uint32_t get_coalesced_run_if_released(const PageRun &p_run) const;
 	void clear();
 
 private:

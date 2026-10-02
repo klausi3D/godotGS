@@ -1,5 +1,6 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_streaming.h"
+#include "../renderer/gaussian_gpu_layout.h"
 
 #include "test_macros.h"
 
@@ -1252,6 +1253,11 @@ TEST_CASE("[Streaming Pipeline] Startup atlas allocation fits the VRAM budget in
     // At least one full-size chunk must still fit, or the atlas would be unloadable.
     CHECK(fixture.system->get_buffer_capacity_splats() >= GaussianStreamingSystem::CHUNK_SIZE);
     CHECK(atlas_bytes <= budget_bytes);
+    // The chunk metadata and index buffers are created after the atlas is sized, but they count
+    // against the same budget: atlas + those buffers must fit too.
+    const uint64_t meta_bytes = uint64_t(fixture.chunk_count) * (sizeof(ChunkMetaGPU) + sizeof(AssetChunkIndexGPU)) +
+            sizeof(AssetMetaGPU);
+    CHECK(atlas_bytes + meta_bytes <= budget_bytes);
 }
 
 TEST_CASE("[Streaming Pipeline] Startup atlas allocation follows the asset's splats, not its chunk count (#1088)") {
@@ -1387,7 +1393,7 @@ namespace {
 
 // Four 4-page chunks fill a 16-page atlas: A=[0,4) B=[4,8) C=[8,12) D=[12,16).
 // LRU order is A, C, B, D, so the two oldest victims are not adjacent.
-void _setup_fragmented_atlas(GaussianStreamingSystem &r_system) {
+void _setup_fragmented_atlas(GaussianStreamingSystem &r_system, const bool (&p_visible)[4] = { false, false, false, false }) {
     LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
     chunks.resize(5);
     const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
@@ -1406,7 +1412,7 @@ void _setup_fragmented_atlas(GaussianStreamingSystem &r_system) {
     }
     const uint64_t last_used[4] = { 1, 3, 2, 4 }; // A oldest, then C, B, D
     for (uint32_t i = 0; i < 4; i++) {
-        r_system._test_mark_chunk_loaded_for_eviction(0, i, false, 0, last_used[i], 1.0f);
+        r_system._test_mark_chunk_loaded_for_eviction(0, i, p_visible[i], 0, last_used[i], 1.0f);
     }
 }
 
@@ -1579,4 +1585,133 @@ TEST_CASE("[Streaming Pipeline] Page-run eviction does not thrash a sliding corr
     CHECK(double(fragmentation_evictions) / double(admissions) <= 0.30);
     CHECK(refused_with_free_pages * 100u <= admissions);
     CHECK(window_residency >= 0.99);
+}
+
+TEST_CASE("[Streaming Pipeline] A visible chunk is evicted only when that eviction lets the incoming chunk fit (#1088)") {
+    SUBCASE("no single visible victim completes the run: nothing on screen is evicted") {
+        GaussianStreamingSystem system;
+        const bool visible[4] = { true, true, true, true };
+        _setup_fragmented_atlas(system, visible);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        if (system.get_loaded_chunks() != 4) {
+            FAIL("fixture precondition: four resident chunks");
+            return;
+        }
+        uint32_t evictions = 0;
+        CHECK_FALSE(system._test_evict_until_atlas_fit(8, 4, evictions));
+        CHECK(evictions == 0);
+        CHECK(system.get_loaded_chunks() == 4);
+        for (uint32_t i = 0; i < 4; i++) {
+            CHECK(chunks[i].is_loaded);
+        }
+    }
+
+    SUBCASE("a visible victim that completes the run is taken, and only that one") {
+        GaussianStreamingSystem system;
+        // A (oldest) is off screen; B, C, D are visible. Evicting A frees pages 0-3; of the
+        // visible chunks only B (pages 4-7) joins that hole into the 8 pages the chunk needs.
+        const bool visible[4] = { false, true, true, true };
+        _setup_fragmented_atlas(system, visible);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        uint32_t evictions = 0;
+        CHECK(system._test_evict_until_atlas_fit(8, 4, evictions));
+        CHECK(evictions == 2);
+        CHECK_FALSE(chunks[0].is_loaded);
+        CHECK_FALSE(chunks[1].is_loaded);
+        CHECK(chunks[2].is_loaded); // C is visible and older than D, but evicting it would not fit
+        CHECK(chunks[3].is_loaded);
+        CHECK(system._test_atlas_allocator().can_allocate(8));
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] A zero-page request never evicts (#1088)") {
+    GaussianStreamingSystem system;
+    _setup_fragmented_atlas(system);
+    uint32_t evictions = 0;
+    CHECK_FALSE(system._test_evict_until_atlas_fit(0, 4, evictions));
+    CHECK(evictions == 0);
+    CHECK(system.get_loaded_chunks() == 4);
+}
+
+TEST_CASE("[Streaming Pipeline] Atlas accounting follows the allocated run, not the splat count (#1088)") {
+    // Load a 4-page chunk, then change its splat count while it is resident (what a layout
+    // change racing a resident chunk would look like). Unloading must give back exactly the
+    // four pages the run holds, so the accounting returns to zero.
+    GaussianStreamingSystem system;
+    _setup_fragmented_atlas(system);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    const uint64_t page_bytes = uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) * system._test_atlas_gaussian_stride_bytes();
+    CHECK(system._test_get_evictable_vram_usage_bytes() == 16u * page_bytes);
+    for (uint32_t i = 0; i < 4; i++) {
+        chunks[i].count = 100; // would be one page if recomputed from the count
+        chunks[i].effective_count = 100;
+    }
+    for (uint32_t i = 0; i < 4; i++) {
+        CHECK(system._test_evict_least_recently_used(false) ==
+                StreamingEvictionController::EvictionResult::EvictedNonVisible);
+    }
+    CHECK(system.get_loaded_chunks() == 0);
+    CHECK(system._test_get_evictable_vram_usage_bytes() == 0);
+    CHECK(system._test_atlas_allocator().get_used_page_count() == 0);
+}
+
+namespace {
+
+// A 512-page atlas (64 MiB at 128 B) under a 64 MiB budget with the default 85% warning threshold,
+// 10-page chunks, and a 64-chunk cap. Before #1088's regulator alignment the regulator compared
+// payload to the budget: it stopped admitting at 85% and evicted ahead of demand at 76.5%.
+void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_resident_chunks) {
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_vram_budget = true;
+    overrides.vram_budget_config.auto_regulate_enabled = false;
+    overrides.vram_budget_config.budget_mb = 64;
+    overrides.vram_budget_config.min_chunks = 1;
+    overrides.vram_budget_config.max_chunks = 64;
+    r_system.set_config_overrides(overrides);
+    r_system.initialize_empty(nullptr); // no device: creates the regulator, buffer stays absent
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
+    chunks.resize(60);
+    const uint32_t count = 10u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    for (uint32_t i = 0; i < chunks.size(); i++) {
+        chunks[i].start_idx = i * count;
+        chunks[i].count = count;
+        chunks[i].effective_count = count;
+    }
+    r_system._test_register_primary_asset_for_chunks();
+    r_system._test_reset_atlas_allocator(512);
+    r_system._test_set_atlas_page_ceiling(512);
+    for (int i = 0; i < 10; i++) {
+        r_system.begin_frame();
+    }
+    for (uint32_t i = 0; i < p_resident_chunks; i++) {
+        r_system._test_mark_chunk_loaded_for_eviction(0, i, false, 0, i + 1, 1.0f);
+    }
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] The VRAM regulator lets the budget-sized atlas fill to its occupancy target (#1088)") {
+    SUBCASE("86% full: admission stays open and nothing is evicted ahead of demand") {
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 44); // 440 of 512 pages
+        if (system._test_atlas_allocator().get_used_page_count() != 440 ||
+                system._test_atlas_occupancy_target_pages() != 448) {
+            FAIL("fixture precondition: 440 pages used, occupancy target 448");
+            return;
+        }
+        system._test_update_vram_regulator();
+        CHECK(system._test_regulator_allows_load());
+        bool blocked = false;
+        CHECK(system._test_evict_for_vram_budget(blocked) == 0);
+        CHECK(system.get_loaded_chunks() == 44);
+    }
+
+    SUBCASE("past the target: evicts back to it, no further") {
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 47); // 470 pages > 448
+        bool blocked = false;
+        CHECK(system._test_evict_for_vram_budget(blocked) == 3);
+        CHECK(system._test_atlas_allocator().get_used_page_count() == 440);
+        CHECK(system._test_atlas_allocator().get_used_page_count() <= system._test_atlas_occupancy_target_pages());
+    }
 }

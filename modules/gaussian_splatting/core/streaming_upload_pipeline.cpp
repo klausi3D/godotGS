@@ -573,7 +573,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
 
     // #1088: the chunk needs a contiguous run of its own page count, not a fixed slot.
     const uint32_t required_pages = GaussianStreamingSystem::atlas_pages_for_splats(chunk.count);
-    if (!system.atlas_allocator.can_allocate(required_pages)) {
+    if (required_pages > 0 && !system.atlas_allocator.can_allocate(required_pages)) {
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
         admission_policy.enforce_vram_regulator_gate = system.budget.vram_regulator.is_valid();
@@ -587,7 +587,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
                 system.get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !system.atlas_allocator.can_allocate(required_pages);
+        admission_policy.atlas_slots_full = required_pages > 0 && !system.atlas_allocator.can_allocate(required_pages);
 
         const uint32_t max_evictions_per_frame = system.eviction_controller.get_max_evictions_per_frame();
         const uint32_t chunks_evicted_this_frame = system.eviction_controller.get_chunks_evicted_this_frame();
@@ -612,7 +612,8 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
 
         bool visible_fallback_attempted = false;
         const GaussianStreamingSystem::EvictionResult result =
-                system._evict_for_admission_gate(admission_gate, visible_fallback_attempted);
+                system._evict_for_admission_gate(admission_gate, visible_fallback_attempted,
+                        admission_gate.context.atlas_slots_full ? required_pages : 0u);
         if (visible_fallback_attempted) {
             system.diagnostics.visible_evict_fallback_attempts++;
             if (result == GaussianStreamingSystem::EvictionResult::EvictedNonVisible ||

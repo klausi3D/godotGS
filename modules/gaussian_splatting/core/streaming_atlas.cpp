@@ -144,6 +144,19 @@ bool GaussianAtlasAllocator::get_run(uint64_t p_chunk_key, PageRun &r_run) const
 	return false;
 }
 
+uint32_t GaussianAtlasAllocator::get_coalesced_run_if_released(const PageRun &p_run) const {
+	uint32_t first = p_run.first_page;
+	uint32_t end = p_run.first_page + p_run.page_count;
+	for (const PageRun &free_run : free_runs) {
+		if (free_run.first_page + free_run.page_count == p_run.first_page) {
+			first = free_run.first_page;
+		} else if (free_run.first_page == end) {
+			end = free_run.first_page + free_run.page_count;
+		}
+	}
+	return end - first;
+}
+
 void GaussianAtlasAllocator::clear() {
 	capacity = 0;
 	free_page_count = 0;

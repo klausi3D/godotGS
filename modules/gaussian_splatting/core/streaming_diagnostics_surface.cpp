@@ -146,6 +146,7 @@ void GaussianStreamingSystem::end_frame() {
         analytics_snapshot["atlas_page_bytes"] = static_cast<int64_t>(_atlas_page_bytes());
         analytics_snapshot["atlas_pages_capacity"] = static_cast<int64_t>(atlas_allocator.get_capacity());
         analytics_snapshot["atlas_pages_used"] = static_cast<int64_t>(used_pages);
+        analytics_snapshot["atlas_occupancy_target_pages"] = static_cast<int64_t>(_atlas_occupancy_target_pages());
         analytics_snapshot["atlas_largest_free_run_pages"] = static_cast<int64_t>(atlas_allocator.get_largest_free_run());
         analytics_snapshot["atlas_free_run_count"] = static_cast<int64_t>(atlas_allocator.get_free_run_count());
         analytics_snapshot["atlas_resident_splats"] = static_cast<int64_t>(resident_splats);
