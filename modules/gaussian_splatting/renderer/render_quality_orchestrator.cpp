@@ -501,6 +501,16 @@ void GaussianSplatRenderer::set_overflow_autotune_enabled(bool p_enabled) {
 }
 
 void GaussianSplatRenderer::set_max_splats(int p_count) {
+	// Unchanged value: a no-op. RenderQualityOrchestrator::set_max_splats tests
+	// the same condition first, so returning here changes nothing except that it
+	// skips a blocking render-thread round trip. That matters because
+	// GaussianSplatNode3D re-applies max_splat_count every frame
+	// (gaussian_splat_node_helpers.cpp, apply_renderer_settings). The value
+	// compared against is the renderer's own setting, so a preset or any other
+	// writer that changes it makes the next call dispatch again.
+	if (p_count == get_max_splats()) {
+		return;
+	}
 	RenderingServer *rs = RenderingServer::get_singleton();
 	bool dispatch_submitted = false;
 	if (rs && !rs->is_on_render_thread()) {

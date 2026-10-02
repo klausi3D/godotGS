@@ -71,7 +71,9 @@ public:
     void set_latest_data_result(Error p_error) override;
     Error get_latest_data_result() const override;
 
-private:
+protected:
+    // Protected rather than private so a test double can issue request ids
+    // exactly as dispatch_call_on_render_thread_blocking() does.
     mutable Mutex dispatch_mutex;
     mutable Semaphore dispatch_semaphore;
     std::atomic<uint64_t> next_request_id{1};
