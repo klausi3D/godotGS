@@ -136,10 +136,17 @@ Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.
 
-**The alpha's pass now has to cover streaming too** (§10.1). The procedure drafted on
-#1012 covers the resident and world routes and does **not** cover streaming; a streaming
-configuration must be added before it is executed, or the pass does not span the envelope
-it claims.
+**The alpha's pass now has to cover streaming too** (§10.1). The procedure first drafted
+on #1012 covered only the resident and world routes. Its in-repo version,
+[Real-Scan Visual Pass](real-scan-visual-pass.md), adds a streaming configuration (C7)
+that has to prove it actually streamed and evicted, and it defines the bundle format, the
+location and the signer field described below. Its policy choices were decided on
+2026-09-27 by the coordinator, on the maintainer's delegation: the maintainer signs; the
+bundle lives at `evidence/visual/`, outside the published docs; both import routes; the
+exhibition recipe is AgX at −1.5 stops. It has **not been executed**, and its streaming
+configuration is blocked on #1075. It discharges the alpha half of the §11 item
+"Evidence-bundle format and location (§6)". v1.0 still needs the bundle machine-checked
+(§9).
 
 **Binding:** a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
