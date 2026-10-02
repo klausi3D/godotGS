@@ -3721,6 +3721,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#renewal-procedure-when-declarations-near-max_expiry_utc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Renewal procedure (when declarations near MAX_EXPIRY_UTC)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#renewal-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Renewal log
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tracking-issue-liveness-checked-offline" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4481,6 +4503,28 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#renewal-procedure-when-declarations-near-max_expiry_utc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Renewal procedure (when declarations near MAX_EXPIRY_UTC)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#renewal-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Renewal log
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tracking-issue-liveness-checked-offline" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4665,7 +4709,7 @@ page explains how known-failing module tests are tracked in-repo instead of in
 memory, and how the CI harness treats them.</p>
 <blockquote>
 <p><strong>Not authoritative.</strong> This page is a human-readable mirror. The authoritative
-source is the JSON manifest <a href="https://github.com/klausi3D/godotGS/blob/773415453b13cb497ac8aa482f3dcf3224977401/tests/ci/quarantine_manifest.json"><code>tests/ci/quarantine_manifest.json</code></a>
+source is the JSON manifest <a href="https://github.com/klausi3D/godotGS/blob/c39516975318b946bab4ea5f926f323956ab0ea4/tests/ci/quarantine_manifest.json"><code>tests/ci/quarantine_manifest.json</code></a>
 and the harness logic in <code>tests/ci/run_module_tests.py</code>. When this page and the
 JSON/harness disagree, the JSON and harness win. The design rationale lives in
 the ADR <a href="../../architecture/adr-test-quarantine-manifest/"><code>docs/architecture/adr-test-quarantine-manifest.md</code></a>.</p>
@@ -4737,9 +4781,9 @@ checked by anything, and it had already drifted. Measured on a headless
   into real lanes),</li>
 <li>one was fixed by <strong>#653 / #655</strong> (the test itself was wrong),</li>
 <li>one <strong>survives</strong>: <code>[GaussianSplatting][Thumbnail] Generator caches deterministic
-  asset+settings keys</code> fails at
-  <code>modules/gaussian_splatting/tests/test_gaussian_importer.h:1181</code>, where
-  <code>CHECK(misses &gt;= 2)</code> reports <code>CHECK( 0 &gt;= 2 )</code>. Tracked in <strong>#814</strong>.</li>
+  asset+settings keys</code> fails on its <code>CHECK(misses &gt;= 2)</code>, which reports
+  <code>CHECK( 0 &gt;= 2 )</code> (<code>modules/gaussian_splatting/tests/test_gaussian_importer.h</code>;
+  re-measured failing 20/20 at <code>eff00db450c</code> on 2026-10-01). Tracked in <strong>#814</strong>.</li>
 </ul>
 <p><strong>The survivor cannot be enrolled in <code>entries</code>.</strong> An entry names a lane in
 <code>MODULE_TEST_FILTERS</code>, and the harness fails a quarantined lane that does not
@@ -4804,11 +4848,32 @@ growing the count:</p>
 <li><code>MAX_EXPIRY_UTC</code> - an absolute ceiling on <code>expires_utc</code>, on top of the
   relative <code>EXPIRY_HORIZON_DAYS = 180</code> rule. The relative horizon alone never
   stops <strong>serial</strong> renewal: a PR could push every expiry out by 179 days
-  forever. The ceiling makes each renewal a guard edit.</li>
-<li><code>MANIFEST_TOP_LEVEL_KEYS</code> - the manifest's legitimate homes are pinned, so a
-  new top-level array cannot be introduced as a fresh unratcheted place to park
-  declarations.</li>
+  forever. The ceiling makes each renewal a guard edit. <strong>Raising it needs the
+  maintainer's written approval</strong>, recorded as a link to that comment in
+  <code>MAX_EXPIRY_APPROVALS</code>. The guard rejects a ceiling above the last approved
+  one, a link that is not a comment anchor in this repo, and a link reused for
+  a second raise. The history is <strong>append-only</strong>: the floor
+  (<code>MAX_EXPIRY_UNAPPROVED_CEILING_UTC</code>) and the sealed rows are hashed into
+  <code>MAX_EXPIRY_APPROVALS_SEAL</code>. Appending a row needs no seal edit, but raising
+  the floor or deleting, re-dating or replacing a sealed row breaks the seal.
+  The guard cannot check offline who wrote the comment, so the reviewer opens
+  the link.</li>
+<li><code>LANE_DUE_NO_RENEWAL</code> - declarations the maintainer accepted for <strong>one</strong>
+  renewal only (#1123). Each pinned declaration's <code>expires_utc</code> is capped at
+  <code>LANE_DUE_DEADLINE_UTC</code> regardless of <code>MAX_EXPIRY_UTC</code>. The deadline may not
+  be later than the sealed approval row that granted the renewal. The pin set
+  and the deadline are sealed in <code>LANE_DUE_SEAL</code>. Pins are permanent: a laned
+  declaration's pin is simply inert, so no legitimate change removes one.</li>
 </ul>
+<p>These pins catch single-constant edits. A PR that edits the guard together with
+its constants (new seals, a deleted rule) cannot be stopped by any in-repo
+check, and authorship of an approval comment cannot be verified mechanically,
+because every agent posts as the repo owner's account. For that class, the
+defence is review of the diff. See the docstring of
+<code>tests/ci/test_quarantine_manifest.py</code>.
+- <code>MANIFEST_TOP_LEVEL_KEYS</code> - the manifest's legitimate homes are pinned, so a
+  new top-level array cannot be introduced as a fresh unratcheted place to park
+  declarations.</p>
 <p><strong>The ratchet turns one way.</strong> Counts may go DOWN, never UP. Raising any
 constant is a review red flag: it means a test was newly stranded, or a new
 failure was quarantined, instead of being given a lane.</p>
@@ -4826,6 +4891,94 @@ count above its pinned value - decided by set inclusion, not by net totals.
 There is no path in this repo that regenerates the pinned block from the current
 tree, and deleting the manifest does not bootstrap a fresh one: the guard fails
 closed on a missing, unreadable or unparseable manifest.</p>
+<h3 id="renewal-procedure-when-declarations-near-max_expiry_utc">Renewal procedure (when declarations near <code>MAX_EXPIRY_UTC</code>)<a class="headerlink" href="#renewal-procedure-when-declarations-near-max_expiry_utc" title="Permanent link">¶</a></h3>
+<p>A renewal changes no counts, so it is not a re-pin in the shrink sense. It is
+still a deliberate two-file diff, and it is earned per declaration rather than
+granted in bulk:</p>
+<ol>
+<li><strong>Run every stranded case.</strong> Do not reason about the cases from the manifest.
+   Use a module-enabled binary built at the base, run each declaration's exact
+   case names (not its wildcard, which also selects laned cases) several times
+   under both <code>--headless --test</code> and <code>--gs-gpu-test</code>, and record <strong>per-case
+   assertion counts</strong>. A case that "passes" with 0 assertions, or takes a
+   <code>Skipping</code> return, did not run. <strong>Compare each case's assertion count across
+   the two modes</strong>: a lower count in one mode is a partial early return, not a
+   pass (for example <code>[GPU Memory Stream] Initialization</code> asserts 1 headless and
+   4 under <code>--gs-gpu-test</code>).</li>
+<li><strong>Classify each declaration.</strong> If the cause is fixed (a lane now selects the
+   cases and they pass), shrink it with the re-pin procedure above, not a
+   renewal. If the cause is live and the issue is OPEN, renew it with a fresh
+   reason that carries the evidence date. If the issue is CLOSED but the cause is
+   live, reopen it or point the declaration at an OPEN issue, and remove the
+   closed one from <code>ISSUES_VERIFIED_OPEN</code>. If the test is obsolete, propose
+   deleting it in a separate change.
+   The issue must own <strong>every</strong> case in the declaration, not one of them: an
+   issue that tracks a single failing case closes when that case is fixed and
+   strands the rest again.</li>
+<li><strong>Get the maintainer's written decision before raising the ceiling.</strong> A
+   renewal past <code>MAX_EXPIRY_UTC</code> is not a checklist step. Propose the new
+   ceiling and the evidence in the PR. Raise <code>MAX_EXPIRY_UTC</code> only after the
+   maintainer has approved that raise in a comment, and append a
+   <code>(ceiling, comment link)</code> row to <code>MAX_EXPIRY_APPROVALS</code> in the same PR. The
+   guard fails without that row. Keep the window short: no further out than the
+   shortest window any declaration was originally granted. Record the previous
+   value for audit, and refresh <code>ISSUES_VERIFIED_OPEN_UTC</code> after re-checking
+   every cited issue with <code>gh issue view</code>.</li>
+<li><strong>A declaration that was already renewed once without lane or fix progress
+   is not renewed by default.</strong> At its next expiry it needs an explicit
+   maintainer decision: lane it, fix it, delete the test, or accept it again with
+   a reason. Declarations whose cases already pass are pinned in
+   <code>LANE_DUE_NO_RENEWAL</code> and cannot be renewed past their deadline at all.</li>
+<li>Re-pin <code>UNLANED_FINGERPRINT</code> with <code>--print-fingerprint</code>. The tool refuses to
+   print if the renewal grew or added anything.</li>
+</ol>
+<h3 id="renewal-log">Renewal log<a class="headerlink" href="#renewal-log" title="Permanent link">¶</a></h3>
+<p><strong>2026-10-01, expiry 2026-10-15 renewed to 2026-11-30.</strong> Measured at
+<code>origin/master</code> <code>eff00db450c</code> with a <code>dev_build=yes tests=yes</code> editor binary
+built from that tree: 10 runs per mode, all 83 cases. No declaration's cause
+had been fixed, because no lane was added for any family since it was declared,
+so all 19 were renewed. The window is 60 days, the shortest any declaration was
+originally granted: T4 set 2026-08-16 to 2026-10-15, and #658 granted 88
+days. One declaration was re-pointed off a closed issue: <code>[Integration]*</code>
+moved from #641 to <strong>#1122</strong>, which owns all nine cases (#876 remains the
+reference for the one failing case).</p>
+<p>The maintainer accepted this renewal <strong>once</strong>, in
+<a href="https://github.com/klausi3D/godotGS/pull/1119#issuecomment-5935556044">a comment on #1119</a>,
+on three conditions: future ceiling raises need a recorded maintainer approval
+(<code>MAX_EXPIRY_APPROVALS</code>); <code>[Integration]*</code> cites an issue that owns all nine
+cases (#1122); and the six proven-green declarations in the first row below
+get a lane by <strong>2026-11-30</strong>, not a second renewal (<strong>#1123</strong>, pinned in
+<code>LANE_DUE_NO_RENEWAL</code>).</p>
+<p>What the runs showed matters more than the dates. Laning a family is <strong>not</strong>
+the whole fix for most of them:</p>
+<table>
+<thead>
+<tr>
+<th>state when run</th>
+<th>declarations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>all cases pass with real assertions (ready for a lane; due by 2026-11-30, #1123)</td>
+<td><code>[GeneratePLY]</code> (unlaned by design so far; #1123 says how to lane it or retire the exclusion), <code>[NodeSurface][World]</code>, <code>[VisualCompare]</code>, <code>[RendererSceneCull]</code>, <code>Memory validator reset</code>, <code>[Importer] ... legacy ImageTexture thumbnails</code></td>
+</tr>
+<tr>
+<td>at least one case <strong>fails</strong></td>
+<td><code>[Thumbnail]</code> (#814), <code>[GPU Memory Stream]</code> (<code>Memory Defragmentation</code>; see #73), <code>[Integration]</code> (#876), <code>[World]</code> (#1115), <code>OutputCompositor</code> (<code>CopyEffects subsystem unavailable</code> under the harness)</td>
+</tr>
+<tr>
+<td>at least one case asserts nothing, even under <code>--gs-gpu-test</code></td>
+<td><code>[Streaming VRAM]</code>, <code>[Integration]</code> (3 cases), <code>RenderDeviceManager</code> (7, silently), <code>GPUBufferManager</code> (2, silently), <code>GPU memory leak detection with renderer lifecycle</code>, <code>Phase 1 Integration</code>, <code>Debug projection ... golden gradient</code>, 36 of the 38 <code>test_renderer_pipeline.h</code> cases</td>
+</tr>
+</tbody>
+</table>
+<p>The last row is the important one: those cases return early when
+<code>RenderingServer::get_singleton()</code> is null. That is what <code>--gs-gpu-test</code> gives a
+case without <code>[SceneTree]</code>. Retagging them into a GPU batch would produce a green
+batch that asserts nothing. They need a bootstrap that runs them, not only a
+filter that selects them. Each declaration's <code>reason</code> carries its per-case
+numbers.</p>
 <h3 id="tracking-issue-liveness-checked-offline">Tracking-issue liveness, checked offline<a class="headerlink" href="#tracking-issue-liveness-checked-offline" title="Permanent link">¶</a></h3>
 <p>Every <code>issue_url</code> in either array must reference an issue that a human has
 verified <strong>OPEN</strong>, listed in <code>ISSUES_VERIFIED_OPEN</code> in the guard. A declaration
@@ -4835,6 +4988,14 @@ being tracked while the declaration still looks blessed.</p>
 declarations pointed at closed issues - eight at <strong>#520</strong> and the 59-case
 <code>[RequiresGPU]</code> catch-all at <strong>#329</strong> - and nothing had noticed, because nothing
 had ever checked. They were re-pointed at live successors (#819, #820, #814).</p>
+<p>It happened again, and the allowlist did not catch it. <strong>#641</strong> was closed on
+2026-08-27 while the nine-case <code>[Integration]*</code> declaration still cited it, and
+the guard stayed green for five weeks because <code>ISSUES_VERIFIED_OPEN</code> still
+listed it. An offline allowlist can only notice a closed issue when a person
+re-checks it, and nobody re-checks until the next renewal. The 2026-10-01
+renewal removed #641 and re-pointed the declaration at <strong>#1122</strong>, filed to own
+all nine of its cases. Pointing it at #876, which tracks only the one failing
+case, would have repeated the #641 shape when #876 closes.</p>
 <p>The check is deliberately <strong>offline</strong>. A guard that needs the GitHub API is a
 guard that fails when the API does, and CI would then block on rate limits or
 fail open. The allowlist is fail-closed in the useful direction: an issue nobody
@@ -5135,7 +5296,7 @@ stale-pass check will fail the build if a fixed lane is left quarantined.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 07:32:45 UTC">October 2, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 07:35:01 UTC">October 2, 2026</span>
   </span>
 
     
