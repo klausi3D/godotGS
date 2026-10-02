@@ -458,22 +458,39 @@ def _extract_large_world_proof_metrics(report: dict[str, Any]) -> dict[str, Any]
             proof_summary = overall
             if not proof_window:
                 metrics["proof_window"] = "overall"
-    if isinstance(proof_summary, dict):
+    # An empty summary is not a measurement: BenchmarkMetricsUtil.summarize_samples
+    # (benchmark_metrics.gd) writes p95/avg 0.0 when there are no samples, and a 0.0
+    # p95 would satisfy every `<=` frame-time budget for a run that timed nothing.
+    if isinstance(proof_summary, dict) and int(_metric_as_float(proof_summary.get("sample_count")) or 0) > 0:
         avg_frame_ms = _metric_as_float(proof_summary.get("avg_frame_ms"))
         p95_frame_ms = _metric_as_float(proof_summary.get("p95_frame_ms"))
         if _metric_as_float(metrics.get("frame_p95_ms")) is None:
             metrics["frame_p95_ms"] = p95_frame_ms
         if _metric_as_float(metrics.get("frame_p95_to_avg_ratio")) is None and avg_frame_ms is not None and p95_frame_ms is not None:
             metrics["frame_p95_to_avg_ratio"] = p95_frame_ms / max(0.001, avg_frame_ms)
-    if _metric_as_float(metrics.get("queue_pressure_frames")) is None:
-        metrics["queue_pressure_frames"] = _report_renderer_metric(report, "streaming_queue_pressure_frames")
-    if _metric_as_float(metrics.get("vram_cap_hit_frames")) is None:
-        metrics["vram_cap_hit_frames"] = _report_renderer_metric(report, "streaming_vram_cap_hit_frames")
+    # queue_pressure_frames and vram_cap_hit_frames are NOT back-filled from the
+    # renderer's streaming_queue_pressure_frames / streaming_vram_cap_hit_frames any
+    # more. The producer emits null for them exactly when it could not measure them,
+    # and the renderer writes a hard-coded 0 for both when there is no streaming state
+    # (render_diagnostics_orchestrator.cpp, the no-streaming branch) -- a structural
+    # zero that satisfied `queue_pressure_frames <= 32` and `vram_cap_hit_frames <= 0`
+    # for a run that streamed nothing (Codex review on #1046). Null stays missing.
     return metrics
 
 
 def _proof_metric_observed_value(metric_name: str, metrics: dict[str, Any]) -> float | None:
-    return _metric_as_float(metrics.get(metric_name))
+    """The metric as a finite NON-NEGATIVE number, else None (missing telemetry).
+
+    Every metric in LARGE_WORLD_PROOF_METRIC_LABELS is a time, ratio or count, so a
+    negative value cannot be a measurement; it is a producer sentinel. The one that
+    shipped: benchmark_suite_lane.gd initialises first_visible_ms to -1.0 and emits it
+    unchanged when nothing ever became visible, and -1.0 <= 3500 passed the corridor
+    contract for a run that rendered nothing (Codex review on #1046).
+    """
+    observed = _metric_as_float(metrics.get(metric_name))
+    if observed is None or observed < 0.0:
+        return None
+    return observed
 
 
 def _proof_metric_passes(observed: float, op: str, threshold: float) -> bool:

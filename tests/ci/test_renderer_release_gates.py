@@ -4045,6 +4045,55 @@ class CandidateStreamingEvidenceSemanticsTests(unittest.TestCase):
                     any("never exercised" in f for f in failures), says_never_exercised, failures
                 )
 
+    def _both_paths(self, report: dict[str, Any]) -> list[list[str]]:
+        row = self._measured_row()
+        row["report"] = report
+        return [
+            self._failures(self.PROOF_LANE, row),
+            checker._corridor_proof_contract_failures("open_world_proof", self.PROOF_LANE, report),
+        ]
+
+    def test_never_visible_sentinel_is_refused(self) -> None:
+        """Codex P1 on #1046 743ff03: first_visible_ms = -1.0 passed `<= 3500`."""
+        report = self._post_1086_report()
+        report["proof_metrics"]["first_visible_ms"] = -1.0
+        for failures in self._both_paths(report):
+            self.assertTrue(any("never-visible sentinel" in f for f in failures), failures)
+
+    def test_real_non_negative_first_visible_under_threshold_passes(self) -> None:
+        for value in (0.0, 1200.0, 3500.0):
+            report = self._post_1086_report()
+            report["proof_metrics"]["first_visible_ms"] = value
+            for failures in self._both_paths(report):
+                self.assertEqual(failures, [], f"{value}: {failures}")
+
+    def test_renderer_structural_zero_does_not_stand_in_for_unmeasured_counters(self) -> None:
+        """The renderer writes 0 for both when there is no streaming state; null stays missing."""
+        for metric, renderer_key in (
+            ("queue_pressure_frames", "streaming_queue_pressure_frames"),
+            ("vram_cap_hit_frames", "streaming_vram_cap_hit_frames"),
+        ):
+            report = self._post_1086_report()
+            report["proof_metrics"][metric] = None
+            report.setdefault("renderer_telemetry", {})[renderer_key] = 0
+            report.setdefault("overall", {})[renderer_key] = 0
+            for failures in self._both_paths(report):
+                self.assertTrue(any(f"missing telemetry for {metric}" in f for f in failures), failures)
+
+    def test_empty_frame_summary_does_not_satisfy_frame_budgets(self) -> None:
+        def report_with_overall(sample_count: int, p95: float, avg: float) -> dict[str, Any]:
+            report = self._post_1086_report()
+            report["proof_metrics"].update(
+                proof_window="overall", frame_p95_ms=None, frame_p95_to_avg_ratio=None
+            )
+            report["overall"] = {"sample_count": sample_count, "p95_frame_ms": p95, "avg_frame_ms": avg}
+            return report
+
+        for failures in self._both_paths(report_with_overall(0, 0.0, 0.0)):
+            self.assertTrue(any("missing telemetry for frame_p95_ms" in f for f in failures), failures)
+        for failures in self._both_paths(report_with_overall(300, 24.0, 18.0)):
+            self.assertEqual(failures, [], failures)
+
     def test_no_demand_residency_stays_refused_and_says_why(self) -> None:
         report = self._post_1086_report()
         report["proof_metrics"].update(residency_ratio=None, residency_demand_frames=0)

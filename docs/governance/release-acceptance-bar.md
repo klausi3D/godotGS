@@ -327,7 +327,13 @@ via `--artifact-sha`.
 >   demand. Both remain refusals, with the reason named (`_proof_outcome_detail`). A
 >   corridor run that streams creates unserved demand while the scan has headroom, so zero
 >   eligible frames means the check was never exercised, and an unexercised check is not
->   a pass.
+>   a pass. Sentinels are missing evidence too (`run_benchmark.py`
+>   `_proof_metric_observed_value` and `_extract_large_world_proof_metrics`):
+>   - A negative metric is refused. This covers the producer's never-visible
+>     `first_visible_ms = -1.0`.
+>   - A frame-time budget is not read from an empty (0-sample) summary.
+>   - `queue_pressure_frames` and `vram_cap_hit_frames` are no longer back-filled from the
+>     renderer's no-streaming 0.
 >
 > `--mode contract` also fails if the `open_world_proof` validator is removed from the
 > manifest (`_validate_content_validation_coverage`, `:828`). What the gate still does

@@ -1458,6 +1458,13 @@ def _proof_outcome_detail(outcome: dict[str, Any]) -> str:
                         "eligible to starve, so this run never had unserved demand with scan "
                         "headroom -- not a pass)"
                     )
+            elif key == "proof_missing_telemetry" and metric == "first_visible_ms":
+                first_visible = metrics.get("first_visible_ms")
+                if _is_json_number(first_visible) and first_visible < 0:
+                    message += (
+                        f" (first_visible_ms={first_visible!r} is the producer's never-visible "
+                        "sentinel: nothing in this run ever became visible)"
+                    )
             elif key == "proof_missing_telemetry" and metric == "residency_ratio":
                 demand = metrics.get("residency_demand_frames")
                 if _is_json_number(demand) and demand == 0:
