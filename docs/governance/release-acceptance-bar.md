@@ -298,21 +298,50 @@ silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch
 malformed one. The workflow binds an eleventh group, `windows_export_template_archive`,
 via `--artifact-sha`.
 
-> **Artifact groups are integrity-checked, never content-checked, and that is load-bearing
-> for `open_world_proof`.** `_validate_candidate_artifact_group`
-> (`tests/ci/check_renderer_release_gates.py:1050-1065`) runs the required-field, hash,
-> commit and mtime checks and nothing else. The bytes *are* read — `:1100-1112` hashes
-> them — but **no validator inspects what the file says**; any byte string with a matching
-> digest satisfies the group. Demonstrated:
-> a bundle that is otherwise complete but points `open_world_proof` at the repository's
-> `README.md`, with a correct digest, **exits 0 with no failures**. The manifest says as
-> much about itself — `workflow_blocking_behavior_machine_enforced: false` (`:320-324`) and
-> "open-world proof must be blocking rather than advisory" under
-> `documented_non_enforced_rules` (`:260-264`). **So pointing this group at genuine
-> corridor-proof output is a #961 and human-signer obligation, not something the gate
-> enforces.** Treat it as §4.2's "a lane that passes without executing" until either a
-> content validator exists for the group or `open_world_corridor_proof` is added to
-> `candidate_required_lanes`.
+> **Artifact groups are integrity-checked; `open_world_proof` is also content-checked
+> (#1016, PR #1046).** `_validate_candidate_artifact_group`
+> (`tests/ci/check_renderer_release_gates.py:1100`) runs the required-field, hash, commit
+> and mtime checks for every group. For a group listed under
+> `artifact_requirements.content_validators` in the manifest, it then also runs
+> `_validate_candidate_artifact_content` (`:1206`). Today that list holds only
+> `open_world_proof`. Before this validator existed, a bundle pointing
+> `open_world_proof` at the repository's `README.md` with a correct digest exited 0 with
+> no failures; it now fails. The `open_world_proof` artifact must be the JSON lane report
+> that `benchmark_suite_lane.gd` writes for `open_world_corridor_proof`, and
+> `_open_world_corridor_proof_content_failures` (`:1258`) requires all of the following:
+>
+> * `lane_id` is `open_world_corridor_proof`.
+> * The four streaming-telemetry availability flags are `true`, so the numbers were
+>   measured, not defaulted.
+> * The manifest's `minimum_values` hold as finite numbers: at least 2 loaded chunks,
+>   5,000,000 total splats, a non-empty proof window, 2 chunk loads and 1 chunk eviction.
+>   The turnover totals count only the proof window, so warm-up churn does not count.
+> * The report **passes the lane's own correctness contract**, `_corridor_proof_contract_failures`
+>   (`:1376`). It is evaluated with `run_benchmark.py`'s `LARGE_WORLD_PROOF_CONTRACTS` and
+>   `_evaluate_large_world_proof_contract`, so a `fail`, `missing_telemetry` or
+>   `report_unavailable` verdict is refused. That contract covers `first_visible_ms`,
+>   `residency_ratio`, queue-pressure, no-progress and scan-starved frames, and VRAM cap
+>   hits. A `warn` verdict, which means only soft timing budgets were missed, is accepted.
+>   Under the #1086 definitions, `scan_starved_frames` is null when no proof-window frame
+>   was eligible to starve, and `residency_ratio` is null when no frame had needed-set
+>   demand. Both remain refusals, with the reason named (`_proof_outcome_detail`). A
+>   corridor run that streams creates unserved demand while the scan has headroom, so zero
+>   eligible frames means the check was never exercised, and an unexercised check is not
+>   a pass. Sentinels are missing evidence too (`run_benchmark.py`
+>   `_proof_metric_observed_value` and `_extract_large_world_proof_metrics`):
+>   - A negative metric is refused. This covers the producer's never-visible
+>     `first_visible_ms = -1.0`.
+>   - A frame-time budget is not read from an empty (0-sample) summary.
+>   - `queue_pressure_frames` and `vram_cap_hit_frames` are no longer back-filled from the
+>     renderer's no-streaming 0.
+>
+> `--mode contract` also fails if the `open_world_proof` validator is removed from the
+> manifest (`_validate_content_validation_coverage`, `:828`). What the gate still does
+> **not** do is run the lane itself. It validates a supplied report. The gate refuses
+> **proof that says the wrong thing**. Producing the proof on the release commit is
+> still a #961 and human-signer obligation. `workflow_blocking_behavior_machine_enforced:
+> false` and the "open-world proof must be blocking rather than advisory" entry under
+> `documented_non_enforced_rules` still describe the workflow, which is a separate question.
 
 **GPU harness report.** `supervisor_exit` must be **present** and `0` — a report without
 it is refused outright, which closes the delete-the-field laundering path. If present,
@@ -333,7 +362,21 @@ count that reconciles with that list's length. Zero RID leaks, no timeout, `rc` 
 `gpu_timing_available` is true, `gpu_time_frame_ms` must be a positive number; when it is
 not, the row must carry an explicit `gpu_frame_time_source`/`gpu_time_frame_source` of
 `"unavailable"`. Silence is a failure, not an exemption. A timed-out lane fails, and a
-CPU/fallback route fails unless the lane explicitly allows it.
+CPU/fallback route fails unless the lane explicitly allows it. A lane whose repository
+asset manifest (`tests/fixtures/benchmark_asset_manifest.json`) gives it a `proof*`
+`evidence_role` must also carry *measured* streaming evidence. Today those lanes are
+`streaming_corridor` and `city_flyover`. The requirements are
+`streaming_telemetry_measured: true`, a `queue_pressure` object with
+`source: "streaming_state"` and a finite non-negative `frames`, and a `proof_status` of
+`pass` or `warn` (`_candidate_lane_streaming_evidence_failures`). The role is read from
+the repository, not from the row, so a row cannot relabel itself out of the requirement.
+The row's own `proof_status` is not trusted either: the gate re-scores the row's nested
+`report` against the lane's contract in `run_benchmark.py`'s `LARGE_WORLD_PROOF_CONTRACTS`
+with the harness's own `_evaluate_large_world_proof_contract`, and refuses a lane that has
+no contract whatever status the row claims (`_candidate_lane_proof_contract_failures`).
+Neither lane has a large-world proof contract today, so the harness writes a null
+`proof_status` for them, a hand-written `pass` is refused, and no current run can satisfy
+this.
 
 **Visual acceptance — evaluated per benchmark-lane row, not once per bundle.** Every lane
 row carries its own capture fields and is checked independently
@@ -488,7 +531,8 @@ the blocker set by this decision rather than by a change in its severity.
 the same kind of reason and with a larger consequence. Three gate requirements must now be
 satisfied before a stable tag: the **benchmark lanes** `streaming_corridor` and
 `city_flyover`, whose rows are content-checked, and the **artifact group**
-`open_world_proof`, which is only integrity-checked — see §9.1. Note the gate runs no lane
+`open_world_proof`, which is integrity-checked and, since #1046, content-checked against
+the corridor lane's report format and proof contract — see §9.1. Note the gate runs no lane
 itself; it reads a supplied report. "Must run and pass" is a statement about the release
 process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,
 #786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set

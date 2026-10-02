@@ -8,6 +8,9 @@ class Dictionary;
 class GaussianSplatNode3D;
 class GaussianSplatRenderer;
 class Viewport;
+class RenderingServer;
+class RID;
+struct Vector2i;
 
 class GaussianSplatNodeAssetHelper {
 public:
@@ -35,6 +38,16 @@ public:
     void on_viewport_texture_ready();
     void on_viewport_size_changed();
     void on_observed_viewport_exited();
+
+    // #1092: the only route to RenderingServer::viewport_get_render_target() and
+    // viewport_get_texture() in the node. Both are FUNC1RC getters: under
+    // rendering/driver/threads/thread_model=2 each call blocks the main thread on
+    // the render thread, so they must not run on every frame.
+    void query_viewport_render_target(RenderingServer *p_rs, const RID &p_viewport_rid, RID &r_render_target, RID &r_render_texture);
+    // True while the cached render target still belongs to p_viewport at its
+    // current size, i.e. the per-frame step may skip the RenderingServer query.
+    bool is_cached_render_target_current(Viewport *p_viewport) const;
+    void commit_acquired_render_target(Viewport *p_viewport, const Vector2i &p_visible_size, const RID &p_render_target, const RID &p_render_texture);
 
 private:
     GaussianSplatNode3D &owner;
@@ -107,9 +120,26 @@ public:
     static void register_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
     static void unregister_renderer_bound_node(GaussianSplatRenderer *p_renderer, GaussianSplatNode3D *p_node);
 
+#ifdef TESTS_ENABLED
+    // #1081: a work counter for the walks over a renderer's peer set (the
+    // registration fan-out, the overlay-union collection and union, the HUD
+    // election and fan-out). One step per peer entry visited or compared. The
+    // regression test compares it across node counts, so the verdict does not
+    // depend on wall-clock time on a contended runner. TESTS_ENABLED only:
+    // absent from editor and export builds (see #725).
+    static void count_peer_walk_step();
+    static uint64_t get_peer_walk_steps();
+#endif
+
 private:
     GaussianSplatNode3D &owner;
 };
+
+#ifdef TESTS_ENABLED
+#define GS_COUNT_PEER_WALK_STEP() GaussianSplatNodeDebugHelper::count_peer_walk_step()
+#else
+#define GS_COUNT_PEER_WALK_STEP() ((void)0)
+#endif
 
 class GaussianSplatNodeQualityHelper {
 public:

@@ -24,11 +24,11 @@ a change advances only when each required layer is satisfied. See
 ## Findings
 
 Reviews are emitted as structured findings (`.agentic/schemas/review.schema.json`,
-validated by `scripts/agentic/validate_review.py`). Those files are added by a
-sibling PR in this foundation series; until the series is merged, follow the parts
-already present on your branch. Every review records the `base_sha`/`head_sha` it
-judged, the tests/evidence it reviewed, and its **blind spots**. Each finding has a
-severity:
+validated by `scripts/agentic/validate_review.py`). CI runs that validator only
+against the shipped fixture `.agentic/templates/review.json`; no PR is required to
+carry a review file, so the format is a convention. Every review records the
+`base_sha`/`head_sha` it judged, the tests/evidence it reviewed, and its **blind
+spots**. Each finding has a severity:
 
 | Severity | Meaning |
 | --- | --- |
@@ -58,14 +58,30 @@ severity:
   for the same statement of the limit.
 - **Untrusted fork code** must never be validated on persistent self-hosted runners;
   GPU/Windows validation happens only after a maintainer moves the change onto a
-  same-repo branch. This is the required standard the agentic-foundation series brings
-  every self-hosted workflow under (via the per-job fork guard); verify a given
-  workflow actually carries the guard rather than assuming the boundary is already
-  closed everywhere (see `.github/workflows/README.md`). Any change that relaxes a
-  gate or the runner trust boundary must be documented and human-approved.
+  same-repo branch. As of 2026-10-01, every self-hosted job either carries the per-job fork guard or
+  does not run on `pull_request` events at all (see `.github/workflows/README.md`).
+  `tests/ci/test_release_builds_runner_trust.py` (run by `--guard-only`) enforces
+  this for `release_builds.yml` only; for the other workflows, check a new or changed
+  self-hosted job at review time. Any change that relaxes a gate or the runner trust
+  boundary must be documented and human-approved.
 
 ## Repository enforcement
 
 The branch-protection and required-check settings that back this policy are listed
 in [GitHub settings](github-settings.md); they are applied manually by a
-maintainer.
+maintainer. They enforce less than this page asks for. Branch protection requires
+the `agentic-pr-gate` check and resolved conversations, but **0 approving reviews**
+and **no code-owner review**. Layers 2 to 4 above, the R3 two-review rule, and the
+blocker and waiver rules are therefore upheld by reviewers and the merging human,
+not by GitHub. The full split is in
+[agentic engineering](agentic-engineering.md#what-is-enforced-and-what-is-process).
+Two mechanical backstops remain. Required conversation resolution: an open review
+thread blocks the merge until someone resolves it. Anyone with write access,
+including the PR's author, can resolve a thread, so this proves that someone
+dispositioned the thread, not that a reviewer agreed. And because
+`required_pull_request_reviews` is enabled, an outstanding "Request changes"
+review from someone with write access holds the PR until that reviewer approves
+or the review is dismissed, even with 0 required approvals; resolving its threads
+does not clear it. The repository owner is today the only collaborator and cannot
+request changes on a PR they authored, so on owner-authored PRs this second
+backstop cannot be triggered.

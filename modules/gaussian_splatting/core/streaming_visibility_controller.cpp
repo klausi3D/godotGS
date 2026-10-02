@@ -243,12 +243,13 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
         return;
     }
 
-    // #1087: an empty view is legitimate when the load distance limit explains it:
-    // every candidate was dropped by the limit, or nothing in range was even rejected
-    // by the frustum (the camera is simply far from the content). That is not a
-    // frustum false negative, so no stall warning and no forced recovery.
-    if (load_distance_limit > 0.0f &&
-            (culling_stats.distance_culled_chunks > 0 || culling_stats.frustum_culled_chunks == 0)) {
+    // #1087: an empty view is legitimate when the load distance limit fully explains
+    // it: no in-range candidate was rejected by the frustum (distance-culled chunks
+    // skip the frustum test, so frustum_culled_chunks counts in-range chunks only).
+    // Then the camera simply sees nothing within the draw distance: no stall warning,
+    // no forced recovery. If any in-range chunk was frustum-rejected, a frustum false
+    // negative is still possible, so recovery stays armed.
+    if (load_distance_limit > 0.0f && culling_stats.frustum_culled_chunks == 0) {
         zero_visible_recovery.zero_visible_consecutive_frames = 0;
         return;
     }
