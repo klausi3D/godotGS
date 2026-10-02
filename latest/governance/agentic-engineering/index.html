@@ -2883,6 +2883,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-is-enforced-and-what-is-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is enforced and what is process
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#legacy-coordination-data" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4412,6 +4423,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-is-enforced-and-what-is-process" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is enforced and what is process
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#legacy-coordination-data" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4497,17 +4519,11 @@ not chat-driven, development: one agent plans, one implements, deterministic
 systems plus independent reviewers verify, and a human decides the merge.</p>
 <p>This page is the human-readable source of truth for roles and risk classes. A
 machine-readable mirror lives under <code>.agentic/</code> (<code>policy.json</code>, <code>ownership.json</code>,
-schemas, templates, roles) and is enforced by <code>scripts/agentic/</code>. See also
-<a href="https://github.com/klausi3D/godotGS/blob/f98243887a7489f88949bf90081fa871f8ea8891/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
+schemas, templates, roles), validated by <code>scripts/agentic/</code>. Most of what this
+page describes is process, not tooling: see
+<a href="#what-is-enforced-and-what-is-process">What is enforced and what is process</a>. See
+also <a href="https://github.com/klausi3D/godotGS/blob/29c1ead94fe96ba1716b3c9e926d8df290356ece/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
 and the <a href="../review-policy/">review policy</a>.</p>
-<blockquote>
-<p><strong>Rollout note.</strong> This foundation is introduced as a coordinated series of pull
-requests. The machine-readable control plane (<code>.agentic/</code>, <code>scripts/agentic/</code>)
-and the always-on required gate (<code>.github/workflows/agentic_pr_gate.yml</code>) are
-added by sibling PRs in the same series. References to those paths below describe
-the target design and resolve once the series has been merged; until then, follow
-the parts already present on your branch.</p>
-</blockquote>
 <h2 id="principles">Principles<a class="headerlink" href="#principles" title="Permanent link">¶</a></h2>
 <ul>
 <li><strong>Specs over chat.</strong> Work starts from a task contract (a small, explicit
@@ -4609,7 +4625,23 @@ base SHA</strong> so a reviewer never grades a moving base or only the top-of-st
 <h2 id="risk-classes">Risk classes<a class="headerlink" href="#risk-classes" title="Permanent link">¶</a></h2>
 <p>Risk drives required roles, checks, and evidence. The machine-readable definition
 is <code>.agentic/policy.json</code>; <code>scripts/agentic/classify_change.py</code> derives the class
-from the changed paths and <strong>fails closed to R3</strong> for unrecognized sensitive paths.</p>
+from the changed paths:</p>
+<ul>
+<li>Each path takes the highest class among the <code>classification.rules</code> globs it
+  matches, and the PR takes the highest class among its paths.</li>
+<li><strong>Any path that matches no rule is R3</strong> (<code>classification.default_unclassified</code>).
+  This covers every unlisted path, not only sensitive ones: for example
+  <code>scripts/docs/*.py</code>, other <code>scripts/*.py</code> outside <code>scripts/agentic/</code>,
+  <code>.gitignore</code> and <code>LICENSE.txt</code> all classify as R3.</li>
+<li><strong>A diff that touches <code>.agentic/policy.json</code> is forced to the top class</strong>, R3
+  (<code>SELF_REFERENTIAL_PATHS</code> in the classifier), although the rules list
+  <code>.agentic/**</code> as R0. The rest of <code>.agentic/</code> stays R0.</li>
+<li>An empty changed-path set is R3, and renames are reported as both the deleted
+  source and the added destination (<code>--no-renames</code>).</li>
+</ul>
+<p>The "Required process" column is policy. Only the class derivation is enforced
+by tooling; see
+<a href="#what-is-enforced-and-what-is-process">What is enforced and what is process</a>.</p>
 <table>
 <thead>
 <tr>
@@ -4636,8 +4668,8 @@ from the changed paths and <strong>fails closed to R3</strong> for unrecognized 
 </tr>
 <tr>
 <td><strong>R3</strong></td>
-<td>Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat.</td>
-<td>ADR before implementation + two reviews + CODEOWNER and human approval.</td>
+<td>Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat; any unclassified path.</td>
+<td>ADR before implementation + two reviews + CODEOWNER and human approval. None of these is enforced by branch protection (0 required approvals, code-owner review off).</td>
 </tr>
 </tbody>
 </table>
@@ -4645,18 +4677,68 @@ from the changed paths and <strong>fails closed to R3</strong> for unrecognized 
 derives the class from the PR's own diff (<code>classify_change.py --base-ref &lt;PR base&gt;</code>)
 and publishes it, together with that class's <code>evidence_requirements</code> and
 <code>deterministic_checks</code>, to the job summary. The derivation fails closed: an
-unresolvable base ref fails the check, and an empty changed-path set is classified as
-<code>classification.default_unclassified</code> (R3), not R0.</p>
+unresolvable base ref fails the check, an unreadable base copy of
+<code>.agentic/policy.json</code> fails the check (the gate classifies with the base copy, never
+the PR's own), and an empty changed-path set is classified as
+<code>classification.default_unclassified</code> (R3), not R0. The class itself is <strong>not</strong> a
+failure condition: an R3 PR passes the gate exactly as an R0 PR does, and nothing
+checks that the class's evidence or reviews were produced.</p>
 <p>An author's <strong>self-declared</strong> class is <em>not consumed by CI today</em>. The
 higher-of-the-two rule is implemented in <code>check_pr_contract.py</code>, but that script only
 runs against the shipped fixture <code>.agentic/templates/task.json</code>, because the
 repository has no per-PR contract source (a task-contract instance is a local agent
-artifact and <a href="https://github.com/klausi3D/godotGS/blob/f98243887a7489f88949bf90081fa871f8ea8891/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
+artifact and <a href="https://github.com/klausi3D/godotGS/blob/29c1ead94fe96ba1716b3c9e926d8df290356ece/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
 class is a review-time convention, not an enforced one, and per-PR scope
 (<code>owned_paths</code> / <code>forbidden_paths</code>) and evidence contracts are not enforced at all.
 Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
 <a href="../github-settings/">GitHub settings</a> and in <code>.github/workflows/README.md</code>
 (<code>GS-AUDIT-TEST-001</code>).</p>
+<h2 id="what-is-enforced-and-what-is-process">What is enforced and what is process<a class="headerlink" href="#what-is-enforced-and-what-is-process" title="Permanent link">¶</a></h2>
+<p>Live branch protection for <code>master</code>, read with
+<code>gh api repos/klausi3D/godotGS/branches/master/protection</code> on 2026-10-01: one
+required check (<code>agentic-pr-gate</code>), <code>enforce_admins: true</code>, conversation resolution
+required, <code>required_approving_review_count: 0</code>, <code>require_code_owner_reviews: false</code>,
+no rulesets. <a href="../github-settings/">GitHub settings</a> has the full table. That API,
+not this page, is the source of truth.</p>
+<p><strong>Enforced by tooling</strong> (a PR cannot merge while these fail):</p>
+<ul>
+<li>A pull request is required, every review conversation must be resolved, and
+  force pushes and branch deletion are refused (branch protection).</li>
+<li>The <code>agentic-pr-gate</code> check passes. It runs the automation-validator tests and
+  the workflow contract check, <code>validate_repo_contract.py --strict-hierarchy</code> (the
+  control plane is consistent, and the AGENTS.md files and the
+  <code>docs/governance/</code> pages it lists exist), the <code>tests/agentic</code> suite, the
+  documentation link check, and <code>run_module_tests.py --guard-only</code>.</li>
+<li>The risk class is derived from the PR's own diff against the base policy, and
+  the derivation fails closed (above). The class is published, not acted on.</li>
+</ul>
+<p><strong>Process only</strong> (no setting or check enforces it; reviewers and the merging
+human uphold it):</p>
+<ul>
+<li>Every review requirement in the risk-class table: one review for R0, the
+  correctness review, the GPU/performance review for R2+, and for R3 the two
+  reviews and the CODEOWNER and human approval. With 0 required approvals and
+  code-owner review off, a PR with no approval merges once the gate is green, its
+  conversations are resolved, and no "Request changes" review is outstanding.
+  <code>required_pull_request_reviews</code> is enabled, so such a review from someone with
+  write access holds the PR until that reviewer approves or the review is
+  dismissed, and resolving its threads does not clear it. Today the only
+  collaborator is the repository owner, who cannot request changes on a PR they
+  authored, so on owner-authored PRs no one can place this hold.
+  <code>.github/CODEOWNERS</code> names owners but does not block.</li>
+<li>The R3 design record (ADR or design-change issue) before implementation, and the
+  evidence each class lists (<code>evidence_requirements</code>). <code>adr_required</code> and the
+  rollback plan are checked by <code>check_pr_contract.py</code>, which runs only against the
+  shipped fixture.</li>
+<li>The declared risk class, per-PR scope (<code>owned_paths</code> / <code>forbidden_paths</code>), and
+  task and review contracts.</li>
+<li>Role separation (planner, implementer, verifier, reviewers), one task per branch
+  and worktree, recorded base SHAs, and the stacked-PR base statement.</li>
+<li>"A human owns the merge": nothing stops an account with write access, including
+  an agent using one, from merging a PR whose gate is green.</li>
+<li>Not weakening guards, baselines or thresholds. Some individual guards are
+  shrink-only ratchets, but no general check exists.</li>
+</ul>
 <h2 id="legacy-coordination-data">Legacy coordination data<a class="headerlink" href="#legacy-coordination-data" title="Permanent link">¶</a></h2>
 <p><code>docs/agent_memory/</code> is a frozen legacy system and is <strong>not</strong> current status.
 Active issues live in GitHub Issues; the board migrates there incrementally and
@@ -4681,7 +4763,7 @@ its history remains in git.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 07:47:14 UTC">October 2, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 16:08:56 UTC">October 2, 2026</span>
   </span>
 
     

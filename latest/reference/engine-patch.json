@@ -804,8 +804,8 @@
     {
       "deletion_commit": null,
       "display_path": ".github/CODEOWNERS",
-      "last_touch_commit": "66b5ddc884807e1fa6865add3971ddb910f864fe",
-      "lines_added": 52,
+      "last_touch_commit": "29c1ead94fe96ba1716b3c9e926d8df290356ece",
+      "lines_added": 58,
       "lines_deleted": 259,
       "new_path": ".github/CODEOWNERS",
       "old_path": ".github/CODEOWNERS",
@@ -817,8 +817,8 @@
     {
       "deletion_commit": null,
       "display_path": ".github/PULL_REQUEST_TEMPLATE.md",
-      "last_touch_commit": "66b5ddc884807e1fa6865add3971ddb910f864fe",
-      "lines_added": 79,
+      "last_touch_commit": "29c1ead94fe96ba1716b3c9e926d8df290356ece",
+      "lines_added": 80,
       "lines_deleted": 5,
       "new_path": ".github/PULL_REQUEST_TEMPLATE.md",
       "old_path": ".github/PULL_REQUEST_TEMPLATE.md",
@@ -2430,7 +2430,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "f98243887a7489f88949bf90081fa871f8ea8891",
+    "head_commit": "29c1ead94fe96ba1716b3c9e926d8df290356ece",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
