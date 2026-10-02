@@ -190,10 +190,13 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
     if (p_frame_serial == 0 || overflow_signal_readback.pending || overflow_signal_needs_clear) {
         return;
     }
-    const uint32_t signal_offset = static_cast<uint32_t>(offsetof(OverflowStatsSnapshot, overflow_drop_signal));
+    // #1137: read the whole 88-byte snapshot (still one small async copy) rather than only the
+    // signal word, so the same production readback also yields the sampled frame's drop counts
+    // (overflow_splats_clamped / overflow_tile_count). The copy is recorded after the raster
+    // pass, so it sees both the binning and the raster-cap writers of this frame.
     overflow_signal_readback.requested_frame_serial = p_frame_serial;
     Callable callback = callable_mp(&owner, &TileRenderer::_on_overflow_signal_readback);
-    Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, signal_offset, sizeof(uint32_t));
+    Error err = p_device->buffer_get_data_async(overflow_statistics_buffer, callback, 0, sizeof(OverflowStatsSnapshot));
     if (err == OK) {
         overflow_signal_readback.pending = true;
     }
@@ -201,28 +204,54 @@ void TileRenderer::TileRendererDebugStats::poll_overflow_drop_signal(RenderingDe
 
 void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vector<uint8_t> &p_data) {
     overflow_signal_readback.pending = false;
-    if ((size_t)p_data.size() < sizeof(uint32_t)) {
+    if ((size_t)p_data.size() < sizeof(OverflowStatsSnapshot)) {
         return;
     }
-    uint32_t drop_signal = 0;
-    std::memcpy(&drop_signal, p_data.ptr(), sizeof(uint32_t));
-    if (drop_signal != 0u) {
+    OverflowStatsSnapshot sample;
+    std::memcpy(&sample, p_data.ptr(), sizeof(OverflowStatsSnapshot));
+    const uint32_t drop_signal = sample.overflow_drop_signal;
+    owner.diagnostics.sampled_dropped_records = sample.overflow_splats_clamped;
+    owner.diagnostics.sampled_dropped_tiles = sample.overflow_tile_count;
+    owner.diagnostics.sampled_drop_frame_serial = overflow_signal_readback.requested_frame_serial;
+    if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
+        // #1137: a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE. Records are
+        // depth-sorted, so the farthest content of the densest tiles is missing: tile-shaped
+        // holes in far views. Previously only counted on the debug-gated path (silent).
+        // Warned once per renderer (on its first event), not once per process, so every
+        // renderer that loses content says so.
+        if (owner.diagnostics.raster_tile_cap_drop_events == 0u) {
+            WARN_PRINT(vformat("[TileRenderer] Per-tile raster cap reached: a %dx%d px tile held more than "
+                    "%d overlap records, and the records past the cap (the farthest ones) were not drawn "
+                    "(%d records in %d tiles on the sampled frame). Dense far views show tile-shaped holes. "
+                    "Raise rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile (0 = the "
+                    "gpu_preset's value, maximum 65536) or reduce splat density. Shown once per renderer; "
+                    "see raster_tile_cap_drop_events in get_overflow_stats() for the running total.",
+                    owner.config_state.tile_size, owner.config_state.tile_size,
+                    int(TileRenderer::_get_effective_raster_tile_cap()),
+                    int(sample.overflow_splats_clamped), int(sample.overflow_tile_count)));
+        }
+        owner.diagnostics.raster_tile_cap_drop_events++;
+    }
+    if ((drop_signal & ~GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
+        // The binning channel, or any bit this build does not know (fail loud, not silent).
         // G4: overlap-record drops are a real, image-affecting degradation (some splats are
         // not rendered). Surface it loudly once and count it always, instead of dropping
-        // silently. The running drop COUNT stays in overflow_splats_clamped (debug path);
-        // overflow_drop_events counts CPU read-intervals in which at least one drop occurred
-        // (the signal is sticky, so this is reliably non-zero whenever drops happen -- it is
-        // NOT a per-frame count; the WARN_ONCE is the primary signal). Counting is exactly ONCE
-        // per re-arm interval: this sets overflow_signal_needs_clear, which gates poll from
-        // enqueuing another readback of the same sticky (still-1) flag until clear_counters
-        // re-arms it (PR #508 review, Channel A over-count fix). Request the re-arm: the
-        // NEXT frame-start clear_counters (which runs BEFORE that frame's EMIT writer) full-
-        // clears the buffer and consumes this flag, so the re-arm frame's own drop is not lost.
+        // silently.
         WARN_PRINT_ONCE("[TileRenderer] Overlap-record overflow: the tile-binning pass dropped "
                 "overlap records (per-tile capacity or the global overlap-record budget was "
                 "exhausted); some splats are not being rendered. Increase the overlap-record "
                 "budget or reduce splat density. Shown once; see the overflow_drop_events "
                 "counter for the running total.");
+    }
+    if (drop_signal != 0u) {
+        // overflow_drop_events counts CPU read-intervals in which at least one drop occurred on
+        // any channel (the signal is sticky, so this is reliably non-zero whenever drops happen
+        // -- it is NOT a per-frame count; the WARN_ONCE is the primary signal). Counting is
+        // exactly ONCE per re-arm interval: this sets overflow_signal_needs_clear, which gates
+        // poll from enqueuing another readback of the same sticky flag until clear_counters
+        // re-arms it (PR #508 review, Channel A over-count fix). Request the re-arm: the NEXT
+        // frame-start clear_counters (which runs BEFORE that frame's EMIT and raster writers)
+        // full-clears the buffer and consumes this flag, so the re-arm frame's own drop is not lost.
         owner.diagnostics.overflow_drop_events++;
         overflow_signal_needs_clear = true;
     }

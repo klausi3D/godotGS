@@ -92,3 +92,17 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   reliably non-zero whenever drops happen (the WARN is the primary signal). Layout parity is
   unchanged: the signal is still a trailing `uint`, still validated by the OverflowStats
   layout-sync guard.
+- **Addendum (#1137): a third drop channel, the per-tile raster cap.** Both rasterizers
+  (`tile_rasterizer_compute.glsl`, `tile_rasterizer.glsl`) truncate a tile to
+  `GS_MAX_RASTER_SPLATS_PER_TILE` records, dropping its farthest records. That drop was
+  counted only on the debug-gated readback (the fragment path counted nothing), so at the
+  default `gpu_preset="high"` (12288) far views of real scans lost content in silence. The
+  signal word is now a bitmask written with `atomicOr`: `GS_OVERFLOW_DROP_BINNING` (1, the
+  binning EMIT sites, formerly `atomicMax(…, 1)`) and `GS_OVERFLOW_DROP_RASTER_TILE_CAP` (2,
+  the rasterizers; the fragment path counts once per tile, from the tile-origin fragment).
+  The always-on readback now copies the whole 88-byte snapshot instead of the signal word, in
+  the same single async copy, and keeps the sampled frame's `overflow_splats_clamped` /
+  `overflow_tile_count` as production per-frame counters. The raster channel has its own
+  warning (once per renderer) and its own `raster_tile_cap_drop_events` counter;
+  `overflow_drop_events` still counts read intervals with a drop on any channel. Layout is
+  unchanged.

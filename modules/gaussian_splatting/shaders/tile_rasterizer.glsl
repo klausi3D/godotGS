@@ -91,7 +91,8 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
     uint overflow_drop_signal;        // C4b (G4): trailing drop flag; layout-parity with the
-                                      // 88-byte host mirror + tile_binning.glsl. Not written here.
+                                      // 88-byte host mirror + tile_binning.glsl. Written here
+                                      // only by the per-tile raster cap (#1137).
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {
@@ -160,6 +161,15 @@ void main() {
 
     uint splat_count = total_splat_count;
 #ifdef GS_MAX_RASTER_SPLATS_PER_TILE
+    // #1137: count the truncation and raise the C4b drop signal, like the compute path.
+    // Only the tile's origin fragment counts, so the totals are per tile (compute parity),
+    // not per pixel. The origin pixel of every tile lies inside the viewport.
+    if (splat_count > uint(GS_MAX_RASTER_SPLATS_PER_TILE) &&
+            all(equal(ivec2(frag_coord - vec2(0.5)), tile_coord * TILE_SIZE))) {
+        atomicAdd(overflow_stats.overflow_tile_count, 1u);
+        atomicAdd(overflow_stats.overflow_splats_clamped, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
+        atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_RASTER_TILE_CAP);
+    }
     splat_count = min(splat_count, uint(GS_MAX_RASTER_SPLATS_PER_TILE));
 #endif
 
