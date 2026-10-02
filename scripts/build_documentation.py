@@ -6,6 +6,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +26,13 @@ def run_doxygen(config: Path) -> int:
     if shutil.which("doxygen") is None:
         print("[docs] Skipping Doxygen generation because 'doxygen' is not installed.")
         return 0
-    return run(["doxygen", str(config)], "Running Doxygen")
+    started = time.time() - 2.0  # small slack for coarse filesystem timestamps
+    exit_code = run(["doxygen", str(config)], "Running Doxygen")
+    if exit_code != 0:
+        return exit_code
+    # Doxygen writes html/index.html even when INPUT matches nothing, so check
+    # that this run actually documented the module's registered classes.
+    return run_python(ROOT / "scripts" / "docs" / "check_doxygen_output.py", "--newer-than", f"{started:.3f}")
 
 
 def run_python(script: Path, *args: str) -> int:
