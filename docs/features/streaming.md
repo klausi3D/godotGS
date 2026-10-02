@@ -68,7 +68,7 @@ residency table above.
 
 ## VRAM budget configuration
 
-The streaming system allocates a fixed number of chunk slots in GPU memory. Each slot holds `CHUNK_SIZE` (65 536) splats. Budget limits can be configured globally or per quality tier.
+The streaming system keeps resident chunks in one GPU atlas buffer, allocated in pages of `ATLAS_PAGE_SPLATS` (1 024) splats. Each resident chunk owns one contiguous run of `ceil(count / 1024)` pages, so atlas memory follows the resident splats rather than the chunk count (a chunk holds at most `CHUNK_SIZE`, 65 536, splats). The atlas buffer, including its growth, is clamped to `rendering/gaussian_splatting/streaming/vram_budget_mb` in bytes. `max_chunks_in_vram` stays a resident-chunk-count backstop. When no free run fits an incoming chunk, admission evicts least-recently-used chunks until one does, at most `max_evictions_per_frame` per frame (#1088). Budget limits can be configured globally or per quality tier.
 
 | Project setting | Default | Description | Implementation reference |
 | --- | --- | --- | --- |

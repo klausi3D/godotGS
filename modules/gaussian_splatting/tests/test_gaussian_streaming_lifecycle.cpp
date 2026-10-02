@@ -152,7 +152,7 @@ TEST_CASE("[Streaming Pipeline] upload retirement gates chunk residency until fr
     const uint64_t chunk_key = system._test_make_chunk_key(0, 0);
     uint32_t buffer_slot = UINT32_MAX;
     const uint64_t upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
-    REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, buffer_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot));
     REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, buffer_slot));
     REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, buffer_slot,
             upload_bytes,
@@ -165,7 +165,7 @@ TEST_CASE("[Streaming Pipeline] upload retirement gates chunk residency until fr
     CHECK(system.get_loaded_chunks() == 0);
     CHECK(system.get_pending_upload_retirement_slots() == 1);
     CHECK(system.get_pending_upload_retirement_bytes() == upload_bytes);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 
     system._test_process_upload_retirements();
     CHECK_FALSE(chunk.is_loaded);
@@ -201,7 +201,7 @@ TEST_CASE("[Streaming Pipeline] cancel_chunk_jobs preserves pending retirement s
     const uint64_t chunk_key = system._test_make_chunk_key(0, 0);
     uint32_t buffer_slot = UINT32_MAX;
     const uint64_t upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
-    REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, buffer_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot));
     REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, buffer_slot));
     REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, buffer_slot,
             upload_bytes,
@@ -215,17 +215,17 @@ TEST_CASE("[Streaming Pipeline] cancel_chunk_jobs preserves pending retirement s
     CHECK(chunk.buffer_slot == buffer_slot);
     CHECK(system.get_pending_upload_retirement_slots() == 1);
     CHECK(system.get_pending_upload_retirement_bytes() == upload_bytes);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 
     system._test_process_upload_retirements();
     CHECK(chunk.upload_pending);
     CHECK_FALSE(chunk.is_loaded);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 
     system.begin_frame();
     CHECK(chunk.upload_pending);
     CHECK_FALSE(chunk.is_loaded);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
     system.begin_frame();
 
     CHECK(chunk.is_loaded);
@@ -236,7 +236,7 @@ TEST_CASE("[Streaming Pipeline] cancel_chunk_jobs preserves pending retirement s
     CHECK(system._test_get_retired_upload_bytes_this_frame() == upload_bytes);
     CHECK(system.get_pending_upload_retirement_slots() == 0);
     CHECK(system.get_pending_upload_retirement_bytes() == 0);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 }
 
 TEST_CASE("[Streaming Pipeline] sync fallback drain counts immediate retirement once") {
@@ -285,14 +285,14 @@ TEST_CASE("[Streaming Pipeline] rollback of stale slot assignment preserves othe
 
     uint32_t pending_slot = UINT32_MAX;
     const uint64_t pending_key = system._test_make_chunk_key(0, 0);
-    REQUIRE(system._test_atlas_allocator().allocate_slot(pending_key, pending_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(pending_key, GaussianStreamingSystem::atlas_pages_for_splats(chunks[0].count), pending_slot));
     REQUIRE(system._test_begin_chunk_upload(0, 0, chunks[0], pending_slot));
     const uint64_t pending_bytes = chunks[0].pending_upload_bytes;
     REQUIRE(pending_bytes > 0);
 
     uint32_t stale_slot = UINT32_MAX;
     const uint64_t stale_key = system._test_make_chunk_key(0, 1);
-    REQUIRE(system._test_atlas_allocator().allocate_slot(stale_key, stale_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(stale_key, GaussianStreamingSystem::atlas_pages_for_splats(chunks[1].count), stale_slot));
     chunks[1].buffer_slot = stale_slot;
     chunks[1].upload_pending = false;
     chunks[1].pending_upload_bytes = 0;
@@ -323,7 +323,8 @@ TEST_CASE("[Streaming Pipeline] generation-stale retirement tickets keep upload 
 
     const uint64_t upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
     uint32_t buffer_slot = UINT32_MAX;
-    REQUIRE(system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_id, 0), buffer_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_id, 0),
+            GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot));
     REQUIRE(system._test_begin_chunk_upload(asset_id, 0, chunk, buffer_slot));
     REQUIRE(system._test_stage_chunk_upload_retirement(asset_id, 0, chunk, buffer_slot,
             upload_bytes, 2,
@@ -332,7 +333,7 @@ TEST_CASE("[Streaming Pipeline] generation-stale retirement tickets keep upload 
     CHECK(system.get_pending_upload_retirement_slots() == 1);
     CHECK(system.get_pending_upload_retirement_bytes() == upload_bytes);
     CHECK(system._test_get_reserved_chunk_count() == 1);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 
     system.register_asset(asset_id, _create_streaming_phase_order_test_data());
 
@@ -344,7 +345,7 @@ TEST_CASE("[Streaming Pipeline] generation-stale retirement tickets keep upload 
     CHECK(system.get_pending_upload_retirement_slots() == 1);
     CHECK(system.get_pending_upload_retirement_bytes() == upload_bytes);
     CHECK(system._test_get_reserved_chunk_count() == 1);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 0);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 
     system.begin_frame();
     CHECK(system.get_pending_upload_retirement_slots() == 1);
@@ -353,7 +354,7 @@ TEST_CASE("[Streaming Pipeline] generation-stale retirement tickets keep upload 
     CHECK(system.get_pending_upload_retirement_slots() == 0);
     CHECK(system.get_pending_upload_retirement_bytes() == 0);
     CHECK(system._test_get_reserved_chunk_count() == 0);
-    CHECK(system._test_atlas_allocator().get_free_slot_count() == 1);
+    CHECK(system._test_atlas_allocator().get_free_page_count() == 1);
     CHECK(system._test_get_failed_upload_retirements() == 0);
 }
 
@@ -372,7 +373,7 @@ TEST_CASE("[Streaming Pipeline] reserved chunk count combines loaded and pending
     system._test_mark_chunk_loaded_for_eviction(0, 0, false, 1, 1, 1.0f);
 
     uint32_t buffer_slot = UINT32_MAX;
-    REQUIRE(system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(0, 1), buffer_slot));
+    REQUIRE(system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(0, 1), GaussianStreamingSystem::atlas_pages_for_splats(chunks[1].count), buffer_slot));
     REQUIRE(system._test_begin_chunk_upload(0, 1, chunks[1], buffer_slot));
 
     CHECK(system.get_loaded_chunks() == 1);
@@ -1080,4 +1081,410 @@ TEST_CASE("[Streaming Pipeline] Recovery-forced chunks beyond the load distance 
     system->_test_build_visible_chunk_list();
     system->end_frame();
     CHECK(int64_t(system->get_streaming_analytics().get("needed_chunks", int64_t(-1))) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// #1088: the streaming atlas allocates pages, not fixed 65,536-splat slots, and the
+// VRAM budget binds in bytes.
+//
+// The first two cases use only API that existed before #1088 (initialize(),
+// get_buffer_capacity_splats(), the atlas byte stride), so they run unchanged on the
+// base and fail there: the base sized the atlas as (chunks + 25%) x 8 MiB slots,
+// capped only by max_chunks_in_vram, whatever the budget.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct AtlasSizingFixture {
+    Ref<GaussianStreamingSystem> system;
+    uint64_t total_splats = 0;
+    uint32_t chunk_count = 0;
+};
+
+// One primary chunk per layout hint, each p_splats_per_chunk splats, built through the
+// real initialize() path. Without a RenderingDevice the buffer is not created, but the
+// atlas capacity is sized exactly as with one.
+AtlasSizingFixture _initialize_atlas_sizing_fixture(uint32_t p_chunk_count, uint32_t p_splats_per_chunk,
+        uint32_t p_budget_mb, uint32_t p_max_chunks) {
+    AtlasSizingFixture fixture;
+    fixture.chunk_count = p_chunk_count;
+    fixture.total_splats = uint64_t(p_chunk_count) * p_splats_per_chunk;
+    Ref<GaussianData> data = _create_streaming_phase_order_test_data(uint32_t(fixture.total_splats));
+
+    Vector<GaussianStreamingSystem::ChunkLayoutHint> hints;
+    hints.resize(p_chunk_count);
+    for (uint32_t i = 0; i < p_chunk_count; i++) {
+        GaussianStreamingSystem::ChunkLayoutHint &hint = hints.write[i];
+        // Same shape the render orchestrator publishes for world chunks: remapped through
+        // an (identity) source-index table.
+        hint.start_idx = 0;
+        hint.count = p_splats_per_chunk;
+        hint.source_index_offset = i * p_splats_per_chunk;
+        hint.source_indices_remapped = true;
+        hint.center = Vector3(float(i), 0.0f, -5.0f);
+        hint.bounds = AABB(hint.center - Vector3(0.5f, 0.5f, 0.5f), Vector3(1.0f, 1.0f, 1.0f));
+        hint.radius = 0.5f;
+    }
+
+    fixture.system.instantiate();
+    GaussianStreamingSystem::ConfigOverrides overrides;
+    overrides.override_vram_budget = true;
+    overrides.vram_budget_config.auto_regulate_enabled = false;
+    overrides.vram_budget_config.budget_mb = p_budget_mb;
+    overrides.vram_budget_config.min_chunks = 1;
+    overrides.vram_budget_config.max_chunks = p_max_chunks;
+    fixture.system->set_config_overrides(overrides);
+    Vector<uint32_t> source_indices;
+    source_indices.resize(int(fixture.total_splats));
+    for (uint32_t i = 0; i < uint32_t(fixture.total_splats); i++) {
+        source_indices.write[i] = i;
+    }
+    fixture.system->set_primary_chunk_layout(hints, source_indices);
+    fixture.system->initialize(data);
+    return fixture;
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Startup atlas allocation fits the VRAM budget in bytes (#1088)") {
+    // 3,000 chunks would need far more than 64 MiB; the budget must cap the allocation.
+    const uint64_t budget_bytes = 64ull * 1024ull * 1024ull;
+    AtlasSizingFixture fixture = _initialize_atlas_sizing_fixture(3000, 1, 64, 4096);
+    if (fixture.system->_test_get_primary_chunks().size() != fixture.chunk_count) {
+        FAIL("fixture precondition: the layout hints must produce one chunk per hint");
+        return;
+    }
+    const uint64_t atlas_bytes =
+            uint64_t(fixture.system->get_buffer_capacity_splats()) * fixture.system->_test_atlas_gaussian_stride_bytes();
+    CHECK(atlas_bytes > 0);
+    // At least one full-size chunk must still fit, or the atlas would be unloadable.
+    CHECK(fixture.system->get_buffer_capacity_splats() >= GaussianStreamingSystem::CHUNK_SIZE);
+    CHECK(atlas_bytes <= budget_bytes);
+}
+
+TEST_CASE("[Streaming Pipeline] Startup atlas allocation follows the asset's splats, not its chunk count (#1088)") {
+    // 200 chunks of 1,000 splats: 200k splats in total. A generous budget, so only the
+    // sizing rule decides. The atlas may hold growth headroom, but it must stay within a
+    // small multiple of the asset itself plus a fixed floor of four full-size chunks.
+    AtlasSizingFixture fixture = _initialize_atlas_sizing_fixture(200, 1000, 4096, 4096);
+    if (fixture.system->_test_get_primary_chunks().size() != fixture.chunk_count) {
+        FAIL("fixture precondition: the layout hints must produce one chunk per hint");
+        return;
+    }
+    const uint64_t capacity_splats = fixture.system->get_buffer_capacity_splats();
+    CHECK(capacity_splats >= fixture.total_splats);
+    CHECK(capacity_splats <= 2u * fixture.total_splats + 4ull * GaussianStreamingSystem::CHUNK_SIZE);
+}
+
+TEST_CASE("[Streaming Pipeline] Atlas page runs never overlap and free space stays exact under churn (#1088)") {
+    // Randomized allocate/release churn checked against a brute-force page map after every
+    // operation: runs are disjoint and inside capacity, free + used == capacity, and
+    // can_allocate(k) is true exactly when some free run of k pages exists.
+    const uint32_t capacity = 512;
+    GaussianAtlasAllocator allocator;
+    allocator.reset(capacity);
+    LocalVector<uint64_t> live_keys;
+    uint64_t next_key = 1;
+    uint32_t rng = 0x1088u;
+    auto next_rand = [&rng]() -> uint32_t {
+        rng = rng * 1664525u + 1013904223u;
+        return rng >> 8;
+    };
+
+    bool consistent = true;
+    for (uint32_t op = 0; op < 4000 && consistent; op++) {
+        const bool do_release = !live_keys.is_empty() && (next_rand() % 100u) < 45u;
+        if (do_release) {
+            const uint32_t idx = next_rand() % live_keys.size();
+            allocator.release_slot(live_keys[idx]);
+            live_keys.remove_at_unordered(idx);
+        } else {
+            const uint32_t pages = 1u + next_rand() % 23u; // 1..23 pages, the corridor's range
+            uint32_t slot = UINT32_MAX;
+            if (allocator.allocate_slot(next_key, pages, slot)) {
+                live_keys.push_back(next_key);
+            }
+            next_key++;
+        }
+
+        LocalVector<uint8_t> owner;
+        owner.resize(capacity);
+        for (uint32_t p = 0; p < capacity; p++) {
+            owner[p] = 0;
+        }
+        uint32_t used = 0;
+        for (uint64_t key : live_keys) {
+            GaussianAtlasAllocator::PageRun run;
+            if (!allocator.get_run(key, run) || run.page_count == 0 ||
+                    uint64_t(run.first_page) + run.page_count > capacity) {
+                consistent = false;
+                break;
+            }
+            for (uint32_t p = run.first_page; p < run.first_page + run.page_count; p++) {
+                if (owner[p] != 0) {
+                    consistent = false; // two runs share a page
+                }
+                owner[p] = 1;
+            }
+            used += run.page_count;
+        }
+        uint32_t longest_free = 0;
+        uint32_t current_free = 0;
+        for (uint32_t p = 0; p < capacity; p++) {
+            current_free = owner[p] == 0 ? current_free + 1 : 0;
+            longest_free = MAX(longest_free, current_free);
+        }
+        if (allocator.get_used_page_count() != used || allocator.get_free_page_count() != capacity - used ||
+                allocator.get_largest_free_run() != longest_free ||
+                allocator.can_allocate(longest_free + 1) || (longest_free > 0 && !allocator.can_allocate(longest_free))) {
+            consistent = false;
+        }
+    }
+    CHECK(consistent);
+    CHECK(live_keys.size() > 0);
+
+    for (uint64_t key : live_keys) {
+        allocator.release_slot(key);
+    }
+    // Everything released: one coalesced run spanning the whole atlas.
+    CHECK(allocator.get_free_run_count() == 1);
+    CHECK(allocator.get_largest_free_run() == capacity);
+}
+
+TEST_CASE("[Streaming Pipeline] Resident chunks fill their atlas pages (#1088)") {
+    // Corridor-like chunk sizes (4k..23k splats) made resident through the engine's own
+    // load bookkeeping. The atlas bytes they hold (evictable usage) must be within one
+    // page per chunk of their payload: fill >= 0.9 here. The fixed 65,536-splat slot
+    // held ~20% of this.
+    const uint32_t sizes[] = { 12713, 4120, 21441, 8004, 18942, 22618, 12820, 9001, 15555, 6400 };
+    const uint32_t chunk_count = sizeof(sizes) / sizeof(sizes[0]);
+    GaussianStreamingSystem system;
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    uint64_t start = 0;
+    uint64_t payload_splats = 0;
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        chunks[i].start_idx = uint32_t(start);
+        chunks[i].count = sizes[i];
+        chunks[i].effective_count = sizes[i];
+        start += sizes[i];
+        payload_splats += sizes[i];
+    }
+    system._test_register_primary_asset_for_chunks();
+    system._test_reset_atlas_allocator(4096);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        system._test_mark_chunk_loaded_for_eviction(0, i, false, 0, i + 1, 1.0f);
+    }
+    if (system.get_loaded_chunks() != chunk_count) {
+        FAIL("fixture precondition: every chunk must become resident");
+        return;
+    }
+    const uint64_t stride = system._test_atlas_gaussian_stride_bytes();
+    const uint64_t held_bytes = system._test_get_evictable_vram_usage_bytes();
+    const uint64_t payload_bytes = payload_splats * stride;
+    CHECK(held_bytes >= payload_bytes);
+    CHECK(held_bytes < payload_bytes + uint64_t(chunk_count) * GaussianStreamingSystem::ATLAS_PAGE_SPLATS * stride);
+    CHECK(double(payload_bytes) / double(held_bytes) >= 0.9);
+    // The allocator agrees: exactly the pages those runs hold are in use.
+    CHECK(uint64_t(system._test_atlas_allocator().get_used_page_count()) *
+                    GaussianStreamingSystem::ATLAS_PAGE_SPLATS * stride ==
+            held_bytes);
+}
+
+namespace {
+
+// Four 4-page chunks fill a 16-page atlas: A=[0,4) B=[4,8) C=[8,12) D=[12,16).
+// LRU order is A, C, B, D, so the two oldest victims are not adjacent.
+void _setup_fragmented_atlas(GaussianStreamingSystem &r_system) {
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
+    chunks.resize(5);
+    const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    for (uint32_t i = 0; i < 4; i++) {
+        chunks[i].start_idx = i * 4 * page;
+        chunks[i].count = 4 * page;
+        chunks[i].effective_count = chunks[i].count;
+    }
+    chunks[4].start_idx = 16 * page;
+    chunks[4].count = 8 * page; // the incoming chunk needs 8 contiguous pages
+    chunks[4].effective_count = chunks[4].count;
+    r_system._test_register_primary_asset_for_chunks();
+    r_system._test_reset_atlas_allocator(16);
+    for (int i = 0; i < 10; i++) {
+        r_system.begin_frame(); // clear the eviction hysteresis window
+    }
+    const uint64_t last_used[4] = { 1, 3, 2, 4 }; // A oldest, then C, B, D
+    for (uint32_t i = 0; i < 4; i++) {
+        r_system._test_mark_chunk_loaded_for_eviction(0, i, false, 0, last_used[i], 1.0f);
+    }
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Admission evicts until the incoming chunk's page run fits (#1088)") {
+    GaussianStreamingSystem system;
+    _setup_fragmented_atlas(system);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    if (system.get_loaded_chunks() != 4 || system._test_atlas_allocator().get_free_page_count() != 0) {
+        FAIL("fixture precondition: the atlas must start full with four resident chunks");
+        return;
+    }
+    const uint32_t required_pages = GaussianStreamingSystem::atlas_pages_for_splats(chunks[4].count);
+    const uint64_t page_bytes = uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) * system._test_atlas_gaussian_stride_bytes();
+    const uint64_t held_before = system._test_get_evictable_vram_usage_bytes();
+
+    SUBCASE("enough eviction budget: evicts until a contiguous run exists, and no further") {
+        uint32_t evictions = 0;
+        CHECK(system._test_evict_until_atlas_fit(required_pages, 4, evictions));
+        CHECK(system._test_atlas_allocator().can_allocate(required_pages));
+        // A and C are freed first (8 pages, but split); B joins them into one 12-page run.
+        CHECK(evictions == 3);
+        CHECK_FALSE(chunks[0].is_loaded);
+        CHECK_FALSE(chunks[1].is_loaded);
+        CHECK_FALSE(chunks[2].is_loaded);
+        CHECK(chunks[3].is_loaded);
+        // Eviction freed exactly the evicted runs' bytes, which is enough for the new chunk.
+        CHECK(held_before - system._test_get_evictable_vram_usage_bytes() == 12u * page_bytes);
+        CHECK(system._test_atlas_allocator().get_free_page_count() >= required_pages);
+    }
+
+    SUBCASE("exhausted eviction budget: stops, and the freed pages stay usable") {
+        uint32_t evictions = 0;
+        CHECK_FALSE(system._test_evict_until_atlas_fit(required_pages, 2, evictions));
+        CHECK(evictions == 2);
+        CHECK(system.get_loaded_chunks() == 2);
+        CHECK_FALSE(system._test_atlas_allocator().can_allocate(required_pages));
+        CHECK(system._test_atlas_allocator().can_allocate(4));
+        CHECK(held_before - system._test_get_evictable_vram_usage_bytes() == 8u * page_bytes);
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] Upload coalescing merges back-to-back full page runs of any size (#1088)") {
+    const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    LocalVector<StreamingUploadPipeline::UploadCoalescingCandidate> candidates;
+    StreamingUploadPipeline::UploadCoalescingCandidate a;
+    a.buffer_slot = 7;
+    a.page_count = 3;
+    a.packed_count = 3 * page;
+    candidates.push_back(a);
+    StreamingUploadPipeline::UploadCoalescingCandidate b;
+    b.buffer_slot = 10; // starts on the page right after a's run
+    b.page_count = 5;
+    b.packed_count = 5 * page;
+    candidates.push_back(b);
+    StreamingUploadPipeline::UploadCoalescingCandidate tail;
+    tail.buffer_slot = 15;
+    tail.page_count = 2;
+    tail.packed_count = page + 17; // does not fill its run: a gap would follow it
+    candidates.push_back(tail);
+
+    const uint64_t page_bytes = uint64_t(page) * sizeof(PackedGaussian);
+    const StreamingUploadPipeline::UploadCoalescingPlan plan =
+            StreamingUploadPipeline::_test_plan_coalesced_upload_batch(candidates, 64u * page_bytes);
+    CHECK(plan.coalesced_job_count == 2);
+    CHECK(plan.total_bytes == 8u * page_bytes);
+
+    // A run that does not start where the previous one ends is never merged.
+    candidates[1].buffer_slot = 11;
+    const StreamingUploadPipeline::UploadCoalescingPlan split =
+            StreamingUploadPipeline::_test_plan_coalesced_upload_batch(candidates, 64u * page_bytes);
+    CHECK(split.coalesced_job_count == 1);
+    CHECK(split.total_bytes == 3u * page_bytes);
+}
+
+TEST_CASE("[Streaming Pipeline] Page-run eviction does not thrash a sliding corridor window (#1088)") {
+    // 600 chunks with corridor-like sizes (1k..22.6k splats) stream through an atlas sized
+    // to the window plus 25% slack. The window slides forward one chunk per step and loads
+    // nearest-first; each admission may evict up to 4 least-recently-used chunks (the
+    // default max_evictions_per_frame), one at a time.
+    //
+    // Some evictions are inherent: a 23-page chunk replacing 2-page chunks needs several
+    // victims even with perfect packing. The fragmentation cost is the rest: an eviction
+    // made while enough pages were already free (just not contiguous), which compaction
+    // would have avoided, and an admission refused although enough pages were free.
+    const uint32_t chunk_count = 600;
+    const uint32_t max_evictions = 4;
+    GaussianStreamingSystem system;
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    uint32_t rng = 0x1088u;
+    uint64_t start = 0;
+    uint64_t total_pages = 0;
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        rng = rng * 1664525u + 1013904223u;
+        const uint32_t count = 1000u + (rng >> 8) % 21619u;
+        chunks[i].start_idx = uint32_t(start);
+        chunks[i].count = count;
+        chunks[i].effective_count = count;
+        start += count;
+        total_pages += GaussianStreamingSystem::atlas_pages_for_splats(count);
+    }
+    const uint32_t avg_pages = uint32_t(total_pages / chunk_count);
+    const uint32_t window = 40;
+    const uint32_t capacity = uint32_t(uint64_t(window) * avg_pages * 5u / 4u);
+    system._test_register_primary_asset_for_chunks();
+    system._test_reset_atlas_allocator(capacity);
+    for (int i = 0; i < 10; i++) {
+        system.begin_frame();
+    }
+    const GaussianAtlasAllocator &allocator = system._test_atlas_allocator();
+
+    uint64_t use_stamp = 1;
+    uint32_t admissions = 0;
+    uint32_t evictions = 0;
+    uint32_t fragmentation_evictions = 0; // made while enough pages were free, just not contiguous
+    uint32_t refused = 0;
+    uint32_t refused_with_free_pages = 0;
+    uint64_t window_slots = 0;
+    uint64_t window_resident = 0;
+    for (uint32_t cam = 0; cam + window <= chunk_count; cam++) {
+        system.begin_frame();
+        for (uint32_t i = 0; i < chunk_count; i++) {
+            chunks[i].is_visible = i >= cam && i < cam + window;
+            if (chunks[i].is_visible && chunks[i].is_loaded) {
+                chunks[i].last_used_frame = use_stamp++;
+            }
+        }
+        for (uint32_t i = cam; i < cam + window; i++) {
+            if (chunks[i].is_loaded) {
+                continue;
+            }
+            const uint32_t pages = GaussianStreamingSystem::atlas_pages_for_splats(chunks[i].count);
+            for (uint32_t k = 0; k < max_evictions && !allocator.can_allocate(pages); k++) {
+                const bool fragmented = allocator.get_free_page_count() >= pages;
+                uint32_t used = 0;
+                system._test_evict_until_atlas_fit(pages, 1, used);
+                if (used == 0) {
+                    break;
+                }
+                evictions++;
+                fragmentation_evictions += fragmented ? 1 : 0;
+            }
+            if (!allocator.can_allocate(pages)) {
+                refused++;
+                refused_with_free_pages += allocator.get_free_page_count() >= pages ? 1 : 0;
+                continue;
+            }
+            system._test_mark_chunk_loaded_for_eviction(0, i, true, 0, use_stamp++, 1.0f);
+            admissions++;
+        }
+        for (uint32_t i = cam; i < cam + window; i++) {
+            window_slots++;
+            window_resident += chunks[i].is_loaded ? 1 : 0;
+        }
+    }
+    const double window_residency = double(window_resident) / double(window_slots);
+    MESSAGE(vformat("admissions=%d evictions=%d fragmentation_evictions=%d refused=%d refused_with_free_pages=%d window_residency=%.4f capacity_pages=%d",
+            admissions, evictions, fragmentation_evictions, refused, refused_with_free_pages, window_residency, capacity));
+    // Measured with best-fit + plain LRU (1,024-splat pages): 0.92 evictions and 0.21
+    // fragmentation evictions per admission, 1 of 600 admissions refused with enough free
+    // pages (it fits on a later frame), window residency 0.9999. Choosing the LRU victim that
+    // completes a run instead (the obvious "smarter" policy) measured worse here: 0.53
+    // fragmentation evictions and 13 refusals, because it leaves old chunks scattered.
+    // The bounds below leave headroom over the measurement but fail on real thrash.
+    CHECK(admissions >= chunk_count);
+    CHECK(evictions > 0);
+    CHECK(double(evictions) / double(admissions) <= 1.0);
+    CHECK(double(fragmentation_evictions) / double(admissions) <= 0.30);
+    CHECK(refused_with_free_pages * 100u <= admissions);
+    CHECK(window_residency >= 0.99);
 }

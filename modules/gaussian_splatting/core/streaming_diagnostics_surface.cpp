@@ -127,6 +127,35 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["streaming_initial_capacity"] = static_cast<int64_t>(streaming_initial_capacity);
     analytics_snapshot["streaming_current_capacity"] = static_cast<int64_t>(streaming_current_capacity);
     analytics_snapshot["streaming_grow_count"] = static_cast<int64_t>(streaming_grow_count);
+    // #1088: page-granular atlas occupancy. Capacity fields above are in pages too.
+    {
+        uint64_t resident_splats = 0;
+        for (uint32_t asset_id : asset_registry.atlas_asset_order) {
+            const AtlasAssetState *asset = _get_asset_state(asset_id);
+            if (!asset) {
+                continue;
+            }
+            for (const StreamingChunk &chunk : _get_asset_chunks(*asset)) {
+                if (chunk.is_loaded) {
+                    resident_splats += chunk.count;
+                }
+            }
+        }
+        const uint32_t used_pages = atlas_allocator.get_used_page_count();
+        analytics_snapshot["atlas_page_splats"] = static_cast<int64_t>(ATLAS_PAGE_SPLATS);
+        analytics_snapshot["atlas_page_bytes"] = static_cast<int64_t>(_atlas_page_bytes());
+        analytics_snapshot["atlas_pages_capacity"] = static_cast<int64_t>(atlas_allocator.get_capacity());
+        analytics_snapshot["atlas_pages_used"] = static_cast<int64_t>(used_pages);
+        analytics_snapshot["atlas_largest_free_run_pages"] = static_cast<int64_t>(atlas_allocator.get_largest_free_run());
+        analytics_snapshot["atlas_free_run_count"] = static_cast<int64_t>(atlas_allocator.get_free_run_count());
+        analytics_snapshot["atlas_resident_splats"] = static_cast<int64_t>(resident_splats);
+        // Resident splats over the splats the allocated runs could hold (1.0 = no tail waste).
+        // Pending uploads hold runs too, so this is a lower bound while uploads are in flight.
+        analytics_snapshot["atlas_fill_ratio"] = used_pages > 0
+                ? double(resident_splats) / (double(used_pages) * double(ATLAS_PAGE_SPLATS))
+                : 0.0;
+        analytics_snapshot["atlas_fit_extra_evictions"] = static_cast<int64_t>(diagnostics.atlas_fit_extra_evictions);
+    }
     analytics_snapshot["chunks_loaded_this_frame"] = budget.chunks_loaded_this_frame;
     analytics_snapshot["chunks_evicted_this_frame"] = eviction_controller.get_chunks_evicted_this_frame();
     analytics_snapshot["pending_upload_reserved_bytes"] = static_cast<int64_t>(_get_pending_upload_bytes_for_diagnostics());

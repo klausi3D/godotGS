@@ -2034,18 +2034,24 @@ TEST_CASE("[GaussianSplatting] Chunk meta upload planner escalates fragmented ch
 TEST_CASE("[GaussianSplatting] Upload coalescing planner batches contiguous full-slot uploads") {
     LocalVector<StreamingUploadPipeline::UploadCoalescingCandidate> candidates;
 
+    // #1088: buffer_slot is the first atlas page of each chunk's run; a full-size chunk's run is
+    // ATLAS_PAGES_PER_MAX_CHUNK pages, so back-to-back runs start that many pages apart.
+    const uint32_t run_pages = GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK;
     StreamingUploadPipeline::UploadCoalescingCandidate first;
-    first.buffer_slot = 10;
+    first.buffer_slot = 10 * run_pages;
+    first.page_count = run_pages;
     first.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(first);
 
     StreamingUploadPipeline::UploadCoalescingCandidate second;
-    second.buffer_slot = 11;
+    second.buffer_slot = 11 * run_pages;
+    second.page_count = run_pages;
     second.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(second);
 
     StreamingUploadPipeline::UploadCoalescingCandidate tail;
-    tail.buffer_slot = 12;
+    tail.buffer_slot = 12 * run_pages;
+    tail.page_count = 1;
     tail.packed_count = 128;
     candidates.push_back(tail);
 
@@ -2060,19 +2066,23 @@ TEST_CASE("[GaussianSplatting] Upload coalescing planner batches contiguous full
 TEST_CASE("[GaussianSplatting] Upload coalescing planner stops at partial or noncontiguous uploads") {
     LocalVector<StreamingUploadPipeline::UploadCoalescingCandidate> candidates;
 
+    const uint32_t run_pages = GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK;
     StreamingUploadPipeline::UploadCoalescingCandidate first;
-    first.buffer_slot = 20;
+    first.buffer_slot = 20 * run_pages;
+    first.page_count = run_pages;
     first.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(first);
 
     StreamingUploadPipeline::UploadCoalescingCandidate partial;
-    partial.buffer_slot = 21;
+    partial.buffer_slot = 21 * run_pages;
+    partial.page_count = run_pages;
     partial.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     partial.bytes_uploaded = sizeof(PackedGaussian);
     candidates.push_back(partial);
 
     StreamingUploadPipeline::UploadCoalescingCandidate gap;
-    gap.buffer_slot = 23;
+    gap.buffer_slot = 23 * run_pages;
+    gap.page_count = run_pages;
     gap.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(gap);
 
@@ -5867,7 +5877,7 @@ TEST_CASE("[GaussianSplatting][Pipeline] Chunk culling stats scope loaded counts
 	Ref<GaussianStreamingSystem> system;
 	system.instantiate();
 	system->initialize(primary_data);
-	system->_test_reset_atlas_allocator(8);
+	system->_test_reset_atlas_allocator(8 * GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK);
 
 	LocalVector<GaussianStreamingTypes::StreamingChunk> &primary_chunks = system->_test_get_primary_chunks();
 	REQUIRE(primary_chunks.size() >= 1);

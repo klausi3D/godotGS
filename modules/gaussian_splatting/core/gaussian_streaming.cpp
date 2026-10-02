@@ -366,9 +366,9 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
         return false;
     }
 
-    const uint64_t slot_bytes = _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
-    const uint64_t new_bytes64 = uint64_t(new_capacity) * slot_bytes;
-    if (slot_bytes == 0 || new_bytes64 == 0 || new_bytes64 > uint64_t(UINT32_MAX)) {
+    const uint64_t page_bytes = _atlas_page_bytes();
+    const uint64_t new_bytes64 = uint64_t(new_capacity) * page_bytes;
+    if (page_bytes == 0 || new_bytes64 == 0 || new_bytes64 > uint64_t(UINT32_MAX)) {
         ERR_PRINT(vformat("[Streaming] _grow_persistent_buffer failed: new buffer size overflow (%s bytes, max=%u).",
                 String::num_uint64(new_bytes64), UINT32_MAX));
         return false;
@@ -383,10 +383,10 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     }
     rd->set_resource_name(new_buffer, "GS_Streaming_PersistentBuffer");
 
-    // Copy currently resident slot contents from old buffer to new buffer. The
-    // slot layout (slot index -> byte offset) is identical for old and new
+    // Copy currently resident page contents from old buffer to new buffer. The
+    // page layout (page index -> byte offset) is identical for old and new
     // buffers (only the trailing capacity differs), so this is a flat copy of
-    // the old buffer bytes; trailing slots stay zero-initialized.
+    // the old buffer bytes; trailing pages stay zero-initialized.
     const uint32_t copy_size = persistent_buffer_size;
     if (copy_size > 0 && persistent_buffer.is_valid()) {
         if (copy_size > new_buffer_size) {
@@ -428,17 +428,18 @@ bool GaussianStreamingSystem::_grow_persistent_buffer(uint32_t p_new_capacity) {
     // directly here would re-enter atlas bookkeeping mid-frame.
     global_atlas_registry.mark_asset_registry_dirty();
 
-    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d slots (max=%d, grow_count=%d).",
+    GS_LOG_STREAMING_INFO(vformat("[Streaming] Persistent buffer grew %d -> %d atlas pages (max=%d, grow_count=%d).",
             prev_capacity, streaming_current_capacity,
             streaming_max_capacity, streaming_grow_count));
     return true;
 }
 
-bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uint32_t p_loaded_chunks,
+bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uint32_t p_required_pages, uint32_t p_loaded_chunks,
         uint32_t p_effective_max,
         bool p_enforce_vram_regulator_gate,
         bool p_vram_regulator_allows_load) {
-    if (atlas_allocator.has_free_slots()) {
+    // #1088: grow only when the chunk being admitted has no contiguous page run.
+    if (p_required_pages == 0 || atlas_allocator.can_allocate(p_required_pages)) {
         return false;
     }
     if (streaming_current_capacity == 0 || streaming_current_capacity >= streaming_max_capacity) {
@@ -451,7 +452,10 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
         return false;
     }
 
-    const uint32_t growth_ceiling = MIN(streaming_max_capacity, p_effective_max);
+    // p_effective_max is a chunk count (max_chunks_in_vram backstop); in pages it allows at most
+    // that many full-size chunks.
+    const uint32_t growth_ceiling = uint32_t(MIN<uint64_t>(uint64_t(streaming_max_capacity),
+            uint64_t(p_effective_max) * ATLAS_PAGES_PER_MAX_CHUNK));
     if (streaming_current_capacity >= growth_ceiling) {
         return false;
     }
@@ -472,16 +476,16 @@ bool GaussianStreamingSystem::_try_grow_persistent_buffer_for_atlas_pressure(uin
     if (p_enforce_vram_regulator_gate && budget.vram_regulator.is_valid()) {
         const uint64_t budget_bytes = budget.vram_regulator->get_debug_stats().budget_bytes;
         if (budget_bytes > 0) {
-            const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * _atlas_gaussian_stride_bytes();
+            const uint64_t page_bytes = _atlas_page_bytes();
             const uint64_t aux_bytes = _get_auxiliary_vram_overhead_bytes();
-            // Largest persistent-buffer slot count whose allocation-inclusive total
-            // (slots*chunk_bytes + aux; the grown buffer dominates the payload) fits the budget.
+            // Largest persistent-buffer page count whose allocation-inclusive total
+            // (pages*page_bytes + aux; the grown buffer dominates the payload) fits the budget.
             const uint64_t budget_for_persistent = budget_bytes > aux_bytes ? (budget_bytes - aux_bytes) : 0;
-            const uint64_t budget_max_slots = chunk_bytes > 0 ? budget_for_persistent / chunk_bytes : 0;
-            if (budget_max_slots <= uint64_t(streaming_current_capacity)) {
+            const uint64_t budget_max_pages = page_bytes > 0 ? budget_for_persistent / page_bytes : 0;
+            if (budget_max_pages <= uint64_t(streaming_current_capacity)) {
                 return false; // no in-budget headroom to grow into
             }
-            target64 = MIN(target64, budget_max_slots);
+            target64 = MIN(target64, budget_max_pages);
         }
     }
 
@@ -715,20 +719,25 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
         effective_max_chunks = addressable_max_chunks;
     }
 
-    // Phase 3: size the persistent buffer to the actual asset chunk count plus
-    // a growth headroom, instead of the regulated maximum. Keeps startup VRAM
-    // proportional to the loaded scene; growth is wired into the eviction
-    // pressure path via _grow_persistent_buffer().
-    const uint32_t asset_chunks = chunks.size();
-    const uint32_t headroom = MAX<uint32_t>(2u, asset_chunks / 4u);
-    uint32_t initial_capacity = asset_chunks + headroom;
-    const uint32_t min_floor = STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM;
-    initial_capacity = MAX(initial_capacity, min_floor);
-    initial_capacity = MIN(initial_capacity, effective_max_chunks);
+    // Phase 3: size the persistent buffer to the actual asset plus a growth headroom,
+    // instead of the regulated maximum. Keeps startup VRAM proportional to the loaded
+    // scene; growth is wired into the eviction pressure path via _grow_persistent_buffer().
+    // #1088: sized in atlas pages (each chunk needs only ceil(count / ATLAS_PAGE_SPLATS)),
+    // and clamped to the VRAM budget in bytes (_compute_atlas_page_ceiling) — before #1088
+    // the startup allocation ignored the budget entirely.
+    uint64_t asset_pages = 0;
+    for (const StreamingChunk &chunk : chunks) {
+        asset_pages += atlas_pages_for_splats(chunk.count);
+    }
+    const uint64_t headroom_pages = MAX<uint64_t>(2u * ATLAS_PAGES_PER_MAX_CHUNK, asset_pages / 4u);
+    const uint64_t min_floor_pages = uint64_t(STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM) * ATLAS_PAGES_PER_MAX_CHUNK;
+    const uint32_t page_ceiling = _compute_atlas_page_ceiling(effective_max_chunks);
+    const uint32_t initial_capacity = uint32_t(MIN<uint64_t>(
+            MAX<uint64_t>(asset_pages + headroom_pages, min_floor_pages), uint64_t(page_ceiling)));
 
     if (rd) {
         GS_STARTUP_SCOPE("streaming_persistent_buffer_alloc");
-        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
+        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _atlas_page_bytes();
         if (persistent_bytes64 == 0 || persistent_bytes64 > uint64_t(UINT32_MAX)) {
             if (!failed_init_warning_emitted) {
                 ERR_PRINT(vformat("[Streaming] Initialization failed: persistent buffer size overflow (%s bytes, max=%u).",
@@ -744,11 +753,11 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
         }
     }
 
-    // Initialize atlas allocator slots to the right-sized initial capacity.
+    // Initialize atlas allocator pages to the right-sized initial capacity.
     atlas_allocator.reset(initial_capacity);
     streaming_initial_capacity = initial_capacity;
     streaming_current_capacity = initial_capacity;
-    streaming_max_capacity = effective_max_chunks;
+    streaming_max_capacity = page_ceiling;
     streaming_grow_count = 0;
     const uint32_t runtime_capacity_max = _compute_runtime_chunk_capacity_limit();
     const bool persistent_buffer_valid = persistent_buffer.is_valid() && persistent_buffer_size > 0;
@@ -789,7 +798,7 @@ void GaussianStreamingSystem::initialize(Ref<::GaussianData> p_data) {
         global_atlas_registry.sync_to_gpu(*this, rd);
     }
 
-    GS_LOG_STREAMING_INFO(vformat("[Streaming] Initialized with %d chunks for %d splats (VRAM budget: %d MB, initial slots: %d, max slots: %d)",
+    GS_LOG_STREAMING_INFO(vformat("[Streaming] Initialized with %d chunks for %d splats (VRAM budget: %d MB, initial atlas pages: %d, max pages: %d)",
             chunks.size(), total_splat_count,
             budget.vram_regulator->get_config().budget_mb,
             streaming_initial_capacity, streaming_max_capacity));
@@ -846,10 +855,12 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     }
     // Phase 3: empty system has no asset chunks yet; right-size to the minimum
     // floor so we don't reserve ~288 MiB before any data has been loaded.
-    uint32_t initial_capacity = STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM;
-    initial_capacity = MIN(initial_capacity, effective_max_chunks);
+    // #1088: in atlas pages, budget-clamped like initialize().
+    const uint32_t page_ceiling = _compute_atlas_page_ceiling(effective_max_chunks);
+    const uint32_t initial_capacity = uint32_t(MIN<uint64_t>(
+            uint64_t(STREAMING_DEFAULT_MIN_CHUNKS_IN_VRAM) * ATLAS_PAGES_PER_MAX_CHUNK, uint64_t(page_ceiling)));
     if (rd) {
-        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _streaming_chunk_slot_bytes(_atlas_gaussian_stride_bytes());
+        const uint64_t persistent_bytes64 = uint64_t(initial_capacity) * _atlas_page_bytes();
         if (persistent_bytes64 == 0 || persistent_bytes64 > uint64_t(UINT32_MAX)) {
             if (!failed_init_warning_emitted) {
                 ERR_PRINT(vformat("[Streaming] Empty initialization failed: persistent buffer size overflow (%s bytes, max=%u).",
@@ -868,7 +879,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     atlas_allocator.reset(initial_capacity);
     streaming_initial_capacity = initial_capacity;
     streaming_current_capacity = initial_capacity;
-    streaming_max_capacity = effective_max_chunks;
+    streaming_max_capacity = page_ceiling;
     streaming_grow_count = 0;
     const uint32_t runtime_capacity_max = _compute_runtime_chunk_capacity_limit();
     const bool persistent_buffer_valid = persistent_buffer.is_valid() && persistent_buffer_size > 0;
@@ -895,7 +906,7 @@ void GaussianStreamingSystem::initialize_empty(RenderingDevice *p_device) {
     global_atlas_registry.build_cpu_state(*this);
     global_atlas_registry.sync_to_gpu(*this, rd);
 
-    GS_LOG_STREAMING_INFO(vformat("[Streaming] Initialized empty system (VRAM budget: %d MB, initial slots: %d, max slots: %d)",
+    GS_LOG_STREAMING_INFO(vformat("[Streaming] Initialized empty system (VRAM budget: %d MB, initial atlas pages: %d, max pages: %d)",
             budget.vram_regulator->get_config().budget_mb,
             streaming_initial_capacity, streaming_max_capacity));
 }
@@ -923,7 +934,7 @@ void GaussianStreamingSystem::update_primary_asset_data(Ref<::GaussianData> p_da
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+            const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -1380,7 +1391,7 @@ void GaussianStreamingSystem::register_asset(uint32_t asset_id, const Ref<Gaussi
                 if (budget.loaded_chunks_count > 0) {
                     budget.loaded_chunks_count--;
                 }
-                const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+                const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
                 const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
                 budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
                 budget.evicted_bytes_total += evicted_bytes;
@@ -1439,7 +1450,7 @@ void GaussianStreamingSystem::unregister_asset(uint32_t asset_id) {
             if (budget.loaded_chunks_count > 0) {
                 budget.loaded_chunks_count--;
             }
-            const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+            const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
             const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
             budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
             budget.evicted_bytes_total += evicted_bytes;
@@ -1558,7 +1569,7 @@ void GaussianStreamingSystem::_refresh_quantization_dc_compatibility() {
 
 void GaussianStreamingSystem::_evict_all_resident_chunks_for_stride_change() {
     // Must run BEFORE per_chunk_quantization_dc_compatible is flipped: _unload_chunk()
-    // decrements budget.vram_usage by chunk.count * _atlas_gaussian_stride_bytes(), and while
+    // decrements budget.vram_usage by _chunk_atlas_bytes() (page run * stride), and while
     // the flag still holds its old value that stride matches the one each chunk was loaded and
     // accounted at -- so the payload accounting returns exactly to its pre-load baseline
     // instead of skewing. Iterate by index; _unload_chunk() mutates chunks in place and never
@@ -2433,11 +2444,12 @@ void GaussianStreamingSystem::_test_mark_chunk_loaded_for_eviction(uint32_t p_as
 
 	StreamingChunk &chunk = asset_chunks[p_chunk_id];
 	uint32_t buffer_slot = UINT32_MAX;
-	ERR_FAIL_COND_MSG(!atlas_allocator.allocate_slot(_make_chunk_key(p_asset_id, p_chunk_id), buffer_slot),
+	ERR_FAIL_COND_MSG(!atlas_allocator.allocate_slot(_make_chunk_key(p_asset_id, p_chunk_id),
+			atlas_pages_for_splats(chunk.count), buffer_slot),
 			"[Streaming][Test] Failed to allocate atlas slot for synthetic eviction resident chunk.");
 	if (!chunk.is_loaded) {
 		budget.loaded_chunks_count++;
-		budget.vram_usage += uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+		budget.vram_usage += _chunk_atlas_bytes(chunk);
 	}
 	chunk.is_loaded = true;
 	chunk.gpu_resident = true;
@@ -2710,15 +2722,45 @@ float GaussianStreamingSystem::_resolve_frame_delta_seconds(float p_frame_delta_
 }
 
 uint32_t GaussianStreamingSystem::_compute_runtime_chunk_capacity_limit() const {
-    const uint32_t allocator_capacity_chunks = atlas_allocator.get_capacity();
-    const uint64_t chunk_bytes = uint64_t(CHUNK_SIZE) * _atlas_gaussian_stride_bytes();
-    const uint32_t buffer_capacity_chunks = chunk_bytes > 0
-            ? static_cast<uint32_t>(uint64_t(persistent_buffer_size) / chunk_bytes)
+    const uint32_t allocator_capacity_pages = atlas_allocator.get_capacity();
+    const uint64_t page_bytes = _atlas_page_bytes();
+    const uint32_t buffer_capacity_pages = page_bytes > 0
+            ? static_cast<uint32_t>(uint64_t(persistent_buffer_size) / page_bytes)
             : 0;
-    if (allocator_capacity_chunks == 0 || buffer_capacity_chunks == 0) {
+    if (allocator_capacity_pages == 0 || buffer_capacity_pages == 0) {
         return 0;
     }
-    return MIN(allocator_capacity_chunks, buffer_capacity_chunks);
+    return MIN(allocator_capacity_pages, buffer_capacity_pages);
+}
+
+uint64_t GaussianStreamingSystem::_atlas_page_bytes() const {
+    return uint64_t(ATLAS_PAGE_SPLATS) * _atlas_gaussian_stride_bytes();
+}
+
+uint64_t GaussianStreamingSystem::_chunk_atlas_bytes(const StreamingChunk &p_chunk) const {
+    return uint64_t(atlas_pages_for_splats(p_chunk.count)) * _atlas_page_bytes();
+}
+
+uint32_t GaussianStreamingSystem::_compute_atlas_page_ceiling(uint32_t p_max_chunks) const {
+    const uint64_t page_bytes = _atlas_page_bytes();
+    if (page_bytes == 0) {
+        return 0;
+    }
+    // 32-bit RenderingDevice buffer addressing, and the max_chunks_in_vram backstop: never more
+    // pages than p_max_chunks full-size chunks would take (the pre-#1088 allocation bound).
+    uint64_t ceiling = MIN<uint64_t>(uint64_t(UINT32_MAX) / page_bytes,
+            uint64_t(p_max_chunks) * ATLAS_PAGES_PER_MAX_CHUNK);
+    // The VRAM budget in bytes: the persistent buffer plus the auxiliary atlas overhead must fit
+    // it. Always leave room for one full-size chunk so a tiny budget cannot make the atlas unloadable.
+    if (budget.vram_regulator.is_valid()) {
+        const uint64_t budget_bytes = budget.vram_regulator->get_debug_stats().budget_bytes;
+        if (budget_bytes > 0) {
+            const uint64_t aux_bytes = _get_auxiliary_vram_overhead_bytes();
+            const uint64_t budget_pages = (budget_bytes > aux_bytes ? budget_bytes - aux_bytes : 0) / page_bytes;
+            ceiling = MIN(ceiling, MAX(budget_pages, uint64_t(ATLAS_PAGES_PER_MAX_CHUNK)));
+        }
+    }
+    return uint32_t(MIN<uint64_t>(ceiling, uint64_t(UINT32_MAX)));
 }
 
 uint64_t GaussianStreamingSystem::_get_auxiliary_vram_overhead_bytes() const {
@@ -2727,8 +2769,9 @@ uint64_t GaussianStreamingSystem::_get_auxiliary_vram_overhead_bytes() const {
 }
 
 uint64_t GaussianStreamingSystem::_get_total_vram_usage_bytes() const {
-    // budget.vram_usage tracks the *loaded chunk payload* that currently lives
-    // inside the persistent storage buffer. The persistent buffer itself is the
+    // budget.vram_usage tracks the atlas page runs of *loaded chunks* (#1088: whole
+    // pages, i.e. payload plus the unfilled tail of each chunk's last page) inside the
+    // persistent storage buffer. The persistent buffer itself is the
     // single largest streaming VRAM allocation (sized for the resident chunk set
     // plus growth headroom), and chunk payloads are uploaded into it — so the
     // reserved VRAM is the whole buffer allocation, not just the bytes uploaded
@@ -2908,6 +2951,37 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
     return result;
 }
 
+bool GaussianStreamingSystem::_evict_until_atlas_fit(const ResidencyBudgetController::AdmissionGate &p_admission_gate,
+        uint32_t p_required_pages, ResidencyBudgetController::AdmissionFrameBudget &r_frame_budget) {
+    // #1088 fragmentation strategy: best-fit placement + coalescing on release, and on a miss
+    // keep evicting least-recently-used chunks (same victim order as the first eviction) until
+    // a contiguous run of the chunk's pages exists. No compaction. The loop is bounded by the
+    // frame's eviction budget, so a fragmented atlas costs at most max_evictions_per_frame
+    // evictions per frame; the freed pages stay usable by smaller chunks if the run never forms.
+    while (!atlas_allocator.can_allocate(p_required_pages)) {
+        if (r_frame_budget.evictions_left == 0 || r_frame_budget.eviction_blocked) {
+            return false;
+        }
+        bool visible_fallback_attempted = false;
+        const EvictionResult result = _evict_for_admission_gate(p_admission_gate, visible_fallback_attempted);
+        const bool evicted = result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible;
+        if (visible_fallback_attempted) {
+            diagnostics.visible_evict_fallback_attempts++;
+            if (evicted) {
+                diagnostics.visible_evict_fallback_successes++;
+            }
+        }
+        if (!evicted) {
+            ResidencyBudgetController::note_blocked_eviction(r_frame_budget);
+            return false;
+        }
+        eviction_controller.record_eviction_result(result);
+        diagnostics.atlas_fit_extra_evictions++;
+        ResidencyBudgetController::note_successful_eviction(r_frame_budget);
+    }
+    return true;
+}
+
 void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked) {
     // PR #352: short-circuit when initialize() previously failed so this
     // method never touches persistent_buffer / chunks[] from a half-built
@@ -3055,12 +3129,15 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         admission_policy.vram_regulator_allows_load =
                 !admission_policy.enforce_vram_regulator_gate ||
                 budget.vram_regulator->can_load_more_chunks(reserved_chunks);
+        // #1088: the atlas is "full" for this chunk when no contiguous run of its pages is free.
+        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
         _try_grow_persistent_buffer_for_atlas_pressure(
+                required_pages,
                 reserved_chunks,
                 get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !atlas_allocator.has_free_slots();
+        admission_policy.atlas_slots_full = !atlas_allocator.can_allocate(required_pages);
 
         const ResidencyBudgetController::AdmissionGate admission_gate =
                 ResidencyBudgetController::compute_admission_gate(
@@ -3069,7 +3146,8 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                         admission_policy);
         const ResidencyBudgetController::AdmissionDecision decision = admission_gate.decision;
         if (decision == ResidencyBudgetController::AdmissionDecision::Skip) {
-            if (admission_gate.context.loaded_chunks >= admission_gate.context.effective_max ||
+            if (admission_gate.context.atlas_slots_full ||
+                    admission_gate.context.loaded_chunks >= admission_gate.context.effective_max ||
                     (admission_gate.context.enforce_vram_regulator_gate &&
                             !admission_gate.context.vram_regulator_allows_load)) {
                 blocked_by_chunk_cap = true;
@@ -3091,6 +3169,9 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
             } else {
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
+                continue;
+            }
+            if (!_evict_until_atlas_fit(admission_gate, required_pages, admission_budget)) {
                 continue;
             }
         }
@@ -3629,12 +3710,13 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
     if (!persistent_buffer.is_valid()) {
         return ERR_UNAVAILABLE;
     }
-    if (!atlas_allocator.has_free_slots()) {
+    const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
+    if (required_pages == 0 || !atlas_allocator.can_allocate(required_pages)) {
         return ERR_BUSY;
     }
 
     uint32_t buffer_slot = UINT32_MAX;
-    if (!atlas_allocator.allocate_slot(_make_chunk_key(asset_id, chunk_idx), buffer_slot)) {
+    if (!atlas_allocator.allocate_slot(_make_chunk_key(asset_id, chunk_idx), required_pages, buffer_slot)) {
         return ERR_BUSY;
     }
 
@@ -3643,7 +3725,7 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
         return FAILED;
     }
 
-    const uint64_t buffer_offset64 = uint64_t(buffer_slot) * CHUNK_SIZE * _atlas_gaussian_stride_bytes();
+    const uint64_t buffer_offset64 = uint64_t(buffer_slot) * _atlas_page_bytes();
     if (buffer_offset64 > uint64_t(UINT32_MAX)) {
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
         return FAILED;
@@ -3897,8 +3979,14 @@ bool GaussianStreamingSystem::_upload_chunk_to_gpu(RenderingDevice *submission_r
     if (uint64_t(chunk_bytes.size()) != upload_bytes) {
         return false;
     }
-    const uint64_t slot_capacity_bytes = uint64_t(CHUNK_SIZE) * stride;
-    if (upload_bytes > slot_capacity_bytes) {
+    // #1088: the write must stay inside the chunk's own page run (as the allocator records it),
+    // never spill into a neighbouring chunk's pages.
+    GaussianAtlasAllocator::PageRun run;
+    if (!atlas_allocator.get_run(_make_chunk_key(asset_id, chunk_idx), run) || run.first_page != buffer_slot) {
+        return false;
+    }
+    const uint64_t run_capacity_bytes = uint64_t(run.page_count) * _atlas_page_bytes();
+    if (upload_bytes > run_capacity_bytes || uint64_t(buffer_offset) != uint64_t(buffer_slot) * _atlas_page_bytes()) {
         return false;
     }
     if (upload_bytes > persistent_buffer_size || buffer_offset > persistent_buffer_size - upload_bytes) {
@@ -3948,7 +4036,9 @@ void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uin
     chunk.last_loaded_frame = total_frame_count;
     eviction_controller.touch_chunk_use(chunk.last_used_frame);
     budget.loaded_chunks_count++;
-    budget.vram_usage += uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+    // #1088: account the chunk's whole page run (the bytes it actually holds and that
+    // evicting it frees), not just its payload.
+    budget.vram_usage += _chunk_atlas_bytes(chunk);
     eviction_controller.note_chunk_loaded(asset_id, chunk_idx);
     AtlasAssetState *asset = _get_asset_state(asset_id);
     if (asset) {
@@ -4010,7 +4100,7 @@ void GaussianStreamingSystem::_unload_chunk(uint32_t asset_id, uint32_t chunk_id
     global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     _assert_chunk_state_invariant(asset_id, chunk_idx, chunk, "_unload_chunk.post");
     budget.loaded_chunks_count--;
-    const uint64_t chunk_bytes = uint64_t(chunk.count) * _atlas_gaussian_stride_bytes();
+    const uint64_t chunk_bytes = _chunk_atlas_bytes(chunk);
     const uint64_t evicted_bytes = budget.vram_usage > chunk_bytes ? chunk_bytes : budget.vram_usage;
     budget.vram_usage = budget.vram_usage > chunk_bytes ? (budget.vram_usage - chunk_bytes) : 0;
     budget.evicted_bytes_total += evicted_bytes;
@@ -4162,10 +4252,10 @@ LocalVector<uint32_t> GaussianStreamingSystem::get_visible_indices() const {
 
         // CRITICAL FIX: Return BUFFER-SPACE indices, not source-space indices!
         // The shader uses identity mapping (gaussian_idx = global_idx), so indices
-        // must match the actual GPU buffer layout (buffer_slot * CHUNK_SIZE + offset).
+        // must match the actual GPU buffer layout (first page * ATLAS_PAGE_SPLATS + offset).
         // Previously this returned chunk.start_idx (source space) which only worked
         // when chunks loaded in sequential order - causing rectangular holes otherwise.
-        uint32_t buffer_base = chunk.buffer_slot * CHUNK_SIZE;
+        uint32_t buffer_base = chunk.buffer_slot * ATLAS_PAGE_SPLATS;
 
         // Apply LOD-based splat skipping: return every Nth index
         for (uint32_t i = 0; i < chunk.count; i += skip_factor) {
@@ -4522,12 +4612,14 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         admission_policy.vram_regulator_allows_load =
                 !admission_policy.enforce_vram_regulator_gate ||
                 budget.vram_regulator->can_load_more_chunks(reserved_chunks);
+        const uint32_t required_pages = atlas_pages_for_splats(chunk.count);
         _try_grow_persistent_buffer_for_atlas_pressure(
+                required_pages,
                 reserved_chunks,
                 get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !atlas_allocator.has_free_slots();
+        admission_policy.atlas_slots_full = !atlas_allocator.can_allocate(required_pages);
 
         const ResidencyBudgetController::AdmissionGate admission_gate =
                 ResidencyBudgetController::compute_admission_gate(
@@ -4553,11 +4645,14 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
                     diagnostics.visible_evict_fallback_successes++;
                 }
             }
-            if (result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible) {
+            const bool evicted = result == EvictionResult::EvictedNonVisible || result == EvictionResult::EvictedVisible;
+            if (evicted) {
                 eviction_controller.record_eviction_result(result);
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
             } else {
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
+            }
+            if (!evicted || !_evict_until_atlas_fit(admission_gate, required_pages, admission_budget)) {
                 scheduler.last_sync_fallback_stalled_count++;
                 _update_requested_chunk_state(*asset, chunk_idx,
                         GaussianStreamingTypes::RESIDENCY_REQUEST_STATE_DEFERRED,
@@ -4760,7 +4855,7 @@ float GaussianStreamingSystem::get_effective_count_change_ratio() const {
 }
 
 uint32_t GaussianStreamingSystem::get_buffer_capacity_splats() const {
-    return atlas_allocator.get_capacity() * CHUNK_SIZE;
+    return atlas_allocator.get_capacity() * ATLAS_PAGE_SPLATS;
 }
 
 bool GaussianStreamingSystem::map_buffer_index_to_source(uint32_t buffer_index, uint32_t &out_source_index) const {
@@ -4771,7 +4866,7 @@ bool GaussianStreamingSystem::map_buffer_index_to_source(uint32_t buffer_index, 
         if (!chunk.is_loaded || chunk.buffer_slot == UINT32_MAX) {
             continue;
         }
-        uint32_t slot_start = chunk.buffer_slot * CHUNK_SIZE;
+        uint32_t slot_start = chunk.buffer_slot * ATLAS_PAGE_SPLATS;
         uint32_t slot_end = slot_start + chunk.count;
         if (buffer_index >= slot_start && buffer_index < slot_end) {
             uint32_t offset = buffer_index - slot_start;
