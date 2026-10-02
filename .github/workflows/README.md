@@ -120,13 +120,10 @@ signal because `master` branch protection does **not** require it — the single
 required context is `agentic-pr-gate` (live state observed 2026-08-14, see
 [Required Checks](#required-checks) above) — and the repo does not track a qlty
 configuration/log contract. If branch protection later requires qlty, update the
-manifest before treating a qlty result as part of public-alpha signoff. Note that
+manifest before treating a qlty result as part of public-alpha signoff.
 `docs/reference/renderer_release_gate_manifest.json` and
-`docs/reference/renderer-release-gates.md` still phrase this rationale as "master
-branch protection has no required status checks", which was true when it was written
-(2026-05-21) but is not true now; the qlty decision itself is unaffected, and
-correcting that wording is left to the release-gate owner rather than done from a
-CI-gate change.
+`docs/reference/renderer-release-gates.md` state the same rationale, re-checked
+against live branch protection on 2026-10-01.
 
 ### Fast-math finiteness guard (`finite_math_guard`)
 
