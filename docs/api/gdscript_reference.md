@@ -1,6 +1,6 @@
 # GDScript API Reference
 
-Last generated: 2026-09-19
+Last generated: 2026-09-30
 
 Scope: `public`
 
@@ -249,8 +249,8 @@ GaussianPerformanceOverlay
       <td>Distinguishes "measured zero" from "no producer to ask" for the *registered* monitors whose getters return a literal 0 when there is no renderer or no RenderingDevice behind them -- `_get_cpu_setup_time_ms` and the three `_get_vram_device_*_mb` (performance_monitors.cpp:617, :819-838). Those are registered, so `_monitor()` hands back a real `0.0` that `n/a` handling cannot catch. A host wall-clock stage that ran takes a non-zero number of microseconds, and a live RenderingDevice never reports zero bytes total, so exactly 0.0 from these four means "nothing answered". @return The value, or `null` when it is the producer's no-renderer default.</td>
     </tr>
     <tr>
-      <td><pre><code>_process(delta: float)</code></pre></td>
-      <td>Tracks frame timing and refreshes the overlay at the configured interval. @param delta: Frame delta in seconds.</td>
+      <td><pre><code>_process(_delta: float)</code></pre></td>
+      <td>Tracks frame timing on the wall clock and refreshes the overlay once per `update_interval` of wall time. @param _delta: Unused -- see the note on `_window_start_us` for why frame timing does not come from `delta`.</td>
     </tr>
     <tr>
       <td><pre><code>_ready()</code></pre></td>
@@ -266,7 +266,7 @@ GaussianPerformanceOverlay
     </tr>
     <tr>
       <td><pre><code>_section_frame(lines: Array[String])</code></pre></td>
-      <td>Frame pacing. Engine-side values; not renderer telemetry.</td>
+      <td>Frame pacing, measured on the wall clock (see `_window_start_us`). Engine-side values; not renderer telemetry.  Every row names its window and its clock. "Frame interval" is the wall time between consecutive main-loop iterations -- CPU work, GPU waits and the vsync wait together -- so it is not labelled "CPU frame": it is not CPU time. `Engine.get_frames_per_second()` is the engine's own count of main-loop iterations in the last whole second (`Main::iteration()`); before its first whole second it holds the initial value 1, which is shown as `n/a` (see `ENGINE_FPS_READY_US`), never as 1 FPS.</td>
     </tr>
     <tr>
       <td><pre><code>_section_global(lines: Array[String])</code></pre></td>
