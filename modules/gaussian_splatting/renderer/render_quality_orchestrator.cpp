@@ -517,7 +517,7 @@ void GaussianSplatRenderer::set_max_splats(int p_count) {
 	quality_orchestrator->set_max_splats(p_count);
 }
 
-void GaussianSplatRenderer::_set_max_splats_on_render_thread(int p_count, uint64_t p_request_id) {
+void GaussianSplatRenderer::_set_max_splats_on_render_thread(uint64_t p_request_id, int p_count) {
 	quality_orchestrator->set_max_splats(p_count);
 	_notify_render_thread_dispatch_completed(p_request_id);
 }
