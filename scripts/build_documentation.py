@@ -26,7 +26,9 @@ def run_doxygen(config: Path) -> int:
     if shutil.which("doxygen") is None:
         print("[docs] Skipping Doxygen generation because 'doxygen' is not installed.")
         return 0
-    started = time.time() - 2.0  # small slack for coarse filesystem timestamps
+    # 0.1 s of slack covers coarse kernel file timestamps (a few ms) but stays
+    # far below the gap to a previous run, whose pages must not count.
+    started = time.time() - 0.1
     exit_code = run(["doxygen", str(config)], "Running Doxygen")
     if exit_code != 0:
         return exit_code
