@@ -1243,6 +1243,19 @@ Node *GaussianSplatPerformanceOverlay::_resolve_target(String &r_problem) {
 		return n;
 	}
 	Node *current = Object::cast_to<Node>(ObjectDB::get_instance(target_id));
+	if (target_explicit) {
+		// A set_target() choice is never replaced by discovery: while it is gone
+		// the rows are n/a, and it is picked up again if the same node returns.
+		if (!current) {
+			r_problem = "the node passed to set_target() was freed";
+			return nullptr;
+		}
+		if (!current->is_inside_tree()) {
+			r_problem = "the node passed to set_target() is not in the scene tree";
+			return nullptr;
+		}
+		return current;
+	}
 	if (current && current->is_inside_tree()) {
 		// A discovered target is kept only while the display viewport's world
 		// still renders it: set_custom_viewport() rewires the layer in place,
@@ -1476,12 +1489,15 @@ void GaussianSplatPerformanceOverlay::_refresh() {
 void GaussianSplatPerformanceOverlay::set_target_path(const NodePath &p_path) {
 	target_path = p_path;
 	target_id = ObjectID();
+	target_auto = false;
+	target_explicit = false;
 }
 
 void GaussianSplatPerformanceOverlay::set_target(Node *p_node) {
 	target_path = NodePath();
 	target_id = p_node ? p_node->get_instance_id() : ObjectID();
 	target_auto = false;
+	target_explicit = p_node != nullptr;
 }
 
 Node *GaussianSplatPerformanceOverlay::get_target() const {

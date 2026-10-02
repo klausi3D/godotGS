@@ -178,6 +178,7 @@ private:
 
 	ObjectID target_id;
 	bool target_auto = false; // target_id came from discovery, not set_target()
+	bool target_explicit = false; // target_id came from set_target(); never re-discovered
 	FrameClock frame_clock;
 	Dictionary last_snapshot;
 	uint64_t last_refresh_usec = 0;

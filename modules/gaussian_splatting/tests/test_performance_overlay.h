@@ -461,6 +461,48 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats
 	CHECK(String(no_target.get("monitor_mismatch", String())).length() > 0);
 }
 
+TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A set_target() choice is kept while its node is away, never re-discovered") {
+	SceneTree *tree = SceneTree::get_singleton();
+	if (!tree || !tree->get_root()) {
+		FAIL("SceneTree with a root window required");
+		return;
+	}
+	Window *root = tree->get_root();
+	GaussianSplatNode3D *chosen = memnew(GaussianSplatNode3D);
+	chosen->set_name("ChosenTarget");
+	root->add_child(chosen);
+	gs_overlay_test::Overlay *overlay = memnew(gs_overlay_test::Overlay);
+	root->add_child(overlay);
+	overlay->set_target(chosen);
+	overlay->refresh_now();
+	CHECK(overlay->get_target() == chosen);
+
+	// Away: the rows are n/a, and the explicit choice is not replaced.
+	root->remove_child(chosen);
+	overlay->refresh_now();
+	CHECK(overlay->get_target() == chosen);
+	CHECK(gs_overlay_test::is_null(gs_overlay_test::section(overlay->get_snapshot(), "node"), "name"));
+
+	// Back: described again without a new set_target().
+	root->add_child(chosen);
+	overlay->refresh_now();
+	CHECK(overlay->get_target() == chosen);
+	CHECK(String(gs_overlay_test::section(overlay->get_snapshot(), "node").get("name", "")) == "ChosenTarget");
+
+	// null returns to automatic discovery.
+	overlay->set_target(nullptr);
+	overlay->refresh_now();
+	if (!chosen->get_existing_renderer().is_valid()) {
+		// No renderer anywhere, so discovery finds nothing -- the old choice is gone.
+		CHECK(overlay->get_target() == nullptr);
+	}
+
+	root->remove_child(overlay);
+	memdelete(overlay);
+	root->remove_child(chosen);
+	memdelete(chosen);
+}
+
 TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A custom_viewport overlay reports that viewport's camera") {
 	SceneTree *tree = SceneTree::get_singleton();
 	if (!tree || !tree->get_root()) {

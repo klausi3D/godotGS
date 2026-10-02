@@ -47,7 +47,7 @@
 			<return type="void" />
 			<param index="0" name="node" type="Node" />
 			<description>
-				Makes the overlay describe [param node], a [GaussianSplatNode3D] or [GaussianSplatWorld3D]. Clears [member target_path].
+				Makes the overlay describe [param node], a [GaussianSplatNode3D] or [GaussianSplatWorld3D]. Clears [member target_path]. The choice is kept: while [param node] is outside the scene tree or freed, the overlay shows [code]n/a[/code] rather than describing another node, and it describes [param node] again when it returns. Pass [code]null[/code] to go back to automatic discovery.
 			</description>
 		</method>
 	</methods>
