@@ -1698,7 +1698,10 @@ class RealTreeTests(IsolatedTestCase):
         # 377 -> 375 (#1118): the renamed resident-quantization case in
         # test_scene_director_submission_scaffolding.h is [SceneTree][RequiresGPU]
         # and runs in the WorldSceneTree batch; its two skips became FAILs.
-        self.assertEqual(375, sum(len(v) for v in found.values()))
+        # 375 -> 374 (#1115): the tier-streaming-budget case in the same file
+        # became [SceneTree][RequiresGPU] and runs in the WorldSceneTree batch;
+        # its renderer-unavailable skip became a FAIL.
+        self.assertEqual(374, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:

@@ -49,8 +49,8 @@
     },
     {
       "test_case": "[GaussianSplatting][World]*",
-      "count": 3,
-      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'World node forwards desired overrides through director submission' and 'strict identity transform rejects non-identity world submissions' pass 20/20; 'World node preserves prior renderer streaming overrides when tier budgets are disabled' skips headless ('renderer unavailable') and FAILS 10/10 under --gs-gpu-test - every after==before override check at test_scene_director_submission_scaffolding.h:1717-1723 fails (filed as #1115). So no [World] lane can be added proven-green until #1115 is resolved. Background (#520 headline orphan): run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. Tracked by #819.",
+      "count": 2,
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'World node forwards desired overrides through director submission' and 'strict identity transform rejects non-identity world submissions' pass 20/20. 3 -> 2 (#1115): the third case of this family (the tier-streaming-budget case) had a stale expectation; it was corrected, tagged [RequiresGPU] and now runs in the WorldSceneTree GPU batch, so it is no longer stranded. The 2 remaining cases carry no [RequiresGPU] and are proven-green candidates for a [World] lane. Background (#520 headline orphan): run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. Tracked by #819.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
