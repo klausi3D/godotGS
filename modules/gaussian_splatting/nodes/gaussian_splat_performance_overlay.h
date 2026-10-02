@@ -163,6 +163,8 @@ public:
 	/// is the dispatcher's completed request id.
 	static Callable make_renderer_read_callable(const Ref<GaussianSplatRenderer> &p_renderer, uint32_t p_sections, bool p_want_stats, const Dictionary &p_out);
 	static uint64_t get_render_stats_reads_completed();
+	/// Issues a request id from that dispatcher without dispatching (tests only).
+	static uint64_t issue_render_stats_request_id();
 	/// Reads the custom monitors into r_in. Must run where renderer state is not
 	/// being written concurrently (see _read_renderer_side()).
 	static void read_monitors(ReportInputs &r_in, const GaussianSplatRenderer *p_target_renderer);

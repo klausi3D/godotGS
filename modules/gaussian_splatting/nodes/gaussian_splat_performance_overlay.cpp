@@ -1104,8 +1104,16 @@ Viewport *GaussianSplatPerformanceOverlay::_get_display_viewport() const {
 
 // One process-wide dispatcher: it outlives every overlay, so a read that timed
 // out can still complete (into a Dictionary nobody reads any more) safely.
-static RenderThreadDispatcher &gs_overlay_stats_dispatcher() {
-	static RenderThreadDispatcher dispatcher;
+class GsOverlayStatsDispatcher : public RenderThreadDispatcher {
+public:
+	// Issues an id the way dispatch_call_on_render_thread_blocking() does, so a
+	// test can invoke the read callable as the dispatcher would: since #1133,
+	// notify_completed() refuses ids that were never issued.
+	uint64_t issue_request_id() { return next_request_id.fetch_add(1, std::memory_order_acq_rel); }
+};
+
+static GsOverlayStatsDispatcher &gs_overlay_stats_dispatcher() {
+	static GsOverlayStatsDispatcher dispatcher;
 	return dispatcher;
 }
 
@@ -1146,6 +1154,10 @@ Callable GaussianSplatPerformanceOverlay::make_renderer_read_callable(const Ref<
 
 uint64_t GaussianSplatPerformanceOverlay::get_render_stats_reads_completed() {
 	return gs_overlay_stats_dispatcher().get_completed_request_id();
+}
+
+uint64_t GaussianSplatPerformanceOverlay::issue_render_stats_request_id() {
+	return gs_overlay_stats_dispatcher().issue_request_id();
 }
 
 void GaussianSplatPerformanceOverlay::_read_renderer_side(ReportInputs &r_in, const Ref<GaussianSplatRenderer> &p_renderer, bool p_want_stats) {

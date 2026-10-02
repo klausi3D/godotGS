@@ -434,7 +434,8 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats
 		return;
 	}
 	Dictionary out;
-	uint64_t request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
+	// An id issued as the dispatcher issues it (#1133 refuses never-issued ids).
+	uint64_t request_id = gs_overlay_test::Overlay::issue_render_stats_request_id();
 	// Exactly what RenderThreadDispatcher::dispatch_call_on_render_thread_blocking
 	// and RenderingServerDefault::_call_on_render_thread do with it:
 	// call_on_render_thread(p_callable.bind(request_id)), then .call() with no
@@ -452,7 +453,7 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats
 
 	// No target renderer: the call still completes, and still reads the monitors.
 	Dictionary no_target;
-	request_id = gs_overlay_test::Overlay::get_render_stats_reads_completed() + 1;
+	request_id = gs_overlay_test::Overlay::issue_render_stats_request_id();
 	gs_overlay_test::Overlay::make_renderer_read_callable(Ref<GaussianSplatRenderer>(), gs_overlay_test::Overlay::SECTION_ALL, false, no_target)
 			.bind(request_id)
 			.call();
