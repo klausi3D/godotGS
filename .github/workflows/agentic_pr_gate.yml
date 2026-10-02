@@ -159,6 +159,13 @@ jobs:
             python scripts/docs/check_links.py "${targets[@]}"
           fi
 
+      - name: Check doc snippets and API references against the ClassDB bindings
+        # GDScript examples, `Class.member` prose references and API-page method
+        # tables in docs/ must match the `_bind_*` bindings. No path filter: a
+        # binding rename in C++ breaks docs that the PR never touched, and that PR
+        # is the one that has to fix them. docs/architecture/ and ADRs only warn.
+        run: python tests/ci/check_doc_snippets.py
+
       - name: Run guard-only checks (GPU-free, portable)
         # GS_CI_BASE_REF is the review base the shrink-only ratchets in
         # tests/ci/check_environment_skip_marker.py compare against (#595). It

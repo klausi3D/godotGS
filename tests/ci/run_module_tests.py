@@ -36,6 +36,8 @@ CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
+DOC_SNIPPETS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_snippets.py"
+DOC_SNIPPETS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_doc_snippets.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
 REQUIRE_NULL_DEREF_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_require_null_deref.py"
 REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_null_deref.py"
@@ -901,6 +903,27 @@ def _run_doc_classes_guard() -> tuple[bool, list[str]]:
         if not output_lines:
             output_lines = [f"doc_classes completeness guard failed with exit code {code}."]
         return False, output_lines
+
+    return True, output_lines
+
+
+def _run_doc_snippets_guard() -> tuple[bool, list[str]]:
+    """Docs-vs-ClassDB guard: GDScript examples, `Class.member` prose references and
+    API-page method tables must match the `_bind_*` bindings. Runs the guard's own
+    tests first, so a checker that can no longer fail is itself a failure."""
+    output_lines: list[str] = []
+    for label, script in (
+        ("Doc snippet guard unit test", DOC_SNIPPETS_TEST_SCRIPT),
+        ("Doc snippet guard", DOC_SNIPPETS_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 
@@ -3531,6 +3554,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_doc_classes_guard,
             "doc_classes completeness guard failed.",
             "doc_classes completeness guard passed.",
+        ),
+        (
+            True,
+            _run_doc_snippets_guard,
+            "Doc snippet guard failed.",
+            "Doc snippet guard passed.",
         ),
         (
             True,
