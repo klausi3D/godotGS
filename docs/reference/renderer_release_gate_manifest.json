@@ -90,9 +90,9 @@
         "title": "Audit P0: repair opaque qlty check failures blocking renderer PRs",
         "status": "deferred",
         "goal": "Do not let opaque external qlty status block the local renderer release gate when GitHub branch protection does not require it.",
-        "rationale": "As of 2026-05-21, master branch protection reports required_status_checks=null and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
+        "rationale": "As of 2026-10-01, master branch protection requires exactly one status check, agentic-pr-gate, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
         "evidence_required": [
-          "GitHub branch protection for master has no required status checks",
+          "GitHub branch protection for master does not require qlty check (its only required status check is agentic-pr-gate)",
           "qlty check is documented as a non-blocking external signal in docs/reference/renderer-release-gates.md and .github/workflows/README.md",
           "candidate issue validation can resolve #369 through this deferred manifest classification"
         ]
@@ -129,8 +129,8 @@
     ]
   },
   "external_status_check_policy": {
-    "source": "GitHub branch protection for master checked on 2026-05-21",
-    "branch_protection_required_status_checks": [],
+    "source": "GitHub branch protection for master checked on 2026-10-01 (first checked 2026-05-21)",
+    "branch_protection_required_status_checks": ["agentic-pr-gate"],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -139,7 +139,7 @@
         "classification": "deferred",
         "reason": "The qlty check is not required by master branch protection and has no repo-owned configuration/log contract in this tree.",
         "decision_evidence": [
-          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks=null on 2026-05-21",
+          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\"] on 2026-10-01 (required_status_checks=null on 2026-05-21)",
           "repo search found no tracked qlty.toml, .qlty, .codeclimate.yml, or .codefactor.yml policy file"
         ],
         "local_gate_behavior": "Do not fail tests/ci/check_renderer_release_gates.py solely because qlty check is failing, pending, absent, or inaccessible."
@@ -150,8 +150,8 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 166,
-    "sha256": "7636391abf1b5516e53d52d91a3164d08c3e9c2b5bdd5ae48bc9cf2585468173",
-    "sha256_last_changed_by": "#1089 / #1095 slice 1 (the splat shadow pass blitted the main camera's splat depth image into every shadow-atlas rect it did not rasterize): INCREASE 165 -> 166 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_shadow_pass_isolation.h, tagged [GaussianSplatting][SceneTree][RequiresGPU] (\"Shadow pass leaves the atlas untouched when no splat is in the light's view (#1089, #1095)\"), selected by the RendererSceneTree batch (a REQUIRED batch; minimum_test_cases RAISED 2 -> 3 so a filter drift that stops selecting this case turns the gate red). It renders a main view so the rasterizer holds a camera depth image of the atlas-rect size, then runs a shadow pass whose light sees no splat into a cleared D32 atlas and asserts the pass attempts no depth copy and every texel keeps its clear value (the harness has no UniformSetCacheRD, so on the base the attempted copy fails there and only the attempt discriminates: base RED with route SHADOW_FAIL_BLIT, fix GREEN with SHADOW_SKIP_NO_CASTER_RASTERED). running_in_a_named_batch 99 -> 100, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 573c8c3fef6e1fe1934c7d38e992a65e56eacc4b6274de4a2871af11e7fc232f (count 165, #1081).",
+    "sha256": "e50e21ce055873f5b3176d5dfc7fbf693d179c27a378543ab8bbdd912e6de830",
+    "sha256_last_changed_by": "#1089 / #1095 slice 1 (the splat shadow pass blitted the main camera's splat depth image into every shadow-atlas rect it did not rasterize): INCREASE 165 -> 166 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_shadow_pass_isolation.h, tagged [GaussianSplatting][SceneTree][RequiresGPU] (\"Shadow pass leaves the atlas untouched when no splat is in the light's view (#1089, #1095)\"), selected by the RendererSceneTree batch (a REQUIRED batch; minimum_test_cases RAISED 2 -> 3 so a filter drift that stops selecting this case turns the gate red). It renders a main view so the rasterizer holds a camera depth image of the atlas-rect size, then runs a shadow pass whose light sees no splat into a cleared D32 atlas and asserts the pass attempts no depth copy and every texel keeps its clear value (the harness has no UniformSetCacheRD, so on the base the attempted copy fails there and only the attempt discriminates: base RED with route SHADOW_FAIL_BLIT, fix GREEN with SHADOW_SKIP_NO_CASTER_RASTERED). running_in_a_named_batch 99 -> 100, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: 29e3e591c1f0a9ba0a6b254e4a623ee969e9d15912f55e8281ad2fa38c314e1d (count 165, #1118).",
     "deferred_tags_any": [
       "Importer"
     ],

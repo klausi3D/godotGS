@@ -347,7 +347,8 @@ BATCHES: tuple[BatchSpec, ...] = (
     # #831 added one case: 23 cases / 297 assertions, measured 86.2 s and 92.9 s
     # wall on an RTX 3090, so the 300 s budget is still ~3.2x on a quiet box.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
-    # #719/#745: the "Explicit resident quantization rejection falls back" case is no longer
+    # #719/#745: the resident quantization case (renamed by #1118 to "Explicit resident route
+    # publishes the resident instance contract for quantized data and renders") is no longer
     # excluded. Its two render-output assertions (has_rendered_content() == true and
     # get_visible_splat_count() > 0) now PASS on a real device (RTX 3090, Vulkan). The
     # published resident quantized contract was always correct (measured: atlas holds 1 splat,

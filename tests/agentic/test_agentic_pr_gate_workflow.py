@@ -537,6 +537,28 @@ class TemplateSelfTestStepTest(WorkflowScan):
         self.assertRegex(names[0].lower(), r"template|fixture|self-test")
 
 
+class DocSnippetStepTest(WorkflowScan):
+    """The docs-vs-ClassDB guard runs on every PR, unconditionally, on the whole tree.
+
+    `tests/agentic/test_guard_wiring.py` already proves the script is wired into
+    `run_module_tests.py --guard-only`; this pins the gate's own named step, so a
+    binding rename in C++ fails the PR that makes it rather than a later docs PR.
+    """
+
+    SCRIPT = "tests/ci/check_doc_snippets.py"
+
+    def test_the_gate_executes_the_guard_unconditionally(self):
+        block = self.step_invoking(self.SCRIPT)
+        conditions = [line for line in block.splitlines() if re.match(r"^ {8}if:", line)]
+        self.assertEqual([], conditions, "the doc snippet step is conditional")
+
+    def test_the_guard_is_not_narrowed_to_a_subset_of_the_docs(self):
+        """Positional arguments restrict the scan to those files; the gate passes none."""
+        match = invocation_re(self.SCRIPT).search(self.body(self.step_invoking(self.SCRIPT)))
+        rest = self.body(self.step_invoking(self.SCRIPT))[match.end() :].split("\n", 1)[0]
+        self.assertEqual("", rest.strip(), f"the gate passes arguments to {self.SCRIPT}: {rest!r}")
+
+
 # `continue-on-error:` set to anything other than an explicit false. Written as a
 # match on the VALUE rather than on the key, so `continue-on-error: false` -- which
 # states the safe intent -- is not reported as a violation.

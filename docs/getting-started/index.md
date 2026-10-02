@@ -10,7 +10,7 @@ hide:
 
 Reach a first visible splat quickly and decide whether godotGS is the right evaluation target for your project.
 
-Alpha today. Linux and Windows nightly editor builds are published on GitHub Releases; macOS still means building from source.
+Alpha today. Every nightly on GitHub Releases has the Linux editor; the Windows editor is attached only to nightlies whose Windows build lane passed. macOS still means building from source.
 
 Visual captures for the user journey are still pending, so the linked workflow pages stay text-first until real editor screenshots are available.
 
@@ -26,17 +26,17 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
     ---
 
-    Get a Linux tarball or Windows zip from GitHub Releases. macOS users still need a source build.
+    Get a Linux tarball or, from a nightly whose Windows lane passed, a Windows zip from GitHub Releases. macOS users still need a source build.
 
     [Open downloads](downloads.md)
 
-- __Try in 5 minutes__
+- __Your first splat__
 
     ---
 
-    Use the latest Linux or Windows nightly editor for the shortest honest evaluation loop through the public evaluator.
+    Open the sample project with a nightly or self-built editor, press Play, and see a splat in the viewport.
 
-    [Open try in 5 minutes](try-in-5-minutes.md)
+    [Open your first splat](quick-start.md)
 
 - __Install the toolchain__
 
@@ -45,14 +45,6 @@ Visual captures for the user journey are still pending, so the linked workflow p
     Build the fork locally when you need a custom editor or are on macOS.
 
     [Open installation](installation.md)
-
-- __Open public evaluator__
-
-    ---
-
-    Verify the sample project default entrypoint before going deeper.
-
-    [Open public evaluator](quick-start.md)
 
 - __Check platform fit__
 
@@ -70,13 +62,13 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
     [Open import workflow](../workflows/importing.md)
 
-- __Continue in the artist lane__
+- __Continue with the guides__
 
     ---
 
-    Move into artist-first usage guidance after the initial smoke test succeeds.
+    Move into concepts, presets, lighting and the feature guides after the first splat is visible.
 
-    [Open artist workflow overview](../user/quickstart.md)
+    [Open the guides](../user/index.md)
 
 - __Unblock common failures__
 
@@ -94,7 +86,6 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
 ## Related References
 
-- [Try in 5 Minutes](try-in-5-minutes.md)
 - [Migration Guide](../migration/index.md)
 - [Project Settings Reference](../reference/project-settings.md)
 - [API Reference](../api/index.md)

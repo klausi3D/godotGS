@@ -31,10 +31,20 @@ Validators live in `scripts/agentic/` (Python 3.11, standard library only):
 - `validate_review.py` — validates a review result against the review schema.
 - `validate_program.py` — validates milestone goals, references, uniqueness, and dependency order.
 
-These are exercised by tests under `tests/agentic/` and, once merged, by the
-always-on `Agentic PR Gate` (`.github/workflows/agentic_pr_gate.yml`) — added by a
-sibling PR in this foundation series. Until that workflow lands, run the validators
-locally; do not assume CI invokes them yet.
+These are exercised by tests under `tests/agentic/` and by the always-on
+`Agentic PR Gate` (`.github/workflows/agentic_pr_gate.yml`). Its
+`agentic-pr-gate` job is the one status check that `master` branch protection
+requires. On every PR it runs:
+
+- `validate_repo_contract.py --strict-hierarchy`;
+- the `tests/agentic` suite;
+- `classify_change.py` against the PR's own diff. This fails closed when the base
+  cannot be resolved. The derived class is published and never fails the check.
+
+`validate_review.py` and `check_pr_contract.py` run only against the shipped
+`templates/`, as a self-test of the validators. No PR's task contract, declared
+risk class or path scope is checked in CI. The full split between what is
+enforced and what is process is in `docs/governance/agentic-engineering.md`.
 
 ## Rules
 

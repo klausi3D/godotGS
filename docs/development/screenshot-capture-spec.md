@@ -62,7 +62,7 @@ For each screenshot, record:
 ## Priority pages for initial capture pass
 
 - `docs/getting-started/quick-start.md`
-- `docs/user/quickstart.md`
+- `docs/user/index.md`
 - `docs/workflows/importing.md`
 - `docs/workflows/GSPLATWORLD_BAKE.md`
 - `docs/user/manual/runtime-behavior.md`

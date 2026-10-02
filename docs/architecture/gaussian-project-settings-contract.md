@@ -249,14 +249,16 @@ change.
 
 ## Known Registration Gaps
 
-The manifest also records live runtime reads that need follow-up ownership
-decisions:
+The manifest records live runtime reads that need an ownership decision.
+Status, verified against the code on 2026-10-01:
 
-- `rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame`
-- `rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size`
-- `rendering/gaussian_splatting/lod/importance_threshold`
-- `rendering/gaussian_splatting/cull/frustum_plane_slack`
+| Key | Status | Where |
+| --- | --- | --- |
+| `rendering/gaussian_splatting/streaming/max_sync_fallback_loads_per_frame` | Registered (`GLOBAL_DEF`, #473) | `GaussianSplatManager::initialize_module()` (`core/gaussian_splat_manager.cpp`) |
+| `rendering/gaussian_splatting/streaming/max_sync_fallback_queue_size` | Registered (`GLOBAL_DEF`, #473) | `GaussianSplatManager::initialize_module()` (`core/gaussian_splat_manager.cpp`) |
+| `rendering/gaussian_splatting/lod/importance_threshold` | Registered (`GLOBAL_DEF`, #473) | `register_lod_project_settings()` (`lod/lod_config.cpp`) |
+| `rendering/gaussian_splatting/cull/frustum_plane_slack` | **Still unregistered.** It is a raw read with a fallback, clamped to `1.0..8.0` | `GPUCuller::update_culling_settings()` (`interfaces/gpu_culler.cpp`) |
 
-These remain unchanged in this PR. Follow-up PRs should either register them
-with explicit public semantics and behavior tests, or internalize them so they
-are not user-facing `ProjectSettings` contracts.
+The one remaining gap, `cull/frustum_plane_slack`, needs the same decision:
+either register it with explicit public semantics and a behavior test, or
+internalize it so that it is not a user-facing `ProjectSettings` contract.
