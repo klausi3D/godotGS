@@ -1111,10 +1111,14 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection
 	g_quantization_config = saved_quantization_config;
 }
 
-TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident quantization rejection falls back to the legacy resident path") {
+// #1118: named for what it asserts. Before GS-PERF-Q80B the resident atlas rejected per-chunk
+// quantization and an explicit resident request fell back to a legacy resident path. This case pins
+// the opposite: the resident route publishes the instance contract for quantized data and renders
+// through it, with no resident_quantization_unsupported fallback.
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident route publishes the resident instance contract for quantized data and renders") {
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (rs == nullptr) {
-		MESSAGE("Skipping test - Rendering server unavailable");
+		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case; the resident route under test never runs");
 		return;
 	}
 
@@ -1166,11 +1170,11 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 
 	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
 		root->remove_child(node);
 		memdelete(node);
 		tree->process(0.0);
 		g_quantization_config = saved_quantization_config;
+		FAIL("renderer unavailable; the resident route under test never runs");
 		return;
 	}
 
@@ -1202,11 +1206,6 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	CHECK(stats.get("instance_backend_policy", String()) == String("resident"));
 	CHECK(stats.get("backend_selection_reason", String()) == String("requested_resident_policy"));
 	CHECK(String(stats.get("backend_selection_reason", String())).find("resident_quantization_unsupported") == -1);
-
-	// Direct assertions stop at "resident was requested, no streaming system was used, and no
-	// resident instance contract/remap survived publication." The current renderer diagnostics do
-	// not expose a dedicated legacy-resident route token, so the final legacy-resident path is
-	// proven indirectly by the successful render under those conditions.
 
 	root->remove_child(node);
 	memdelete(node);

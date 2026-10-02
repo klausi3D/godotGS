@@ -36,7 +36,7 @@ the full statement and what to do about it.
     <tr>
       <td>Read the maintained node-level API guide.</td>
       <td><a href="gaussian_splat_node3d.md"><code>gaussian_splat_node3d.md</code></a></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:84</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
     <tr>
       <td>Read the GaussianData API reference.</td>
@@ -104,7 +104,7 @@ the full statement and what to do about it.
     <tr>
       <td><code>gaussian_splat_node3d.md</code></td>
       <td>Maintained</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h:341</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
   </tbody>
 </table>
@@ -151,7 +151,7 @@ python3 scripts/generate_shader_docs.py --strict \
     <tr>
       <td>Node API docs drift from code.</td>
       <td>Reconcile methods, properties, and signals against <code>_bind_methods()</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:84</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
     <tr>
       <td>Generated GDScript reference includes internal/test/tooling scripts.</td>
