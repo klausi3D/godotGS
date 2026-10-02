@@ -1,7 +1,8 @@
 # ADR: Hierarchical LOD for streamed splat worlds (budgeted cut, merged nodes, node streaming)
 
-- **Status:** **Proposed — draft for a maintainer decision.** Nothing here is implemented.
-  §11 lists what needs a decision.
+- **Status:** **Accepted (maintainer, 2026-10-02)** — option D, with the four decisions
+  recorded in §11. Nothing here is implemented yet; §9 is the slice plan the implementation
+  follows.
 - **Risk class:** this file is R0 (`docs/**`). It is the **R3 design record** that
   `docs/governance/agentic-engineering.md` requires before implementation, because the
   decision changes an on-disk format (`.gsplatworld`), importer format versions, the renderer
@@ -79,7 +80,7 @@ the view distance. §5.3 shows the draw count of any flat scheme growing with wo
 | --- | --- | --- |
 | Per-chunk distance level (Octree-GS formula) | `lod/lod_config.cpp:179-199`, `streaming_visibility_controller.cpp:871-886` | Replaced by the cut (§6.4) |
 | Prefix draw `splat_count = effective_count` | `streaming_global_atlas_registry.cpp:440-444` | Kept as the mechanism for progressive node upload (§6.6) |
-| GPU chunk meta, 64 B with `lod_level` + 3 pads | `renderer/gaussian_gpu_layout.h:187-202` | A node is a chunk; one pad carries the fade factor in stage 2 |
+| GPU chunk meta, 64 B with `lod_level` + 3 pads | `renderer/gaussian_gpu_layout.h:187-202` | A node is a chunk; one pad carries the fade factor (S6) |
 | Asset LOD ranges (8 levels) | `gaussian_gpu_layout.h:151-173` | Not used; the cut emits a flat node list |
 | Atomic truncation at the cap | `depth_compute.glsl:225-227`, `compute/instance_count_clamp.glsl:44-47` | Becomes unreachable: the CPU cut guarantees `count <= cap` (§6.5) |
 | Importance metric `opacity x max scale` | `core/gaussian_importance.h:32-44` | Superseded inside nodes by `opacity x area` (§5.2) |
@@ -275,7 +276,7 @@ and `mm` are within ±10%):
 - **Size: about +20%.** A 4:1 reduction per level bounds the interior at 1/3 of the leaves
   in theory; real content lands at 18–22% because coarse levels stop shrinking once nodes are
   small and because pass-through splats are not merged. Page rounding adds about one point.
-  The node table is 64 B per node (under 0.01% of the payload).
+  The node table is 96 B per node (under 0.01% of the payload).
 - **Cost: 3–7 µs per splat in numpy**, roughly linear (20 M splats without SH: 60 s; 8 M
   with SH: 59 s).
   Ordering every node's payload by importance adds a sort per node (7.4 s for 20 M splats in
@@ -319,8 +320,10 @@ against the real implementation; those, not this table, are the acceptance numbe
 
 ## 6. Decision
 
-Adopt **D, hierarchical LOD**, staged as in §9. The parts below are normative for stage 1
-unless marked *stage 2+*.
+**Accepted 2026-10-02: D, hierarchical LOD, is the alpha architecture**, staged as in §9. The
+parts below are normative for stage 1 unless marked *stage 2+*. The maintainer's four decisions
+are recorded in §11 and folded into §6.3 (per-node merge choice), §6.4 (`tau` is a setting),
+§6.7 (cross-fade in the alpha), §6.8 and §9 (resident route in the alpha).
 
 ### 6.1 Tree
 
@@ -369,16 +372,42 @@ unless marked *stage 2+*.
     merged capacity, inflate the two largest axes by up to 1.6x, then `alpha = min(M / C, 0.99)`;
   - `sat`, a saturating variant: inflation ≤ 1.25x and `alpha = 1 - exp(-M / C)`, which models
     children stacked in depth.
-- **Stage-1 default: `sat`.** It is the best rule on surfaces and at coarse cuts, which is
-  where thinning loses coverage, and it beats `mass` and `mm` everywhere (§5.2). Its measured
-  weakness is distant foliage (up to −8 dB against importance selection).
-- **Importance selection ships beside it** as a second bake rule behind an import option: the
-  same buckets, but each cell keeps its most important child unchanged. It is a few dozen lines
-  on top of the merge. S2's visual gate on the three scans confirms or flips the default.
-- **Per-node choice (stage 2):** pick merge or selection per node by comparing both against the
-  full-detail subtree at the node's selection distance during the bake. Like every bake change,
-  it is a re-import, not a format or runtime change, because both rules emit plain splats into
-  the same node payload.
+- **`sat` is the merge rule.** It beats `mass` and `mm` in every row of §5.2.
+- **Decision 2 (2026-10-02): the representation is chosen per node at bake time.** Every
+  interior node is built twice, and the bake keeps the candidate with the lower error:
+  - **`merged`**: the `sat` merge above;
+  - **`selected`**: importance selection. The node keeps the same number of splats as the
+    merged candidate, taken from its children's payloads as original splats: each child gets
+    a share proportional to its splat count and keeps its top splats by
+    `opacity x sigma_a x sigma_b` (ties by index). This is the A-area method of §5.2.
+- **The error metric.** `E(candidate)` compares the candidate with the node's **reference**,
+  the union of its children's payloads (what the cut shows when it refines this node):
+  - rendered by the bake's own small CPU splat rasterizer (front-to-back alpha compositing,
+    SH evaluated per view, deterministic order), **orthographic**, from the **six axis
+    directions**, with a **pixel size equal to the node's `eps`**, the scale at which the node
+    is shown when it is accepted at `tau` = 1 px. Images are `extent / eps` pixels on a side,
+    about 64 to 128;
+  - `E` = the mean over the six views and all pixels of the squared difference of
+    premultiplied RGBA (`rgb x alpha` and `alpha`), so a hole and a colour error both count;
+  - the lower `E` wins; a tie (within 1%) goes to `merged`, which preserves coverage better
+    on surfaces (§5.2).
+
+  The reference is the children, not the full-detail leaves, so the cost per node stays
+  bounded (at most eight children of at most 16,384 splats). Errors therefore compound by
+  level; comparing against leaves is a stage-2 refinement.
+- **Cost (estimate, unmeasured).** Per interior node the bake rasterizes the reference (about
+  4x the node's count) and two candidates (1x each), six times: about 36 splat-renders per
+  interior splat at a few pixels each. Interior splats are ~20% of leaves (§5.5), so this is
+  of the order of 100 pixel blends per source splat, which in C++ is expected to add tens of
+  percent to the merge bake, not multiples. S1 must measure it; **the acceptance limit is that
+  the per-node choice at most doubles the bake time** of the merge alone.
+- **Quality acceptance (S1).** Re-run the §5.2 rows with the per-node choice. In every row it
+  must be within 0.5 dB of the better of `sat` and A-area, or better (test 12).
+- **How the choice is stored:** in the node record (§7): a 2-bit representation kind
+  (`leaf`, `merged`, `selected`, one reserved), the chosen candidate's `E` and the rejected
+  candidate's `E` as float32, and a file-level `bake_rule_version`. The renderer ignores all of
+  it: both candidates are plain splats in the same payload layout. It exists for diagnostics,
+  for the visual gate, and so a later bake can re-decide only the nodes whose margin was small.
 
 ### 6.4 The cut
 
@@ -396,8 +425,12 @@ unless marked *stage 2+*.
 - The cut replaces `update_chunk_lod_parameters` and the frustum chunk scan for HLOD content.
   Cost is O(visited nodes): the cut, its parents and their culled children, not O(total
   chunks) (#320).
-- `tau` defaults to 1 px; `lod_bias` scales it. The splat budget defaults to the existing
-  `quality/max_splat_count`.
+- **Decision 3 (2026-10-02): `tau` is a setting, not a constant.** A project setting
+  (`rendering/gaussian_splatting/lod/hlod_tau_px`, in the settings manifest) with a per-node
+  override on `GaussianSplatWorld3D`; `quality/lod_bias` multiplies it. Its **default is not
+  fixed by this ADR**: S3 runs a real A/B at 1 px vs 2 px (test 11) and the maintainer picks the
+  default from that data. Until then the provisional value is 1 px. The splat budget is the
+  existing `quality/max_splat_count`.
 
 ### 6.5 Never truncate (#1131)
 
@@ -439,28 +472,41 @@ unless marked *stage 2+*.
 
 ### 6.7 Transitions
 
-- **Stage 1:** a hard switch with the hysteresis of §6.4. §5.6 measures the size of that pop.
-- **Stage 2:** per-node **opacity cross-fade** over an error band (the node fades in while its
-  projected error moves from `tau x h` to `tau`), with a fade factor per node in
-  `ChunkMetaGPU.pad0` applied where splat opacity is read. It is the only fade that measured
-  better than a hard switch (§5.6). It needs a shader change and both levels resident during
-  the fade, which is why it is not in stage 1.
+**Decision 4 (2026-10-02): cross-fade transitions are in the alpha** (slice S6).
+
+- Per-node **opacity cross-fade** over an error band: while a node's projected error moves from
+  `tau x h` to `tau`, the cut emits the node and its children together, the children with
+  fade `t` and the node with `1 - t`. It is the only fade that measured better than a hard
+  switch (§5.6: about 9 dB smaller worst step); dithered and importance-prefix fades did not.
+- The fade factor lives in a spare `ChunkMetaGPU` word (`pad0`, `gaussian_gpu_layout.h:200`)
+  and must reach the place where splat opacity is read, which today knows only the splat's
+  instance and atlas index. S6 therefore extends the per-splat reference (or adds a node id to
+  it) and updates the layout-sync guard. That is the R3 shader change of this ADR.
+- **Budget:** both levels are drawn during a fade, so the cut counts both against the splat and
+  byte budgets. Under a binding budget the band narrows (fewer nodes fade at once); it never
+  truncates.
+- Without S6 the cut switches hard with the hysteresis of §6.4.
 
 ### 6.8 The resident route
 
-The resident route bakes the same tree at import, keeps every node resident (+18–21% VRAM,
-§5.5) and runs the same cut. `max_splat_count` then means the same on both routes, which
-resolves #1131's second inconsistency. The #420 importance clamp is retired in the same slice.
+**In the alpha (decision 4, 2026-10-02)** as slice S5. The resident route bakes the same tree at
+import, keeps every node resident (+18–21% VRAM, §5.5) and runs the same cut, so it **honours
+the splat budget** the same way the streaming route does. `max_splat_count` then means the same
+on both routes, which resolves #1131's second inconsistency. The #420 importance clamp is
+retired in the same slice.
 
 ## 7. Format and version bumps
 
 - **`.gsplatworld` v2** (`kWorldVersion` 1 → 2, `io/gaussian_splat_world_io.cpp:24`; the
   loader rejects any other version at `:541`):
   - header flag `kFlagHasHlod` (next free bit after `kFlagResidentPayload`, `:38`);
-  - a **node table**, 64 B per node: bounds centre and radius, AABB, geometric error `eps`,
-    parent index, first child and child count, payload first splat and count, height, flags,
-    and reserved words for stage-2 fields (per-node SH degree, quantization block,
-    transition data);
+  - a **node table**, 96 B per node: bounds centre and radius, AABB, geometric error `eps`,
+    parent index, first child and child count, payload first splat (64-bit, for billions of
+    splats) and count, height, flags with the **2-bit representation kind** (`leaf`, `merged`,
+    `selected`, reserved), the chosen and the rejected candidate's error `E` (float32 each),
+    and 16 reserved bytes for stage-2 fields (per-node SH degree, quantization block);
+  - a header field `bake_rule_version`, so a later bake rule can re-bake on import without a
+    format change;
   - the gaussian payload **reordered so every node is contiguous**, leaves first, then
     interior nodes by level, each importance-ordered. The v1 per-chunk index lists
     (`:425-469`) are not written; they forced scattered reads per chunk.
@@ -508,10 +554,22 @@ Each item names the slice that lands it (§9).
    truncation events, with GPU evidence.
 8. **Visual gate on real scans (S2):** §5.2 re-run against the real implementation on the
    three scans; thresholds are set from that run, never lowered to pass.
-9. **Transitions (stage 2):** §5.6's pop measure on a dolly; the per-step change with fading
-   must be at most half the hard switch.
+9. **Transitions (S6):** §5.6's pop measure on a dolly across several switch distances; the
+   worst per-frame step with the cross-fade must be at most half that of the hard switch, and
+   the static-frame oracle (test 1) must still read 0 with a camera parked inside a fade band.
 10. **Resident route (S5):** with `max_splat_count` below the atlas, the drawn count equals the
     cut's count and the flicker oracle reads 0.
+11. **`tau` A/B (S3 acceptance, decision 3).** On the corridor lane and the three real scans,
+    run `tau` = 1 px and `tau` = 2 px and report, per configuration, from the engine (not a
+    simulation): **allocated VRAM** (atlas pages in use x page bytes, and
+    `vram_device_buffers_mb`), **residency** (`residency_ratio` and its minimum), **FPS**
+    (frame time p50 / p95), **quality** (§5.2's region-of-change PSNR / SSIM against full
+    detail at fixed views) and **transition smoothness** (worst per-frame step on a dolly, with
+    S6's cross-fade if it has landed, otherwise hard switches, stated). S3 is not accepted
+    without this table; the maintainer sets the default from it.
+12. **Per-node merge choice (S1, decision 2):** the §5.2 rows re-run with the per-node choice
+    are within 0.5 dB of the better of `sat` and A-area in every row; the choice is
+    deterministic; the bake with the choice takes at most twice the merge-only bake.
 
 Single-vendor blind spot: all GPU evidence so far is NVIDIA. Atomic order differs by vendor,
 which is exactly why the oracle must pass by construction (no atomic decides membership), not
@@ -525,26 +583,27 @@ One PR per slice, each against `master`, each stating its base SHA.
 
 | Slice | Content | Risk | Size (estimate) |
 | --- | --- | --- | --- |
-| **S1** | Format v2 + bake: `core/` tree builder, `sat` merge and importance-selection rules (pure functions, host-testable), node table, contiguous importance-ordered payload, v1 → v2 in the world importer, bake in `export_world_resource`; tests 3–4 | R3 | ~1,800 LOC + ~900 LOC tests |
-| **S2** | Runtime tree + CPU cut with budgets and hysteresis, nodes go through today's chunk residency unchanged (no streaming change yet); `max_visible_splats` sized from the cut; tests 1, 2, 8 | R3 | ~1,200 + ~700 |
-| **S3** | Node streaming on #1134: whole-run admission, progressive prefix upload, pinned top levels, coarse-first requests, ancestor fallback, eviction priority; tests 5–7 | R3 | ~900 + ~600 |
-| **S4** | Deterministic fallback for tree-less content (§6.5 last bullet) and the telemetry: cut size, depth histogram, budget-bound frames | R2 | ~300 + ~200 |
-| **S5** | Resident route: bake at PLY/SPZ import (format bumps), all nodes resident, same cut, retire the #420 clamp; test 10 | R3 | ~800 + ~500 |
+| **S1** | Format v2 + bake: `core/` tree builder, `sat` merge, importance selection, the **per-node choice** with its CPU rasterizer and error metric (pure functions, host-testable), node table with representation kind and errors, contiguous importance-ordered payload, v1 → v2 in the world importer, bake in `export_world_resource`; tests 3, 4, 12 | R3 | ~2,400 LOC + ~1,200 LOC tests |
+| **S2** | Runtime tree + CPU cut with budgets and hysteresis, the `tau` setting (manifest, node override), nodes go through today's chunk residency unchanged (no streaming change yet); `max_visible_splats` sized from the cut; tests 1, 2, 8 | R3 | ~1,300 + ~800 |
+| **S3** | Node streaming on #1134: whole-run admission, progressive prefix upload, pinned top levels, coarse-first requests, ancestor fallback, eviction priority; tests 5–7, and the **`tau` A/B (test 11) as an acceptance criterion** | R3 | ~1,100 + ~700 |
+| **S4** | Deterministic fallback for tree-less content (§6.5 last bullet) and the telemetry: cut size, depth histogram, budget-bound frames, fade-band size | R2 | ~300 + ~200 |
+| **S5** | Resident route: bake at PLY/SPZ import (format bumps), all nodes resident, same cut honouring the splat budget, retire the #420 clamp; test 10 | R3 | ~800 + ~500 |
+| **S6** | Cross-fade transitions: fade band in the cut, fade factor in `ChunkMetaGPU`, carried to where opacity is read, layout-sync guard; test 9 | R3 | ~700 + ~400 |
 
-Stage 1 is therefore **about 5,000 LOC of production code and 2,900 of tests over five PRs**,
-four of them R3. The levels are not fixed at 2–3: the tree is as deep as the content needs
+Stage 1 is therefore **about 6,600 LOC of production code and 3,800 of tests over six PRs**,
+five of them R3. It was ~5,000 + 2,900 over five PRs before decisions 2 and 4 added the
+per-node choice and the cross-fade. S6 can land after S2, in parallel with S3. The levels are not fixed at 2–3: the tree is as deep as the content needs
 (holzbank 4 levels, corridor 8, baum2 16 because of far floaters), which costs nothing extra.
 S1 alone does not change rendering; S2 is the slice that closes #1131; S3 makes the corridor fit
 its budget.
 
 ### Stage 2+ — refinements that need no rebuild
 
-- **Transitions** (§6.7): per-node fade factor in a spare `ChunkMetaGPU` word
-  (`pad0`, `gaussian_gpu_layout.h:200`), applied where opacity is read.
 - **Foreshortening-aware error** (§5.3): projected node height instead of an isotropic radius.
-- **Better merges:** per-node choice between merge and importance selection, and distillation
-  against renders of the full-detail subtree (the full detail is the teacher, so no training
-  views are needed). Re-bake only.
+- **Better bakes:** the per-node error against the full-detail leaves instead of the
+  children, more candidate rules, and distillation against renders of the full-detail subtree
+  (the full detail is the teacher, so no training views are needed). Re-bake only; the node
+  record already carries the representation kind and both errors.
 - **GPU cut** if CPU traversal shows up in profiles at billions of splats.
 - **Compression:** quantized node payloads (the 80 B path) and per-level SH degree reduction.
 - **Out-of-core bake** for worlds that do not fit in RAM, stitched at the top levels.
@@ -582,19 +641,20 @@ its budget.
 What carries over: moment-matched covariance merging (as specified in §6.3, from H3DGS) and
 the idea of a budget-driven selection, done here by the cut.
 
-## 11. Decisions needed from the maintainer
+## 11. Maintainer decisions (2026-10-02)
 
-1. **Accept D** (HLOD) as the alpha design, with stage 1 = S1–S5 (~5k LOC, four R3 PRs).
-2. **The merge rule** for the stage-1 bake (§6.3): `sat` merge as the default with importance selection as an import option
-   (recommended), or the reverse. Overall it is a near tie (mean shortfall from the best about
-   2 dB for each); `sat` wins on surfaces and coarse cuts, selection on distant foliage.
-3. **Default `tau`** (1 px, visually lossless, vs 2 px, which is what lets the corridor fit
-   1 GiB without a splat budget) and whether the corridor lane keeps its 120,000 cap, which
-   binds by about 50x and under the cut means "draw a coarse world".
-4. **Stage 2 transitions inside or outside the alpha** (§6.7). Stage 1 ships hard switches
-   with hysteresis.
-5. **Whether S5 (the resident route) is alpha-blocking**, or the resident route keeps the
-   #420 clamp for the alpha and only stops ignoring the cap.
+1. **Accepted: HLOD (option D) is the alpha architecture.**
+2. **Merge rule: chosen per node at bake time.** Both `sat` and importance selection are
+   computed and the lower-error one is kept; the metric, its cost and the per-node storage are
+   in §6.3 and §7. The draft had offered `sat` as a default with selection as an import
+   option; §5.2's near tie is why the choice is made per node instead.
+3. **`tau` is a setting, not fixed now.** S3's acceptance includes a real A/B at 1 px vs 2 px
+   on the corridor and the real scans (test 11); the maintainer picks the default from it.
+4. **In the alpha: cross-fade transitions (S6) and the resident route (S5)**, which uses the
+   tree and honours the splat budget. Stage 1 grows to six PRs (§9).
+
+Still open, not blocking stage 1: whether the corridor lane keeps its 120,000 cap, which binds
+by about 50x and under the cut means "draw a coarse world"; S3's A/B data informs it.
 
 ## 12. What was not verified
 
@@ -604,6 +664,8 @@ the idea of a budget-driven selection, done here by the cut.
   Other content (interiors, thin structures) may rank the rules differently.
 - The **residency simulation** models #1134's allocator as bytes only; fragmentation and the
   per-frame eviction budget are not simulated (that is test 5's job).
-- **Bake times** are numpy on one core; the C++ bake is unmeasured.
+- **Bake times** are numpy on one core; the C++ bake is unmeasured. The per-node choice
+  (decision 2) was **not prototyped**: its cost in §6.3 is an estimate, and its quality is
+  bounded only by the two measured candidates. Test 12 is where both are established.
 - The **reference dropout** in §5.1 is attributed to the tile-capacity drop by its shape only.
 - NVIDIA RTX 3090 only.
