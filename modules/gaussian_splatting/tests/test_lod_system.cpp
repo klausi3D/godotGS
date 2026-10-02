@@ -3,6 +3,7 @@
 #include "../core/gaussian_data.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../lod/lod_config.h"
 #include "../core/gaussian_splat_manager.h"
 #include "core/os/os.h"
 #include "core/math/random_number_generator.h"
@@ -609,6 +610,33 @@ TEST_CASE("[GaussianSplatting] Streaming load distance limit is the renderer's d
 
     renderer.unref();
     memdelete(manager);
+}
+
+TEST_CASE("[GaussianSplatting] LOD max-distance setting changes refresh the draw cut that streaming follows (#1087)") {
+    // A renderer without a lod_max_distance override follows the project/tier value
+    // (g_lod_config). Streaming reads the effective distance from the config every
+    // frame; the depth pass reads lod_cached_*. A runtime change of the setting must
+    // move both, or streaming and drawing disagree.
+    Ref<GPUCuller> culler;
+    culler.instantiate();
+    GPUCuller::CullingConfig &config = culler->get_config();
+    config.lod_enabled = true;
+    config.lod_bias = 1.0f;
+    config.lod_max_distance_override = false;
+    const float saved_max_distance = g_lod_config.max_distance;
+
+    g_lod_config.max_distance = 123.0f;
+    culler->update_culling_settings();
+    culler->update_lod_cache();
+    CHECK(config.lod_cached_max_distance == doctest::Approx(123.0f));
+
+    g_lod_config.max_distance = 77.0f;
+    culler->update_culling_settings();
+    culler->update_lod_cache();
+    CHECK(config.lod_cached_max_distance == doctest::Approx(77.0f));
+    CHECK(config.lod_cached_max_distance == doctest::Approx(GPUCuller::compute_effective_max_distance(config)));
+
+    g_lod_config.max_distance = saved_max_distance;
 }
 
 TEST_CASE("[GaussianSplatting][SceneTree] Hierarchical LOD query keeps index and weight cardinality") {
