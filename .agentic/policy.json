@@ -120,8 +120,10 @@
           "tests/ci/run_module_tests.py",
           "tests/ci/check_renderer_release_gates.py",
           "tests/ci/check_gs_pre_upscale_hook.py",
+          "tests/ci/check_doc_snippets.py",
           "tests/ci/validate_automation.py",
           "tests/ci/run_gpu_harness.py",
+          "tests/ci/check_project_settings_reference.py",
           "tests/runtime/run_runtime_validation.py"
         ]
       },

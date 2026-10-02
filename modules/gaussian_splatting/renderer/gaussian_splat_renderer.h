@@ -699,10 +699,12 @@ public:
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
 #endif
-    void _set_max_splats_on_render_thread(int p_count, uint64_t p_request_id);
-    void _set_gaussian_data_on_render_thread(const Ref<::GaussianData> &p_data, uint64_t p_request_id);
-    void _set_file_backed_payload_source_on_render_thread(const Ref<ChunkPayloadSource> &p_source, uint64_t p_request_id);
-    void _force_sort_for_view_on_render_thread(const Transform3D &p_world_to_camera_transform, uint64_t p_request_id);
+    // p_request_id comes FIRST: see the argument-order contract on
+    // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().
+    void _set_max_splats_on_render_thread(uint64_t p_request_id, int p_count);
+    void _set_gaussian_data_on_render_thread(uint64_t p_request_id, const Ref<::GaussianData> &p_data);
+    void _set_file_backed_payload_source_on_render_thread(uint64_t p_request_id, const Ref<ChunkPayloadSource> &p_source);
+    void _force_sort_for_view_on_render_thread(uint64_t p_request_id, const Transform3D &p_world_to_camera_transform);
     RenderingDevice *_acquire_rendering_device();
     RenderingDevice *_get_main_rendering_device() const;
     bool _ensure_rendering_device(const char *p_context);
@@ -1994,6 +1996,10 @@ public:
     bool test_is_render_thread_dispatch_path_active() const;
     void test_notify_render_thread_dispatch_completed(uint64_t p_request_id);
     uint64_t test_get_render_thread_dispatch_completed_request_id() const;
+    // Installs p_dispatcher as this renderer's render-thread dispatcher and
+    // returns the previous one. The caller must swap the original back before
+    // the renderer is destroyed (the destructor dispatches teardown).
+    std::unique_ptr<IRenderThreadDispatcher> test_swap_render_thread_dispatcher(std::unique_ptr<IRenderThreadDispatcher> p_dispatcher);
     bool test_shadow_pass_guard_restores_after_scope();
 #endif // TESTS_ENABLED
 

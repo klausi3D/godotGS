@@ -6,16 +6,11 @@ systems plus independent reviewers verify, and a human decides the merge.
 
 This page is the human-readable source of truth for roles and risk classes. A
 machine-readable mirror lives under `.agentic/` (`policy.json`, `ownership.json`,
-schemas, templates, roles) and is enforced by `scripts/agentic/`. See also
-[`AGENTS.md`](../../AGENTS.md), [contribution standards](contribution-standards.md),
+schemas, templates, roles), validated by `scripts/agentic/`. Most of what this
+page describes is process, not tooling: see
+[What is enforced and what is process](#what-is-enforced-and-what-is-process). See
+also [`AGENTS.md`](../../AGENTS.md), [contribution standards](contribution-standards.md),
 and the [review policy](review-policy.md).
-
-> **Rollout note.** This foundation is introduced as a coordinated series of pull
-> requests. The machine-readable control plane (`.agentic/`, `scripts/agentic/`)
-> and the always-on required gate (`.github/workflows/agentic_pr_gate.yml`) are
-> added by sibling PRs in the same series. References to those paths below describe
-> the target design and resolve once the series has been merged; until then, follow
-> the parts already present on your branch.
 
 ## Principles
 
@@ -101,21 +96,41 @@ base SHA** so a reviewer never grades a moving base or only the top-of-stack dif
 
 Risk drives required roles, checks, and evidence. The machine-readable definition
 is `.agentic/policy.json`; `scripts/agentic/classify_change.py` derives the class
-from the changed paths and **fails closed to R3** for unrecognized sensitive paths.
+from the changed paths:
+
+- Each path takes the highest class among the `classification.rules` globs it
+  matches, and the PR takes the highest class among its paths.
+- **Any path that matches no rule is R3** (`classification.default_unclassified`).
+  This covers every unlisted path, not only sensitive ones: for example
+  `scripts/docs/*.py`, other `scripts/*.py` outside `scripts/agentic/`,
+  `.gitignore` and `LICENSE.txt` all classify as R3.
+- **A diff that touches `.agentic/policy.json` is forced to the top class**, R3
+  (`SELF_REFERENTIAL_PATHS` in the classifier), although the rules list
+  `.agentic/**` as R0. The rest of `.agentic/` stays R0.
+- An empty changed-path set is R3, and renames are reported as both the deleted
+  source and the added destination (`--no-renames`).
+
+The "Required process" column is policy. Only the class derivation is enforced
+by tooling; see
+[What is enforced and what is process](#what-is-enforced-and-what-is-process).
 
 | Class | Scope | Required process |
 | --- | --- | --- |
 | **R0** | Docs and agentic governance only. | Deterministic checks + one review. |
 | **R1** | Local module/test changes with no GPU/persistence/engine risk. | Guards + targeted tests + correctness review. |
 | **R2** | Renderer, shaders, compute, GPU sort, streaming, performance, VRAM. | R1 + GPU/performance review + runtime/GPU evidence. |
-| **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat. | ADR before implementation + two reviews + CODEOWNER and human approval. |
+| **R3** | Godot-engine delta outside the module; persistence/file formats; release/security workflows; public API/compat; any unclassified path. | ADR before implementation + two reviews + CODEOWNER and human approval. None of these is enforced by branch protection (0 required approvals, code-owner review off). |
 
 **What CI actually does with the risk class.** The required `agentic-pr-gate` check
 derives the class from the PR's own diff (`classify_change.py --base-ref <PR base>`)
 and publishes it, together with that class's `evidence_requirements` and
 `deterministic_checks`, to the job summary. The derivation fails closed: an
-unresolvable base ref fails the check, and an empty changed-path set is classified as
-`classification.default_unclassified` (R3), not R0.
+unresolvable base ref fails the check, an unreadable base copy of
+`.agentic/policy.json` fails the check (the gate classifies with the base copy, never
+the PR's own), and an empty changed-path set is classified as
+`classification.default_unclassified` (R3), not R0. The class itself is **not** a
+failure condition: an R3 PR passes the gate exactly as an R0 PR does, and nothing
+checks that the class's evidence or reviews were produced.
 
 An author's **self-declared** class is *not consumed by CI today*. The
 higher-of-the-two rule is implemented in `check_pr_contract.py`, but that script only
@@ -127,6 +142,54 @@ class is a review-time convention, not an enforced one, and per-PR scope
 Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
 [GitHub settings](github-settings.md) and in `.github/workflows/README.md`
 (`GS-AUDIT-TEST-001`).
+
+## What is enforced and what is process
+
+Live branch protection for `master`, read with
+`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-10-01: one
+required check (`agentic-pr-gate`), `enforce_admins: true`, conversation resolution
+required, `required_approving_review_count: 0`, `require_code_owner_reviews: false`,
+no rulesets. [GitHub settings](github-settings.md) has the full table. That API,
+not this page, is the source of truth.
+
+**Enforced by tooling** (a PR cannot merge while these fail):
+
+- A pull request is required, every review conversation must be resolved, and
+  force pushes and branch deletion are refused (branch protection).
+- The `agentic-pr-gate` check passes. It runs the automation-validator tests and
+  the workflow contract check, `validate_repo_contract.py --strict-hierarchy` (the
+  control plane is consistent, and the AGENTS.md files and the
+  `docs/governance/` pages it lists exist), the `tests/agentic` suite, the
+  documentation link check, and `run_module_tests.py --guard-only`.
+- The risk class is derived from the PR's own diff against the base policy, and
+  the derivation fails closed (above). The class is published, not acted on.
+
+**Process only** (no setting or check enforces it; reviewers and the merging
+human uphold it):
+
+- Every review requirement in the risk-class table: one review for R0, the
+  correctness review, the GPU/performance review for R2+, and for R3 the two
+  reviews and the CODEOWNER and human approval. With 0 required approvals and
+  code-owner review off, a PR with no approval merges once the gate is green, its
+  conversations are resolved, and no "Request changes" review is outstanding.
+  `required_pull_request_reviews` is enabled, so such a review from someone with
+  write access holds the PR until that reviewer approves or the review is
+  dismissed, and resolving its threads does not clear it. Today the only
+  collaborator is the repository owner, who cannot request changes on a PR they
+  authored, so on owner-authored PRs no one can place this hold.
+  `.github/CODEOWNERS` names owners but does not block.
+- The R3 design record (ADR or design-change issue) before implementation, and the
+  evidence each class lists (`evidence_requirements`). `adr_required` and the
+  rollback plan are checked by `check_pr_contract.py`, which runs only against the
+  shipped fixture.
+- The declared risk class, per-PR scope (`owned_paths` / `forbidden_paths`), and
+  task and review contracts.
+- Role separation (planner, implementer, verifier, reviewers), one task per branch
+  and worktree, recorded base SHAs, and the stacked-PR base statement.
+- "A human owns the merge": nothing stops an account with write access, including
+  an agent using one, from merging a PR whose gate is green.
+- Not weakening guards, baselines or thresholds. Some individual guards are
+  shrink-only ratchets, but no general check exists.
 
 ## Legacy coordination data
 

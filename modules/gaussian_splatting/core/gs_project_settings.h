@@ -270,6 +270,39 @@ static inline float compute_wind_time_seconds(const GSWindSettings &p_settings, 
 	return float(p_animation_time_seconds * double(MAX(p_settings.time_scale, 0.0f)));
 }
 
+/**
+ * @brief The six `rendering/gaussian_splatting/lighting/*` settings. #851.
+ *
+ * THE reader for the group. The baseline parameter producer and the lighting
+ * signature hash each kept a hand-written copy of this list, and the painterly
+ * producer read none of it, so under painterly all six settings were silently
+ * inert. Read it here and write it with apply_lighting_to_render_params()
+ * (renderer/tile_render_types.h) so the parameters and the render-cache
+ * signature cannot disagree about a value.
+ */
+struct GSLightingSettings {
+	float direct_light_scale = 0.5f;
+	float indirect_sh_scale = 1.0f;
+	float shadow_strength = 1.0f;
+	float shadow_receiver_bias_scale = 0.2f;
+	float shadow_receiver_bias_min = 0.0f;
+	float shadow_receiver_bias_max = 0.0f;
+};
+
+static inline GSLightingSettings get_lighting_settings(ProjectSettings *p_ps) {
+	GSLightingSettings settings;
+	if (!p_ps) {
+		return settings;
+	}
+	settings.direct_light_scale = get_float(p_ps, "rendering/gaussian_splatting/lighting/direct_light_scale", settings.direct_light_scale);
+	settings.indirect_sh_scale = get_float(p_ps, "rendering/gaussian_splatting/lighting/indirect_sh_scale", settings.indirect_sh_scale);
+	settings.shadow_strength = get_float(p_ps, "rendering/gaussian_splatting/lighting/shadow_strength", settings.shadow_strength);
+	settings.shadow_receiver_bias_scale = get_float(p_ps, "rendering/gaussian_splatting/lighting/shadow_receiver_bias_scale", settings.shadow_receiver_bias_scale);
+	settings.shadow_receiver_bias_min = get_float(p_ps, "rendering/gaussian_splatting/lighting/shadow_receiver_bias_min", settings.shadow_receiver_bias_min);
+	settings.shadow_receiver_bias_max = get_float(p_ps, "rendering/gaussian_splatting/lighting/shadow_receiver_bias_max", settings.shadow_receiver_bias_max);
+	return settings;
+}
+
 static inline const char *get_streaming_route_policy_token(int p_policy) {
 	switch (p_policy) {
 		case GS_ROUTE_RESIDENT:

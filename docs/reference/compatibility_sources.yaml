@@ -1,3 +1,8 @@
+# Date the evidence below was last reviewed against the workflows and published
+# releases. Update it whenever you re-verify or change a row; the generated matrix
+# shows it instead of a build date, so regeneration stays deterministic.
+evidence_as_of: "2026-10-01"
+
 status_levels:
   unsupported: "The build system rejects the platform."
   build-supported: "The build system accepts the platform and the repository can compile it."
@@ -9,14 +14,16 @@ status_levels:
 platforms:
   Windows:
     state: editor-tested
-    public_binaries: "Conditional nightly Windows editor zips (godotgs-windows-x86_64-<tag>.zip) are published when the self-hosted Windows build succeeds for that release run."
+    public_binaries: "Nightly prereleases attach the Windows editor zip (godotgs-windows-x86_64-<tag>.zip) and the Windows export template zip only when build_windows, build_windows_export_template and export_smoke_windows all succeeded in that release run. When build_windows fails, the nightly ships Linux-only (nightly-20260930, run 36692364878). No stable v* release is published yet."
     evidence:
       - "SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts windows."
-      - "Gaussian Production Gates builds a Windows editor and runs windows-vulkan runtime validation in .github/workflows/gaussian_production_gates.yml."
-      - "Fresh PR evidence: PR #368 Gaussian Production Gates run 26128105716 passed the blocking Windows streaming-gpu-ci runtime gate and uploaded runtime-validation-report."
-      - "Release Builds compiles the Windows editor but publishes it conditionally: publish_release runs when Linux succeeds, downloads Windows only if build_windows succeeded, and uses fail_on_unmatched_files: false."
+      - "Gaussian Production Gates builds a Windows editor and runs the windows-vulkan runtime validation, including the blocking streaming-gpu-ci profile, in its module-validation job (.github/workflows/gaussian_production_gates.yml)."
+      - "Newest green master push run of that job as of the evidence review date: Gaussian Production Gates run 36799027578 (2026-10-01, commit eff00db450c); earlier green ones include runs 36309892055 (2026-09-27) and 34744498012 (2026-09-13). Its runtime-validation-report artifact records streaming-gpu-ci on windows-vulkan as passed=3/3 (GPU Streaming Stress, World Streaming Gate, Streaming Residency API); the tier_1m p95/avg frame-time ratio is an unenforced advisory in that report (#883)."
+      - "Release Builds publish_release (.github/workflows/release_builds.yml) needs build_linux, build_windows, finite_math_guard, release_candidate_gate and export_smoke_windows, and asserts build_linux, finite_math_guard and release_candidate_gate succeeded. On the nightly channel it also requires export_smoke_windows to have succeeded unless build_windows did not succeed; the stable channel always requires it."
+      - "The shipped bytes are re-verified against the release_candidate_gate attestation, which requires the Windows editor and export template zips whenever build_windows succeeded. fail_on_unmatched_files is true only on the stable channel."
+      - "Published nightlies: nightly-20260926 (run 36228230720) carries the Windows editor and export template zips; the 2026-09-27 run 36306226275 built Windows but failed export_smoke_windows, so no nightly was published that day; nightly-20260928 to nightly-20260930 (runs 36399911439, 36545382430, 36692364878) are Linux-only because build_windows failed at the self-hosted runner's Configure Git safe.directory setup step."
       - "The production evidence route in tests/ci/collect_production_evidence.ps1 exercises non-headless Vulkan runtime scripts on Windows."
-    notes: "Windows is the strongest in-repo validation lane, but the current fresh green evidence is from PR #368 rather than older failing master runs. Windows nightly assets are current public artifacts when that lane succeeds; they are not a workflow guarantee for every publish. No stable v* release is published yet."
+    notes: "Windows is the strongest in-repo validation lane. Windows nightly assets exist only for runs where the Windows build, its export template and the export smoke test all pass; they are not a guarantee for every nightly, and a Windows build that passes but fails the export smoke test blocks that night's publish on every platform. The Release-CI Runtime Evidence lane last passed in run 36314264682 (2026-09-27); its scheduled runs on 2026-09-28, 2026-09-29 and 2026-09-30 (runs 36420796309, 36563672999, 36709070479) failed at the runner's Configure Git safe.directory setup step. That step passes again in Gaussian Production Gates run 36799027578 (2026-10-01), but the lane has not run green since. No stable v* release is published yet."
   Linux:
     state: smoke-tested
     public_binaries: "Guaranteed nightly publish floor: Linux editor tarball in release runs where publishing succeeds."
@@ -48,14 +55,14 @@ tested_configurations:
   - platform: "Windows"
     state: "editor-tested"
     os_version: "Self-hosted Windows runner (OS version not yet published)"
-    gpu: "NVIDIA GeForce RTX 3090"
-    driver_runtime: "Vulkan 1.4.312 + Forward+ + safe render thread; NVIDIA driver version not yet published"
+    gpu: "NVIDIA GeForce RTX 3090 (nvidia-smi output in the run 36799027578 job log)"
+    driver_runtime: "windows-vulkan runtime mode; Vulkan API and NVIDIA driver versions are not printed in repo-owned evidence"
     evidence:
       - ".github/workflows/gaussian_production_gates.yml module-validation lane"
-      - "tests/runtime/run_runtime_validation.py --gd-mode windows-vulkan"
+      - "tests/runtime/run_runtime_validation.py --gd-mode windows-vulkan --profile streaming-gpu-ci"
       - "tests/ci/collect_production_evidence.ps1"
-      - "PR #368 Actions run 26128105716 runtime-validation-report: passed=3/3; GPU Streaming Stress tier_1m within_budget=true, frame_p95_ms=159.624, residency_ratio=1.0, fallback_rate=0.0"
-    notes: "Fresh passing evidence is PR-scoped until the calibration lands on master. It proves the adapter, render route, and streaming runtime gate; Windows OS version and NVIDIA driver version are still not printed in repo-owned evidence."
+      - "Gaussian Production Gates run 36799027578 (master, 2026-10-01) runtime-validation-report: streaming-gpu-ci passed=3/3, failed=0, skipped=0"
+    notes: "Proves the adapter, render route and streaming runtime gate on one self-hosted machine. Windows OS version and NVIDIA driver version are still not printed in repo-owned evidence."
   - platform: "Linux"
     state: "smoke-tested"
     os_version: "Ubuntu 24.04.4 LTS (image ubuntu-24.04 20260323.65.1)"

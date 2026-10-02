@@ -14,6 +14,7 @@
 #include <cstddef>
 
 #include "core/config/project_settings.h"
+#include "core/os/thread.h"
 #include "core/variant/variant.h"
 #include "../core/effective_config_snapshot.h"
 #include "../core/gaussian_data.h"
@@ -6200,5 +6201,190 @@ TEST_CASE("[GaussianSplatting][Pipeline] detach_source_data refuses without payl
 
 	// The system should still function (data not detached).
 }
+
+// ---------------------------------------------------------------------------
+// Render-thread dispatch: argument order of pre-bound callables
+// ---------------------------------------------------------------------------
+
+#ifdef THREADS_ENABLED
+// The test below needs a real worker thread; with threads=no Thread::start()
+// is a no-op and no setter could ever reach the dispatch branch.
+
+// A RenderThreadDispatcher that runs the submitted callable inline, on the
+// calling thread, instead of queueing it to the RenderingServer thread. It
+// issues request ids from the same counter and builds the callable exactly as
+// RenderThreadDispatcher does (`p_callable.bind(request_id)`,
+// render_thread_dispatcher.cpp), and invokes it exactly as
+// RenderingServerDefault::_call_on_render_thread does (`call()` with no
+// arguments). Completion is judged STRICTER than the real wait loop, which exits
+// on `completed_request_id >= request_id`: here the callee must complete exactly
+// its own id, because completing some other (larger) id is itself the #1132
+// failure mode and `>=` would accept it.
+class InlineRenderThreadDispatcher : public RenderThreadDispatcher {
+public:
+	int dispatch_count = 0;
+	uint64_t last_request_id = 0;
+	bool last_completed = false;
+
+	InlineRenderThreadDispatcher() {
+		// Request ids far from every value the test passes, so a swapped
+		// argument cannot be mistaken for the right one.
+		next_request_id.store(5001, std::memory_order_release);
+	}
+
+	bool dispatch_call_on_render_thread_blocking(const Callable &p_callable, bool *r_dispatched,
+			bool p_allow_timeout, uint64_t *r_request_id, const char *p_log_prefix) override {
+		(void)p_allow_timeout;
+		(void)p_log_prefix;
+		const uint64_t request_id = next_request_id.fetch_add(1, std::memory_order_acq_rel);
+		dispatch_count++;
+		last_request_id = request_id;
+		if (r_dispatched) {
+			*r_dispatched = true;
+		}
+		if (r_request_id) {
+			*r_request_id = request_id;
+		}
+		const Callable submitted = p_callable.bind(request_id);
+		submitted.call();
+		last_completed = get_completed_request_id() == request_id;
+		return last_completed;
+	}
+};
+
+struct DispatchOrderProbe {
+	GaussianSplatRenderer *renderer = nullptr;
+	Ref<::GaussianData> data;
+	Ref<InMemoryChunkPayloadSource> source;
+	bool off_render_thread = false;
+	Error result = FAILED;
+};
+
+// The setters only dispatch when called OFF the render thread. In the doctest
+// runner the main thread is the RenderingServer thread, so call them from a
+// worker thread, as a thread_model=2 game calls them from its main thread.
+static void run_off_render_thread(void (*p_step)(void *), DispatchOrderProbe &p_probe) {
+	Thread worker;
+	worker.start(p_step, &p_probe);
+	worker.wait_to_finish();
+}
+
+TEST_CASE("[GaussianSplatting][SceneTree] Render-thread dispatched setters apply their arguments when invoked as the dispatcher invokes them") {
+	RenderingServer *rs = RenderingServer::get_singleton();
+	if (rs == nullptr) {
+		FAIL("RenderingServer required: the setters only dispatch when one exists");
+		return;
+	}
+	if (!rs->is_on_render_thread()) {
+		FAIL("the test thread must be the RenderingServer thread, so the control renderer takes the direct path");
+		return;
+	}
+	// `dispatched` routes every setter through the dispatcher; `direct` receives
+	// the same calls on the render thread, where they apply without dispatch.
+	// Whatever the direct call leaves behind is what the dispatched call must
+	// leave behind too.
+	Ref<GaussianSplatRenderer> dispatched;
+	dispatched.instantiate();
+	Ref<GaussianSplatRenderer> direct;
+	direct.instantiate();
+	if (!dispatched.is_valid() || !direct.is_valid()) {
+		FAIL("a GaussianSplatRenderer could not be created");
+		return;
+	}
+	std::unique_ptr<InlineRenderThreadDispatcher> owned = std::make_unique<InlineRenderThreadDispatcher>();
+	InlineRenderThreadDispatcher *dispatcher = owned.get();
+	std::unique_ptr<IRenderThreadDispatcher> original = dispatched->test_swap_render_thread_dispatcher(std::move(owned));
+
+	DispatchOrderProbe probe;
+	probe.renderer = dispatched.ptr();
+
+	// set_max_splats (render_quality_orchestrator.cpp)
+	run_off_render_thread([](void *p_ud) {
+		DispatchOrderProbe *p = static_cast<DispatchOrderProbe *>(p_ud);
+		p->off_render_thread = !RenderingServer::get_singleton()->is_on_render_thread();
+		p->renderer->set_max_splats(777);
+	}, probe);
+	if (!probe.off_render_thread) {
+		dispatched->test_swap_render_thread_dispatcher(std::move(original));
+		FAIL("the worker thread reports itself as the render thread, so no setter can dispatch");
+		return;
+	}
+	direct->set_max_splats(777);
+	CHECK_MESSAGE(dispatcher->dispatch_count == 1, "set_max_splats did not take the render-thread dispatch path");
+	CHECK_MESSAGE(dispatcher->last_completed, "set_max_splats never completed its request: the dispatcher would wait out its timeout");
+	CHECK(direct->get_max_splats() == 777);
+	CHECK(dispatched->get_max_splats() == 777);
+
+	// Re-applying the unchanged value (GaussianSplatNode3D does it every frame)
+	// must not cost a blocking render-thread round trip.
+	run_off_render_thread([](void *p_ud) {
+		static_cast<DispatchOrderProbe *>(p_ud)->renderer->set_max_splats(777);
+	}, probe);
+	CHECK_MESSAGE(dispatcher->dispatch_count == 1, "an unchanged set_max_splats still dispatched to the render thread");
+	CHECK(dispatched->get_max_splats() == 777);
+
+	// force_sort_for_view (render_sorting_orchestrator.cpp)
+	run_off_render_thread([](void *p_ud) {
+		DispatchOrderProbe *p = static_cast<DispatchOrderProbe *>(p_ud);
+		p->renderer->force_sort_for_view(Transform3D(Basis(), Vector3(1.0, 2.0, 3.0)));
+	}, probe);
+	CHECK_MESSAGE(dispatcher->dispatch_count == 2, "force_sort_for_view did not take the render-thread dispatch path");
+	CHECK_MESSAGE(dispatcher->last_completed, "force_sort_for_view never completed its request: the dispatcher would wait out its timeout");
+
+	// set_gaussian_data (render_data_orchestrator.cpp)
+	LocalVector<Gaussian> gaussians;
+	fill_gaussians(gaussians, 32);
+	probe.data.instantiate();
+	probe.data->set_gaussians(gaussians);
+	run_off_render_thread([](void *p_ud) {
+		DispatchOrderProbe *p = static_cast<DispatchOrderProbe *>(p_ud);
+		p->result = p->renderer->set_gaussian_data(p->data);
+	}, probe);
+	const Error direct_data_result = direct->set_gaussian_data(probe.data);
+	CHECK_MESSAGE(dispatcher->dispatch_count == 3, "set_gaussian_data did not take the render-thread dispatch path");
+	CHECK_MESSAGE(dispatcher->last_completed, "set_gaussian_data never completed its request: the dispatcher would wait out its timeout");
+	CHECK(probe.result == direct_data_result);
+	CHECK(direct->get_scene_state().gaussian_data == probe.data);
+	CHECK(dispatched->get_scene_state().gaussian_data == probe.data);
+
+	// set_file_backed_payload_source (render_data_orchestrator.cpp)
+	// Without a RenderingDevice (as in this runner) the setter's upload fails
+	// and it rolls back pending_payload_source and payload_source_* on both
+	// renderers alike, so comparing those fields cannot tell a received source
+	// from a dropped call. What the rollback does not undo is that the setter
+	// first drops resident data (`scene_state.gaussian_data.unref()`). So seed
+	// both renderers with resident data, independently of the step above, and
+	// check that the dispatched call dropped it, as the direct one does.
+	dispatched->get_scene_state().gaussian_data = probe.data;
+	direct->get_scene_state().gaussian_data = probe.data;
+	probe.source.instantiate();
+	probe.source->set_data(probe.data);
+	probe.result = FAILED;
+	run_off_render_thread([](void *p_ud) {
+		DispatchOrderProbe *p = static_cast<DispatchOrderProbe *>(p_ud);
+		p->result = p->renderer->set_file_backed_payload_source(p->source);
+	}, probe);
+	const Error direct_source_result = direct->set_file_backed_payload_source(probe.source);
+	CHECK_MESSAGE(dispatcher->dispatch_count == 4, "set_file_backed_payload_source did not take the render-thread dispatch path");
+	CHECK_MESSAGE(dispatcher->last_completed, "set_file_backed_payload_source never completed its request: the dispatcher would wait out its timeout");
+	CHECK(probe.result == direct_source_result);
+	CHECK(direct->get_scene_state().gaussian_data.is_null());
+	CHECK_MESSAGE(dispatched->get_scene_state().gaussian_data.is_null(),
+			"the dispatched set_file_backed_payload_source never ran its body: resident data was not dropped");
+
+	// A completion for an id the dispatcher never issued is refused, so a
+	// callback with swapped arguments cannot advance the watermark past
+	// requests that have not run.
+	const uint64_t completed_before = dispatcher->get_completed_request_id();
+	ERR_PRINT_OFF;
+	dispatcher->notify_completed(dispatcher->get_next_request_id());
+	dispatcher->notify_completed(dispatcher->get_next_request_id() + 1000000);
+	dispatcher->notify_completed(0);
+	ERR_PRINT_ON;
+	CHECK(dispatcher->get_completed_request_id() == completed_before);
+
+	dispatched->test_swap_render_thread_dispatcher(std::move(original));
+}
+#endif // THREADS_ENABLED
 
 } // namespace TestGaussianSplatting

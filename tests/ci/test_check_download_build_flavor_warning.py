@@ -1178,12 +1178,64 @@ class RealTreeControlTests(unittest.TestCase):
 
         The MkDocs pages write theirs as a four-space admonition body and README
         as a multi-line `> [!WARNING]` blockquote. A splitter that broke either
-        into per-line blocks would reject all four pages, and a mask that read
-        container content as code would empty them; both are asserted here on the
-        authored text rather than only on synthetic fixtures.
+        into per-line blocks, or a mask that read container content as code,
+        would reject them; both are asserted here on the authored text rather
+        than only on synthetic fixtures.
+
+        This used to assert `len(surfaces) >= 4` as a proxy for "both forms are
+        still exercised". The count is not the property: merging two onboarding
+        pages into one legitimately shrinks the derived surface set, while a
+        count that happens to stay at four could still be made of one form only.
+        So each form is asserted directly: some docs/ surface carries the
+        warning in an admonition *body* (not only its title), and README carries
+        it inside a blockquote. The guard's own empty-subject control (exit 2)
+        is unchanged.
         """
         surfaces, _failures, _uninspectable = guard.check(ROOT)
-        self.assertGreaterEqual(len(surfaces), 4, surfaces)
+        self.assertTrue(surfaces, "the guard derived no download surfaces")
+
+        def warning_blocks(page: Path) -> list[str]:
+            prose = guard.rendered_prose(page.read_text(encoding="utf-8"))
+            return [
+                block
+                for block in guard.paragraphs(prose)
+                if all(token in block for token in guard.REQUIRED_TOKENS)
+            ]
+
+        def is_admonition_body_warning(block: str) -> bool:
+            lines = block.splitlines()
+            if len(lines) < 2 or not guard.FOUR_SPACE_CONTAINER_PATTERN.match(lines[0]):
+                return False
+            body = lines[1:]
+            if not all(line.startswith("    ") for line in body):
+                return False
+            joined = "\n".join(body)
+            return all(token in joined for token in guard.REQUIRED_TOKENS)
+
+        def is_blockquote_warning(block: str) -> bool:
+            return all(guard.split_quote_prefix(line)[0] >= 1 for line in block.splitlines())
+
+        docs_root = ROOT / "docs"
+        admonition_pages = [
+            page
+            for page in surfaces
+            if page.suffix.lower() == ".md"
+            and docs_root in page.parents
+            and any(is_admonition_body_warning(block) for block in warning_blocks(page))
+        ]
+        self.assertTrue(
+            admonition_pages,
+            "no docs/ download surface carries the warning in a four-space admonition "
+            f"body that survives as one block; surfaces: {surfaces}",
+        )
+
+        readme = ROOT / "README.md"
+        self.assertIn(readme, surfaces, "README.md is no longer a download surface")
+        self.assertTrue(
+            any(is_blockquote_warning(block) for block in warning_blocks(readme)),
+            "README.md's warning no longer survives as one blockquote block",
+        )
+
         for page in surfaces:
             prose = guard.rendered_prose(page.read_text(encoding="utf-8"))
             blocks = [

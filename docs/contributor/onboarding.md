@@ -14,7 +14,8 @@ Goal: get a local build, run canonical checks, and ship a safe first PR.
 - Baseline QA:
   - `python3 tests/ci/run_baseline_qa.py --godot <module-built-binary>`
 - Runtime validation:
-  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
+  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile headless-ci`
+  - Pass `--profile` explicitly: the default profile is `release-ci`, which needs a GPU and a display (see the [command reference](../reference/build-test-ci.md#test-runners)).
 
 ## 3) Understand the Codebase Quickly
 
