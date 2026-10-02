@@ -501,7 +501,15 @@ void GaussianSplatNodeInspectorPlugin::_on_restore_color_grading_pressed(ObjectI
     }
 
     Ref<ColorGradingResource> grading_snapshot = clone_color_grading_resource(node->get_color_grading());
-    node->restore_color_grading();
+    // #1128 review: record the action only for a restore that happened. A failed
+    // restore (ERR_INVALID_DATA after the data was replaced) changed nothing, and its
+    // undo would bake the replacement payload.
+    const Error err = node->restore_color_grading();
+    if (err != OK) {
+        ERR_PRINT("Failed to restore color grading");
+        node->notify_property_list_changed();
+        return;
+    }
     EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
     if (undo_redo) {
         undo_redo->create_action(TTR("Restore Gaussian Color Grading"), UndoRedo::MERGE_DISABLE, node);
