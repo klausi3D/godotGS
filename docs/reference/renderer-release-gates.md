@@ -188,7 +188,9 @@ command buffer and draw graph. That produced the recorded
 waiver was originally attributed to.
 
 The **third** waiver — the resident-quantization "Explicit resident quantization
-rejection falls back to the legacy resident path" case — cleared in **#745 (#719)**.
+rejection falls back to the legacy resident path" case (renamed by #1118 to "Explicit
+resident route publishes the resident instance contract for quantized data and renders",
+which is what it asserts) — cleared in **#745 (#719)**.
 Its premise was disproven by instrumenting the published GPU buffers: `max_chunk_splats=1`
 is the honest atlas state, and `element_count=0` was the test fixture placing its
 atlas splat OFF-SCREEN (x=20, outside the camera frustum), so `depth_compute`
