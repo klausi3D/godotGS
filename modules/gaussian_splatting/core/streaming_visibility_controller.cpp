@@ -243,6 +243,16 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
         return;
     }
 
+    // #1087: an empty view is legitimate when the load distance limit explains it:
+    // every candidate was dropped by the limit, or nothing in range was even rejected
+    // by the frustum (the camera is simply far from the content). That is not a
+    // frustum false negative, so no stall warning and no forced recovery.
+    if (load_distance_limit > 0.0f &&
+            (culling_stats.distance_culled_chunks > 0 || culling_stats.frustum_culled_chunks == 0)) {
+        zero_visible_recovery.zero_visible_consecutive_frames = 0;
+        return;
+    }
+
     zero_visible_recovery.zero_visible_consecutive_frames++;
 
     const uint32_t zero_visible_frames = zero_visible_recovery.zero_visible_consecutive_frames;

@@ -89,6 +89,8 @@ struct SchedulerState {
     uint32_t last_sync_fallback_enqueued_count = 0;
     uint32_t last_sync_fallback_drained_count = 0;
     uint32_t last_sync_fallback_dropped_count = 0;
+    // #1087: sync-fallback entries the drain tried to admit/load this frame (passed relevance).
+    uint32_t last_sync_fallback_attempted_count = 0;
     uint32_t last_sync_fallback_stalled_count = 0;
     // #1086 needed-set accounting, written by _build_visible_chunk_list. "Needed" =
     // visible and inside the load distance; "resident" = GPU-resident and renderable

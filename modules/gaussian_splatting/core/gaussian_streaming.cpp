@@ -616,6 +616,7 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_sync_fallback_enqueued_count = 0;
     scheduler.last_sync_fallback_drained_count = 0;
     scheduler.last_sync_fallback_dropped_count = 0;
+    scheduler.last_sync_fallback_attempted_count = 0;
     scheduler.last_sync_fallback_stalled_count = 0;
     scheduler.queue_pressure_candidate_scan_throttle_active = false;
     scheduler.queue_pressure_candidate_scan_throttle_queue_depth = 0;
@@ -2853,6 +2854,7 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_sync_fallback_enqueued_count = 0;
     scheduler.last_sync_fallback_drained_count = 0;
     scheduler.last_sync_fallback_dropped_count = 0;
+    scheduler.last_sync_fallback_attempted_count = 0;
     scheduler.last_sync_fallback_stalled_count = 0;
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
@@ -4603,6 +4605,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
             }
         }
         attempted++;
+        scheduler.last_sync_fallback_attempted_count++;
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
