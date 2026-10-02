@@ -417,6 +417,13 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
     written but unread, and `pad0..2` at `:200-202`), so the struct stays 64 B.
     `depth_compute` forms the asset-space position as `centre + relative` and applies the
     instance transform as today. That is exact enough for assets up to tens of km.
+  - **Drawn list in S2a (before `DrawnNodeGPU` exists).** For HLOD content the CPU skips
+    `frustum_cull.glsl` and uploads the drawn set itself into the existing
+    `visible_chunk_buffer` as today's 8 B `VisibleChunkRefGPU {instance_id, chunk_id}`
+    entries (`renderer/gaussian_gpu_layout.h:222-225`), in the cut's deterministic order, and
+    writes the visible-chunk count that `compute/instance_chunk_dispatch.glsl:26` reads to size
+    the indirect dispatch. No GPU atomic decides which nodes are drawn. S2b widens that same
+    entry into `DrawnNodeGPU`.
   - **Per drawn entry (S2b):** a `DrawnNodeGPU` record per entry of the drawn set, replacing
     today's 8 B `VisibleChunkRefGPU` for HLOD content: instance id, chunk id, the
     **camera-relative offset** `R s c + T - camera` (computed on the CPU in double, stored as
@@ -761,7 +768,7 @@ One PR per slice, each against `master`, each stating its base SHA.
 | **S3** | Node streaming on #1134: whole-run admission, protected-closure accounting, pinned levels, requests in priority order, skip + bounded retry + incremental compaction, eviction priority, stable wind seed; tests 5–7 and the **`tau` A/B (test 11) as an acceptance criterion** | R3 | ~1,400 + ~900 |
 | **S4** | Telemetry: cut size, depth histogram, fade-band size, compaction and skip counts | R2 | ~200 + ~150 |
 | **S5** | Resident route: bake at PLY/SPZ import (format bumps), all nodes resident, joins the global cut, instance-key sort tie-break, retire the #420 clamp; test 10 | R3 | ~900 + ~550 |
-| **S6** | Cross-fade: one band, `t` from the error, fades admitted after refinements, fade factor in `ChunkMetaGPU`, node index in the per-splat reference, layout-sync guard; test 9 | R3 | ~800 + ~450 |
+| **S6** | Cross-fade: one band, `t` from the error, fades admitted after refinements, fade factor in the per-draw `DrawnNodeGPU` record (S2b), draw-entry index in the per-splat reference, layout-sync guard; test 9 | R3 | ~800 + ~450 |
 
 Stage 1 is **about 9,100 LOC of production code and 5,350 LOC of tests over eight PRs, seven
 of them R3.** The growth since `a1da9be37bf` (~8,600 + 5,050 over seven PRs) is the
