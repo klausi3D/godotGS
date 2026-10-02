@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import re
-from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -219,8 +218,9 @@ def build_reference(
     sections = [
         "# GDScript API Reference",
         "",
-        f"Last generated: {date.today().isoformat()}",
-        "",
+        # No "Last generated" date: the output must be a pure function of the
+        # sources so CI can freshness-check it with `git diff --exit-code`.
+        # Git history records when it was regenerated.
         f"Scope: `{scope}`",
         "",
         f"Scripts scanned: `{len(scripts)}`",

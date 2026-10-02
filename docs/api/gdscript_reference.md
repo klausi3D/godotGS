@@ -1,7 +1,5 @@
 # GDScript API Reference
 
-Last generated: 2026-09-28
-
 Scope: `public`
 
 Scripts scanned: `4`

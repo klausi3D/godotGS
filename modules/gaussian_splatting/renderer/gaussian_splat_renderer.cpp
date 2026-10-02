@@ -3405,4 +3405,11 @@ void GaussianSplatRenderer::test_notify_render_thread_dispatch_completed(uint64_
 uint64_t GaussianSplatRenderer::test_get_render_thread_dispatch_completed_request_id() const {
     return render_thread_dispatcher ? render_thread_dispatcher->get_completed_request_id() : 0;
 }
+
+std::unique_ptr<IRenderThreadDispatcher> GaussianSplatRenderer::test_swap_render_thread_dispatcher(
+        std::unique_ptr<IRenderThreadDispatcher> p_dispatcher) {
+    std::unique_ptr<IRenderThreadDispatcher> previous = std::move(render_thread_dispatcher);
+    render_thread_dispatcher = std::move(p_dispatcher);
+    return previous;
+}
 #endif

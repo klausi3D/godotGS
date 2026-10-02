@@ -5,173 +5,173 @@
     {
       "test_case": "[GaussianSplatting][GeneratePLY]*",
       "count": 1,
-      "reason": "Deliberate: a fixture GENERATOR with disk side effects, not an assertion. It is invoked explicitly by tests/runtime/prepare_synthetic_assets.py, never by a CI lane, and run_module_tests.py already excludes [GeneratePLY] from the untagged safety net for that reason. Recorded here so the exclusion is declared in a machine-readable place rather than only in a code comment. Originally catalogued under #520, which is now CLOSED; re-pointed to its live successor #819 so the declaration is not blessed by a dead tracking issue.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. The 1 case passes 20/20 with 14 assertions (output redirected via SYNTHETIC_PLY_OUTPUT_DIR). Still unlaned BY DESIGN: it is a fixture GENERATOR with disk side effects, not an assertion, invoked explicitly by tests/runtime/prepare_synthetic_assets.py and never by a CI lane; run_module_tests.py excludes [GeneratePLY] from the untagged safety net for that reason. Declared here so the exclusion is machine-readable. Tracked by #819 (successor of closed #520). ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][Thumbnail]*",
       "count": 2,
-      "reason": "MEASURED, no longer undecided. [Thumbnail] is listed in UNTAGGED_GAUSSIAN_EXCLUDE_TAGS but no [Thumbnail] lane was ever defined, so both cases in test_gaussian_importer.h are excluded from the only lane that would have run them. Named in #520's title (#520 is now CLOSED). Of the 2 stranded cases, 'Generator produces preview images for each style' PASSES and 'Generator caches deterministic asset+settings keys' is a confirmed FAILURE at modules/gaussian_splatting/tests/test_gaussian_importer.h:1181, where CHECK(misses >= 2) reports CHECK( 0 >= 2 ) after three generate_thumbnail_image calls - reproduced at e9ddb27c285 and again on a binary 22 commits older, per https://github.com/klausi3D/godotGS/issues/814, which now tracks this declaration. It cannot move to 'entries' until [Thumbnail] has a lane (#819): an entry names a MODULE_TEST_FILTERS lane and the harness fails a quarantined lane that does not actually run and fail, so this declaration records non-execution, not disposition-of-failure.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'Generator produces preview images for each style' passes 20/20 (5 assertions). 'Generator caches deterministic asset+settings keys' still FAILS 20/20 on CHECK(misses >= 2), now at modules/gaussian_splatting/tests/test_gaussian_importer.h:1117 (previously cited as :1181), reporting 0 >= 2 - tracked by OPEN #814. No [Thumbnail] lane exists (#819), and an 'entries' quarantine must name a MODULE_TEST_FILTERS lane that runs and fails, so this declaration still records non-execution, not disposition-of-failure.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/814",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GPU Memory Stream]*",
       "count": 6,
-      "reason": "UNDECIDED, not deliberate. The lane NAMED 'GPU Memory Stream' in run_module_tests.py filters on '*Triple Buffering*', a phrase that matches none of these six cases, so the lane's name suggests coverage it does not provide. Named in #520. Widening the filter needs a proven-green run first; 'Memory Leak Detection' in particular has never executed. #520 is CLOSED; re-pointed to its live successor #819.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. NOT proven-green, so the family cannot be laned as-is: 'Memory Defragmentation' FAILS 20/20 (frag_after < frag_before: 0.99951 < 0.99951; found_large_free false), consistent with defragmentation being deliberately disabled per OPEN #73; 'Streaming Performance' is a wall-clock check (ms < 100) that failed 10/10 under --gs-gpu-test at ~518 ms on this -O0 build with foreign GPU load and asserts nothing headless - a machine measurement, not a correctness verdict; 'Concurrent Streaming' asserts nothing headless and passes 10/10 under --gs-gpu-test; Initialization, Memory Pool Allocation and Memory Leak Detection pass 20/20. The lane NAMED 'GPU Memory Stream' in run_module_tests.py filters on '*Triple Buffering*', which matches none of these six. Tracked by #819.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[Streaming VRAM]*",
       "count": 1,
-      "reason": "UNDECIDED. Single case in test_gpu_streaming.cpp carrying a [Streaming VRAM] tag that exists nowhere else in the repo; the 'Streaming Pipeline' lane matches '*[Streaming Pipeline]*' and does not reach it. Not catalogued in #520 - surfaced by this guard. #520 is CLOSED; re-pointed to its live successor #819.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. The single case is vacuous in BOTH modes: it takes its 'Skipping - Rendering server unavailable' return 20/20 with 0 assertions, so a lane alone would not execute it - it also needs a bootstrap that provides a RenderingServer. Its [Streaming VRAM] tag exists nowhere else; the 'Streaming Pipeline' lane matches '*[Streaming Pipeline]*' and does not reach it. Tracked by #819.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[Integration]*",
       "count": 9,
-      "reason": "PARTIALLY ADDRESSED by #641, which added the GPU-harness 'Integration' batch matching '*Integration*][RequiresGPU]*'. These nine cases carry no [RequiresGPU] tag, so that batch does not reach them and neither does any module lane. #641 fixed the tagged subset and left this one dark.",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/641",
+      "reason": "Tracked by OPEN #1122, filed 2026-10-01 to own ALL nine cases (re-pointed from CLOSED #641; #876 owns only the one failing case and stays its reference below). #641 was closed 2026-08-27 as fixed by #646, which laned only the [Integration][RequiresGPU] subset; these nine untagged cases were never in its scope and are still selected by no module lane or GPU batch. RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'Route reason labels surface through stats, HUD, and editor summary' FAILS 20/20 at test_integration.cpp:458 and :462 (the editor summary built by GaussianEditorServices::format_gaussian_splat_stats lacks 'Render Route: Streaming instanced path [INSTANCE.STREAMING]' and 'Cull Reason: Instance pipeline culling handled the frame') - exactly the failure #876 tracks (#639 is an older duplicate). 'Full pipeline execution with 100K splats', 'Shared submission device prevents main queue submission errors' and 'Memory stream buffer cycling' take 'Skipping test - Rendering device not available' 20/20 even under --gs-gpu-test. The other 5 pass 20/20 with assertions.",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/1122",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][World]*",
-      "count": 3,
-      "reason": "The headline orphan of #520. run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. The neighbouring [Node]/[Container] exclusions DO dedupe against real lanes, which camouflaged this one. 3 of the 7 carry no [RequiresGPU]; the other 4 were previously credited to the opt-in [requires-RD] catalogue, which blocking CI never runs - so they looked laned while being just as invisible (Codex, PR #658). Adding a strict [World] lane is the fix for the 3, and the 4 need a GPU harness batch; both need a proven-green run. #520 is CLOSED; re-pointed to its live successor #819.",
+      "count": 2,
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'World node forwards desired overrides through director submission' and 'strict identity transform rejects non-identity world submissions' pass 20/20. 3 -> 2 (#1115): the third case of this family (the tier-streaming-budget case) had a stale expectation; it was corrected, tagged [RequiresGPU] and now runs in the WorldSceneTree GPU batch, so it is no longer stranded. The 2 remaining cases carry no [RequiresGPU] and are proven-green candidates for a [World] lane. Background (#520 headline orphan): run_module_tests.py excludes '*][World][SceneTree]*' from the [SceneTree] lane, which reads as de-duplication against a [World] lane, but no [World] lane exists. Tracked by #819.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][NodeSurface][World]*",
       "count": 1,
-      "reason": "Same [World] orphan as above, reached through a different tag order ([NodeSurface][World], no [SceneTree]), so a pattern anchored on '[World][SceneTree]' does not cover it. Listed separately to keep each declaration's blast radius visible rather than widening the pattern to '*[World]*'. #520 is CLOSED; re-pointed to its live successor #819.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. The case passes 20/20 with 4 assertions in both modes: a proven-green candidate for the [World] lane #819 calls for, but no such lane exists yet, so it is still stranded. Same [World] orphan as above, reached through [NodeSurface][World] with no [SceneTree], so a pattern anchored on '[World][SceneTree]' does not cover it; kept separate rather than widening to '*[World]*'. Tracked by #819. ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[VisualCompare]*",
       "count": 3,
-      "reason": "UNDECIDED. Three self-tests of the visual-comparison helper in visual_compare.h (PNG round-trip, mismatch detection, tolerance). They carry no [GaussianSplatting] prefix, so the untagged safety net does not reach them either. Not catalogued in #520 - surfaced by this guard. #520 is CLOSED; re-pointed to its live successor #819.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. All 3 visual_compare.h self-tests pass 20/20 (6, 3 and 2 assertions): proven-green and ready for a lane, but none exists yet, so they are still stranded. They carry no [GaussianSplatting] prefix, so the untagged safety net does not reach them either. Tracked by #819. ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[RendererSceneCull] Hidden indexing policy gates Gaussian exemption",
       "count": 1,
-      "reason": "Gaussian-relevant but lives in the ENGINE test tree (tests/servers/rendering/test_renderer_scene_cull.h), and carries no [GaussianSplatting] tag, so no module lane or GPU batch reaches it. It asserts RendererSceneCull::allows_hidden_visibility_indexing gates the INSTANCE_GAUSSIAN_SPLAT exemption - a real contract on our engine delta. Surfaced only after this guard's corpus scan was widened to the engine tree recursively; a tag-filtered, top-level-only scan missed it. Fix is a lane that reaches gaussian-relevant engine-tree cases, which needs a proven-green run. #520 is CLOSED; re-pointed to its live successor #819.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Passes 20/20 with 5 assertions in both modes: proven-green, but still stranded because no lane reaches gaussian-relevant cases in the ENGINE test tree (tests/servers/rendering/test_renderer_scene_cull.h). It asserts RendererSceneCull::allows_hidden_visibility_indexing gates the INSTANCE_GAUSSIAN_SPLAT exemption, a real contract on our engine delta. Tracked by #819. ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/819",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] RenderDeviceManager*",
       "count": 7,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR docs/architecture/adr-phase1-guard-hardening.md section 5.4; #820 superseded). The 7 device-ownership cases in test_render_device_manager_ownership.h are tagged [GaussianSplatting][RequiresGPU] with no subsystem token, so no run_gpu_harness.py batch filter selects them and they have never executed. Exit (#907): retag so a real batch selects them, with a proven-green GPU run showing non-zero cases AND assertions, or keep them declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. All 7 cases in test_render_device_manager_ownership.h are SILENTLY vacuous in both modes: 0 assertions and no skip marker, because each returns early when RenderingServer::get_singleton() is null, which it is for these non-[SceneTree] cases under --gs-gpu-test. A retag into a batch without a RenderingServer-capable bootstrap would yield a green batch that asserts nothing. Exit (#907): retag so a real batch selects them, with a GPU run showing non-zero cases AND assertions.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] GPUBufferManager*",
       "count": 2,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The 2 buffer-lifetime cases in test_gpu_buffer_manager_lifetime.h are bare-tagged, match no batch filter, and have never executed. Exit (#907): retag into a real batch with a proven-green GPU run, or keep them declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Both cases in test_gpu_buffer_manager_lifetime.h are SILENTLY vacuous in both modes (0 assertions, no skip marker): they return early on a null RenderingServer, which --gs-gpu-test does not provide for them. Exit (#907): retag into a real batch with a run showing non-zero assertions.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] GPU memory leak detection*",
       "count": 2,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). 'GPU memory leak detection' and 'GPU memory leak detection with renderer lifecycle' in test_memory_leak_detection.h are bare-tagged, match no batch filter, and have never executed anywhere - the quarantine manifest itself has recorded that since #520. Exit (#907): retag into a real batch with a proven-green GPU run, or keep them declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'GPU memory leak detection' passes 10/10 under --gs-gpu-test (39 assertions; 0 headless). 'GPU memory leak detection with renderer lifecycle' takes 'Skipping renderer lifecycle memory test - RenderingDevice unavailable' 20/20 with 0 assertions, so the pair is not proven-green. Both are bare-tagged and match no batch filter. Exit (#907).",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] Memory validator reset clears all tracked state",
       "count": 1,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Third case of test_memory_leak_detection.h; its name does not start with 'GPU memory leak detection', so it needs its own exact-name declaration rather than a widened sibling pattern. Bare-tagged, matches no batch filter, never executed. Exit (#907): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Passes 10/10 under --gs-gpu-test with 5 assertions (silently 0 assertions headless): a proven-green retag candidate, but bare-tagged and still matching no batch filter. Needs its own exact-name declaration because its name does not start with 'GPU memory leak detection'. Exit (#907). ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/907",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] OutputCompositor*",
       "count": 2,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The scratch-resource baseline and untracked-cleanup cases in test_output_compositor_composite_hazard.h are bare-tagged, so the required OutputCompositor batch filter '*OutputCompositor*][RequiresGPU]*' cannot see them (the token sits after ][RequiresGPU]). Exit (#910): retag with a proven-green GPU run - NOT a straight move into the required batch without one (ADR section 5.5) - or keep them declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. 'scratch resources return owned tracking to baseline across repeated shutdown' passes 10/10 under --gs-gpu-test (36 assertions); 'untracked cleanup skips stale resources' FAILS 10/10 there because copy_to_render_target returns 'CopyEffects subsystem unavailable', so REQUIRE(result.success) and the scratch/variant count checks at test_output_compositor_composite_hazard.h:444-446 fail - a harness-bootstrap gap, not yet a product verdict. Both are silently vacuous headless. The required batch filter '*OutputCompositor*][RequiresGPU]*' cannot see them (token after ][RequiresGPU]). Exit (#910): retag with a proven-green run, not a straight move into the required batch.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] GPU Sorting Performance",
       "count": 1,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Timing benchmark deliberately left OUT of the required GpuSorting order batch by #622: wall-clock assertions on this shared runner measure the machine, not regressions (#615/#630). Exit (#910): an advisory batch with a proven-green run, or keep it declared here; do not make it required.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Executes and passes 10/10 under --gs-gpu-test (15 assertions) and skips headless; the runs shared the GPU with ~42% foreign load, so this proves execution, not timing. It stays out of the required GpuSorting batch by #622's decision: wall-clock assertions on the shared runner measure the machine (#615/#630). Exit (#910): an advisory batch with a proven-green run; do not make it required.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] Phase 1 Integration - Basic Components",
       "count": 1,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Single bare-tagged case in test_phase1_integration.h; the Integration batch filter '*Integration*][RequiresGPU]*' needs the token BEFORE ][RequiresGPU], and here it only appears in the descriptive tail. Exit (#910): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Vacuous in both modes: 'Skipping Phase 1 integration tests - no RenderingDevice available' 20/20 with 0 assertions, so retagging alone would not execute it. Single bare-tagged case in test_phase1_integration.h; the Integration batch filter '*Integration*][RequiresGPU]*' needs the token before ][RequiresGPU]. Exit (#910).",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] Debug projection output matches golden gradient",
       "count": 1,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). Single bare-tagged render-validation case (test_render_validation.h), the case Codex cited on PR #658 as 'covered' only by the opt-in [requires-RD] catalogue that blocking CI never runs. Exit (#910): retag into a real batch with a proven-green GPU run, or keep it declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Vacuous in both modes: 'Skipping test - Rendering server unavailable' 20/20 with 0 assertions, so retagging alone would not execute it. Single bare-tagged render-validation case (test_render_validation.h), previously credited only to the opt-in [requires-RD] catalogue that blocking CI never runs. Exit (#910).",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads legacy ImageTexture thumbnails",
       "count": 1,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). The one non-bare-tagged member of the split: [Importer] cases cannot run under the harness's lightweight RD bootstrap (no ResourceLoader/Saver type registration; see the tag-level waiver in renderer_release_gate_manifest.json deferred_requires_gpu_waivers), and no batch selects the tag. Exit (#910): an [Importer]-capable harness bootstrap plus a batch, with a proven-green run; until then it stays declared here.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Passes 10/10 under --gs-gpu-test with 5 assertions (silently 0 assertions headless), which contradicts this declaration's earlier claim that [Importer] cases cannot run under the harness's lightweight RD bootstrap - this one does. It is still selected by no batch (see also the tag-level waiver in renderer_release_gate_manifest.json deferred_requires_gpu_waivers). Exit (#910): a batch that selects it, with a proven-green run. ONE RENEWAL ONLY (maintainer disposition on #1119): every case passes, so this declaration must get a lane by 2026-11-30, not a second renewal - tracked in #1123 and pinned by LANE_DUE_NO_RENEWAL in test_quarantine_manifest.py.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     },
     {
       "test_case": "[GaussianSplatting][RequiresGPU] *",
       "count": 38,
-      "reason": "Named split of the former 59-case '*][RequiresGPU]*' catch-all (T4, ADR section 5.4; #820 superseded). LAST declaration by design: attribution is first-match, so after the narrower #907/#910 declarations above claim their 17 cases, this anchored bare-tag-pair pattern attributes exactly the 38 bare-tagged cases of test_renderer_pipeline.h, enumerated one by one in #906 - the largest single-file share of the split (38 of its 56 cases). The pattern is anchored at position 0 (no leading '*'), so subsystem-tagged cases such as [Importer] or [Streaming] never fall into it. A NEW bare-tagged stranded case makes this declaration over-matched and fails the guard loudly. Exit (#906): retag into subsystem batches - a move into the required RendererPipeline batch needs the ADR section 5.5 proven-green evidence first - shrinking this count with each proven move.",
+      "reason": "RENEWED 2026-10-01 on evidence, not by reflex: run at origin/master eff00db450c (dev_build tests=yes editor, exe sha256 61f6bf5aa167), 10 runs under --headless --test and 10 under --gs-gpu-test, exact case names, per-case doctest XML. Attributes exactly the 38 bare-tagged test_renderer_pipeline.h cases enumerated in #906 (LAST declaration by design: attribution is first-match, and the pattern is anchored at position 0 so subsystem-tagged cases never fall into it). Under --gs-gpu-test only 2 of the 38 assert anything ('Instance cull failures that fall through to global CPU publish global CPU routes' and '... without fallback preserve explicit no-data skip routes', 4 assertions each, 10/10); the other 36 take 'Skipping test - Rendering server unavailable' (or 'RenderingServer/OS unavailable') with 0 assertions. A retag into the RendererPipeline batch would therefore be a vacuous green: these cases need a RenderingServer, which the harness does not provide them. Exit (#906): retag with a bootstrap that runs them, shrinking this count with each proven move.",
       "issue_url": "https://github.com/klausi3D/godotGS/issues/906",
       "owner": "klausi3D",
       "risk": "R1",
-      "expires_utc": "2026-10-15T00:00:00Z"
+      "expires_utc": "2026-11-30T00:00:00Z"
     }
   ]
 }

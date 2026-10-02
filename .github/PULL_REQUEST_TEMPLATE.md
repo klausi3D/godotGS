@@ -16,9 +16,10 @@
 
 <!-- R0 / R1 / R2 / R3 (see docs/governance/agentic-engineering.md).
      The Agentic PR Gate re-derives the risk class from this PR's diff
-     (classify_change) and reports it. When a task contract is supplied,
-     check_pr_contract takes the higher of declared vs computed and enforces
-     path scope; a higher computed class is review pushback regardless. -->
+     (classify_change) and publishes it to the job summary; the class never
+     fails the check. Your declared class is not read by CI, and path scope
+     (owned/forbidden paths) is not enforced: check_pr_contract runs only
+     against the shipped fixture. A higher computed class is review pushback. -->
 
 - Declared risk class:
 

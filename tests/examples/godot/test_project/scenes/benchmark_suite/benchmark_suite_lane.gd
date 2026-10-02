@@ -244,11 +244,23 @@ var _proof_chunk_monitor_available := false
 var _proof_vram_cap_hit_available := false
 var _proof_queue_pressure_frames := 0
 var _proof_queue_pressure_candidate_frames := 0
-var _proof_no_progress_frames := 0
-var _proof_scan_starved_frames := 0
+# #1086: needed-set accounting, kept per window so the proof metrics cover the same
+# frames as the proof window (steady_overall when it has samples). "Needed" is the
+# engine's set of visible chunks inside the load distance; see needed_chunks in
+# streaming_diagnostics_surface.cpp.
+var _proof_needed_set_available := false
+var _proof_needed_set_all: Dictionary = {}
+var _proof_needed_set_steady: Dictionary = {}
 var _proof_vram_cap_hit_frames := 0
 var _proof_chunk_loads_per_frame: Array = []
 var _proof_chunk_evictions_per_frame: Array = []
+# The same per-frame samples restricted to the steady window (#1016). The run-wide
+# arrays above still back the per-frame avg/p95/max; these back the turnover TOTALS,
+# which must cover the window the report labels as the proof window. Summing the
+# full run let a world that churned only while populating during warm-up, and then
+# stopped streaming, satisfy the chunk_loads_total / chunk_evictions_total floors.
+var _proof_steady_chunk_loads_per_frame: Array = []
+var _proof_steady_chunk_evictions_per_frame: Array = []
 var _proof_last_uploaded_splats := 0
 var _proof_last_total_splats := 0
 var _proof_last_visible_splats := 0
@@ -414,11 +426,14 @@ func _setup_runtime_state() -> void:
 	_proof_vram_cap_hit_available = false
 	_proof_queue_pressure_frames = 0
 	_proof_queue_pressure_candidate_frames = 0
-	_proof_no_progress_frames = 0
-	_proof_scan_starved_frames = 0
+	_proof_needed_set_available = false
+	_proof_needed_set_all = _new_needed_set_window()
+	_proof_needed_set_steady = _new_needed_set_window()
 	_proof_vram_cap_hit_frames = 0
 	_proof_chunk_loads_per_frame.clear()
 	_proof_chunk_evictions_per_frame.clear()
+	_proof_steady_chunk_loads_per_frame.clear()
+	_proof_steady_chunk_evictions_per_frame.clear()
 	_proof_last_uploaded_splats = 0
 	_proof_last_total_splats = 0
 	_proof_last_visible_splats = 0
@@ -1163,12 +1178,20 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 		_proof_last_uploaded_splats = uploaded
 		_proof_last_total_splats = total
 
+	# Same warm-up boundary as _sample_metrics, which decides what steady_overall is.
+	var in_steady_window := _elapsed_s >= benchmark_warmup
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame"):
 		_proof_chunk_monitor_available = true
-		_proof_chunk_loads_per_frame.append(float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame")))
+		var loads := float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_loaded_this_frame"))
+		_proof_chunk_loads_per_frame.append(loads)
+		if in_steady_window:
+			_proof_steady_chunk_loads_per_frame.append(loads)
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame"):
 		_proof_chunk_monitor_available = true
-		_proof_chunk_evictions_per_frame.append(float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame")))
+		var evictions := float(Performance.get_custom_monitor("gaussian_splatting/streaming_chunks_evicted_this_frame"))
+		_proof_chunk_evictions_per_frame.append(evictions)
+		if in_steady_window:
+			_proof_steady_chunk_evictions_per_frame.append(evictions)
 
 	if Performance.has_custom_monitor("gaussian_splatting/streaming_loaded_chunks"):
 		_proof_atlas_published_available = true
@@ -1202,10 +1225,16 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 			var load_candidates := _read_stat_int(stream_state, ["scheduler_load_candidates"])
 			if load_candidates > 0:
 				_proof_queue_pressure_candidate_frames += 1
-				if _read_stat_int(stream_state, ["chunks_loaded_this_frame"]) == 0:
-					_proof_no_progress_frames += 1
-				if _read_stat_int(stream_state, ["scheduler_visible_scan_budget_effective"]) <= 1:
-					_proof_scan_starved_frames += 1
+		# #1086: no_progress and scan_starved are no longer derived here from "zero
+		# completions this frame" and "scan budget <= 1". The first depends on the
+		# frame rate (~37 chunks/s at 200 fps completes nothing on ~80% of frames);
+		# the second is the pack-saturation throttle doing its job. The engine
+		# publishes the failure conditions themselves.
+		if stream_state.has("needed_chunks") and stream_state.has("needed_resident_chunks"):
+			_proof_needed_set_available = true
+			_accumulate_needed_set_window(_proof_needed_set_all, stream_state)
+			if _elapsed_s >= benchmark_warmup:
+				_accumulate_needed_set_window(_proof_needed_set_steady, stream_state)
 
 		var vram_cap_hit: Variant = _read_stat_optional_bool(
 			stream_state,
@@ -1225,12 +1254,73 @@ func _sample_proof_metrics(stats: Dictionary) -> void:
 	if vram_cap_monitor_hit:
 		_proof_vram_cap_hit_frames += 1
 
+func _new_needed_set_window() -> Dictionary:
+	return {
+		"frames": 0,
+		"unmeasured_frames": 0,
+		"demand_frames": 0,
+		"ratio_sum": 0.0,
+		"ratio_min": 1.0,
+		"full_frames": 0,
+		"stall_frames_seen": 0,
+		"stalled_frames": 0,
+		"stall_episodes": 0,
+		"stall_seconds_max": 0.0,
+		"was_stalled": false,
+		"starvation_frames_seen": 0,
+		"starvation_eligible_frames": 0,
+		"scan_starved_frames": 0,
+	}
+
+func _accumulate_needed_set_window(window: Dictionary, stream_state: Dictionary) -> void:
+	window["frames"] = int(window.get("frames", 0)) + 1
+	# A frame on which the engine never built the needed set (update_streaming
+	# returned early) is unmeasured, not "no demand"; it is kept out of every ratio.
+	if stream_state.has("needed_set_measured") and not bool(stream_state["needed_set_measured"]):
+		window["unmeasured_frames"] = int(window.get("unmeasured_frames", 0)) + 1
+		return
+	var needed := _read_stat_int(stream_state, ["needed_chunks"])
+	var resident := _read_stat_int(stream_state, ["needed_resident_chunks"])
+	if needed > 0:
+		# Frames with an empty needed set carry no demand, so they neither help nor
+		# hurt residency; they are counted in "frames" only.
+		var ratio := clampf(float(resident) / float(needed), 0.0, 1.0)
+		window["demand_frames"] = int(window.get("demand_frames", 0)) + 1
+		window["ratio_sum"] = float(window.get("ratio_sum", 0.0)) + ratio
+		window["ratio_min"] = minf(float(window.get("ratio_min", 1.0)), ratio)
+		if resident >= needed:
+			window["full_frames"] = int(window.get("full_frames", 0)) + 1
+	# needed_set_stalled: the needed set has been incomplete with no net needed-set
+	# progress for NEEDED_SET_STALL_THRESHOLD_SECONDS (0.5 s of clamped frame deltas).
+	# Each key is read only when published, so a binary without it reads null, not 0.
+	if stream_state.has("needed_set_stalled"):
+		window["stall_frames_seen"] = int(window.get("stall_frames_seen", 0)) + 1
+		var stalled := bool(stream_state["needed_set_stalled"])
+		if stalled:
+			window["stalled_frames"] = int(window.get("stalled_frames", 0)) + 1
+			if not bool(window.get("was_stalled", false)):
+				window["stall_episodes"] = int(window.get("stall_episodes", 0)) + 1
+		window["was_stalled"] = stalled
+		window["stall_seconds_max"] = maxf(float(window.get("stall_seconds_max", 0.0)),
+				float(stream_state.get("needed_set_stall_seconds", 0.0)))
+	# Starvation: eligible = unserved needed chunks while the scan had enqueue
+	# headroom; starved = eligible and the scan found no load candidate.
+	if stream_state.has("scheduler_visible_scan_starved") and stream_state.has("scheduler_visible_scan_starvation_eligible"):
+		window["starvation_frames_seen"] = int(window.get("starvation_frames_seen", 0)) + 1
+		if bool(stream_state["scheduler_visible_scan_starvation_eligible"]):
+			window["starvation_eligible_frames"] = int(window.get("starvation_eligible_frames", 0)) + 1
+		if bool(stream_state["scheduler_visible_scan_starved"]):
+			window["scan_starved_frames"] = int(window.get("scan_starved_frames", 0)) + 1
+
 func _proof_metric_summary(samples: Array) -> Dictionary:
 	if samples.is_empty():
 		return {
 			"avg": null,
 			"p95": null,
 			"max": null,
+			# null, not 0: no samples means the run measured nothing, which must stay
+			# distinguishable from a run that measured zero chunk turnover (#1016).
+			"total": null,
 			"sample_count": 0,
 		}
 	var total := 0.0
@@ -1243,6 +1333,11 @@ func _proof_metric_summary(samples: Array) -> Dictionary:
 		"avg": total / float(samples.size()),
 		"p95": BenchmarkMetricsUtil.percentile(samples, 95.0),
 		"max": max_value,
+		# Cumulative over the samples passed in, not per-frame; _build_proof_metrics
+		# passes the proof-window samples for the *_total fields. Chunk turnover over a whole traversal is the
+		# thing that distinguishes streaming from a static scene wearing a streaming
+		# label; per-frame avg/p95/max cannot express "the working set turned over once".
+		"total": total,
 		"sample_count": samples.size(),
 	}
 
@@ -1255,22 +1350,52 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 
 	var chunk_loads_summary := _proof_metric_summary(_proof_chunk_loads_per_frame)
 	var chunk_evictions_summary := _proof_metric_summary(_proof_chunk_evictions_per_frame)
+	# Turnover totals cover the proof window, not the run (#1016): when the window is
+	# steady_overall, warm-up churn must not count toward the floors the release gate
+	# reads. With no steady samples the window is "overall" and the run arrays are it.
+	var chunk_loads_window_summary := chunk_loads_summary
+	var chunk_evictions_window_summary := chunk_evictions_summary
+	if proof_window == "steady_overall":
+		chunk_loads_window_summary = _proof_metric_summary(_proof_steady_chunk_loads_per_frame)
+		chunk_evictions_window_summary = _proof_metric_summary(_proof_steady_chunk_evictions_per_frame)
 	var proof_samples := int(proof_summary.get("sample_count", 0))
 	var avg_frame_ms := float(proof_summary.get("avg_frame_ms", 0.0))
 	var p95_frame_ms := float(proof_summary.get("p95_frame_ms", 0.0))
+	# #1086: residency is how complete the NEEDED set was (resident needed chunks /
+	# needed chunks, averaged over the proof window's frames that had demand), not
+	# visible splats over the whole world. The old ratio was capped at
+	# quality/max_splat_count / total_splats (120,000 / 20,000,000 = 0.006 on the
+	# corridor) however well streaming worked.
+	var needed_window: Dictionary = _proof_needed_set_steady if proof_window == "steady_overall" else _proof_needed_set_all
+	var demand_frames := int(needed_window.get("demand_frames", 0))
 	var residency_ratio = null
-	if _proof_residency_available and _proof_last_total_splats > 0:
-		var residency_numerator := _proof_last_uploaded_splats
-		# Streaming worlds don't update uploaded_splat_count; fall back to visible_splats.
-		if residency_numerator == 0 and _proof_atlas_published_available and _proof_last_visible_splats > 0:
-			residency_numerator = _proof_last_visible_splats
-		residency_ratio = float(residency_numerator) / float(max(1, _proof_last_total_splats))
+	var residency_ratio_min = null
+	var residency_full_frame_fraction = null
+	if _proof_needed_set_available and demand_frames > 0:
+		residency_ratio = float(needed_window["ratio_sum"]) / float(demand_frames)
+		residency_ratio_min = float(needed_window["ratio_min"])
+		residency_full_frame_fraction = float(needed_window["full_frames"]) / float(demand_frames)
+	var no_progress_frames = null
+	if int(needed_window.get("stall_frames_seen", 0)) > 0:
+		no_progress_frames = int(needed_window["stalled_frames"])
+	# null unless at least one frame COULD have starved: with no eligible frame the
+	# check was never exercised, and a 0 would be the absence of a signal, not a pass.
+	var starvation_eligible_frames := int(needed_window.get("starvation_eligible_frames", 0))
+	var scan_starved_frames = null
+	if int(needed_window.get("starvation_frames_seen", 0)) > 0 and starvation_eligible_frames > 0:
+		scan_starved_frames = int(needed_window["scan_starved_frames"])
 
 	return {
 		"proof_window": proof_window,
 		"proof_window_sample_count": proof_samples,
 		"first_visible_ms": _proof_first_visible_ms if _proof_visibility_metric_available else null,
 		"residency_ratio": residency_ratio,
+		"residency_ratio_min": residency_ratio_min,
+		"residency_full_frame_fraction": residency_full_frame_fraction,
+		"residency_demand_frames": demand_frames if _proof_needed_set_available else null,
+		"needed_set_unmeasured_frames": (
+			int(needed_window.get("unmeasured_frames", 0)) if _proof_needed_set_available else null
+		),
 		"frame_p95_ms": p95_frame_ms if proof_samples > 0 else null,
 		"frame_p95_to_avg_ratio": (
 			p95_frame_ms / maxf(0.001, avg_frame_ms) if proof_samples > 0 else null
@@ -1279,17 +1404,31 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"queue_pressure_candidate_frames": (
 			_proof_queue_pressure_candidate_frames if _proof_streaming_state_available else null
 		),
-		"no_progress_frames": _proof_no_progress_frames if _proof_streaming_state_available else null,
-		"scan_starved_frames": _proof_scan_starved_frames if _proof_streaming_state_available else null,
+		# #1086: proof-window frames on which the needed set had gone >= 0.5 s without
+		# net needed-set progress (engine: needed_set_stalled; churn and prefetch are not
+		# progress), and on which the visible scan had headroom but reached none of the
+		# unserved demand (engine: scheduler_visible_scan_starved). null when the binary
+		# does not publish the key, and scan_starved_frames is also null when no frame
+		# was eligible to starve. Episodes and the longest stall are time-based, unlike
+		# the frame count, for a contract that wants to gate on wall time.
+		"no_progress_frames": no_progress_frames,
+		"no_progress_episodes": int(needed_window["stall_episodes"]) if no_progress_frames != null else null,
+		"no_progress_stall_seconds_max": float(needed_window["stall_seconds_max"]) if no_progress_frames != null else null,
+		"scan_starved_frames": scan_starved_frames,
+		"scan_starvation_eligible_frames": (
+			starvation_eligible_frames if int(needed_window.get("starvation_frames_seen", 0)) > 0 else null
+		),
 		"vram_cap_hit_frames": _proof_vram_cap_hit_frames if _proof_vram_cap_hit_available else null,
 		"chunk_loads_per_frame_avg": chunk_loads_summary.get("avg"),
 		"chunk_loads_per_frame_p95": chunk_loads_summary.get("p95"),
 		"chunk_loads_per_frame_max": chunk_loads_summary.get("max"),
 		"chunk_loads_per_frame_samples": chunk_loads_summary.get("sample_count"),
+		"chunk_loads_total": chunk_loads_window_summary.get("total"),
 		"chunk_evictions_per_frame_avg": chunk_evictions_summary.get("avg"),
 		"chunk_evictions_per_frame_p95": chunk_evictions_summary.get("p95"),
 		"chunk_evictions_per_frame_max": chunk_evictions_summary.get("max"),
 		"chunk_evictions_per_frame_samples": chunk_evictions_summary.get("sample_count"),
+		"chunk_evictions_total": chunk_evictions_window_summary.get("total"),
 		"uploaded_splats": _proof_last_uploaded_splats if _proof_residency_available else null,
 		"total_splats": _proof_last_total_splats if _proof_residency_available else null,
 		"visible_splats": _proof_last_visible_splats if _proof_visibility_metric_available else null,
@@ -1298,7 +1437,9 @@ func _build_proof_metrics(overall: Dictionary, steady_overall: Dictionary, rende
 		"visibility_telemetry_available": _proof_visibility_metric_available,
 		"atlas_published_telemetry_available": _proof_atlas_published_available,
 		"streaming_state_telemetry_available": _proof_streaming_state_available,
-		"residency_telemetry_available": _proof_residency_available,
+		# residency_ratio, no_progress_frames and scan_starved_frames all come from the
+		# engine's needed-set telemetry; uploaded/total splats above keep their own gate.
+		"residency_telemetry_available": _proof_needed_set_available,
 		"chunk_monitor_telemetry_available": _proof_chunk_monitor_available,
 		"queue_pressure_telemetry_available": _proof_queue_pressure_available,
 		"vram_cap_telemetry_available": _proof_vram_cap_hit_available,

@@ -427,6 +427,9 @@ tests/runtime/linux_logs/
 tests/runtime/windows_logs/
 tests/runtime/**/*.log
 ci/reports/*.html
+# Doxygen C++ API output (docs/Doxyfile); generated in docs CI, never committed.
+docs/api/cpp/
+/doxygen-warnings.log
 benchmarks/results/*.json
 !benchmarks/results/.gitkeep
 
