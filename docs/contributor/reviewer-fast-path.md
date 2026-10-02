@@ -36,5 +36,4 @@ python scripts/docs/release_acceptance.py
 ## If You Need To Build
 
 - [Build from Source](../BUILDING.md) for a module-enabled editor from this fork.
-- [First Run](../getting-started/quick-start.md) for the sample-project path after the editor is built.
-- [Try in 5 Minutes](../getting-started/try-in-5-minutes.md) for the fastest nightly-first evaluation loop; nightly Linux and Windows editor archives are published on Releases.
+- [Your First Splat](../getting-started/quick-start.md) for the sample-project path, with a nightly editor or one you built. [Downloads](../getting-started/downloads.md) says which nightly carries which editor archive.

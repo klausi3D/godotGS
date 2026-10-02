@@ -598,7 +598,7 @@ Error GaussianSplatRenderer::set_file_backed_payload_source(const Ref<ChunkPaylo
 	return err;
 }
 
-void GaussianSplatRenderer::_set_gaussian_data_on_render_thread(const Ref<::GaussianData> &p_data, uint64_t p_request_id) {
+void GaussianSplatRenderer::_set_gaussian_data_on_render_thread(uint64_t p_request_id, const Ref<::GaussianData> &p_data) {
 	const uint64_t latest_request_id =
 			render_thread_dispatcher ? render_thread_dispatcher->get_latest_data_request_id() : 0;
 	if (p_request_id < latest_request_id) {
@@ -624,7 +624,7 @@ void GaussianSplatRenderer::_set_gaussian_data_on_render_thread(const Ref<::Gaus
 	_notify_render_thread_dispatch_completed(p_request_id);
 }
 
-void GaussianSplatRenderer::_set_file_backed_payload_source_on_render_thread(const Ref<ChunkPayloadSource> &p_source, uint64_t p_request_id) {
+void GaussianSplatRenderer::_set_file_backed_payload_source_on_render_thread(uint64_t p_request_id, const Ref<ChunkPayloadSource> &p_source) {
 	const uint64_t latest_request_id =
 			render_thread_dispatcher ? render_thread_dispatcher->get_latest_data_request_id() : 0;
 	if (p_request_id < latest_request_id) {
