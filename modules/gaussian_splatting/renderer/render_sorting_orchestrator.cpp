@@ -1602,7 +1602,7 @@ void GaussianSplatRenderer::force_sort_for_view(const Transform3D &p_world_to_ca
 	sorting_orchestrator->force_sort_for_view(p_world_to_camera_transform);
 }
 
-void GaussianSplatRenderer::_force_sort_for_view_on_render_thread(const Transform3D &p_world_to_camera_transform, uint64_t p_request_id) {
+void GaussianSplatRenderer::_force_sort_for_view_on_render_thread(uint64_t p_request_id, const Transform3D &p_world_to_camera_transform) {
 	sorting_orchestrator->force_sort_for_view(p_world_to_camera_transform);
 	_notify_render_thread_dispatch_completed(p_request_id);
 }
