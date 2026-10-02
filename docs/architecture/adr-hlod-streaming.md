@@ -219,7 +219,8 @@ front of it. HLOD cut with no far plane; the flat schemes use today's distance l
 a model built from a real single-tile bake; at the one point where both exist (160 m,
 `tau = 2`) the model predicts 4.4 M splats against the real 5.71 M, **23% low**, and 1,320
 nodes against the real 442. Model rows are therefore **modelled lower bounds**, and their node
-counts are not reported.
+counts are not reported. With one comparison point, "likely under-predicts" is what the evidence
+supports; the lower-bound reading is an inference from that point, not a proof.
 
 | World | Splats | HLOD `tau=1` | HLOD `tau=2` | Flat A, far 500 m | Flat A, no far plane |
 | --- | --- | --- | --- | --- | --- |
@@ -292,7 +293,7 @@ and `mm` are within ±10%):
 - **Size: about +20%.** A 4:1 reduction per level bounds the interior at 1/3 of the leaves
   in theory; real content lands at 18–22% because coarse levels stop shrinking once nodes are
   small and because pass-through splats are not merged. Page rounding adds about one point.
-  The node table is 96 B per node (under 0.01% of the payload).
+  The node table is 128 B per node (under 0.01% of the payload).
 - **Cost: 3–7 µs per splat in numpy**, roughly linear (20 M splats without SH: 60 s; 8 M
   with SH: 59 s).
   Ordering every node's payload by importance adds a sort per node (7.4 s for 20 M splats in
@@ -332,7 +333,7 @@ step.
 The scratch scripts (PLY I/O, tree, bake, cut, the equal-budget thinning, the corridor and
 scaling simulations, the render harness and the metric runner) are not committed; they are
 measurement code, not production code. The method above is complete enough to rebuild them.
-Slices S1a/S1b land the bake in C++ with unit tests, and S2's and S3's evidence re-run §5.2 and
+Slices S1a/S1b land the bake in C++ with unit tests, and S2a's and S3's evidence re-run §5.2 and
 §5.4 against the real implementation; those, not these tables, are the acceptance numbers.
 
 ## 6. Decision
@@ -344,14 +345,18 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 
 ### 6.1 Tree: a fixed, world-aligned octree (decision 5)
 
-- **World grid.** Every tree lives on a grid anchored in the world, not in the data: a stored
-  world origin `O` (double precision) and a root cell edge `S0 = 2^k` metres, the smallest
-  power of two that covers the content. A cell is addressed by integers `(level, ix, iy, iz)`;
-  its edge is `S0 / 2^level` and its corner is `O + (ix, iy, iz) x edge`, exactly. Adding a
-  splat changes which cells exist, never where a cell's boundaries are, so (a) a world can be
-  baked **out of core** region by region and stitched at the top, (b) an edit changes only its
-  own branch, and (c) cell edges halve per level, which is what makes a geometric error per
-  level meaningful. k-d trees and BVHs (H3DGS uses a per-chunk BVH) give none of these.
+- **One global lattice.** Every tree lives on a lattice fixed by the **world frame**, not by
+  the data: an origin `O` (double precision; the world's coordinate origin, `(0, 0, 0)` unless
+  the world sets one) and power-of-two cell edges. A cell is addressed by an **edge exponent**
+  `e` (edge = `2^e` m, signed) and **signed 64-bit** indices `(ix, iy, iz)`; its corner is
+  `O + (ix, iy, iz) x 2^e`, exactly. The root is the smallest lattice cell that contains the
+  content; content outside it **adds parent levels on the same lattice** (new cells with larger
+  `e`), it never re-anchors existing cells. Adding a splat therefore changes which cells exist,
+  never where a cell's boundaries are, so (a) a world can be baked **out of core** region by
+  region and stitched at the top, (b) an edit changes only its own branch, and (c) cell edges
+  halve per level, which is what makes a geometric error per level meaningful. k-d trees and
+  BVHs (H3DGS uses a per-chunk BVH) give none of these. 64-bit indices cover planetary extents
+  down to the smallest cell edge.
 - **Children are the eight octants.** Empty octants are not stored. Flat content therefore
   occupies four of them and **behaves as a quadtree automatically**, with no data-dependent
   choice of split axis. (The prototype measured in §5 split only along "long" axes of the
@@ -360,9 +365,10 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 - **Subdivision rule.** A cell with more than 16,384 splat centres is subdivided. A cell with at
   most 16,384 becomes a leaf. Sibling leaves that together fit 16,384 are grouped into one
   leaf, consecutively in octant order; the grouping depends only on the content of that
-  parent, so it stays local to the branch.
-- **Coincident centres.** Subdivision stops at a minimum cell edge `s_min = S0 / 2^24` (or
-  when all centres in a cell are bit-identical). A cell that still holds more than 16,384
+  parent, so it stays local to the branch. A **grouped leaf is addressed by its parent cell**
+  (flag `grouped_leaf`) and its positions are relative to that parent cell's centre.
+- **Coincident centres.** Subdivision stops at a minimum cell edge of `2^-16` m (about
+  15 µm, an absolute lattice level), or when all centres in a cell are bit-identical. A cell that still holds more than 16,384
   centres is emitted as an **index-split group**: its splats, ordered by
   `(Morton code at full precision, source index)`, are cut into `ceil(N / 16,384)` sibling
   leaves that share the cell's bounds and carry the flag `split_by_index`. **The bake never
@@ -384,25 +390,41 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   merged splat from an original, so a better bake is a re-import, not a format or runtime
   change.
 - **Positions are node-relative from stage 1.** A splat's position is stored as float32
-  relative to the **centre of its node's cell**; the cell's world position is exact (integer
-  cell address, double origin). On the GPU, the cut writes each drawn node's **camera-relative
-  offset** (computed on the CPU in double, stored as float32) into `ChunkMetaGPU`, and
-  `depth_compute` adds it to the local position. `ChunkMetaGPU` has four words that no shader
-  reads (`lod_level` at `renderer/gaussian_gpu_layout.h:197`, written but unread, and `pad0..2`
-  at `:200-202`): three carry the offset, one carries the S6 fade factor, so the struct stays
-  64 B. The float32 payload is justified because its error depends on the cell, not the world:
+  relative to the **centre of its node's cell** (the parent cell for a grouped leaf); the
+  cell's position is exact (integer lattice address, double origin).
+- **Why float32 is enough, for any cell.** The storage error is about `edge x 2^-24` (the
+  float32 resolution at half the edge, plus overhang). A node is drawn only when its error
+  `eps ≥ edge / 64` projects to at most `tau` pixels, so the storage error projects to about
+  `tau x 64 x 2^-24 ≈ 4e-6 x tau` pixels, **independent of the cell's size and of the world's
+  extent**. For orientation, with a 128 m leaf cell (an example, not a rule; sparse leaves can
+  be larger):
 
-  | World extent | Absolute float32 (today) | Node-relative float32, leaf cells ≤ 128 m | Interior node, cell ≤ 16 km (its `eps` ≥ 250 m) |
+  | World extent | Absolute float32 (today) | Node-relative float32, 128 m leaf cell | Interior node, 16 km cell |
   | --- | --- | --- | --- |
-  | 1 km | 61 µm | ≤ 7.6 µm | — |
-  | 100 km | 7.8 mm | ≤ 7.6 µm | ≤ 1 mm |
-  | 10,000 km | 1 m | ≤ 7.6 µm | ≤ 1 mm |
+  | 1 km | 61 µm | ≤ 7.6 µm (15 µm once overhang passes 64 m) | — |
+  | 100 km | 7.8 mm | same | ≤ 1 mm, against an `eps` ≥ 250 m |
+  | 10,000 km | 1 m | same | same |
 
-  (float32 resolution at magnitude `x` is `2^(floor(log2 x) - 23)`; positions within a cell are
-  at most half the edge plus the largest splat's overhang.) Absolute float32 is visible at
-  100 km for close-up detail and unusable at planetary scale; node-relative float32 is
-  constant. Quantized node-relative positions (the 80 B path) are a stage-2 compression on the
-  same frame of reference.
+  Absolute float32 is visible at 100 km for close-up detail and unusable at planetary scale.
+  Quantized node-relative positions (the 80 B path) are a stage-2 compression on the same frame
+  of reference.
+- **GPU frames (finding R1 of the follow-up review).** Per-node constants and per-draw values
+  are kept apart, because `ChunkMetaGPU` is indexed by chunk and **shared by every instance of
+  an asset** (`depth_compute.glsl:139` reads `chunks[visible_chunk.chunk_id]`; the instance
+  comes separately from `visible_chunk.instance_id`):
+  - **Per node, shared (S2a):** the node's cell centre in **asset space** goes into three of
+    `ChunkMetaGPU`'s four unread words (`lod_level` at `renderer/gaussian_gpu_layout.h:197`,
+    written but unread, and `pad0..2` at `:200-202`), so the struct stays 64 B.
+    `depth_compute` forms the asset-space position as `centre + relative` and applies the
+    instance transform as today. That is exact enough for assets up to tens of km.
+  - **Per drawn entry (S2b):** a `DrawnNodeGPU` record per entry of the drawn set, replacing
+    today's 8 B `VisibleChunkRefGPU` for HLOD content: instance id, chunk id, the
+    **camera-relative offset** `R s c + T - camera` (computed on the CPU in double, stored as
+    float32) and the S6 **fade** factor; 32 B per drawn node, written by the CPU in the cut's
+    deterministic order. With it, `depth_compute` applies the instance rotation and scale to
+    the node-relative position only, adds the offset, and runs the view transform, frustum
+    planes, distance cull, wind and effectors in **camera-relative space**. That shader rewrite
+    is S2b's scope (§9).
 
 ### 6.3 Interior nodes: two candidates, chosen per node (decision 2)
 
@@ -457,13 +479,15 @@ The cut is computed **on the CPU** each frame, over all instances at once (§6.9
 produces is the **drawn set**, and every budget and cap applies to the drawn set, never to an
 ideal cut.
 
-- **Refinement order.** Start from the top-level tree's roots (§6.9). Pop the frontier node with
-  the largest **priority** `p = e x b`, where `e = eps x f_px / max(dist - radius, epsilon)` is
+- **Refinement order.** Start from the top-level tree's roots (§6.9); **top-level nodes are
+  expanded first, ahead of every asset node and regardless of priority**, down to the visible
+  instance roots. Then pop the frontier node with the largest **priority** `p = e x b`, where `e = eps x f_px / max(dist - radius, epsilon)` is
   its projected error and `b = h` (1.25) if the node was refined in the previous frame, else 1
   (this damps flapping at the budget frontier). Ties are broken by `(instance key, node id)`
   (§6.9), never by RID or scene order.
-- **A node is refined only if** (1) `e > tau` (hard switch) — or, with S6, it enters the fade
-  band (§6.7); (2) **all its frustum-visible children are resident and complete** (§6.6); and
+- **A node is refined only if** (1) **`e > h x tau`, or it was refined in the previous frame
+  and `e > tau`** (threshold hysteresis, h = 1.25; with S6 the band `tau < e ≤ h x tau` is a
+  fade instead, §6.7); (2) **all its frustum-visible children are resident and complete** (§6.6); and
   (3) the drawn set after the refinement still fits **every cap** in §6.5.
 - **A node that fails (2) is drawn itself and the loop continues.** No ancestor is ever drawn
   for a missing descendant, so a region is never drawn twice: **the invariant is that no drawn
@@ -473,7 +497,7 @@ ideal cut.
   refinement order, so for a fixed residency state **raising a budget never makes any node
   coarser**. (The first version allowed later, smaller refinements to proceed after a refusal;
   the review's counterexample showed that is not monotonic per node, so it is withdrawn. The
-  cost is some unused budget, measured in S2.)
+  cost is some unused budget, measured in S2a.)
 - **History.** Because of `b`, the drawn set depends on the previous frame's drawn set as well
   as on camera, tree, residency and budgets. It is deterministic, and for a static camera it
   reaches a fixed point within two frames from any prior drawn set (test 2); the same pose
@@ -492,14 +516,19 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 | Capacity | Where | Treatment |
 | --- | --- | --- |
 | Visible splats | `max_visible_splats`, `depth_compute.glsl:225-227` (Channel B) | **Bounded.** The effective splat budget is `min(quality/max_splat_count, max_sort_elements, allocated buffer capacity)` (the resident publisher already applies `sort_cap`, `resident_instance_contract_publisher.cpp:865-868`). `max_visible_splats` is sized **once** from it, not per frame. The drawn set's count, including fade pairs and prefixes, is ≤ it. |
-| Visible chunks / nodes | `max_visible_chunks`, `frustum_cull.glsl:143`, `overflowed_chunks`; sized at `render_streaming_orchestrator.cpp:1803-1808` | **Bounded.** The drawn node count, fade pairs included, is a cut cap; the buffer is sized from the configured node cap. |
+| Visible chunks / nodes | `max_visible_chunks`, `frustum_cull.glsl:143`, `overflowed_chunks`; sized at `render_streaming_orchestrator.cpp:1803-1808` | **Bounded.** The drawn node count, fade pairs included, is a cut cap; the buffer is sized from the configured node cap. For HLOD content the list is written by the CPU in the cut's order (S2b's `DrawnNodeGPU`), not appended by GPU atomics. |
 | Global overlap records | `max_overlap_records`, tile binning (overflow ADR Channel A, #54) | **Bounded by estimate.** Each node bakes a footprint `F = sum (6 sigma_a)(6 sigma_b)` (m²); the cut keeps `sum (count + F f_px² / (d² x tile_area))` ≤ 80% of the effective record budget. The estimate is conservative, not exact, so `overflow_splats_clamped` stays the tripwire. |
-| Per-tile raster records | `GS_MAX_RASTER_SPLATS_PER_TILE` = 12,288 per 16 px tile under the default `gpu_preset="high"` (#1137) | **Residual.** It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero. |
+| Per-tile raster records | `GS_MAX_RASTER_SPLATS_PER_TILE` = 12,288 per 16 px tile under the default `gpu_preset="high"` (#1137) | **Residual.** It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2a's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero. |
 
+- **Never an undrawn instance.** Every instance's asset root node is pinned (§6.6), so a
+  visible instance always has something to draw. If the visible instance roots alone exceed a
+  cap, whole instances are dropped **farthest first**, ties by instance key, with
+  `WARN_PRINT_ONCE` and a counter (the same rule as tree-less content below). This is the only
+  case in which a visible instance is not drawn, and it is counted.
 - **Content without a tree** (a `.gsplatworld` v1 not re-imported) has no coarser
-  representation. Its fallback moves into **S2** (it was S4): whole chunks are dropped
+  representation. Its fallback moves into **S2a** (it was S4): whole chunks are dropped
   farthest first, ties by `(instance key, chunk id)`, with `WARN_PRINT_ONCE` and a counter.
-  S2 claims #1131 fixed for all content only with this in place.
+  S2a claims #1131 fixed for all content only with this in place.
 - **Remaining order dependence, fixed in the slice that exposes it:** the sort tie-break is
   `atlas_index` (`depth_compute.glsl:234-235`), which instances of one asset share, so equal
   depths fall back to atomic order; S5 makes it `(instance key, atlas index)`. The wind seed is
@@ -517,8 +546,9 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
   closure `pinned ∪ drawn ∪ ancestors(drawn) ∪ fade pairs ∪ in-flight runs`, not against the
   drawn set alone. Ancestors stay resident because a refined node's parent must be available
   when the camera moves back. Only nodes outside the closure may be evicted.
-- **Pinned levels.** The top levels (down to the first level whose total payload exceeds 5% of
-  the budget) are pinned and uploaded before the first frame is drawn; a pinned node still
+- **Pinned levels.** Every asset's root node, and the top levels down to the first level whose
+  total payload exceeds 5% of the budget, are pinned and uploaded before the first frame is
+  drawn; a pinned node still
   uploading draws its uploaded prefix, so the first frame is never empty.
 - **Requests.** For every node the ideal cut would refine but (2) of §6.4 blocked, its missing
   children are requested, in refinement-priority order, within the per-frame upload byte
@@ -526,19 +556,22 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 - **An unplaceable run is skipped, not waited for.** If no contiguous run fits after evicting
   nodes outside the closure (within the frame's eviction budget), the request is skipped for
   this frame and the parent keeps being drawn (adopting #1135's skip). After `R` (= 8)
-  consecutive skips of the same node the streamer runs **incremental compaction**: it relocates
-  unprotected nodes with GPU buffer copies, at most a fixed number of pages per frame, until the
-  largest free run fits. Fixed 16-page slots are the fallback if compaction proves too costly
-  in S3; the format does not change either way.
+  consecutive skips of the same node the streamer runs **incremental compaction**, at most a
+  fixed number of pages per frame, until the largest free run fits. Compaction may move
+  **protected** nodes too: a node is copied to its new run with a GPU buffer copy, stays drawn
+  from the old run until the copy has completed, and its `atlas_base` switches between frames;
+  the old run is freed after the switch (both runs count against the budget meanwhile).
+  **If test 5 still fails, fixed 16-page slots are the outcome** (no fragmentation, at the cost
+  of page waste for small nodes); the format does not change either way.
 - **Eviction priority:** outside the closure first, then least recently drawn, then finest
   level first.
 - **Accounting** comes from the allocated run, as in #1134.
 
 ### 6.7 Transitions: cross-fade (decision 4, slice S6; finding 10)
 
-- **One band.** A node's fade band is `tau < e ≤ h x tau` (h = 1.25). Without S6 the node is
-  hard-switched at the band's upper edge `h x tau` (refined above it, coarse below it), which is
-  the hysteresis. With S6 the switch becomes a blend over the same band: the node and its
+- **One band.** A node's band is `tau < e ≤ h x tau` (h = 1.25). Without S6 it is the
+  threshold hysteresis of §6.4 (1): refine above `h x tau`, stay refined while above `tau`.
+  With S6 the switch becomes a blend over the same band: the node and its
   children are drawn together with `t = (e - tau) / ((h - 1) x tau)`, children at opacity
   `x t`, the node at `x (1 - t)`. `t` is a function of the camera, so a parked camera holds a
   static blend and the oracle still reads 0 frames differing.
@@ -546,11 +579,13 @@ or a **declared residual** with an always-on counter that test 1 asserts is zero
 - **Under a budget,** fades are admitted after all full refinements, in priority order, while
   the pair fits every cap; a fade that does not fit is drawn as its coarse node (t = 0), i.e. a
   hard switch.
-- **Plumbing and cost.** The fade factor is the fourth spare `ChunkMetaGPU` word (§6.2). It has
-  to reach the place where splat opacity is read, which today knows only the splat's instance
-  and atlas index, so S6 adds a node index to the per-splat reference: about **4 B per visible
-  splat, ~20 MB at 5 M visible splats**, plus the layout-sync guard update. That is the R3
-  shader change of S6.
+- **Plumbing and cost.** The fade factor is per **drawn entry** (a parent and its fading
+  children, and two placements of one asset, need different values), so it lives in S2b's
+  `DrawnNodeGPU` record (§6.2), not in the shared `ChunkMetaGPU`. It has to reach the place
+  where splat opacity is read, which today knows only the splat's instance and atlas index, so
+  S6 adds the **draw-entry index** to the per-splat reference: about **4 B per visible splat,
+  ~20 MB at 5 M visible splats**, plus the layout-sync guard update. That is the R3 shader
+  change of S6.
 - §5.6 measured a fade of three intermediate states against one hard step, so part of its
   ~9 dB advantage is simply more, smaller steps. Test 9 therefore also bounds the mid-fade
   state against both ends.
@@ -572,8 +607,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.
 - **Top-level tree.** Instances are placed in their own world-aligned octree by their
   world-space bounds (the same grid rule as §6.1). Its leaves reference instance roots (the
   root node of the instance's asset tree, transformed); its interior nodes carry aggregated
-  bounds and, in stage 1, **no payload**. The cut starts at the top-level roots and reaches an
-  instance's asset tree only through visible top-level cells, so its cost is O(visited), not
+  bounds and, in stage 1, **no payload**. Having no payload, they have no error or priority:
+  the cut **expands them first, unconditionally** (§6.4), down to the visible instance roots,
+  and only then starts the priority loop. Its cost is O(visited top-level cells + cut), not
   O(instances).
 - **Error under a transform.** An instance's node error is scaled by the instance's uniform
   scale, and distances are taken in world space.
@@ -585,18 +621,32 @@ inconsistency. The #420 importance clamp is retired in the same slice.
 
 - **`.gsplatworld` v2** (`kWorldVersion` 1 → 2, `io/gaussian_splat_world_io.cpp:24`; the loader
   rejects any other version at `:541`):
-  - header: flag `kFlagHasHlod` (next free bit after `kFlagResidentPayload`, `:38`); the world
-    origin `O` (3 x float64); the root edge exponent `k`; `bake_rule_version`;
-  - a **node table**, 96 B per node: cell address `(level, ix, iy, iz)` (1 + 3 x 4 B), tight
-    AABB (24 B) and sphere radius, geometric error `eps`, parent index, first child and child
-    count, payload first splat (64-bit) and count, height, flags (representation kind,
-    `split_by_index`), the chosen and the rejected candidate's `E`, and the remaining bytes reserved for
-    stage-2 fields (per-node SH degree, quantization block);
+  - header: flag `kFlagHasHlod` (next free bit after `kFlagResidentPayload`, `:38`); the
+    lattice origin `O` (3 x float64, from the world frame); `bake_rule_version`;
+  - a **node table**, **128 B per node**: lattice address (edge exponent `e` as int8, signed
+    int64 `ix, iy, iz`), tight AABB (node-relative, 6 x float32) and sphere radius, geometric
+    error `eps`, parent index, first child and child count, payload first splat (64-bit) and
+    count, height, flags (representation kind, `split_by_index`, `grouped_leaf`), the chosen
+    and the rejected candidate's `E` (float32 each), and the remaining bytes (about 30)
+    reserved for stage-2 fields (per-node SH degree, quantization block, overlap footprint);
   - an optional **top-level instance table** for worlds that place instanced assets (§6.9):
     instance key, asset reference, transform, and the top-level node it hangs from;
   - the gaussian payload **reordered so every node is contiguous**, each importance-ordered,
     with **node-relative positions** (§6.2). The v1 per-chunk index lists (`:425-469`) are not
     written; they forced scattered reads per chunk.
+- **Delta for S1a against the format described at `a1da9be37bf`** (the S1 implementer is
+  coding against that head):
+  1. the cell address is `(e: int8, ix, iy, iz: int64, signed)` on the global lattice, not
+     `(level, ix, iy, iz: uint32)` from a data-sized root;
+  2. the header drops the root edge exponent `k`; `O` comes from the world frame;
+  3. the node record is **128 B**, not 96 B;
+  4. new flag `grouped_leaf`: a grouped leaf is addressed by, and its positions are relative
+     to, its parent cell;
+  5. the minimum cell edge is the absolute lattice level `2^-16` m, not `S0 / 2^24`;
+  6. new reserved field for the per-node overlap footprint (§6.5), which S2a fills.
+
+  The per-draw `DrawnNodeGPU` record, the per-node centre in `ChunkMetaGPU`, the instance
+  rules and the threshold hysteresis are **runtime only** and do not touch the file.
 - **The v2 loader still reads v1.** `.gsplatcache` files are written through the world saver
   (`io/ply_loader.cpp:98-105`), so v1 caches exist on disk; rejecting them would only force a
   re-parse, but accepting them is free. v1 content renders through the tree-less fallback
@@ -609,7 +659,7 @@ inconsistency. The #420 importance clamp is retired in the same slice.
   coordinator).** `GaussianSplatContainer::export_world_resource`
   (`nodes/gaussian_splat_container.cpp:128`) keeps producing a v1-shaped world. S1a adds an
   opt-in **`GaussianSplatWorld.bake_hlod()`**, and the corridor lane calls it after export
-  (S2 makes that change to the lane, so the A/B of test 11 runs on a baked world).
+  (S2a makes that change to the lane, so the A/B of test 11 runs on a baked world).
 - **PLY / SPZ importers** bump in S5, when the resident route adopts the tree: PLY
   `get_format_version` 11 → 12 (`io/resource_importer_ply.h:103`), SPZ 8 → 9
   (`io/resource_importer_spz.h:61`). `PLY_CACHE_VERSION` (3, `io/ply_loader.cpp:35`) does not
@@ -621,15 +671,15 @@ Each item names the slice that lands it (§9). **Thresholds are never lowered si
 (decision 4):** if a criterion fails, the implementer first improves the implementation; if it
 is still not reachable, they report the numbers to the maintainer for an explicit decision.
 
-1. **Static-frame flicker oracle at a binding cap (S2, the #1131 acceptance test).** #1131's
+1. **Static-frame flicker oracle at a binding cap (S2a, the #1131 acceptance test).** #1131's
    Run A: the corridor-style world (baked with `bake_hlod()`), static camera, cap 120,000
    against ~320,000 visible demand; wait for streaming idle (180 frames without a load),
    capture 300 frames. **Pass: 0 frames differ from frame 0, and none of
    `instance_count_overflow_events`, `overflow_splats_clamped` (tile binning and, once #1137
-   counts it, the per-tile raster cap) or `overflowed_chunks` moves.** **Non-vacuity:** S2's
+   counts it, the per-tile raster cap) or `overflowed_chunks` moves.** **Non-vacuity:** S2a's
    `hlod_budget_bound_frames` counter must rise by 300 in the window, proving the budget bound.
    Base must fail (299/300 today). A second run parks the camera inside a fade band (S6).
-2. **Cut properties (S2, CPU unit tests):**
+2. **Cut properties (S2a; the top-level item in S2b; CPU unit tests):**
    - determinism: the same inputs give the same drawn set across runs and insertion orders;
    - every cap holds for the **drawn set**, with fade pairs and prefixes counted;
    - no drawn node has a drawn ancestor (outside fade pairs);
@@ -637,7 +687,11 @@ is still not reachable, they report the numbers to the maintainer for an explici
      a node coarser (true by construction of the stop-at-first-refusal rule; a property test
      with randomized trees checks it);
    - **fixed point:** a static camera reaches the same drawn set within 2 frames from at least
-     five different prior drawn sets.
+     five different prior drawn sets;
+   - **top level:** payload-less top-level nodes are always expanded before any asset node, and
+     no visible instance is left undrawn under a binding budget unless the visible instance
+     roots alone exceed a cap, in which case instances drop farthest first, counted;
+   - **threshold hysteresis:** a node at `tau < e ≤ h x tau` keeps its previous state.
 3. **Bake unit tests (S1a):** deterministic output; **no node over 16,384 splats**, including
    a fixture with 40,000 coincident centres (index-split group); node bounds contain the
    node's own payload at three sigma; moment matching preserves the weighted mean and second
@@ -658,10 +712,13 @@ is still not reachable, they report the numbers to the maintainer for an explici
    together with one of its ancestors outside a fade pair.
 7. **Corridor lane (S3):** `vram_cap_hit_frames <= 0` at 1 GiB, `residency_ratio >= 0.70`,
    every overflow counter of test 1 at zero, with GPU evidence.
-8. **Visual gate on real scans (S2):** §5.2 re-run on the three scans against the real
-   implementation. **Thresholds are fixed now, from §5.2, not from the run they judge:** in
-   every row, the implementation's PSNR must be at least the prototype's value for the same
-   method minus 1.0 dB, and SSIM at least the prototype's minus 0.01.
+8. **Visual gate on real scans (S2a):** §5.2 re-run on the three scans against the real
+   implementation. **Thresholds are fixed now, from the §5.2 table committed in this ADR**
+   (the head that is merged), **not from the run they judge** and not from S1a's re-run on the
+   world grid: in every row, the implementation (the per-node choice) must reach PSNR ≥ the
+   better of the `sat` and A-area columns minus 1.0 dB, and SSIM ≥ that column's SSIM minus
+   0.01. The baum2 rows are replaced by their post-fix re-run before this ADR merges; until
+   then they carry the pre-fix values, as §5.2 states.
 9. **Transitions (S6):** a dolly through several switch distances at 60 fps. The worst
    per-frame step with the cross-fade must be at most half that of the hard switch, **and**
    every mid-fade frame must be at least as close to both endpoints as the endpoints are to
@@ -679,7 +736,7 @@ is still not reachable, they report the numbers to the maintainer for an explici
     table; the maintainer sets the default from it.
 12. **Per-node choice (S1b, decision 2):** the §5.2 rows re-run with the per-node choice, in the
     prototype harness (a test-only cut that writes the drawn set as a PLY and renders it in the
-    engine, since S2's runtime cut does not exist yet). In every row it must be within 0.5 dB
+    engine, since S2a's runtime cut does not exist yet). In every row it must be within 0.5 dB
     of the better of `sat` and A-area, or better; the choice is deterministic; the bake with the
     choice takes at most 2x the merge-only bake. If the 0.5 dB criterion fails, the
     implementer improves the metric or the candidates first; if it is still not reachable, the
@@ -693,23 +750,24 @@ on one GPU.
 
 One PR per slice, each against `master`, each stating its base SHA.
 
-### Stage 1 — the alpha (seven PRs)
+### Stage 1 — the alpha (eight PRs)
 
 | Slice | Content | Risk | Size (estimate) |
 | --- | --- | --- | --- |
-| **S1a** | Format v2 (node table, instance table, header) + bake core: world-aligned octree with index-split groups, `sat` merge with the single-child identity, node-relative positions, node bounds from payload, importance-ordered contiguous payload; v1 → v2 in the world importer; opt-in `GaussianSplatWorld.bake_hlod()`; tests 3–4 | R3 | ~1,900 LOC + ~1,000 LOC tests |
+| **S1a** | Format v2 (node table, instance table, header) + bake core: world-aligned octree on the global lattice (signed 64-bit addresses, 128 B node record) with index-split groups and grouped leaves, `sat` merge with the single-child identity, node-relative positions, node bounds from payload, importance-ordered contiguous payload; v1 → v2 in the world importer; opt-in `GaussianSplatWorld.bake_hlod()`; tests 3–4 | R3 | ~1,900 LOC + ~1,000 LOC tests |
 | **S1b** | Per-node choice: `selected` candidate from leaf prefixes, CPU rasterizer, 22-view metric, representation kind and errors in the record; test 12 | R3 | ~900 + ~500 |
-| **S2** | Global CPU cut over all instances with the top-level instance tree, drawn set, every cap of §6.5, stop-at-first-refusal, priority hysteresis, the `tau` setting, camera-relative node offsets in `ChunkMetaGPU`, `max_visible_splats` sized once, the tree-less fallback, `hlod_budget_bound_frames`, corridor lane calls `bake_hlod()`; tests 1, 2, 8 | R3 | ~2,500 + ~1,500 |
+| **S2a** | Global CPU cut over all instances (flat instance list), drawn set, every cap of §6.5, stop-at-first-refusal, threshold and priority hysteresis, the `tau` setting, per-node asset-space centre in `ChunkMetaGPU` (node-relative positions drawn), `max_visible_splats` sized once, the tree-less and over-cap instance fallbacks, `hlod_budget_bound_frames`, corridor lane calls `bake_hlod()`; **closes #1131**; tests 1, 2 (without top level), 8 | R3 | ~1,600 + ~1,000 |
+| **S2b** | Top-level instance tree with first-expansion rule; per-draw `DrawnNodeGPU` record written by the CPU; **camera-relative shader rewrite** of `depth_compute` (instance R·s on the relative position, offset add, view transform, frustum planes, distance cull, wind and effectors in camera space); test 2 (top level) and a far-from-origin precision test | R3 | ~1,400 + ~800 |
 | **S3** | Node streaming on #1134: whole-run admission, protected-closure accounting, pinned levels, requests in priority order, skip + bounded retry + incremental compaction, eviction priority, stable wind seed; tests 5–7 and the **`tau` A/B (test 11) as an acceptance criterion** | R3 | ~1,400 + ~900 |
 | **S4** | Telemetry: cut size, depth histogram, fade-band size, compaction and skip counts | R2 | ~200 + ~150 |
 | **S5** | Resident route: bake at PLY/SPZ import (format bumps), all nodes resident, joins the global cut, instance-key sort tie-break, retire the #420 clamp; test 10 | R3 | ~900 + ~550 |
 | **S6** | Cross-fade: one band, `t` from the error, fades admitted after refinements, fade factor in `ChunkMetaGPU`, node index in the per-splat reference, layout-sync guard; test 9 | R3 | ~800 + ~450 |
 
-Stage 1 is **about 8,600 LOC of production code and 5,050 LOC of tests over seven PRs, six of
-them R3.** The growth since the previous revision (~6,600 + 3,800 over six PRs) comes from
-decisions 5–7 (world grid with index splits, node-relative positions, global instance cut and
-top-level tree) and from the review's drawn-set, cap and closure rules. S1 is split into S1a
-and S1b for reviewability; S6 can land after S2 in parallel with S3. The tree is as deep as the
+Stage 1 is **about 9,100 LOC of production code and 5,350 LOC of tests over eight PRs, seven
+of them R3.** The growth since `a1da9be37bf` (~8,600 + 5,050 over seven PRs) is the
+camera-relative shader rewrite and the per-draw record (follow-up review R1), the top-level
+expansion rule, and splitting S2 into S2a and S2b for reviewability. S1a, S1b, S2a and S2b are
+sequential; S6 can land after S2b in parallel with S3. The tree is as deep as the
 content needs; there is no fixed number of levels.
 
 ### Stage 2+ — refinements that need no rebuild
@@ -727,6 +785,8 @@ content needs; there is no fixed number of levels.
 
 ### What would force a rebuild if stage 1 were done more cheaply
 
+- **Per-draw values in a per-asset record** (`ChunkMetaGPU`): instances of one asset would
+  share a camera offset and a fade (follow-up review R1).
 - **Option A (flat importance prefix) as the format.** No merged nodes, so the screen-bound
   requirement is unreachable (§5.3).
 - **A fixed number of levels baked as separate per-level files.** Billions of splats need an
@@ -790,6 +850,9 @@ budget-driven selection, done here by the cut.
    `sat` single-child mapping was a prototype bug; single-child cells are now the identity and
    §5.2 was re-measured.
 
+Follow-up review of `a1da9be37bf` (one P1, two P2, six P3): resolved in §6.1, §6.2, §6.4–§6.7,
+§6.9, §7 (with the exact S1a format delta), §8 and §9; see §13.
+
 Still open, not blocking stage 1: whether the corridor lane keeps its 120,000 cap, which binds
 by about 50x and under the cut means "draw a coarse world"; S3's A/B data informs it.
 
@@ -801,8 +864,9 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
   data's bounding-box midpoints. S1a re-runs §5.2 and §5.5 on the fixed grid.
 - **Not prototyped at all:** the per-node choice and its 22-view metric (cost in §6.3 is an
   estimate), hysteresis, the byte-budget refusal, the drawn-set and closure rules, the
-  error-band fade (§5.6 used three fixed steps), node-relative positions, the top-level
-  instance tree and the overlap-record estimate. `hlod.cut` in the prototype has only the
+  error-band fade (§5.6 used three fixed steps), node-relative positions, the per-draw
+  record and the camera-relative shader path, the top-level instance tree and the
+  overlap-record estimate. `hlod.cut` in the prototype has only the
   tau test and a splat budget.
 - **The corridor and scaling simulations used the `mass` rule** and count resident cut nodes
   only; they do not check ancestor coverage (`residency_ratio_min` ≤ 0.002 in four of five
@@ -829,3 +893,17 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 | P3-11 | Node bounds from source splats | §6.1: bounds from the node's own payload; test 3 |
 | P3-12 | Residual nondeterminism (sort tie-break, wind seed, tree-less content) | §6.5: fixes assigned to S5 and S3; the tree-less fallback moved into S2 |
 | P3-13 | §12 completeness; S1 size; test 12 rendering | §12 extended; S1 split into S1a/S1b; test 12 uses a test-only cut writing a PLY |
+
+Follow-up review of `a1da9be37bf`:
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| R1 (P1) | Camera offset and fade in the per-asset `ChunkMetaGPU` | §6.2: per-node asset-space centre stays in `ChunkMetaGPU` (shared, correct); offset and fade move to a per-draw `DrawnNodeGPU` record; camera-relative shader rewrite is S2b's scope and size |
+| R2 (P2) | Payload-less top-level nodes; undrawn instances | §6.4/§6.9: top-level nodes expanded first; every instance root pinned; over-cap instance roots drop farthest first, counted; test 2 |
+| R3 (P2) | Two thresholds; hysteresis gone | §6.4 (1) and §6.7: refine above `h x tau`, stay refined above `tau`; S6 blends over the same band |
+| R4 (P3) | Data-derived lattice; grouped-leaf address | §6.1: global lattice from the world frame, root growth adds parents, signed 64-bit indices; grouped leaves addressed by the parent cell |
+| R5 (P3) | Precision framing | §6.2: relative argument (`~4e-6 x tau` px for any cell); 128 m labelled an example |
+| R6 (P3) | Test 8 column and baseline | Test 8: per-node choice ≥ best of (`sat`, A-area) − 1.0 dB from this ADR's committed table; baum2 rows replaced before merge |
+| R7 (P3) | Compaction cannot move protected nodes | §6.6: protected nodes move by copy-then-switch; fixed 16-page slots named as the outcome if test 5 fails |
+| R8 (P3) | "Modelled lower bound" on one point | §5.3: "likely under-predicts" |
+| R9 (P3) | S2 size | S2 split into S2a (closes #1131) and S2b (instance tree, camera-relative space) |
