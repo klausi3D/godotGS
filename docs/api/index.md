@@ -3,6 +3,16 @@
 ## Purpose
 Use this folder for Gaussian Splatting API references and regeneration scripts.
 
+## Stability
+
+**GodotGS is an alpha, and nothing documented in this folder carries an API stability
+promise.** Any class, method, property, signal, singleton or project setting described
+here may change or be removed in any release, including a patch release, without a
+deprecation period. That is policy for the alpha; a deprecation lifecycle begins at
+v1.0. The references below describe what the current build exposes, not
+what later builds will keep. See [API Stability](../development/api-stability.md) for
+the full statement and what to do about it.
+
 ## Usage
 <table>
   <thead>
@@ -26,7 +36,7 @@ Use this folder for Gaussian Splatting API references and regeneration scripts.
     <tr>
       <td>Read the maintained node-level API guide.</td>
       <td><a href="gaussian_splat_node3d.md"><code>gaussian_splat_node3d.md</code></a></td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:84</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
     <tr>
       <td>Read the GaussianData API reference.</td>
@@ -94,7 +104,7 @@ Use this folder for Gaussian Splatting API references and regeneration scripts.
     <tr>
       <td><code>gaussian_splat_node3d.md</code></td>
       <td>Maintained</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.h:341</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
   </tbody>
 </table>
@@ -141,7 +151,7 @@ python3 scripts/generate_shader_docs.py --strict \
     <tr>
       <td>Node API docs drift from code.</td>
       <td>Reconcile methods, properties, and signals against <code>_bind_methods()</code>.</td>
-      <td><code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp:84</code></td>
+      <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
     <tr>
       <td>Generated GDScript reference includes internal/test/tooling scripts.</td>

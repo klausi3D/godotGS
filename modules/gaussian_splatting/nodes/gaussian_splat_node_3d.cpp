@@ -1708,8 +1708,9 @@ void GaussianSplatNode3D::_update_viewport_render_state(RenderingServer *rs, int
         }
 #endif
         if (viewport_rid.is_valid()) {
-            cached_viewport_render_target = rs->viewport_get_render_target(viewport_rid);
-            cached_viewport_render_texture = rs->viewport_get_texture(viewport_rid);
+            // Reached only while the render target is unresolved, never in steady
+            // state (#1092: each getter is a main/render-thread sync under thread_model=2).
+            viewport_helper.query_viewport_render_target(rs, viewport_rid, cached_viewport_render_target, cached_viewport_render_texture);
 #ifndef GS_SILENCE_LOGS
             if (_is_frame_log_enabled() && update_call_count <= 10) {
                 GS_LOG_RENDERER_DEBUG(vformat("[update_splats] Got render_target valid=%s, texture valid=%s",
@@ -2540,6 +2541,29 @@ void GaussianSplatNode3D::_dispatch_first_frame_render() {
     force_update();
 }
 
+#ifdef TESTS_ENABLED
+void GaussianSplatNode3D::test_update_viewport_render_target() {
+    // Same viewport resolution as _update_viewport_render_state().
+    _update_cached_render_target(Engine::get_singleton()->is_editor_hint() ? _find_editor_scene_viewport() : get_viewport());
+}
+
+void GaussianSplatNode3D::test_mark_viewport_render_target_acquired(const RID &p_render_target, const RID &p_render_texture) {
+    Viewport *viewport = observed_viewport;
+    if (!viewport) {
+        return;
+    }
+    Size2i viewport_size = viewport->get_visible_rect().size;
+    if (viewport_size.x <= 0 || viewport_size.y <= 0) {
+        viewport_size = Size2i(1, 1);
+    }
+    viewport_helper.commit_acquired_render_target(viewport, Vector2i(viewport_size.x, viewport_size.y), p_render_target, p_render_texture);
+}
+
+bool GaussianSplatNode3D::test_is_viewport_render_target_ready() const {
+    return viewport_texture_state == ViewportTextureState::READY && cached_viewport_render_target.is_valid();
+}
+#endif
+
 void GaussianSplatNode3D::_on_viewport_texture_ready() {
     viewport_helper.on_viewport_texture_ready();
 }
@@ -2834,7 +2858,18 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
     LocalVector<ObjectID> peer_ids;
     director->collect_instance_node_ids_for_renderer(p_renderer.ptr(), peer_ids);
     const ObjectID self_id = get_instance_id();
+    // #1081: the overlay union is a function of the renderer's node set only, so
+    // every peer that pushes it computes the same value; after the first push
+    // the rest were memo-compare no-ops that each re-collected and re-unioned
+    // the whole set -- O(k^2) per registration here, O(N^3) for N adds, on top
+    // of the O(k^2) collection each push did before #1081. Push it once, from
+    // the first peer that can (push_debug_overlay_union() is a no-op on a node
+    // without a renderer or outside the tree/world), and give every other peer
+    // on the same renderer the per-node half of the reconcile only: its HUD
+    // control. The per-peer shared-state convergence is untouched.
+    bool overlay_union_pushed = false;
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         if (peer_ids[i] == self_id) {
             continue;
         }
@@ -2853,7 +2888,15 @@ void GaussianSplatNode3D::_notify_renderer_peers_shared_state_changed(const Ref<
         // update mode actually runs update_splats(): under UPDATE_MODE_MANUAL
         // (or while a visibility-gated mode skips the node) nothing ever does,
         // so the stale overlay is permanent. Reconcile unconditionally.
+        const bool pushes_this_renderer = peer->renderer == p_renderer;
+        if (overlay_union_pushed && pushes_this_renderer) {
+            peer->_update_debug_hud_visibility();
+            continue;
+        }
         peer->_reconcile_debug_overlay_state();
+        if (pushes_this_renderer && peer->is_inside_tree() && peer->is_inside_world()) {
+            overlay_union_pushed = true;
+        }
     }
 }
 
@@ -2947,6 +2990,7 @@ void GaussianSplatNode3D::_notify_debug_hud_dirty_for_renderer(GaussianSplatRend
     LocalVector<ObjectID> peer_ids;
     director->collect_instance_node_ids_for_renderer(p_renderer, peer_ids);
     for (uint32_t i = 0; i < peer_ids.size(); i++) {
+        GS_COUNT_PEER_WALK_STEP();
         GaussianSplatNode3D *peer = Object::cast_to<GaussianSplatNode3D>(ObjectDB::get_instance(peer_ids[i]));
         if (!peer) {
             continue;

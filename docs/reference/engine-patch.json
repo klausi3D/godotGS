@@ -28,6 +28,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "core/config/project_settings.cpp",
+      "last_touch_commit": "e79de592c1d1dc6a883899f96638b1d98e2b6fd0",
+      "lines_added": 10,
+      "lines_deleted": 5,
+      "new_path": "core/config/project_settings.cpp",
+      "old_path": "core/config/project_settings.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "core",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "drivers/gles3/rasterizer_gles3.h",
       "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
       "lines_added": 5,
@@ -67,9 +80,35 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 68,
+      "lines_deleted": 0,
+      "new_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "old_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 1,
+      "lines_deleted": 0,
+      "new_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "old_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "editor/docks/scene_tree_dock.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 75,
+      "last_touch_commit": "27035f2d9868a044b2fcc074414b68a57cc7fc1c",
+      "lines_added": 83,
       "lines_deleted": 1,
       "new_path": "editor/docks/scene_tree_dock.cpp",
       "old_path": "editor/docks/scene_tree_dock.cpp",
@@ -93,12 +132,64 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "editor/editor_node.cpp",
+      "last_touch_commit": "47bf18f81abbd0ae4aeca6f538f60dafa9a4ed91",
+      "lines_added": 23,
+      "lines_deleted": 0,
+      "new_path": "editor/editor_node.cpp",
+      "old_path": "editor/editor_node.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "last_touch_commit": "27035f2d9868a044b2fcc074414b68a57cc7fc1c",
+      "lines_added": 71,
+      "lines_deleted": 1,
+      "new_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "old_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "editor/scene/3d/node_3d_editor_plugin.h",
+      "last_touch_commit": "c6b0b1951f2621d10c035dd9ac47c2b192910eac",
+      "lines_added": 2,
+      "lines_deleted": 0,
+      "new_path": "editor/scene/3d/node_3d_editor_plugin.h",
+      "old_path": "editor/scene/3d/node_3d_editor_plugin.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "main/main.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 8,
+      "last_touch_commit": "d11c70687add5661fcf2f11b125bf3a55f16591e",
+      "lines_added": 74,
       "lines_deleted": 4,
       "new_path": "main/main.cpp",
       "old_path": "main/main.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "main",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "main/main.h",
+      "last_touch_commit": "47bf18f81abbd0ae4aeca6f538f60dafa9a4ed91",
+      "lines_added": 12,
+      "lines_deleted": 0,
+      "new_path": "main/main.h",
+      "old_path": "main/main.h",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "main",
@@ -185,8 +276,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 252,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 282,
       "lines_deleted": 1,
       "new_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
       "old_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
@@ -224,8 +315,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 119,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 135,
       "lines_deleted": 9,
       "new_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
       "old_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
@@ -263,8 +354,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 17,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 29,
       "lines_deleted": 3,
       "new_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
       "old_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
@@ -341,8 +432,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 44,
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 48,
       "lines_deleted": 11,
       "new_path": "servers/rendering/rendering_device.cpp",
       "old_path": "servers/rendering/rendering_device.cpp",
@@ -354,11 +445,24 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device.h",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 14,
+      "last_touch_commit": "79fef1833f86e2487dc1bd4e8c4b54a86d74edab",
+      "lines_added": 25,
       "lines_deleted": 7,
       "new_path": "servers/rendering/rendering_device.h",
       "old_path": "servers/rendering/rendering_device.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "servers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "servers/rendering/rendering_device_driver.h",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 5,
+      "lines_deleted": 0,
+      "new_path": "servers/rendering/rendering_device_driver.h",
+      "old_path": "servers/rendering/rendering_device_driver.h",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "servers",
@@ -419,9 +523,9 @@
   ],
   "engine_source_summary": {
     "deleted": 0,
-    "modified": 32,
+    "modified": 40,
     "renamed": 0,
-    "total_files": 32
+    "total_files": 40
   },
   "entries": [
     {
@@ -435,19 +539,6 @@
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": ".gitattributes",
-      "touchpoints": []
-    },
-    {
-      "deletion_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "display_path": ".github/CODEOWNERS",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 0,
-      "lines_deleted": 259,
-      "new_path": ".github/CODEOWNERS",
-      "old_path": ".github/CODEOWNERS",
-      "pre_deletion_commit": "8bb22eb668021e4089fb0d5a6f012a155b3446f5",
-      "status": "D",
-      "subsystem": ".github",
       "touchpoints": []
     },
     {
@@ -472,19 +563,6 @@
       "new_path": ".github/ISSUE_TEMPLATE/config.yml",
       "old_path": ".github/ISSUE_TEMPLATE/config.yml",
       "pre_deletion_commit": "389227bff13c77d1bee35700daeb55ebe0549d83",
-      "status": "D",
-      "subsystem": ".github",
-      "touchpoints": []
-    },
-    {
-      "deletion_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "display_path": ".github/PULL_REQUEST_TEMPLATE.md",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 0,
-      "lines_deleted": 8,
-      "new_path": ".github/PULL_REQUEST_TEMPLATE.md",
-      "old_path": ".github/PULL_REQUEST_TEMPLATE.md",
-      "pre_deletion_commit": "500c83305dbbdaa7a9482a4b6bcef7e5177a2c7c",
       "status": "D",
       "subsystem": ".github",
       "touchpoints": []
@@ -725,9 +803,35 @@
     },
     {
       "deletion_commit": null,
+      "display_path": ".github/CODEOWNERS",
+      "last_touch_commit": "66b5ddc884807e1fa6865add3971ddb910f864fe",
+      "lines_added": 52,
+      "lines_deleted": 259,
+      "new_path": ".github/CODEOWNERS",
+      "old_path": ".github/CODEOWNERS",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": ".github",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "last_touch_commit": "66b5ddc884807e1fa6865add3971ddb910f864fe",
+      "lines_added": 79,
+      "lines_deleted": 5,
+      "new_path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "old_path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": ".github",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": ".gitignore",
-      "last_touch_commit": "4cc28822021ed7e8a032cd64bd1202d8a38ac32d",
-      "lines_added": 124,
+      "last_touch_commit": "511acdc0fc919cf265a7d76312fff995b7bbfea9",
+      "lines_added": 174,
       "lines_deleted": 0,
       "new_path": ".gitignore",
       "old_path": ".gitignore",
@@ -752,8 +856,8 @@
     {
       "deletion_commit": null,
       "display_path": "CHANGELOG.md",
-      "last_touch_commit": "a9aa717a87f8aa94d11e9e506cda2b74cb79a5c9",
-      "lines_added": 36,
+      "last_touch_commit": "ac546a26837d59b9a7c789fe7577cfcc1848413e",
+      "lines_added": 48,
       "lines_deleted": 2518,
       "new_path": "CHANGELOG.md",
       "old_path": "CHANGELOG.md",
@@ -765,9 +869,9 @@
     {
       "deletion_commit": null,
       "display_path": "CONTRIBUTING.md",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 6,
-      "lines_deleted": 208,
+      "last_touch_commit": "b46c39ca61e36ef61280358888c24612a1bf47d5",
+      "lines_added": 9,
+      "lines_deleted": 207,
       "new_path": "CONTRIBUTING.md",
       "old_path": "CONTRIBUTING.md",
       "pre_deletion_commit": null,
@@ -778,14 +882,27 @@
     {
       "deletion_commit": null,
       "display_path": "README.md",
-      "last_touch_commit": "d9f052c12dd437a39f748d4e8fa0b3b8674bdace",
-      "lines_added": 25,
-      "lines_deleted": 66,
+      "last_touch_commit": "bc77ce31e9cc108fa7e2356cfe54d98eba6ca0ca",
+      "lines_added": 54,
+      "lines_deleted": 56,
       "new_path": "README.md",
       "old_path": "README.md",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "README.md",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "SConstruct",
+      "last_touch_commit": "1b0a1c48dd1ce9a41603b1533a56127ec32cd2b3",
+      "lines_added": 12,
+      "lines_deleted": 1,
+      "new_path": "SConstruct",
+      "old_path": "SConstruct",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "SConstruct",
       "touchpoints": []
     },
     {
@@ -809,6 +926,19 @@
       "lines_deleted": 5,
       "new_path": "core/config/engine.h",
       "old_path": "core/config/engine.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "core",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "core/config/project_settings.cpp",
+      "last_touch_commit": "e79de592c1d1dc6a883899f96638b1d98e2b6fd0",
+      "lines_added": 10,
+      "lines_deleted": 5,
+      "new_path": "core/config/project_settings.cpp",
+      "old_path": "core/config/project_settings.cpp",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "core",
@@ -1011,9 +1141,35 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 68,
+      "lines_deleted": 0,
+      "new_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "old_path": "drivers/vulkan/rendering_device_driver_vulkan.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 1,
+      "lines_deleted": 0,
+      "new_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "old_path": "drivers/vulkan/rendering_device_driver_vulkan.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "drivers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "editor/docks/scene_tree_dock.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 75,
+      "last_touch_commit": "27035f2d9868a044b2fcc074414b68a57cc7fc1c",
+      "lines_added": 83,
       "lines_deleted": 1,
       "new_path": "editor/docks/scene_tree_dock.cpp",
       "old_path": "editor/docks/scene_tree_dock.cpp",
@@ -1030,6 +1186,45 @@
       "lines_deleted": 0,
       "new_path": "editor/docks/scene_tree_dock.h",
       "old_path": "editor/docks/scene_tree_dock.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "editor/editor_node.cpp",
+      "last_touch_commit": "47bf18f81abbd0ae4aeca6f538f60dafa9a4ed91",
+      "lines_added": 23,
+      "lines_deleted": 0,
+      "new_path": "editor/editor_node.cpp",
+      "old_path": "editor/editor_node.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "last_touch_commit": "27035f2d9868a044b2fcc074414b68a57cc7fc1c",
+      "lines_added": 71,
+      "lines_deleted": 1,
+      "new_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "old_path": "editor/scene/3d/node_3d_editor_plugin.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "editor",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "editor/scene/3d/node_3d_editor_plugin.h",
+      "last_touch_commit": "c6b0b1951f2621d10c035dd9ac47c2b192910eac",
+      "lines_added": 2,
+      "lines_deleted": 0,
+      "new_path": "editor/scene/3d/node_3d_editor_plugin.h",
+      "old_path": "editor/scene/3d/node_3d_editor_plugin.h",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "editor",
@@ -1259,11 +1454,24 @@
     {
       "deletion_commit": null,
       "display_path": "main/main.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 8,
+      "last_touch_commit": "d11c70687add5661fcf2f11b125bf3a55f16591e",
+      "lines_added": 74,
       "lines_deleted": 4,
       "new_path": "main/main.cpp",
       "old_path": "main/main.cpp",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "main",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "main/main.h",
+      "last_touch_commit": "47bf18f81abbd0ae4aeca6f538f60dafa9a4ed91",
+      "lines_added": 12,
+      "lines_deleted": 0,
+      "new_path": "main/main.h",
+      "old_path": "main/main.h",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "main",
@@ -1857,8 +2065,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 252,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 282,
       "lines_deleted": 1,
       "new_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
       "old_path": "servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp",
@@ -1896,8 +2104,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 119,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 135,
       "lines_deleted": 9,
       "new_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
       "old_path": "servers/rendering/renderer_rd/renderer_scene_render_rd.cpp",
@@ -1935,8 +2143,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 17,
+      "last_touch_commit": "873025f5783c765caec08a39a33909d1118b9d60",
+      "lines_added": 29,
       "lines_deleted": 3,
       "new_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
       "old_path": "servers/rendering/renderer_rd/storage_rd/render_data_rd.h",
@@ -2013,8 +2221,8 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 44,
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 48,
       "lines_deleted": 11,
       "new_path": "servers/rendering/rendering_device.cpp",
       "old_path": "servers/rendering/rendering_device.cpp",
@@ -2026,11 +2234,24 @@
     {
       "deletion_commit": null,
       "display_path": "servers/rendering/rendering_device.h",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 14,
+      "last_touch_commit": "79fef1833f86e2487dc1bd4e8c4b54a86d74edab",
+      "lines_added": 25,
       "lines_deleted": 7,
       "new_path": "servers/rendering/rendering_device.h",
       "old_path": "servers/rendering/rendering_device.h",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "servers",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
+      "display_path": "servers/rendering/rendering_device_driver.h",
+      "last_touch_commit": "2687700e1e527e806566b1f545b77ca4edcf3dff",
+      "lines_added": 5,
+      "lines_deleted": 0,
+      "new_path": "servers/rendering/rendering_device_driver.h",
+      "old_path": "servers/rendering/rendering_device_driver.h",
       "pre_deletion_commit": null,
       "status": "M",
       "subsystem": "servers",
@@ -2090,6 +2311,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "tests/SCsub",
+      "last_touch_commit": "7c9a815f03005f50a92aa5de8cdab03d6122b721",
+      "lines_added": 3,
+      "lines_deleted": 0,
+      "new_path": "tests/SCsub",
+      "old_path": "tests/SCsub",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "tests",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "tests/create_test.py",
       "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
       "lines_added": 0,
@@ -2104,9 +2338,9 @@
     {
       "deletion_commit": null,
       "display_path": "tests/test_main.cpp",
-      "last_touch_commit": "aeeb1475cb347fc9724490e410733b50f59c9003",
-      "lines_added": 3,
-      "lines_deleted": 0,
+      "last_touch_commit": "d9180a5be7777be4c35ad4b9e0c32fc349a97096",
+      "lines_added": 21,
+      "lines_deleted": 14,
       "new_path": "tests/test_main.cpp",
       "old_path": "tests/test_main.cpp",
       "pre_deletion_commit": null,
@@ -2196,8 +2430,8 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "4cc28822021ed7e8a032cd64bd1202d8a38ac32d",
-    "head_ref": "4cc28822021ed7e8a032cd64bd1202d8a38ac32d",
+    "head_commit": "eff00db450c26f50035cfdc8149f529044ee8d62",
+    "head_ref": "eff00db450c26f50035cfdc8149f529044ee8d62",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
     "upstream_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
@@ -2236,7 +2470,11 @@
       "name": "README.md"
     },
     {
-      "count": 2,
+      "count": 1,
+      "name": "SConstruct"
+    },
+    {
+      "count": 3,
       "name": "core"
     },
     {
@@ -2244,11 +2482,11 @@
       "name": "doc"
     },
     {
-      "count": 3,
+      "count": 5,
       "name": "drivers"
     },
     {
-      "count": 18,
+      "count": 21,
       "name": "editor"
     },
     {
@@ -2256,7 +2494,7 @@
       "name": "glsl_builders.py"
     },
     {
-      "count": 1,
+      "count": 2,
       "name": "main"
     },
     {
@@ -2284,11 +2522,11 @@
       "name": "platform/windows"
     },
     {
-      "count": 24,
+      "count": 25,
       "name": "servers"
     },
     {
-      "count": 2,
+      "count": 3,
       "name": "tests"
     },
     {
@@ -2301,10 +2539,10 @@
     }
   ],
   "summary": {
-    "deleted": 39,
-    "modified": 95,
+    "deleted": 37,
+    "modified": 107,
     "renamed": 0,
-    "total_files": 134
+    "total_files": 144
   },
   "warnings": []
 }

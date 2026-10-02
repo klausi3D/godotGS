@@ -1901,6 +1901,108 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Manual-mode peers r
     memdelete(node_b);
 }
 
+#ifdef TESTS_ENABLED
+// #1081: adding N GaussianSplatNode3D that share one renderer must not cost
+// super-quadratic work in N. Every registration used to make every peer
+// re-collect the whole peer set and de-duplicate it with a nested linear scan,
+// so the k-th add cost O(k^3) and N adds O(N^4): 800 nodes took 110 s to enter
+// the tree on an optimized build. Removal walks the same fan-out.
+//
+// The measure is the peer-walk step counter, not wall time, so a contended
+// runner cannot move the verdict. The property is the growth rate: quadrupling
+// N multiplies a quadratic total by 16, a cubic one by 64 and the old quartic
+// one by 256. The bound (32) sits between quadratic and cubic.
+//
+// Limit (stated, not hidden): the counter sees the peer-set walks it is placed
+// in (gaussian_splat_node_helpers.cpp / gaussian_splat_node_3d.cpp). A new
+// super-linear walk elsewhere on the registration path would not be counted.
+static bool _measure_peer_walk_steps_1081(SceneTree *p_tree, Window *p_root, int p_count,
+        uint64_t &r_add_steps, uint64_t &r_remove_steps) {
+    Ref<GaussianSplatAsset> asset = make_single_splat_asset(0.0f);
+    Node3D *container = memnew(Node3D);
+    p_root->add_child(container);
+
+    LocalVector<GaussianSplatNode3D *> nodes;
+    nodes.reserve(p_count);
+    for (int i = 0; i < p_count; i++) {
+        GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+        node->set_splat_asset(asset);
+        node->set_position(Vector3((float)(i % 16) * 2.0f, 0.0f, -(float)(i / 16) * 2.0f));
+        nodes.push_back(node);
+    }
+
+    const uint64_t before_add = GaussianSplatNodeDebugHelper::get_peer_walk_steps();
+    for (uint32_t i = 0; i < nodes.size(); i++) {
+        container->add_child(nodes[i]);
+    }
+    r_add_steps = GaussianSplatNodeDebugHelper::get_peer_walk_steps() - before_add;
+    p_tree->process(0.0);
+
+    // Non-vacuity: every node must resolve the SAME live shared renderer, or
+    // the fan-out under test never ran and a small step count proves nothing.
+    Ref<GaussianSplatRenderer> renderer = nodes[0]->get_renderer();
+    bool shared = renderer.is_valid();
+    for (uint32_t i = 1; shared && i < nodes.size(); i++) {
+        shared = nodes[i]->get_renderer() == renderer;
+    }
+
+    const uint64_t before_remove = GaussianSplatNodeDebugHelper::get_peer_walk_steps();
+    for (uint32_t i = 0; i < nodes.size(); i++) {
+        container->remove_child(nodes[i]);
+    }
+    r_remove_steps = GaussianSplatNodeDebugHelper::get_peer_walk_steps() - before_remove;
+
+    for (uint32_t i = 0; i < nodes.size(); i++) {
+        memdelete(nodes[i]);
+    }
+    p_root->remove_child(container);
+    memdelete(container);
+    return shared;
+}
+
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Adding and removing N nodes on a shared renderer costs at most quadratic peer-walk work (#1081)") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (!root) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    constexpr int small_count = 40;
+    constexpr int large_count = 4 * small_count;
+    uint64_t small_add = 0;
+    uint64_t small_remove = 0;
+    uint64_t large_add = 0;
+    uint64_t large_remove = 0;
+    if (!_measure_peer_walk_steps_1081(tree, root, small_count, small_add, small_remove) ||
+            !_measure_peer_walk_steps_1081(tree, root, large_count, large_add, large_remove)) {
+        FAIL("shared renderer required: every node must resolve the same live GaussianSplatRenderer");
+        return;
+    }
+
+    // The counter is wired into the registration path: N adds walk at least
+    // N peer entries in total.
+    CHECK(small_add >= (uint64_t)small_count);
+    CHECK(small_remove >= (uint64_t)small_count);
+    if (small_add == 0 || small_remove == 0) {
+        FAIL("peer-walk counter recorded nothing; the growth ratio below would be meaningless");
+        return;
+    }
+
+    const double add_growth = (double)large_add / (double)small_add;
+    const double remove_growth = (double)large_remove / (double)small_remove;
+    MESSAGE("#1081 peer-walk steps: add ", small_count, "=", small_add, " ", large_count, "=", large_add,
+            " (x", add_growth, "); remove ", small_count, "=", small_remove, " ", large_count, "=", large_remove,
+            " (x", remove_growth, ")");
+    CHECK(add_growth <= 32.0);
+    CHECK(remove_growth <= 32.0);
+}
+#endif // TESTS_ENABLED
+
 // #839 round 3, thread B: the 1 -> 0 node transition.
 //
 // Distinct from the 3 -> 2 case above. There, at least one peer remained, so

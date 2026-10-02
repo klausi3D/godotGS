@@ -1,7 +1,11 @@
 # ADR: Per-lane result ledger for `run_module_tests.py` (#705, slice 1)
 
-- **Status:** Proposed (filed before implementation, as required for R3). Slice 1 is the
-  *measurement* slice: it reports and gates nothing.
+- **Status:** Implemented (slice 1). Status updated 2026-10-01: slice 1 landed in #822
+  (`b222fa2210f`). `LaneLedgerRecord`, `_run_lane_ledger_guard()` and the `--lane-report` writer
+  are in `tests/ci/run_module_tests.py`, and the ledger has its own test,
+  `tests/ci/test_run_module_tests_lane_ledger.py`. The body below is unchanged. Original status
+  line: "Proposed (filed before implementation, as required for R3). Slice 1 is the
+  *measurement* slice: it reports and gates nothing."
 - **Risk class:** R3 — the change edits `tests/ci/run_module_tests.py` lane-execution
   logic, which `.agentic/policy.json` classifies as CI deterministic-check machinery
   (`adr_required = true`).

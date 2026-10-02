@@ -1,6 +1,9 @@
 # Recurring Issues
 
-This page is the canonical recurring bug and build/runtime issue reference.
+This page is the canonical reference for recurring build and runtime symptoms and the checks that narrow them down. It is generic by design and names no specific defect.
+
+!!! note "Check the known defects first"
+    The specific defects the public alpha ships with are listed on [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md). Each entry describes the symptom and gives a workaround where one exists. Most entries link a tracking issue; the platform and packaging entries do not. If your symptom matches an entry, that known limitation may be the cause. Check the conditions the entry describes against your setup before you debug your own project. Several entries are code-reading findings that nobody has reproduced, and each of those says so.
 
 Real troubleshooting screenshots are still pending, so this page stays text-first and uses a reference diagram only at the end.
 
@@ -15,7 +18,7 @@ Real troubleshooting screenshots are still pending, so this page stays text-firs
 - run baseline sorting lane:
   - `python3 tests/ci/run_baseline_qa.py --category sorting`
 - run runtime validation:
-  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --gd-mode headless`
+  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile headless-ci`
 
 ### Typical Fixes
 - verify shader and host sort contracts are synchronized

@@ -17,6 +17,9 @@ Find build, test, architecture, and contributor workflow references.
 | Public alpha accepted limitations | [Known public alpha limitations](known-public-alpha-limitations.md) |
 | Contribution policy | [Contribution guide](../../CONTRIBUTING.md) |
 | Module architecture overview | [Module README](../../modules/gaussian_splatting/README.md) |
+| Architecture docs, contracts and ADRs | [Architecture documentation](../architecture/index.md) |
+| Design spec that is not implemented yet | [Resolve-mode lighting redesign spec](../architecture/resolve_lighting_redesign_spec.md) (status: design, not implemented) |
+| Release channels and nightly publishing | [Release channels](release-channels.md) |
 | Documentation style policy | [Documentation style guide](../style/documentation-style-guide.md) |
 | CI workflow overview | [Workflow overview](../../.github/workflows/README.md) |
 

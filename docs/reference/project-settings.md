@@ -1,12 +1,36 @@
 # Project Settings Reference
 
+> **Stability (manual annotation, 2026-09-26; [#1010](https://github.com/klausi3D/godotGS/issues/1010)).**
+> No setting on this page carries a stability promise during the public alpha. Any key
+> may be renamed, change meaning or default, or be removed in any release, without a
+> deprecation period (maintainer decision, 2026-09-27; a deprecation lifecycle begins at
+> v1.0); see [API Stability](../development/api-stability.md). The `publicness` field in
+> `modules/gaussian_splatting/config/project_settings_manifest.json` does not change
+> that: it is a v1.0 classification exercise in progress. As of `12f2feb61da` (counts
+> hand-copied; the manifest is the authority), 153 of the 193 settings resolve to
+> `public`, 150 of them by inheriting a family default rather than by a decision about
+> that key, and 139 of the 193 are `test_coverage: inventory_only`, with nothing
+> verifying they do anything. Read `public` as "the bucket this key's family defaults to
+> today", not as "supported".
+>
+> `modules/gaussian_splatting/config/project_settings_public_api_baseline.json` is a
+> **change record**, not a promise either. Its guard compares the baseline against the
+> default branch's history: the merge-base with `origin/main`, `main`, `origin/master` or
+> `master`, or the ref in `GS_PROJECT_SETTINGS_MANIFEST_BASE_REF`. A key present there
+> has to stay listed and gain a `retired_settings` entry when it is removed. The
+> comparison does not cover a stacked PR's own base, and it is skipped when none of
+> those refs resolves. The [migration notes](gaussian-project-settings-migration.md)
+> describe each recorded removal.
+> A recorded removal is still a removal, and during the alpha it may happen in any
+> release, with or without a deprecated alias first.
+>
 > **Culling status (manual annotation, 2026-04-26).** Per-key state of the
 > `rendering/gaussian_splatting/culling/*` settings:
 >
 > | Key | Status | Where it goes today |
 > |---|---|---|
-> | `octree_max_depth` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_octree_max_depth`, consumed in `ensure_hierarchical_structure()`. |
-> | `min_gaussians_per_leaf` | **live** | Reaches the active path through `GPUCuller::CullingState::culling_min_gaussians`. |
+> | `octree_max_depth` | **fallback only** | Read into `GPUCuller::CullingState::culling_octree_max_depth` and consumed in `ensure_hierarchical_structure()`, which only the CPU octree fallback of `GPUCuller::cull_for_view` calls. The default path is the GPU instance/chunk cull, which does not read it; the fallback runs only when that cull fails or outside the frame pipeline (see [Culling and hierarchy](../architecture/culling-and-hierarchy.md); status corrected 2026-10-01). |
+> | `min_gaussians_per_leaf` | **fallback only** | Read into `GPUCuller::CullingState::culling_min_gaussians`; like `octree_max_depth`, it reaches only the CPU octree fallback through `ensure_hierarchical_structure()`. |
 > | `opacity_aware_bounds` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/opacity_aware_culling` property (`modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:215`). An explicit per-node value overrides the global. Registered default `true` equals the construction default, so the wiring is behavior-neutral. |
 > | `visibility_threshold` | **live (default)** | Wired in [#167](https://github.com/klausi3D/godotGS/issues/167): read by `GPUCuller::update_culling_settings()` as the project-wide DEFAULT behind the per-renderer `cull/visibility_threshold` property (`modules/gaussian_splatting/renderer/gaussian_splat_renderer_bindings.cpp:216`), clamped to `0.0001..0.1`. Explicit per-node value wins. Registered default `gs::RASTER_ALPHA_THRESHOLD` (1/255) equals the construction default. |
 >
