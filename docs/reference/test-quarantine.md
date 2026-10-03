@@ -221,7 +221,7 @@ the whole fix for most of them:
 | state when run | declarations |
 | --- | --- |
 | all cases pass with real assertions (ready for a lane; due by 2026-11-30, #1123) | `[GeneratePLY]` (unlaned by design so far; #1123 says how to lane it or retire the exclusion), `[NodeSurface][World]`, `[VisualCompare]`, `[RendererSceneCull]`, `Memory validator reset`, `[Importer] ... legacy ImageTexture thumbnails` |
-| at least one case **fails** | `[Thumbnail]` (#814), `[GPU Memory Stream]` (`Memory Defragmentation`; see #73), `[Integration]` (#876), `[World]` (#1115), `OutputCompositor` (`CopyEffects subsystem unavailable` under the harness) |
+| at least one case **fails** | `[Thumbnail]` (#814), `[GPU Memory Stream]` (`Memory Defragmentation`; see #73), `[Integration]` (#876), `OutputCompositor` (`CopyEffects subsystem unavailable` under the harness) |
 | at least one case asserts nothing, even under `--gs-gpu-test` | `[Streaming VRAM]`, `[Integration]` (3 cases), `RenderDeviceManager` (7, silently), `GPUBufferManager` (2, silently), `GPU memory leak detection with renderer lifecycle`, `Phase 1 Integration`, `Debug projection ... golden gradient`, 36 of the 38 `test_renderer_pipeline.h` cases |
 
 The last row is the important one: those cases return early when
@@ -230,6 +230,11 @@ case without `[SceneTree]`. Retagging them into a GPU batch would produce a gree
 batch that asserts nothing. They need a bootstrap that runs them, not only a
 filter that selects them. Each declaration's `reason` carries its per-case
 numbers.
+
+`[World]` is in no row since #1115. Its failing case had a stale expectation, was
+corrected, and now runs in the `WorldSceneTree` GPU batch. The declaration
+covers the 2 remaining cases, which pass 20/20. They are not part of the
+#1123 lane-due set.
 
 ### Tracking-issue liveness, checked offline
 

@@ -29,6 +29,8 @@ RENDERER_DIR = MODULE_SOURCE_DIR / "renderer"
 BUILD_METADATA_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_build_metadata_consistency.py"
 SHADER_DEPENDENCY_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_shader_dependency_contract.py"
 PROJECT_SETTINGS_MANIFEST_GUARD_SCRIPT = MODULE_SOURCE_DIR / "tests" / "check_project_settings_manifest.py"
+PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_project_settings_reference.py"
+PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_project_settings_reference.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layout_sync.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
@@ -877,6 +879,27 @@ def _run_gaussian_layout_guard() -> tuple[bool, list[str]]:
     for label, script in (
         ("Gaussian layout guard unit test", GAUSSIAN_LAYOUT_TEST_SCRIPT),
         ("Gaussian layout guard", GAUSSIAN_LAYOUT_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
+def _run_project_settings_reference_guard() -> tuple[bool, list[str]]:
+    """docs/reference/project-settings.md must list exactly the manifest's keys.
+    Runs the guard's own unit test first (it also covers the generator's
+    fail-on-disagreement contract), mirroring the layout guard."""
+    output_lines: list[str] = []
+    for label, script in (
+        ("Project settings reference guard unit test", PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT),
+        ("Project settings reference guard", PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT),
     ):
         if not script.is_file():
             return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
@@ -1741,6 +1764,29 @@ def _run_benchmark_fixture_contract_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["Benchmark fixture contract guard passed."]
+
+
+def _run_streaming_evidence_fail_closed_guard() -> tuple[bool, list[str]]:
+    """Guard (#1016): a lane that streamed nothing cannot report passing streaming evidence.
+
+    The candidate gate requires `queue_pressure` and `proof_status` non-null on both
+    required streaming lanes, and both were satisfied by structural constants -- a
+    hardcoded 0 written whenever no streaming state exists, and a "not_applicable"
+    returned for every lane without a proof contract. Pure static/unit coverage, no GPU
+    and no engine binary, so the defect is caught on every PR rather than at release.
+    """
+    script = ROOT / "tests" / "ci" / "test_streaming_evidence_fail_closed.py"
+    if not script.is_file():
+        return False, [f"Missing streaming evidence fail-closed test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Streaming evidence fail-closed guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Streaming evidence fail-closed guard passed."]
 
 
 def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
@@ -3527,6 +3573,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_project_settings_reference_guard,
+            "Project settings reference completeness guard failed.",
+            "Project settings reference completeness guard passed.",
+        ),
+        (
+            True,
             _run_gaussian_layout_guard,
             "Gaussian layout guard failed.",
             "Gaussian layout guard passed.",
@@ -3686,6 +3738,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_benchmark_fixture_contract_guard,
             "Benchmark fixture contract guard failed.",
             "Benchmark fixture contract guard passed.",
+        ),
+        (
+            True,
+            _run_streaming_evidence_fail_closed_guard,
+            "Streaming evidence fail-closed guard failed.",
+            "Streaming evidence fail-closed guard passed.",
         ),
         (
             True,

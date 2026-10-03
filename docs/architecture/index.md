@@ -33,6 +33,7 @@ rather than patching it by hand.
 - [Decompose the scene director](adr-decompose-scene-director.md)
 - [Decompose the streaming system](adr-decompose-streaming-system.md)
 - [Explicit, signed splat colour encoding (SH sign + DC contract)](adr-splat-colour-encoding.md) — *Accepted* (2026-09-23; slice 1 landed in #1062)
+- [Hierarchical LOD for streamed splat worlds](adr-hlod-streaming.md) — *Accepted* (2026-10-02; Refs #1131; not yet implemented)
 - [Import importance pruning](adr-import-importance-pruning.md)
 - [Import input hardening](adr-import-input-hardening.md)
 - [Overflow drop telemetry](adr-overflow-drop-telemetry.md)
@@ -40,4 +41,5 @@ rather than patching it by hand.
 - [Phase-1 guard hardening: a closed cluster of remediations](adr-phase1-guard-hardening.md)
 - [Single route per frame: world/instance node coexistence](adr-single-route-per-frame-node-coexistence.md)
 - [Test quarantine manifest](adr-test-quarantine-manifest.md)
+- [The candidate gate must distinguish measured evidence from defaulted evidence](adr-open-world-proof-content-validation.md)
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)

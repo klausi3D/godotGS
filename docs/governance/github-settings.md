@@ -6,11 +6,13 @@ nothing in this repo changes them automatically, so this page is hand-written an
 can drift from the live API. It is therefore split into what has been **observed
 live** and what is still **intended**.
 
-## Live state for `master` (observed 2026-08-14)
+## Live state for `master` (observed 2026-08-14, re-read 2026-10-01)
 
 Read back with `gh api repos/klausi3D/godotGS/branches/master/protection`, twice and
 byte-identical; the required context was additionally confirmed to be a real,
-completed check-run on PR #881, so it is not a phantom name in the settings.
+completed check-run on PR #881, so it is not a phantom name in the settings. A
+re-read on 2026-10-01 (`gh api .../branches/master/protection` and
+`gh api repos/klausi3D/godotGS/rulesets`) returned the same values.
 
 | Setting | Live value |
 | --- | --- |
@@ -19,6 +21,8 @@ completed check-run on PR #881, so it is not a phantom name in the settings.
 | Enforce for administrators | `true` |
 | Require conversation resolution | `true` |
 | Required approving reviews | `0` |
+| Require review from Code Owners | `false` |
+| Dismiss stale approvals | `true` |
 | Force pushes / branch deletion | blocked |
 | Rulesets | none |
 
@@ -38,8 +42,9 @@ Two consequences worth stating plainly:
 
 ### What the required gate does and does not enforce
 
-- **Enforced.** The agentic control plane is consistent *including* the AGENTS.md
-  hierarchy and `docs/governance/*` (`validate_repo_contract.py --strict-hierarchy`);
+- **Enforced.** The agentic control plane is consistent, and the AGENTS.md
+  hierarchy and the `docs/governance/*` pages it lists exist
+  (`validate_repo_contract.py --strict-hierarchy`; existence only, not content);
   the `tests/agentic` suite; the documentation link check; the GPU-free
   `run_module_tests.py --guard-only` lane; and the **risk class derived from the
   PR's own diff** — an unresolvable base ref fails the check instead of degrading to
@@ -78,9 +83,15 @@ corresponds to, so the claim can be checked against
   `required_pull_request_reviews.required_approving_review_count` is `0` today, so
   the PR requirement below is satisfied by a PR with no approval at all.
 - **Require review from Code Owners** (`.github/CODEOWNERS`) —
-  `require_code_owner_reviews: false` today. Enable this only **after**
-  `.github/CODEOWNERS` has merged; with no owners defined the setting cannot
-  request anyone and the R3 escalation below stays unenforced.
+  `require_code_owner_reviews: false` today. The precondition is met:
+  `.github/CODEOWNERS` is on `master` and assigns `@klausi3D` to every path it lists,
+  so enabling the setting would take effect at once. Until a maintainer enables
+  it, CODEOWNERS only names owners and blocks nothing. Decide one thing before
+  enabling it: `@klausi3D` is the only owner, GitHub does not let a PR author
+  approve their own PR, and `enforce_admins` is `true`. A PR opened from the
+  owner's account (which includes agent PRs pushed with that account) could then
+  merge only after a second code owner is added to `.github/CODEOWNERS` and
+  approves it.
 - **Require branches to be up to date** before merging (or use the merge queue) —
   `strict: false` today. No merge queue is configured either
   (`required_merge_queue` absent, `rulesets: []`), so nothing currently sends a PR
@@ -106,11 +117,14 @@ the Phase-2 settings-as-code item above.
 
 - **R3 changes** (Godot-engine delta outside the module, persistence/file formats,
   release/security workflows, public API/compat) require **two approvals** and a
-  design record (ADR / design-change issue) before implementation. Enforce via a
-  CODEOWNERS ownership of the sensitive paths plus a documented reviewer
-  expectation; GitHub rulesets cannot encode "risk class" directly, so the
-  required second approval for R3 is a maintainer-enforced convention checked at
-  review time.
+  design record (ADR / design-change issue) before implementation. **None of this
+  is enforced today.** Required approvals are `0` and code-owner review is off, so
+  CODEOWNERS ownership of the sensitive paths does not block anything, and no check
+  looks for the design record. GitHub rulesets cannot encode "risk class"
+  directly, so even with both settings above enabled, the second approval for R3
+  stays a maintainer-enforced convention checked at review time. The
+  `agentic-pr-gate` check publishes the derived class; it never fails a PR for
+  being R3.
 
 ## Runner trust boundary
 
@@ -121,7 +135,9 @@ the Phase-2 settings-as-code item above.
 
 ## Emergency bypass
 
-- Repository admins may bypass protection only for a genuine emergency. Any bypass
+- `enforce_admins` is `true`, so an admin cannot merge past a failing required
+  check from the PR page; a bypass means changing the protection settings. Do that
+  only for a genuine emergency. Any bypass
   must be recorded (PR comment or incident note) with the reason and a follow-up
   to restore normal flow. Bypass is never the routine path.
 

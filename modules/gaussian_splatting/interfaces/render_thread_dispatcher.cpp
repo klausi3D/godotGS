@@ -124,6 +124,16 @@ bool RenderThreadDispatcher::is_render_thread_dispatch_path_active() const {
 }
 
 void RenderThreadDispatcher::notify_completed(uint64_t p_request_id) {
+    // Ids are issued from 1 upwards, so 0 or anything at or above the next id
+    // was never issued. Completing such an id would advance the watermark past
+    // requests whose callbacks have not run, and every later blocking dispatch
+    // would return early (#1132). Refuse it loudly instead.
+    const uint64_t next = next_request_id.load(std::memory_order_acquire);
+    if (p_request_id == 0 || p_request_id >= next) {
+        ERR_PRINT(vformat("[RenderThreadDispatcher] notify_completed(%d) names a request id that was never issued (next=%d); ignored. A render-thread callback has probably received its arguments in the wrong order: see the argument-order contract in render_thread_dispatcher.h.",
+                p_request_id, next));
+        return;
+    }
     uint64_t completed = completed_request_id.load(std::memory_order_acquire);
     while (completed < p_request_id &&
             !completed_request_id.compare_exchange_weak(

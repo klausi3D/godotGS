@@ -2,7 +2,6 @@
 """Generate the compatibility matrix from YAML sources."""
 from __future__ import annotations
 
-from datetime import date
 from pathlib import Path
 
 import yaml
@@ -52,11 +51,17 @@ def build_table(data: dict) -> str:
     status_levels = data.get("status_levels", {})
     platforms = data.get("platforms", {})
     tested_configurations = data.get("tested_configurations", [])
+    # The date shown is when the evidence was last reviewed, taken from the YAML
+    # source, never the generation date: the output must be a pure function of
+    # the source so CI can freshness-check it with `git diff --exit-code`.
+    evidence_as_of = data.get("evidence_as_of")
+    if not evidence_as_of:
+        raise SystemExit(f"Compatibility data file has no evidence_as_of date: {DATA}")
 
     rows = [
         "# Compatibility Matrix",
         "",
-        f"Last generated: {date.today().isoformat()}",
+        f"Evidence last reviewed: {_format_cell(evidence_as_of)}",
         "",
         "## Purpose",
         "Use this matrix to track evidence-backed platform status for godotGS Gaussian Splatting.",
@@ -65,7 +70,7 @@ def build_table(data: dict) -> str:
         "| Task | Action |",
         "| --- | --- |",
         "| Review current platform status | Read the `Current state`, `Public binaries`, and `Notes` columns in the platform table. |",
-        "| Update compatibility evidence | Edit `docs/reference/compatibility_sources.yaml` and regenerate this file. |",
+        "| Update compatibility evidence | Edit `docs/reference/compatibility_sources.yaml` (including `evidence_as_of`) and regenerate this file. |",
         "",
         *EVIDENCE_LADDER_FIGURE,
         "",
@@ -157,7 +162,9 @@ def build_table(data: dict) -> str:
 
 def main() -> None:
     data = load_data()
-    OUTPUT.write_text(build_table(data) + "\n", encoding="utf-8")
+    # LF on every platform, so a Windows regeneration is byte-identical to CI's.
+    with open(OUTPUT, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(build_table(data) + "\n")
     print(f"[compatibility] Wrote matrix to {OUTPUT}")
 
 

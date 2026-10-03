@@ -11,6 +11,23 @@ class IRenderThreadDispatcher {
 public:
     virtual ~IRenderThreadDispatcher() = default;
 
+    // Argument-order contract. The dispatcher submits
+    // `p_callable.bind(request_id)` and the render thread calls it with no
+    // arguments. Godot passes call arguments BEFORE bound ones
+    // (CallableCustomBind::call, core/variant/callable_bind.cpp), so when
+    // p_callable already carries binds, e.g.
+    // `callable_mp(this, &T::f).bind(data)`, the dispatcher's request_id is
+    // passed ahead of them: the target is called as f(request_id, data).
+    // Every target therefore takes `uint64_t p_request_id` as its FIRST
+    // parameter, followed by its own bound arguments in bind order, and must
+    // call notify_completed(p_request_id). A target with p_request_id last
+    // receives its arguments swapped and nothing reports the call error. An
+    // int argument becomes the request id and the int is "completed" in its
+    // place, which can push completed_request_id past every outstanding
+    // request so that later blocking dispatches return before their callback
+    // has run. An Object or Transform3D argument converts to null or identity
+    // while p_request_id becomes 0, so that request never completes and the
+    // caller blocks for the full timeout.
     virtual bool dispatch_call_on_render_thread_blocking(const Callable &p_callable, bool *r_dispatched,
             bool p_allow_timeout, uint64_t *r_request_id, const char *p_log_prefix) = 0;
     // Returns true iff a call to dispatch_call_on_render_thread_blocking()
@@ -54,7 +71,9 @@ public:
     void set_latest_data_result(Error p_error) override;
     Error get_latest_data_result() const override;
 
-private:
+protected:
+    // Protected rather than private so a test double can issue request ids
+    // exactly as dispatch_call_on_render_thread_blocking() does.
     mutable Mutex dispatch_mutex;
     mutable Semaphore dispatch_semaphore;
     std::atomic<uint64_t> next_request_id{1};
