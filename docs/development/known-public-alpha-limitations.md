@@ -308,6 +308,36 @@ that persists at the default `max_overlap_records`, rather than one that clears 
 capacity catches up, with no failed-grow warning (`… could not build its replacement`) in
 the log.
 
+### Splats cast no shadows ([#1089](https://github.com/klausi3D/godotGS/issues/1089), [#1095](https://github.com/klausi3D/godotGS/issues/1095))
+
+A `GaussianSplatNode3D` casts no shadow, from any light type (directional, spot, omni),
+onto meshes, onto other splats or onto itself. `rendering/cast_shadow` has no visible
+effect until the caster below lands. Splats still **receive** shadows: a mesh between a
+directional light and the splats darkens them.
+
+**Why.** The splat shadow pass never rasterized a single splat from the light's view. It
+then copied whatever depth image the splat rasterizer still held, which was the main
+camera's, into every shadow-map region it was given. That produced shadows that were wrong
+everywhere: they followed the camera instead of the light, every directional cascade held
+the same footprint, a hidden node kept casting, and the starter template rendered its cloud
+almost black. Since #1095 slice 1 the pass is fail-closed: it writes nothing unless it
+rasterized splats from the light's view into a target of the shadow region's size, and
+today it never does. A dedicated depth-only splat caster is designed in #1095 and lands in
+slices: directional first, then spot, then omni.
+
+**Workaround:** for a shadow in the shape of a splat object, add a mesh proxy with
+`cast_shadow = Shadows Only` (for example a `SphereMesh` or a low-poly hull of the scan).
+
+**Evidence:** the starter template, 1280×720, Vulkan Forward+, RTX 3090, dev builds of the
+#1095 slice 1 branch and its base `eff00db450c`. Mean splat luma at the shipped camera went
+from 0.31 to 0.88, equal to the same frame with the light's shadows off (0.88); the
+splat-caused floor shadow went from 23,248 px to 0, a hidden node's from 26,566 px to 0, and
+the directional shadow atlas no longer changes when the node's shadow casting is toggled
+(33,507 px to 0). A mesh occluder still darkens the splats (0.88 to 0.85). The GPU case
+`Shadow pass leaves the atlas untouched when no splat is in the light's view` fails on the
+base and passes with the guard. Not verified: other GPU vendors, real scans, and whether
+splats receive spot and omni shadows correctly.
+
 ### Transparent viewports are opaque under TAA or FSR2 ([#989](https://github.com/klausi3D/godotGS/issues/989))
 
 **Status: Engine limitation.**
