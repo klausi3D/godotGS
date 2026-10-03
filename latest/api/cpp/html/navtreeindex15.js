@@ -1,5 +1,13 @@
 var NAVTREEINDEX15 =
 {
+"debug__overlay__interfaces_8h_source.html":[2,0,0,0,5,1],
+"debug__overlay__macros_8h.html":[2,0,0,0,5,2],
+"debug__overlay__macros_8h.html#a0f84d9475c92f6515b3b23e100779ecd":[2,0,0,0,5,2,1],
+"debug__overlay__macros_8h.html#a263d1b0c43a7b91ca0689bd21566f5c8":[2,0,0,0,5,2,0],
+"debug__overlay__macros_8h.html#a2fd79391c716dea8144be365aeb0d91c":[2,0,0,0,5,2,4],
+"debug__overlay__macros_8h.html#a3a1a1c7890af09bbc8c97dd1aa7ca7e9":[2,0,0,0,5,2,2],
+"debug__overlay__macros_8h.html#a5cb9e219b6c76d31af48789007fcfcea":[2,0,0,0,5,2,5],
+"debug__overlay__macros_8h.html#a7d6cbab665d6829ead13fd89cea63b67":[2,0,0,0,5,2,6],
 "debug__overlay__macros_8h.html#ac8045973574f8a4c7271af9a5079bf4d":[2,0,0,0,5,2,3],
 "debug__overlay__macros_8h.html#ad90c8ba2ae9e3c48752f3e5f18dfcbf3":[2,0,0,0,5,2,7],
 "debug__overlay__macros_8h_source.html":[2,0,0,0,5,2],
@@ -241,13 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396a7ad4905b4543ab4a1637dd23c50e36ce":[2,0,0,0,11,1,4,0],
 "gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396a8943d3c6321ab82bd787bf650934ba03":[2,0,0,0,11,1,4,5],
 "gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396a8a9c0818e0622aadfcb2e59cfe5299b4":[2,0,0,0,11,1,4,3],
-"gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396aaff175b8d0aa8fd8039d06cba5a7e256":[2,0,0,0,11,1,4,4],
-"gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396ae66aa6e86c6fd816012fa41cc1c6ecd0":[2,0,0,0,11,1,4,2],
-"gaussian__scene__serializer_8h_source.html":[2,0,0,0,11,1],
-"gaussian__splat__asset_8cpp.html":[2,0,0,0,3,10],
-"gaussian__splat__asset_8cpp.html#ad5682c7afbc6e2ec4310c71b115ff803":[2,0,0,0,3,10,0],
-"gaussian__splat__asset_8h.html":[2,0,0,0,3,11],
-"gaussian__splat__asset_8h.html#a298ea4c90a915ee929c7ab87efeecdcc":[2,0,0,0,3,11,3],
-"gaussian__splat__asset_8h.html#abf36ddb19757804470c39772c9788267":[2,0,0,0,3,11,2],
-"gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11]
+"gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396aaff175b8d0aa8fd8039d06cba5a7e256":[2,0,0,0,11,1,4,4]
 };

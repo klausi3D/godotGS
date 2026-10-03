@@ -23,6 +23,7 @@ var structGaussianStreamingTypes_1_1SchedulerState =
     [ "last_prefetch_upload_pending_skip_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a1baa4b3d071043f68ffbe6f82e082505", null ],
     [ "last_primary_eviction_candidate_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a211fc9e4342c5bf9922b473a56d4828c", null ],
     [ "last_primary_eviction_scan_count", "structGaussianStreamingTypes_1_1SchedulerState.html#ad2bbd5a8b20a3d6def3d2b01a4793125", null ],
+    [ "last_sync_fallback_attempted_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a71a495a93a73aca4b9b55b4f32b2cae4", null ],
     [ "last_sync_fallback_cpu_ms", "structGaussianStreamingTypes_1_1SchedulerState.html#a3e37b511dbd2cac6511dcee4099d7052", null ],
     [ "last_sync_fallback_drained_count", "structGaussianStreamingTypes_1_1SchedulerState.html#af7145f8b7c8d4d50458a563fbe450141", null ],
     [ "last_sync_fallback_dropped_count", "structGaussianStreamingTypes_1_1SchedulerState.html#a5ebaf81b75e76a401035bb3c23e0139f", null ],

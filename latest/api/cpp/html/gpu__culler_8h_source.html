@@ -325,150 +325,162 @@ $(document).ready(function(){initNavTree('gpu__culler_8h_source.html',''); initR
 <div class="line"><a id="l00211" name="l00211"></a><span class="lineno"><a class="line" href="classGPUCuller.html#a66509a6fcbdeafce397d2ccadff26c0d">  211</a></span>    uint32_t <a class="code hl_function" href="classGPUCuller.html#a66509a6fcbdeafce397d2ccadff26c0d">get_last_instance_visible_chunk_count</a>()<span class="keyword"> const </span>{ <span class="keywordflow">return</span> last_instance_visible_chunk_count; }</div>
 <div class="line"><a id="l00212" name="l00212"></a><span class="lineno">  212</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#acf7fc188af67a3c53da855d48723d45a">invalidate_lod_cache</a>();</div>
 <div class="line"><a id="l00213" name="l00213"></a><span class="lineno">  213</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#a50bb46df6c30937d3d99f2f0f74a9742">update_lod_cache</a>();</div>
-<div class="line"><a id="l00214" name="l00214"></a><span class="lineno">  214</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#a492d48eedd21a41b79fee450375b32df">update_culling_settings</a>();</div>
-<div class="line"><a id="l00215" name="l00215"></a><span class="lineno">  215</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#aaeff0230988c3d8947ffd47a09175a54">ensure_hierarchical_structure</a>(<span class="keyword">const</span> Ref&lt;GaussianData&gt; &amp;p_data);</div>
-<div class="line"><a id="l00216" name="l00216"></a><span class="lineno">  216</span>    CullingSummary <a class="code hl_function" href="classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22">cull_for_view</a>(<span class="keyword">const</span> Transform3D &amp;p_cam_transform, <span class="keyword">const</span> Projection &amp;p_projection, <span class="keyword">const</span> Size2i &amp;p_viewport_size,</div>
-<div class="line"><a id="l00217" name="l00217"></a><span class="lineno">  217</span>            <span class="keyword">const</span> CullingInputs &amp;p_inputs);</div>
-<div class="line"><a id="l00218" name="l00218"></a><span class="lineno">  218</span>    <span class="comment">// Apply overflow feedback from rasterizer stats</span></div>
-<div class="line"><a id="l00219" name="l00219"></a><span class="lineno">  219</span>    <span class="comment">// p_avg_splats_per_tile: average splats per tile (proxy for close-up detection)</span></div>
-<div class="line"><a id="l00220" name="l00220"></a><span class="lineno">  220</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba">apply_overflow_feedback</a>(<span class="keyword">const</span> <a class="code hl_struct" href="structRasterOverflowStats.html">RasterOverflowStats</a> &amp;p_stats, uint32_t p_splat_count, uint32_t p_tile_count,</div>
-<div class="line"><a id="l00221" name="l00221"></a><span class="lineno">  221</span>            <a class="code hl_class" href="classIOverflowAutoTuner.html">IOverflowAutoTuner</a> *p_auto_tuner, <span class="keywordtype">float</span> p_avg_splats_per_tile = 0.0f);</div>
-<div class="line"><a id="l00222" name="l00222"></a><span class="lineno">  222</span> </div>
-<div class="line"><a id="l00223" name="l00223"></a><span class="lineno">  223</span><span class="keyword">protected</span>:</div>
-<div class="line"><a id="l00224" name="l00224"></a><span class="lineno">  224</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#aa4cb5310b0ef1035e57ac69e01b699f7">_bind_methods</a>();</div>
-<div class="line"><a id="l00225" name="l00225"></a><span class="lineno">  225</span> </div>
-<div class="line"><a id="l00226" name="l00226"></a><span class="lineno">  226</span><span class="keyword">private</span>:</div>
-<div class="line"><a id="l00227" name="l00227"></a><span class="lineno">  227</span>    <span class="keyword">enum</span> AsyncReadbackType {</div>
-<div class="line"><a id="l00228" name="l00228"></a><span class="lineno">  228</span>        ASYNC_READBACK_COUNTERS = 0,</div>
-<div class="line"><a id="l00229" name="l00229"></a><span class="lineno">  229</span>        ASYNC_READBACK_INDICES = 1,</div>
-<div class="line"><a id="l00230" name="l00230"></a><span class="lineno">  230</span>        ASYNC_READBACK_DISTANCES = 2,</div>
-<div class="line"><a id="l00231" name="l00231"></a><span class="lineno">  231</span>        ASYNC_READBACK_IMPORTANCE = 3,</div>
-<div class="line"><a id="l00232" name="l00232"></a><span class="lineno">  232</span>    };</div>
-<div class="line"><a id="l00233" name="l00233"></a><span class="lineno">  233</span> </div>
-<div class="line"><a id="l00234" name="l00234"></a><span class="lineno">  234</span>    <span class="keyword">struct </span>AsyncReadbackRequest {</div>
-<div class="line"><a id="l00235" name="l00235"></a><span class="lineno">  235</span>        uint64_t request_id = 0;</div>
-<div class="line"><a id="l00236" name="l00236"></a><span class="lineno">  236</span>        uint64_t generation = 0;</div>
-<div class="line"><a id="l00237" name="l00237"></a><span class="lineno">  237</span>        uint32_t max_visible = 0;</div>
-<div class="line"><a id="l00238" name="l00238"></a><span class="lineno">  238</span>        uint32_t total_splats = 0;</div>
-<div class="line"><a id="l00239" name="l00239"></a><span class="lineno">  239</span>        <span class="keywordtype">float</span> dispatch_time_ms = 0.0f;</div>
-<div class="line"><a id="l00240" name="l00240"></a><span class="lineno">  240</span>        <span class="keywordtype">bool</span> readback_indices = <span class="keyword">true</span>;</div>
-<div class="line"><a id="l00241" name="l00241"></a><span class="lineno">  241</span>        <span class="keywordtype">bool</span> readback_distances = <span class="keyword">true</span>;</div>
-<div class="line"><a id="l00242" name="l00242"></a><span class="lineno">  242</span>        <span class="keywordtype">bool</span> readback_importance = <span class="keyword">true</span>;</div>
-<div class="line"><a id="l00243" name="l00243"></a><span class="lineno">  243</span>        <span class="keywordtype">bool</span> counters_ready = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00244" name="l00244"></a><span class="lineno">  244</span>        <span class="keywordtype">bool</span> indices_ready = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00245" name="l00245"></a><span class="lineno">  245</span>        <span class="keywordtype">bool</span> distances_ready = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00246" name="l00246"></a><span class="lineno">  246</span>        <span class="keywordtype">bool</span> importance_ready = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00247" name="l00247"></a><span class="lineno">  247</span>        <a class="code hl_struct" href="structCullCounters.html">CullCounters</a> counters;</div>
-<div class="line"><a id="l00248" name="l00248"></a><span class="lineno">  248</span>        Vector&lt;uint8_t&gt; indices_bytes;</div>
-<div class="line"><a id="l00249" name="l00249"></a><span class="lineno">  249</span>        Vector&lt;uint8_t&gt; distance_bytes;</div>
-<div class="line"><a id="l00250" name="l00250"></a><span class="lineno">  250</span>        Vector&lt;uint8_t&gt; importance_bytes;</div>
-<div class="line"><a id="l00251" name="l00251"></a><span class="lineno">  251</span>    };</div>
-<div class="line"><a id="l00252" name="l00252"></a><span class="lineno">  252</span> </div>
-<div class="line"><a id="l00253" name="l00253"></a><span class="lineno">  253</span>    <span class="keyword">struct </span>AsyncReadbackState {</div>
-<div class="line"><a id="l00254" name="l00254"></a><span class="lineno">  254</span>        Vector&lt;AsyncReadbackRequest&gt; pending;</div>
-<div class="line"><a id="l00255" name="l00255"></a><span class="lineno">  255</span>        <a class="code hl_struct" href="structCullResult.html">CullResult</a> last_result;</div>
-<div class="line"><a id="l00256" name="l00256"></a><span class="lineno">  256</span>        uint64_t last_result_id = 0;</div>
-<div class="line"><a id="l00257" name="l00257"></a><span class="lineno">  257</span>        <span class="keywordtype">bool</span> last_result_valid = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00258" name="l00258"></a><span class="lineno">  258</span>        uint64_t next_request_id = 1;</div>
-<div class="line"><a id="l00259" name="l00259"></a><span class="lineno">  259</span>        uint64_t generation = 1;</div>
-<div class="line"><a id="l00260" name="l00260"></a><span class="lineno">  260</span>        uint64_t last_submitted_id = 0;</div>
-<div class="line"><a id="l00261" name="l00261"></a><span class="lineno">  261</span>    };</div>
-<div class="line"><a id="l00262" name="l00262"></a><span class="lineno">  262</span> </div>
-<div class="line"><a id="l00263" name="l00263"></a><span class="lineno">  263</span>    <span class="keyword">struct </span>InstanceReadbackState {</div>
-<div class="line"><a id="l00264" name="l00264"></a><span class="lineno">  264</span>        <span class="keywordtype">bool</span> pending = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00265" name="l00265"></a><span class="lineno">  265</span>        uint64_t generation = 1;</div>
-<div class="line"><a id="l00266" name="l00266"></a><span class="lineno">  266</span>        uint64_t pending_request_id = 0;</div>
+<div class="line"><a id="l00214" name="l00214"></a><span class="lineno">  214</span>    <span class="comment">// Distance beyond which the depth pass drops every splat (lod_max_distance /</span></div>
+<div class="line"><a id="l00215" name="l00215"></a><span class="lineno">  215</span>    <span class="comment">// lod_bias), or 0 when nothing is distance-culled (LOD off or no max distance).</span></div>
+<div class="line"><a id="l00216" name="l00216"></a><span class="lineno">  216</span>    <span class="comment">// The one definition both the cull cache and streaming demand (#1087) read.</span></div>
+<div class="foldopen" id="foldopen00217" data-start="{" data-end="}">
+<div class="line"><a id="l00217" name="l00217"></a><span class="lineno"><a class="line" href="classGPUCuller.html#a0c0d6fe3b3c0150257bfeed9098b65b2">  217</a></span>    <span class="keyword">static</span> <span class="keywordtype">float</span> <a class="code hl_function" href="classGPUCuller.html#a0c0d6fe3b3c0150257bfeed9098b65b2">compute_effective_max_distance</a>(<span class="keyword">const</span> <a class="code hl_struct" href="structGPUCuller_1_1CullingConfig.html">CullingConfig</a> &amp;p_config) {</div>
+<div class="line"><a id="l00218" name="l00218"></a><span class="lineno">  218</span>        <span class="keywordflow">if</span> (!p_config.<a class="code hl_variable" href="structGPUCuller_1_1CullingConfig.html#aa3245807406ddba71780fc938924909a">lod_enabled</a> || !(p_config.<a class="code hl_variable" href="structGPUCuller_1_1CullingConfig.html#a4e52cf4e4a7bad783dc7ff341b9db488">lod_max_distance</a> &gt; 0.0f)) {</div>
+<div class="line"><a id="l00219" name="l00219"></a><span class="lineno">  219</span>            <span class="keywordflow">return</span> 0.0f;</div>
+<div class="line"><a id="l00220" name="l00220"></a><span class="lineno">  220</span>        }</div>
+<div class="line"><a id="l00221" name="l00221"></a><span class="lineno">  221</span>        <span class="keywordflow">return</span> p_config.<a class="code hl_variable" href="structGPUCuller_1_1CullingConfig.html#a4e52cf4e4a7bad783dc7ff341b9db488">lod_max_distance</a> / MAX(p_config.<a class="code hl_variable" href="structGPUCuller_1_1CullingConfig.html#ae8e3746661e4f4e9b38d37fc9be41b2a">lod_bias</a>, 0.0001f);</div>
+<div class="line"><a id="l00222" name="l00222"></a><span class="lineno">  222</span>    }</div>
+</div>
+<div class="line"><a id="l00223" name="l00223"></a><span class="lineno">  223</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#a492d48eedd21a41b79fee450375b32df">update_culling_settings</a>();</div>
+<div class="line"><a id="l00224" name="l00224"></a><span class="lineno">  224</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#aaeff0230988c3d8947ffd47a09175a54">ensure_hierarchical_structure</a>(<span class="keyword">const</span> Ref&lt;GaussianData&gt; &amp;p_data);</div>
+<div class="line"><a id="l00225" name="l00225"></a><span class="lineno">  225</span>    CullingSummary <a class="code hl_function" href="classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22">cull_for_view</a>(<span class="keyword">const</span> Transform3D &amp;p_cam_transform, <span class="keyword">const</span> Projection &amp;p_projection, <span class="keyword">const</span> Size2i &amp;p_viewport_size,</div>
+<div class="line"><a id="l00226" name="l00226"></a><span class="lineno">  226</span>            <span class="keyword">const</span> CullingInputs &amp;p_inputs);</div>
+<div class="line"><a id="l00227" name="l00227"></a><span class="lineno">  227</span>    <span class="comment">// Apply overflow feedback from rasterizer stats</span></div>
+<div class="line"><a id="l00228" name="l00228"></a><span class="lineno">  228</span>    <span class="comment">// p_avg_splats_per_tile: average splats per tile (proxy for close-up detection)</span></div>
+<div class="line"><a id="l00229" name="l00229"></a><span class="lineno">  229</span>    <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba">apply_overflow_feedback</a>(<span class="keyword">const</span> <a class="code hl_struct" href="structRasterOverflowStats.html">RasterOverflowStats</a> &amp;p_stats, uint32_t p_splat_count, uint32_t p_tile_count,</div>
+<div class="line"><a id="l00230" name="l00230"></a><span class="lineno">  230</span>            <a class="code hl_class" href="classIOverflowAutoTuner.html">IOverflowAutoTuner</a> *p_auto_tuner, <span class="keywordtype">float</span> p_avg_splats_per_tile = 0.0f);</div>
+<div class="line"><a id="l00231" name="l00231"></a><span class="lineno">  231</span> </div>
+<div class="line"><a id="l00232" name="l00232"></a><span class="lineno">  232</span><span class="keyword">protected</span>:</div>
+<div class="line"><a id="l00233" name="l00233"></a><span class="lineno">  233</span>    <span class="keyword">static</span> <span class="keywordtype">void</span> <a class="code hl_function" href="classGPUCuller.html#aa4cb5310b0ef1035e57ac69e01b699f7">_bind_methods</a>();</div>
+<div class="line"><a id="l00234" name="l00234"></a><span class="lineno">  234</span> </div>
+<div class="line"><a id="l00235" name="l00235"></a><span class="lineno">  235</span><span class="keyword">private</span>:</div>
+<div class="line"><a id="l00236" name="l00236"></a><span class="lineno">  236</span>    <span class="keyword">enum</span> AsyncReadbackType {</div>
+<div class="line"><a id="l00237" name="l00237"></a><span class="lineno">  237</span>        ASYNC_READBACK_COUNTERS = 0,</div>
+<div class="line"><a id="l00238" name="l00238"></a><span class="lineno">  238</span>        ASYNC_READBACK_INDICES = 1,</div>
+<div class="line"><a id="l00239" name="l00239"></a><span class="lineno">  239</span>        ASYNC_READBACK_DISTANCES = 2,</div>
+<div class="line"><a id="l00240" name="l00240"></a><span class="lineno">  240</span>        ASYNC_READBACK_IMPORTANCE = 3,</div>
+<div class="line"><a id="l00241" name="l00241"></a><span class="lineno">  241</span>    };</div>
+<div class="line"><a id="l00242" name="l00242"></a><span class="lineno">  242</span> </div>
+<div class="line"><a id="l00243" name="l00243"></a><span class="lineno">  243</span>    <span class="keyword">struct </span>AsyncReadbackRequest {</div>
+<div class="line"><a id="l00244" name="l00244"></a><span class="lineno">  244</span>        uint64_t request_id = 0;</div>
+<div class="line"><a id="l00245" name="l00245"></a><span class="lineno">  245</span>        uint64_t generation = 0;</div>
+<div class="line"><a id="l00246" name="l00246"></a><span class="lineno">  246</span>        uint32_t max_visible = 0;</div>
+<div class="line"><a id="l00247" name="l00247"></a><span class="lineno">  247</span>        uint32_t total_splats = 0;</div>
+<div class="line"><a id="l00248" name="l00248"></a><span class="lineno">  248</span>        <span class="keywordtype">float</span> dispatch_time_ms = 0.0f;</div>
+<div class="line"><a id="l00249" name="l00249"></a><span class="lineno">  249</span>        <span class="keywordtype">bool</span> readback_indices = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00250" name="l00250"></a><span class="lineno">  250</span>        <span class="keywordtype">bool</span> readback_distances = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00251" name="l00251"></a><span class="lineno">  251</span>        <span class="keywordtype">bool</span> readback_importance = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00252" name="l00252"></a><span class="lineno">  252</span>        <span class="keywordtype">bool</span> counters_ready = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00253" name="l00253"></a><span class="lineno">  253</span>        <span class="keywordtype">bool</span> indices_ready = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00254" name="l00254"></a><span class="lineno">  254</span>        <span class="keywordtype">bool</span> distances_ready = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00255" name="l00255"></a><span class="lineno">  255</span>        <span class="keywordtype">bool</span> importance_ready = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00256" name="l00256"></a><span class="lineno">  256</span>        <a class="code hl_struct" href="structCullCounters.html">CullCounters</a> counters;</div>
+<div class="line"><a id="l00257" name="l00257"></a><span class="lineno">  257</span>        Vector&lt;uint8_t&gt; indices_bytes;</div>
+<div class="line"><a id="l00258" name="l00258"></a><span class="lineno">  258</span>        Vector&lt;uint8_t&gt; distance_bytes;</div>
+<div class="line"><a id="l00259" name="l00259"></a><span class="lineno">  259</span>        Vector&lt;uint8_t&gt; importance_bytes;</div>
+<div class="line"><a id="l00260" name="l00260"></a><span class="lineno">  260</span>    };</div>
+<div class="line"><a id="l00261" name="l00261"></a><span class="lineno">  261</span> </div>
+<div class="line"><a id="l00262" name="l00262"></a><span class="lineno">  262</span>    <span class="keyword">struct </span>AsyncReadbackState {</div>
+<div class="line"><a id="l00263" name="l00263"></a><span class="lineno">  263</span>        Vector&lt;AsyncReadbackRequest&gt; pending;</div>
+<div class="line"><a id="l00264" name="l00264"></a><span class="lineno">  264</span>        <a class="code hl_struct" href="structCullResult.html">CullResult</a> last_result;</div>
+<div class="line"><a id="l00265" name="l00265"></a><span class="lineno">  265</span>        uint64_t last_result_id = 0;</div>
+<div class="line"><a id="l00266" name="l00266"></a><span class="lineno">  266</span>        <span class="keywordtype">bool</span> last_result_valid = <span class="keyword">false</span>;</div>
 <div class="line"><a id="l00267" name="l00267"></a><span class="lineno">  267</span>        uint64_t next_request_id = 1;</div>
-<div class="line"><a id="l00268" name="l00268"></a><span class="lineno">  268</span>        uint64_t last_applied_request_id = 0;</div>
-<div class="line"><a id="l00269" name="l00269"></a><span class="lineno">  269</span>        uint32_t last_frame_chunk_limit = UINT32_MAX;</div>
+<div class="line"><a id="l00268" name="l00268"></a><span class="lineno">  268</span>        uint64_t generation = 1;</div>
+<div class="line"><a id="l00269" name="l00269"></a><span class="lineno">  269</span>        uint64_t last_submitted_id = 0;</div>
 <div class="line"><a id="l00270" name="l00270"></a><span class="lineno">  270</span>    };</div>
 <div class="line"><a id="l00271" name="l00271"></a><span class="lineno">  271</span> </div>
-<div class="line"><a id="l00272" name="l00272"></a><span class="lineno">  272</span>    <span class="keyword">struct </span>InstanceUniformSetCache {</div>
-<div class="line"><a id="l00273" name="l00273"></a><span class="lineno">  273</span>        RID uniform_set;</div>
-<div class="line"><a id="l00274" name="l00274"></a><span class="lineno">  274</span>        RID instance_buffer;</div>
-<div class="line"><a id="l00275" name="l00275"></a><span class="lineno">  275</span>        RID asset_meta_buffer;</div>
-<div class="line"><a id="l00276" name="l00276"></a><span class="lineno">  276</span>        RID asset_chunk_index_buffer;</div>
-<div class="line"><a id="l00277" name="l00277"></a><span class="lineno">  277</span>        RID chunk_meta_buffer;</div>
-<div class="line"><a id="l00278" name="l00278"></a><span class="lineno">  278</span>        RID visible_chunk_buffer;</div>
-<div class="line"><a id="l00279" name="l00279"></a><span class="lineno">  279</span>        RID counter_buffer;</div>
-<div class="line"><a id="l00280" name="l00280"></a><span class="lineno">  280</span>        RID param_buffer;</div>
-<div class="line"><a id="l00281" name="l00281"></a><span class="lineno">  281</span>        RID shader_rid;</div>
-<div class="line"><a id="l00282" name="l00282"></a><span class="lineno">  282</span>        RenderingDevice *device = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00283" name="l00283"></a><span class="lineno">  283</span>    };</div>
-<div class="line"><a id="l00284" name="l00284"></a><span class="lineno">  284</span> </div>
-<div class="line"><a id="l00285" name="l00285"></a><span class="lineno">  285</span>    <span class="comment">// GPU resources</span></div>
-<div class="line"><a id="l00286" name="l00286"></a><span class="lineno">  286</span>    RenderingDevice *rd = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00287" name="l00287"></a><span class="lineno">  287</span>    RID shader;</div>
-<div class="line"><a id="l00288" name="l00288"></a><span class="lineno">  288</span>    RID frustum_shader_version;</div>
-<div class="line"><a id="l00289" name="l00289"></a><span class="lineno">  289</span>    RID pipeline;</div>
-<div class="line"><a id="l00290" name="l00290"></a><span class="lineno">  290</span> </div>
-<div class="line"><a id="l00291" name="l00291"></a><span class="lineno">  291</span>    <span class="comment">// Subgroup support tracking</span></div>
-<div class="line"><a id="l00292" name="l00292"></a><span class="lineno">  292</span>    <span class="keywordtype">bool</span> subgroups_available = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00293" name="l00293"></a><span class="lineno">  293</span>    <span class="keywordtype">int</span> active_shader_group = <a class="code hl_enumvalue" href="classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de">SHADER_GROUP_STANDARD</a>;</div>
-<div class="line"><a id="l00294" name="l00294"></a><span class="lineno">  294</span>    RID param_buffer;</div>
-<div class="line"><a id="l00295" name="l00295"></a><span class="lineno">  295</span>    RID counter_buffer;</div>
-<div class="line"><a id="l00296" name="l00296"></a><span class="lineno">  296</span>    RID visible_buffer;</div>
-<div class="line"><a id="l00297" name="l00297"></a><span class="lineno">  297</span>    RID distance_buffer;</div>
-<div class="line"><a id="l00298" name="l00298"></a><span class="lineno">  298</span>    RID importance_buffer;</div>
-<div class="line"><a id="l00299" name="l00299"></a><span class="lineno">  299</span>    RID consolidated_buffer; <span class="comment">// Binding 6 - packed readback buffer (shader requires it even if unused)</span></div>
-<div class="line"><a id="l00300" name="l00300"></a><span class="lineno">  300</span>    RID instance_param_buffer;</div>
-<div class="line"><a id="l00301" name="l00301"></a><span class="lineno">  301</span>    RenderingDevice *instance_resource_device = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00302" name="l00302"></a><span class="lineno">  302</span> </div>
-<div class="line"><a id="l00303" name="l00303"></a><span class="lineno">  303</span>    <span class="comment">// Buffer capacity tracking</span></div>
-<div class="line"><a id="l00304" name="l00304"></a><span class="lineno">  304</span>    uint32_t buffer_capacity = 0;</div>
-<div class="line"><a id="l00305" name="l00305"></a><span class="lineno">  305</span>    RenderingDevice *resource_device = <span class="keyword">nullptr</span>;</div>
-<div class="line"><a id="l00306" name="l00306"></a><span class="lineno">  306</span> </div>
-<div class="line"><a id="l00307" name="l00307"></a><span class="lineno">  307</span>    <span class="comment">// Staging data</span></div>
-<div class="line"><a id="l00308" name="l00308"></a><span class="lineno">  308</span>    Vector&lt;uint8_t&gt; param_bytes;</div>
-<div class="line"><a id="l00309" name="l00309"></a><span class="lineno">  309</span>    Vector&lt;uint8_t&gt; counter_bytes;</div>
-<div class="line"><a id="l00310" name="l00310"></a><span class="lineno">  310</span>    Vector&lt;uint8_t&gt; instance_param_bytes;</div>
+<div class="line"><a id="l00272" name="l00272"></a><span class="lineno">  272</span>    <span class="keyword">struct </span>InstanceReadbackState {</div>
+<div class="line"><a id="l00273" name="l00273"></a><span class="lineno">  273</span>        <span class="keywordtype">bool</span> pending = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00274" name="l00274"></a><span class="lineno">  274</span>        uint64_t generation = 1;</div>
+<div class="line"><a id="l00275" name="l00275"></a><span class="lineno">  275</span>        uint64_t pending_request_id = 0;</div>
+<div class="line"><a id="l00276" name="l00276"></a><span class="lineno">  276</span>        uint64_t next_request_id = 1;</div>
+<div class="line"><a id="l00277" name="l00277"></a><span class="lineno">  277</span>        uint64_t last_applied_request_id = 0;</div>
+<div class="line"><a id="l00278" name="l00278"></a><span class="lineno">  278</span>        uint32_t last_frame_chunk_limit = UINT32_MAX;</div>
+<div class="line"><a id="l00279" name="l00279"></a><span class="lineno">  279</span>    };</div>
+<div class="line"><a id="l00280" name="l00280"></a><span class="lineno">  280</span> </div>
+<div class="line"><a id="l00281" name="l00281"></a><span class="lineno">  281</span>    <span class="keyword">struct </span>InstanceUniformSetCache {</div>
+<div class="line"><a id="l00282" name="l00282"></a><span class="lineno">  282</span>        RID uniform_set;</div>
+<div class="line"><a id="l00283" name="l00283"></a><span class="lineno">  283</span>        RID instance_buffer;</div>
+<div class="line"><a id="l00284" name="l00284"></a><span class="lineno">  284</span>        RID asset_meta_buffer;</div>
+<div class="line"><a id="l00285" name="l00285"></a><span class="lineno">  285</span>        RID asset_chunk_index_buffer;</div>
+<div class="line"><a id="l00286" name="l00286"></a><span class="lineno">  286</span>        RID chunk_meta_buffer;</div>
+<div class="line"><a id="l00287" name="l00287"></a><span class="lineno">  287</span>        RID visible_chunk_buffer;</div>
+<div class="line"><a id="l00288" name="l00288"></a><span class="lineno">  288</span>        RID counter_buffer;</div>
+<div class="line"><a id="l00289" name="l00289"></a><span class="lineno">  289</span>        RID param_buffer;</div>
+<div class="line"><a id="l00290" name="l00290"></a><span class="lineno">  290</span>        RID shader_rid;</div>
+<div class="line"><a id="l00291" name="l00291"></a><span class="lineno">  291</span>        RenderingDevice *device = <span class="keyword">nullptr</span>;</div>
+<div class="line"><a id="l00292" name="l00292"></a><span class="lineno">  292</span>    };</div>
+<div class="line"><a id="l00293" name="l00293"></a><span class="lineno">  293</span> </div>
+<div class="line"><a id="l00294" name="l00294"></a><span class="lineno">  294</span>    <span class="comment">// GPU resources</span></div>
+<div class="line"><a id="l00295" name="l00295"></a><span class="lineno">  295</span>    RenderingDevice *rd = <span class="keyword">nullptr</span>;</div>
+<div class="line"><a id="l00296" name="l00296"></a><span class="lineno">  296</span>    RID shader;</div>
+<div class="line"><a id="l00297" name="l00297"></a><span class="lineno">  297</span>    RID frustum_shader_version;</div>
+<div class="line"><a id="l00298" name="l00298"></a><span class="lineno">  298</span>    RID pipeline;</div>
+<div class="line"><a id="l00299" name="l00299"></a><span class="lineno">  299</span> </div>
+<div class="line"><a id="l00300" name="l00300"></a><span class="lineno">  300</span>    <span class="comment">// Subgroup support tracking</span></div>
+<div class="line"><a id="l00301" name="l00301"></a><span class="lineno">  301</span>    <span class="keywordtype">bool</span> subgroups_available = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00302" name="l00302"></a><span class="lineno">  302</span>    <span class="keywordtype">int</span> active_shader_group = <a class="code hl_enumvalue" href="classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de">SHADER_GROUP_STANDARD</a>;</div>
+<div class="line"><a id="l00303" name="l00303"></a><span class="lineno">  303</span>    RID param_buffer;</div>
+<div class="line"><a id="l00304" name="l00304"></a><span class="lineno">  304</span>    RID counter_buffer;</div>
+<div class="line"><a id="l00305" name="l00305"></a><span class="lineno">  305</span>    RID visible_buffer;</div>
+<div class="line"><a id="l00306" name="l00306"></a><span class="lineno">  306</span>    RID distance_buffer;</div>
+<div class="line"><a id="l00307" name="l00307"></a><span class="lineno">  307</span>    RID importance_buffer;</div>
+<div class="line"><a id="l00308" name="l00308"></a><span class="lineno">  308</span>    RID consolidated_buffer; <span class="comment">// Binding 6 - packed readback buffer (shader requires it even if unused)</span></div>
+<div class="line"><a id="l00309" name="l00309"></a><span class="lineno">  309</span>    RID instance_param_buffer;</div>
+<div class="line"><a id="l00310" name="l00310"></a><span class="lineno">  310</span>    RenderingDevice *instance_resource_device = <span class="keyword">nullptr</span>;</div>
 <div class="line"><a id="l00311" name="l00311"></a><span class="lineno">  311</span> </div>
-<div class="line"><a id="l00312" name="l00312"></a><span class="lineno">  312</span>    <span class="comment">// Configuration</span></div>
-<div class="line"><a id="l00313" name="l00313"></a><span class="lineno">  313</span>    <span class="keywordtype">bool</span> initialized = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00314" name="l00314"></a><span class="lineno">  314</span>    <span class="keywordtype">bool</span> readback_enabled = <span class="keyword">true</span>;</div>
-<div class="line"><a id="l00315" name="l00315"></a><span class="lineno">  315</span>    CullingConfig culling_config;</div>
-<div class="line"><a id="l00316" name="l00316"></a><span class="lineno">  316</span>    CullingState culling_state;</div>
-<div class="line"><a id="l00317" name="l00317"></a><span class="lineno">  317</span>    AsyncReadbackState async_readback_state;</div>
-<div class="line"><a id="l00318" name="l00318"></a><span class="lineno">  318</span>    InstanceReadbackState instance_readback_state;</div>
-<div class="line"><a id="l00319" name="l00319"></a><span class="lineno">  319</span>    InstanceUniformSetCache instance_uniform_set_cache;</div>
-<div class="line"><a id="l00320" name="l00320"></a><span class="lineno">  320</span>    InstancePipelineInputs instance_inputs;</div>
-<div class="line"><a id="l00321" name="l00321"></a><span class="lineno">  321</span>    <span class="keywordtype">bool</span> instance_inputs_valid = <span class="keyword">false</span>;</div>
-<div class="line"><a id="l00322" name="l00322"></a><span class="lineno">  322</span>    uint32_t last_instance_visible_chunk_count = 0;</div>
-<div class="line"><a id="l00323" name="l00323"></a><span class="lineno">  323</span>    <span class="comment">// M0: chunks rejected by the instance-path frustum test, latched 1 frame late from the</span></div>
-<div class="line"><a id="l00324" name="l00324"></a><span class="lineno">  324</span>    <span class="comment">// async counter readback (counter_values[2]). CHUNK granularity (the legacy CPU cull path</span></div>
-<div class="line"><a id="l00325" name="l00325"></a><span class="lineno">  325</span>    <span class="comment">// counted splats) — surfaced as culled_frustum_count on the instance render path.</span></div>
-<div class="line"><a id="l00326" name="l00326"></a><span class="lineno">  326</span>    uint32_t last_instance_frustum_culled_count = 0;</div>
-<div class="line"><a id="l00327" name="l00327"></a><span class="lineno">  327</span> </div>
-<div class="line"><a id="l00328" name="l00328"></a><span class="lineno">  328</span>    <span class="comment">// PERF (#634): Batched async readback to reduce CPU/GPU sync points</span></div>
-<div class="line"><a id="l00329" name="l00329"></a><span class="lineno">  329</span>    Ref&lt;BatchedAsyncReadback&gt; batched_readback;</div>
-<div class="line"><a id="l00330" name="l00330"></a><span class="lineno">  330</span>    <span class="keywordtype">void</span> _on_batched_cull_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, int64_t p_user_data);</div>
-<div class="line"><a id="l00331" name="l00331"></a><span class="lineno">  331</span> </div>
-<div class="line"><a id="l00332" name="l00332"></a><span class="lineno">  332</span>    <span class="comment">// Internal helpers</span></div>
-<div class="line"><a id="l00333" name="l00333"></a><span class="lineno">  333</span>    <span class="keywordtype">void</span> _ensure_shader(RenderingDevice *p_device);</div>
-<div class="line"><a id="l00334" name="l00334"></a><span class="lineno">  334</span>    <span class="keywordtype">void</span> _ensure_buffers(RenderingDevice *p_device, uint32_t p_required_capacity);</div>
-<div class="line"><a id="l00335" name="l00335"></a><span class="lineno">  335</span>    <span class="keywordtype">void</span> _ensure_instance_param_buffer(RenderingDevice *p_device);</div>
-<div class="line"><a id="l00336" name="l00336"></a><span class="lineno">  336</span>    RID _get_instance_cull_uniform_set(RenderingDevice *p_device, <span class="keyword">const</span> InstancePipelineInputs &amp;p_inputs);</div>
-<div class="line"><a id="l00337" name="l00337"></a><span class="lineno">  337</span>    <span class="keywordtype">void</span> _invalidate_instance_uniform_set_cache();</div>
-<div class="line"><a id="l00338" name="l00338"></a><span class="lineno">  338</span>    <span class="keywordtype">void</span> _release_resources();</div>
-<div class="line"><a id="l00339" name="l00339"></a><span class="lineno">  339</span>    RenderingDevice *_acquire_submission_device(RenderingDevice *p_device);</div>
-<div class="line"><a id="l00340" name="l00340"></a><span class="lineno">  340</span>    <span class="keywordtype">void</span> _on_cull_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, <span class="keywordtype">int</span> p_type, int64_t p_request_id, int64_t p_generation);</div>
-<div class="line"><a id="l00341" name="l00341"></a><span class="lineno">  341</span>    <span class="keywordtype">void</span> _on_instance_counter_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, int64_t p_generation,</div>
-<div class="line"><a id="l00342" name="l00342"></a><span class="lineno">  342</span>            int64_t p_max_visible_chunks, int64_t p_request_id);</div>
-<div class="line"><a id="l00343" name="l00343"></a><span class="lineno">  343</span>    <span class="keywordtype">void</span> _reset_async_readback_state();</div>
-<div class="line"><a id="l00344" name="l00344"></a><span class="lineno">  344</span>    <span class="keywordtype">bool</span> _gpu_frustum_cull_instance(<span class="keyword">const</span> <a class="code hl_struct" href="structCullParams.html">CullParams</a> &amp;p_params, <span class="keyword">const</span> InstancePipelineInputs &amp;p_inputs,</div>
-<div class="line"><a id="l00345" name="l00345"></a><span class="lineno">  345</span>            uint64_t p_start_time_usec, CullingSummary &amp;r_summary);</div>
-<div class="line"><a id="l00346" name="l00346"></a><span class="lineno">  346</span>};</div>
+<div class="line"><a id="l00312" name="l00312"></a><span class="lineno">  312</span>    <span class="comment">// Buffer capacity tracking</span></div>
+<div class="line"><a id="l00313" name="l00313"></a><span class="lineno">  313</span>    uint32_t buffer_capacity = 0;</div>
+<div class="line"><a id="l00314" name="l00314"></a><span class="lineno">  314</span>    RenderingDevice *resource_device = <span class="keyword">nullptr</span>;</div>
+<div class="line"><a id="l00315" name="l00315"></a><span class="lineno">  315</span> </div>
+<div class="line"><a id="l00316" name="l00316"></a><span class="lineno">  316</span>    <span class="comment">// Staging data</span></div>
+<div class="line"><a id="l00317" name="l00317"></a><span class="lineno">  317</span>    Vector&lt;uint8_t&gt; param_bytes;</div>
+<div class="line"><a id="l00318" name="l00318"></a><span class="lineno">  318</span>    Vector&lt;uint8_t&gt; counter_bytes;</div>
+<div class="line"><a id="l00319" name="l00319"></a><span class="lineno">  319</span>    Vector&lt;uint8_t&gt; instance_param_bytes;</div>
+<div class="line"><a id="l00320" name="l00320"></a><span class="lineno">  320</span> </div>
+<div class="line"><a id="l00321" name="l00321"></a><span class="lineno">  321</span>    <span class="comment">// Configuration</span></div>
+<div class="line"><a id="l00322" name="l00322"></a><span class="lineno">  322</span>    <span class="keywordtype">bool</span> initialized = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00323" name="l00323"></a><span class="lineno">  323</span>    <span class="keywordtype">bool</span> readback_enabled = <span class="keyword">true</span>;</div>
+<div class="line"><a id="l00324" name="l00324"></a><span class="lineno">  324</span>    CullingConfig culling_config;</div>
+<div class="line"><a id="l00325" name="l00325"></a><span class="lineno">  325</span>    CullingState culling_state;</div>
+<div class="line"><a id="l00326" name="l00326"></a><span class="lineno">  326</span>    AsyncReadbackState async_readback_state;</div>
+<div class="line"><a id="l00327" name="l00327"></a><span class="lineno">  327</span>    InstanceReadbackState instance_readback_state;</div>
+<div class="line"><a id="l00328" name="l00328"></a><span class="lineno">  328</span>    InstanceUniformSetCache instance_uniform_set_cache;</div>
+<div class="line"><a id="l00329" name="l00329"></a><span class="lineno">  329</span>    InstancePipelineInputs instance_inputs;</div>
+<div class="line"><a id="l00330" name="l00330"></a><span class="lineno">  330</span>    <span class="keywordtype">bool</span> instance_inputs_valid = <span class="keyword">false</span>;</div>
+<div class="line"><a id="l00331" name="l00331"></a><span class="lineno">  331</span>    uint32_t last_instance_visible_chunk_count = 0;</div>
+<div class="line"><a id="l00332" name="l00332"></a><span class="lineno">  332</span>    <span class="comment">// M0: chunks rejected by the instance-path frustum test, latched 1 frame late from the</span></div>
+<div class="line"><a id="l00333" name="l00333"></a><span class="lineno">  333</span>    <span class="comment">// async counter readback (counter_values[2]). CHUNK granularity (the legacy CPU cull path</span></div>
+<div class="line"><a id="l00334" name="l00334"></a><span class="lineno">  334</span>    <span class="comment">// counted splats) — surfaced as culled_frustum_count on the instance render path.</span></div>
+<div class="line"><a id="l00335" name="l00335"></a><span class="lineno">  335</span>    uint32_t last_instance_frustum_culled_count = 0;</div>
+<div class="line"><a id="l00336" name="l00336"></a><span class="lineno">  336</span> </div>
+<div class="line"><a id="l00337" name="l00337"></a><span class="lineno">  337</span>    <span class="comment">// PERF (#634): Batched async readback to reduce CPU/GPU sync points</span></div>
+<div class="line"><a id="l00338" name="l00338"></a><span class="lineno">  338</span>    Ref&lt;BatchedAsyncReadback&gt; batched_readback;</div>
+<div class="line"><a id="l00339" name="l00339"></a><span class="lineno">  339</span>    <span class="keywordtype">void</span> _on_batched_cull_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, int64_t p_user_data);</div>
+<div class="line"><a id="l00340" name="l00340"></a><span class="lineno">  340</span> </div>
+<div class="line"><a id="l00341" name="l00341"></a><span class="lineno">  341</span>    <span class="comment">// Internal helpers</span></div>
+<div class="line"><a id="l00342" name="l00342"></a><span class="lineno">  342</span>    <span class="keywordtype">void</span> _ensure_shader(RenderingDevice *p_device);</div>
+<div class="line"><a id="l00343" name="l00343"></a><span class="lineno">  343</span>    <span class="keywordtype">void</span> _ensure_buffers(RenderingDevice *p_device, uint32_t p_required_capacity);</div>
+<div class="line"><a id="l00344" name="l00344"></a><span class="lineno">  344</span>    <span class="keywordtype">void</span> _ensure_instance_param_buffer(RenderingDevice *p_device);</div>
+<div class="line"><a id="l00345" name="l00345"></a><span class="lineno">  345</span>    RID _get_instance_cull_uniform_set(RenderingDevice *p_device, <span class="keyword">const</span> InstancePipelineInputs &amp;p_inputs);</div>
+<div class="line"><a id="l00346" name="l00346"></a><span class="lineno">  346</span>    <span class="keywordtype">void</span> _invalidate_instance_uniform_set_cache();</div>
+<div class="line"><a id="l00347" name="l00347"></a><span class="lineno">  347</span>    <span class="keywordtype">void</span> _release_resources();</div>
+<div class="line"><a id="l00348" name="l00348"></a><span class="lineno">  348</span>    RenderingDevice *_acquire_submission_device(RenderingDevice *p_device);</div>
+<div class="line"><a id="l00349" name="l00349"></a><span class="lineno">  349</span>    <span class="keywordtype">void</span> _on_cull_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, <span class="keywordtype">int</span> p_type, int64_t p_request_id, int64_t p_generation);</div>
+<div class="line"><a id="l00350" name="l00350"></a><span class="lineno">  350</span>    <span class="keywordtype">void</span> _on_instance_counter_readback(<span class="keyword">const</span> Vector&lt;uint8_t&gt; &amp;p_data, int64_t p_generation,</div>
+<div class="line"><a id="l00351" name="l00351"></a><span class="lineno">  351</span>            int64_t p_max_visible_chunks, int64_t p_request_id);</div>
+<div class="line"><a id="l00352" name="l00352"></a><span class="lineno">  352</span>    <span class="keywordtype">void</span> _reset_async_readback_state();</div>
+<div class="line"><a id="l00353" name="l00353"></a><span class="lineno">  353</span>    <span class="keywordtype">bool</span> _gpu_frustum_cull_instance(<span class="keyword">const</span> <a class="code hl_struct" href="structCullParams.html">CullParams</a> &amp;p_params, <span class="keyword">const</span> InstancePipelineInputs &amp;p_inputs,</div>
+<div class="line"><a id="l00354" name="l00354"></a><span class="lineno">  354</span>            uint64_t p_start_time_usec, CullingSummary &amp;r_summary);</div>
+<div class="line"><a id="l00355" name="l00355"></a><span class="lineno">  355</span>};</div>
 </div>
-<div class="line"><a id="l00347" name="l00347"></a><span class="lineno">  347</span> </div>
-<div class="line"><a id="l00348" name="l00348"></a><span class="lineno">  348</span><span class="preprocessor">#endif </span><span class="comment">// GS_GPU_CULLER_H</span></div>
+<div class="line"><a id="l00356" name="l00356"></a><span class="lineno">  356</span> </div>
+<div class="line"><a id="l00357" name="l00357"></a><span class="lineno">  357</span><span class="preprocessor">#endif </span><span class="comment">// GS_GPU_CULLER_H</span></div>
 <div class="ttc" id="aclassGPUCuller_html"><div class="ttname"><a href="classGPUCuller.html">GPUCuller</a></div><div class="ttdef"><b>Definition</b> gpu_culler.h:34</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a08b31b11f7ddbe2a0c30781330f21b27"><div class="ttname"><a href="classGPUCuller.html#a08b31b11f7ddbe2a0c30781330f21b27">GPUCuller::get_state</a></div><div class="ttdeci">const CullingState &amp; get_state() const</div><div class="ttdef"><b>Definition</b> gpu_culler.h:208</div></div>
+<div class="ttc" id="aclassGPUCuller_html_a0c0d6fe3b3c0150257bfeed9098b65b2"><div class="ttname"><a href="classGPUCuller.html#a0c0d6fe3b3c0150257bfeed9098b65b2">GPUCuller::compute_effective_max_distance</a></div><div class="ttdeci">static float compute_effective_max_distance(const CullingConfig &amp;p_config)</div><div class="ttdef"><b>Definition</b> gpu_culler.h:217</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a0c687b4c5c9e78f2e9dfbd53ef803d54"><div class="ttname"><a href="classGPUCuller.html#a0c687b4c5c9e78f2e9dfbd53ef803d54">GPUCuller::is_ready</a></div><div class="ttdeci">bool is_ready() const override</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:161</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a1a3c99a3b73ecfea0b1fdede1f0b8970"><div class="ttname"><a href="classGPUCuller.html#a1a3c99a3b73ecfea0b1fdede1f0b8970">GPUCuller::~GPUCuller</a></div><div class="ttdeci">~GPUCuller()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:110</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a1fb04f42a7bb18a14b2467e71ce229c5"><div class="ttname"><a href="classGPUCuller.html#a1fb04f42a7bb18a14b2467e71ce229c5">GPUCuller::clear_instance_pipeline_inputs</a></div><div class="ttdeci">void clear_instance_pipeline_inputs()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:93</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a2a6efec4a2d788bf0369b7ff5173b908"><div class="ttname"><a href="classGPUCuller.html#a2a6efec4a2d788bf0369b7ff5173b908">GPUCuller::GPUCuller</a></div><div class="ttdeci">GPUCuller()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:85</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a34d8039b1b7d941067a1aebc9ffe6a3b"><div class="ttname"><a href="classGPUCuller.html#a34d8039b1b7d941067a1aebc9ffe6a3b">GPUCuller::is_gpu_based</a></div><div class="ttdeci">bool is_gpu_based() const override</div><div class="ttdef"><b>Definition</b> gpu_culler.h:200</div></div>
-<div class="ttc" id="aclassGPUCuller_html_a492d48eedd21a41b79fee450375b32df"><div class="ttname"><a href="classGPUCuller.html#a492d48eedd21a41b79fee450375b32df">GPUCuller::update_culling_settings</a></div><div class="ttdeci">void update_culling_settings()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:199</div></div>
+<div class="ttc" id="aclassGPUCuller_html_a492d48eedd21a41b79fee450375b32df"><div class="ttname"><a href="classGPUCuller.html#a492d48eedd21a41b79fee450375b32df">GPUCuller::update_culling_settings</a></div><div class="ttdeci">void update_culling_settings()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:194</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a4a6472305a157fb3184ca5fc7a3f1671"><div class="ttname"><a href="classGPUCuller.html#a4a6472305a157fb3184ca5fc7a3f1671">GPUCuller::get_config</a></div><div class="ttdeci">const CullingConfig &amp; get_config() const</div><div class="ttdef"><b>Definition</b> gpu_culler.h:206</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a4cfaa901fa363f0b856552efcb0186d5"><div class="ttname"><a href="classGPUCuller.html#a4cfaa901fa363f0b856552efcb0186d5">GPUCuller::get_name</a></div><div class="ttdeci">String get_name() const override</div><div class="ttdef"><b>Definition</b> gpu_culler.h:199</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a50bb46df6c30937d3d99f2f0f74a9742"><div class="ttname"><a href="classGPUCuller.html#a50bb46df6c30937d3d99f2f0f74a9742">GPUCuller::update_lod_cache</a></div><div class="ttdeci">void update_lod_cache()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:169</div></div>
@@ -476,14 +488,14 @@ $(document).ready(function(){initNavTree('gpu__culler_8h_source.html',''); initR
 <div class="ttc" id="aclassGPUCuller_html_a584d00cd13a1a1b57fabc064ab2dd1b7ad5a375015dc4aa07be728a826ea2ac24"><div class="ttname"><a href="classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7ad5a375015dc4aa07be728a826ea2ac24">GPUCuller::SHADER_GROUP_SUBGROUPS</a></div><div class="ttdeci">@ SHADER_GROUP_SUBGROUPS</div><div class="ttdef"><b>Definition</b> gpu_culler.h:41</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de"><div class="ttname"><a href="classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de">GPUCuller::SHADER_GROUP_STANDARD</a></div><div class="ttdeci">@ SHADER_GROUP_STANDARD</div><div class="ttdef"><b>Definition</b> gpu_culler.h:40</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a66509a6fcbdeafce397d2ccadff26c0d"><div class="ttname"><a href="classGPUCuller.html#a66509a6fcbdeafce397d2ccadff26c0d">GPUCuller::get_last_instance_visible_chunk_count</a></div><div class="ttdeci">uint32_t get_last_instance_visible_chunk_count() const</div><div class="ttdef"><b>Definition</b> gpu_culler.h:211</div></div>
-<div class="ttc" id="aclassGPUCuller_html_a7837f4de2926eca933da00f0bb9f88ba"><div class="ttname"><a href="classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba">GPUCuller::apply_overflow_feedback</a></div><div class="ttdeci">void apply_overflow_feedback(const RasterOverflowStats &amp;p_stats, uint32_t p_splat_count, uint32_t p_tile_count, IOverflowAutoTuner *p_auto_tuner, float p_avg_splats_per_tile=0.0f)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1972</div></div>
-<div class="ttc" id="aclassGPUCuller_html_a7a7092bba9fb037eacb925f757472f22"><div class="ttname"><a href="classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22">GPUCuller::cull_for_view</a></div><div class="ttdeci">CullingSummary cull_for_view(const Transform3D &amp;p_cam_transform, const Projection &amp;p_projection, const Size2i &amp;p_viewport_size, const CullingInputs &amp;p_inputs)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1616</div></div>
+<div class="ttc" id="aclassGPUCuller_html_a7837f4de2926eca933da00f0bb9f88ba"><div class="ttname"><a href="classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba">GPUCuller::apply_overflow_feedback</a></div><div class="ttdeci">void apply_overflow_feedback(const RasterOverflowStats &amp;p_stats, uint32_t p_splat_count, uint32_t p_tile_count, IOverflowAutoTuner *p_auto_tuner, float p_avg_splats_per_tile=0.0f)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1974</div></div>
+<div class="ttc" id="aclassGPUCuller_html_a7a7092bba9fb037eacb925f757472f22"><div class="ttname"><a href="classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22">GPUCuller::cull_for_view</a></div><div class="ttdeci">CullingSummary cull_for_view(const Transform3D &amp;p_cam_transform, const Projection &amp;p_projection, const Size2i &amp;p_viewport_size, const CullingInputs &amp;p_inputs)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1618</div></div>
 <div class="ttc" id="aclassGPUCuller_html_a818df0324898b0e1ea8487b43c7e6562"><div class="ttname"><a href="classGPUCuller.html#a818df0324898b0e1ea8487b43c7e6562">GPUCuller::set_instance_pipeline_inputs</a></div><div class="ttdeci">void set_instance_pipeline_inputs(const InstancePipelineInputs &amp;p_inputs)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:88</div></div>
 <div class="ttc" id="aclassGPUCuller_html_aa2e6be859f5138ae21005a52f8a18bc8"><div class="ttname"><a href="classGPUCuller.html#aa2e6be859f5138ae21005a52f8a18bc8">GPUCuller::set_readback_enabled</a></div><div class="ttdeci">void set_readback_enabled(bool p_enabled)</div><div class="ttdef"><b>Definition</b> gpu_culler.h:203</div></div>
 <div class="ttc" id="aclassGPUCuller_html_aa4cb5310b0ef1035e57ac69e01b699f7"><div class="ttname"><a href="classGPUCuller.html#aa4cb5310b0ef1035e57ac69e01b699f7">GPUCuller::_bind_methods</a></div><div class="ttdeci">static void _bind_methods()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:80</div></div>
 <div class="ttc" id="aclassGPUCuller_html_aa665526ac63f95a43522e271674d815c"><div class="ttname"><a href="classGPUCuller.html#aa665526ac63f95a43522e271674d815c">GPUCuller::is_readback_enabled</a></div><div class="ttdeci">bool is_readback_enabled() const</div><div class="ttdef"><b>Definition</b> gpu_culler.h:204</div></div>
-<div class="ttc" id="aclassGPUCuller_html_aaeff0230988c3d8947ffd47a09175a54"><div class="ttname"><a href="classGPUCuller.html#aaeff0230988c3d8947ffd47a09175a54">GPUCuller::ensure_hierarchical_structure</a></div><div class="ttdeci">void ensure_hierarchical_structure(const Ref&lt; GaussianData &gt; &amp;p_data)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:304</div></div>
-<div class="ttc" id="aclassGPUCuller_html_ab94d3537015423ef5829f3028570e66e"><div class="ttname"><a href="classGPUCuller.html#ab94d3537015423ef5829f3028570e66e">GPUCuller::cull</a></div><div class="ttdeci">CullResult cull(const CullParams &amp;p_params, const CullInputBuffers &amp;p_input) override</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1065</div></div>
+<div class="ttc" id="aclassGPUCuller_html_aaeff0230988c3d8947ffd47a09175a54"><div class="ttname"><a href="classGPUCuller.html#aaeff0230988c3d8947ffd47a09175a54">GPUCuller::ensure_hierarchical_structure</a></div><div class="ttdeci">void ensure_hierarchical_structure(const Ref&lt; GaussianData &gt; &amp;p_data)</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:306</div></div>
+<div class="ttc" id="aclassGPUCuller_html_ab94d3537015423ef5829f3028570e66e"><div class="ttname"><a href="classGPUCuller.html#ab94d3537015423ef5829f3028570e66e">GPUCuller::cull</a></div><div class="ttdeci">CullResult cull(const CullParams &amp;p_params, const CullInputBuffers &amp;p_input) override</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:1067</div></div>
 <div class="ttc" id="aclassGPUCuller_html_acf7fc188af67a3c53da855d48723d45a"><div class="ttname"><a href="classGPUCuller.html#acf7fc188af67a3c53da855d48723d45a">GPUCuller::invalidate_lod_cache</a></div><div class="ttdeci">void invalidate_lod_cache()</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:165</div></div>
 <div class="ttc" id="aclassGPUCuller_html_ad745ec3f1348be176467c60f13917f9b"><div class="ttname"><a href="classGPUCuller.html#ad745ec3f1348be176467c60f13917f9b">GPUCuller::shutdown</a></div><div class="ttdeci">void shutdown() override</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:150</div></div>
 <div class="ttc" id="aclassGPUCuller_html_adadcc8b954bddc3a44144d191c9ebb37"><div class="ttname"><a href="classGPUCuller.html#adadcc8b954bddc3a44144d191c9ebb37">GPUCuller::initialize</a></div><div class="ttdeci">Error initialize(RenderingDevice *p_device) override</div><div class="ttdef"><b>Definition</b> gpu_culler.cpp:114</div></div>

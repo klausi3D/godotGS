@@ -15,6 +15,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "last_used_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93", null ],
     [ "lod_blend_factor", "structGaussianStreamingTypes_1_1StreamingChunk.html#a92bca92e32d31b5668295043a2f9cfa8", null ],
     [ "max_radius", "structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f", null ],
+    [ "near_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#a69c4e1bab10aeacc7307b4303731c10d", null ],
     [ "opacity_multiplier", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab40d60d839071e51f90dd3d8728f7035", null ],
     [ "pending_upload_bytes", "structGaussianStreamingTypes_1_1StreamingChunk.html#a546ddc6497f3a02b36ebaf74f30560a2", null ],
     [ "previous_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#ad9463a627702c637dfa5eee5b11aeda1", null ],

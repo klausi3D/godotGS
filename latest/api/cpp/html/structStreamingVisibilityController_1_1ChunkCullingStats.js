@@ -1,6 +1,7 @@
 var structStreamingVisibilityController_1_1ChunkCullingStats =
 [
     [ "reset", "structStreamingVisibilityController_1_1ChunkCullingStats.html#aab39868cf7d909f5f02cf42583b79a8d", null ],
+    [ "distance_culled_chunks", "structStreamingVisibilityController_1_1ChunkCullingStats.html#aa442dade2da7027ef67e59469f49ad79", null ],
     [ "frustum_culled_chunks", "structStreamingVisibilityController_1_1ChunkCullingStats.html#abe985a8e59544d3924c166ef74befaf3", null ],
     [ "loaded_chunks", "structStreamingVisibilityController_1_1ChunkCullingStats.html#a7ce50b43b0734357f735ec7a2bf0caa8", null ],
     [ "lod_blend_update_scan_count", "structStreamingVisibilityController_1_1ChunkCullingStats.html#a205ce307edd0f4bd5f9381869998736d", null ],

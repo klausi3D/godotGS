@@ -899,6 +899,15 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a6e12c91bb65fb9ef196b482daa28993a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2f225fb02ab98be250c1ea8ebb7f8391" id="r_a2f225fb02ab98be250c1ea8ebb7f8391"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a2f225fb02ab98be250c1ea8ebb7f8391">get_lod_max_distance</a> () const override</td></tr>
 <tr class="separator:a2f225fb02ab98be250c1ea8ebb7f8391"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1aaf1a9b2238a4d6e3574a88480fbbd7" id="r_a1aaf1a9b2238a4d6e3574a88480fbbd7"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a1aaf1a9b2238a4d6e3574a88480fbbd7">get_streaming_load_distance_limit</a> () const</td></tr>
+<tr class="memdesc:a1aaf1a9b2238a4d6e3574a88480fbbd7"><td class="mdescLeft">&#160;</td><td class="mdescRight">Distance beyond which no splat is drawn (LOD max distance / LOD bias), or 0 when unbounded.  <br /></td></tr>
+<tr class="separator:a1aaf1a9b2238a4d6e3574a88480fbbd7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac9f6826254d50a495b7b9e42a1db0e0d" id="r_ac9f6826254d50a495b7b9e42a1db0e0d"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#ac9f6826254d50a495b7b9e42a1db0e0d">refresh_streaming_load_distance_limit</a> ()</td></tr>
+<tr class="memdesc:ac9f6826254d50a495b7b9e42a1db0e0d"><td class="mdescLeft">&#160;</td><td class="mdescRight">Re-reads the culler's LOD settings (as the sort pass does each frame) and returns the resulting load distance limit, so streaming and the draw pass use the same value this frame.  <br /></td></tr>
+<tr class="separator:ac9f6826254d50a495b7b9e42a1db0e0d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a1b66813136cc32b41363616731ccaaa9" id="r_a1b66813136cc32b41363616731ccaaa9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a1b66813136cc32b41363616731ccaaa9">test_clear_lod_max_distance_override</a> ()</td></tr>
+<tr class="memdesc:a1b66813136cc32b41363616731ccaaa9"><td class="mdescLeft">&#160;</td><td class="mdescRight">Test hook: follow the project/tier LOD max distance instead of a per-renderer override.  <br /></td></tr>
+<tr class="separator:a1b66813136cc32b41363616731ccaaa9"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad072f9643c73a4f9fd126c67be7a0d1e" id="r_ad072f9643c73a4f9fd126c67be7a0d1e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#ad072f9643c73a4f9fd126c67be7a0d1e">set_importance_cull_threshold</a> (float p_threshold)</td></tr>
 <tr class="memdesc:ad072f9643c73a4f9fd126c67be7a0d1e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets the importance threshold for splat culling.  <br /></td></tr>
 <tr class="separator:ad072f9643c73a4f9fd126c67be7a0d1e"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -7582,6 +7591,34 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a1aaf1a9b2238a4d6e3574a88480fbbd7" name="a1aaf1a9b2238a4d6e3574a88480fbbd7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1aaf1a9b2238a4d6e3574a88480fbbd7">&#9670;&#160;</a></span>get_streaming_load_distance_limit()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float GaussianSplatRenderer::get_streaming_load_distance_limit </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Distance beyond which no splat is drawn (LOD max distance / LOD bias), or 0 when unbounded. </p>
+<p>Streaming bounds chunk demand by it, so no chunk is loaded that cannot be drawn (#1087). </p>
+
+</div>
+</div>
 <a id="ad4a00a2ced9515d124075a71ce8f96aa" name="ad4a00a2ced9515d124075a71ce8f96aa"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ad4a00a2ced9515d124075a71ce8f96aa">&#9670;&#160;</a></span>get_streaming_state() <span class="overload">[1/2]</span></h2>
 
@@ -8712,6 +8749,33 @@ Usage</h2>
         </tr>
       </table>
 </div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac9f6826254d50a495b7b9e42a1db0e0d" name="ac9f6826254d50a495b7b9e42a1db0e0d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac9f6826254d50a495b7b9e42a1db0e0d">&#9670;&#160;</a></span>refresh_streaming_load_distance_limit()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float GaussianSplatRenderer::refresh_streaming_load_distance_limit </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Re-reads the culler's LOD settings (as the sort pass does each frame) and returns the resulting load distance limit, so streaming and the draw pass use the same value this frame. </p>
 
 </div>
 </div>
@@ -11506,6 +11570,33 @@ Usage</h2>
   </tr>
 </table>
 </div><div class="memdoc">
+
+</div>
+</div>
+<a id="a1b66813136cc32b41363616731ccaaa9" name="a1b66813136cc32b41363616731ccaaa9"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a1b66813136cc32b41363616731ccaaa9">&#9670;&#160;</a></span>test_clear_lod_max_distance_override()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatRenderer::test_clear_lod_max_distance_override </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Test hook: follow the project/tier LOD max distance instead of a per-renderer override. </p>
 
 </div>
 </div>

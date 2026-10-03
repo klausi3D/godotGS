@@ -93,6 +93,7 @@ $(document).ready(function(){initNavTree('classStreamingVisibilityController.htm
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#pub-types">Public Types</a> &#124;
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#pub-static-methods">Static Public Member Functions</a> &#124;
 <a href="#pub-static-attribs">Static Public Attributes</a> &#124;
 <a href="#friends">Friends</a> &#124;
 <a href="classStreamingVisibilityController-members.html">List of all members</a>  </div>
@@ -152,6 +153,17 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a64e69d924facb9bc06b43fc6a5a8700e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a5b77af7fb2eec9af85adbe4df422494f" id="r_a5b77af7fb2eec9af85adbe4df422494f"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingVisibilityController.html#a5b77af7fb2eec9af85adbe4df422494f">get_effective_count_change_ratio</a> (uint32_t visible_chunks_evicted_this_frame) const</td></tr>
 <tr class="separator:a5b77af7fb2eec9af85adbe4df422494f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acf6e927135d81d53797ad9bbe3a7f334" id="r_acf6e927135d81d53797ad9bbe3a7f334"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingVisibilityController.html#acf6e927135d81d53797ad9bbe3a7f334">set_load_distance_limit</a> (float p_limit)</td></tr>
+<tr class="separator:acf6e927135d81d53797ad9bbe3a7f334"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8ed112e02bdfa7d5671f3fd468118f33" id="r_a8ed112e02bdfa7d5671f3fd468118f33"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingVisibilityController.html#a8ed112e02bdfa7d5671f3fd468118f33">get_load_distance_limit</a> () const</td></tr>
+<tr class="separator:a8ed112e02bdfa7d5671f3fd468118f33"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
+Static Public Member Functions</h2></td></tr>
+<tr class="memitem:a5cb4fada397f20887444f928c4875d1c" id="r_a5cb4fada397f20887444f928c4875d1c"><td class="memItemLeft" align="right" valign="top">static float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingVisibilityController.html#a5cb4fada397f20887444f928c4875d1c">compute_chunk_near_distance</a> (const AABB &amp;p_bounds, const Vector3 &amp;p_center, const Vector3 &amp;p_camera_pos)</td></tr>
+<tr class="separator:a5cb4fada397f20887444f928c4875d1c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a20c230e61d980c18ce3d4ccb31a44419" id="r_a20c230e61d980c18ce3d4ccb31a44419"><td class="memItemLeft" align="right" valign="top">static bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingVisibilityController.html#a20c230e61d980c18ce3d4ccb31a44419">is_within_load_distance</a> (float p_near_distance, float p_limit)</td></tr>
+<tr class="separator:a20c230e61d980c18ce3d4ccb31a44419"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
@@ -238,6 +250,48 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a5cb4fada397f20887444f928c4875d1c" name="a5cb4fada397f20887444f928c4875d1c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5cb4fada397f20887444f928c4875d1c">&#9670;&#160;</a></span>compute_chunk_near_distance()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float StreamingVisibilityController::compute_chunk_near_distance </td>
+          <td>(</td>
+          <td class="paramtype">const AABB &amp;&#160;</td>
+          <td class="paramname"><em>p_bounds</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 &amp;&#160;</td>
+          <td class="paramname"><em>p_center</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const Vector3 &amp;&#160;</td>
+          <td class="paramname"><em>p_camera_pos</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a5b77af7fb2eec9af85adbe4df422494f" name="a5b77af7fb2eec9af85adbe4df422494f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a5b77af7fb2eec9af85adbe4df422494f">&#9670;&#160;</a></span>get_effective_count_change_ratio()</h2>
 
@@ -252,6 +306,31 @@ Friends</h2></td></tr>
           <td> const</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8ed112e02bdfa7d5671f3fd468118f33" name="a8ed112e02bdfa7d5671f3fd468118f33"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8ed112e02bdfa7d5671f3fd468118f33">&#9670;&#160;</a></span>get_load_distance_limit()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">float StreamingVisibilityController::get_load_distance_limit </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -315,6 +394,42 @@ Friends</h2></td></tr>
           <td></td><td> const</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a20c230e61d980c18ce3d4ccb31a44419" name="a20c230e61d980c18ce3d4ccb31a44419"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a20c230e61d980c18ce3d4ccb31a44419">&#9670;&#160;</a></span>is_within_load_distance()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static bool StreamingVisibilityController::is_within_load_distance </td>
+          <td>(</td>
+          <td class="paramtype">float&#160;</td>
+          <td class="paramname"><em>p_near_distance</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">float&#160;</td>
+          <td class="paramname"><em>p_limit</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -426,6 +541,24 @@ Friends</h2></td></tr>
           <td class="memname">void StreamingVisibilityController::reset_runtime_state </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acf6e927135d81d53797ad9bbe3a7f334" name="acf6e927135d81d53797ad9bbe3a7f334"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acf6e927135d81d53797ad9bbe3a7f334">&#9670;&#160;</a></span>set_load_distance_limit()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void StreamingVisibilityController::set_load_distance_limit </td>
+          <td>(</td>
+          <td class="paramtype">float&#160;</td>
+          <td class="paramname"><em>p_limit</em></td><td>)</td>
           <td></td>
         </tr>
       </table>

@@ -169,5 +169,6 @@ var searchData=
   ['is_5fvisible_5fscan_5fstarved_166',['is_visible_scan_starved',['../classStreamingQueuePressureController.html#a71892201341f84dcf4fd131cb0044e34',1,'StreamingQueuePressureController']]],
   ['is_5fvram_5fbudget_5fwarning_5factive_167',['is_vram_budget_warning_active',['../classGaussianStreamingSystem.html#a3f1d038dcae9c4fd409092f810900453',1,'GaussianStreamingSystem::is_vram_budget_warning_active()'],['../structGaussianStreamingTypes_1_1BudgetState.html#ab3bee1931deae6108115416097f9d932',1,'GaussianStreamingTypes::BudgetState::is_vram_budget_warning_active()']]],
   ['is_5fwind_5fenabled_168',['is_wind_enabled',['../classGaussianSplatNode3D.html#a05c414543edc23befa395863f492ca93',1,'GaussianSplatNode3D']]],
-  ['is_5fwind_5foverride_5fenabled_169',['is_wind_override_enabled',['../classGaussianSplatNode3D.html#aaae89fce3e7d91191b47e65e751b6788',1,'GaussianSplatNode3D']]]
+  ['is_5fwind_5foverride_5fenabled_169',['is_wind_override_enabled',['../classGaussianSplatNode3D.html#aaae89fce3e7d91191b47e65e751b6788',1,'GaussianSplatNode3D']]],
+  ['is_5fwithin_5fload_5fdistance_170',['is_within_load_distance',['../classStreamingVisibilityController.html#a20c230e61d980c18ce3d4ccb31a44419',1,'StreamingVisibilityController']]]
 ];

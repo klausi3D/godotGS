@@ -1,5 +1,13 @@
 var NAVTREEINDEX16 =
 {
+"gaussian__scene__serializer_8h.html#aa687ca71ebe1b2910197c731eff75396ae66aa6e86c6fd816012fa41cc1c6ecd0":[2,0,0,0,11,1,4,2],
+"gaussian__scene__serializer_8h_source.html":[2,0,0,0,11,1],
+"gaussian__splat__asset_8cpp.html":[2,0,0,0,3,10],
+"gaussian__splat__asset_8cpp.html#ad5682c7afbc6e2ec4310c71b115ff803":[2,0,0,0,3,10,0],
+"gaussian__splat__asset_8h.html":[2,0,0,0,3,11],
+"gaussian__splat__asset_8h.html#a298ea4c90a915ee929c7ab87efeecdcc":[2,0,0,0,3,11,3],
+"gaussian__splat__asset_8h.html#abf36ddb19757804470c39772c9788267":[2,0,0,0,3,11,2],
+"gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11],
 "gaussian__splat__config__registry_8cpp.html":[2,0,0,0,3,12],
 "gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13],
 "gaussian__splat__config__registry_8h_source.html":[2,0,0,0,3,13],
@@ -124,8 +132,8 @@ var NAVTREEINDEX16 =
 "gpu__performance__monitor_8h_source.html":[2,0,0,0,12,18],
 "gpu__sorter_8cpp.html":[2,0,0,0,12,19],
 "gpu__sorter_8cpp.html#a2388faef2aad78558ec37998c7b7ecfd":[2,0,0,0,12,19,6],
-"gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,3],
 "gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,4],
+"gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,3],
 "gpu__sorter_8cpp.html#a812ff155ff6749521d47f16d89e4b068":[2,0,0,0,12,19,5],
 "gpu__sorter_8cpp.html#acb8109ae62d68f47c0702c9a7217240b":[2,0,0,0,12,19,2],
 "gpu__sorter_8h.html":[2,0,0,0,12,20],
@@ -241,13 +249,5 @@ var NAVTREEINDEX16 =
 "gs__debug__trace_8cpp.html#aa479858d0b4dd8f786fbb2ec16cc39f2":[2,0,0,0,8,0,28],
 "gs__debug__trace_8cpp.html#aa750312f154635a18db096827e215db2":[2,0,0,0,8,0,21],
 "gs__debug__trace_8cpp.html#aae7c0dabdf6c7dba4b6d6c7f5b25d1ea":[2,0,0,0,8,0,29],
-"gs__debug__trace_8cpp.html#aaf856e903105fef3b288b13159276689":[2,0,0,0,8,0,56],
-"gs__debug__trace_8cpp.html#ab6c70b75240f7c9455b5792cea2b3a52":[2,0,0,0,8,0,41],
-"gs__debug__trace_8cpp.html#ab7d77eeca2f7b84c3b0bed28507531f9":[2,0,0,0,8,0,25],
-"gs__debug__trace_8cpp.html#abd47ccc68d63ed3158fd018ada4cd68c":[2,0,0,0,8,0,15],
-"gs__debug__trace_8cpp.html#ac0d0b957c46911563395b081b7835de3":[2,0,0,0,8,0,3],
-"gs__debug__trace_8cpp.html#ac3156e8023fb9d956251f887a95b9cf0":[2,0,0,0,8,0,26],
-"gs__debug__trace_8cpp.html#ac7a7b7b7ff47a019fe9a0290418760b7":[2,0,0,0,8,0,58],
-"gs__debug__trace_8cpp.html#ac84d1e0eca48de434dff918bfdcbf3d8":[2,0,0,0,8,0,4],
-"gs__debug__trace_8cpp.html#acd18c0daa978bc72c767aadc56717bfe":[2,0,0,0,8,0,22]
+"gs__debug__trace_8cpp.html#aaf856e903105fef3b288b13159276689":[2,0,0,0,8,0,56]
 };
