@@ -1,0 +1,6702 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Versioned documentation for the Godot Gaussian Splatting module.">
+      
+      
+      
+        <link rel="canonical" href="https://klausi3d.github.io/godotGS/latest/architecture/adr-hlod-streaming/">
+      
+      
+        <link rel="prev" href="../adr-splat-colour-encoding/">
+      
+      
+        <link rel="next" href="../adr-import-importance-pruning/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/branding/godotgs-mark.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Hierarchical LOD for Streamed Worlds - Godot Gaussian Splatting Docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/styles/brand.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/components.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/landing.css">
+    
+      <link rel="stylesheet" href="../../assets/styles/marketing.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#adr-hierarchical-lod-for-streamed-splat-worlds-budgeted-cut-merged-nodes-node-streaming" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden="">
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-header__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Godot Gaussian Splatting Docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Hierarchical LOD for Streamed Worlds
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden="">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required="">
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix="">
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Get Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../user/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../performance/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Performance
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../contributor/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Contributing
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Godot Gaussian Splatting Docs" class="md-nav__button md-logo" aria-label="Godot Gaussian Splatting Docs" data-md-component="logo">
+      
+  <img src="../../assets/branding/godotgs-mark.png" alt="logo">
+
+    </a>
+    Godot Gaussian Splatting Docs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/klausi3D/godotGS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix="">
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Get Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1" id="__nav_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Get Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/downloads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Downloads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your First Splat
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1_5">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../troubleshooting/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_1_5" id="__nav_1_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Troubleshooting
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/recurring-issues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Recurring Issues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../user/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../workflows/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_3" id="__nav_2_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Importing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/importing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Workflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../workflows/GSPLATWORLD_BAKE/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    World Bake
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../features/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/artist_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Artist Pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/color-grading-quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/animation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Animation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/runtime-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runtime Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/lighting-behavior/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting Behavior
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/performance-presets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance Presets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/export-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user/manual/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2">
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Project Settings
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/project-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Project Settings Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/gaussian-project-settings-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/compatibility-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compatibility Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/color-grading/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Color Grading Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/ply-loader/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PLY Loader
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatNode3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_asset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatAsset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_world3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatWorld3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_container/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatContainer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianData
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_manager/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatManager
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gaussian_splat_renderer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GaussianSplatRenderer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sphere_effector_workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sphere Effectors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/effector_system_consumer_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Effector Consumer Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gdscript_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GDScript Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/shader_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Shader Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/api-stability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API stability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/known-public-alpha-limitations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Known Public Alpha Limitations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/release-channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../performance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../timing_metrics_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Timing Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/startup-trace/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Startup Trace
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../performance/gs_quantization_tradeoff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quantization Tradeoff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked="">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../contributor/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/onboarding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributor Onboarding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributor/reviewer-fast-path/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reviewer Fast Path
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BUILDING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build from Source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/build-test-ci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build / Test / CI Command Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development Docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_7">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../testing/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_7" id="__nav_5_7_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/setup-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing Setup Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/benchmark-suite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Runner
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/unified-benchmark/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Benchmark Scene
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_8">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../governance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Governance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_8" id="__nav_5_8_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Governance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/contribution-standards/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contribution Standards
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/agentic-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/review-policy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Review Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/evidence-integrity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evidence Integrity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/release-acceptance-bar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Release Acceptance Bar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../governance/github-settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GitHub Repository Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_9">
+        
+          
+          <label class="md-nav__link" for="__nav_5_9" id="__nav_5_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docs Site
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Docs Site
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/docs-site/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Versioned Docs Site
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Media
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/screenshot-capture-spec/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Screenshot Capture Specification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_10">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../style/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Style
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_10" id="__nav_5_10_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Style
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../style/documentation-style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation Style Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11" checked="">
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engineering
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_11" id="__nav_5_11_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Engineering
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../render-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Render Pipeline Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lighting-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lighting System Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../culling-and-hierarchy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Culling and Hierarchy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11_6">
+        
+          
+          <label class="md-nav__link" for="__nav_5_11_6" id="__nav_5_11_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contracts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_11_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_11_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Contracts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gaussian-project-settings-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian ProjectSettings Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gaussian-resident-instanced-contract/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resident-Instanced Renderer Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../renderer-lifetime-ownership/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer Lifetime Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage-first-ownership-inventory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage-First Ownership Inventory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/engine-patch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engine Patch Report
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/renderer-release-gates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Renderer Release Gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/test-quarantine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test quarantine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/internal-classes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Internal Classes Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../g2-malformed-corpus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    G2 — malformed-file corpus lane
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_11_12" checked="">
+        
+          
+          <label class="md-nav__link" for="__nav_5_11_12" id="__nav_5_11_12_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decision Records
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_11_12_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5_11_12">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decision Records
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix="">
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-advisory-lane-ledger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advisory Lane Result Ledger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-node3d/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose GaussianSplatNode3D
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-renderer-facade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Renderer Facade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-scene-director/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Scene Director
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-decompose-streaming-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decompose the Streaming System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-splat-colour-encoding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Splat Colour Encoding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical LOD for Streamed Worlds
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical LOD for Streamed Worlds
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#1-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-current-state-what-the-design-reuses-or-replaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Current state (what the design reuses or replaces)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Measurements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Measurements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Image quality at equal budget (region-of-change crop, PSNR dB / SSIM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-splats-per-frame-against-world-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Splats per frame against world size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-corridor-at-a-1-gib-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Corridor at a 1 GiB budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-bake-cost-and-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Bake cost and size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-transitions-popping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Transitions (popping)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-reproducing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Reproducing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-tree-a-fixed-world-aligned-octree-decision-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Tree: a fixed, world-aligned octree (decision 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-node-payload-and-positions-decision-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Node payload and positions (decision 6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-interior-nodes-two-candidates-chosen-per-node-decision-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Interior nodes: two candidates, chosen per node (decision 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-the-cut-and-the-drawn-set-findings-2-4-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 The cut and the drawn set (findings 2, 4, 10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-every-gpu-cap-and-never-truncate-findings-2-3-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Every GPU cap, and never truncate (findings 2, 3, 12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-streaming-nodes-into-1134s-pages-finding-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Streaming nodes into #1134's pages (finding 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-transitions-cross-fade-decision-4-slice-s6-finding-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Transitions: cross-fade (decision 4, slice S6; finding 10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#68-the-resident-route-decision-4-slice-s5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.8 The resident route (decision 4, slice S5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#69-instances-one-global-budget-and-a-top-level-tree-decision-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.9 Instances: one global budget and a top-level tree (decision 7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-format-and-version-bumps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Format and version bumps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-test-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Test plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-staged-slice-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Staged slice plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Staged slice plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-the-alpha-eight-prs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1 — the alpha (eight PRs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-refinements-that-need-no-rebuild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2+ — refinements that need no rebuild
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-would-force-a-rebuild-if-stage-1-were-done-more-cheaply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What would force a rebuild if stage 1 were done more cheaply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-reviving-the-deleted-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Reviving the deleted code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-maintainer-decisions-2026-10-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Maintainer decisions (2026-10-02)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-what-was-not-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. What was not verified
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-review-response-independent-review-of-7fa337d4a41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Review response (independent review of 7fa337d4a41)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-import-importance-pruning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Importance Pruning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-import-input-hardening/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Import Input Hardening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-overflow-drop-telemetry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overflow Drop Telemetry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-gate-evaluates-pr-diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gate Evaluates the PR Diff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-phase1-guard-hardening/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Phase-1 Guard Hardening
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-single-route-per-frame-node-coexistence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Single Route per Frame
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-test-quarantine-manifest/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Test Quarantine Manifest
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-alpha-envelope-widened-to-streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Alpha Envelope Widened to Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-open-world-proof-content-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open-World Proof Content Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+      
+        <li class="md-nav__item">
+  <a href="#1-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-decision-drivers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Decision drivers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-current-state-what-the-design-reuses-or-replaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Current state (what the design reuses or replaces)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-measurements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Measurements
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Measurements">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Image quality at equal budget (region-of-change crop, PSNR dB / SSIM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-splats-per-frame-against-world-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Splats per frame against world size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-corridor-at-a-1-gib-budget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Corridor at a 1 GiB budget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-bake-cost-and-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Bake cost and size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-transitions-popping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Transitions (popping)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-reproducing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Reproducing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-tree-a-fixed-world-aligned-octree-decision-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Tree: a fixed, world-aligned octree (decision 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-node-payload-and-positions-decision-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Node payload and positions (decision 6)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-interior-nodes-two-candidates-chosen-per-node-decision-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Interior nodes: two candidates, chosen per node (decision 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-the-cut-and-the-drawn-set-findings-2-4-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 The cut and the drawn set (findings 2, 4, 10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-every-gpu-cap-and-never-truncate-findings-2-3-12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Every GPU cap, and never truncate (findings 2, 3, 12)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-streaming-nodes-into-1134s-pages-finding-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Streaming nodes into #1134's pages (finding 5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-transitions-cross-fade-decision-4-slice-s6-finding-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Transitions: cross-fade (decision 4, slice S6; finding 10)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#68-the-resident-route-decision-4-slice-s5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.8 The resident route (decision 4, slice S5)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#69-instances-one-global-budget-and-a-top-level-tree-decision-7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.9 Instances: one global budget and a top-level tree (decision 7)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-format-and-version-bumps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Format and version bumps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-test-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Test plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-staged-slice-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Staged slice plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Staged slice plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#stage-1-the-alpha-eight-prs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 1 — the alpha (eight PRs)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stage-2-refinements-that-need-no-rebuild" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stage 2+ — refinements that need no rebuild
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-would-force-a-rebuild-if-stage-1-were-done-more-cheaply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What would force a rebuild if stage 1 were done more cheaply
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-reviving-the-deleted-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Reviving the deleted code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-maintainer-decisions-2026-10-02" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Maintainer decisions (2026-10-02)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-what-was-not-verified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. What was not verified
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-review-response-independent-review-of-7fa337d4a41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Review response (independent review of 7fa337d4a41)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+
+  <nav class="md-path" aria-label="Navigation">
+    <ol class="md-path__list">
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../../contributor/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Contributing
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Engineering
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../adr-advisory-lane-ledger/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Decision Records
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="adr-hierarchical-lod-for-streamed-splat-worlds-budgeted-cut-merged-nodes-node-streaming">ADR: Hierarchical LOD for streamed splat worlds (budgeted cut, merged nodes, node streaming)<a class="headerlink" href="#adr-hierarchical-lod-for-streamed-splat-worlds-budgeted-cut-merged-nodes-node-streaming" title="Permanent link">¶</a></h1>
+<ul>
+<li><strong>Status:</strong> <strong>Accepted (maintainer, 2026-10-02)</strong> — option D, with the decisions recorded
+  in §11. This revision also answers the independent review of <code>7fa337d4a41</code> (§13). Nothing
+  here is implemented yet; §9 is the slice plan the implementation follows.</li>
+<li><strong>Risk class:</strong> this file is R0 (<code>docs/**</code>). It is the <strong>R3 design record</strong> that
+  <code>docs/governance/agentic-engineering.md</code> requires before implementation, because the
+  decision changes an on-disk format (<code>.gsplatworld</code>), importer format versions, the renderer
+  and its shaders.</li>
+<li><strong>Tracking:</strong> Refs #1131 (non-deterministic truncation at <code>quality/max_splat_count</code>).
+  Builds on #1088 / PR #1134 (atlas pages + byte budget) and #1087 / PR #1130 (distance-bounded
+  demand). Related: #1053 (LOD prefix truncation holes), #1016 (streaming in the alpha
+  envelope).</li>
+<li><strong>Maintainer decisions this ADR implements (2026-10-02):</strong></li>
+<li>Distance-LOD streaming is a public-alpha blocker.</li>
+<li>When the splat cap binds, the count is reduced <strong>only through LOD/streaming, never by
+     truncation</strong>.</li>
+<li>The target is streamed open worlds of many millions up to billions of splats in real
+     time; rendering cost must scale with the <strong>screen</strong>, not with world size or view distance.</li>
+<li><strong>Verified against:</strong> <code>origin/master</code> = <strong><code>efb2c8bfba7</code></strong>. Every <code>file:line</code> below was read
+  at that commit unless it names the #1088 branch, which was read at <strong><code>f3ddae2a162</code></strong>
+  (PR #1134's head <code>feec67befa6</code> merges #1130 into it; the allocator code is unchanged).</li>
+<li><strong>Measurements:</strong> §5. All numbers come from scratch scripts run for this ADR (§5.7 says how
+  to reproduce them); none of that code is in this PR.</li>
+</ul>
+<h2 id="1-problem">1. Problem<a class="headerlink" href="#1-problem" title="Permanent link">¶</a></h2>
+<p>There are three defects, and they share one cause: the renderer has no way to show distant
+content at lower detail except by drawing a shorter prefix of each chunk.</p>
+<ol>
+<li><strong>Truncation flicker (#1131).</strong> When the streaming route's visible-splat cap binds, splats
+   claim slots with <code>atomicAdd</code> (<code>compute/depth_compute.glsl:225-227</code>), and the visible chunk
+   list is itself unordered (<code>compute/frustum_cull.glsl:143</code>). Which splats survive the cap is
+   decided by GPU scheduling. #1131 measured 299 of 300 static frames differing from frame 0
+   whenever the cap bound, and 0 when it did not.</li>
+<li><strong>LOD by prefix truncation (#1053).</strong> Per-chunk distance LOD sets
+   <code>effective_count = count / 2^L</code> (<code>core/streaming_visibility_controller.cpp:871-886</code>, levels
+   from <code>lod/lod_config.cpp:179-209</code>), and the GPU draws that <strong>prefix</strong> in stored order
+   (<code>core/streaming_global_atlas_registry.cpp:440-444</code>, <code>depth_compute.glsl:140</code>). Stored order
+   is Morton order for the primary asset (<code>core/gaussian_streaming.cpp:1864-1890</code>) and octree
+   query order for world grid chunks (<code>core/gaussian_splat_merge_utils.cpp:106-128</code>). Either
+   way the prefix is a spatial sub-block, so distant chunks lose whole regions. §5.2 measures
+   it.</li>
+<li><strong>Whole chunks are still loaded.</strong> LOD changes only what is drawn. The asset format has
+   room for 8 LOD levels (<code>GS_MAX_ASSET_LODS = 8</code>, <code>renderer/gaussian_gpu_layout.h:11</code>), but
+   only level 0 is ever filled (<code>lod_count = 1</code> at
+   <code>renderer/resident_instance_contract_publisher.cpp:555</code> and
+   <code>core/gaussian_streaming.cpp:1344</code>). The per-instance LOD the scene director computes
+   (<code>core/gaussian_splat_scene_director.cpp:1507</code>, written at <code>:1658</code>) is clamped to that one
+   level on the GPU (<code>frustum_cull.glsl:106</code>). <code>lod_mask</code> is status only
+   (<code>core/gaussian_streaming.cpp:1099</code>).</li>
+</ol>
+<p>A fourth inconsistency comes from #1131: <strong>the resident route never applies the cap.</strong>
+<code>max_visible_splats = MAX(min(atlas, max_splats), instances x dispatch_chunks x max_chunk_splats)</code>
+(<code>renderer/resident_instance_contract_publisher.cpp:855-864</code>), and that product is at least
+the atlas.</p>
+<p>And a structural limit: with flat chunks, the number of visible chunks grows with the square of
+the view distance. §5.3 shows the draw count of any flat scheme growing with world size, and
+§5.2 shows that thinning without merging leaves holes and see-through regions at distance.</p>
+<h2 id="2-decision-drivers">2. Decision drivers<a class="headerlink" href="#2-decision-drivers" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Never truncate.</strong> A binding budget must produce the same image every frame for a static
+   camera (the #1050 static-frame oracle must read 0 differing frames).</li>
+<li><strong>Screen-bound cost.</strong> Splats drawn per frame must not grow with world area. A logarithmic
+   term in view-distance range is acceptable; a quadratic one is not.</li>
+<li><strong>Coverage at distance.</strong> Coarse levels must keep opaque surfaces opaque: no holes, no
+   see-through.</li>
+<li><strong>Bounded VRAM.</strong> Residency must fit a byte budget (#1088/#1134) with coarse fallback, so a
+   streaming miss shows coarse content, never a hole.</li>
+<li><strong>Build once.</strong> The stage-1 format and runtime must not need rebuilding when later stages
+   improve the bake, the error metric, transitions or compression.</li>
+<li><strong>One policy for both routes.</strong> The resident route must honour the same budget the same way.</li>
+<li><strong>Alpha scope.</strong> Stage 1 must be the smallest slice that meets 1–6.</li>
+</ol>
+<h2 id="3-current-state-what-the-design-reuses-or-replaces">3. Current state (what the design reuses or replaces)<a class="headerlink" href="#3-current-state-what-the-design-reuses-or-replaces" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>Where (at <code>efb2c8bfba7</code>)</th>
+<th>Fate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Per-chunk distance level (Octree-GS formula)</td>
+<td><code>lod/lod_config.cpp:179-199</code>, <code>streaming_visibility_controller.cpp:871-886</code></td>
+<td>Replaced by the cut (§6.4)</td>
+</tr>
+<tr>
+<td>Prefix draw <code>splat_count = effective_count</code></td>
+<td><code>streaming_global_atlas_registry.cpp:440-444</code></td>
+<td>Kept only for a pinned node that is still uploading (§6.6)</td>
+</tr>
+<tr>
+<td>GPU chunk meta, 64 B with <code>lod_level</code> + 3 pads</td>
+<td><code>renderer/gaussian_gpu_layout.h:187-202</code></td>
+<td>A node is a chunk; one pad carries the fade factor (S6)</td>
+</tr>
+<tr>
+<td>Asset LOD ranges (8 levels)</td>
+<td><code>gaussian_gpu_layout.h:151-173</code></td>
+<td>Not used; the cut emits a flat node list</td>
+</tr>
+<tr>
+<td>Atomic truncation at the cap</td>
+<td><code>depth_compute.glsl:225-227</code>, <code>compute/instance_count_clamp.glsl:44-47</code></td>
+<td>Becomes unreachable: the CPU cut guarantees <code>count &lt;= cap</code> (§6.5)</td>
+</tr>
+<tr>
+<td>Importance metric <code>opacity x max scale</code></td>
+<td><code>core/gaussian_importance.h:32-44</code></td>
+<td>Superseded inside nodes by <code>opacity x area</code> (§5.2)</td>
+</tr>
+<tr>
+<td>Resident atlas importance clamp (#420)</td>
+<td><code>renderer/resident_atlas_budget.h</code></td>
+<td>Superseded by the cut on the resident route (stage 1, S5)</td>
+</tr>
+<tr>
+<td>World chunks: 10 m grid cells, index lists</td>
+<td><code>core/gaussian_splat_merge_utils.cpp:43-160</code>, <code>io/gaussian_splat_world_io.cpp:425-469</code></td>
+<td>Become the leaf partition input; payload becomes contiguous per node</td>
+</tr>
+<tr>
+<td>#1088 page allocator: 1,024-splat pages, best fit, coalescing, ≤ 64 pages per run</td>
+<td>branch <code>f3ddae2a162</code>, <code>core/streaming_atlas.{h,cpp}</code></td>
+<td>Kept unchanged; nodes are allocations (§6.6)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-options">4. Options<a class="headerlink" href="#4-options" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>A — flat importance prefix (the coordinator's first proposal).</strong> Order splats inside each
+  chunk by importance at bake time, so <code>count / 2^L</code> is a valid subset; load only the prefix
+  pages; raise levels by distance until the cap fits.</li>
+<li><strong>B — revive the deleted merged-splat pyramid</strong> (<code>SplatClusterer</code> + <code>StreamingLODManager</code>,
+  removed in <code>de8fc43e2c6</code>; <code>AdaptiveLODSystem</code>, removed in <code>7205f2d10ef</code>).</li>
+<li><strong>C — uniform hash thinning</strong> at load or draw time (<code>hash(index) &lt; keep_ratio</code>).</li>
+<li><strong>D — hierarchical LOD (chosen).</strong> A spatial tree over the world. Leaves are full-detail
+  chunks; interior nodes hold pre-baked <strong>merged</strong> splats that approximate their subtree. Each
+  frame a <strong>cut</strong> through the tree is chosen by screen-space error under a splat budget and a
+  byte budget; the budget is met by coarsening the cut, never by truncation. Tree <strong>nodes</strong> are
+  the streaming unit in #1134's page allocator. Importance order <strong>within</strong> a node is kept as
+  an ingredient (progressive upload, transitions), not as the LOD mechanism.</li>
+</ul>
+<p>The prior art D draws on, and what is taken from each:</p>
+<ul>
+<li><em>Hierarchical 3D Gaussians</em> (Kerbl et al., SIGGRAPH 2024): interior nodes by weighted
+  <strong>moment matching</strong> of the children (mean, covariance, SH), a cut by projected node size
+  ("granularity"), and parameter interpolation between levels. Its interior nodes are further
+  <strong>optimised against training views</strong>; we have none, so §5.2 measures closed-form merges only.</li>
+<li><em>Octree-GS</em> (Ren et al., 2024): the octree level formula already in <code>lod_config.h</code>. Its
+  anchors are decoded by MLPs, which this renderer rejects (no per-splat networks), so only the
+  spatial structure is relevant.</li>
+<li><em>CityGaussian</em> (Liu et al., ECCV 2024) and <em>LODGE</em> (2025): block-wise LoD for large scenes,
+  built by pruning/compression per block, and distance-driven block selection. They support
+  "block = streaming unit, levels per block"; D generalises that to a tree so the block size
+  can grow with distance.</li>
+</ul>
+<h2 id="5-measurements">5. Measurements<a class="headerlink" href="#5-measurements" title="Permanent link">¶</a></h2>
+<h3 id="51-method">5.1 Method<a class="headerlink" href="#51-method" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Renderer:</strong> the engine itself (RTX 3090, Vulkan, <code>speed_trace</code> build <code>ac039ac315a</code>), a
+  throwaway project, one <code>GaussianSplatNode3D</code> per variant, black background, linear tonemap,
+  960x540, vertical FOV 60°. Each variant is a PLY of exactly the splats the method would draw.
+  The reference and every variant are loaded the same way
+  (<code>GaussianSplatAsset.load_from_file</code> on a PLY written by the same encoder) and drawn by the
+  same resident path, so the only difference is the splat set.</li>
+<li><strong>Determinism check:</strong> variants whose cut is all leaves reproduce the reference
+  byte-for-byte (PSNR reported as 100), so any difference below is the method, not noise.</li>
+<li><strong>Metrics:</strong> PSNR and SSIM from the repo's own <code>BenchmarkVisualMetrics</code>
+  (<code>tests/examples/godot/test_project/scripts/benchmark_visual_metrics.gd</code>, run headless,
+  copied verbatim with <code>class_name</code> removed). That tool downsamples to 256 px and averages over
+  the whole frame, so mostly-black frames read high. Every table therefore uses the
+  <strong>region-of-change crop</strong>: the bounding box of pixels that differ by more than 8/255 in <em>any</em>
+  variant of that view (the same crop for every method), padded by 8 px.</li>
+<li><strong>Reference dropout (finding, now #1137).</strong> At the far holzbank view the <strong>full-detail
+  reference itself</strong> has a rectangular, tile-aligned black hole that no reduced variant has.
+  #1137 has since traced it with the overflow counters: the per-tile raster cap
+  (<code>GS_MAX_RASTER_SPLATS_PER_TILE</code> = 12,288 under the default <code>gpu_preset="high"</code>) drops the
+  farthest records of the densest tiles, without a warning. Those 204 pixels are excluded
+  (copied from the reference into every variant) before the metrics are taken. It is a second
+  argument for LOD, and a cap the cut must respect (§6.5).</li>
+<li><strong>Assets:</strong> <code>holzbank-clean-centered.ply</code> (252,326 splats, a bench on grass, an object scan),
+  <code>baum-mit-wiese3.ply</code> (800,000, tree and meadow, sparse, many floaters) and
+  <code>baum-mit-wiese2.ply</code> (8,000,000; by name a denser capture of the same scene), all from the maintainer's
+  GrandmasHouse project; the corridor is rebuilt exactly as
+  <code>benchmark_open_world_stage_contract.gd</code> builds <code>open_world_corridor_20m</code>.</li>
+<li><strong>Equal budget.</strong> Every method draws the same number of splats in the same region. The HLOD
+  cut is computed first; for every interior node in the cut, its leaves share that node's splat
+  count in proportion to their size, and each thinning method picks that many of the leaf's
+  original splats: <strong>A-area</strong> (top <code>opacity x sigma_a x sigma_b</code>, the two largest axes),
+  <strong>A-max</strong> (top <code>opacity x sigma_max</code>, today's <code>gaussian_importance</code>), <strong>C</strong> (smallest
+  <code>hash(index)</code>), <strong>M</strong> (Morton prefix, today's behaviour).</li>
+<li><strong>Prototype bake:</strong> octree split at the midpoints of the data's bounding box (only along
+  axes at least half the longest; this rule is <strong>withdrawn</strong> by decision 5 in favour of a
+  world-aligned grid, §6.1), leaves ≤ 16,384 splats, interior nodes at a 4:1 splat reduction,
+  merge cells of size <code>eps</code> (the node's geometric error); <code>mass</code>, <code>sat</code> and <code>mm</code>
+  are the three opacity rules of §6.3, and <code>hyb</code> is <code>sat</code> with a sparse-cell fallback.</li>
+</ul>
+<h3 id="52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim">5.2 Image quality at equal budget (region-of-change crop, PSNR dB / SSIM)<a class="headerlink" href="#52-image-quality-at-equal-budget-region-of-change-crop-psnr-db-ssim" title="Permanent link">¶</a></h3>
+<p>Distances are camera-to-centre. "Cut splats" is what every column draws. All rows are from the re-run with single-child cells copied unchanged (§6.3, implementer
+question (d)). The fix moved <code>sat</code> by at most 0.02 dB and <code>hyb</code> by at most 0.1 dB on holzbank
+and baum3, and both by at most 0.003 dB on baum2 (identical at the precision shown), because a
+lone small splat in a merge cell is sub-pixel at the distances where that node is drawn. <strong>Bold</strong> is the best
+in the row. <code>hyb</code> is <code>sat</code> plus "keep the most important child unchanged in sparse cells".
+<code>mass</code> and <code>mm</code> were also run (<code>mm</code> was the worst merge everywhere and was dropped from the
+later runs); A-max (today's <code>gaussian_importance</code>) was 0.3–2.9 dB below A-area on every run that had it,
+which is why nodes are ordered by area, not by the largest axis.</p>
+<table>
+<thead>
+<tr>
+<th>Asset, view</th>
+<th><code>tau</code></th>
+<th>Cut splats (share)</th>
+<th>HLOD <code>sat</code></th>
+<th>HLOD <code>hyb</code></th>
+<th>HLOD <code>mass</code></th>
+<th>A-area</th>
+<th>C uniform</th>
+<th>M Morton (today)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>holzbank, d2 (16 m)</td>
+<td>4</td>
+<td>156,422 (62%)</td>
+<td><strong>39.4 / 0.954</strong></td>
+<td>39.4 / 0.954</td>
+<td>37.7 / 0.943</td>
+<td>34.1 / 0.940</td>
+<td>25.6 / 0.822</td>
+<td>20.0 / 0.741</td>
+</tr>
+<tr>
+<td>holzbank, d6 (47 m)</td>
+<td>1</td>
+<td>156,422 (62%)</td>
+<td>29.4 / 0.905</td>
+<td>29.4 / 0.905</td>
+<td>29.0 / 0.897</td>
+<td><strong>29.7 / 0.904</strong></td>
+<td>26.1 / 0.792</td>
+<td>22.5 / 0.716</td>
+</tr>
+<tr>
+<td>holzbank, d6 (47 m)</td>
+<td>4</td>
+<td>12,190 (5%)</td>
+<td>31.1 / 0.927</td>
+<td><strong>31.1 / 0.927</strong></td>
+<td>29.2 / 0.913</td>
+<td>26.4 / 0.884</td>
+<td>16.9 / 0.497</td>
+<td>15.3 / 0.498</td>
+</tr>
+<tr>
+<td>baum3, d1 (32 m)</td>
+<td>1</td>
+<td>525,173 (66%)</td>
+<td>46.1 / 0.995</td>
+<td>46.1 / 0.995</td>
+<td>45.7 / 0.995</td>
+<td><strong>47.1 / 0.996</strong></td>
+<td>40.9 / 0.987</td>
+<td>40.0 / 0.985</td>
+</tr>
+<tr>
+<td>baum3, d1 (32 m)</td>
+<td>4</td>
+<td>298,483 (37%)</td>
+<td>44.7 / 0.993</td>
+<td><strong>44.8 / 0.993</strong></td>
+<td>42.4 / 0.991</td>
+<td>39.4 / 0.985</td>
+<td>30.6 / 0.946</td>
+<td>29.6 / 0.935</td>
+</tr>
+<tr>
+<td>baum3, d3 (97 m)</td>
+<td>1</td>
+<td>308,844 (39%)</td>
+<td>37.2 / 0.973</td>
+<td>37.3 / 0.973</td>
+<td>35.8 / 0.964</td>
+<td><strong>37.8 / 0.976</strong></td>
+<td>29.7 / 0.909</td>
+<td>28.5 / 0.886</td>
+</tr>
+<tr>
+<td>baum3, d3 (97 m)</td>
+<td>4</td>
+<td>118,855 (15%)</td>
+<td>32.8 / 0.942</td>
+<td><strong>33.0 / 0.942</strong></td>
+<td>30.7 / 0.930</td>
+<td>31.5 / 0.943</td>
+<td>23.7 / 0.823</td>
+<td>24.5 / 0.847</td>
+</tr>
+<tr>
+<td>baum3, d8 (258 m)</td>
+<td>1</td>
+<td>191,798 (24%)</td>
+<td>32.3 / 0.957</td>
+<td>32.7 / 0.958</td>
+<td>30.4 / 0.943</td>
+<td><strong>40.3 / 0.988</strong></td>
+<td>27.6 / 0.868</td>
+<td>28.8 / 0.903</td>
+</tr>
+<tr>
+<td>baum3, d8 (258 m)</td>
+<td>4</td>
+<td>59,554 (7%)</td>
+<td>23.8 / 0.755</td>
+<td>24.0 / 0.758</td>
+<td>22.4 / 0.721</td>
+<td><strong>28.7 / 0.896</strong></td>
+<td>22.7 / 0.651</td>
+<td>22.9 / 0.704</td>
+</tr>
+<tr>
+<td>baum2, d3 (46 m)</td>
+<td>2</td>
+<td>1,134,205 (14%)</td>
+<td>38.2 / 0.991</td>
+<td>38.2 / 0.991</td>
+<td>37.5 / 0.990</td>
+<td>41.7 / 0.995</td>
+<td><strong>43.5 / 0.995</strong></td>
+<td>41.9 / 0.993</td>
+</tr>
+<tr>
+<td>baum2, d8 (122 m)</td>
+<td>2</td>
+<td>441,336 (6%)</td>
+<td>35.1 / 0.978</td>
+<td>35.1 / 0.979</td>
+<td>34.2 / 0.975</td>
+<td><strong>37.0 / 0.980</strong></td>
+<td>32.1 / 0.953</td>
+<td>32.2 / 0.953</td>
+</tr>
+</tbody>
+</table>
+<p>What the table says:</p>
+<ol>
+<li><strong>Today's Morton prefix (M) is last or near last everywhere except inside the dense baum2
+   view</strong>, and at a 5% budget it falls to 15 dB / SSIM 0.50 on the bench, with most of the
+   grass patch missing in the contact sheet. This is #1053, measured.</li>
+<li><strong>Uniform thinning (C) loses coverage</strong>: on the bench at 5% it is as bad as Morton
+   (16.9 dB / 0.50; the grass patch becomes a see-through speckle). It is competitive only inside dense
+   vegetation (baum2 at 46 m), where any surviving splat hides the gap.</li>
+<li><strong>Merging (<code>sat</code>) is best on surfaces and at coarse cuts:</strong> +5.3 dB over A-area on the bench
+   at 16 m and +4.7 dB at 47 m with 5% of the splats, +5.3 dB on the tree at 32 m.</li>
+<li><strong>Importance selection (A-area) is best on distant vegetation:</strong> +8.0 dB on baum3 at
+   258 m, +3.5 dB on baum2 at 46 m. There, cells hold many small, separated, high-contrast
+   splats (blades, leaves, floaters), and one moment-matched Gaussian per cell is a blob where
+   the original had texture.</li>
+<li><strong>No closed-form rule dominates.</strong> Mean shortfall from the row's best is about 2 dB for
+   both <code>sat</code> and A-area; the worst is −8.0 dB for <code>sat</code> and −5.5 dB for A-area. The opacity
+   rule matters: <code>sat</code> beats <code>mass</code> in every row (0.4–2.3 dB), <code>mass</code> over-opacifies stacked
+   foliage, <code>mm</code> more so. A sparse-cell fallback (<code>hyb</code>) gained at most 0.4 dB.</li>
+<li><strong>Coverage (driver 3) holds for both candidates.</strong> Where Morton and uniform fall to SSIM
+   0.50–0.75, <code>sat</code> and A-area stay at 0.88 or above, except baum3 at 258 m with 7% of the
+   splats, where <code>sat</code> drops to 0.76.</li>
+</ol>
+<p>Contact sheets (reference, each method, and |difference| x4) were saved for every row; they
+are scratch output and are not committed.</p>
+<h3 id="53-splats-per-frame-against-world-size">5.3 Splats per frame against world size<a class="headerlink" href="#53-splats-per-frame-against-world-size" title="Permanent link">¶</a></h3>
+<p><code>k x k</code> tiles of <code>synthetic_spiral.ply</code> (25,000 splats per 10 m tile), 1920x1080, FOV 75°,
+camera 9 m above one corner looking 10° down across the diagonal, so the whole world is in
+front of it. HLOD cut with no far plane; the flat schemes use today's distance levels
+(<code>d_max = 500</code>). <strong>Only the 160 m row is a real bake</strong> (6.4 M splats). Every larger world uses
+a model built from a real single-tile bake; at the one point where both exist (160 m,
+<code>tau = 2</code>) the model predicts 4.4 M splats against the real 5.71 M, <strong>23% low</strong>, and 1,320
+nodes against the real 442. Model rows are therefore <strong>modelled lower bounds</strong>, and their node
+counts are not reported. With one comparison point, "likely under-predicts" is what the evidence
+supports; the lower-bound reading is an inference from that point, not a proof.</p>
+<table>
+<thead>
+<tr>
+<th>World</th>
+<th>Splats</th>
+<th>HLOD <code>tau=1</code></th>
+<th>HLOD <code>tau=2</code></th>
+<th>Flat A, far 500 m</th>
+<th>Flat A, no far plane</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>160 m (real bake)</td>
+<td>6.4 M</td>
+<td>6.4 M (512 nodes)</td>
+<td>5.71 M (442 nodes)</td>
+<td>4.9 M</td>
+<td>4.9 M</td>
+</tr>
+<tr>
+<td>320 m (model)</td>
+<td>25.6 M</td>
+<td>≥ 16.5 M</td>
+<td>≥ 7.0 M</td>
+<td>11.3 M</td>
+<td>11.3 M</td>
+</tr>
+<tr>
+<td>640 m (model)</td>
+<td>102 M</td>
+<td>≥ 26.0 M</td>
+<td>≥ 9.5 M</td>
+<td>19.1 M</td>
+<td>24.0 M</td>
+</tr>
+<tr>
+<td>1.3 km (model)</td>
+<td>410 M</td>
+<td>≥ 35.5 M</td>
+<td>≥ 11.9 M</td>
+<td>19.4 M</td>
+<td>62.4 M</td>
+</tr>
+<tr>
+<td>2.6 km (model)</td>
+<td>1.64 B</td>
+<td>≥ 44.9 M</td>
+<td>≥ 14.4 M</td>
+<td>19.4 M (nothing drawn past 500 m)</td>
+<td>216 M</td>
+</tr>
+</tbody>
+</table>
+<p>Read this as follows:</p>
+<ul>
+<li>Flat schemes are <strong>quadratic</strong> in view distance. With a far plane they stop growing only
+  because they stop drawing.</li>
+<li>In the model, the HLOD cut grows by a <strong>constant per doubling</strong> of world size (about +2.5 M
+  at <code>tau=2</code>): it is <strong>logarithmic</strong>, not constant. The flat-scheme columns are exact counts;
+  the HLOD columns beyond 160 m are lower bounds. That is inherent in an isotropic screen-space error over
+  a ground plane seen from low height: every octave of distance contributes a constant number
+  of nodes of constant angular width. A foreshortening-aware error (§9, stage 2) removes most
+  of it; the <strong>budget</strong> caps it absolutely in every case.</li>
+<li>These absolute numbers are high because the test world is unusually dense (250 splats per
+  m² and a 9 m camera). They are about scaling, not about a frame-time promise.</li>
+</ul>
+<h3 id="54-corridor-at-a-1-gib-budget">5.4 Corridor at a 1 GiB budget<a class="headerlink" href="#54-corridor-at-a-1-gib-budget" title="Permanent link">¶</a></h3>
+<p><code>open_world_corridor_20m</code> (20 M splats; 1,560 grid chunks, mean 12,820, max 22,618), the
+<code>streaming_corridor</code> camera path for one full 20 s sweep at 30 fps, 1920x1080, FOV 75°, far
+500 m (#1130). Bytes are #1088 pages (1,024 splats x 144 B). Residency is an LRU cache of
+1 GiB loading at most 18 MiB per frame (today's lane: about 10 loads of a 12.8k-splat chunk),
+loading ancestors before descendants. <code>Residency</code> is resident needed units / needed units,
+the definition PR #1112 gives the lane (not yet on <code>master</code>). For HLOD the needed units are the
+cut nodes. (Under §6.4's rule a node is refined only when its children are resident, so in
+the real design the drawn set is always resident; this simulation predates that rule.)</p>
+<table>
+<thead>
+<tr>
+<th>Scheme</th>
+<th>Splats drawn (mean / max)</th>
+<th>Needed MiB (mean / max)</th>
+<th>Units (mean / max)</th>
+<th>Residency</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Today: whole chunks resident, prefix drawn</td>
+<td>4.46 M / 5.33 M</td>
+<td>1,171 / <strong>1,601</strong></td>
+<td>637 / 866</td>
+<td>0.775</td>
+</tr>
+<tr>
+<td>A: prefix pages only</td>
+<td>4.46 M / 5.33 M</td>
+<td>660 / 796</td>
+<td>637 / 866</td>
+<td>0.924</td>
+</tr>
+<tr>
+<td>HLOD <code>tau=1</code></td>
+<td>6.01 M / 7.48 M</td>
+<td>1,054 / <strong>1,310</strong></td>
+<td>888 / 1,133</td>
+<td>0.842</td>
+</tr>
+<tr>
+<td>HLOD <code>tau=2</code></td>
+<td>3.89 M / 4.52 M</td>
+<td>684 / 794</td>
+<td>611 / 726</td>
+<td>0.961</td>
+</tr>
+<tr>
+<td>HLOD <code>tau=2</code>, budget 2 M</td>
+<td>1.97 M / 2.00 M</td>
+<td>348 / 358</td>
+<td>323 / 344</td>
+<td>0.982</td>
+</tr>
+<tr>
+<td>HLOD <code>tau=1</code>, budget 500 k</td>
+<td>0.50 M / 0.50 M</td>
+<td>91 / 93</td>
+<td>96 / 105</td>
+<td>0.996</td>
+</tr>
+<tr>
+<td>HLOD <code>tau=1</code>, budget 120 k (the lane's cap)</td>
+<td>117 k / 120 k</td>
+<td>23.5 / 26.3</td>
+<td>33 / 42</td>
+<td>1.000</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>These runs used the <code>mass</code> merge rule and count <strong>resident cut nodes</strong> only; they do not
+  check whether a missing node's ancestor was resident (<code>residency_ratio_min</code> was ≤ 0.002 in
+  four of the five HLOD runs, at cold start), and they do not model fragmentation or the
+  per-frame eviction budget (§6.6 and test 5 cover those).</li>
+<li><strong>Does the corridor fit 1 GiB with the cut? Yes, from <code>tau = 2</code> or with any splat budget.</strong>
+  At <code>tau = 1</code>, the strictest setting, it does not: 1.28 GiB at peak. Today's whole-chunk
+  residency peaks at 1.56 GiB.</li>
+<li>The <strong>lane's cap of 120,000 binds by a factor of about 50</strong> at <code>tau = 1</code> (about 37 against
+  what today's levels draw). Under the cut it costs
+  nothing to honour: the cut coarsens, residency reaches 1.000, and nothing is truncated.</li>
+<li>Interior nodes add <strong>21.0%</strong> splats and <strong>22.4%</strong> pages to the corridor's storage.</li>
+<li>For scale: the coordinator's estimate is that 1 GiB holds 375–480 full-detail chunks today.</li>
+</ul>
+<h3 id="55-bake-cost-and-size">5.5 Bake cost and size<a class="headerlink" href="#55-bake-cost-and-size" title="Permanent link">¶</a></h3>
+<p>Prototype bake (numpy, one core, leaves ≤ 16,384, 4:1 per level, <code>mass</code> rule; <code>sat</code>, <code>hyb</code>
+and <code>mm</code> are within ±10%):</p>
+<table>
+<thead>
+<tr>
+<th>Content</th>
+<th>Splats</th>
+<th>SH</th>
+<th>Nodes (leaves)</th>
+<th>Height</th>
+<th>Tree build</th>
+<th>Merge bake</th>
+<th>Interior overhead</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>holzbank</td>
+<td>252 k</td>
+<td>3</td>
+<td>33 (23)</td>
+<td>3</td>
+<td>0.07 s</td>
+<td>1.0 s</td>
+<td>+19.0%</td>
+</tr>
+<tr>
+<td>baum-mit-wiese3</td>
+<td>800 k</td>
+<td>3</td>
+<td>153 (106)</td>
+<td>10</td>
+<td>0.56 s</td>
+<td>3.0 s</td>
+<td>+19.8%</td>
+</tr>
+<tr>
+<td>baum-mit-wiese2</td>
+<td>8.0 M</td>
+<td>3</td>
+<td>1,210 (852)</td>
+<td>15</td>
+<td>13.6 s</td>
+<td>45.8 s</td>
+<td>+18.3%</td>
+</tr>
+<tr>
+<td>corridor 20 M</td>
+<td>20.0 M</td>
+<td>0</td>
+<td>2,725 (1,787)</td>
+<td>7</td>
+<td>10.9 s</td>
+<td>49.0 s</td>
+<td>+21.0% (+22.4% in pages)</td>
+</tr>
+<tr>
+<td>tiled spiral worlds</td>
+<td>0.1–6.4 M</td>
+<td>0</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>0.2–17 s</td>
+<td>+11.9% to +18.0%</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Size: about +20%.</strong> A 4:1 reduction per level bounds the interior at 1/3 of the leaves
+  in theory; real content lands at 18–22% because coarse levels stop shrinking once nodes are
+  small and because pass-through splats are not merged. Page rounding adds about one point.
+  The node table is 128 B per node (under 0.01% of the payload).</li>
+<li><strong>Cost: 3–7 µs per splat in numpy</strong>, roughly linear (20 M splats without SH: 60 s; 8 M
+  with SH: 59 s).
+  Ordering every node's payload by importance adds a sort per node (7.4 s for 20 M splats in
+  numpy). The C++ bake is not written, so its cost is unmeasured; it runs once, at import or
+  at <code>export_world_resource</code>, never per frame.</li>
+<li><strong>Depth is content-driven.</strong> baum-mit-wiese2 is 15 levels deep only because far floaters
+  stretch its bounds; the cut never visits those chains at normal views.</li>
+</ul>
+<h3 id="56-transitions-popping">5.6 Transitions (popping)<a class="headerlink" href="#56-transitions-popping" title="Permanent link">¶</a></h3>
+<p>Same view, two cuts that differ by one step of <code>tau</code> (holzbank at 15.6 m, <code>tau</code> 2 → 4,
+10 nodes replaced by 4; baum-mit-wiese3 at 96.7 m, <code>tau</code> 1 → 2, 23 nodes replaced by 8). The
+switch is rendered as a hard switch and as three-step fades (t = 0.25, 0.5, 0.75):
+<code>xfade</code> scales the leaving nodes' opacity by <code>1 - t</code> and the arriving nodes' by <code>t</code>; <code>dither</code>
+keeps a hash-chosen fraction of each; <code>iprefix</code> keeps the most important fraction of each
+(the payload-prefix fade, which needs no shader change). Per-frame change is the worst single
+step.</p>
+<table>
+<thead>
+<tr>
+<th>Transition</th>
+<th>holzbank worst step (PSNR / p99.9 abs diff)</th>
+<th>baum3 worst step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hard switch</td>
+<td>52.2 dB / 11</td>
+<td>47.3 dB / 20</td>
+</tr>
+<tr>
+<td>Opacity cross-fade</td>
+<td><strong>60.8 dB / 4</strong></td>
+<td><strong>56.4 dB / 7</strong></td>
+</tr>
+<tr>
+<td>Hash dither</td>
+<td>51.2 dB / 12</td>
+<td>51.1 dB / 13</td>
+</tr>
+<tr>
+<td>Importance-prefix fade</td>
+<td>50.1 dB / 12</td>
+<td>45.6 dB / 22</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Only the opacity cross-fade helps:</strong> about 9 dB better per step (part of that is simply
+  three intermediate states against one hard step; test 9 also bounds the mid-fade state), and the largest pixel
+  step falls by about 3x. Its intermediate states stay close to both ends (holzbank: 54–62 dB
+  against the fine state), so the double-transparency dip of a naive cross-fade is small here.</li>
+<li><strong>Dithered and prefix fades are no better than a hard switch.</strong> Halfway through, each removes
+  coverage from both levels at once, and that change is as large as the switch itself.</li>
+<li>A hard switch is already a small change at these thresholds (47–52 dB), because the cut
+  switches a node when its error is about <code>tau</code> pixels. Hysteresis keeps it from flapping.</li>
+</ul>
+<h3 id="57-reproducing">5.7 Reproducing<a class="headerlink" href="#57-reproducing" title="Permanent link">¶</a></h3>
+<p>The scratch scripts (PLY I/O, tree, bake, cut, the equal-budget thinning, the corridor and
+scaling simulations, the render harness and the metric runner) are not committed; they are
+measurement code, not production code. The method above is complete enough to rebuild them.
+Slices S1a/S1b land the bake in C++ with unit tests, and S2a's and S3's evidence re-run §5.2 and
+§5.4 against the real implementation; those, not these tables, are the acceptance numbers.</p>
+<h2 id="6-decision">6. Decision<a class="headerlink" href="#6-decision" title="Permanent link">¶</a></h2>
+<p><strong>Accepted 2026-10-02: D, hierarchical LOD, is the alpha architecture</strong>, staged as in §9. The
+parts below are normative for stage 1 unless marked <em>stage 2+</em>. The maintainer's decisions are
+listed in §11 and folded into the subsections named there. This revision also answers the
+independent review of <code>7fa337d4a41</code> (13 findings); §13 maps each finding to its fix.</p>
+<h3 id="61-tree-a-fixed-world-aligned-octree-decision-5">6.1 Tree: a fixed, world-aligned octree (decision 5)<a class="headerlink" href="#61-tree-a-fixed-world-aligned-octree-decision-5" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>One global lattice.</strong> Every tree lives on a lattice fixed by the <strong>world frame</strong>, not by
+  the data: an origin <code>O</code> (double precision; the world's coordinate origin, <code>(0, 0, 0)</code> unless
+  the world sets one) and power-of-two cell edges. A cell is addressed by an <strong>edge exponent</strong>
+  <code>e</code> (edge = <code>2^e</code> m, signed) and <strong>signed 64-bit</strong> indices <code>(ix, iy, iz)</code>; its corner is
+  <code>O + (ix, iy, iz) x 2^e</code>, exactly. The root is the smallest lattice cell that contains the
+  content; content outside it <strong>adds parent levels on the same lattice</strong> (new cells with larger
+  <code>e</code>), it never re-anchors existing cells. Adding a splat therefore changes which cells exist,
+  never where a cell's boundaries are, so (a) a world can be baked <strong>out of core</strong> region by
+  region and stitched at the top, (b) an edit changes only its own branch, and (c) cell edges
+  halve per level, which is what makes a geometric error per level meaningful. k-d trees and
+  BVHs (H3DGS uses a per-chunk BVH) give none of these. 64-bit indices cover planetary extents
+  down to the smallest cell edge.</li>
+<li><strong>Children are the eight octants.</strong> Empty octants are not stored. Flat content therefore
+  occupies four of them and <strong>behaves as a quadtree automatically</strong>, with no data-dependent
+  choice of split axis. (The prototype measured in §5 split only along "long" axes of the
+  data's bounding box; that rule is withdrawn because it moves every split plane when one
+  splat is added. Re-baking §5's numbers under the fixed grid is part of S1a's evidence.)</li>
+<li><strong>Subdivision rule.</strong> A cell with more than 16,384 splat centres is subdivided. A cell with at
+  most 16,384 becomes a leaf. Sibling leaves that together fit 16,384 are grouped into one
+  leaf, consecutively in octant order; the grouping depends only on the content of that
+  parent, so it stays local to the branch. A <strong>grouped leaf is addressed by its parent cell</strong>
+  (flag <code>grouped_leaf</code>) and its positions are relative to that parent cell's centre.</li>
+<li><strong>Coincident centres.</strong> Subdivision stops at a minimum cell edge of <code>2^-16</code> m (about
+  15 µm, an absolute lattice level), or when all centres in a cell are bit-identical. A cell that still holds more than 16,384
+  centres is emitted as an <strong>index-split group</strong>: its splats, ordered by
+  <code>(Morton code at full precision, source index)</code>, are cut into <code>ceil(N / 16,384)</code> sibling
+  leaves that share the cell's bounds and carry the flag <code>split_by_index</code>. <strong>The bake never
+  emits a node over 16,384 splats (16 pages, within #1134's 64-page cap).</strong> Interior nodes are
+  bounded the same way (§6.3).</li>
+<li><strong>Node bounds come from the node's own payload</strong> (centres plus three sigma of each splat,
+  after merging and inflation), stored as a tight AABB and sphere next to the cell address.
+  Culling and the error distance use these; the cell address is only for structure.</li>
+<li><strong>World chunks are not the leaves.</strong> Today's 10 m grid chunks reach 22,618 splats; the bake
+  partitions by the octree instead.</li>
+</ul>
+<h3 id="62-node-payload-and-positions-decision-6">6.2 Node payload and positions (decision 6)<a class="headerlink" href="#62-node-payload-and-positions-decision-6" title="Permanent link">¶</a></h3>
+<ul>
+<li>Every node stores <strong>≤ 16,384 splats</strong>, contiguous in the file and <strong>ordered by importance
+  inside the node</strong> (<code>opacity x sigma_a x sigma_b</code>, the A-area order of §5.2). A prefix of
+  whole pages is therefore the best available subset of that node. Prefixes are drawn only for
+  a pinned node that is still uploading (§6.6), never as the LOD mechanism.</li>
+<li>Interior payloads are plain splats in the same 144 B layout. The renderer cannot tell a
+  merged splat from an original, so a better bake is a re-import, not a format or runtime
+  change.</li>
+<li><strong>Positions are node-relative from stage 1.</strong> A splat's position is stored as float32
+  relative to the <strong>centre of its node's cell</strong> (the parent cell for a grouped leaf); the
+  cell's position is exact (integer lattice address, double origin).</li>
+<li><strong>Why float32 is enough, for any cell.</strong> The storage error is about <code>edge x 2^-24</code> (the
+  float32 resolution at half the edge, plus overhang). A node is drawn only when its error
+  <code>eps ≥ edge / 64</code> projects to at most <code>tau</code> pixels, so the storage error projects to about
+  <code>tau x 64 x 2^-24 ≈ 4e-6 x tau</code> pixels, <strong>independent of the cell's size and of the world's
+  extent</strong>. For orientation, with a 128 m leaf cell (an example, not a rule; sparse leaves can
+  be larger):</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>World extent</th>
+<th>Absolute float32 (today)</th>
+<th>Node-relative float32, 128 m leaf cell</th>
+<th>Interior node, 16 km cell</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 km</td>
+<td>61 µm</td>
+<td>≤ 7.6 µm (15 µm once overhang passes 64 m)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>100 km</td>
+<td>7.8 mm</td>
+<td>same</td>
+<td>≤ 1 mm, against an <code>eps</code> ≥ 250 m</td>
+</tr>
+<tr>
+<td>10,000 km</td>
+<td>1 m</td>
+<td>same</td>
+<td>same</td>
+</tr>
+</tbody>
+</table>
+<p>Absolute float32 is visible at 100 km for close-up detail and unusable at planetary scale.
+  Quantized node-relative positions (the 80 B path) are a stage-2 compression on the same frame
+  of reference.
+- <strong>GPU frames (finding R1 of the follow-up review).</strong> Per-node constants and per-draw values
+  are kept apart, because <code>ChunkMetaGPU</code> is indexed by chunk and <strong>shared by every instance of
+  an asset</strong> (<code>depth_compute.glsl:139</code> reads <code>chunks[visible_chunk.chunk_id]</code>; the instance
+  comes separately from <code>visible_chunk.instance_id</code>):
+  - <strong>Per node, shared (S2a):</strong> the node's cell centre in <strong>asset space</strong> goes into three of
+    <code>ChunkMetaGPU</code>'s four unread words (<code>lod_level</code> at <code>renderer/gaussian_gpu_layout.h:197</code>,
+    written but unread, and <code>pad0..2</code> at <code>:200-202</code>), so the struct stays 64 B.
+    <code>depth_compute</code> forms the asset-space position as <code>centre + relative</code> and applies the
+    instance transform as today. That is exact enough for assets up to tens of km.
+  - <strong>Drawn list in S2a (before <code>DrawnNodeGPU</code> exists).</strong> For HLOD content the CPU skips
+    <code>frustum_cull.glsl</code> and uploads the drawn set itself into the existing
+    <code>visible_chunk_buffer</code> as today's 8 B <code>VisibleChunkRefGPU {instance_id, chunk_id}</code>
+    entries (<code>renderer/gaussian_gpu_layout.h:222-225</code>), in the cut's deterministic order, and
+    writes the visible-chunk count that <code>compute/instance_chunk_dispatch.glsl:26</code> reads to size
+    the indirect dispatch. No GPU atomic decides which nodes are drawn. S2b widens that same
+    entry into <code>DrawnNodeGPU</code>.
+  - <strong>Per drawn entry (S2b):</strong> a <code>DrawnNodeGPU</code> record per entry of the drawn set, replacing
+    today's 8 B <code>VisibleChunkRefGPU</code> for HLOD content: instance id, chunk id, the
+    <strong>camera-relative offset</strong> <code>R s c + T - camera</code> (computed on the CPU in double, stored as
+    float32) and the S6 <strong>fade</strong> factor; 32 B per drawn node, written by the CPU in the cut's
+    deterministic order. With it, <code>depth_compute</code> applies the instance rotation and scale to
+    the node-relative position only, adds the offset, and runs the view transform, frustum
+    planes, distance cull, wind and effectors in <strong>camera-relative space</strong>. That shader rewrite
+    is S2b's scope (§9).</p>
+<h3 id="63-interior-nodes-two-candidates-chosen-per-node-decision-2">6.3 Interior nodes: two candidates, chosen per node (decision 2)<a class="headerlink" href="#63-interior-nodes-two-candidates-chosen-per-node-decision-2" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Merge cell and error.</strong> Each interior node is built from its children. Its merge cell
+  <code>eps</code> starts at <code>cell edge / 64</code> and at least twice the children's <code>eps</code>, and is raised until
+  the merged candidate is at most a quarter of the children's total and at most 16,384 splats.
+  <code>eps</code> is stored as the node's <strong>geometric error</strong>.</li>
+<li><strong>Candidate <code>merged</code> (<code>sat</code>).</strong> Splats with <code>2 sigma_max &gt;= eps</code> pass through unchanged.
+  Every other cell becomes one splat by <strong>moment matching</strong> (H3DGS): weights
+  <code>w = alpha x sigma_a x sigma_b</code>; mean, covariance (<code>Sigma_i + (mu_i - mu)(mu_i - mu)^T</code>), DC
+  and SH as <code>w</code>-weighted means. Opacity: alpha mass <code>M = sum alpha_i 2 pi sigma_a sigma_b</code>
+  against the merged capacity <code>C = 2 pi Sigma_a Sigma_b</code>; if <code>M &gt; C</code> the two largest axes are
+  inflated by <code>k = min(sqrt(M / C), 1.25)</code>, then <code>alpha = min(0.99, 1 - exp(-M / C))</code>.
+  <strong>A cell with a single child is copied unchanged (identity).</strong> The prototype measured in the
+  first version of §5.2 applied the formula to single-child cells too, which maps a lone
+  splat's 0.9 to 0.59; that was a bug, and §5.2 was re-measured with it fixed (S1 implementer
+  question (d)).</li>
+<li><strong>Candidate <code>selected</code>.</strong> Importance selection <strong>from the full-detail leaves</strong>, which is
+  exactly the A-area method §5.2 measured (S1 implementer question (a)): the node keeps as many
+  splats as the merged candidate; each descendant leaf contributes a share proportional to its
+  splat count (largest remainders, ties by leaf id), and the share is the <strong>prefix of that
+  leaf's importance-ordered payload</strong>. Because leaf payloads are already ordered, building the
+  candidate is a copy of prefixes, O(node size).</li>
+<li><strong>The error metric <code>E</code>.</strong> Both candidates are rendered against the node's <strong>reference</strong>, the
+  union of its children's payloads (what the cut shows when it refines the node), by the bake's
+  own small CPU splat rasterizer (front-to-back compositing, SH evaluated per view, fixed
+  order), orthographic, with a <strong>pixel size of <code>eps / tau_bake</code></strong>, where <code>tau_bake</code> is the
+  provisional <code>tau</code> (1 px until S3's A/B sets the default; a different default is a re-bake via
+  <code>bake_rule_version</code>). The view set (S1 implementer question (b)) is <strong>22 views</strong>: the 6 axis
+  directions, the 8 cube-corner directions (oblique), and 8 grazing directions at 10°
+  elevation every 45° of azimuth, because the dominant open-world view is grazing and on flat
+  content the axis views see it only edge-on or top-down. <code>E</code> is the mean over views and pixels
+  of the squared difference in premultiplied RGBA, so holes and colour errors both count. The
+  lower <code>E</code> wins; within 1%, <code>merged</code> wins.</li>
+<li><strong>Cost against the 2x limit (estimate).</strong> The reference is rendered once per view and shared
+  by both candidates; per node that is about <code>(4 + 1 + 1) x 22 ≈ 130</code> splat-renders per merged
+  splat, or about 26 per source splat once the ~20% interior share is applied, at a few pixels
+  each. The grazing and oblique views are rendered at half resolution (they are the
+  coverage check; the axis views carry the colour detail), which brings the estimate to about
+  the cost of the merge itself. <strong>S1b's acceptance limit stays at most 2x the merge-only bake.</strong>
+  If it is exceeded, the pre-declared order of reductions is: drop the oblique corner views to
+  4, then lower the grazing resolution again; if 2x is still missed, the numbers go to the
+  maintainer (decision 4's rule, §8).</li>
+<li><strong>Storage.</strong> Each node record carries a 2-bit representation kind (<code>leaf</code>, <code>merged</code>,
+  <code>selected</code>, reserved), the chosen and the rejected candidate's <code>E</code> (float32 each), and the
+  file carries <code>bake_rule_version</code>. The renderer ignores all of it; it exists for diagnostics,
+  the visual gate, and re-deciding only the nodes whose margin was small.</li>
+</ul>
+<h3 id="64-the-cut-and-the-drawn-set-findings-2-4-10">6.4 The cut and the drawn set (findings 2, 4, 10)<a class="headerlink" href="#64-the-cut-and-the-drawn-set-findings-2-4-10" title="Permanent link">¶</a></h3>
+<p>The cut is computed <strong>on the CPU</strong> each frame, over all instances at once (§6.9). What it
+produces is the <strong>drawn set</strong>, and every budget and cap applies to the drawn set, never to an
+ideal cut.</p>
+<ul>
+<li><strong>Refinement order.</strong> Start from the top-level tree's roots (§6.9); <strong>top-level nodes are
+  expanded first, ahead of every asset node and regardless of priority</strong>, down to the visible
+  instance roots. Then pop the frontier node with the largest <strong>priority</strong> <code>p = e x b</code>, where <code>e = eps x f_px / max(dist - radius, epsilon)</code> is
+  its projected error and <code>b = h</code> (1.25) if the node was refined in the previous frame, else 1
+  (this damps flapping at the budget frontier). Ties are broken by <code>(instance key, node id)</code>
+  (§6.9), never by RID or scene order.</li>
+<li><strong>A node is refined only if</strong> (1) <strong><code>e &gt; h x tau</code>, or it was refined in the previous frame
+  and <code>e &gt; tau</code></strong> (threshold hysteresis, h = 1.25; with S6 the band <code>tau &lt; e ≤ h x tau</code> is a
+  fade instead, §6.7); (2) <strong>all its frustum-visible children are resident and complete</strong> (§6.6); and
+  (3) the drawn set after the refinement still fits <strong>every cap</strong> in §6.5.</li>
+<li><strong>A node that fails (2) is drawn itself and the loop continues.</strong> No ancestor is ever drawn
+  for a missing descendant, so a region is never drawn twice: <strong>the invariant is that no drawn
+  node has a drawn ancestor</strong>, except the two levels of a fade pair (§6.7). Residency requests
+  for the children are still issued (§6.6).</li>
+<li><strong>The loop stops at the first cap refusal (3).</strong> The drawn set is then a prefix of a fixed
+  refinement order, so for a fixed residency state <strong>raising a budget never makes any node
+  coarser</strong>. (The first version allowed later, smaller refinements to proceed after a refusal;
+  the review's counterexample showed that is not monotonic per node, so it is withdrawn. The
+  cost is some unused budget, measured in S2a.)</li>
+<li><strong>History.</strong> Because of <code>b</code>, the drawn set depends on the previous frame's drawn set as well
+  as on camera, tree, residency and budgets. It is deterministic, and for a static camera it
+  reaches a fixed point within two frames from any prior drawn set (test 2); the same pose
+  reached along different paths may show different drawn sets, which is accepted.</li>
+<li>The cut replaces <code>update_chunk_lod_parameters</code> and the frustum chunk scan for HLOD content;
+  cost is O(visited nodes), not O(total chunks) (#320).</li>
+<li><strong><code>tau</code> is a setting (decision 3):</strong> <code>rendering/gaussian_splatting/lod/hlod_tau_px</code> in the
+  settings manifest, with a per-node override on <code>GaussianSplatWorld3D</code>; <code>quality/lod_bias</code>
+  multiplies it. Its default is set by the maintainer from S3's A/B (test 11); provisional 1 px.</li>
+</ul>
+<h3 id="65-every-gpu-cap-and-never-truncate-findings-2-3-12">6.5 Every GPU cap, and never truncate (findings 2, 3, 12)<a class="headerlink" href="#65-every-gpu-cap-and-never-truncate-findings-2-3-12" title="Permanent link">¶</a></h3>
+<p>The drawn set must fit every capacity on the GPU path. Each is either <strong>bounded by the cut</strong>
+or a <strong>declared residual</strong> with an always-on counter that test 1 asserts is zero.</p>
+<table>
+<thead>
+<tr>
+<th>Capacity</th>
+<th>Where</th>
+<th>Treatment</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Visible splats</td>
+<td><code>max_visible_splats</code>, <code>depth_compute.glsl:225-227</code> (Channel B)</td>
+<td><strong>Bounded.</strong> The effective splat budget is <code>min(quality/max_splat_count, max_sort_elements, allocated buffer capacity)</code> (the resident publisher already applies <code>sort_cap</code>, <code>resident_instance_contract_publisher.cpp:865-868</code>). <code>max_visible_splats</code> is sized <strong>once</strong> from it, not per frame. The drawn set's count, including fade pairs and prefixes, is ≤ it.</td>
+</tr>
+<tr>
+<td>Visible chunks / nodes</td>
+<td><code>max_visible_chunks</code>, <code>frustum_cull.glsl:143</code>, <code>overflowed_chunks</code>; sized at <code>render_streaming_orchestrator.cpp:1803-1808</code></td>
+<td><strong>Bounded.</strong> The drawn node count, fade pairs included, is a cut cap; the buffer is sized from the configured node cap. For HLOD content the list is written by the CPU in the cut's order (S2b's <code>DrawnNodeGPU</code>), not appended by GPU atomics.</td>
+</tr>
+<tr>
+<td>Global overlap records</td>
+<td><code>max_overlap_records</code>, tile binning (overflow ADR Channel A, #54)</td>
+<td><strong>Bounded by estimate.</strong> Each node bakes a footprint <code>F = sum (6 sigma_a)(6 sigma_b)</code> (m²); the cut keeps <code>sum (count + F f_px² / (d² x tile_area))</code> ≤ 80% of the effective record budget. The estimate is conservative, not exact, so <code>overflow_splats_clamped</code> stays the tripwire.</td>
+</tr>
+<tr>
+<td>Per-tile raster records</td>
+<td><code>GS_MAX_RASTER_SPLATS_PER_TILE</code> = 12,288 per 16 px tile under the default <code>gpu_preset="high"</code> (#1137)</td>
+<td><strong>Residual.</strong> It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2a's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero.</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Never an undrawn instance.</strong> Every instance's asset root node is pinned (§6.6), so a
+  visible instance always has something to draw. If the visible instance roots alone exceed a
+  cap, whole instances are dropped <strong>farthest first</strong>, ties by instance key, with
+  <code>WARN_PRINT_ONCE</code> and a counter (the same rule as tree-less content below). This is the only
+  case in which a visible instance is not drawn, and it is counted.</li>
+<li><strong>Content without a tree</strong> (a <code>.gsplatworld</code> v1 not re-imported) has no coarser
+  representation. Its fallback moves into <strong>S2a</strong> (it was S4): whole chunks are dropped
+  farthest first, ties by <code>(instance key, chunk id)</code>, with <code>WARN_PRINT_ONCE</code> and a counter.
+  S2a claims #1131 fixed for all content only with this in place.</li>
+<li><strong>Remaining order dependence, fixed in the slice that exposes it:</strong> the sort tie-break is
+  <code>atlas_index</code> (<code>depth_compute.glsl:234-235</code>), which instances of one asset share, so equal
+  depths fall back to atomic order; S5 makes it <code>(instance key, atlas index)</code>. The wind seed is
+  <code>atlas_index</code> (<code>:172</code>), which changes when a node is re-admitted elsewhere in the atlas; S3
+  makes it <code>(node id, index in node)</code>.</li>
+</ul>
+<h3 id="66-streaming-nodes-into-1134s-pages-finding-5">6.6 Streaming nodes into #1134's pages (finding 5)<a class="headerlink" href="#66-streaming-nodes-into-1134s-pages-finding-5" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>The streaming unit is a tree node.</strong> The page allocator and byte budget are #1134's.</li>
+<li><strong>Whole-run admission.</strong> A node's whole run (≤ 16 pages) is allocated on admission and its
+  pages upload in payload order. A node never changes size, so it is never released and
+  re-allocated for refinement and never needs a second run. Refinement between levels is a
+  different node with its own run.</li>
+<li><strong>The protected closure.</strong> The byte budget is checked against the <strong>allocated pages</strong> of the
+  closure <code>pinned ∪ drawn ∪ ancestors(drawn) ∪ fade pairs ∪ in-flight runs</code>, not against the
+  drawn set alone. Ancestors stay resident because a refined node's parent must be available
+  when the camera moves back. Only nodes outside the closure may be evicted.</li>
+<li><strong>Pinned levels.</strong> Every asset's root node, and the top levels down to the first level whose
+  total payload exceeds 5% of the budget, are pinned and uploaded before the first frame is
+  drawn; a pinned node still
+  uploading draws its uploaded prefix, so the first frame is never empty.</li>
+<li><strong>Requests.</strong> For every node the ideal cut would refine but (2) of §6.4 blocked, its missing
+  children are requested, in refinement-priority order, within the per-frame upload byte
+  budget.</li>
+<li><strong>An unplaceable run is skipped, not waited for.</strong> If no contiguous run fits after evicting
+  nodes outside the closure (within the frame's eviction budget), the request is skipped for
+  this frame and the parent keeps being drawn (adopting #1135's skip). After <code>R</code> (= 8)
+  consecutive skips of the same node the streamer runs <strong>incremental compaction</strong>, at most a
+  fixed number of pages per frame, until the largest free run fits. Compaction may move
+  <strong>protected</strong> nodes too: a node is copied to its new run with a GPU buffer copy, stays drawn
+  from the old run until the copy has completed, and its <code>atlas_base</code> switches between frames;
+  the old run is freed after the switch (both runs count against the budget meanwhile).
+  <strong>If test 5 still fails, fixed 16-page slots are the outcome</strong> (no fragmentation, at the cost
+  of page waste for small nodes); the format does not change either way.</li>
+<li><strong>Eviction priority:</strong> outside the closure first, then least recently drawn, then finest
+  level first.</li>
+<li><strong>Accounting</strong> comes from the allocated run, as in #1134.</li>
+</ul>
+<h3 id="67-transitions-cross-fade-decision-4-slice-s6-finding-10">6.7 Transitions: cross-fade (decision 4, slice S6; finding 10)<a class="headerlink" href="#67-transitions-cross-fade-decision-4-slice-s6-finding-10" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>One band.</strong> A node's band is <code>tau &lt; e ≤ h x tau</code> (h = 1.25). Without S6 it is the
+  threshold hysteresis of §6.4 (1): refine above <code>h x tau</code>, stay refined while above <code>tau</code>.
+  With S6 the switch becomes a blend over the same band: the node and its
+  children are drawn together with <code>t = (e - tau) / ((h - 1) x tau)</code>, children at opacity
+  <code>x t</code>, the node at <code>x (1 - t)</code>. <code>t</code> is a function of the camera, so a parked camera holds a
+  static blend and the oracle still reads 0 frames differing.</li>
+<li><strong>A fade starts only when the children are complete</strong> (§6.4 condition (2)).</li>
+<li><strong>Under a budget,</strong> fades are admitted after all full refinements, in priority order, while
+  the pair fits every cap; a fade that does not fit is drawn as its coarse node (t = 0), i.e. a
+  hard switch.</li>
+<li><strong>Plumbing and cost.</strong> The fade factor is per <strong>drawn entry</strong> (a parent and its fading
+  children, and two placements of one asset, need different values), so it lives in S2b's
+  <code>DrawnNodeGPU</code> record (§6.2), not in the shared <code>ChunkMetaGPU</code>. It has to reach the place
+  where splat opacity is read, which today knows only the splat's instance and atlas index, so
+  S6 adds the <strong>draw-entry index</strong> to the per-splat reference: about <strong>4 B per visible splat,
+  ~20 MB at 5 M visible splats</strong>, plus the layout-sync guard update. That is the R3 shader
+  change of S6.</li>
+<li>§5.6 measured a fade of three intermediate states against one hard step, so part of its
+  ~9 dB advantage is simply more, smaller steps. Test 9 therefore also bounds the mid-fade
+  state against both ends.</li>
+</ul>
+<h3 id="68-the-resident-route-decision-4-slice-s5">6.8 The resident route (decision 4, slice S5)<a class="headerlink" href="#68-the-resident-route-decision-4-slice-s5" title="Permanent link">¶</a></h3>
+<p>The resident route bakes the same tree at import, keeps every node resident (+18–21% VRAM,
+§5.5) and joins the same global cut, so it <strong>honours the splat budget</strong> like the streaming
+route. <code>max_splat_count</code> then means the same on both routes, which resolves #1131's second
+inconsistency. The #420 importance clamp is retired in the same slice.</p>
+<h3 id="69-instances-one-global-budget-and-a-top-level-tree-decision-7">6.9 Instances: one global budget and a top-level tree (decision 7)<a class="headerlink" href="#69-instances-one-global-budget-and-a-top-level-tree-decision-7" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>One cut for everything.</strong> All instances on both routes share one drawn set, so the splat
+  budget, the node cap and the byte budget are <strong>global</strong>.</li>
+<li><strong>Instance key.</strong> Every instance has a stable key, a hash of the asset's resource UID and the
+  instance's stable placement identity (its node path, or its index in a world's instance
+  table), not its RID or scene order. It breaks ties in §6.4 and in the sort (§6.5).</li>
+<li><strong>Top-level tree.</strong> Instances are placed in their own world-aligned octree by their
+  world-space bounds (the same grid rule as §6.1). Its leaves reference instance roots (the
+  root node of the instance's asset tree, transformed); its interior nodes carry aggregated
+  bounds and, in stage 1, <strong>no payload</strong>. Having no payload, they have no error or priority:
+  the cut <strong>expands them first, unconditionally</strong> (§6.4), down to the visible instance roots,
+  and only then starts the priority loop. Its cost is O(visited top-level cells + cut), not
+  O(instances).</li>
+<li><strong>Error under a transform.</strong> An instance's node error is scaled by the instance's uniform
+  scale, and distances are taken in world space.</li>
+<li><strong>Stage 2+: instance proxies.</strong> Far groups of instances need merged proxy payloads in the
+  top-level cells (true HLOD across instances). The top-level node record reserves the payload
+  fields, so adding proxies is a bake change, not a format change.</li>
+</ul>
+<h2 id="7-format-and-version-bumps">7. Format and version bumps<a class="headerlink" href="#7-format-and-version-bumps" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong><code>.gsplatworld</code> v2</strong> (<code>kWorldVersion</code> 1 → 2, <code>io/gaussian_splat_world_io.cpp:24</code>; the loader
+  rejects any other version at <code>:541</code>):</li>
+<li>header: flag <code>kFlagHasHlod</code> (next free bit after <code>kFlagResidentPayload</code>, <code>:38</code>); the
+    lattice origin <code>O</code> (3 x float64, from the world frame); <code>bake_rule_version</code>;</li>
+<li>a <strong>node table</strong>, <strong>128 B per node</strong>: lattice address (edge exponent <code>e</code> as int8, signed
+    int64 <code>ix, iy, iz</code>), tight AABB (node-relative, 6 x float32) and sphere radius, geometric
+    error <code>eps</code>, parent index, first child and child count, payload first splat (64-bit) and
+    count, height, flags (representation kind, <code>split_by_index</code>, <code>grouped_leaf</code>), the chosen
+    and the rejected candidate's <code>E</code> (float32 each), and the remaining bytes (about 30)
+    reserved for stage-2 fields (per-node SH degree, quantization block, overlap footprint);</li>
+<li>an optional <strong>top-level instance table</strong> for worlds that place instanced assets (§6.9):
+    instance key, asset reference, transform, and the top-level node it hangs from;</li>
+<li>the gaussian payload <strong>reordered so every node is contiguous</strong>, each importance-ordered,
+    with <strong>node-relative positions</strong> (§6.2). The v1 per-chunk index lists (<code>:425-469</code>) are not
+    written; they forced scattered reads per chunk.</li>
+<li><strong>Delta for S1a against the format described at <code>a1da9be37bf</code></strong> (the S1 implementer is
+  coding against that head):</li>
+<li>the cell address is <code>(e: int8, ix, iy, iz: int64, signed)</code> on the global lattice, not
+     <code>(level, ix, iy, iz: uint32)</code> from a data-sized root;</li>
+<li>the header drops the root edge exponent <code>k</code>; <code>O</code> comes from the world frame;</li>
+<li>the node record is <strong>128 B</strong>, not 96 B;</li>
+<li>new flag <code>grouped_leaf</code>: a grouped leaf is addressed by, and its positions are relative
+     to, its parent cell;</li>
+<li>the minimum cell edge is the absolute lattice level <code>2^-16</code> m, not <code>S0 / 2^24</code>;</li>
+<li>new reserved field for the per-node overlap footprint (§6.5), which S2a fills.</li>
+</ul>
+<p>The per-draw <code>DrawnNodeGPU</code> record, the per-node centre in <code>ChunkMetaGPU</code>, the instance
+  rules and the threshold hysteresis are <strong>runtime only</strong> and do not touch the file.
+- <strong>The v2 loader still reads v1.</strong> <code>.gsplatcache</code> files are written through the world saver
+  (<code>io/ply_loader.cpp:98-105</code>), so v1 caches exist on disk; rejecting them would only force a
+  re-parse, but accepting them is free. v1 content renders through the tree-less fallback
+  (§6.5).
+- <strong><code>ResourceImporterGSplatWorld::get_format_version</code> 2 → 3</strong>
+  (<code>io/resource_importer_gsplatworld.h:27</code>). Today the importer copies the file
+  (<code>io/resource_importer_gsplatworld.cpp:327</code>); from v3 it bakes v1 sources into a v2 imported
+  copy. The source file is not touched.
+- <strong>Runtime-built worlds are not baked implicitly (S1 implementer question (c), agreed by the
+  coordinator).</strong> <code>GaussianSplatContainer::export_world_resource</code>
+  (<code>nodes/gaussian_splat_container.cpp:128</code>) keeps producing a v1-shaped world. S1a adds an
+  opt-in <strong><code>GaussianSplatWorld.bake_hlod()</code></strong>, and the corridor lane calls it after export
+  (S2a makes that change to the lane, so the A/B of test 11 runs on a baked world).
+- <strong>PLY / SPZ importers</strong> bump in S5, when the resident route adopts the tree: PLY
+  <code>get_format_version</code> 11 → 12 (<code>io/resource_importer_ply.h:103</code>), SPZ 8 → 9
+  (<code>io/resource_importer_spz.h:61</code>). <code>PLY_CACHE_VERSION</code> (3, <code>io/ply_loader.cpp:35</code>) does not
+  change. Re-read these values when implementing; intervening importer PRs move them.</p>
+<h2 id="8-test-plan">8. Test plan<a class="headerlink" href="#8-test-plan" title="Permanent link">¶</a></h2>
+<p>Each item names the slice that lands it (§9). <strong>Thresholds are never lowered silently
+(decision 4):</strong> if a criterion fails, the implementer first improves the implementation; if it
+is still not reachable, they report the numbers to the maintainer for an explicit decision.</p>
+<ol>
+<li><strong>Static-frame flicker oracle at a binding cap (S2a, the #1131 acceptance test).</strong> #1131's
+   Run A: the corridor-style world (baked with <code>bake_hlod()</code>), static camera, cap 120,000
+   against ~320,000 visible demand; wait for streaming idle (180 frames without a load),
+   capture 300 frames. <strong>Pass: 0 frames differ from frame 0, and none of
+   <code>instance_count_overflow_events</code>, <code>overflow_splats_clamped</code> (tile binning and, once #1137
+   counts it, the per-tile raster cap) or <code>overflowed_chunks</code> moves.</strong> <strong>Non-vacuity:</strong> S2a's
+   <code>hlod_budget_bound_frames</code> counter must rise by 300 in the window, proving the budget bound.
+   Base must fail (299/300 today). A second run parks the camera inside a fade band (S6).</li>
+<li><strong>Cut properties (S2a; the top-level item in S2b; CPU unit tests):</strong></li>
+<li>determinism: the same inputs give the same drawn set across runs and insertion orders;</li>
+<li>every cap holds for the <strong>drawn set</strong>, with fade pairs and prefixes counted;</li>
+<li>no drawn node has a drawn ancestor (outside fade pairs);</li>
+<li><strong>monotonicity:</strong> for a fixed residency state and history, raising any budget never makes
+     a node coarser (true by construction of the stop-at-first-refusal rule; a property test
+     with randomized trees checks it);</li>
+<li><strong>fixed point:</strong> a static camera reaches the same drawn set within 2 frames from at least
+     five different prior drawn sets;</li>
+<li><strong>top level:</strong> payload-less top-level nodes are always expanded before any asset node, and
+     no visible instance is left undrawn under a binding budget unless the visible instance
+     roots alone exceed a cap, in which case instances drop farthest first, counted;</li>
+<li><strong>threshold hysteresis:</strong> a node at <code>tau &lt; e ≤ h x tau</code> keeps its previous state.</li>
+<li><strong>Bake unit tests (S1a):</strong> deterministic output; <strong>no node over 16,384 splats</strong>, including
+   a fixture with 40,000 coincident centres (index-split group); node bounds contain the
+   node's own payload at three sigma; moment matching preserves the weighted mean and second
+   moment <strong>before inflation</strong>, and inflation is at most 1.25x per axis; a single-child cell
+   is copied bit-exactly; interior overhead ≤ 35% on the fixtures; the world grid is stable
+   (adding one splat changes only the cells on its path); node-relative positions round-trip
+   within float32 resolution of the cell; a v2 file round-trips; a v1 file still loads.</li>
+<li><strong>Importer re-import (S1a):</strong> a v1 <code>.gsplatworld</code> re-imports once after the bump and gains
+   a tree; the source file is unchanged; <code>bake_hlod()</code> on a runtime-built world gives the same
+   tree as the importer.</li>
+<li><strong>Mixed-size thrash test (S3):</strong> a synthetic tree with node sizes from 1 to 16 pages, a byte
+   budget at 60% of demand, a camera sweeping back and forth. Every requested node is admitted
+   within <strong>N frames, where N is computed before the run</strong> from the configured upload bytes per
+   frame, the eviction budget and the compaction rate; the atlas never exceeds its budget;
+   no frame blocks on an unplaceable run.</li>
+<li><strong>Coverage under streaming (S3):</strong> cold start with the budget binding; no frame has a
+   node-shaped hole (coverage mask against the warm frame) <strong>and</strong> no frame draws a node
+   together with one of its ancestors outside a fade pair.</li>
+<li><strong>Corridor lane (S3):</strong> <code>vram_cap_hit_frames &lt;= 0</code> at 1 GiB, <code>residency_ratio &gt;= 0.70</code>,
+   every overflow counter of test 1 at zero, with GPU evidence.</li>
+<li><strong>Visual gate on real scans (S2a):</strong> §5.2 re-run on the three scans against the real
+   implementation. <strong>Thresholds are fixed now, from the §5.2 table committed in this ADR</strong>
+   (the head that is merged), <strong>not from the run they judge</strong> and not from S1a's re-run on the
+   world grid: in every row, the implementation (the per-node choice) must reach PSNR ≥ the
+   better of the <code>sat</code> and A-area columns minus 1.0 dB, and SSIM ≥ that column's SSIM minus
+   0.01. All rows, baum2 included, are post-fix values.</li>
+<li><strong>Transitions (S6):</strong> a dolly through several switch distances at 60 fps. The worst
+   per-frame step with the cross-fade must be at most half that of the hard switch, <strong>and</strong>
+   every mid-fade frame must be at least as close to both endpoints as the endpoints are to
+   each other (no double-transparency dip larger than the switch itself).</li>
+<li><strong>Resident route (S5):</strong> with <code>max_splat_count</code> below the atlas, the drawn count equals the
+    drawn set's count, the flicker oracle reads 0, and two instances of one asset at equal
+    depth render identically across 300 frames (sort tie-break).</li>
+<li><strong><code>tau</code> A/B (S3 acceptance, decision 3).</strong> On the corridor lane and the three real scans,
+    run <code>tau</code> = 1 px and 2 px, each <strong>unbudgeted and with the byte budget binding</strong>, and report
+    from the engine, not a simulation: <strong>allocated VRAM</strong> (atlas pages in use x page bytes, and
+    <code>vram_device_buffers_mb</code>), <strong>residency</strong> (<code>residency_ratio</code> and its minimum), <strong>FPS</strong>
+    (frame time p50 / p95), <strong>quality</strong> (§5.2's region-of-change PSNR / SSIM against full
+    detail at fixed views), <strong>transition smoothness</strong> (test 9's measure; hard switches if S6
+    has not landed, stated) and peak records per tile (#1137). S3 is not accepted without this
+    table; the maintainer sets the default from it.</li>
+<li><strong>Per-node choice (S1b, decision 2):</strong> the §5.2 rows re-run with the per-node choice, in the
+    prototype harness (a test-only cut that writes the drawn set as a PLY and renders it in the
+    engine, since S2a's runtime cut does not exist yet). In every row it must be within 0.5 dB
+    of the better of <code>sat</code> and A-area, or better; the choice is deterministic; the bake with the
+    choice takes at most 2x the merge-only bake. If the 0.5 dB criterion fails, the
+    implementer improves the metric or the candidates first; if it is still not reachable, the
+    numbers go to the maintainer for an explicit decision (decision 4).</li>
+</ol>
+<p>Single-vendor blind spot: all GPU evidence so far is NVIDIA. Atomic order differs by vendor,
+which is why the oracle must pass by construction (no atomic decides membership), not by luck
+on one GPU.</p>
+<h2 id="9-staged-slice-plan">9. Staged slice plan<a class="headerlink" href="#9-staged-slice-plan" title="Permanent link">¶</a></h2>
+<p>One PR per slice, each against <code>master</code>, each stating its base SHA.</p>
+<h3 id="stage-1-the-alpha-eight-prs">Stage 1 — the alpha (eight PRs)<a class="headerlink" href="#stage-1-the-alpha-eight-prs" title="Permanent link">¶</a></h3>
+<table>
+<thead>
+<tr>
+<th>Slice</th>
+<th>Content</th>
+<th>Risk</th>
+<th>Size (estimate)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>S1a</strong></td>
+<td>Format v2 (node table, instance table, header) + bake core: world-aligned octree on the global lattice (signed 64-bit addresses, 128 B node record) with index-split groups and grouped leaves, <code>sat</code> merge with the single-child identity, node-relative positions, node bounds from payload, importance-ordered contiguous payload; v1 → v2 in the world importer; opt-in <code>GaussianSplatWorld.bake_hlod()</code>; tests 3–4</td>
+<td>R3</td>
+<td>~1,900 LOC + ~1,000 LOC tests</td>
+</tr>
+<tr>
+<td><strong>S1b</strong></td>
+<td>Per-node choice: <code>selected</code> candidate from leaf prefixes, CPU rasterizer, 22-view metric, representation kind and errors in the record; test 12</td>
+<td>R3</td>
+<td>~900 + ~500</td>
+</tr>
+<tr>
+<td><strong>S2a</strong></td>
+<td>Global CPU cut over all instances (flat instance list), drawn set, every cap of §6.5, stop-at-first-refusal, threshold and priority hysteresis, the <code>tau</code> setting, per-node asset-space centre in <code>ChunkMetaGPU</code> (node-relative positions drawn), <code>max_visible_splats</code> sized once, the tree-less and over-cap instance fallbacks, <code>hlod_budget_bound_frames</code>, corridor lane calls <code>bake_hlod()</code>; <strong>closes #1131</strong>; tests 1, 2 (without top level), 8</td>
+<td>R3</td>
+<td>~1,600 + ~1,000</td>
+</tr>
+<tr>
+<td><strong>S2b</strong></td>
+<td>Top-level instance tree with first-expansion rule; per-draw <code>DrawnNodeGPU</code> record written by the CPU; <strong>camera-relative shader rewrite</strong> of <code>depth_compute</code> (instance R·s on the relative position, offset add, view transform, frustum planes, distance cull, wind and effectors in camera space); test 2 (top level) and a far-from-origin precision test</td>
+<td>R3</td>
+<td>~1,400 + ~800</td>
+</tr>
+<tr>
+<td><strong>S3</strong></td>
+<td>Node streaming on #1134: whole-run admission, protected-closure accounting, pinned levels, requests in priority order, skip + bounded retry + incremental compaction, eviction priority, stable wind seed; tests 5–7 and the <strong><code>tau</code> A/B (test 11) as an acceptance criterion</strong></td>
+<td>R3</td>
+<td>~1,400 + ~900</td>
+</tr>
+<tr>
+<td><strong>S4</strong></td>
+<td>Telemetry: cut size, depth histogram, fade-band size, compaction and skip counts</td>
+<td>R2</td>
+<td>~200 + ~150</td>
+</tr>
+<tr>
+<td><strong>S5</strong></td>
+<td>Resident route: bake at PLY/SPZ import (format bumps), all nodes resident, joins the global cut, instance-key sort tie-break, retire the #420 clamp; test 10</td>
+<td>R3</td>
+<td>~900 + ~550</td>
+</tr>
+<tr>
+<td><strong>S6</strong></td>
+<td>Cross-fade: one band, <code>t</code> from the error, fades admitted after refinements, fade factor in the per-draw <code>DrawnNodeGPU</code> record (S2b), draw-entry index in the per-splat reference, layout-sync guard; test 9</td>
+<td>R3</td>
+<td>~800 + ~450</td>
+</tr>
+</tbody>
+</table>
+<p>Stage 1 is <strong>about 9,100 LOC of production code and 5,350 LOC of tests over eight PRs, seven
+of them R3.</strong> The growth since <code>a1da9be37bf</code> (~8,600 + 5,050 over seven PRs) is the
+camera-relative shader rewrite and the per-draw record (follow-up review R1), the top-level
+expansion rule, and splitting S2 into S2a and S2b for reviewability. S1a, S1b, S2a and S2b are
+sequential; S6 can land after S2b in parallel with S3. The tree is as deep as the
+content needs; there is no fixed number of levels.</p>
+<h3 id="stage-2-refinements-that-need-no-rebuild">Stage 2+ — refinements that need no rebuild<a class="headerlink" href="#stage-2-refinements-that-need-no-rebuild" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Foreshortening-aware error</strong> (§5.3): projected node height instead of an isotropic radius.</li>
+<li><strong>Better bakes:</strong> the per-node error against the full-detail leaves instead of the children,
+  more candidate rules, distillation against renders of the full-detail subtree (the full
+  detail is the teacher, so no training views are needed). Re-bake only.</li>
+<li><strong>Instance proxies</strong> in the top-level tree (§6.9). Bake only; the fields are reserved.</li>
+<li><strong>GPU cut</strong> if CPU traversal shows up in profiles at billions of splats.</li>
+<li><strong>Compression:</strong> quantized node-relative payloads (the 80 B path) and per-level SH degree
+  reduction.</li>
+<li><strong>Out-of-core bake</strong> for worlds that do not fit in RAM, stitched at the top levels; the
+  world-aligned grid makes it possible without a format change.</li>
+</ul>
+<h3 id="what-would-force-a-rebuild-if-stage-1-were-done-more-cheaply">What would force a rebuild if stage 1 were done more cheaply<a class="headerlink" href="#what-would-force-a-rebuild-if-stage-1-were-done-more-cheaply" title="Permanent link">¶</a></h3>
+<ul>
+<li><strong>Per-draw values in a per-asset record</strong> (<code>ChunkMetaGPU</code>): instances of one asset would
+  share a camera offset and a fade (follow-up review R1).</li>
+<li><strong>Option A (flat importance prefix) as the format.</strong> No merged nodes, so the screen-bound
+  requirement is unreachable (§5.3).</li>
+<li><strong>A fixed number of levels baked as separate per-level files.</strong> Billions of splats need an
+  unbounded depth.</li>
+<li><strong>Keeping the per-chunk index lists.</strong> Node streaming needs contiguous node payloads.</li>
+<li><strong>Enforcing the budget on the GPU</strong> (atomics, a depth-histogram cutoff, #1131's option 1).</li>
+<li><strong>A data-dependent split rule</strong> (bbox midpoints of the data, k-d, BVH): it prevents
+  out-of-core and incremental bakes (finding 1, decision 5).</li>
+<li><strong>Absolute float32 payload positions:</strong> billion-splat worlds spanning tens of km would need a
+  payload format change (decision 6).</li>
+<li><strong>Per-instance budgets or a cut that iterates over all instances:</strong> a joint budget and a
+  top-level tree would need a second cut design (decision 7).</li>
+<li><strong>Budgets checked against the ideal cut instead of the drawn set:</strong> it reopens #1131 through
+  ancestor fallbacks (finding 2).</li>
+<li><strong>Merged splats in a different layout from leaves:</strong> every later compression or shader change
+  would have to be done twice.</li>
+</ul>
+<h2 id="10-reviving-the-deleted-code">10. Reviving the deleted code<a class="headerlink" href="#10-reviving-the-deleted-code" title="Permanent link">¶</a></h2>
+<p><strong>Not worth reviving; reuse the idea, not the code.</strong></p>
+<ul>
+<li><code>SplatClusterer</code> (deleted in <code>de8fc43e2c6</code>, 1,079 + 287 lines) merges colour only (no SH),
+  averages rotations by slerp and scales by per-axis RMS <strong>while also</strong> computing a merged
+  covariance it never uses for the output shape (its own comment calls it "a simplified
+  approach"), uses cluster radii in absolute world units (2/4/8/16 m by level), and is written
+  against a per-splat <code>GaussianData</code> value type that no longer exists. Its opacity rule is the
+  <code>mm</code> rule of §5.2, which measured worst.</li>
+<li><code>StreamingLODManager</code> (1,237 + 309 lines) kept one GPU buffer per LOD level for the <strong>whole
+  dataset</strong>, so it cannot stream regions, and it was never wired (<code>de8fc43e2c6</code> removed it as a
+  dead path).</li>
+<li><code>AdaptiveLODSystem</code> (<code>7205f2d10ef</code>, 763 + 275 lines) selected splats on the CPU each frame
+  from a <code>Vector&lt;GaussianData&gt;</code>, which the GPU-driven pipeline cannot use.</li>
+</ul>
+<p>What carries over: moment-matched covariance merging (§6.3, from H3DGS) and the idea of a
+budget-driven selection, done here by the cut.</p>
+<h2 id="11-maintainer-decisions-2026-10-02">11. Maintainer decisions (2026-10-02)<a class="headerlink" href="#11-maintainer-decisions-2026-10-02" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Accepted: HLOD (option D) is the alpha architecture.</strong></li>
+<li><strong>Merge rule: chosen per node at bake time</strong> between <code>sat</code> and importance selection, by the
+   lower error (§6.3, §7).</li>
+<li><strong><code>tau</code> is a setting, not fixed now.</strong> S3's acceptance includes a real A/B at 1 px vs 2 px on
+   the corridor and the real scans (test 11); the maintainer picks the default from it.</li>
+<li><strong>In the alpha: cross-fade transitions (S6) and the resident route (S5).</strong> And: <strong>no
+   threshold is lowered silently.</strong> If test 12's 0.5 dB criterion fails, the implementer
+   improves the implementation first; if it is still not reachable, the numbers go to the
+   maintainer for an explicit decision. (The maintainer's note said "the 0.5 dB cross-fade
+   criterion"; the 0.5 dB criterion is test 12's per-node choice, so the rule is recorded there
+   and applied to every threshold in §8, including test 9's.)</li>
+<li><strong>Split rule: a fixed, world-aligned octree</strong> (fixed origin, power-of-two cells, integer cell
+   coordinates); flat content becomes a quadtree through empty octants; coincident centres
+   become index-split groups, and the bake never emits a node over the 16,384-splat cap (§6.1).</li>
+<li><strong>Positions are node-relative in stage 1</strong> (§6.2, with precision at 1 km, 100 km and
+   10,000 km).</li>
+<li><strong>Instances: one global budget across all instances and a top-level hierarchy over
+   instances, both in stage 1</strong> (§6.9).</li>
+<li><strong>S1 implementer questions:</strong> (a) <code>selected</code> is built from the full-detail leaves, the method
+   §5.2 measured; (b) 22 views (6 axis, 8 oblique, 8 grazing) within the 2x limit, with a
+   pre-declared reduction order; (c) no implicit bake in <code>export_world_resource</code>, an opt-in
+   <code>GaussianSplatWorld.bake_hlod()</code> plus the importer bake, agreed by the coordinator; (d) the
+   <code>sat</code> single-child mapping was a prototype bug; single-child cells are now the identity and
+   §5.2 was re-measured.</li>
+</ol>
+<p>Follow-up review of <code>a1da9be37bf</code> (one P1, two P2, six P3): resolved in §6.1, §6.2, §6.4–§6.7,
+§6.9, §7 (with the exact S1a format delta), §8 and §9; see §13.</p>
+<p>Still open, not blocking stage 1: whether the corridor lane keeps its 120,000 cap, which binds
+by about 50x and under the cut means "draw a coarse world"; S3's A/B data informs it.</p>
+<h2 id="12-what-was-not-verified">12. What was not verified<a class="headerlink" href="#12-what-was-not-verified" title="Permanent link">¶</a></h2>
+<ul>
+<li><strong>No production code exists.</strong> All quality numbers come from rendering prototype outputs
+  through the engine; the bake is a Python prototype.</li>
+<li><strong>The prototype predates the world-aligned grid (decision 5):</strong> §5's trees split at the
+  data's bounding-box midpoints. S1a re-runs §5.2 and §5.5 on the fixed grid.</li>
+<li><strong>Not prototyped at all:</strong> the per-node choice and its 22-view metric (cost in §6.3 is an
+  estimate), hysteresis, the byte-budget refusal, the drawn-set and closure rules, the
+  error-band fade (§5.6 used three fixed steps), node-relative positions, the per-draw
+  record and the camera-relative shader path, the top-level instance tree and the
+  overlap-record estimate. <code>hlod.cut</code> in the prototype has only the
+  tau test and a splat budget.</li>
+<li><strong>The corridor and scaling simulations used the <code>mass</code> rule</strong> and count resident cut nodes
+  only; they do not check ancestor coverage (<code>residency_ratio_min</code> ≤ 0.002 in four of five
+  HLOD runs) and do not model fragmentation or the per-frame eviction budget.</li>
+<li><strong>Scaling beyond 6.4 M splats is modelled</strong>, and the model under-predicts the one real point
+  it was checked against by 23% (§5.3).</li>
+<li><strong>Bake times</strong> are numpy on one core; the C++ bake is unmeasured.</li>
+<li>NVIDIA RTX 3090 only.</li>
+</ul>
+<h2 id="13-review-response-independent-review-of-7fa337d4a41">13. Review response (independent review of <code>7fa337d4a41</code>)<a class="headerlink" href="#13-review-response-independent-review-of-7fa337d4a41" title="Permanent link">¶</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Resolution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P1-1</td>
+<td>Split rule is data-dependent; &gt;16,384 coincident centres break the cap</td>
+<td>§6.1: world-aligned octree, index-split groups (decision 5); test 3</td>
+</tr>
+<tr>
+<td>P1-2</td>
+<td>Drawn set ≠ cut; ancestor fallback double-draws and breaks the bound</td>
+<td>§6.4: refine only when all visible children are complete; caps on the drawn set; §6.6 closure; tests 2 and 6</td>
+</tr>
+<tr>
+<td>P1-3</td>
+<td>Only Channel B covered</td>
+<td>§6.5 table: every cap bounded or a counted residual (incl. #1137); test 1 asserts all counters</td>
+</tr>
+<tr>
+<td>P2-4</td>
+<td>Monotonicity claim false; hysteresis under a binding budget</td>
+<td>§6.4: stop at first refusal (monotone), priority hysteresis, history stated; test 2 fixed-point check</td>
+</tr>
+<tr>
+<td>P2-5</td>
+<td>Byte accounting is not placement feasibility</td>
+<td>§6.6: closure accounting, skip + bounded retry + compaction; test 5's N pre-computed; byte-bound rows in test 11</td>
+</tr>
+<tr>
+<td>P2-6</td>
+<td><code>selected</code> ≠ measured method; axis-only views; tau scale</td>
+<td>§6.3: <code>selected</code> from leaves (= A-area), 22 views incl. grazing, pixel scale <code>eps / tau_bake</code>, failure path pre-declared</td>
+</tr>
+<tr>
+<td>P2-7</td>
+<td>§5.3 160 m row was modelled; model node counts off</td>
+<td>§5.3 corrected to the real bake; model rows and the billion-scale figure labelled as a modelled lower bound; PR heading fixed</td>
+</tr>
+<tr>
+<td>P2-8</td>
+<td>Test integrity (8, 1, 3)</td>
+<td>Test 8 thresholds fixed from §5.2; test 1 non-vacuity counter in S2; test 3 asserts moments before inflation</td>
+</tr>
+<tr>
+<td>P2-9</td>
+<td>Missing rebuild risks (instances, precision, split rule)</td>
+<td>§9 list extended; decisions 5–7 put all three in stage 1</td>
+</tr>
+<tr>
+<td>P3-10</td>
+<td>Fade band vs hysteresis; fade budget; weak test 9; S6 cost</td>
+<td>§6.7: one band, fades after refinements, mid-fade bound in test 9, 4 B per visible splat stated</td>
+</tr>
+<tr>
+<td>P3-11</td>
+<td>Node bounds from source splats</td>
+<td>§6.1: bounds from the node's own payload; test 3</td>
+</tr>
+<tr>
+<td>P3-12</td>
+<td>Residual nondeterminism (sort tie-break, wind seed, tree-less content)</td>
+<td>§6.5: fixes assigned to S5 and S3; the tree-less fallback moved into S2</td>
+</tr>
+<tr>
+<td>P3-13</td>
+<td>§12 completeness; S1 size; test 12 rendering</td>
+<td>§12 extended; S1 split into S1a/S1b; test 12 uses a test-only cut writing a PLY</td>
+</tr>
+</tbody>
+</table>
+<p>Follow-up review of <code>a1da9be37bf</code>:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Finding</th>
+<th>Resolution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1 (P1)</td>
+<td>Camera offset and fade in the per-asset <code>ChunkMetaGPU</code></td>
+<td>§6.2: per-node asset-space centre stays in <code>ChunkMetaGPU</code> (shared, correct); offset and fade move to a per-draw <code>DrawnNodeGPU</code> record; camera-relative shader rewrite is S2b's scope and size</td>
+</tr>
+<tr>
+<td>R2 (P2)</td>
+<td>Payload-less top-level nodes; undrawn instances</td>
+<td>§6.4/§6.9: top-level nodes expanded first; every instance root pinned; over-cap instance roots drop farthest first, counted; test 2</td>
+</tr>
+<tr>
+<td>R3 (P2)</td>
+<td>Two thresholds; hysteresis gone</td>
+<td>§6.4 (1) and §6.7: refine above <code>h x tau</code>, stay refined above <code>tau</code>; S6 blends over the same band</td>
+</tr>
+<tr>
+<td>R4 (P3)</td>
+<td>Data-derived lattice; grouped-leaf address</td>
+<td>§6.1: global lattice from the world frame, root growth adds parents, signed 64-bit indices; grouped leaves addressed by the parent cell</td>
+</tr>
+<tr>
+<td>R5 (P3)</td>
+<td>Precision framing</td>
+<td>§6.2: relative argument (<code>~4e-6 x tau</code> px for any cell); 128 m labelled an example</td>
+</tr>
+<tr>
+<td>R6 (P3)</td>
+<td>Test 8 column and baseline</td>
+<td>Test 8: per-node choice ≥ best of (<code>sat</code>, A-area) − 1.0 dB from this ADR's committed table; baum2 rows replaced before merge</td>
+</tr>
+<tr>
+<td>R7 (P3)</td>
+<td>Compaction cannot move protected nodes</td>
+<td>§6.6: protected nodes move by copy-then-switch; fixed 16-page slots named as the outcome if test 5 fails</td>
+</tr>
+<tr>
+<td>R8 (P3)</td>
+<td>"Modelled lower bound" on one point</td>
+<td>§5.3: "likely under-predicts"</td>
+</tr>
+<tr>
+<td>R9 (P3)</td>
+<td>S2 size</td>
+<td>S2 split into S2a (closes #1131) and S2b (instance tree, camera-relative space)</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 12:27:47 UTC">October 3, 2026</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden="">
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"></path></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer">
+        
+          
+          <a href="../adr-splat-colour-encoding/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Splat Colour Encoding">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Splat Colour Encoding
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../adr-import-importance-pruning/" class="md-footer__link md-footer__link--next" aria-label="Next: Import Importance Pruning">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Import Importance Pruning
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"></path></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.indexes", "navigation.path", "navigation.top", "navigation.footer", "content.code.copy", "content.code.annotate", "search.highlight", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../js/mkdocs-charts-plugin.js"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+      
+        <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+      
+        <script src="../../assets/javascripts/latest-nightlies.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
