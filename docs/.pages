@@ -105,6 +105,7 @@ nav:
               - Decompose the Scene Director: architecture/adr-decompose-scene-director.md
               - Decompose the Streaming System: architecture/adr-decompose-streaming-system.md
               - Splat Colour Encoding: architecture/adr-splat-colour-encoding.md
+              - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md
               - Import Importance Pruning: architecture/adr-import-importance-pruning.md
               - Import Input Hardening: architecture/adr-import-input-hardening.md
               - Overflow Drop Telemetry: architecture/adr-overflow-drop-telemetry.md

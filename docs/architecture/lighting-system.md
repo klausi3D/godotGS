@@ -98,6 +98,8 @@ Directional shadow maps are rendered and blitted through:
 
 Source: [../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp](../../modules/gaussian_splatting/renderer/gaussian_splat_renderer.cpp)
 
+**Fail closed (#1089, #1095 slice 1).** A shadow pass blits only a depth image it rasterized itself: at least one splat (`RasterStageOutput::rastered_splat_count`), not a cached reuse or painterly output, in the rasterizer's current depth target, at exactly the atlas-rect size. Anything else returns `SHADOW_SKIP_NO_CASTER_RASTERED` and writes nothing, for directional, spot, omni dual-paraboloid and omni cube passes alike; an omni cube light's cubemap is re-copied into the atlas only if a splat was written for that light. The shadow raster currently rasterizes no splats, so **splats cast no shadows** until the dedicated caster of #1095 lands; before this guard the pass copied the main camera's splat depth into every atlas rect. Splats still receive shadows.
+
 ### Transitional Shadow Pass State Contract
 
 The current production slice still routes shadow maps through the normal sorted-splat raster path, but the mutable renderer state is now owned by one scoped shadow-pass guard. The guard is the only code allowed to temporarily override:
