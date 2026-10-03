@@ -296,6 +296,8 @@ void section_camera(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, V
 		s["position"] = Variant();
 		s["rotation_degrees"] = Variant();
 		s["projection"] = Variant();
+		s["fov_degrees"] = Variant();
+		s["size"] = Variant();
 		r_snap["camera"] = s;
 		return;
 	}
@@ -318,6 +320,8 @@ void section_camera(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, V
 	s["position"] = o;
 	s["rotation_degrees"] = deg;
 	s["projection"] = name;
+	s["fov_degrees"] = p_in.camera_fov;
+	s["size"] = p_in.camera_size;
 	r_snap["camera"] = s;
 }
 
@@ -433,7 +437,7 @@ void section_visibility(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 	header(r_lines, "VISIBILITY");
 	Dictionary s;
 	const Dictionary &st = p_in.render_stats;
-	const char *keys[] = { "resident_splats", "cull_domain", "cull_visible", "cull_candidates", "culled_by_frustum",
+	const char *keys[] = { "total_splats", "cull_domain", "cull_visible", "cull_candidates", "culled_by_frustum",
 		"culled_by_distance", "culled_by_screen", "culled_by_importance", "tile_count", "tiles_processed",
 		"tiles_aggregated", "tiles_overflow", "reject_clip", "reject_radius", "reject_viewport", "reject_aspect",
 		"overlap_records", "overlap_record_budget" };
@@ -446,9 +450,13 @@ void section_visibility(const GaussianSplatPerformanceOverlay::ReportInputs &p_i
 		return;
 	}
 
-	const Variant resident = stat(st, "total_splats");
-	r_lines.push_back(vformat("Resident splats: %s", fmt_count(resident)));
-	s["resident_splats"] = resident;
+	// The renderer's whole splat source. On a resident scene that is what is
+	// resident; on a file-backed streaming route it is the full source count
+	// (payload_source_splat_count), not what is loaded -- STREAMING shows that
+	// ("effective"). So it is labelled for what it is.
+	const Variant total = stat(st, "total_splats");
+	r_lines.push_back(vformat("Total splats (source): %s", fmt_count(total)));
+	s["total_splats"] = total;
 
 	// The cull counters mean something only once a cull stage has run; before
 	// that they are zero-initialised ("0 of 1 visible" is not a real state).

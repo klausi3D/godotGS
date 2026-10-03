@@ -313,7 +313,7 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Monitor rows are n/a wh
 // The node in a SceneTree (no GPU needed)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] With no splat node the overlay shows n/a and creates no renderer") {
+TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] With no renderer anywhere the overlay finds no target and shows n/a") {
 	SceneTree *tree = SceneTree::get_singleton();
 	if (!tree || !tree->get_root()) {
 		FAIL("SceneTree with a root window required");
@@ -322,23 +322,30 @@ TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] With no splat node
 	Window *root = tree->get_root();
 	GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
 	root->add_child(node);
-	const bool had_renderer = node->get_existing_renderer().is_valid();
+	// Precondition, asserted rather than assumed: this headless lane has no
+	// RenderingDevice, so the node's enter-tree _ensure_renderer() gets nothing
+	// from the scene director. Where a device exists (the GPU harness) the node
+	// holds a renderer from enter-tree on, so no renderer-free fixture exists
+	// there; this case is not tagged [RequiresGPU] for that reason.
+	if (node->get_existing_renderer().is_valid()) {
+		FAIL("precondition: the splat node must have no renderer (headless, no RenderingDevice)");
+		root->remove_child(node);
+		memdelete(node);
+		return;
+	}
 
 	gs_overlay_test::Overlay *overlay = memnew(gs_overlay_test::Overlay);
 	root->add_child(overlay);
 	overlay->refresh_now();
 	const Dictionary snap = overlay->get_snapshot();
 	CHECK(overlay->get_refresh_count() == 1);
-	if (!had_renderer) {
-		// Looking for a target must not bring a renderer into existence
-		// (GaussianSplatNode3D::get_renderer() would).
-		CHECK_FALSE(node->get_existing_renderer().is_valid());
-		CHECK(overlay->get_target() == nullptr);
-		CHECK(gs_overlay_test::is_null(gs_overlay_test::section(snap, "node"), "total_splats"));
-		const Dictionary gpu = gs_overlay_test::section(snap, "gpu_passes");
-		for (const char *key : gs_overlay_test::PASS_SNAPSHOT_KEYS) {
-			CHECK_MESSAGE(gs_overlay_test::is_null(gpu, key), key);
-		}
+	CHECK_FALSE(node->get_existing_renderer().is_valid());
+	CHECK(overlay->get_target() == nullptr);
+	CHECK(gs_overlay_test::is_null(gs_overlay_test::section(snap, "node"), "total_splats"));
+	CHECK(gs_overlay_test::is_null(gs_overlay_test::section(snap, "visibility"), "total_splats"));
+	const Dictionary gpu = gs_overlay_test::section(snap, "gpu_passes");
+	for (const char *key : gs_overlay_test::PASS_SNAPSHOT_KEYS) {
+		CHECK_MESSAGE(gs_overlay_test::is_null(gpu, key), key);
 	}
 	root->remove_child(overlay);
 	root->remove_child(node);
@@ -395,6 +402,8 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 	gs_overlay_test::Overlay::ReportInputs in;
 	in.sections = gs_overlay_test::Overlay::SECTION_CAMERA;
 	in.has_camera = true;
+	in.camera_fov = 70.0;
+	in.camera_size = 3.5;
 	const struct {
 		Camera3D::ProjectionType projection;
 		const char *name;
@@ -410,9 +419,11 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 		Dictionary snap;
 		gs_overlay_test::Overlay::build_report(in, lines, snap);
 		CHECK_MESSAGE(String(gs_overlay_test::section(snap, "camera")["projection"]) == String(c.name), c.name);
+		CHECK(double(gs_overlay_test::section(snap, "camera").get("fov_degrees", -1.0)) == doctest::Approx(in.camera_fov));
+		CHECK(double(gs_overlay_test::section(snap, "camera").get("size", -1.0)) == doctest::Approx(in.camera_size));
 		CHECK_MESSAGE(gs_overlay_test::joined(lines).contains(c.label), c.label);
 		// Non-ASCII text is decoded as UTF-8, not Latin-1 ("Â°" mojibake).
-		CHECK(gs_overlay_test::joined(lines).contains(String::utf8("FOV: 0.0° |")));
+		CHECK(gs_overlay_test::joined(lines).contains(String::utf8("FOV: 70.0° |")));
 	}
 	in.has_camera = false;
 	Vector<String> lines;
