@@ -267,6 +267,8 @@ private:
     Ref<GaussianSplatRenderer> renderer;
     Ref<::GaussianData> renderer_data;
     bool render_state_dirty = true;
+    // #1128 review: last can_bake_color_grading() value the inspector was notified of.
+    bool bake_eligibility_last_notified = false;
     bool shared_renderer_multi_instance_state = false;
 
     // Editor state
@@ -447,6 +449,7 @@ private:
     bool _has_local_source_data() const;
     // #1105: true for a splat_asset node with no set_splat_data() payload to bake.
     bool _is_bake_unsupported_asset_node() const;
+    void _notify_if_bake_eligibility_changed();
     bool _can_push_color_grading_to_renderer() const;
     bool _push_color_grading_to_renderer(bool p_allow_null, bool p_force_refresh = false);
 
@@ -777,6 +780,15 @@ public:
      * data, which can belong to a peer node.
      */
     bool can_bake_color_grading() const;
+
+    /**
+     * @brief Returns a copy of the grade that is currently baked into the data, or null.
+     *
+     * The copy carries the grade's state at bake time, including enabled = true, although
+     * the bake disables the node's own resource. The inspector's Restore action uses it as
+     * the undo snapshot, so Undo re-bakes the grade that was actually applied.
+     */
+    Ref<class ColorGradingResource> get_baked_color_grading() const;
 
     /// @}
 

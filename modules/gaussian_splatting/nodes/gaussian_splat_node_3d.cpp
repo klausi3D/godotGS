@@ -753,6 +753,8 @@ void GaussianSplatNode3D::set_splat_asset(const Ref<GaussianSplatAsset> &p_asset
     }
 
     notify_property_list_changed();
+    // Already notified unconditionally; keep the eligibility cache in step (#1128 review).
+    bake_eligibility_last_notified = can_bake_color_grading();
     update_configuration_warnings();
 }
 
@@ -843,12 +845,14 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
         bounds_dirty = true;
         _unregister_shared_renderer();
         update_configuration_warnings();
+        _notify_if_bake_eligibility_changed();
         return;
     }
     renderer_data->set_2d_mode(p_is_2d_mode);
     _populate_runtime_asset_from_renderer_data();
     _compute_manual_splat_bounds(splat_count, p_positions, p_scales);
     _finalize_manual_splat_setup(splat_count);
+    _notify_if_bake_eligibility_changed();
 }
 
 bool GaussianSplatNode3D::_ensure_renderer_for_manual_data() {
@@ -3197,6 +3201,25 @@ static const char *GS_BAKE_UNSUPPORTED_ON_ASSET_MSG =
 static const char *GS_BAKE_NO_DATA_MSG =
         "this node has no splat data. Only data supplied through set_splat_data() can be baked.";
 
+// A value copy of a grading resource. The bake keeps one so the grade it applied stays
+// knowable after bake_color_grading_snapshot() disables the node's own resource -- which,
+// for bake_color_grading(), is the very object that was baked (#1128 review).
+static Ref<ColorGradingResource> gs_copy_color_grading(const Ref<ColorGradingResource> &p_grading) {
+    if (p_grading.is_null()) {
+        return Ref<ColorGradingResource>();
+    }
+    Ref<ColorGradingResource> copy;
+    copy.instantiate();
+    copy->set_enabled(p_grading->get_enabled());
+    copy->set_exposure(p_grading->get_exposure());
+    copy->set_contrast(p_grading->get_contrast());
+    copy->set_saturation(p_grading->get_saturation());
+    copy->set_temperature(p_grading->get_temperature());
+    copy->set_tint(p_grading->get_tint());
+    copy->set_hue_shift(p_grading->get_hue_shift());
+    return copy;
+}
+
 bool GaussianSplatNode3D::_is_bake_unsupported_asset_node() const {
     return renderer_data.is_null() && splat_asset.is_valid();
 }
@@ -3217,7 +3240,7 @@ Error GaussianSplatNode3D::bake_color_grading_snapshot(const Ref<ColorGradingRes
         return ERR_UNCONFIGURED;
     }
 
-    Error err = renderer_data->bake_color_grading(p_grading_snapshot);
+    Error err = renderer_data->bake_color_grading(gs_copy_color_grading(p_grading_snapshot));
     if (err != OK) {
         ERR_PRINT("Failed to bake color grading");
         return err;
@@ -3262,6 +3285,25 @@ Error GaussianSplatNode3D::restore_color_grading() {
 
 bool GaussianSplatNode3D::can_bake_color_grading() const {
     return renderer_data.is_valid() && renderer_data->get_count() > 0;
+}
+
+Ref<ColorGradingResource> GaussianSplatNode3D::get_baked_color_grading() const {
+    if (!renderer_data.is_valid() || !renderer_data->is_color_grading_baked()) {
+        return Ref<ColorGradingResource>();
+    }
+    return gs_copy_color_grading(renderer_data->get_baked_grading());
+}
+
+void GaussianSplatNode3D::_notify_if_bake_eligibility_changed() {
+    // #1128 review: the inspector builds its Bake section in parse_begin(), which only
+    // reruns on property_list_changed. set_splat_data() (e.g. from an @tool script) can
+    // make a selected node bake-eligible, and a failed one can make it ineligible, without
+    // anything else telling the inspector.
+    const bool eligible = can_bake_color_grading();
+    if (eligible != bake_eligibility_last_notified) {
+        bake_eligibility_last_notified = eligible;
+        notify_property_list_changed();
+    }
 }
 
 bool GaussianSplatNode3D::is_color_grading_baked() const {

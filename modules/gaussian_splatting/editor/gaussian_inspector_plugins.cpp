@@ -500,7 +500,14 @@ void GaussianSplatNodeInspectorPlugin::_on_restore_color_grading_pressed(ObjectI
         return;
     }
 
-    Ref<ColorGradingResource> grading_snapshot = clone_color_grading_resource(node->get_color_grading());
+    // #1128 review: the undo must re-bake the grade that was BAKED. The node's own resource
+    // is disabled by the bake (and, for bake_color_grading(), is the baked object itself), so
+    // a clone of it would re-bake a disabled, no-op grade while still marking the data baked.
+    Ref<ColorGradingResource> grading_snapshot = node->get_baked_color_grading();
+    if (grading_snapshot.is_null()) {
+        ERR_PRINT("Cannot restore color grading: the baked grade is unknown");
+        return;
+    }
     // #1128 review: record the action only for a restore that happened. A failed
     // restore (ERR_INVALID_DATA after the data was replaced) changed nothing, and its
     // undo would bake the replacement payload.
