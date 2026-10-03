@@ -274,6 +274,15 @@ public:
     float get_chunk_frustum_padding() const { return visibility.chunk_frustum_padding; }
     void set_chunk_radius_multiplier(float p_multiplier);
     float get_chunk_radius_multiplier() const { return visibility.chunk_radius_multiplier; }
+    // #1087: bound chunk demand (discovery and load candidates) to this distance from
+    // the camera, measured to the nearest point of each chunk's bounds. The renderer
+    // pushes its effective render distance every frame; <= 0 means unbounded.
+    void set_load_distance_limit(float p_limit) { visibility.set_load_distance_limit(p_limit); }
+    float get_load_distance_limit() const { return visibility.get_load_distance_limit(); }
+    // #1087: apply a pending project-settings reload (g_lod_config included) now, so a
+    // caller can derive this frame's load distance limit from current settings before
+    // update_streaming() (which would otherwise reload them only after the push).
+    void reload_config_if_dirty() { _reload_config_if_dirty(); }
 
     // Debug statistics for chunk culling
     Dictionary get_chunk_culling_stats() const;
@@ -453,6 +462,35 @@ public:
         _record_visible_scan_starvation(p_scan_origin, p_scanned_chunks, _get_needed_set_load_threshold());
     }
     void _test_build_visible_chunk_list() { _build_visible_chunk_list(); }
+    // #1087: let _load_visible_chunks reach its candidate scan without a device. With no
+    // pack thread the scan only enqueues into the sync-fallback queue, so no GPU work
+    // happens; the placeholder buffer RID is never dereferenced and is cleared again by
+    // _test_end_device_free_load_scan() before teardown.
+    void _test_begin_device_free_load_scan(const Ref<::GaussianData> &p_data, uint32_t p_capacity_chunks) {
+        source_data = p_data;
+        _register_primary_asset();
+        atlas_allocator.reset(p_capacity_chunks);
+        persistent_buffer = RID::from_uint64(1);
+        persistent_buffer_size = uint32_t(uint64_t(p_capacity_chunks) * CHUNK_SIZE * _atlas_gaussian_stride_bytes());
+        streaming_initialized = true;
+        scheduler.prefetch_scan_budget_remaining_this_frame = scheduler.max_prefetch_chunk_scan_per_frame;
+    }
+    void _test_end_device_free_load_scan() {
+        persistent_buffer = RID();
+        persistent_buffer_size = 0;
+        streaming_initialized = false;
+    }
+    uint32_t _test_load_visible_chunks(uint32_t p_effective_max) {
+        uint32_t evictions_left = 0;
+        bool eviction_blocked = false;
+        _load_visible_chunks(p_effective_max, evictions_left, eviction_blocked);
+        return scheduler.last_load_candidate_count;
+    }
+    bool _test_sync_fallback_queued(uint32_t p_asset_id, uint32_t p_chunk_idx) const {
+        return scheduler.sync_fallback_chunk_load_set.has(_make_chunk_key(p_asset_id, p_chunk_idx));
+    }
+    uint32_t _test_get_sync_fallback_stalled_count() const { return scheduler.last_sync_fallback_stalled_count; }
+    uint32_t _test_get_sync_fallback_attempted_count() const { return scheduler.last_sync_fallback_attempted_count; }
     // Field-level accessors for the global atlas registry. Returning the
     // registry by reference would expose private fields the registry's
     // friendship with this class doesn't grant onward — these forward only
@@ -505,6 +543,14 @@ private:
     uint64_t _get_total_vram_usage_bytes() const;
     uint64_t _get_evictable_vram_usage_bytes() const;
     uint32_t _get_reserved_chunk_count() const;
+    // #1087: the one demand predicate for visible primary chunks (load scan, needed
+    // set and its completions, sync-fallback drain): inside the VRAM-regulated load
+    // threshold (_get_needed_set_load_threshold) and inside the load distance limit.
+    bool _is_chunk_within_load_distance(const StreamingChunk &p_chunk, float p_load_threshold) const {
+        return p_chunk.distance < p_load_threshold &&
+                StreamingVisibilityController::is_within_load_distance(
+                        p_chunk.near_distance, visibility.load_distance_limit);
+    }
     uint64_t _get_pending_upload_bytes_for_diagnostics() const;
     void _load_zero_visible_recovery_config_from_project_settings();
     void _update_camera_tracking(const Vector3 &camera_pos, float p_frame_delta_seconds);

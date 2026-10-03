@@ -1147,6 +1147,36 @@ public:
     }
 
     /**
+     * @brief Distance beyond which no splat is drawn (LOD max distance / LOD bias), or 0 when unbounded.
+     * Streaming bounds chunk demand by it, so no chunk is loaded that cannot be drawn (#1087).
+     */
+    float get_streaming_load_distance_limit() const {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f; // #722 terminal-state default: unbounded
+        }
+        return GPUCuller::compute_effective_max_distance(subsystem_state.gpu_culler->get_config());
+    }
+    /**
+     * @brief Re-reads the culler's LOD settings (as the sort pass does each frame) and returns the
+     * resulting load distance limit, so streaming and the draw pass use the same value this frame.
+     */
+    float refresh_streaming_load_distance_limit() {
+        if (subsystem_state.gpu_culler.is_null()) {
+            return 0.0f;
+        }
+        subsystem_state.gpu_culler->update_culling_settings();
+        subsystem_state.gpu_culler->update_lod_cache();
+        return get_streaming_load_distance_limit();
+    }
+    /** @brief Test hook: follow the project/tier LOD max distance instead of a per-renderer override. */
+    void test_clear_lod_max_distance_override() {
+        if (subsystem_state.gpu_culler.is_valid()) {
+            subsystem_state.gpu_culler->get_config().lod_max_distance_override = false;
+            subsystem_state.gpu_culler->invalidate_lod_cache();
+        }
+    }
+
+    /**
      * @brief Sets the importance threshold for splat culling.
      * @param p_threshold Minimum importance value in [0, 1] to keep a splat.
      */

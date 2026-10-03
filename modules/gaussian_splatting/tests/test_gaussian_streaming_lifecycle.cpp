@@ -962,3 +962,356 @@ TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/
     CHECK(system->get_loaded_chunks() == 0);
     CHECK(system->get_pending_upload_jobs() == 0);
 }
+
+// ---------------------------------------------------------------------------
+// #1087: chunk demand must stop at the distance the renderer can draw. Before the
+// fix the only bounds were the camera far plane (discovery) and a 100 km load
+// threshold, so every frustum-visible chunk out to z_far was demanded and loaded
+// although the depth pass drops every splat beyond lod_max_distance / lod_bias.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr float LOAD_DISTANCE_TEST_HALF_EXTENT = 2.0f;
+
+// Chunks on the camera's view axis (camera at the origin looking down -Z), centers
+// at 10, 20, 30 ... m. Each chunk's nearest bounds point is HALF_EXTENT closer.
+void _setup_load_distance_chunks(GaussianStreamingSystem &r_system, uint32_t p_count, float p_first_distance) {
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
+    chunks.resize(p_count);
+    const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+    for (uint32_t i = 0; i < p_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i;
+        chunk.count = 1;
+        chunk.effective_count = 1;
+        chunk.center = Vector3(0.0f, 0.0f, -(p_first_distance + 10.0f * float(i)));
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.max_radius = LOAD_DISTANCE_TEST_HALF_EXTENT;
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+}
+
+// Runs one visibility + needed-set pass and returns the published needed_chunks.
+int64_t _run_load_distance_frame(GaussianStreamingSystem &r_system) {
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f); // the Camera3D default far plane
+    const Transform3D camera_transform; // origin, looking down -Z
+    r_system.begin_frame();
+    r_system._test_get_visibility_controller().update_chunk_visibility(r_system, camera_transform, projection);
+    r_system._test_set_visible_scan_result(false, 0);
+    r_system._test_build_visible_chunk_list();
+    r_system.end_frame();
+    return int64_t(r_system.get_streaming_analytics().get("needed_chunks", int64_t(-1)));
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Chunk demand stops at the load distance limit (#1087)") {
+    // 16 chunks take the linear visibility path, 80 the spatial-grid path.
+    struct Shape {
+        uint32_t chunk_count;
+        float limit;
+    };
+    const Shape shapes[] = { { 16, 59.0f }, { 80, 309.0f } };
+    for (const Shape &shape : shapes) {
+        CAPTURE(shape.chunk_count);
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        _setup_load_distance_chunks(*system.ptr(), shape.chunk_count, 10.0f);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+
+        // Precondition, and the unbounded behaviour is kept: with no limit every
+        // chunk is inside the 4000 m frustum and demanded.
+        system->set_load_distance_limit(0.0f);
+        if (_run_load_distance_frame(*system.ptr()) != int64_t(shape.chunk_count)) {
+            FAIL("fixture precondition: all ", shape.chunk_count, " chunks must be demanded without a limit");
+            continue;
+        }
+
+        system->set_load_distance_limit(shape.limit);
+        const int64_t needed = _run_load_distance_frame(*system.ptr());
+        int64_t expected_needed = 0;
+        for (uint32_t i = 0; i < shape.chunk_count; i++) {
+            CAPTURE(i);
+            // Independent of the engine helper: on the axis the nearest bounds point
+            // is the center distance minus the half extent.
+            const float near_distance = (10.0f + 10.0f * float(i)) - LOAD_DISTANCE_TEST_HALF_EXTENT;
+            const bool within = near_distance <= shape.limit;
+            expected_needed += within ? 1 : 0;
+            // Nothing beyond the bound is discovered; nothing within it is dropped.
+            CHECK(chunks[i].is_visible == within);
+        }
+        CHECK(needed == expected_needed);
+        CHECK(expected_needed < int64_t(shape.chunk_count));
+        // A chunk whose center is past the limit but whose bounds reach inside it
+        // still holds drawable splats, so it stays demanded.
+        const uint32_t straddling = uint32_t((shape.limit + 1.0f - 10.0f) / 10.0f);
+        CHECK(chunks[straddling].distance > shape.limit);
+        CHECK(chunks[straddling].is_visible);
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] A view whose chunks all lie past the load distance limit is not a zero-visible stall (#1087)") {
+    // A camera that is simply far from the content sees nothing because of the bound,
+    // not because of a frustum false negative. The zero-visible machinery (stall
+    // warning, forced recovery that can mark every chunk visible) must stay quiet.
+    // 16 chunks take the linear path (every chunk is distance-culled); 80 take the
+    // grid path (the clamped query box finds no candidate at all).
+    const uint32_t shapes[] = { 16, 80 };
+    for (uint32_t chunk_count : shapes) {
+        CAPTURE(chunk_count);
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        _setup_load_distance_chunks(*system.ptr(), chunk_count, 100.0f);
+        system->set_load_distance_limit(50.0f);
+
+        Projection projection;
+        projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+        const Transform3D camera_transform;
+        StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+        // Long enough for the startup guard (frame 1) and for the persistent trigger
+        // (16 frames) plus cooldown (30 frames) to fire if the state were a stall.
+        for (int frame = 0; frame < 64; frame++) {
+            system->begin_frame();
+            visibility.update_chunk_visibility(*system.ptr(), camera_transform, projection);
+            visibility.handle_zero_visible_chunk_recovery(*system.ptr());
+            system->_test_set_visible_scan_result(false, 0);
+            system->_test_build_visible_chunk_list();
+            system->end_frame();
+        }
+        const Dictionary analytics = system->get_streaming_analytics();
+        CHECK(int(analytics.get("zero_visible_recoveries_triggered", -1)) == 0);
+        CHECK(int(analytics.get("zero_visible_stall_detections", -1)) == 0);
+        CHECK(int(system->get_chunk_culling_stats().get("visible_chunks", -1)) == 0);
+        CHECK(int64_t(analytics.get("needed_chunks", int64_t(-1))) == 0);
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] Zero-visible recovery stays armed when an in-range chunk was frustum-rejected (#1087)") {
+    // Mixed view: the chunks ahead are past the limit, but one chunk inside the limit
+    // (behind the camera) was rejected by the frustum. That rejection may be a frustum
+    // false negative, which is what recovery exists for, so the bound must not
+    // suppress it.
+    const uint32_t chunk_count = 16;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    _setup_load_distance_chunks(*system.ptr(), chunk_count, 100.0f);
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+    chunks[0].center = Vector3(0.0f, 0.0f, 20.0f); // behind the camera, 18 m away
+    chunks[0].bounds = AABB(chunks[0].center - half, half * 2.0f);
+    system->set_load_distance_limit(50.0f);
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+    system->begin_frame();
+    visibility.update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    const Dictionary culling = system->get_chunk_culling_stats();
+    if (int(culling.get("visible_chunks", -1)) != 0 || int(culling.get("frustum_culled_chunks", -1)) != 1 ||
+            int(culling.get("distance_culled_chunks", -1)) != int(chunk_count - 1)) {
+        FAIL("fixture precondition: expected 0 visible, 1 frustum-culled, ", chunk_count - 1, " distance-culled");
+        return;
+    }
+    visibility.handle_zero_visible_chunk_recovery(*system.ptr());
+    system->end_frame();
+    CHECK(int(system->get_streaming_analytics().get("zero_visible_recoveries_triggered", -1)) >= 1);
+}
+
+TEST_CASE("[Streaming Pipeline] Grid zero-visible recovery searches past out-of-range rings for an in-range chunk (#1087)") {
+    // Spatial-grid recovery (64+ chunks) used to stop at the first non-empty ring of
+    // cells. Here the camera's own cell holds only chunk A, which is past the limit,
+    // while chunk B (in range, behind the camera, so frustum-rejected and recovery is
+    // armed) sits just across the cell boundary. Recovery must skip A and reach B.
+    // Geometry: fillers along -Z out to -6,400 m make the grid cell ~100 m; one filler
+    // at x = -93 puts the x cell boundary at about x = +5, between the camera (x = 0)
+    // and B (x = 6..10). A at z = -30 is in the camera's cell, 28 m away.
+    const float limit = 10.0f;
+    const uint32_t filler_count = 78;
+    const uint32_t chunk_count = filler_count + 2;
+    const uint32_t chunk_a = filler_count;
+    const uint32_t chunk_b = filler_count + 1;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        Vector3 center;
+        if (i == chunk_a) {
+            center = Vector3(0.0f, 0.0f, -30.0f);
+        } else if (i == chunk_b) {
+            center = Vector3(8.0f, 0.0f, 2.0f);
+        } else {
+            center = Vector3(i == 0 ? -93.0f : 0.0f, 0.0f, -(100.0f + (6298.0f / float(filler_count - 1)) * float(i)));
+        }
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i;
+        chunk.count = 1;
+        chunk.effective_count = 1;
+        chunk.center = center;
+        chunk.bounds = AABB(center - half, half * 2.0f);
+        chunk.max_radius = LOAD_DISTANCE_TEST_HALF_EXTENT;
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    system->set_load_distance_limit(limit);
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 8000.0f);
+    const Transform3D camera_transform;
+    StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+    system->begin_frame();
+    visibility.update_chunk_visibility(*system.ptr(), camera_transform, projection);
+    const Dictionary culling = system->get_chunk_culling_stats();
+    if (int(culling.get("visible_chunks", -1)) != 0 || int(culling.get("frustum_culled_chunks", -1)) < 1) {
+        system->end_frame();
+        FAIL("fixture precondition: expected an empty view with B frustum-rejected, got visible=",
+                int(culling.get("visible_chunks", -1)), " frustum_culled=", int(culling.get("frustum_culled_chunks", -1)));
+        return;
+    }
+    visibility.handle_zero_visible_chunk_recovery(*system.ptr());
+    system->_test_set_visible_scan_result(false, 0);
+    system->_test_build_visible_chunk_list();
+    system->end_frame();
+    CHECK(int(system->get_streaming_analytics().get("zero_visible_recoveries_triggered", -1)) >= 1);
+    CHECK(chunks[chunk_b].is_visible);
+    CHECK_FALSE(chunks[chunk_a].is_visible);
+    CHECK(int64_t(system->get_streaming_analytics().get("needed_chunks", int64_t(-1))) >= 1);
+}
+
+TEST_CASE("[Streaming Pipeline] Predictive prefetch never queues a chunk past the load distance limit (#1087)") {
+    // Prefetch reaches 1.5 x prefetch_lookahead_distance (10 m by default) around the
+    // predicted position. With a 5 m limit, a chunk 8 m from that position could not be
+    // drawn there either, so it must not be prefetched; one 3 m away must be.
+    const uint32_t chunk_count = 16;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    _setup_load_distance_chunks(*system.ptr(), chunk_count, 100.0f); // all far from the origin
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    const Vector3 predicted(0.0f, 0.0f, -2000.0f);
+    const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+    const uint32_t near_chunk = 0; // nearest bounds point 1 m from the predicted position
+    const uint32_t far_chunk = 1; // nearest bounds point 6 m from it, inside the prefetch ball
+    chunks[near_chunk].center = predicted + Vector3(3.0f, 0.0f, 0.0f);
+    chunks[near_chunk].bounds = AABB(chunks[near_chunk].center - half, half * 2.0f);
+    chunks[far_chunk].center = predicted + Vector3(-8.0f, 0.0f, 0.0f);
+    chunks[far_chunk].bounds = AABB(chunks[far_chunk].center - half, half * 2.0f);
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(chunk_count);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        gaussians[i].position = chunks[i].center;
+        gaussians[i].scale = Vector3(0.05f, 0.05f, 0.05f);
+        gaussians[i].rotation = Quaternion();
+        gaussians[i].opacity = 1.0f;
+    }
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussians(gaussians);
+    system->_test_begin_device_free_load_scan(data, 32);
+    system->set_load_distance_limit(5.0f);
+
+    StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+    // Prefetch needs a moving camera.
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, 0.0f), 0.1f);
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+    const uint32_t queued = visibility.prefetch_chunks_at_predicted_position(*system.ptr(), predicted, 8, 8, UINT32_MAX);
+    const bool near_queued = system->_test_sync_fallback_queued(0u, near_chunk);
+    const bool far_queued = system->_test_sync_fallback_queued(0u, far_chunk);
+    system->_test_end_device_free_load_scan();
+    if (queued == 0) {
+        FAIL("fixture precondition: prefetch queued nothing, so the bound is not exercised");
+        return;
+    }
+    CHECK(near_queued);
+    CHECK_FALSE(far_queued);
+}
+
+TEST_CASE("[Streaming Pipeline] Load scan and sync drain never queue a chunk past the load distance limit (#1087)") {
+    // The visibility pass is not the only gate: the load scan and the sync-fallback
+    // drain apply the same bound themselves. Here visibility ran unbounded, so the far
+    // chunks are visible, and then the limit shrank (as when the camera's draw
+    // distance drops between frames). Neither path may queue or load a far chunk.
+    const uint32_t chunk_count = 16;
+    const float limit = 59.0f; // chunks 0..5 are within it (nearest bounds point 8..58 m)
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(chunk_count);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        gaussians[i].position = Vector3(0.0f, 0.0f, -(10.0f + 10.0f * float(i)));
+        gaussians[i].scale = Vector3(0.05f, 0.05f, 0.05f);
+        gaussians[i].rotation = Quaternion();
+        gaussians[i].opacity = 1.0f;
+    }
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussians(gaussians);
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+
+    // Load scan (_load_visible_chunks).
+    {
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        _setup_load_distance_chunks(*system.ptr(), chunk_count, 10.0f);
+        system->_test_begin_device_free_load_scan(data, 32);
+        system->set_load_distance_limit(0.0f);
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        if (int(system->get_chunk_culling_stats().get("visible_chunks", -1)) != int(chunk_count)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: all chunks must be visible before the limit shrinks");
+            return;
+        }
+        system->set_load_distance_limit(limit);
+        const uint32_t candidates = system->_test_load_visible_chunks(32);
+        uint32_t queued_within = 0;
+        for (uint32_t i = 0; i < chunk_count; i++) {
+            CAPTURE(i);
+            const bool within = (10.0f + 10.0f * float(i)) - LOAD_DISTANCE_TEST_HALF_EXTENT <= limit;
+            const bool queued = system->_test_sync_fallback_queued(0u, i); // 0 = primary asset id
+            if (!within) {
+                CHECK_FALSE(queued);
+            }
+            queued_within += (within && queued) ? 1 : 0;
+        }
+        CHECK(candidates == 6);
+        // The legal route still works: in-range chunks are queued.
+        CHECK(queued_within > 0);
+        system->_test_end_device_free_load_scan();
+    }
+
+    // Sync-fallback drain (_drain_sync_fallback_chunk_loads).
+    {
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        _setup_load_distance_chunks(*system.ptr(), chunk_count, 10.0f);
+        system->_test_begin_device_free_load_scan(data, 32);
+        system->set_load_distance_limit(0.0f);
+        system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+        system->set_load_distance_limit(limit);
+        const uint32_t far_chunk = 10; // nearest bounds point 108 m
+        if (!system->_test_enqueue_sync_fallback_chunk_load(0u, far_chunk, false)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: the far chunk must enter the sync-fallback queue");
+            return;
+        }
+        uint32_t evictions_left = 0;
+        bool eviction_blocked = false;
+        const uint32_t drained = system->_test_drain_sync_fallback_chunk_loads(32, evictions_left, eviction_blocked);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+        CHECK(drained == 0);
+        CHECK_FALSE(chunks[far_chunk].is_loaded);
+        CHECK_FALSE(chunks[far_chunk].upload_pending);
+        // Dropped as irrelevant, not attempted: with no device an attempted load would
+        // also fail and leave the chunk unloaded, so count the attempts directly.
+        CHECK(system->_test_get_sync_fallback_attempted_count() == 0);
+        CHECK(system->_test_get_sync_fallback_stalled_count() >= 1);
+        CHECK_FALSE(system->_test_sync_fallback_queued(0u, far_chunk));
+        system->_test_end_device_free_load_scan();
+    }
+}

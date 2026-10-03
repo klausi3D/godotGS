@@ -137,6 +137,9 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     analytics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
     analytics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
+    // #1087: the distance bound on chunk demand (0 = unbounded) and what it removed this frame.
+    analytics_snapshot["load_distance_limit"] = visibility.load_distance_limit;
+    analytics_snapshot["distance_culled_chunks"] = static_cast<int64_t>(visibility.culling_stats.distance_culled_chunks);
     analytics_snapshot["zero_visible_consecutive_frames"] = visibility.zero_visible_recovery.zero_visible_consecutive_frames;
     analytics_snapshot["zero_visible_recoveries_triggered"] = (int)visibility.zero_visible_recovery.recoveries_triggered;
     analytics_snapshot["zero_visible_stall_detections"] = (int)visibility.zero_visible_recovery.stall_detections;
@@ -853,6 +856,8 @@ Dictionary GaussianStreamingSystem::get_chunk_culling_stats() const {
     stats["total_chunks"] = visibility.culling_stats.total_chunks;
     stats["visible_chunks"] = visibility.culling_stats.visible_chunks;
     stats["frustum_culled_chunks"] = visibility.culling_stats.frustum_culled_chunks;
+    stats["distance_culled_chunks"] = visibility.culling_stats.distance_culled_chunks;
+    stats["load_distance_limit"] = visibility.load_distance_limit;
     stats["loaded_chunks"] = visibility.culling_stats.loaded_chunks;
     stats["resident_chunks"] = visibility.culling_stats.resident_chunks;
     stats["visibility_flag_reset_scan_count"] = visibility.culling_stats.visibility_flag_reset_scan_count;

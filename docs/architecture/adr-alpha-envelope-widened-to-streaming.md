@@ -327,7 +327,11 @@ the gate. *(Amended 2026-09-20: **#929 closed by hand** once its residual was ac
 public-alpha limitation — bar §11 item 5 — so the list is three, not four. The gap itself is
 unchanged for the other three.)* *(Amended 2026-09-25: **#54 was accepted** as a public-alpha
 limitation — bar §11 item 10, now struck — and has a `public_alpha_issue_ledger` entry, so the
-list is two: #851 and #833.)* **#1030 is unlabelled** and so is invisible in the same way. The bar's hand-derived
+list is two: #851 and #833.)* *(Amended 2026-09-30: **#833 was fixed** by #1027, #1031 and
+#1032 and struck — bar §11 item 9 — so the list is one: #851.)* *(Amended 2026-10-01: **#851 was fixed** by #1078 and closed —
+bar §11 item 8, now struck — so the list is empty.)* *(Amended 2026-10-03: **#1077 was
+added** to bar §11 as an open alpha blocker by maintainer decision — item 11 — and it is
+unlabelled, so the list is one: #1077.)* **#1030 is unlabelled** and so is invisible in the same way. The bar's hand-derived
 blocker set and the machine's are disjoint sets — labelling them is a prerequisite for the
 gate to mean what the bar says it means.
 
@@ -398,7 +402,7 @@ open, not to quietly re-narrow the gate or mark a lane advisory.
 | Streaming configuration added to the visual-pass procedure | #1012 | §5.4 |
 | Streaming blockers re-labelled from v1.0 to alpha | #320, #786, #883 | §5.3 |
 | Close or manifest-ledger all 37 open P0/P1/release-blocker issues | #963 | §5.5 — the largest item |
-| Give the gate-invisible blockers a `priority:P0`/`P1`/`release blocker` label | #851, #833, #54, #1030 — *amended 2026-09-20: #1025 was labelled `priority:P1` on 2026-09-19, and #929 closed by hand, so neither needs one; #1025 needs a `public_alpha_issue_ledger` entry instead (#1038); **amended 2026-09-22: that entry has landed, so #1025 is done — #851, #833, #54 and #1030 remain; amended 2026-09-25: #54 was accepted as a public-alpha limitation and given a ledger entry instead, so #851, #833 and #1030 remain*** | §5.5 — without this the gate never sees them |
+| Give the gate-invisible blockers a `priority:P0`/`P1`/`release blocker` label | #851, #833, #54, #1030 — *amended 2026-09-20: #1025 was labelled `priority:P1` on 2026-09-19, and #929 closed by hand, so neither needs one; #1025 needs a `public_alpha_issue_ledger` entry instead (#1038); **amended 2026-09-22: that entry has landed, so #1025 is done — #851, #833, #54 and #1030 remain; amended 2026-09-25: #54 was accepted as a public-alpha limitation and given a ledger entry instead, so #851, #833 and #1030 remain; amended 2026-09-30: #833 was fixed and struck from bar §11, so #851 and #1030 remain; amended 2026-10-01: #851 was fixed by #1078 and closed, so #1030 remains; amended 2026-10-03: #1077 became a §11 blocker, unlabelled, so #1030 and #1077 remain*** | §5.5 — without this the gate never sees them |
 | Content-validate `open_world_proof`, or promote `open_world_corridor_proof` into `candidate_required_lanes` | #1016 / #961 | §4.3 — R3; until then the obligation is human |
 | Un-quarantine the streaming QA scenes, or record them as accepted alpha limitations | #786 + the three untracked reasons | §5.2 |
 

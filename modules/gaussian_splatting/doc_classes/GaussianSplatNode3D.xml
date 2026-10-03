@@ -356,19 +356,20 @@
 			<return type="int" enum="Error" />
 			<description>
 				Permanently applies the current color grading transform to all splat colors. The original colors are backed up and can be restored via [method restore_color_grading]. Returns [constant OK] on success.
+				Only data supplied through [method set_splat_data] can be baked. On a node that renders a [member splat_asset], this returns [constant ERR_UNAVAILABLE] and changes nothing: the live [member rendering/color_grading] already applies to that node, and the asset may be shared by other nodes.
 			</description>
 		</method>
 		<method name="bake_color_grading_snapshot">
 			<return type="int" enum="Error" />
 			<param index="0" name="grading_snapshot" type="ColorGradingResource" />
 			<description>
-				Permanently applies the given [param grading_snapshot] color grading transform to all splat colors. Returns [constant OK] on success.
+				Permanently applies the given [param grading_snapshot] color grading transform to all splat colors. Returns [constant OK] on success, and [constant ERR_UNAVAILABLE] on a node that renders a [member splat_asset] (see [method bake_color_grading]).
 			</description>
 		</method>
 		<method name="restore_color_grading">
-			<return type="void" />
+			<return type="int" enum="Error" />
 			<description>
-				Reverts all splat colors to their state before the first [method bake_color_grading] call, restoring the original unbaked colors.
+				Reverts all splat colors to their state before the first [method bake_color_grading] call, restoring the original unbaked colors. Returns [constant OK], including when nothing was baked. Returns [constant ERR_UNAVAILABLE] on a node that renders a [member splat_asset], where baking is not supported. Returns [constant ERR_INVALID_DATA] when [method set_splat_data] replaced the data with a different splat count since the bake; nothing is restored and color grading stays disabled.
 			</description>
 		</method>
 		<method name="is_color_grading_baked">
@@ -599,7 +600,7 @@
 			LOD bias multiplier (0.1 to 4.0). Higher values keep more splats visible at distance.
 		</member>
 		<member name="quality/max_render_distance" type="float" setter="set_max_render_distance" getter="get_max_render_distance" default="1000.0">
-			Maximum rendering distance in meters.
+			Maximum rendering distance in meters. While LOD is enabled, splats farther than this distance divided by the LOD bias are not drawn, and streamed chunks whose bounds lie entirely beyond that distance are neither discovered nor loaded. Exception: predictive prefetch, which loads chunks around the camera's predicted position, measures the same limit from that position rather than from the camera. With LOD disabled or a value of [code]0[/code] there is no limit: streaming then discovers chunks up to the camera's far plane or 10,000 m, whichever is nearer.
 		</member>
 		<member name="quality/max_splat_count" type="int" setter="set_max_splat_count" getter="get_max_splat_count" default="1000000">
 			Maximum number of splats to render per frame.
