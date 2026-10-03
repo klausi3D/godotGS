@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 166,
-    "sha256": "468da6b64a88d73051ed5c0b4377df9f726a78c858dfe0631ecde71a5372f08a",
-    "sha256_last_changed_by": "#1115 (a [World][SceneTree] case asserted that a world's tier streaming overrides SURVIVE disabling tier_apply_streaming_budgets, the opposite of the contract #229 introduced; it was in no lane, so its 10/10 failure under --gs-gpu-test was never reported): INCREASE 165 -> 166 cases; in modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h the case \"World node preserves prior renderer streaming overrides when tier budgets are disabled\" is replaced by \"Disabling tier streaming budgets returns the world renderer to its pre-world streaming overrides\", tagged [GaussianSplatting][World][SceneTree][RequiresGPU], selected by the WorldSceneTree batch (a REQUIRED batch; 6 -> 7 cases). It asserts that with tier budgets off a resubmitted world drops the tier prefetch/VRAM overrides back to the renderer's pre-world state, and that re-enabling them brings them back. running_in_a_named_batch 99 -> 100, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary) on the tree merged with master after #1118. Never hand-edited. Previous pin, for audit: 29e3e591c1f0a9ba0a6b254e4a623ee969e9d15912f55e8281ad2fa38c314e1d (count 165, #1118).",
+    "test_count": 168,
+    "sha256": "ecd84b68d75480458339a4db54710ecb8ebe0728c7aacac9b1eea90769ddf26f",
+    "sha256_last_changed_by": "#1137 (the per-tile raster cap dropped the farthest records of dense tiles with no production signal): ADD 2, count 166 -> 168; in modules/gaussian_splatting/tests/tile_renderer_regression_test.cpp the cases \"A tile past the per-tile raster cap raises the production drop telemetry (#1137)\" and \"A per-tile raster cap drop warns and fills the production drop counters (#1137)\", both tagged [GaussianSplatting][TileRenderer][RequiresGPU], so both join the TileRenderer batch. running_in_a_named_batch 100 -> 102, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary) on the tree merged with master at 58549b6c79e. Never hand-edited. Previous pin, for audit: 468da6b64a88d73051ed5c0b4377df9f726a78c858dfe0631ecde71a5372f08a (count 166, #1115).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -498,8 +498,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 166,
-      "running_in_a_named_batch": 100,
+      "requires_gpu_total": 168,
+      "running_in_a_named_batch": 102,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },

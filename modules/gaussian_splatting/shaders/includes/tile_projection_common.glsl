@@ -1,6 +1,12 @@
 #ifndef TILE_PROJECTION_COMMON_GLSL
 #define TILE_PROJECTION_COMMON_GLSL
 
+// C4b (G4) channel bits of the resident OverflowStats.overflow_drop_signal word (binding 3).
+// Every writer uses atomicOr so channels accumulate instead of masking each other. Host
+// mirror: OVERFLOW_DROP_SIGNAL_* in renderer/tile_render_types.h (keep the values equal).
+#define GS_OVERFLOW_DROP_BINNING 1u          // tile-binning EMIT dropped an overlap record
+#define GS_OVERFLOW_DROP_RASTER_TILE_CAP 2u  // a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE (#1137)
+
 // ProjectedGaussian payload layout. The packed variant trades precision and index range
 // for reduced bandwidth; it is enabled via GS_PACKED_STAGE_DATA.
 //

@@ -1299,6 +1299,67 @@ TEST_CASE("[GaussianSplatting][Config] Explicit max_overlap_records overrides a 
 	g_gpu_sorting_config = previous_global_config;
 }
 
+TEST_CASE("[GaussianSplatting][Config] Explicit max_raster_splats_per_tile overrides a named preset's cap (#1137)") {
+	// #1137: the setting was registered as 65536 but never read under a named preset, so the
+	// editor showed 65536 while the default "high" preset rasterized at most 12288 records per
+	// tile. It now follows the max_overlap_records rule: 0 = "auto" (the preset's cap), any
+	// positive value is an explicit override that wins under every preset.
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	REQUIRE(project_settings != nullptr);
+
+	const GPUSortingConfig previous_global_config = g_gpu_sorting_config;
+	const String preset_path = GPUSortingConfig::GPU_PRESET_PATH;
+	const String raster_cap_path = GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH;
+	ProjectSettingGuard preset_guard(project_settings, preset_path);
+	ProjectSettingGuard raster_cap_guard(project_settings, raster_cap_path);
+
+	SUBCASE("The registered default is the 0 auto sentinel, not a cap the preset ignores") {
+		REQUIRE(project_settings->property_can_revert(raster_cap_path));
+		CHECK(int64_t(project_settings->property_get_revert(raster_cap_path)) == 0);
+	}
+
+	SUBCASE("0 keeps each preset's own cap") {
+		const char *presets[] = { "low", "medium", "high", "ultra" };
+		const GPUSortingConfig expected[] = {
+			GPUSortingConfig::preset_low(),
+			GPUSortingConfig::preset_medium(),
+			GPUSortingConfig::preset_high(),
+			GPUSortingConfig::preset_ultra(),
+		};
+		for (int i = 0; i < 4; i++) {
+			project_settings->set_setting(preset_path, presets[i]);
+			project_settings->set_setting(raster_cap_path, 0);
+			g_gpu_sorting_config.load_from_project_settings();
+			CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == expected[i].max_raster_splats_per_tile);
+		}
+	}
+
+	SUBCASE("An explicit value wins over a named preset, in both directions") {
+		project_settings->set_setting(preset_path, "high");
+		project_settings->set_setting(raster_cap_path, 65536);
+		g_gpu_sorting_config.load_from_project_settings();
+		CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 65536u);
+
+		project_settings->set_setting(preset_path, "ultra");
+		project_settings->set_setting(raster_cap_path, 4096);
+		g_gpu_sorting_config.load_from_project_settings();
+		CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 4096u);
+	}
+
+	SUBCASE("Custom with the 0 sentinel falls back to 65536; an explicit custom value is kept") {
+		project_settings->set_setting(preset_path, "custom");
+		project_settings->set_setting(raster_cap_path, 0);
+		g_gpu_sorting_config.load_from_project_settings();
+		CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 65536u);
+
+		project_settings->set_setting(raster_cap_path, 8192);
+		g_gpu_sorting_config.load_from_project_settings();
+		CHECK(g_gpu_sorting_config.max_raster_splats_per_tile == 8192u);
+	}
+
+	g_gpu_sorting_config = previous_global_config;
+}
+
 TEST_CASE("[GaussianSplatting][Config] GPUSortingConfig validates tile/depth bit allocation") {
 	GPUSortingConfig config;
 	config.reset_to_defaults();

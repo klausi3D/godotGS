@@ -1,4 +1,5 @@
 #include "core/config/project_settings.h"
+#include "core/error/error_macros.h"
 #include "core/math/vector2i.h"
 #include "core/math/vector3.h"
 #include "core/object/ref_counted.h"
@@ -22,6 +23,37 @@
 #include "gs_test_setting_guard.h"
 
 namespace {
+
+// #1137: records the text of every warning/error emitted while it is in scope, through
+// Godot's ErrorHandlerList (WARN_PRINT and WARN_PRINT_ONCE both reach it).
+struct ScopedTileWarningCapture : public ErrorHandlerList {
+    Vector<String> messages;
+
+    static void _handler(void *p_userdata, const char *, const char *, int, const char *p_error,
+            const char *p_message, bool, ErrorHandlerType) {
+        ScopedTileWarningCapture *self = static_cast<ScopedTileWarningCapture *>(p_userdata);
+        const String message = (p_message && p_message[0]) ? String::utf8(p_message) : String::utf8(p_error ? p_error : "");
+        if (!message.is_empty()) {
+            self->messages.push_back(message);
+        }
+    }
+    ScopedTileWarningCapture() {
+        errfunc = _handler;
+        userdata = this;
+        add_error_handler(this);
+    }
+    ~ScopedTileWarningCapture() {
+        remove_error_handler(this);
+    }
+    bool captured_containing(const String &p_text) const {
+        for (int i = 0; i < messages.size(); i++) {
+            if (messages[i].find(p_text) != -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
 
 static TileRenderer::RenderParams make_render_params(RID p_gaussian_buffer, RID p_sorted_indices, uint32_t p_splat_count,
         int p_viewport_width, int p_viewport_height, int p_tile_size) {
@@ -240,6 +272,13 @@ public:
     // resident-signal telemetry (overflow_drop_events) goes non-zero. Self-initializes the
     // tile renderer, so it can be driven standalone from a dedicated [RequiresGPU] TEST_CASE.
     TestResult test_overflow_drop_telemetry(RenderingDevice *p_rd);
+    // #1137: one 16 px tile holding p_splat_count depth-spread records, rendered through the
+    // real instance pipeline under the shipped default gpu_preset with an explicit
+    // max_raster_splats_per_tile. p_expect_drop selects the assertion: the production
+    // raster-cap telemetry fires (and warns), or it stays silent (control). Either way the
+    // tile must hold more than p_min_tile_records records, so the case is not vacuous.
+    TestResult test_raster_tile_cap_dense_tile(RenderingDevice *p_rd, uint32_t p_splat_count,
+            int64_t p_cap_setting, bool p_expect_drop, uint32_t p_min_tile_records);
     // #586: with the global-composite sorter unavailable and translucent work present, the
     // frame must be REJECTED (nothing published) instead of rasterized in the wrong alpha
     // order -- and a healthy sorter must still publish. Self-initializes the tile renderer.
@@ -1670,6 +1709,132 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow
     return result;
 }
 
+TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_raster_tile_cap_dense_tile(RenderingDevice *p_rd,
+        uint32_t p_splat_count, int64_t p_cap_setting, bool p_expect_drop, uint32_t p_min_tile_records) {
+    // #1137: a far view of a real scan collapses an object into a few 16 px tiles whose depth
+    // complexity exceeds the per-tile raster cap; the rasterizer then drew only the nearest
+    // cap records and dropped the rest without any production signal. This reproduces that
+    // shape synthetically: p_splat_count small, faint splats stacked in depth inside ONE tile.
+    TestResult result;
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!ps) {
+        result.error_message = "ProjectSettings singleton unavailable";
+        return result;
+    }
+    {
+        ProjectSettingGuard preset_guard(ps, GPUSortingConfig::GPU_PRESET_PATH);
+        ProjectSettingGuard cap_guard(ps, GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH);
+        // The SHIPPED default preset (whatever the harness project sets) plus an explicit cap,
+        // which a named preset now honours (#1137).
+        ps->set_setting(GPUSortingConfig::GPU_PRESET_PATH, ps->property_get_revert(GPUSortingConfig::GPU_PRESET_PATH));
+        ps->set_setting(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, p_cap_setting);
+        g_gpu_sorting_config.load_from_project_settings();
+
+        result = [&]() -> TestResult {
+            TestResult r;
+            Error err = tile_renderer->initialize(p_rd, Vector2i(TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT), TEST_TILE_SIZE);
+            if (err != OK) {
+                r.error_message = "Failed to initialize tile renderer for the #1137 dense-tile test";
+                return r;
+            }
+
+            // make_render_params: 60 deg vertical FOV, camera at the origin looking down -Z.
+            // Place every splat 8 px right/up of the viewport centre (the middle of one tile,
+            // since the centre is a tile corner), jittered by < 1 px, sigma 0.5 px, depth
+            // spread over z in [-5, -6] so the records are distinct in depth.
+            Vector<Gaussian> gaussians;
+            gaussians.resize(p_splat_count);
+            for (uint32_t i = 0; i < p_splat_count; i++) {
+                const float z = -5.0f - float(i) / float(p_splat_count);
+                const float px = (2.0f * -z * Math::tan(Math::deg_to_rad(30.0f))) / float(TEST_VIEWPORT_HEIGHT);
+                const float jx = (float((i * 37u) % 5u) - 2.0f) * 0.4f;
+                const float jy = (float((i * 91u) % 5u) - 2.0f) * 0.4f;
+                gaussians.write[i] = _create_test_gaussian(Vector3((8.0f + jx) * px, (8.0f + jy) * px, z),
+                        Vector3(0.5f * px, 0.5f * px, 0.5f * px), 0.02f);
+            }
+            RID gaussian_buffer = create_test_gaussian_buffer(p_rd, gaussians);
+            RID sorted_indices = create_test_sorted_indices(p_rd, p_splat_count);
+            InstancePipelineTestInputs instance_inputs = create_instance_pipeline_test_inputs(p_rd, p_splat_count);
+            auto free_scene = [&]() {
+                if (gaussian_buffer.is_valid()) {
+                    p_rd->free(gaussian_buffer);
+                }
+                if (sorted_indices.is_valid()) {
+                    p_rd->free(sorted_indices);
+                }
+                instance_inputs.free(p_rd);
+            };
+            if (!gaussian_buffer.is_valid() || !sorted_indices.is_valid() || !instance_inputs.is_valid()) {
+                free_scene();
+                r.error_message = "Failed to create #1137 dense-tile scene buffers";
+                return r;
+            }
+            TileRenderer::RenderParams params = make_render_params(gaussian_buffer, sorted_indices,
+                    p_splat_count, TEST_VIEWPORT_WIDTH, TEST_VIEWPORT_HEIGHT, TEST_TILE_SIZE);
+            bind_instance_pipeline_inputs(params, instance_inputs, p_splat_count);
+
+            const uint32_t cap_events_before = tile_renderer->get_raster_tile_cap_drop_events();
+            uint32_t peak_tile_records = 0;
+            uint32_t max_sampled_dropped = 0;
+            int sampled_frames = 0;
+            uint64_t last_sample_serial = tile_renderer->get_sampled_drop_frame_serial();
+            ScopedTileWarningCapture capture;
+            for (int frame = 0; frame < 24; frame++) {
+                RID output = tile_renderer->render(p_rd, params);
+                if (!output.is_valid()) {
+                    free_scene();
+                    r.error_message = "Render failed in the #1137 dense-tile test";
+                    return r;
+                }
+                peak_tile_records = MAX<uint32_t>(peak_tile_records, tile_renderer->get_last_render_stats().max_splats_in_tile);
+                if (tile_renderer->get_sampled_drop_frame_serial() != last_sample_serial) {
+                    last_sample_serial = tile_renderer->get_sampled_drop_frame_serial();
+                    sampled_frames++;
+                    max_sampled_dropped = MAX<uint32_t>(max_sampled_dropped, tile_renderer->get_sampled_dropped_records());
+                }
+            }
+            free_scene();
+            const uint32_t cap_events = tile_renderer->get_raster_tile_cap_drop_events() - cap_events_before;
+            const uint32_t cap = tile_renderer->get_raster_tile_cap();
+            const String state = vformat("splats=%d cap=%d peak_tile_records=%d sampled_frames=%d max_sampled_dropped=%d raster_cap_events=%d",
+                    p_splat_count, cap, peak_tile_records, sampled_frames, max_sampled_dropped, cap_events);
+
+            // Not vacuous: the production readback must have sampled frames, the explicit cap
+            // must be the one in force, and the tile must really be that dense.
+            if (sampled_frames < 2) {
+                r.error_message = "The production drop readback sampled fewer than 2 frames; " + state;
+                return r;
+            }
+            if (int64_t(cap) != p_cap_setting) {
+                r.error_message = "The explicit max_raster_splats_per_tile is not the cap in force; " + state;
+                return r;
+            }
+            if (peak_tile_records <= p_min_tile_records) {
+                r.error_message = vformat("The scene did not put more than %d records in one tile; ", p_min_tile_records) + state;
+                return r;
+            }
+            if (p_expect_drop) {
+                if (cap_events == 0 || max_sampled_dropped == 0) {
+                    r.error_message = "The per-tile raster cap truncated a tile but the production telemetry stayed silent; " + state;
+                    return r;
+                }
+                if (!capture.captured_containing("Per-tile raster cap reached")) {
+                    r.error_message = "The per-tile raster cap fired without its warning; " + state;
+                    return r;
+                }
+            } else if (cap_events != 0 || max_sampled_dropped != 0) {
+                r.error_message = "The raster-cap telemetry fired for a tile below the cap; " + state;
+                return r;
+            }
+            r.passed = true;
+            return r;
+        }();
+    }
+    // The guards restored the settings; re-sync the global config for later tests.
+    g_gpu_sorting_config.load_from_project_settings();
+    return result;
+}
+
 TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_unavailable_rejects_frame(RenderingDevice *p_rd) {
     // #586 on-GPU proof, driving the REAL failure path rather than an injected end state.
     //
@@ -2946,6 +3111,39 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Overflow-record drop r
     CHECK(result.passed);
 }
 
+// #1137, on a real device through the real instance pipeline (fail-closed device idiom of the
+// #586 cases). One 16 px tile holds 6000 records. Control first: under an explicit 8192 cap
+// nothing is truncated and the telemetry must stay silent. Then under an explicit 4096 cap the
+// rasterizer truncates the tile, and the production telemetry (sampled drop counters,
+// raster-cap events, the warning) must say so. Before #1137 the rasterizers never raised the
+// resident drop signal, and a named preset ignored the explicit cap.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A tile past the per-tile raster cap raises the production drop telemetry (#1137)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    // Fail-closed device idiom of the #586 cases below (an environment skip may not be added).
+    // Declared before the Ref so it destructs LAST (~TileRenderer runs cleanup() on it).
+    ScopedLocalRD local_rd_scope;
+    RenderingDevice *local_device = local_rd_scope.rd;
+    if (local_device == nullptr) {
+        FAIL("Could not create a local RenderingDevice from the harness-bootstrapped singleton. "
+             "This [RequiresGPU] case must run under tests/ci/run_gpu_harness.py.");
+        return;
+    }
+
+    auto run_phase = [&](int64_t p_cap, bool p_expect_drop) {
+        Ref<TileRendererRegressionTest> regression_test;
+        regression_test.instantiate();
+        TileRendererRegressionTest::TestResult result =
+                regression_test->test_raster_tile_cap_dense_tile(local_device, 6000u, p_cap, p_expect_drop, 4096u);
+        regression_test.unref(); // before local_rd_scope frees local_device
+        if (!result.passed) {
+            MESSAGE(result.error_message);
+        }
+        return result.passed;
+    };
+    CHECK(run_phase(8192, false)); // control: same tile, below the cap
+    CHECK(run_phase(4096, true));
+}
+
 // #586: the global-composite sorter-unavailable reject, on a real device. See
 // test_sorter_unavailable_rejects_frame for the phases and for why the sorter is made
 // unavailable through the production create_sorter() refusal rather than a test hook.
@@ -3152,6 +3350,96 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] Sticky overflow drop i
     CHECK(ds.overflow_signal_readback.pending);
     flush();
     CHECK(renderer.get_overflow_drop_events() == base + 2u);
+
+    ds.free_buffers(rd);
+}
+
+// #1137: the per-tile raster cap used to drop the farthest records of the densest tiles with no
+// production signal (only the debug-gated readback counted them). The rasterizers now OR
+// OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP into the resident C4b signal; this drives the production
+// readback state machine with a sampled frame carrying that bit and checks that it warns (with
+// the raster-cap text, once per renderer), counts the raster channel separately from the
+// binning channel, and exposes the sampled frame's drop counts.
+TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A per-tile raster cap drop warns and fills the production drop counters (#1137)") {
+    REQUIRE_RENDERING_DEVICE_SINGLETON();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
+
+    TileRenderer renderer;
+    auto &ds = renderer._test_debug_stats();
+    ds.create_buffers(rd);
+    if (!ds.overflow_statistics_buffer.is_valid()) {
+        FAIL("Failed to create overflow statistics buffer for the #1137 raster-cap telemetry test");
+        return;
+    }
+
+    auto write_sample = [&](uint32_t p_signal, uint32_t p_records, uint32_t p_tiles) {
+        TileRenderer::OverflowStatsSnapshot snapshot;
+        snapshot.overflow_tile_count = p_tiles;
+        snapshot.overflow_splats_clamped = p_records;
+        snapshot.overflow_drop_signal = p_signal;
+        rd->buffer_update(ds.overflow_statistics_buffer, 0, sizeof(snapshot), &snapshot);
+    };
+    // Same flush idiom as the sticky re-poll test above: two synchronous reads stall every
+    // frame, which runs the recorded async readback callbacks.
+    auto flush = [&]() {
+        for (int i = 0; i < 2; ++i) {
+            rd->buffer_get_data(ds.overflow_statistics_buffer, 0, sizeof(uint32_t));
+        }
+    };
+    const char *kRasterCapText = "Per-tile raster cap reached";
+
+    // Sampled frame 7: the rasterizer truncated one tile by 600 records.
+    write_sample(GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP, 600u, 1u);
+    flush();
+    const uint32_t events_before = renderer.get_overflow_drop_events();
+    {
+        ScopedTileWarningCapture capture;
+        ds.poll_overflow_drop_signal(rd, 7);
+        flush();
+        CHECK(capture.captured_containing(kRasterCapText));
+        CHECK(capture.captured_containing("max_raster_splats_per_tile"));
+    }
+    CHECK(renderer.get_raster_tile_cap_drop_events() == 1u);
+    CHECK(renderer.get_overflow_drop_events() == events_before + 1u);
+    CHECK(renderer.get_sampled_dropped_records() == 600u);
+    CHECK(renderer.get_sampled_dropped_tiles() == 1u);
+    CHECK(renderer.get_sampled_drop_frame_serial() == 7u);
+
+    // Re-arm, then a binning-only drop: an overflow event, but NOT a raster-cap event and not
+    // the raster-cap text.
+    ds.clear_counters(rd);
+    flush();
+    write_sample(GaussianSplatting::OVERFLOW_DROP_SIGNAL_BINNING, 5u, 2u);
+    flush();
+    {
+        ScopedTileWarningCapture capture;
+        ds.poll_overflow_drop_signal(rd, 8);
+        flush();
+        CHECK_FALSE(capture.captured_containing(kRasterCapText));
+    }
+    CHECK(renderer.get_raster_tile_cap_drop_events() == 1u);
+    CHECK(renderer.get_overflow_drop_events() == events_before + 2u);
+    CHECK(renderer.get_sampled_dropped_records() == 5u);
+
+    // Re-arm, then a clean frame: the per-frame counters return to 0, no event.
+    ds.clear_counters(rd);
+    flush();
+    ds.poll_overflow_drop_signal(rd, 9);
+    flush();
+    CHECK(renderer.get_sampled_dropped_records() == 0u);
+    CHECK(renderer.get_sampled_drop_frame_serial() == 9u);
+    CHECK(renderer.get_overflow_drop_events() == events_before + 2u);
+
+    // A second raster-cap interval on the same renderer counts again but does not warn again.
+    write_sample(GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP, 40u, 1u);
+    flush();
+    {
+        ScopedTileWarningCapture capture;
+        ds.poll_overflow_drop_signal(rd, 10);
+        flush();
+        CHECK_FALSE(capture.captured_containing(kRasterCapText));
+    }
+    CHECK(renderer.get_raster_tile_cap_drop_events() == 2u);
 
     ds.free_buffers(rd);
 }

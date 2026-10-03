@@ -232,6 +232,13 @@ public:
     // one overlap record. Fed by the always-on STICKY overflow_drop_signal readback; reliably
     // non-zero whenever drops happen (not a per-frame count).
     uint32_t get_overflow_drop_events() const { return diagnostics.overflow_drop_events; }
+    // #1137: read-intervals in which the per-tile raster cap truncated at least one tile, and
+    // the production per-frame drop counters of the most recently sampled frame (all channels).
+    uint32_t get_raster_tile_cap_drop_events() const { return diagnostics.raster_tile_cap_drop_events; }
+    uint32_t get_sampled_dropped_records() const { return diagnostics.sampled_dropped_records; }
+    uint32_t get_sampled_dropped_tiles() const { return diagnostics.sampled_dropped_tiles; }
+    uint64_t get_sampled_drop_frame_serial() const { return diagnostics.sampled_drop_frame_serial; }
+    uint32_t get_raster_tile_cap() const { return _get_effective_raster_tile_cap(); }
 
     void set_debug_log_resolve(bool p_enabled);
     bool get_debug_log_resolve() const { return diagnostics.debug_log_resolve; }
@@ -438,6 +445,9 @@ private:
     Vector<String> _build_common_shader_defines(bool p_include_dispatch_group) const;
     Vector<String> _build_binning_shader_defines() const;
     Vector<String> _build_raster_shader_defines() const;
+    // The per-tile raster cap compiled into the raster shaders as GS_MAX_RASTER_SPLATS_PER_TILE
+    // (single source for the define, the render stats and the #1137 cap warning).
+    static uint32_t _get_effective_raster_tile_cap();
     void _ensure_global_projection_buffer(uint32_t p_visible_count);
     void _ensure_global_sort_resources(uint32_t p_visible_count);
 	bool _update_global_tile_ranges(const RID &p_gaussian_buffer, const RID &p_sorted_indices, RenderingDevice *p_device,

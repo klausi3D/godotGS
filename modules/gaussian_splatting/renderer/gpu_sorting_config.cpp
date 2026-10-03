@@ -61,10 +61,12 @@ void GPUSortingConfig::load_from_project_settings() {
         if (apply_preset(preset_name)) {
             // Preset applied successfully — load only debug/logging/profiling
             // overrides that are orthogonal to the sort layout. Per Codex P2 on
-            // PR #325: reading max_raster_splats_per_tile / key_bits / tile_bits
-            // / depth_bits / enable_tie_breaker here would silently promote the
+            // PR #325: reading key_bits / tile_bits / depth_bits /
+            // enable_tie_breaker here would silently promote the
             // preset's layout back to the GLOBAL_DEF defaults, overriding a
-            // preset's intentional layout choice. Every preset now uses 64-bit
+            // preset's intentional layout choice. (max_raster_splats_per_tile is
+            // read below behind a 0 "auto" sentinel, which cannot promote a
+            // GLOBAL_DEF default over the preset; #1137.) Every preset now uses 64-bit
             // keys (the only shippable layout); 32-bit keys are reachable ONLY via
             // gpu_sorting/preset="custom", which falls through to the manual config
             // block below and reads every knob individually. This keeps the
@@ -107,6 +109,15 @@ void GPUSortingConfig::load_from_project_settings() {
             if (project_overlap > 0) {
                 max_overlap_records = uint32_t(project_overlap);
             }
+            // #1137: the per-tile raster cap follows the same sentinel rule. It is GLOBAL_DEF'd
+            // as 0 ("auto": keep the preset's cap); a positive project value is an explicit
+            // override and wins under a named preset too. Before #1137 the setting was
+            // registered as 65536 and never read under a preset, so the editor showed 65536
+            // while the default "high" preset rasterized at most 12288 records per tile.
+            const int64_t project_raster_cap = ps->get_setting(MAX_RASTER_SPLATS_PER_TILE_PATH, 0);
+            if (project_raster_cap > 0) {
+                max_raster_splats_per_tile = uint32_t(MIN(project_raster_cap, int64_t(UINT32_MAX)));
+            }
             if (enable_performance_logging) {
                 print_config_summary();
             }
@@ -124,7 +135,9 @@ void GPUSortingConfig::load_from_project_settings() {
     bool has_overlap = (overlap_setting > 0);
     max_sort_elements = ps->get_setting(MAX_ELEMENTS_PATH, 50000000);
     max_overlap_records = has_overlap ? uint32_t(overlap_setting) : 100000000u;
-    max_raster_splats_per_tile = ps->get_setting(MAX_RASTER_SPLATS_PER_TILE_PATH, 65536);
+    // 0 is the "auto" sentinel (#1137); without a preset, auto means the historical 65536.
+    const int64_t raster_cap_setting = ps->get_setting(MAX_RASTER_SPLATS_PER_TILE_PATH, 0);
+    max_raster_splats_per_tile = (raster_cap_setting > 0) ? uint32_t(MIN(raster_cap_setting, int64_t(UINT32_MAX))) : 65536u;
     // Default ON (GS-PERF-S2); the struct default is the source of truth for the fallback.
     bounded_buffer_shrink_enabled = ps->get_setting(BOUNDED_BUFFER_SHRINK_PATH, bounded_buffer_shrink_enabled);
     adaptive_overlap_budget_enabled = ps->get_setting(ADAPTIVE_OVERLAP_BUDGET_PATH, adaptive_overlap_budget_enabled);
@@ -703,7 +716,9 @@ void initialize_gpu_sorting_config() {
     GLOBAL_DEF(GPUSortingConfig::BOUNDED_BUFFER_SHRINK_PATH, g_gpu_sorting_config.bounded_buffer_shrink_enabled);
     GLOBAL_DEF(GPUSortingConfig::ADAPTIVE_OVERLAP_BUDGET_PATH, g_gpu_sorting_config.adaptive_overlap_budget_enabled);
     GLOBAL_DEF(GPUSortingConfig::MAX_OVERLAP_RECORDS_ADAPTIVE_MIN_PATH, 100000);
-    GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 65536);
+    // 0 = "auto": the active gpu_preset's per-tile raster cap (65536 under "custom"); any
+    // positive value is an explicit override that wins under a named preset too (#1137).
+    GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 0);
     GLOBAL_DEF(GPUSortingConfig::RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
     GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
     GLOBAL_DEF(GPUSortingConfig::KEY_BITS_PATH, GPUSortingConstants::DEFAULT_KEY_BITS);
