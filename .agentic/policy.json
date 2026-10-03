@@ -123,6 +123,7 @@
           "tests/ci/check_doc_snippets.py",
           "tests/ci/validate_automation.py",
           "tests/ci/run_gpu_harness.py",
+          "tests/ci/check_project_settings_reference.py",
           "tests/runtime/run_runtime_validation.py"
         ]
       },

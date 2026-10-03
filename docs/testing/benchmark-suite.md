@@ -296,6 +296,45 @@ Metric intent:
 - soft budget warnings are meant to flag machine-noise-sensitive frame spikes or bursty load/eviction pressure without turning one noisy run into a hard blocker
 - missing telemetry is a separate review condition because an unauditable lane is not valid proof evidence
 
+What three of the correctness metrics measure (#1086). All three are read from the engine's
+needed-set telemetry in `streaming_state`. They cover the proof window only (`steady_overall`
+when it has samples). Each is `null`, so the lane reports missing telemetry, when the binary does
+not publish its key. The *needed set* is the visible chunks inside the load distance, which is
+the same set `_load_visible_chunks` treats as load candidates. A frame on which the engine did not
+build the needed set (`needed_set_measured == false`) is counted in
+`needed_set_unmeasured_frames` and kept out of all three metrics; it is not read as "no demand".
+
+- `residency_ratio` is resident needed chunks / needed chunks, averaged over the proof-window
+  frames whose needed set was non-empty. Reported beside it: `residency_ratio_min`,
+  `residency_full_frame_fraction` (the share of those frames at exactly 1.0) and
+  `residency_demand_frames`. It used to be visible splats / world splats, which the corridor's
+  120,000-splat render cap held at or below 0.006 however well streaming worked.
+- `no_progress_frames` counts proof-window frames on which the needed set had been incomplete
+  without *net needed-set progress* for at least 0.5 s
+  (`StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS`). The 0.5 s is a sum of
+  streaming frame deltas, each clamped to [0.0005, 0.25] s.
+  - Progress is a needed chunk completing that does not merely refill a slot freed by evicting
+    another needed chunk. Prefetch completions and evict/reload churn of the needed set are not
+    progress.
+  - The onset is time-based, but once a stall has begun every frame counts, so the count still
+    scales with frame rate. `no_progress_episodes` and `no_progress_stall_seconds_max` are
+    reported for a contract that wants to gate on time.
+  - It used to count every frame with zero completions, which at ~200 fps scored a pipeline
+    completing ~37 chunks/s as stalled on ~80% of its frames.
+- `scan_starved_frames` counts proof-window frames on which needed chunks sat unserved (neither
+  loaded nor upload-pending), the visible scan had enqueue headroom, and the scan found no load
+  candidate.
+  - `scan_starvation_eligible_frames` counts the frames that *could* have starved. When it is 0,
+    `scan_starved_frames` is `null`.
+  - Starvation is judged against what the scan saw: it needs a scan budget below the visible
+    count. That happens with `max_visible_chunk_scan_per_frame` below the visible count, or with
+    the queue-pressure throttle, which is on by default
+    (`queue_pressure_candidate_scan_throttle_enabled`, `gaussian_splat_manager.cpp`). The throttle
+    shrinks the budget under queue depth, and the scan then restarts at the nearest prefix.
+  - It used to count `scheduler_visible_scan_budget_effective <= 1`. That is what the throttle
+    deliberately produces when pack jobs in flight reach `max_pack_jobs_in_flight`, which leaves
+    zero headroom.
+
 ## Suite Coverage
 
 These are the user-relevant lanes already encoded in the suite and available for publication once committed results exist:

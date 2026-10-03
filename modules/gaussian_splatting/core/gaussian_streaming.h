@@ -439,6 +439,20 @@ public:
     uint32_t _test_get_primary_eviction_candidate_count() const { return scheduler.last_primary_eviction_candidate_count; }
     uint32_t _test_get_non_primary_eviction_scan_count() const { return scheduler.last_non_primary_scan_count; }
     uint32_t _test_get_non_primary_eviction_candidate_count() const { return scheduler.last_non_primary_eviction_candidate_count; }
+    // #1086: drive the needed-set accounting without a device. The scan state is what
+    // _load_visible_chunks would have recorded for this frame.
+    void _test_set_visible_scan_result(bool p_had_capacity, uint32_t p_load_candidates) {
+        scheduler.last_visible_scan_had_capacity = p_had_capacity;
+        scheduler.last_load_candidate_count = p_load_candidates;
+    }
+    // Runs the end-of-scan starvation decision _load_visible_chunks makes, for a scan
+    // that covered p_scanned_chunks of the visible list starting at p_scan_origin.
+    void _test_record_visible_scan_starvation(bool p_had_capacity, uint32_t p_load_candidates,
+            uint32_t p_scan_origin, uint32_t p_scanned_chunks) {
+        _test_set_visible_scan_result(p_had_capacity, p_load_candidates);
+        _record_visible_scan_starvation(p_scan_origin, p_scanned_chunks, _get_needed_set_load_threshold());
+    }
+    void _test_build_visible_chunk_list() { _build_visible_chunk_list(); }
     // Field-level accessors for the global atlas registry. Returning the
     // registry by reference would expose private fields the registry's
     // friendship with this class doesn't grant onward — these forward only
@@ -502,6 +516,9 @@ private:
     void _evict_for_vram_budget(uint32_t &evictions_left, bool &eviction_blocked);
     void _load_visible_chunks(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
     void _build_visible_chunk_list();
+    // #1086: the load-candidate distance _load_visible_chunks uses; defines the needed set.
+    float _get_needed_set_load_threshold() const;
+    void _record_visible_scan_starvation(uint32_t p_scan_origin, uint32_t p_scanned_chunks, float p_load_threshold);
     void _handle_predictive_prefetch(const Vector3 &camera_pos, uint32_t effective_max);
     void _update_vram_regulator();
     void _log_streaming_frame_stats(uint32_t effective_max);
