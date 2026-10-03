@@ -69,6 +69,9 @@ forward-clustered single-view path composites pre-upscale instead (see
 ### `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` (+253 / −~5)
 ~200+ lines of Gaussian shadow rendering infrastructure: shadow atlas helpers,
 directional/omni/spot shadow dispatch structs. This is the largest single change.
+Since #1095 slice 1 (refs #1089) the dispatch is fail-closed: `_gaussian_shadow_submit`
+reports whether any renderer wrote splat depth, and the omni-cube finalize re-copies the
+shared cubemap into a light's atlas rect only when a splat was written for that light.
 
 Additionally (GPU-001 Option B fix, refs #921): the "Gaussian Splats
 Pre-Upscale" block inside `_render_scene` runs the splat render+composite into
