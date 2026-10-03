@@ -375,6 +375,7 @@ TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] Hidden, the overla
 		OS::get_singleton()->delay_usec(300000);
 	}
 	tree->process(0.0);
+	overlay->refresh_now(); // hidden: an explicit refresh reads nothing either
 	CHECK(overlay->get_refresh_count() == 0);
 
 	Ref<InputEventKey> key;
@@ -430,6 +431,29 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 	Dictionary snap;
 	gs_overlay_test::Overlay::build_report(in, lines, snap);
 	CHECK(gs_overlay_test::joined(lines).contains(String::utf8("in this viewport — ")));
+}
+
+TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Node names and target paths are shown literally, not parsed as BBCode") {
+	gs_overlay_test::Overlay::ReportInputs in;
+	in.sections = gs_overlay_test::Overlay::SECTION_NODE;
+	in.has_target = true;
+	in.has_node = true;
+	in.target_kind = "GaussianSplatNode3D";
+	in.target_name = "[font_size=100]Cloud";
+	Vector<String> lines;
+	Dictionary snap;
+	gs_overlay_test::Overlay::build_report(in, lines, snap);
+	const String text = gs_overlay_test::joined(lines);
+	CHECK(text.contains("[lb]font_size=100]Cloud"));
+	CHECK_FALSE(text.contains("[font_size=100]"));
+	// The snapshot keeps the real name.
+	CHECK(String(gs_overlay_test::section(snap, "node").get("name", "")) == "[font_size=100]Cloud");
+
+	in.has_target = false;
+	in.target_problem = "target_path ^\"[b]Bold\" does not resolve";
+	gs_overlay_test::Overlay::build_report(in, lines, snap);
+	CHECK_FALSE(gs_overlay_test::joined(lines).contains("[b]Bold"));
+	CHECK(gs_overlay_test::joined(lines).contains("[lb]b]Bold"));
 }
 
 TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries every displayed LOD, streaming and SH value") {

@@ -220,9 +220,16 @@ void header(Vector<String> &r_lines, const char *p_title) {
 	r_lines.push_back(vformat(U"[b]═══ %s ═══[/b]", p_title));
 }
 
+// User-derived text (node names, target paths) goes into RichTextLabels with
+// BBCode on: "[" becomes the [lb] tag so a name like "[font_size=100]Cloud" is
+// shown literally instead of being parsed. The snapshot keeps the raw text.
+String bbcode_escape(const String &p_text) {
+	return p_text.replace("[", "[lb]");
+}
+
 String no_target_line(const GaussianSplatPerformanceOverlay::ReportInputs &p_in) {
 	return vformat(U"no splat node or world to describe — %s (%s)", NA,
-			p_in.target_problem.is_empty() ? String("none found") : p_in.target_problem);
+			p_in.target_problem.is_empty() ? String("none found") : bbcode_escape(p_in.target_problem));
 }
 
 bool streaming_ready(const GaussianSplatPerformanceOverlay::ReportInputs &p_in) {
@@ -805,7 +812,7 @@ void section_node(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, Vec
 		r_snap["node"] = s;
 		return;
 	}
-	r_lines.push_back(vformat("%s (%s)", p_in.target_name, p_in.target_kind));
+	r_lines.push_back(vformat("%s (%s)", bbcode_escape(p_in.target_name), p_in.target_kind));
 	Variant total;
 	Variant update;
 	if (p_in.has_node) {
@@ -1639,5 +1646,11 @@ void GaussianSplatPerformanceOverlay::set_font_size(int p_size) {
 }
 
 void GaussianSplatPerformanceOverlay::refresh_now() {
+	// Hidden: nothing is shown, so nothing is read (the same gate as the
+	// automatic refresh). Visible: refreshes at once -- an explicit request
+	// that bypasses update_interval, as the class reference says.
+	if (!is_visible()) {
+		return;
+	}
 	_refresh();
 }

@@ -7,7 +7,7 @@
 		Add this node to any scene to show a performance panel. With no configuration it finds the [GaussianSplatNode3D] or [GaussianSplatWorld3D] to describe on its own: the first one in tree order that has a renderer and is rendered in the same [World3D] as the viewport the overlay draws into ([member CanvasLayer.custom_viewport] when set, otherwise its own viewport), preferring the one the process-global custom monitors currently track. Set [member target_path] or call [method set_target] to choose one explicitly. The camera rows describe that viewport's current [Camera3D].
 		Every row is a measurement of what its label names, or it reads [code]n/a[/code]; a [code]0[/code] always means "measured, and it was zero". GPU pass rows are shown only while the renderer's validity flag for that pass is set, and the panel prints how many frames behind those (sticky) values may be. Rows read from the process-global custom monitors are shown only when those monitors describe the overlay's own target renderer.
 		Frame pacing is measured on the wall clock, sampled once per main-loop iteration: FPS is the number of drawn frames ([method Engine.get_frames_drawn]) divided by wall time over the refresh window, never [code]1 / delta[/code], so it is unaffected by [member Engine.time_scale]. The frame interval is labelled as a wall-clock interval because it includes GPU and vsync waits.
-		Statistics are read once per refresh window (at most 4 Hz), never per frame, and not at all while the overlay is hidden. The renderer statistics and the custom monitors are read on the render thread, between frames, while the main thread waits; the frame counter keeps running while hidden. Press [member hide_key] (default [kbd]F3[/kbd]) to toggle the panel.
+		The automatic refresh reads statistics once per refresh window (at most 4 Hz), never per frame, and not at all while the overlay is hidden; [method refresh_now] is the one explicit exception to the rate limit. The renderer statistics and the custom monitors are read on the render thread, between frames, while the main thread waits; the frame counter keeps running while hidden. Press [member hide_key] (default [kbd]F3[/kbd]) to toggle the panel.
 		The panel ignores mouse input, so camera controls that use [method Node._unhandled_input] keep working underneath it.
 	</description>
 	<tutorials>
@@ -40,7 +40,7 @@
 		<method name="refresh_now">
 			<return type="void" />
 			<description>
-				Refreshes the panel immediately, using the most recently completed frame-pacing window.
+				Refreshes the panel immediately, using the most recently completed frame-pacing window. Does nothing while the overlay is hidden. Otherwise it does NOT wait for [member update_interval]: every call reads the renderer statistics once, and that read waits for the render thread, so calling it every frame stalls the main thread. Meant for tests and for one-off captures; the automatic refresh needs no call.
 			</description>
 		</method>
 		<method name="set_target">
@@ -73,7 +73,7 @@
 			The panel title. When empty, "Gaussian Splatting" is used. The current scene's file name is appended.
 		</member>
 		<member name="update_interval" type="float" setter="set_update_interval" getter="get_update_interval" default="0.25">
-			Length of the refresh window, in seconds. FPS is measured over this window and statistics are read once per window. Clamped to 0.25–2.0 s: statistics are never read faster than 4 Hz.
+			Length of the refresh window, in seconds. FPS is measured over this window and statistics are read once per window. Clamped to 0.25–2.0 s: the automatic refresh never reads statistics faster than 4 Hz ([method refresh_now] is an explicit, unthrottled request).
 		</member>
 	</members>
 	<constants>
