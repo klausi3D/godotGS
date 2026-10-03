@@ -643,7 +643,8 @@ against this base. Ranked by user impact.
 (re-counted 2026-10-01: **#851 fixed on master** by #1078 (`eed9879edb1`), and the issue
 is closed — see item 8; that moves the count from 10/1/1 to 11/1/0. Re-counted before that
 on 2026-09-30: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
-run time on 2026-09-27 and signed off by the maintainer on 2026-09-30 — see item 9; that moves the count from 9/1/2 to 10/1/1, and the one
+run time on 2026-09-27, signed off by the maintainer on 2026-09-30, and re-confirmed on
+the current template on 2026-10-03 — see item 9; that moves the count from 9/1/2 to 10/1/1, and the one
 then still open was #851. Re-counted before that on 2026-09-25: **#54 accepted** by the maintainer as a disclosed public-alpha
 limitation, [#54 comment 5838456717](https://github.com/klausi3D/godotGS/issues/54#issuecomment-5838456717).
 It stays open as the tracking issue for the engineering fix, so it is counted as accepted
@@ -770,13 +771,18 @@ rather than a ceiling.
    producer) and #1032 (`bdabe6988fa`: README and GDScript reference). The entry is kept
    struck rather than deleted so the disposition stays readable.
 
-   **Evidence:** a one-off runtime check on 2026-09-27, recorded in full at
-   [#833 comment 5856499938](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5856499938).
-   The record has the probe script verbatim, the exact command, the binary and commit
-   (dev editor from `6f4552076c7`; template and `performance_monitors.cpp` byte-identical to
-   master), and the raw per-run monitor tables. This is **not a lane**: the probe is an
-   uncommitted scratch autoload, and the record is what makes it reproducible. What it
-   shows:
+   **Evidence:** a one-off runtime check, recorded in full at
+   [#833 comment 5856499938](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5856499938)
+   (2026-09-27: probe script verbatim, the exact command, the binary and commit, raw
+   per-run monitor tables) and **re-run on the current template on 2026-10-03**,
+   [#833 comment 5970504694](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5970504694).
+   The re-run was needed because #1093 (`987661737d2`) changed the template's
+   `project.godot` after the first runs (dev editor from `6f4552076c7`), so those no longer
+   exercised the shipped configuration. The re-run uses a dev editor built clean at
+   `eff00db450c`, the same probe (v2, same sha256) and the same command. Between
+   `eff00db450c` and `64cb1fee056`, `templates/` and `performance_monitors.{h,cpp}` are
+   unchanged. This is **not a lane**: the probe is an uncommitted scratch autoload, and the
+   records are what make it reproducible. What they show:
    - **Before** (the tree just before #1027, same binary): two `Parse Error`s, a scene root
      with no script, 18 of the 57 monitor ids in the overlay source unregistered, and the
      panel reading `Initializing...` for the whole run.
@@ -784,18 +790,25 @@ rather than a ceiling.
      errors; root, overlay, node and camera attached; 0 of 52 ids unregistered; 28–29
      distinct panel texts in ~32 refreshes; `cpu_setup_time_ms` at 82–91 distinct values
      per run; `aggregated_count` following a camera move (14,446 → 21,387).
-   - `streaming_monitor_ready` read 0, so the LOD, streaming and streaming-VRAM blocks show
+   - **After, current template** (2026-10-03, three windowed runs at 1280×720, CI idle):
+     the same result. No parse, load or missing-monitor errors; root, overlay, node and
+     camera attached; 0 of 52 ids unregistered; 29–31 distinct panel texts;
+     `cpu_setup_time_ms` at 68–87 distinct values per run; `aggregated_count` following
+     the camera move (14,446 → 20,449–21,622).
+   - In both sets of runs, `streaming_monitor_ready` read 0, so the LOD, streaming and streaming-VRAM blocks show
      `n/a` rather than their getters' `0` / `1` / `1.0`.
 
    **Signed off on 2026-09-30.** The maintainer gave the visual sign-off, on the runtime
-   contact sheet from these runs
+   contact sheet from the 2026-09-27 runs
    ([record](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5919843709)). It
-   covers the overlay only, not the gaps listed next.
+   covers the overlay only, not the gaps listed next. It predates #1093. The 2026-10-03
+   re-run's screenshot (panel legible, every block populated or `n/a`) has not been put to
+   the maintainer.
 
    **Not checked:** the streaming rows with a streaming system attached, and a second GPU
    vendor.
 
-   **Seen, and not caused by this fix (#1077):** every run, the pre-fix one included,
+   **Seen, and not caused by this fix (#1077):** every run in both sets, the pre-fix one included,
    exited abnormally at shutdown, **after** the probe's checks had completed, with
    `RenderingDevice::free` called off the render thread under the template's
    `thread_model=2`. The #1030 polling crash was not observed.
