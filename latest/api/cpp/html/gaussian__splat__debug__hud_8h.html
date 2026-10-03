@@ -96,7 +96,7 @@ $(document).ready(function(){initNavTree('gaussian__splat__debug__hud_8h.html','
 </div><!--header-->
 <div class="contents">
 
-<p>In-viewport debug HUD for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting performance stats.  
+<p>The internal "Route &amp; residency HUD".  
 <a href="#details">More...</a></p>
 <div class="textblock"><code>#include &quot;core/object/ref_counted.h&quot;</code><br />
 <code>#include &quot;core/object/object_id.h&quot;</code><br />
@@ -127,8 +127,8 @@ Functions</h2></td></tr>
 <tr class="separator:a831cbe329c1b0367bb00b25d251bca0c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>In-viewport debug HUD for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting performance stats. </p>
-<p>This file defines <a class="el" href="classGaussianSplatDebugHUD.html" title="Control node that renders debug statistics overlay in the viewport.">GaussianSplatDebugHUD</a>, a Control node that draws runtime statistics directly in the viewport. It displays splat count, FPS, memory usage, streaming status, and other key performance metrics. </p>
+<div class="textblock"><p>The internal "Route &amp; residency HUD". </p>
+<p>This file defines <a class="el" href="classGaussianSplatDebugHUD.html" title="Control node that renders debug statistics overlay in the viewport.">GaussianSplatDebugHUD</a>, a Control node that draws the renderer's diagnostic lines (route, policy, backend, residency) directly in the viewport. Since #1084 it shows no frame or GPU timings: the one runtime performance overlay is <a class="el" href="classGaussianSplatPerformanceOverlay.html">GaussianSplatPerformanceOverlay</a>. </p>
 </div><h2 class="groupheader">Function Documentation</h2>
 <a id="a831cbe329c1b0367bb00b25d251bca0c" name="a831cbe329c1b0367bb00b25d251bca0c"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a831cbe329c1b0367bb00b25d251bca0c">&#9670;&#160;</a></span>VARIANT_ENUM_CAST()</h2>

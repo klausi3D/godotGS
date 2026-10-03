@@ -10,6 +10,8 @@ var dir_5b0b7e2dc47927de6e59864253fc7bdc =
     [ "gaussian_splat_node_3d.h", "gaussian__splat__node__3d_8h.html", "gaussian__splat__node__3d_8h" ],
     [ "gaussian_splat_node_helpers.cpp", "gaussian__splat__node__helpers_8cpp.html", null ],
     [ "gaussian_splat_node_helpers.h", "gaussian__splat__node__helpers_8h.html", "gaussian__splat__node__helpers_8h" ],
+    [ "gaussian_splat_performance_overlay.cpp", "gaussian__splat__performance__overlay_8cpp.html", "gaussian__splat__performance__overlay_8cpp" ],
+    [ "gaussian_splat_performance_overlay.h", "gaussian__splat__performance__overlay_8h.html", "gaussian__splat__performance__overlay_8h" ],
     [ "gaussian_splat_world_3d.cpp", "gaussian__splat__world__3d_8cpp.html", null ],
     [ "gaussian_splat_world_3d.h", "gaussian__splat__world__3d_8h.html", "gaussian__splat__world__3d_8h" ],
     [ "sphere_effector_3d.cpp", "sphere__effector__3d_8cpp.html", null ],

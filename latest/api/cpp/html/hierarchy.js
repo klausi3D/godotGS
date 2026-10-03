@@ -34,6 +34,9 @@ var hierarchy =
     [ "GaussianSplatting::HierarchicalSplatStructure::BuildParams", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1BuildParams.html", null ],
     [ "OutputCompositor::CachedFramebuffer", "structOutputCompositor_1_1CachedFramebuffer.html", null ],
     [ "StreamingVisibilityController::CameraVelocityTracker", "structStreamingVisibilityController_1_1CameraVelocityTracker.html", null ],
+    [ "CanvasLayer", null, [
+      [ "GaussianSplatPerformanceOverlay", "classGaussianSplatPerformanceOverlay.html", null ]
+    ] ],
     [ "GaussianSplatting::ComputeInfrastructure::CapabilityGatePolicy", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy.html", null ],
     [ "GaussianSplatting::ChangeEntry", "structGaussianSplatting_1_1ChangeEntry.html", null ],
     [ "ChunkBounds", "structChunkBounds.html", null ],
@@ -105,6 +108,7 @@ var hierarchy =
     [ "GaussianSplatRenderer::FrameBackendPlan", "structGaussianSplatRenderer_1_1FrameBackendPlan.html", null ],
     [ "FramebufferCopyParams", "structFramebufferCopyParams.html", null ],
     [ "OutputCompositor::FramebufferValidationCacheEntry", "structOutputCompositor_1_1FramebufferValidationCacheEntry.html", null ],
+    [ "GaussianSplatPerformanceOverlay::FrameClock", "structGaussianSplatPerformanceOverlay_1_1FrameClock.html", null ],
     [ "FrameCompletionTracker", "classFrameCompletionTracker.html", null ],
     [ "GaussianStreamingTypes::FrameData", "structGaussianStreamingTypes_1_1FrameData.html", null ],
     [ "GaussianSplatRenderer::RenderFrameContext::FrameDeps", "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html", null ],
@@ -212,7 +216,9 @@ var hierarchy =
     ] ],
     [ "IRendererProvider", "classIRendererProvider.html", null ],
     [ "IRenderThreadDispatcher", "classIRenderThreadDispatcher.html", [
-      [ "RenderThreadDispatcher", "classRenderThreadDispatcher.html", null ]
+      [ "RenderThreadDispatcher", "classRenderThreadDispatcher.html", [
+        [ "GsOverlayStatsDispatcher", "classGsOverlayStatsDispatcher.html", null ]
+      ] ]
     ] ],
     [ "ISortBufferHostContext", "classISortBufferHostContext.html", [
       [ "GaussianSplatRenderer", "classGaussianSplatRenderer.html", null ]
@@ -238,6 +244,7 @@ var hierarchy =
     [ "GaussianSplatting::HierarchicalSplatStructure::QueryResult::LODStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html", null ],
     [ "GaussianMemoryStream::MemoryPool", "structGaussianMemoryStream_1_1MemoryPool.html", null ],
     [ "gs::ModuleStringNames", "structgs_1_1ModuleStringNames.html", null ],
+    [ "GaussianSplattingPerformanceMonitors::MonitorSourceInfo", "structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html", null ],
     [ "GaussianSplatRenderer::MonitorStreamingSnapshot", "structGaussianSplatRenderer_1_1MonitorStreamingSnapshot.html", null ],
     [ "StreamingQueuePressureController::NeededSetProgressInput", "structStreamingQueuePressureController_1_1NeededSetProgressInput.html", null ],
     [ "StreamingQueuePressureController::NeededSetProgressState", "structStreamingQueuePressureController_1_1NeededSetProgressState.html", null ],
@@ -382,6 +389,7 @@ var hierarchy =
     [ "RenderSortingOrchestrator", "classRenderSortingOrchestrator.html", null ],
     [ "RenderStreamingOrchestrator", "classRenderStreamingOrchestrator.html", null ],
     [ "RenderStreamingOrchestratorDependencies", "structRenderStreamingOrchestratorDependencies.html", null ],
+    [ "GaussianSplatPerformanceOverlay::ReportInputs", "structGaussianSplatPerformanceOverlay_1_1ReportInputs.html", null ],
     [ "GaussianStreamingTypes::RequestedChunkState", "structGaussianStreamingTypes_1_1RequestedChunkState.html", null ],
     [ "ResidencyBudgetController", "classResidencyBudgetController.html", null ],
     [ "TileResolveStage::ResolvePushConstants", "structTileResolveStage_1_1ResolvePushConstants.html", null ],
@@ -560,6 +568,7 @@ var hierarchy =
     [ "StreamingQueuePressureController::VisibleScanStarvationInput", "structStreamingQueuePressureController_1_1VisibleScanStarvationInput.html", null ],
     [ "VRAMBudgetConfig", "structVRAMBudgetConfig.html", null ],
     [ "VRAMDebugStats", "structVRAMDebugStats.html", null ],
+    [ "GaussianSplatPerformanceOverlay::FrameClock::Window", "structGaussianSplatPerformanceOverlay_1_1FrameClock_1_1Window.html", null ],
     [ "GaussianSplatSceneDirector::WorldSubmission", "structGaussianSplatSceneDirector_1_1WorldSubmission.html", null ],
     [ "GaussianSplatRenderer::WorldSubmissionContract", "structGaussianSplatRenderer_1_1WorldSubmissionContract.html", null ],
     [ "GaussianSplatSceneDirector::SubmissionStore::WorldSubmissionRecord", "structGaussianSplatSceneDirector_1_1SubmissionStore_1_1WorldSubmissionRecord.html", null ],

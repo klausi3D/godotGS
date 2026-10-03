@@ -32,8 +32,9 @@ var searchData=
   ['build_5fquery_5fview_29',['build_query_view',['../classDebugOverlaySystem.html#a849e59c6e7517298341f5c32caad108e',1,'DebugOverlaySystem']]],
   ['build_5frender_5fprojection_30',['build_render_projection',['../classGaussianSplatRenderer.html#a1c1785d7c8231aef96dfa4ac6a545581',1,'GaussianSplatRenderer']]],
   ['build_5frender_5fstats_31',['build_render_stats',['../classRenderDiagnosticsOrchestrator.html#ad50689296f8ae80de75667fd832fddd5',1,'RenderDiagnosticsOrchestrator']]],
-  ['build_5froute_5fdecision_32',['build_route_decision',['../classRenderPipelineStages.html#a7faa6b10e31bc08536aabb2da05ecc6c',1,'RenderPipelineStages']]],
-  ['build_5fruntime_5ffidelity_5fpolicy_33',['build_runtime_fidelity_policy',['../classGaussianSplatRenderer.html#a10c732cc4f854c526214256d0f98ca68',1,'GaussianSplatRenderer']]],
-  ['build_5fsphere_5feffector_5fpayload_5ffor_5frenderer_34',['build_sphere_effector_payload_for_renderer',['../classGaussianSplatSceneDirector.html#addfc6f16fb986248aad64cc4cc6615a1',1,'GaussianSplatSceneDirector']]],
-  ['build_5fvisible_5findices_35',['build_visible_indices',['../classGaussianStreamingSystem.html#af95795ec107514677dd123e039d23ce9',1,'GaussianStreamingSystem']]]
+  ['build_5freport_32',['build_report',['../classGaussianSplatPerformanceOverlay.html#a43d53c18b725bbcaf0d933c5b3ea0505',1,'GaussianSplatPerformanceOverlay']]],
+  ['build_5froute_5fdecision_33',['build_route_decision',['../classRenderPipelineStages.html#a7faa6b10e31bc08536aabb2da05ecc6c',1,'RenderPipelineStages']]],
+  ['build_5fruntime_5ffidelity_5fpolicy_34',['build_runtime_fidelity_policy',['../classGaussianSplatRenderer.html#a10c732cc4f854c526214256d0f98ca68',1,'GaussianSplatRenderer']]],
+  ['build_5fsphere_5feffector_5fpayload_5ffor_5frenderer_35',['build_sphere_effector_payload_for_renderer',['../classGaussianSplatSceneDirector.html#addfc6f16fb986248aad64cc4cc6615a1',1,'GaussianSplatSceneDirector']]],
+  ['build_5fvisible_5findices_36',['build_visible_indices',['../classGaussianStreamingSystem.html#af95795ec107514677dd123e039d23ce9',1,'GaussianStreamingSystem']]]
 ];

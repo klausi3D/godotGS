@@ -9,6 +9,7 @@ digraph "nodes"
     graph [ bgcolor="#edf0f7", pencolor="grey50", label="gaussian_splatting", fontname=Helvetica,fontsize=10 style="filled,dashed", URL="dir_a7c5dc539e8692fa7c626776bf229a86.html",tooltip=""]
   dir_13916f256549b6bbeb0ad7fe043c472e [label="lod", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_13916f256549b6bbeb0ad7fe043c472e.html",tooltip=""];
   dir_4d9a0851c4af74770921fba31e268bb1 [label="logger", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_4d9a0851c4af74770921fba31e268bb1.html",tooltip=""];
+  dir_6f43087885c02412ef74d5fb05a340f1 [label="interfaces", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_6f43087885c02412ef74d5fb05a340f1.html",tooltip=""];
   dir_7647312eaffe3fbde22451c27808fddd [label="io", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_7647312eaffe3fbde22451c27808fddd.html",tooltip=""];
   dir_c366402dd28375b68e0f617f5f685a3b [label="resources", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_c366402dd28375b68e0f617f5f685a3b.html",tooltip=""];
   dir_d02d02ccfbf78243378b2aff5a58b373 [label="core", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_d02d02ccfbf78243378b2aff5a58b373.html",tooltip=""];
@@ -18,9 +19,10 @@ digraph "nodes"
   }
   dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_13916f256549b6bbeb0ad7fe043c472e [headlabel="1", labeldistance=1.5 headhref="dir_000011_000008.html" href="dir_000011_000008.html" color="steelblue1" fontcolor="steelblue1"];
   dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_4d9a0851c4af74770921fba31e268bb1 [headlabel="6", labeldistance=1.5 headhref="dir_000011_000009.html" href="dir_000011_000009.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_6f43087885c02412ef74d5fb05a340f1 [headlabel="1", labeldistance=1.5 headhref="dir_000011_000006.html" href="dir_000011_000006.html" color="steelblue1" fontcolor="steelblue1"];
   dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_7647312eaffe3fbde22451c27808fddd [headlabel="1", labeldistance=1.5 headhref="dir_000011_000007.html" href="dir_000011_000007.html" color="steelblue1" fontcolor="steelblue1"];
   dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_c366402dd28375b68e0f617f5f685a3b [headlabel="1", labeldistance=1.5 headhref="dir_000011_000016.html" href="dir_000011_000016.html" color="steelblue1" fontcolor="steelblue1"];
-  dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_d02d02ccfbf78243378b2aff5a58b373 [headlabel="27", labeldistance=1.5 headhref="dir_000011_000003.html" href="dir_000011_000003.html" color="steelblue1" fontcolor="steelblue1"];
-  dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_daa26d30b61fdbb555b4333281d6a287 [headlabel="7", labeldistance=1.5 headhref="dir_000011_000015.html" href="dir_000011_000015.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_d02d02ccfbf78243378b2aff5a58b373 [headlabel="29", labeldistance=1.5 headhref="dir_000011_000003.html" href="dir_000011_000003.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_daa26d30b61fdbb555b4333281d6a287 [headlabel="8", labeldistance=1.5 headhref="dir_000011_000015.html" href="dir_000011_000015.html" color="steelblue1" fontcolor="steelblue1"];
   dir_5b0b7e2dc47927de6e59864253fc7bdc->dir_e75693fccf34c3631d25f7fd74138888 [headlabel="1", labeldistance=1.5 headhref="dir_000011_000012.html" href="dir_000011_000012.html" color="steelblue1" fontcolor="steelblue1"];
 }

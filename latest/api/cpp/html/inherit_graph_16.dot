@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="ChunkQuantizationInfo",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structChunkQuantizationInfo.html",tooltip="Per-chunk quantization bounds for position and scale compression."];
+  Node0 [id="Node000000",label="ChunkQuantizationGPU",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structChunkQuantizationGPU.html",tooltip="GPU-uploadable per-chunk quantization data (64 bytes, 16-byte aligned)."];
 }

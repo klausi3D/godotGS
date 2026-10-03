@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="gs_layout_hint::LayoutHint\lFailureCounters",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structgs__layout__hint_1_1LayoutHintFailureCounters.html",tooltip=" "];
+  Node0 [id="Node000000",label="GPUSortingPipeline\l::InstancePipelineInputs",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGPUSortingPipeline_1_1InstancePipelineInputs.html",tooltip=" "];
 }

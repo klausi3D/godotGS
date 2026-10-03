@@ -126,7 +126,7 @@ digraph "gaussian_splat_node_3d.cpp"
   Node144 -> Node17 [id="edge81_Node000144_Node000017",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node40 [id="edge82_Node000001_Node000040",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node145 [id="edge83_Node000001_Node000145",color="steelblue1",style="solid",tooltip=" "];
-  Node145 [id="Node000145",label="gaussian_splat_debug\l_hud.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gaussian__splat__debug__hud_8h.html",tooltip="In-viewport debug HUD for Gaussian Splatting performance stats."];
+  Node145 [id="Node000145",label="gaussian_splat_debug\l_hud.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$gaussian__splat__debug__hud_8h.html",tooltip="The internal \"Route & residency HUD\"."];
   Node145 -> Node47 [id="edge84_Node000145_Node000047",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node55 [id="edge85_Node000001_Node000055",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node54 [id="edge86_Node000001_Node000054",color="steelblue1",style="solid",tooltip=" "];

@@ -6,5 +6,5 @@ var searchData=
   ['compressionflags_3',['CompressionFlags',['../classGaussianSplatAsset.html#a72d17f2a151a45e089a7ff2596c49bfe',1,'GaussianSplatAsset']]],
   ['compressiontype_4',['CompressionType',['../namespaceGaussianSplatting.html#a99553b051a5a76e68522bc7a274e8e70',1,'GaussianSplatting']]],
   ['computerasterpolicy_5',['ComputeRasterPolicy',['../namespaceGaussianSplatting.html#a2fde404be00a5f2432c11126268c6e47',1,'GaussianSplatting']]],
-  ['corner_6',['Corner',['../classGaussianSplatDebugHUD.html#a90f22d4deec49c22504e7b16919e6f74',1,'GaussianSplatDebugHUD']]]
+  ['corner_6',['corner',['../classGaussianSplatDebugHUD.html#a90f22d4deec49c22504e7b16919e6f74',1,'GaussianSplatDebugHUD::Corner'],['../classGaussianSplatPerformanceOverlay.html#a24e22d52e4c498c210702c02bb9ceee6',1,'GaussianSplatPerformanceOverlay::Corner']]]
 ];

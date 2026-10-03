@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="SHConfig",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structSHConfig.html",tooltip="Runtime configuration for Spherical Harmonics rendering."];
+  Node0 [id="Node000000",label="ResourceOwnerMismatchContract\l::Inputs",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structResourceOwnerMismatchContract_1_1Inputs.html",tooltip=" "];
 }

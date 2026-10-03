@@ -23,5 +23,7 @@ digraph "gaussian_splat_quality_config.h"
   Node9 [id="Node000009",label="gaussian_splat_node\l_3d.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__node__3d_8cpp.html",tooltip=" "];
   Node2 -> Node10 [id="edge9_Node000002_Node000010",dir="back",color="steelblue1",style="solid",tooltip=" "];
   Node10 [id="Node000010",label="gaussian_splat_node\l_helpers.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__node__helpers_8cpp.html",tooltip=" "];
-  Node2 -> Node7 [id="edge10_Node000002_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node2 -> Node11 [id="edge10_Node000002_Node000011",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node11 [id="Node000011",label="gaussian_splat_performance\l_overlay.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$gaussian__splat__performance__overlay_8cpp.html",tooltip=" "];
+  Node2 -> Node7 [id="edge11_Node000002_Node000007",dir="back",color="steelblue1",style="solid",tooltip=" "];
 }
