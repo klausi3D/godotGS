@@ -38,7 +38,7 @@ fixed them.
 | Painterly ignores sphere effectors and per-splat depth clipping | [#1079](https://github.com/klausi3D/godotGS/issues/1079) | Active |
 | The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
-| The starter template exits abnormally at shutdown | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | Active |
+| The starter template prints a render-thread error at shutdown (the crash is fixed) | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | **Alpha blocker** (§11) |
 | A world and a `GaussianSplatNode3D` in one scene: one of them renders nothing | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
 | An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
@@ -55,8 +55,10 @@ fixed them.
 
 **Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
-what we ship knowing about. No §11 blocker has an entry here today. The last one this page
-named, #851 (painterly ignoring scene lighting), closed on 2026-10-01, fixed by #1078; see
+what we ship knowing about. One §11 blocker has an entry here so that a user who sees its
+symptom can find the issue: #1077, the shutdown error (see its entry). It is a blocker, not
+an accepted limitation. Before it, the last blocker this page named was #851 (painterly
+ignoring scene lighting), which closed on 2026-10-01, fixed by #1078; see
 [Recently resolved](#recently-resolved).
 
 The other exception is the clearly-fenced **"Proposed, not yet accepted"** section near
@@ -67,15 +69,17 @@ section may be cited as an `accepted_alpha_limitation`. If you are looking for w
 alpha actually ships with, read everything *above* that heading. The "Recently resolved"
 section after it lists only fixed defects.
 
-> That list is **human-maintained, and the machine gate cannot see most of it.** The
+> That list is **human-maintained, and the machine gate cannot see all of it.** The
 > candidate gate's population is issues labelled `priority:P0`, `priority:P1` or
 > `release blocker`. The §11 blockers this page has named carried none of those, so nothing
 > automated would have stopped a release on them. Four have left that list: #929 when it
 > closed on 2026-09-20, carrying only `program:prod-ready`; #54 when it was accepted on
 > 2026-09-25 (it is now listed under [Rendering](#rendering)); #833 when it was struck from
 > §11 (item 9) on 2026-09-30, fixed by #1027, #1031 and #1032; and #851, which is
-> `priority:P2`, when it closed on 2026-10-01, fixed by #1078. The bar's §11 count has not
-> yet been updated for #851. Read "it is in the blocker set" as "a human has to hold the
+> `priority:P2`, when it closed on 2026-10-01, fixed by #1078 (§11 item 8). #1077, a §11
+> blocker since 2026-10-03 (item 11), carries none of those labels either. The streaming
+> items §11 still lists (#320, #786, #883) are `priority:P1` and visible to the gate; its
+> 50M-asset lane item has no issue at all. Read "it is in the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 > an obligation on the bar.
 
@@ -551,29 +555,38 @@ mode is unstable.
 The per-frame render-thread syncs that #1092 reported are fixed by #1094 (see
 [Recently resolved](#recently-resolved)).
 
-### The starter template exits abnormally at shutdown ([#1077](https://github.com/klausi3D/godotGS/issues/1077))
+### The starter template prints a render-thread error at shutdown ([#1077](https://github.com/klausi3D/godotGS/issues/1077))
 
-**Status: Active.**
+**Status: public-alpha blocker** (maintainer decision 2026-10-03,
+[record](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739); acceptance
+bar §11 item 11). It is listed here only so its symptom can be found, and is not an accepted
+limitation. The shutdown **crash** is fixed by
+[#1133](https://github.com/klausi3D/godotGS/pull/1133) (merged 2026-10-02). One error line
+remains.
 
-On 2026-09-27, 6 of 6 windowed runs of the starter template ended abnormally **after** the
-scene had quit (exit 127 or 139, no normal shutdown). Each run logged
+**What was fixed.** Before #1133, every windowed run of the starter template ended
+abnormally **after** the scene had quit, under its `thread_model=2`: 6 of 6 runs on
+2026-09-27, and 3 of 3 on 2026-10-03 on a build from before #1133. The runs logged
 `This function (free) can only be called from the render thread` from
-`RenderingDevice::free` during teardown. Some runs also logged
-`RenderDeviceManager::shutdown` reporting still-tracked owned resources, or a `SafeRefCount`
-misuse error. This happened with and without the #833 overlay fix, so the overlay is not
-the cause.
+`RenderingDevice::free`, and sometimes a `SafeRefCount` misuse error. The cause was a
+dispatcher argument-order bug that let the renderer's teardown run off the render thread.
+The [independent review of #1133](https://github.com/klausi3D/godotGS/pull/1133#pullrequestreview-5389066529)
+measured the base crashing (`0xC0000409`) in 3 of 3 runs and #1133 exiting 0 in 3 of 3,
+with the `free` / `SafeRefCount` errors gone.
 
-**Evidence:** reproduced, not diagnosed. Every run had a probe script attached. A run with
-no probe, and runs at `thread_model=1`, have not been made. The issue's hypothesis is that
-module-owned RIDs are freed from the main thread during teardown, which a separate render
-thread rejects; that is not verified. Whether the editor or an exported game shows a crash
-dialog on quit has not been checked.
+**What remains.** Every fixed run prints one
+`This function (finalize) can only be called from the render thread` at quit and still exits
+0. The review attributes it, by inference and not by trace, to the manager destroying its
+local rendering devices on the main thread once the render loop has stopped. The
+maintainer has decided that this error blocks the public alpha until it is fixed.
 
-**Workaround:** set `rendering/driver/threads/thread_model` to `1` (Godot's default). That this avoids the
-crash is **not** measured. A non-zero exit is attributable to this entry only when it comes
-**after** the scene has quit and is preceded by the `RenderingDevice::free ... can only be
-called from the render thread` errors above. A failure before quit, or with a different
-error signature, is not explained by this entry and should be treated as a new failure.
+**Evidence:** the #1133 numbers are 3+3 windowed runs on one NVIDIA GPU. Release or
+exported builds, a `GaussianSplatWorld3D` scene and `thread_model=1` have not been run
+against the residual.
+
+**Workaround:** none needed for the exit code. The remaining line is printed only at quit.
+A non-zero exit at shutdown on a build that includes #1133 is not explained by this entry
+and should be treated as a new failure.
 
 ## GaussianSplatWorld3D
 
