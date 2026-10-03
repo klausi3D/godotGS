@@ -90,6 +90,7 @@ $(document).ready(function(){initNavTree('classGaussianAtlasAllocator.html','');
 
 <div class="header">
   <div class="summary">
+<a href="#nested-classes">Classes</a> &#124;
 <a href="#pub-methods">Public Member Functions</a> &#124;
 <a href="classGaussianAtlasAllocator-members.html">List of all members</a>  </div>
   <div class="headertitle"><div class="title">GaussianAtlasAllocator Class Reference</div></div>
@@ -98,30 +99,47 @@ $(document).ready(function(){initNavTree('classGaussianAtlasAllocator.html','');
 
 <p><code>#include &lt;<a class="el" href="streaming__atlas_8h_source.html">streaming_atlas.h</a>&gt;</code></p>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianAtlasAllocator_1_1PageRun.html">PageRun</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:adab5109e98da406213d922d10c33f21b" id="r_adab5109e98da406213d922d10c33f21b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#adab5109e98da406213d922d10c33f21b">reset</a> (uint32_t p_slot_count)</td></tr>
-<tr class="separator:adab5109e98da406213d922d10c33f21b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aed285371d83de02e5db5ae460d563485" id="r_aed285371d83de02e5db5ae460d563485"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#aed285371d83de02e5db5ae460d563485">reset</a> (uint32_t p_page_count)</td></tr>
+<tr class="separator:aed285371d83de02e5db5ae460d563485"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad5545dda5cda20a88d37bf16a5b611ab" id="r_ad5545dda5cda20a88d37bf16a5b611ab"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#ad5545dda5cda20a88d37bf16a5b611ab">resize_preserve</a> (uint32_t p_new_capacity)</td></tr>
 <tr class="separator:ad5545dda5cda20a88d37bf16a5b611ab"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ab021ebdc917f4479bb394a5bec5b3b43" id="r_ab021ebdc917f4479bb394a5bec5b3b43"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#ab021ebdc917f4479bb394a5bec5b3b43">has_free_slots</a> () const</td></tr>
-<tr class="separator:ab021ebdc917f4479bb394a5bec5b3b43"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a037149f9161d49a55e82658d3c9976cb" id="r_a037149f9161d49a55e82658d3c9976cb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a037149f9161d49a55e82658d3c9976cb">get_free_slot_count</a> () const</td></tr>
-<tr class="separator:a037149f9161d49a55e82658d3c9976cb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa21718be764c9a9fca18cda494f36da7" id="r_aa21718be764c9a9fca18cda494f36da7"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#aa21718be764c9a9fca18cda494f36da7">can_allocate</a> (uint32_t p_page_count) const</td></tr>
+<tr class="separator:aa21718be764c9a9fca18cda494f36da7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6ebdae9c8cec4e46dc969504f971f419" id="r_a6ebdae9c8cec4e46dc969504f971f419"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a6ebdae9c8cec4e46dc969504f971f419">get_free_page_count</a> () const</td></tr>
+<tr class="separator:a6ebdae9c8cec4e46dc969504f971f419"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7c5771158a0dea5e18ee098cfdd4dd95" id="r_a7c5771158a0dea5e18ee098cfdd4dd95"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a7c5771158a0dea5e18ee098cfdd4dd95">get_used_page_count</a> () const</td></tr>
+<tr class="separator:a7c5771158a0dea5e18ee098cfdd4dd95"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4f2b97d27dab66d776acd206f553fa23" id="r_a4f2b97d27dab66d776acd206f553fa23"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a4f2b97d27dab66d776acd206f553fa23">get_largest_free_run</a> () const</td></tr>
+<tr class="separator:a4f2b97d27dab66d776acd206f553fa23"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a70c85acb4eb7c5239c7866ae0fdfd247" id="r_a70c85acb4eb7c5239c7866ae0fdfd247"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a70c85acb4eb7c5239c7866ae0fdfd247">get_free_run_count</a> () const</td></tr>
+<tr class="separator:a70c85acb4eb7c5239c7866ae0fdfd247"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac06748f1930cb58f175a69930e38f187" id="r_ac06748f1930cb58f175a69930e38f187"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#ac06748f1930cb58f175a69930e38f187">get_allocation_count</a> () const</td></tr>
+<tr class="separator:ac06748f1930cb58f175a69930e38f187"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a21d4ffda2e71c768a5718106f286e88d" id="r_a21d4ffda2e71c768a5718106f286e88d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a21d4ffda2e71c768a5718106f286e88d">get_capacity</a> () const</td></tr>
 <tr class="separator:a21d4ffda2e71c768a5718106f286e88d"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a68af9780f4e7bdf00ba1a5fb0d52a187" id="r_a68af9780f4e7bdf00ba1a5fb0d52a187"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a68af9780f4e7bdf00ba1a5fb0d52a187">allocate_slot</a> (uint64_t p_chunk_key, uint32_t &amp;r_slot)</td></tr>
-<tr class="separator:a68af9780f4e7bdf00ba1a5fb0d52a187"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adf2bb7344739ffd3b1494dd8466e7759" id="r_adf2bb7344739ffd3b1494dd8466e7759"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#adf2bb7344739ffd3b1494dd8466e7759">allocate_slot</a> (uint64_t p_chunk_key, uint32_t p_page_count, uint32_t &amp;r_slot)</td></tr>
+<tr class="separator:adf2bb7344739ffd3b1494dd8466e7759"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a80e077d34fd734a99b823700e769af37" id="r_a80e077d34fd734a99b823700e769af37"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a80e077d34fd734a99b823700e769af37">release_slot</a> (uint64_t p_chunk_key)</td></tr>
 <tr class="separator:a80e077d34fd734a99b823700e769af37"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4c1bd010f80c684f257e1a26b84fc86a" id="r_a4c1bd010f80c684f257e1a26b84fc86a"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a4c1bd010f80c684f257e1a26b84fc86a">get_slot</a> (uint64_t p_chunk_key, uint32_t &amp;r_slot) const</td></tr>
 <tr class="separator:a4c1bd010f80c684f257e1a26b84fc86a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a700f9f0d303b3f3a86348ed5de72c746" id="r_a700f9f0d303b3f3a86348ed5de72c746"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a700f9f0d303b3f3a86348ed5de72c746">get_run</a> (uint64_t p_chunk_key, <a class="el" href="structGaussianAtlasAllocator_1_1PageRun.html">PageRun</a> &amp;r_run) const</td></tr>
+<tr class="separator:a700f9f0d303b3f3a86348ed5de72c746"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a47f3460f08b6668324a468142140c32e" id="r_a47f3460f08b6668324a468142140c32e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a47f3460f08b6668324a468142140c32e">get_coalesced_run_if_released</a> (const <a class="el" href="structGaussianAtlasAllocator_1_1PageRun.html">PageRun</a> &amp;p_run) const</td></tr>
+<tr class="separator:a47f3460f08b6668324a468142140c32e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a118ee53d752e340a3b6dabb08fde099c" id="r_a118ee53d752e340a3b6dabb08fde099c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianAtlasAllocator.html#a118ee53d752e340a3b6dabb08fde099c">clear</a> ()</td></tr>
 <tr class="separator:a118ee53d752e340a3b6dabb08fde099c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a68af9780f4e7bdf00ba1a5fb0d52a187" name="a68af9780f4e7bdf00ba1a5fb0d52a187"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a68af9780f4e7bdf00ba1a5fb0d52a187">&#9670;&#160;</a></span>allocate_slot()</h2>
+<a id="adf2bb7344739ffd3b1494dd8466e7759" name="adf2bb7344739ffd3b1494dd8466e7759"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adf2bb7344739ffd3b1494dd8466e7759">&#9670;&#160;</a></span>allocate_slot()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -135,6 +153,12 @@ Public Member Functions</h2></td></tr>
         <tr>
           <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_page_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
           <td class="paramtype">uint32_t &amp;&#160;</td>
           <td class="paramname"><em>r_slot</em>&#160;</td>
         </tr>
@@ -142,6 +166,24 @@ Public Member Functions</h2></td></tr>
           <td></td>
           <td>)</td>
           <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa21718be764c9a9fca18cda494f36da7" name="aa21718be764c9a9fca18cda494f36da7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa21718be764c9a9fca18cda494f36da7">&#9670;&#160;</a></span>can_allocate()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianAtlasAllocator::can_allocate </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_page_count</em></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -161,6 +203,31 @@ Public Member Functions</h2></td></tr>
           <td></td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac06748f1930cb58f175a69930e38f187" name="ac06748f1930cb58f175a69930e38f187"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac06748f1930cb58f175a69930e38f187">&#9670;&#160;</a></span>get_allocation_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_allocation_count </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>
@@ -190,8 +257,26 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a037149f9161d49a55e82658d3c9976cb" name="a037149f9161d49a55e82658d3c9976cb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a037149f9161d49a55e82658d3c9976cb">&#9670;&#160;</a></span>get_free_slot_count()</h2>
+<a id="a47f3460f08b6668324a468142140c32e" name="a47f3460f08b6668324a468142140c32e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a47f3460f08b6668324a468142140c32e">&#9670;&#160;</a></span>get_coalesced_run_if_released()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_coalesced_run_if_released </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structGaussianAtlasAllocator_1_1PageRun.html">PageRun</a> &amp;&#160;</td>
+          <td class="paramname"><em>p_run</em></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6ebdae9c8cec4e46dc969504f971f419" name="a6ebdae9c8cec4e46dc969504f971f419"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6ebdae9c8cec4e46dc969504f971f419">&#9670;&#160;</a></span>get_free_page_count()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -200,7 +285,7 @@ Public Member Functions</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t GaussianAtlasAllocator::get_free_slot_count </td>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_free_page_count </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td> const</td>
@@ -211,6 +296,76 @@ Public Member Functions</h2></td></tr>
 <span class="mlabels"><span class="mlabel">inline</span></span>  </td>
   </tr>
 </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a70c85acb4eb7c5239c7866ae0fdfd247" name="a70c85acb4eb7c5239c7866ae0fdfd247"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a70c85acb4eb7c5239c7866ae0fdfd247">&#9670;&#160;</a></span>get_free_run_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_free_run_count </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a4f2b97d27dab66d776acd206f553fa23" name="a4f2b97d27dab66d776acd206f553fa23"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4f2b97d27dab66d776acd206f553fa23">&#9670;&#160;</a></span>get_largest_free_run()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_largest_free_run </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a700f9f0d303b3f3a86348ed5de72c746" name="a700f9f0d303b3f3a86348ed5de72c746"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a700f9f0d303b3f3a86348ed5de72c746">&#9670;&#160;</a></span>get_run()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianAtlasAllocator::get_run </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t&#160;</td>
+          <td class="paramname"><em>p_chunk_key</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structGaussianAtlasAllocator_1_1PageRun.html">PageRun</a> &amp;&#160;</td>
+          <td class="paramname"><em>r_run</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
 </div><div class="memdoc">
 
 </div>
@@ -243,8 +398,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="ab021ebdc917f4479bb394a5bec5b3b43" name="ab021ebdc917f4479bb394a5bec5b3b43"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ab021ebdc917f4479bb394a5bec5b3b43">&#9670;&#160;</a></span>has_free_slots()</h2>
+<a id="a7c5771158a0dea5e18ee098cfdd4dd95" name="a7c5771158a0dea5e18ee098cfdd4dd95"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7c5771158a0dea5e18ee098cfdd4dd95">&#9670;&#160;</a></span>get_used_page_count()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -253,7 +408,7 @@ Public Member Functions</h2></td></tr>
   <td class="mlabels-left">
       <table class="memname">
         <tr>
-          <td class="memname">bool GaussianAtlasAllocator::has_free_slots </td>
+          <td class="memname">uint32_t GaussianAtlasAllocator::get_used_page_count </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td> const</td>
@@ -286,8 +441,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="adab5109e98da406213d922d10c33f21b" name="adab5109e98da406213d922d10c33f21b"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#adab5109e98da406213d922d10c33f21b">&#9670;&#160;</a></span>reset()</h2>
+<a id="aed285371d83de02e5db5ae460d563485" name="aed285371d83de02e5db5ae460d563485"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aed285371d83de02e5db5ae460d563485">&#9670;&#160;</a></span>reset()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -296,7 +451,7 @@ Public Member Functions</h2></td></tr>
           <td class="memname">void GaussianAtlasAllocator::reset </td>
           <td>(</td>
           <td class="paramtype">uint32_t&#160;</td>
-          <td class="paramname"><em>p_slot_count</em></td><td>)</td>
+          <td class="paramname"><em>p_page_count</em></td><td>)</td>
           <td></td>
         </tr>
       </table>

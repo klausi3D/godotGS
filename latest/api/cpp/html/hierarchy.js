@@ -269,6 +269,7 @@ var hierarchy =
     [ "StreamingUploadPipeline::PackSnapshotScratch", "structStreamingUploadPipeline_1_1PackSnapshotScratch.html", null ],
     [ "StreamingUploadPipeline::PackTelemetry", "structStreamingUploadPipeline_1_1PackTelemetry.html", null ],
     [ "StreamingUploadPipeline::PackThreadContext", "structStreamingUploadPipeline_1_1PackThreadContext.html", null ],
+    [ "GaussianAtlasAllocator::PageRun", "structGaussianAtlasAllocator_1_1PageRun.html", null ],
     [ "GaussianRenderPipeline::PainterlyCompositePushConstant", "structGaussianRenderPipeline_1_1PainterlyCompositePushConstant.html", null ],
     [ "GaussianRenderConfig::PainterlyConfig", "structGaussianRenderConfig_1_1PainterlyConfig.html", null ],
     [ "PainterlyConfig", "structPainterlyConfig.html", null ],

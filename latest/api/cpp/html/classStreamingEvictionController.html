@@ -140,8 +140,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a05d6a61f8f3a96ab4d07578d1a3c0aea"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4175a9521c19dcac9e5d86d9d45c83b6" id="r_a4175a9521c19dcac9e5d86d9d45c83b6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#a4175a9521c19dcac9e5d86d9d45c83b6">get_visible_chunks_evicted_this_frame</a> () const</td></tr>
 <tr class="separator:a4175a9521c19dcac9e5d86d9d45c83b6"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a1687267a18ccfe4cdc2323552d8df1fc" id="r_a1687267a18ccfe4cdc2323552d8df1fc"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cb">EvictionResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#a1687267a18ccfe4cdc2323552d8df1fc">evict_least_recently_used</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, bool p_allow_visible_eviction)</td></tr>
-<tr class="separator:a1687267a18ccfe4cdc2323552d8df1fc"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acc76e3bc587885592c6c8a48353c84a2" id="r_acc76e3bc587885592c6c8a48353c84a2"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cb">EvictionResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#acc76e3bc587885592c6c8a48353c84a2">evict_least_recently_used</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, bool p_allow_visible_eviction, uint32_t p_visible_fit_pages=0)</td></tr>
+<tr class="separator:acc76e3bc587885592c6c8a48353c84a2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a058ee6e6ca34a49ea27259af839fe666" id="r_a058ee6e6ca34a49ea27259af839fe666"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cb">EvictionResult</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#a058ee6e6ca34a49ea27259af839fe666">evict_non_primary_lru</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="separator:a058ee6e6ca34a49ea27259af839fe666"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
@@ -175,8 +175,8 @@ Public Member Functions</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
-<a id="a1687267a18ccfe4cdc2323552d8df1fc" name="a1687267a18ccfe4cdc2323552d8df1fc"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a1687267a18ccfe4cdc2323552d8df1fc">&#9670;&#160;</a></span>evict_least_recently_used()</h2>
+<a id="acc76e3bc587885592c6c8a48353c84a2" name="acc76e3bc587885592c6c8a48353c84a2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acc76e3bc587885592c6c8a48353c84a2">&#9670;&#160;</a></span>evict_least_recently_used()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -191,7 +191,13 @@ Public Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">bool&#160;</td>
-          <td class="paramname"><em>p_allow_visible_eviction</em>&#160;</td>
+          <td class="paramname"><em>p_allow_visible_eviction</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_visible_fit_pages</em> = <code>0</code>&#160;</td>
         </tr>
         <tr>
           <td></td>

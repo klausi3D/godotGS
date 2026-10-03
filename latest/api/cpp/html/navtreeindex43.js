@@ -1,5 +1,16 @@
 var NAVTREEINDEX43 =
 {
+"structSortingStrategyConfig.html#a777134502f78b3db1455bda220b35053ae1f2d5134ed2543d38a0de9751cf75d9":[1,0,199,0,0],
+"structSortingStrategyConfig.html#a777134502f78b3db1455bda220b35053ae84949df091aad9d1e77f7b3a5388277":[1,0,199,0,3],
+"structSortingStrategyConfig.html#a7bf07de972f33026754a81273032950c":[1,0,199,11],
+"structSortingStrategyConfig.html#a82240dd669681b9fca01a9d0e04de7a4":[1,0,199,6],
+"structSortingStrategyConfig.html#a9f344c865269beb0f1b9dc34bc176a98":[1,0,199,10],
+"structSortingStrategyConfig.html#ab6e3f2e833b5eaa2a7dc90b76744ff76":[1,0,199,8],
+"structSortingStrategyConfig.html#acf840725f18de9ffb82dbb4bcd47321f":[1,0,199,12],
+"structSortingStrategyConfig.html#aed26122666b64cc2a537e12cdd42bd08":[1,0,199,4],
+"structSortingStrategyConfig.html#af1788d2db8b82f17b8ce85531fb77f95":[1,0,199,3],
+"structSortingStrategyConfig.html#af7fa9c862b244c58768b43c72b8f9e87":[1,0,199,2],
+"structSortingStrategyConfig.html#afae89cbb9c0f8bd44f44b9400d25cf2b":[1,0,199,1],
 "structSphereEffectorGPU.html":[1,0,209],
 "structSphereEffectorGPU.html#a8fb537e266cf7b37f73583e63aa14061":[1,0,209,2],
 "structSphereEffectorGPU.html#ac610c64957932919e62ed08c84814a0e":[1,0,209,0],
@@ -177,6 +188,7 @@ var NAVTREEINDEX43 =
 "structStreamingUploadPipeline_1_1UploadBudgetState.html#a9a1427824f27f468bee1e79cbe8f3584":[1,0,222,5,0],
 "structStreamingUploadPipeline_1_1UploadBudgetState.html#af8c721e150efa3cddb8b5825beae6137":[1,0,222,5,3],
 "structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html":[1,0,222,6],
+"structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a6b192575956f46f26b0a15b486cfb97a":[1,0,222,6,3],
 "structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c":[1,0,222,6,1],
 "structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a9637c45a3c04099278d8bc9aea186652":[1,0,222,6,2],
 "structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#ac24266c3882d042d5c7ab919c77f3579":[1,0,222,6,0],
@@ -237,17 +249,5 @@ var NAVTREEINDEX43 =
 "structTileAsyncReadback.html#a694308746fea8deda62b685ae73f3127":[1,0,225,6],
 "structTileAsyncReadback.html#a71d06731a57e8a87f0eefdfeee650bb5":[1,0,225,3],
 "structTileAsyncReadback.html#a939c9a949d0d578e8bdc281a623b7e53":[1,0,225,4],
-"structTileAsyncReadback.html#ac301257302351a4c53dbfa107442d857":[1,0,225,2],
-"structTileAsyncReadback.html#af394d275ea0c1a6c585f26fd7c61f31f":[1,0,225,7],
-"structTileAsyncReadback_1_1AsyncOverflowState.html":[1,0,225,0],
-"structTileAsyncReadback_1_1AsyncOverflowState.html#a1b37a26286c7dee259122f81174d593a":[1,0,225,0,3],
-"structTileAsyncReadback_1_1AsyncOverflowState.html#a590d8adafdf013389ded0010963d732e":[1,0,225,0,0],
-"structTileAsyncReadback_1_1AsyncOverflowState.html#a6f47255d8fc481ad468eb26293199d34":[1,0,225,0,4],
-"structTileAsyncReadback_1_1AsyncOverflowState.html#a73ab56ba94922c3b041189fc9c57f499":[1,0,225,0,2],
-"structTileAsyncReadback_1_1AsyncOverflowState.html#ad7d4599c9c6129d5e8b6328001c00300":[1,0,225,0,1],
-"structTileAsyncReadback_1_1AsyncTileCountsState.html":[1,0,225,1],
-"structTileAsyncReadback_1_1AsyncTileCountsState.html#a15cf58fa0386f030579fbc8fab01936d":[1,0,225,1,3],
-"structTileAsyncReadback_1_1AsyncTileCountsState.html#a1a9a848dfe0e5bcf75f484f80ddce18f":[1,0,225,1,0],
-"structTileAsyncReadback_1_1AsyncTileCountsState.html#a4a965644afb7b9a9d3edc1278a149415":[1,0,225,1,1],
-"structTileAsyncReadback_1_1AsyncTileCountsState.html#a4e1b27a96ebed7587d1a2fcc753df6fa":[1,0,225,1,4]
+"structTileAsyncReadback.html#ac301257302351a4c53dbfa107442d857":[1,0,225,2]
 };

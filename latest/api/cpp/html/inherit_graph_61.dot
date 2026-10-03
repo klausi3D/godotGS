@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="GaussianRenderFrame\l::CrossDeviceOperation",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianRenderFrame_1_1CrossDeviceOperation.html",tooltip="Record of operations spanning multiple rendering devices."];
+  Node0 [id="Node000000",label="GaussianRenderFacadeState\l::TileRendererState",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianRenderFacadeState_1_1TileRendererState.html",tooltip=" "];
 }

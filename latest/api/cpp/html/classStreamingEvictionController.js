@@ -7,7 +7,7 @@ var classStreamingEvictionController =
       [ "EvictedVisible", "classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cba6832ca450c2ae1cf68e425056034c2d7", null ],
       [ "SkippedAllVisible", "classStreamingEvictionController.html#abebc14fa5be39ad300d6bedf700444cbae7c1eb4e5dba05ea12c6cc335677a714", null ]
     ] ],
-    [ "evict_least_recently_used", "classStreamingEvictionController.html#a1687267a18ccfe4cdc2323552d8df1fc", null ],
+    [ "evict_least_recently_used", "classStreamingEvictionController.html#acc76e3bc587885592c6c8a48353c84a2", null ],
     [ "evict_non_primary_lru", "classStreamingEvictionController.html#a058ee6e6ca34a49ea27259af839fe666", null ],
     [ "get_chunks_evicted_this_frame", "classStreamingEvictionController.html#a05d6a61f8f3a96ab4d07578d1a3c0aea", null ],
     [ "get_max_evictions_per_frame", "classStreamingEvictionController.html#a78f8745f0a6310fe3d8349092980145a", null ],

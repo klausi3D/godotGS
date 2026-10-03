@@ -3,6 +3,7 @@ var structGaussianStreamingTypes_1_1DiagnosticsState =
     [ "active_category", "structGaussianStreamingTypes_1_1DiagnosticsState.html#a8a2e8a4c3e66c5a30af367e433a678b7", null ],
     [ "active_fingerprint", "structGaussianStreamingTypes_1_1DiagnosticsState.html#abdd7fce8bcd148c99408637a6a884db1", null ],
     [ "active_reason", "structGaussianStreamingTypes_1_1DiagnosticsState.html#aa490dbe9b87efe7bccb5c412bba031f0", null ],
+    [ "atlas_fit_extra_evictions", "structGaussianStreamingTypes_1_1DiagnosticsState.html#acd2454dde08bd54170c4440c85fc15dd", null ],
     [ "culling_empty_frames", "structGaussianStreamingTypes_1_1DiagnosticsState.html#ad828e04ee07cbc47e7ab7500d9b99983", null ],
     [ "init_invalid_frames", "structGaussianStreamingTypes_1_1DiagnosticsState.html#a4f149936a769c6656d40d03f11bb9c4f", null ],
     [ "integrity_mismatch_count", "structGaussianStreamingTypes_1_1DiagnosticsState.html#a129fef9a96a95b9884be2f6e2f5f419b", null ],

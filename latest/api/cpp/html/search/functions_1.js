@@ -46,13 +46,13 @@ var searchData=
   ['all_5frender_5ffields_5ffinite_43',['all_render_fields_finite',['../classGaussianData.html#a69b1c0bb4dfec56fb8c7bc9ee6163689',1,'GaussianData']]],
   ['all_5fvalid_44',['all_valid',['../classGaussianSplatting_1_1ComputeInfrastructure_1_1StageValidationHarness.html#a99dc1f5de8474d7e8aec422090bd704f',1,'GaussianSplatting::ComputeInfrastructure::StageValidationHarness']]],
   ['allocate_45',['allocate',['../structGaussianMemoryStream_1_1MemoryPool.html#a4477eacacc4174026e282736aa82ea99',1,'GaussianMemoryStream::MemoryPool']]],
-  ['allocate_5fslot_46',['allocate_slot',['../classGaussianAtlasAllocator.html#a68af9780f4e7bdf00ba1a5fb0d52a187',1,'GaussianAtlasAllocator']]],
+  ['allocate_5fslot_46',['allocate_slot',['../classGaussianAtlasAllocator.html#adf2bb7344739ffd3b1494dd8466e7759',1,'GaussianAtlasAllocator']]],
   ['animationclip_47',['animationclip',['../structGaussianSplatting_1_1AnimationClip.html#af55dc4b25b8ff2cf24a23be415717365',1,'GaussianSplatting::AnimationClip::AnimationClip()=default'],['../structGaussianSplatting_1_1AnimationClip.html#a07dba4c7238f57eded83cf65ffe1ecc3',1,'GaussianSplatting::AnimationClip::AnimationClip(const String &amp;p_name, float p_duration)']]],
   ['animationtrack_48',['animationtrack',['../structGaussianSplatting_1_1AnimationTrack.html#a2a76a7f35304a8e2c68ced939f6dbd7c',1,'GaussianSplatting::AnimationTrack::AnimationTrack()=default'],['../structGaussianSplatting_1_1AnimationTrack.html#ab6e1e0c9c5344760905c2776a5c31af9',1,'GaussianSplatting::AnimationTrack::AnimationTrack(AnimationProperty p_property)']]],
   ['apply_5fbrush_5fstroke_49',['apply_brush_stroke',['../classGaussianData.html#a5840614c7bd55aedf446272c36adc305',1,'GaussianData']]],
   ['apply_5fcolor_5frange_50',['apply_color_range',['../classGaussianData.html#a6751d8b96433b8820f54946d6b2c0a05',1,'GaussianData']]],
   ['apply_5fdata_5fsource_5fplan_51',['apply_data_source_plan',['../classGaussianSplatRenderer.html#a0dfcf412588e18f134d88caaa37bcbc5',1,'GaussianSplatRenderer::apply_data_source_plan()'],['../classRenderPipelineStages.html#a7d1c7856dc4ab4b1f554a7c136f7ca3d',1,'RenderPipelineStages::apply_data_source_plan()']]],
-  ['apply_5fdebug_5foptions_5fto_5frender_5fparams_52',['apply_debug_options_to_render_params',['../classGaussianSplatRenderer.html#aed8f44c864a183059dfa1264fb8f2657',1,'GaussianSplatRenderer::apply_debug_options_to_render_params()'],['../classRenderDebugStateOrchestrator.html#aad40fd51062819cc0650cfa0688db466',1,'RenderDebugStateOrchestrator::apply_debug_options_to_render_params()']]],
+  ['apply_5fdebug_5foptions_5fto_5frender_5fparams_52',['apply_debug_options_to_render_params',['../classRenderDebugStateOrchestrator.html#aad40fd51062819cc0650cfa0688db466',1,'RenderDebugStateOrchestrator::apply_debug_options_to_render_params()'],['../classGaussianSplatRenderer.html#aed8f44c864a183059dfa1264fb8f2657',1,'GaussianSplatRenderer::apply_debug_options_to_render_params()']]],
   ['apply_5ffeedback_53',['apply_feedback',['../classIOverflowAutoTuner.html#aa62d30db420e7357fab22ab82c613057',1,'IOverflowAutoTuner::apply_feedback()'],['../classOverflowAutoTuner.html#a23f504dd4049f7be5435031a58cce70f',1,'OverflowAutoTuner::apply_feedback()']]],
   ['apply_5flighting_5fto_5frender_5fparams_54',['apply_lighting_to_render_params',['../namespaceGaussianSplatting.html#a789b61c4b44603fb4f884658121156fd',1,'GaussianSplatting']]],
   ['apply_5foverflow_5ffeedback_55',['apply_overflow_feedback',['../classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba',1,'GPUCuller']]],
@@ -75,5 +75,6 @@ var searchData=
   ['assetdependencymanager_72',['AssetDependencyManager',['../classAssetDependencyManager.html#a74dcd9de431f5589cdf53b6a9793960b',1,'AssetDependencyManager']]],
   ['assetid_73',['assetid',['../structAssetID.html#a173f56440085115ae5ccbf794f7cef01',1,'AssetID::AssetID()'],['../structAssetID.html#aed2b5ac36938df1142fdb5c69225df90',1,'AssetID::AssetID(uint64_t high, uint64_t low)']]],
   ['assetmetadata_74',['assetmetadata',['../structAssetMetadata.html#a2dc877ee2edd782f3da1ac0dbd270b33',1,'AssetMetadata::AssetMetadata()=default'],['../structAssetMetadata.html#a756b75ee89c2360cc9facd9c8922f5b4',1,'AssetMetadata::AssetMetadata(const AssetID &amp;p_id, const String &amp;p_path)']]],
-  ['attach_5fmemory_5fstream_75',['attach_memory_stream',['../classGaussianStreamingSystem.html#a50a59346b782aa51be36598e7a3cc40d',1,'GaussianStreamingSystem']]]
+  ['atlas_5fpages_5ffor_5fsplats_75',['atlas_pages_for_splats',['../classGaussianStreamingSystem.html#a00df32a7246a4f55331bba4bdda4e62a',1,'GaussianStreamingSystem']]],
+  ['attach_5fmemory_5fstream_76',['attach_memory_stream',['../classGaussianStreamingSystem.html#a50a59346b782aa51be36598e7a3cc40d',1,'GaussianStreamingSystem']]]
 ];

@@ -93,6 +93,7 @@ $(document).ready(function(){initNavTree('classGaussianStreamingSystem.html','')
 <a href="#nested-classes">Classes</a> &#124;
 <a href="#pub-types">Public Types</a> &#124;
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#pub-static-methods">Static Public Member Functions</a> &#124;
 <a href="#pub-static-attribs">Static Public Attributes</a> &#124;
 <a href="#pro-static-methods">Static Protected Member Functions</a> &#124;
 <a href="#friends">Friends</a> &#124;
@@ -321,6 +322,11 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a502575cc6de7ebf82a68b4497b490f73" id="r_a502575cc6de7ebf82a68b4497b490f73"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classStreamingUploadPipeline.html">StreamingUploadPipeline</a> &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#a502575cc6de7ebf82a68b4497b490f73">_internal_get_upload_pipeline</a> ()</td></tr>
 <tr class="separator:a502575cc6de7ebf82a68b4497b490f73"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-static-methods" name="pub-static-methods"></a>
+Static Public Member Functions</h2></td></tr>
+<tr class="memitem:a00df32a7246a4f55331bba4bdda4e62a" id="r_a00df32a7246a4f55331bba4bdda4e62a"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#a00df32a7246a4f55331bba4bdda4e62a">atlas_pages_for_splats</a> (uint32_t p_splat_count)</td></tr>
+<tr class="separator:a00df32a7246a4f55331bba4bdda4e62a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-static-attribs" name="pub-static-attribs"></a>
 Static Public Attributes</h2></td></tr>
 <tr class="memitem:a492b0d9cac19e73290e1cddea6a9b37f" id="r_a492b0d9cac19e73290e1cddea6a9b37f"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#a492b0d9cac19e73290e1cddea6a9b37f">CHUNK_SIZE</a> = 65536</td></tr>
@@ -329,6 +335,10 @@ Static Public Attributes</h2></td></tr>
 <tr class="separator:a5e9a0735418454c2829092fb620d3332"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a4757321b4a3d6ac604248794cff73844" id="r_a4757321b4a3d6ac604248794cff73844"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#a4757321b4a3d6ac604248794cff73844">RING_BUFFER_FRAMES</a> = 3</td></tr>
 <tr class="separator:a4757321b4a3d6ac604248794cff73844"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a0813b50305f47eb18fc2209b93a0382f" id="r_a0813b50305f47eb18fc2209b93a0382f"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#a0813b50305f47eb18fc2209b93a0382f">ATLAS_PAGE_SPLATS</a> = 1024</td></tr>
+<tr class="separator:a0813b50305f47eb18fc2209b93a0382f"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aebd3aaa68cfb737d4cfe9790c7b7fe5a" id="r_aebd3aaa68cfb737d4cfe9790c7b7fe5a"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianStreamingSystem.html#aebd3aaa68cfb737d4cfe9790c7b7fe5a">ATLAS_PAGES_PER_MAX_CHUNK</a> = <a class="el" href="classGaussianStreamingSystem.html#a492b0d9cac19e73290e1cddea6a9b37f">CHUNK_SIZE</a> / <a class="el" href="classGaussianStreamingSystem.html#a0813b50305f47eb18fc2209b93a0382f">ATLAS_PAGE_SPLATS</a></td></tr>
+<tr class="separator:aebd3aaa68cfb737d4cfe9790c7b7fe5a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pro-static-methods" name="pro-static-methods"></a>
 Static Protected Member Functions</h2></td></tr>
@@ -455,6 +465,32 @@ Friends</h2></td></tr>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a00df32a7246a4f55331bba4bdda4e62a" name="a00df32a7246a4f55331bba4bdda4e62a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a00df32a7246a4f55331bba4bdda4e62a">&#9670;&#160;</a></span>atlas_pages_for_splats()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">static constexpr uint32_t GaussianStreamingSystem::atlas_pages_for_splats </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_splat_count</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
@@ -2689,6 +2725,50 @@ Friends</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Member Data Documentation</h2>
+<a id="a0813b50305f47eb18fc2209b93a0382f" name="a0813b50305f47eb18fc2209b93a0382f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a0813b50305f47eb18fc2209b93a0382f">&#9670;&#160;</a></span>ATLAS_PAGE_SPLATS</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">constexpr uint32_t GaussianStreamingSystem::ATLAS_PAGE_SPLATS = 1024</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aebd3aaa68cfb737d4cfe9790c7b7fe5a" name="aebd3aaa68cfb737d4cfe9790c7b7fe5a"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aebd3aaa68cfb737d4cfe9790c7b7fe5a">&#9670;&#160;</a></span>ATLAS_PAGES_PER_MAX_CHUNK</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">constexpr uint32_t GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK = <a class="el" href="classGaussianStreamingSystem.html#a492b0d9cac19e73290e1cddea6a9b37f">CHUNK_SIZE</a> / <a class="el" href="classGaussianStreamingSystem.html#a0813b50305f47eb18fc2209b93a0382f">ATLAS_PAGE_SPLATS</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a492b0d9cac19e73290e1cddea6a9b37f" name="a492b0d9cac19e73290e1cddea6a9b37f"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a492b0d9cac19e73290e1cddea6a9b37f">&#9670;&#160;</a></span>CHUNK_SIZE</h2>
 
