@@ -60,9 +60,7 @@ When docs conflict, the two canonical pages named in `CONTRIBUTING.md`
 - **Evidence by risk.** Higher-risk changes (renderer/shaders/persistence/engine)
   require runtime/GPU evidence and extra review — see the risk classes (R0–R3) in
   [agentic engineering](docs/governance/agentic-engineering.md), mirrored
-  machine-readably in `.agentic/policy.json` (added by a sibling PR in this
-  foundation series; until it lands, use the human-readable risk classes in the
-  agentic-engineering doc).
+  machine-readably in `.agentic/policy.json`.
 
 ## Upstream Godot boundary
 

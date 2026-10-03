@@ -1,12 +1,32 @@
 name: Docs Pages (Versioned)
 
+# Two jobs:
+#
+# - `docs-build` (every pull request, the merge queue, pushes, dispatch): the
+#   docs check. It regenerates the docs artifacts, fails when a committed
+#   generator output is stale, then stages the public tree and runs
+#   `mkdocs build --strict`. It never deploys, runs with a read-only token and
+#   has NO job-level `if:` and no path filter, so it always reports a terminal
+#   status (a job skipped by `if:` reports success, which would make it useless
+#   as a required check). Making it a required status check is a branch-
+#   protection setting for the maintainer; this workflow does not do that.
+#
+# - `deploy` (pushes to master/main and v* tags, dispatch): regenerates, builds
+#   and publishes with mike. It is deliberately independent of `docs-build`: if
+#   a merge left a committed generator output stale, the site should still
+#   publish the regenerated output rather than stop updating.
+
 on:
+  pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [ master, main ]
     tags:
       - "v*"
     paths:
       - "docs/**"
+      - "overrides/**"
       - "scripts/build_documentation.py"
       - "scripts/generate_engine_patch_report.py"
       - "scripts/stage_public_docs.py"
@@ -14,6 +34,14 @@ on:
       - "scripts/check_docs_media_budget.py"
       - "scripts/export_benchmark_vegalite.py"
       - "scripts/generate_benchmark_suite_dashboard.py"
+      - "scripts/extract_gdscript_docs.py"
+      - "scripts/generate_shader_docs.py"
+      - "scripts/update_compatibility_matrix.py"
+      - "scripts/generate_project_settings_reference.py"
+      - "scripts/documentation_audit.py"
+      - "scripts/docs/**"
+      - "scripts/**/*.gd"
+      - "templates/**/*.gd"
       - "docs/reference/engine_patch_sources.yaml"
       - "mkdocs.yml"
       - ".github/workflows/docs_pages.yml"
@@ -21,19 +49,131 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: docs-pages
-  cancel-in-progress: false
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  docs-build:
+    name: docs-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A new push to a PR cancels that PR's older docs check; runs for any other
+    # event get a unique group and are never cancelled.
+    concurrency:
+      group: docs-build-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history: the engine patch report diffs against a pinned upstream ref.
+          fetch-depth: 0
+          lfs: true
+          # This job runs PR-controlled scripts; keep the token out of git config.
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system docs dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Install Python dependencies (hashed lock)
+        run: |
+          python -m pip install --require-hashes -r docs/requirements-lock.txt
+
+      # Same generator commands as the deploy job, so the strict build below
+      # validates the tree that would be published.
+      - name: Generate docs artifacts
+        run: |
+          python scripts/build_documentation.py --engine-patch --engine-patch-summary-only || true
+          python scripts/build_documentation.py --all --no-engine-patch
+
+      # Committed generator outputs must match what the generators produce from
+      # this commit. Not checked here: the engine patch report (non-blocking,
+      # depends on git history), docs/reports/documentation-*.md (change with
+      # every source-line edit), and the Doxygen output (not committed).
+      - name: Check generated docs are fresh
+        run: |
+          set -euo pipefail
+          paths=(
+            docs/api/gdscript_reference.md
+            docs/api/shader_reference.md
+            docs/reference/compatibility-matrix.md
+            docs/reference/project-settings.md
+            docs/assets/data/benchmark_latest.json
+            docs/assets/benchmarks
+          )
+          stale=0
+          if ! git diff --exit-code --stat -- "${paths[@]}"; then
+            git --no-pager diff -- "${paths[@]}"
+            stale=1
+          fi
+          untracked="$(git ls-files --others --exclude-standard -- "${paths[@]}")"
+          if [[ -n "${untracked}" ]]; then
+            echo "Generated files that are not committed:"
+            echo "${untracked}"
+            stale=1
+          fi
+          if [[ "${stale}" -ne 0 ]]; then
+            echo "::error::Committed generated docs are stale. Run 'python scripts/build_documentation.py --all --no-engine-patch' and commit the files listed above."
+            exit 1
+          fi
+          echo "Generated docs are fresh."
+
+      # The generators (incl. Doxygen) have run, so links into gitignored
+      # generated output (docs/api/cpp) must resolve here; the PR gate's link
+      # check runs without that output and only reports such links as skipped.
+      - name: Check docs links incl. generated output
+        run: |
+          python scripts/docs/check_links.py --require-generated docs README.md BUILDING.md CONTRIBUTING.md
+
+      - name: Stage public docs
+        run: |
+          python scripts/stage_public_docs.py \
+            --source docs \
+            --output .site/public-docs \
+            --repo-url "https://github.com/${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_SHA}"
+
+      - name: Check docs media budget
+        run: |
+          python scripts/check_docs_media_budget.py \
+            --root .site/public-docs \
+            --max-file-mb 25 \
+            --max-total-mb 250
+
+      - name: Validate MkDocs build (strict)
+        env:
+          DOCS_REPO_URL: https://github.com/${{ github.repository }}
+          ENABLE_GIT_DATES: "false"
+        run: |
+          mkdocs build --strict --config-file mkdocs.yml
+
+      # REPORT-ONLY until its current failures are fixed (tracked in #1099):
+      # it fails on master today on public orphan pages. The script's checks are
+      # unchanged; only this step's result is non-blocking. Make it blocking by
+      # deleting `continue-on-error` once it passes on master.
+      - name: Docs release acceptance (report-only)
+        continue-on-error: true
+        run: |
+          python scripts/docs/release_acceptance.py
+
   deploy:
     name: Build and Deploy Versioned Docs
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: docs-pages
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

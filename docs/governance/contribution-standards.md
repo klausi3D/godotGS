@@ -16,6 +16,9 @@ These standards are mandatory for all merged changes.
 - Keep commands runnable and platform-accurate.
 - Run link checks for doc changes:
   - `python3 scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md`
+- Check GDScript examples and API references against the ClassDB bindings (also
+  required for binding changes, which can break docs they do not touch):
+  - `python3 tests/ci/check_doc_snippets.py`
 
 ## 3) Testing Expectations
 

@@ -1111,10 +1111,14 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Resident rejection
 	g_quantization_config = saved_quantization_config;
 }
 
-TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident quantization rejection falls back to the legacy resident path") {
+// #1118: named for what it asserts. Before GS-PERF-Q80B the resident atlas rejected per-chunk
+// quantization and an explicit resident request fell back to a legacy resident path. This case pins
+// the opposite: the resident route publishes the instance contract for quantized data and renders
+// through it, with no resident_quantization_unsupported fallback.
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident route publishes the resident instance contract for quantized data and renders") {
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (rs == nullptr) {
-		MESSAGE("Skipping test - Rendering server unavailable");
+		FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case; the resident route under test never runs");
 		return;
 	}
 
@@ -1166,11 +1170,11 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 
 	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
 	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
 		root->remove_child(node);
 		memdelete(node);
 		tree->process(0.0);
 		g_quantization_config = saved_quantization_config;
+		FAIL("renderer unavailable; the resident route under test never runs");
 		return;
 	}
 
@@ -1202,11 +1206,6 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Explicit resident 
 	CHECK(stats.get("instance_backend_policy", String()) == String("resident"));
 	CHECK(stats.get("backend_selection_reason", String()) == String("requested_resident_policy"));
 	CHECK(String(stats.get("backend_selection_reason", String())).find("resident_quantization_unsupported") == -1);
-
-	// Direct assertions stop at "resident was requested, no streaming system was used, and no
-	// resident instance contract/remap survived publication." The current renderer diagnostics do
-	// not expose a dedicated legacy-resident route token, so the final legacy-resident path is
-	// proven indirectly by the successful render under those conditions.
 
 	root->remove_child(node);
 	memdelete(node);
@@ -1648,22 +1647,49 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Local-device insta
 	tree->process(0.0);
 }
 
-TEST_CASE("[GaussianSplatting][World][SceneTree] World node preserves prior renderer streaming overrides when tier budgets are disabled") {
+// #1115: what turning tier streaming budgets OFF does to a world's renderer.
+//
+// A world contract is always built from the renderer's PRE-WORLD state:
+// submit_world_submission() hands SubmissionStore::build_contract() the record's
+// renderer_restore_state, and build_contract() starts the streaming overrides
+// from it, overwriting only the keys the submission carries
+// (core/gaussian_splat_scene_director.cpp). With tier budgets disabled,
+// GaussianSplatWorld3D::_build_desired_renderer_overrides() submits no
+// "streaming" block, so the tier-derived prefetch and VRAM overrides must be
+// dropped and the renderer must return to the streaming overrides it had before
+// the world arrived. That is what disabling the setting means everywhere else
+// too (core/streaming_tier_cap_policy.h, apply_quality_tier_limits()).
+//
+// This case used to assert the opposite -- that the tier overrides SURVIVE the
+// toggle. It was written (37096a9a73a) when a resubmit only overwrote the keys
+// it carried; #229 (7c9a815f030) rebuilt every contract from the restore state,
+// and the case, which asserted only where a renderer existed and was in no lane,
+// failed 10/10 unseen. Re-enabling the setting must bring the tier overrides
+// back: that half proves the resubmissions really reached the renderer, so the
+// "dropped" half cannot pass because nothing happened.
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] Disabling tier streaming budgets returns the world renderer to its pre-world streaming overrides") {
 	SceneTree *tree = SceneTree::get_singleton();
-	REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
-
+	if (tree == nullptr) {
+		FAIL("SceneTree singleton required; the world node below cannot be entered into a tree");
+		return;
+	}
 	Window *root = tree->get_root();
-	REQUIRE_MESSAGE(root != nullptr, "SceneTree root window required");
+	if (root == nullptr) {
+		FAIL("SceneTree root window required; the world node below cannot be entered into a tree");
+		return;
+	}
+	ProjectSettings *project_settings = ProjectSettings::get_singleton();
+	if (project_settings == nullptr) {
+		FAIL("ProjectSettings singleton required to toggle the tier streaming budgets");
+		return;
+	}
 
 	GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
 	const bool owns_director = (director == nullptr);
 	if (!director) {
 		director = memnew(GaussianSplatSceneDirector);
 	}
-	REQUIRE(director != nullptr);
 
-	ProjectSettings *project_settings = ProjectSettings::get_singleton();
-	REQUIRE(project_settings != nullptr);
 	ProjectSettingGuard tier_preset_guard(project_settings, "rendering/gaussian_splatting/quality/tier_preset");
 	ProjectSettingGuard tier_apply_guard(project_settings, "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets");
 	ProjectSettingGuard predictive_guard(project_settings, "rendering/gaussian_splatting/streaming/predictive_prefetch_enabled");
@@ -1681,31 +1707,47 @@ TEST_CASE("[GaussianSplatting][World][SceneTree] World node preserves prior rend
 	world_resource->set_static_chunks(chunks);
 
 	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
-	REQUIRE(node != nullptr);
 	node->set_auto_apply_on_ready(false);
 	node->set_world(world_resource);
 	node->set_max_render_distance(80.0f);
 	root->add_child(node);
 	tree->process(0.0);
-	node->apply_world();
 
+	// NOTIFICATION_READY binds the shared renderer before any world is applied,
+	// so this snapshot is the state the world's contracts are built on.
 	Ref<GaussianSplatRenderer> renderer = node->get_renderer();
-	if (!renderer.is_valid()) {
-		MESSAGE("Skipping test - renderer unavailable");
+	if (renderer.is_null()) {
 		root->remove_child(node);
 		memdelete(node);
+		tree->process(0.0);
 		if (owns_director) {
 			memdelete(director);
 		}
+		FAIL("renderer unavailable in a [SceneTree][RequiresGPU] case; the world contract under test never runs");
 		return;
 	}
+	const GaussianStreamingSystem::ConfigOverrides pre_world =
+			renderer->snapshot_world_submission_runtime_state().streaming_overrides;
 
-	const GaussianStreamingSystem::ConfigOverrides before_overrides = renderer->get_streaming_config_overrides();
-	CHECK(before_overrides.override_prefetch);
-	CHECK_FALSE(before_overrides.predictive_prefetch_enabled);
-	CHECK(before_overrides.prefetch_lookahead_distance == doctest::Approx(12.0f));
-	CHECK(before_overrides.override_vram_budget);
+	node->apply_world();
+	CHECK(node->get_renderer() == renderer);
 
+	// Tier budgets ON: the "low" tier's prefetch (80 x load_ahead_factor 0.15)
+	// and VRAM overrides reach the renderer.
+	const GaussianStreamingSystem::ConfigOverrides tiered = renderer->get_streaming_config_overrides();
+	CHECK(tiered.override_prefetch);
+	CHECK_FALSE(tiered.predictive_prefetch_enabled);
+	CHECK(tiered.prefetch_lookahead_distance == doctest::Approx(12.0f));
+	CHECK(tiered.override_vram_budget);
+	// The pre-world state must be distinguishable from the tier overrides, or
+	// "returned to the pre-world state" and "kept the tier overrides" below
+	// would be the same observation.
+	const bool pre_world_distinguishable = pre_world.override_prefetch != tiered.override_prefetch ||
+			pre_world.override_vram_budget != tiered.override_vram_budget;
+	CHECK_MESSAGE(pre_world_distinguishable,
+			"the pre-world streaming overrides already equal the tier overrides; this case cannot discriminate");
+
+	// Tier budgets OFF, then a resubmit.
 	project_settings->set_setting("rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", false);
 	node->set_max_render_distance(120.0f);
 
@@ -1713,14 +1755,26 @@ TEST_CASE("[GaussianSplatting][World][SceneTree] World node preserves prior rend
 	CHECK(director->get_world_submission(node->get_instance_id(), &submission));
 	CHECK_FALSE(submission.desired_renderer_overrides.has(StringName("streaming")));
 
-	const GaussianStreamingSystem::ConfigOverrides after_overrides = renderer->get_streaming_config_overrides();
-	CHECK(after_overrides.override_prefetch == before_overrides.override_prefetch);
-	CHECK(after_overrides.predictive_prefetch_enabled == before_overrides.predictive_prefetch_enabled);
-	CHECK(after_overrides.prefetch_lookahead_distance == doctest::Approx(before_overrides.prefetch_lookahead_distance));
-	CHECK(after_overrides.override_vram_budget == before_overrides.override_vram_budget);
-	CHECK(after_overrides.vram_budget_config.budget_mb == before_overrides.vram_budget_config.budget_mb);
-	CHECK(after_overrides.vram_budget_config.min_chunks == before_overrides.vram_budget_config.min_chunks);
-	CHECK(after_overrides.vram_budget_config.max_chunks == before_overrides.vram_budget_config.max_chunks);
+	const GaussianStreamingSystem::ConfigOverrides untiered = renderer->get_streaming_config_overrides();
+	CHECK(untiered.override_prefetch == pre_world.override_prefetch);
+	CHECK(untiered.predictive_prefetch_enabled == pre_world.predictive_prefetch_enabled);
+	CHECK(untiered.prefetch_lookahead_distance == doctest::Approx(pre_world.prefetch_lookahead_distance));
+	CHECK(untiered.override_vram_budget == pre_world.override_vram_budget);
+	CHECK(untiered.vram_budget_config.budget_mb == pre_world.vram_budget_config.budget_mb);
+	CHECK(untiered.vram_budget_config.min_chunks == pre_world.vram_budget_config.min_chunks);
+	CHECK(untiered.vram_budget_config.max_chunks == pre_world.vram_budget_config.max_chunks);
+	CHECK(untiered.override_io_source == pre_world.override_io_source);
+
+	// Tier budgets ON again: the overrides come back, at the new distance
+	// (100 x 0.15).
+	project_settings->set_setting("rendering/gaussian_splatting/quality/tier_apply_streaming_budgets", true);
+	node->set_max_render_distance(100.0f);
+
+	const GaussianStreamingSystem::ConfigOverrides retiered = renderer->get_streaming_config_overrides();
+	CHECK(retiered.override_prefetch);
+	CHECK(retiered.prefetch_lookahead_distance == doctest::Approx(15.0f));
+	CHECK(retiered.override_vram_budget);
+	CHECK(retiered.vram_budget_config.budget_mb == tiered.vram_budget_config.budget_mb);
 
 	root->remove_child(node);
 	memdelete(node);

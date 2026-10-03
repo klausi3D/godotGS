@@ -90,9 +90,9 @@
         "title": "Audit P0: repair opaque qlty check failures blocking renderer PRs",
         "status": "deferred",
         "goal": "Do not let opaque external qlty status block the local renderer release gate when GitHub branch protection does not require it.",
-        "rationale": "As of 2026-05-21, master branch protection reports required_status_checks=null and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
+        "rationale": "As of 2026-10-01, master branch protection requires exactly one status check, agentic-pr-gate, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
         "evidence_required": [
-          "GitHub branch protection for master has no required status checks",
+          "GitHub branch protection for master does not require qlty check (its only required status check is agentic-pr-gate)",
           "qlty check is documented as a non-blocking external signal in docs/reference/renderer-release-gates.md and .github/workflows/README.md",
           "candidate issue validation can resolve #369 through this deferred manifest classification"
         ]
@@ -129,8 +129,8 @@
     ]
   },
   "external_status_check_policy": {
-    "source": "GitHub branch protection for master checked on 2026-05-21",
-    "branch_protection_required_status_checks": [],
+    "source": "GitHub branch protection for master checked on 2026-10-01 (first checked 2026-05-21)",
+    "branch_protection_required_status_checks": ["agentic-pr-gate"],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -139,7 +139,7 @@
         "classification": "deferred",
         "reason": "The qlty check is not required by master branch protection and has no repo-owned configuration/log contract in this tree.",
         "decision_evidence": [
-          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks=null on 2026-05-21",
+          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\"] on 2026-10-01 (required_status_checks=null on 2026-05-21)",
           "repo search found no tracked qlty.toml, .qlty, .codeclimate.yml, or .codefactor.yml policy file"
         ],
         "local_gate_behavior": "Do not fail tests/ci/check_renderer_release_gates.py solely because qlty check is failing, pending, absent, or inaccessible."
@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 165,
-    "sha256": "573c8c3fef6e1fe1934c7d38e992a65e56eacc4b6274de4a2871af11e7fc232f",
-    "sha256_last_changed_by": "#1081 (adding N GaussianSplatNode3D that share one renderer cost O(N^4) peer-walk work; 800 nodes took 110 s to enter the tree): INCREASE 164 -> 165 cases; adds exactly ONE case in modules/gaussian_splatting/tests/test_gaussian_splat_node.h, tagged [GaussianSplatting][Node][SceneTree][RequiresGPU] (\"Adding and removing N nodes on a shared renderer costs at most quadratic peer-walk work (#1081)\"), selected by the NodeSceneTree batch (37 -> 38 cases; not a REQUIRED batch, #724). It adds and removes 40 and 160 nodes sharing one renderer and bounds the growth of a TESTS_ENABLED-only peer-walk step counter at 32x (quadratic = 16x, the pre-fix quartic = 256x), so the verdict does not depend on wall time. running_in_a_named_batch 98 -> 99, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary). Never hand-edited. Previous pin, for audit: fb4cd428337895c28ccffea13a6c86b2ecb31865e1fb1e8fa47b2ce00b3092b7 (count 164, #1054 / #1063).",
+    "test_count": 166,
+    "sha256": "468da6b64a88d73051ed5c0b4377df9f726a78c858dfe0631ecde71a5372f08a",
+    "sha256_last_changed_by": "#1115 (a [World][SceneTree] case asserted that a world's tier streaming overrides SURVIVE disabling tier_apply_streaming_budgets, the opposite of the contract #229 introduced; it was in no lane, so its 10/10 failure under --gs-gpu-test was never reported): INCREASE 165 -> 166 cases; in modules/gaussian_splatting/tests/test_scene_director_submission_scaffolding.h the case \"World node preserves prior renderer streaming overrides when tier budgets are disabled\" is replaced by \"Disabling tier streaming budgets returns the world renderer to its pre-world streaming overrides\", tagged [GaussianSplatting][World][SceneTree][RequiresGPU], selected by the WorldSceneTree batch (a REQUIRED batch; 6 -> 7 cases). It asserts that with tier budgets off a resubmitted world drops the tier prefetch/VRAM overrides back to the renderer's pre-world state, and that re-enabling them brings them back. running_in_a_named_batch 99 -> 100, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary) on the tree merged with master after #1118. Never hand-edited. Previous pin, for audit: 29e3e591c1f0a9ba0a6b254e4a623ee969e9d15912f55e8281ad2fa38c314e1d (count 165, #1118).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -417,7 +417,29 @@
       "sha256",
       "godot_binary_commit",
       "godot_binary_mtime_utc"
-    ]
+    ],
+    "content_validators": {
+      "_rationale": "Integrity checks (path, sha256, commit, mtime) prove an artifact is the bytes it claims to be; they prove nothing about what those bytes say. A candidate bundle pointing open_world_proof at README.md with a correct digest passed the gate with zero failures. A group listed here is additionally content-validated by _validate_candidate_artifact_content. This is a policy enumeration, not a derived list: adding a group here is a deliberate decision, and _CONTENT_VALIDATOR_KINDS in tests/ci/check_renderer_release_gates.py rejects an unknown kind so a typo fails closed instead of silently validating nothing.",
+      "open_world_proof": {
+        "kind": "open_world_corridor_proof_lane_report",
+        "rationale": "The open-world obligation is the alpha's streaming promise. The artifact must be the benchmark lane report produced by the lane that actually drives a chunked GaussianSplatWorld3D, and it must show streaming telemetry that was measured rather than defaulted. See docs/architecture/adr-open-world-proof-content-validation.md.",
+        "required_lane_id": "open_world_corridor_proof",
+        "required_telemetry_available": [
+          "streaming_state_telemetry_available",
+          "atlas_published_telemetry_available",
+          "chunk_monitor_telemetry_available",
+          "queue_pressure_telemetry_available"
+        ],
+        "_axis": "STREAMING BEHAVIOUR ONLY. Everything in this validator asks whether chunks actually loaded, evicted and turned over during the run. Nothing in it asks what the world is made of. Content provenance is a separate axis carried by the benchmark asset manifest's asset_classification, and is deliberately not mixed in here: switching the proof from a generated world to captured scan content must be a content swap, not a rewrite of the behaviour criteria. tests/ci/test_renderer_release_gates.py asserts this separation rather than merely documenting it.",
+        "minimum_values": {
+          "loaded_chunks": 2,
+          "total_splats": 5000000,
+          "proof_window_sample_count": 1,
+          "chunk_loads_total": 2,
+          "chunk_evictions_total": 1
+        }
+      }
+    }
   },
   "lifetime_accounting_proof": {
     "stdout_marker": "[GS-LIFETIME] ",
@@ -476,8 +498,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 165,
-      "running_in_a_named_batch": 99,
+      "requires_gpu_total": 166,
+      "running_in_a_named_batch": 100,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },
