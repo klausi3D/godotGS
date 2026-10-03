@@ -1,5 +1,9 @@
 var NAVTREEINDEX15 =
 {
+"debug__overlay__methods_8cpp.html":[2,0,0,0,12,3],
+"debug__overlay__system_8cpp.html":[2,0,0,0,5,3],
+"debug__overlay__system_8h.html":[2,0,0,0,5,4],
+"debug__overlay__system_8h_source.html":[2,0,0,0,5,4],
 "dir_096320cb15ce1e91fe87fbbf633d50fb.html":[2,0,0,0,11],
 "dir_0988d10b4b76efdbc3cd9bebbb3508c5.html":[2,0,0,0,0],
 "dir_13916f256549b6bbeb0ad7fe043c472e.html":[2,0,0,0,7],
@@ -245,9 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11],
 "gaussian__splat__config__registry_8cpp.html":[2,0,0,0,3,12],
 "gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13],
-"gaussian__splat__config__registry_8h_source.html":[2,0,0,0,3,13],
-"gaussian__splat__container_8cpp.html":[2,0,0,0,9,0],
-"gaussian__splat__container_8h.html":[2,0,0,0,9,1],
-"gaussian__splat__container_8h_source.html":[2,0,0,0,9,1],
-"gaussian__splat__debug__hud_8cpp.html":[2,0,0,0,9,2]
+"gaussian__splat__config__registry_8h_source.html":[2,0,0,0,3,13]
 };

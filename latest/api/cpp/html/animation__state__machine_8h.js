@@ -16,6 +16,6 @@ var animation__state__machine_8h =
       [ "ANIMATION_STATE_PAUSED", "animation__state__machine_8h.html#abfc4342ff143e07bfa7fce1240c5d04fa03f37aae759e2b54741fd871307700a1", null ],
       [ "ANIMATION_STATE_SEEKING", "animation__state__machine_8h.html#abfc4342ff143e07bfa7fce1240c5d04fa76d8bb31fd718a2b988b4c2b66f80a6a", null ]
     ] ],
-    [ "VARIANT_ENUM_CAST", "animation__state__machine_8h.html#a2643475c8474c4fbea58191db88a43b7", null ],
-    [ "VARIANT_ENUM_CAST", "animation__state__machine_8h.html#a796088c09aed962b866bc2f23fad5deb", null ]
+    [ "VARIANT_ENUM_CAST", "animation__state__machine_8h.html#aa206714a0b26c53cd3d8ab9a9590e0fd", null ],
+    [ "VARIANT_ENUM_CAST", "animation__state__machine_8h.html#a08800daf1edc264882a8f748c2d309af", null ]
 ];

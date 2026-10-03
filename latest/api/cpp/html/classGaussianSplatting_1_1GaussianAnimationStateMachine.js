@@ -1,5 +1,7 @@
 var classGaussianSplatting_1_1GaussianAnimationStateMachine =
 [
+    [ "AnimationProperty", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a7f5bea1627e8132543c78c81e08f82d0", null ],
+    [ "AnimationState", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a0490847cc87604677bf65a94c2f3e51e", null ],
     [ "GaussianAnimationStateMachine", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a1d5e1e6b7013309bd17c97f0b21cbf80", null ],
     [ "~GaussianAnimationStateMachine", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a030d2b472f9b9be7206cb51fccc87129", null ],
     [ "add_clip", "classGaussianSplatting_1_1GaussianAnimationStateMachine.html#a5db9e45ddbf6e77ee3f7f94e76c86523", null ],

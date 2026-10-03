@@ -1,5 +1,9 @@
 var NAVTREEINDEX22 =
 {
+"streaming__runtime__state_8h.html":[2,0,0,0,3,62],
+"streaming__runtime__state_8h_source.html":[2,0,0,0,3,62],
+"streaming__telemetry__adapter_8cpp.html":[2,0,0,0,3,63],
+"streaming__telemetry__adapter_8h.html":[2,0,0,0,3,64],
 "streaming__telemetry__adapter_8h_source.html":[2,0,0,0,3,64],
 "streaming__tier__cap__policy_8h.html":[2,0,0,0,3,65],
 "streaming__tier__cap__policy_8h.html#a0495aacef230d2f9a8d214e7c246d38c":[2,0,0,0,3,65,2],
@@ -245,9 +249,5 @@ var NAVTREEINDEX22 =
 "structDebugOverlayOptions.html#a4a5622b063f932f0af9c32dfa07d206e":[1,0,46,4],
 "structDebugOverlayOptions.html#a4b9ec1cba58ffc5f584d3f95508933c3":[1,0,46,9],
 "structDebugOverlayOptions.html#a4f38800e26eea05eaf00139f237b4c7d":[1,0,46,12],
-"structDebugOverlayOptions.html#a78f4c148eae7a982caa5ad09f6e08871":[1,0,46,6],
-"structDebugOverlayOptions.html#a90153f15e0e4b068c0b73ec79c470ce0":[1,0,46,3],
-"structDebugOverlayOptions.html#a907fbcccefc0ae01b03a901862a71a41":[1,0,46,7],
-"structDebugOverlayOptions.html#aaa8d8bdc51983dc08ef61137b3a52510":[1,0,46,14],
-"structDebugOverlayOptions.html#aac112949296762f2775a06b5796b240f":[1,0,46,8]
+"structDebugOverlayOptions.html#a78f4c148eae7a982caa5ad09f6e08871":[1,0,46,6]
 };

@@ -4741,14 +4741,10 @@
 <h2 id="setting-up-animation-clips">Setting up animation clips<a class="headerlink" href="#setting-up-animation-clips" title="Permanent link">¶</a></h2>
 <h3 id="create-a-clip-and-add-tracks">Create a clip and add tracks<a class="headerlink" href="#create-a-clip-and-add-tracks" title="Permanent link">¶</a></h3>
 <p>This is a complete script. Attach it to a <code>Node</code> and point the path at a PLY in your project.</p>
-<div class="admonition note">
-<p class="admonition-title">Pass <code>AnimationProperty</code> values through <code>int()</code></p>
-<p>The property enum is declared at namespace scope in C++ (<code>GaussianSplatting::AnimationProperty</code>) but its constants are bound on the class. The GDScript analyzer therefore types <code>GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION</code> and the method parameter as two different enums and rejects a direct pass with a parse error (<em>Cannot pass a value of type "GaussianAnimationStateMachine.AnimationProperty" as "GaussianSplatting.AnimationProperty"</em>). Wrapping the constant in <code>int()</code> compiles and works. This is a binding defect, not intended usage; it is tracked in <a href="https://github.com/klausi3D/godotGS/issues/1106">#1106</a>, and once that is fixed the <code>int()</code> wrapper is no longer needed.</p>
-</div>
 <div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
 
-<span class="k">const</span><span class="w"> </span><span class="n">POSITION</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
-<span class="k">const</span><span class="w"> </span><span class="n">OPACITY</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span><span class="p">)</span>
+<span class="k">const</span><span class="w"> </span><span class="n">POSITION</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span>
+<span class="k">const</span><span class="w"> </span><span class="n">OPACITY</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_OPACITY</span>
 
 <span class="k">var</span><span class="w"> </span><span class="n">data</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianData</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
 <span class="k">var</span><span class="w"> </span><span class="n">anim</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">new</span><span class="p">()</span>
@@ -5022,7 +5018,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <span class="c1"># Create a second clip.</span>
 <span class="k">var</span><span class="w"> </span><span class="n">idle_idx</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">anim</span><span class="o">.</span><span class="n">add_clip</span><span class="p">(</span><span class="s2">"idle"</span><span class="p">,</span><span class="w"> </span><span class="mf">3.0</span><span class="p">)</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">set_clip_looping</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="bp">true</span><span class="p">)</span>
-<span class="k">var</span><span class="w"> </span><span class="n">position_property</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="nb nb-Type">int</span><span class="p">(</span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span><span class="p">)</span>
+<span class="k">var</span><span class="w"> </span><span class="n">position_property</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">GaussianAnimationStateMachine</span><span class="o">.</span><span class="n">ANIMATION_PROPERTY_POSITION</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">add_track_to_clip</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">position_property</span><span class="p">)</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">add_keyframe</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="n">position_property</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nb nb-Type">Vector3</span><span class="o">.</span><span class="n">ZERO</span><span class="p">)</span>
 
@@ -5190,7 +5186,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 12:27:53 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 12:44:23 UTC">October 3, 2026</span>
   </span>
 
     

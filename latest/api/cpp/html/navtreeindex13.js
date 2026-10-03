@@ -1,5 +1,9 @@
 var NAVTREEINDEX13 =
 {
+"classShaderCompilationManager.html#a9a6c551bed2623ce54a05250d23bfbeb":[1,0,190,3],
+"classShaderCompilationManager.html#a9f63476b894291740082e1bd61e93329":[1,0,190,1],
+"classSortingMetricsCollector.html":[1,0,198],
+"classSortingMetricsCollector.html#a4e869f6303fb57286d9133425924095d":[1,0,198,6],
 "classSortingMetricsCollector.html#a52cc90e77f8b1e0db45cec11fda67c8f":[1,0,198,7],
 "classSortingMetricsCollector.html#a7a223a3c1a10a01ca7a96af9d16fc4dd":[1,0,198,5],
 "classSortingMetricsCollector.html#a9c33bb777d1a8959498597b6161e948e":[1,0,198,1],
@@ -245,9 +249,5 @@ var NAVTREEINDEX13 =
 "classTileRasterizer.html#a3c8506661bcab3b0697f6c92c19fbbb0":[1,0,229,5],
 "classTileRasterizer.html#a3cc407cede88fb4f84a33473ceaebd5f":[1,0,229,22],
 "classTileRasterizer.html#a3e8eb27972e534eb6718900a3768fd4b":[1,0,229,18],
-"classTileRasterizer.html#a3f02a7efaf84cc53f73dc1d47ea8878c":[1,0,229,12],
-"classTileRasterizer.html#a3f5b0a5100618cce896dec9de59fcc75":[1,0,229,2],
-"classTileRasterizer.html#a42fe1609d545472a06c2c9512f2810d1":[1,0,229,10],
-"classTileRasterizer.html#a456695974fa9b3c1fdc18100d614fa71":[1,0,229,36],
-"classTileRasterizer.html#a530fc643e9aa213d39d19d5260a8eed4":[1,0,229,26]
+"classTileRasterizer.html#a3f02a7efaf84cc53f73dc1d47ea8878c":[1,0,229,12]
 };

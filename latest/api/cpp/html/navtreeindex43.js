@@ -1,5 +1,9 @@
 var NAVTREEINDEX43 =
 {
+"structStreamingEvictionController_1_1NonPrimaryEvictionCandidate.html#a279cf6d52aad4b85991b69ef450c5b0f":[1,0,216,0,2],
+"structStreamingEvictionController_1_1NonPrimaryEvictionCandidate.html#a2a48aa81dc1aff14d8374d57e5f70f84":[1,0,216,0,3],
+"structStreamingEvictionController_1_1NonPrimaryEvictionCandidate.html#a32932d7b28f669a3def486416e2f7c0b":[1,0,216,0,0],
+"structStreamingEvictionController_1_1NonPrimaryEvictionCandidate.html#a3e9d69508930092a834e0b98ac04dccd":[1,0,216,0,1],
 "structStreamingGlobalAtlasRegistry_1_1ChunkMetaUploadPlan.html":[1,0,217,0],
 "structStreamingGlobalAtlasRegistry_1_1ChunkMetaUploadPlan.html#a32aa1be6c6e23146cf217f6d087e62b0":[1,0,217,0,1],
 "structStreamingGlobalAtlasRegistry_1_1ChunkMetaUploadPlan.html#a33a335cfb9b6db5b59f293c1dea6ccb7":[1,0,217,0,0],
@@ -245,9 +249,5 @@ var NAVTREEINDEX43 =
 "structTileBinningStage.html#a6be03706d6fbe7cea763eac0ded9399d":[1,0,226,24],
 "structTileBinningStage.html#a8453a88af1bebef64ccf9abec2568c60":[1,0,226,21],
 "structTileBinningStage.html#a849b4a20ca45a8dc8cb7498240371234":[1,0,226,10],
-"structTileBinningStage.html#a88074c3ecef56d54145e08a36dfa5f32":[1,0,226,20],
-"structTileBinningStage.html#a9069aa099932e320dc2413a88ff23839":[1,0,226,2],
-"structTileBinningStage.html#a92b9645b5451166817d2afbf0b496946":[1,0,226,15],
-"structTileBinningStage.html#a93e708ed403eb60a0b611d0e4409db94":[1,0,226,17],
-"structTileBinningStage.html#ab37254b961e69ee29915dc758c08d45a":[1,0,226,14]
+"structTileBinningStage.html#a88074c3ecef56d54145e08a36dfa5f32":[1,0,226,20]
 };
