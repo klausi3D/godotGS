@@ -1,5 +1,6 @@
 var NAVTREEINDEX19 =
 {
+"namespaceGaussianSplatting_1_1InstancePipelineContract.html#a190f4582d08f6988fd8c4f1fe3dfdb07":[0,0,11,1,13],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76":[0,0,11,1,2],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a03f13e6a21812b4f7df059387afbdb96":[0,0,11,1,2,25],
 "namespaceGaussianSplatting_1_1InstancePipelineContract.html#a22ab67c6e269cc32bac91c96e8b30f76a0532b05e5f872b9d091dd6328d150a40":[0,0,11,1,2,10],
@@ -248,6 +249,5 @@ var NAVTREEINDEX19 =
 "namespacemembers_p.html":[0,1,0,11],
 "namespacemembers_r.html":[0,1,0,12],
 "namespacemembers_s.html":[0,1,0,13],
-"namespacemembers_t.html":[0,1,0,14],
-"namespacemembers_type.html":[0,1,3]
+"namespacemembers_t.html":[0,1,0,14]
 };

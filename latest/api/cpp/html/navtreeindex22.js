@@ -1,5 +1,6 @@
 var NAVTREEINDEX22 =
 {
+"streaming__queue__pressure__controller_8h_source.html":[2,0,0,0,3,61],
 "streaming__runtime__state_8h.html":[2,0,0,0,3,62],
 "streaming__runtime__state_8h_source.html":[2,0,0,0,3,62],
 "streaming__telemetry__adapter_8cpp.html":[2,0,0,0,3,63],
@@ -248,6 +249,5 @@ var NAVTREEINDEX22 =
 "structDebugOverlayOptions.html#a32bfe0bc07611c951fef4485eb07ba17":[1,0,46,13],
 "structDebugOverlayOptions.html#a4a5622b063f932f0af9c32dfa07d206e":[1,0,46,4],
 "structDebugOverlayOptions.html#a4b9ec1cba58ffc5f584d3f95508933c3":[1,0,46,9],
-"structDebugOverlayOptions.html#a4f38800e26eea05eaf00139f237b4c7d":[1,0,46,12],
-"structDebugOverlayOptions.html#a78f4c148eae7a982caa5ad09f6e08871":[1,0,46,6]
+"structDebugOverlayOptions.html#a4f38800e26eea05eaf00139f237b4c7d":[1,0,46,12]
 };

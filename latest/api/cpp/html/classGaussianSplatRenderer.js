@@ -99,7 +99,8 @@ var classGaussianSplatRenderer =
       [ "RASTERIZER_UNAVAILABLE", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808ab96feb264f316b54d3ef98ef51691482", null ],
       [ "DEPTH_TEXTURE_INVALID", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808afa22a349b8a1dd56ee0731e291449a29", null ],
       [ "DEPTH_OWNER_ALIAS_INVALID", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808a56349e818ef03bb895c644286cdfdab0", null ],
-      [ "BLIT_FAILED", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808ae8aa7968d4f7c4766b1f119c5d07f580", null ]
+      [ "BLIT_FAILED", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808ae8aa7968d4f7c4766b1f119c5d07f580", null ],
+      [ "NO_CASTER_RASTERED", "classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808a31405b78ce3830f5cc8350e4c2df8066", null ]
     ] ],
     [ "GaussianSplatRenderer", "classGaussianSplatRenderer.html#a968296463834c8706f0699fa26252dca", null ],
     [ "~GaussianSplatRenderer", "classGaussianSplatRenderer.html#a3a2bc99fd35cab38b71481c83a67c484", null ],
@@ -361,7 +362,7 @@ var classGaussianSplatRenderer =
     [ "render_instanced", "classGaussianSplatRenderer.html#aca2929295ceb258881bcf9edf093fbd7", null ],
     [ "render_scene_instance", "classGaussianSplatRenderer.html#a9135c858e7c512ce0e473f382aefcbeb", null ],
     [ "render_shadow_depth_map", "classGaussianSplatRenderer.html#a40cb08c10907dd215fbcaae9df3e1c86", null ],
-    [ "render_sorted_splats", "classGaussianSplatRenderer.html#abc4611b93c122d8b450e29200e24de2c", null ],
+    [ "render_sorted_splats", "classGaussianSplatRenderer.html#ab4cd3648ef0173301459ea61ad6c3ed0", null ],
     [ "reset_authoritative_route_decision", "classGaussianSplatRenderer.html#a1f85371ca10ff6803ca8d74c697a7411", null ],
     [ "reset_legacy_streaming_data_path_state", "classGaussianSplatRenderer.html#a23145cb868a3ae67b6ebd62ff05b36fa", null ],
     [ "resize_sort_state_byte_vectors", "classGaussianSplatRenderer.html#a83ef700b267504f4ad7dd90bdd3431c6", null ],

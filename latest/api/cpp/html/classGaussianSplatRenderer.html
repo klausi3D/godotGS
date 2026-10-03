@@ -198,6 +198,8 @@ Public Types</h2></td></tr>
 , <a class="el" href="classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808afa22a349b8a1dd56ee0731e291449a29">DEPTH_TEXTURE_INVALID</a>
 , <a class="el" href="classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808a56349e818ef03bb895c644286cdfdab0">DEPTH_OWNER_ALIAS_INVALID</a>
 , <a class="el" href="classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808ae8aa7968d4f7c4766b1f119c5d07f580">BLIT_FAILED</a>
+, <br />
+&#160;&#160;<a class="el" href="classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808a31405b78ce3830f5cc8350e4c2df8066">NO_CASTER_RASTERED</a>
 <br />
  }</td></tr>
 <tr class="separator:ac53990eecb7f4716998bddf61df1f808"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -410,8 +412,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:aa57d5b5e7951f712f5ca84adade637cf"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3eef318603c71fd3d871cdebc8334694" id="r_a3eef318603c71fd3d871cdebc8334694"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGaussianSplatRenderer.html#a5f3053e06a2a079ef05c50ac9f5b3510">SortStageSummary</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a3eef318603c71fd3d871cdebc8334694">sort_gaussians_for_view</a> (const Transform3D &amp;p_world_to_camera_transform, <a class="el" href="namespaceGaussianRenderState.html#ad57abd2c957c18ec4a26fa4e3a8525f8">IndexDomain</a> p_input_domain=IndexDomain::UNKNOWN)</td></tr>
 <tr class="separator:a3eef318603c71fd3d871cdebc8334694"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:abc4611b93c122d8b450e29200e24de2c" id="r_abc4611b93c122d8b450e29200e24de2c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#abc4611b93c122d8b450e29200e24de2c">render_sorted_splats</a> (RenderDataRD *p_render_data, const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_projection, const Projection &amp;p_render_projection, bool p_defer_render_buffers_commit=false, <a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79">RenderPassKind</a> p_pass_kind=<a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79a9f90fa1bbf9b14c38ecd8c7fd5ae04b1">RenderPassKind::MAIN_VIEW</a>)</td></tr>
-<tr class="separator:abc4611b93c122d8b450e29200e24de2c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab4cd3648ef0173301459ea61ad6c3ed0" id="r_ab4cd3648ef0173301459ea61ad6c3ed0"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#ab4cd3648ef0173301459ea61ad6c3ed0">render_sorted_splats</a> (RenderDataRD *p_render_data, const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_projection, const Projection &amp;p_render_projection, bool p_defer_render_buffers_commit=false, <a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79">RenderPassKind</a> p_pass_kind=<a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79a9f90fa1bbf9b14c38ecd8c7fd5ae04b1">RenderPassKind::MAIN_VIEW</a>, <a class="el" href="classGaussianSplatRenderer.html#ae54af27b94801611f42f281b28c052ec">RasterStageOutput</a> *r_raster_output=nullptr)</td></tr>
+<tr class="separator:ab4cd3648ef0173301459ea61ad6c3ed0"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aca2929295ceb258881bcf9edf093fbd7" id="r_aca2929295ceb258881bcf9edf093fbd7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#aca2929295ceb258881bcf9edf093fbd7">render_instanced</a> (RenderDataRD *p_render_data, const <a class="el" href="structGaussianSplatManager_1_1SharedDynamicAssetHandle.html">GaussianSplatManager::SharedDynamicAssetHandle</a> &amp;p_handle, const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_projection, const Projection &amp;p_render_projection, const LocalVector&lt; Transform3D &gt; &amp;p_instance_transforms)</td></tr>
 <tr class="separator:aca2929295ceb258881bcf9edf093fbd7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a48662fe5c457ec5be370dc8df159882f" id="r_a48662fe5c457ec5be370dc8df159882f"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGaussianSplatRenderer.html#a75a4ce0ccc972c8edf6b7282d76b29f8">CullStageOutput</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a48662fe5c457ec5be370dc8df159882f">_cull_for_view</a> (const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_projection, const Size2i &amp;p_viewport_size)</td></tr>
@@ -2202,6 +2204,7 @@ Usage</h2>
 <tr><td class="fieldname"><a id="ac53990eecb7f4716998bddf61df1f808afa22a349b8a1dd56ee0731e291449a29" name="ac53990eecb7f4716998bddf61df1f808afa22a349b8a1dd56ee0731e291449a29"></a>DEPTH_TEXTURE_INVALID&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="ac53990eecb7f4716998bddf61df1f808a56349e818ef03bb895c644286cdfdab0" name="ac53990eecb7f4716998bddf61df1f808a56349e818ef03bb895c644286cdfdab0"></a>DEPTH_OWNER_ALIAS_INVALID&#160;</td><td class="fielddoc"></td></tr>
 <tr><td class="fieldname"><a id="ac53990eecb7f4716998bddf61df1f808ae8aa7968d4f7c4766b1f119c5d07f580" name="ac53990eecb7f4716998bddf61df1f808ae8aa7968d4f7c4766b1f119c5d07f580"></a>BLIT_FAILED&#160;</td><td class="fielddoc"></td></tr>
+<tr><td class="fieldname"><a id="ac53990eecb7f4716998bddf61df1f808a31405b78ce3830f5cc8350e4c2df8066" name="ac53990eecb7f4716998bddf61df1f808a31405b78ce3830f5cc8350e4c2df8066"></a>NO_CASTER_RASTERED&#160;</td><td class="fielddoc"></td></tr>
 </table>
 
 </div>
@@ -9005,8 +9008,8 @@ Usage</h2>
 
 </div>
 </div>
-<a id="abc4611b93c122d8b450e29200e24de2c" name="abc4611b93c122d8b450e29200e24de2c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#abc4611b93c122d8b450e29200e24de2c">&#9670;&#160;</a></span>render_sorted_splats()</h2>
+<a id="ab4cd3648ef0173301459ea61ad6c3ed0" name="ab4cd3648ef0173301459ea61ad6c3ed0"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab4cd3648ef0173301459ea61ad6c3ed0">&#9670;&#160;</a></span>render_sorted_splats()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -9045,7 +9048,13 @@ Usage</h2>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype"><a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79">RenderPassKind</a>&#160;</td>
-          <td class="paramname"><em>p_pass_kind</em> = <code><a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79a9f90fa1bbf9b14c38ecd8c7fd5ae04b1">RenderPassKind::MAIN_VIEW</a></code>&#160;</td>
+          <td class="paramname"><em>p_pass_kind</em> = <code><a class="el" href="classGaussianSplatRenderer.html#a2ab78261871dc4851f8f7e71a30e6b79a9f90fa1bbf9b14c38ecd8c7fd5ae04b1">RenderPassKind::MAIN_VIEW</a></code>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="classGaussianSplatRenderer.html#ae54af27b94801611f42f281b28c052ec">RasterStageOutput</a> *&#160;</td>
+          <td class="paramname"><em>r_raster_output</em> = <code>nullptr</code>&#160;</td>
         </tr>
         <tr>
           <td></td>

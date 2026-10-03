@@ -1,5 +1,6 @@
 var NAVTREEINDEX15 =
 {
+"debug__overlay__macros_8h_source.html":[2,0,0,0,5,2],
 "debug__overlay__methods_8cpp.html":[2,0,0,0,12,3],
 "debug__overlay__system_8cpp.html":[2,0,0,0,5,3],
 "debug__overlay__system_8h.html":[2,0,0,0,5,4],
@@ -248,6 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__splat__asset_8h.html#abf36ddb19757804470c39772c9788267":[2,0,0,0,3,11,2],
 "gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11],
 "gaussian__splat__config__registry_8cpp.html":[2,0,0,0,3,12],
-"gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13],
-"gaussian__splat__config__registry_8h_source.html":[2,0,0,0,3,13]
+"gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13]
 };

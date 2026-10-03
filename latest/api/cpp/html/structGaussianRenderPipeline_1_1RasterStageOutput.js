@@ -6,6 +6,7 @@ var structGaussianRenderPipeline_1_1RasterStageOutput =
     [ "internal_size", "structGaussianRenderPipeline_1_1RasterStageOutput.html#a9171bbb6771f8e1d73345c2759e96a7a", null ],
     [ "painterly_active", "structGaussianRenderPipeline_1_1RasterStageOutput.html#a6dab2d49188ecb65e26063c7834ea820", null ],
     [ "raster_path", "structGaussianRenderPipeline_1_1RasterStageOutput.html#ace77d05c6c8957f1cfff587f272ea9a1", null ],
+    [ "rastered_splat_count", "structGaussianRenderPipeline_1_1RasterStageOutput.html#aa46f8400c921d1613dc1f824ab416bc1", null ],
     [ "render_time_ms", "structGaussianRenderPipeline_1_1RasterStageOutput.html#a1f8263ab22b178e322a472733e9363c0", null ],
     [ "reused_cached_render", "structGaussianRenderPipeline_1_1RasterStageOutput.html#a23e2b1fd76d700f98038718e77f8a45d", null ],
     [ "shader_defines_hash", "structGaussianRenderPipeline_1_1RasterStageOutput.html#abf4485c3e8b3b016fb9447ceb1e97962", null ],
