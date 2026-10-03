@@ -445,17 +445,17 @@ See also: [Sphere Effector Workflow](sphere_effector_workflow.md).
     </tr>
     <tr>
       <td><code>bake_color_grading()</code></td>
-      <td>Bakes the assigned <code>rendering/color_grading</code> into the node's CPU-side data, disables the grading resource, and returns <code>Error</code>. Returns <code>ERR_UNCONFIGURED</code> without a grading resource or without CPU-side data; at this revision only <code>set_splat_data()</code> creates that data, so asset-backed nodes are expected to fail (see "Baking limitation" in the Color Grading Quick Start).</td>
+      <td>Bakes the assigned <code>rendering/color_grading</code> into the node's CPU-side data, disables the grading resource, and returns <code>Error</code>. Only data supplied through <code>set_splat_data()</code> can be baked: a node that renders a <code>splat_asset</code> returns <code>ERR_UNAVAILABLE</code> and changes nothing, because its live grade already applies (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>; see "Baking limitation" in the Color Grading Quick Start). Returns <code>ERR_UNCONFIGURED</code> without a grading resource or without any splat data.</td>
       <td><code>GaussianSplatNode3D::bake_color_grading</code></td>
     </tr>
     <tr>
       <td><code>bake_color_grading_snapshot(grading_snapshot)</code></td>
-      <td>Same as <code>bake_color_grading()</code>, but bakes the given <code>ColorGradingResource</code> instead of the assigned one.</td>
+      <td>Same as <code>bake_color_grading()</code>, including <code>ERR_UNAVAILABLE</code> on a <code>splat_asset</code> node, but bakes the given <code>ColorGradingResource</code> instead of the assigned one.</td>
       <td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code></td>
     </tr>
     <tr>
       <td><code>restore_color_grading()</code></td>
-      <td>Restores original colors and re-enables grading resource if present.</td>
+      <td>Restores original colors and re-enables grading resource if present. Returns <code>Error</code>: <code>OK</code> (also when nothing was baked), <code>ERR_UNAVAILABLE</code> on a <code>splat_asset</code> node, or <code>ERR_INVALID_DATA</code> when the node's data was replaced since the bake, in which case nothing is restored and grading stays disabled.</td>
       <td><code>GaussianSplatNode3D::restore_color_grading</code></td>
     </tr>
     <tr>

@@ -53,13 +53,16 @@ Error GaussianData::bake_color_grading(const Ref<ColorGradingResource> &p_gradin
     return OK;
 }
 
-void GaussianData::restore_original_colors() {
+Error GaussianData::restore_original_colors() {
     RWLockWrite lock(data_rwlock);
     if (!bake_info.is_baked) {
-        return;  // Nothing to restore
+        return OK;  // Nothing to restore
     }
 
-    ERR_FAIL_COND(bake_info.original_sh_dc.size() != gaussians.size());
+    // #1105 review: report the abort, so the node does not re-enable live grading
+    // and claim success over colors that were never restored.
+    ERR_FAIL_COND_V_MSG(bake_info.original_sh_dc.size() != gaussians.size(), ERR_INVALID_DATA,
+            "Cannot restore baked color grading: the splat data was replaced since the bake, so the saved colors no longer match.");
 
     // Restore original SH DC coefficients
     for (uint32_t i = 0; i < gaussians.size(); i++) {
@@ -71,6 +74,7 @@ void GaussianData::restore_original_colors() {
 
     // Mark dirty to trigger GPU re-upload
     _on_gaussian_storage_changed_locked();
+    return OK;
 }
 
 Color GaussianData::apply_color_grading_cpu(const Color &p_color, const Ref<ColorGradingResource> &p_grading) {
