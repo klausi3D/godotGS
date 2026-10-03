@@ -421,6 +421,56 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 	CHECK(gs_overlay_test::joined(lines).contains(String::utf8("in this viewport — ")));
 }
 
+TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries every displayed LOD, streaming and SH value") {
+	gs_overlay_test::Overlay::ReportInputs in;
+	in.sections = gs_overlay_test::Overlay::SECTION_LOD | gs_overlay_test::Overlay::SECTION_STREAMING |
+			gs_overlay_test::Overlay::SECTION_SH_COMPRESSION;
+	in.has_target = true;
+	const char *const ids[] = { "lod_current_level", "lod_reduction_ratio_pct", "lod_min_chunk_distance",
+		"lod_avg_chunk_distance", "lod_max_chunk_distance", "lod_splat_skip_factor", "lod_opacity_multiplier",
+		"lod_chunks_in_transition", "lod_quality_degradation_active", "streaming_visible_chunks",
+		"streaming_loaded_chunks", "streaming_total_chunks", "streaming_resident_chunks",
+		"streaming_chunks_loaded_this_frame", "streaming_chunks_evicted_this_frame",
+		"streaming_buffer_capacity_splats", "streaming_effective_splat_count", "memory_stream_total_bytes_uploaded_mb",
+		"chunk_upload_queue_depth", "streaming_effective_upload_cap_mb_per_frame",
+		"streaming_effective_upload_cap_mb_per_slice", "streaming_effective_upload_cap_mb_per_second",
+		"streaming_effective_vram_budget_mb", "streaming_effective_vram_max_chunks", "streaming_upload_frame_cap_hit",
+		"streaming_upload_bandwidth_cap_hit", "streaming_chunk_load_cap_hit", "streaming_vram_chunk_cap_hit",
+		"streaming_queue_pressure_active", "memory_stream_stall_percent", "sh_compression_raw_mb",
+		"sh_compression_compressed_mb", "sh_compression_ratio_pct" };
+	in.streaming_monitors_match = true;
+	in.monitors["gaussian_splatting/streaming_monitor_ready"] = 1;
+	for (const char *id : ids) {
+		in.monitors[String("gaussian_splatting/") + id] = 1;
+	}
+	const struct {
+		const char *section;
+		int rows;
+	} expected[] = { { "lod", 9 }, { "streaming", 21 }, { "sh_compression", 3 } };
+
+	Vector<String> lines;
+	Dictionary snap;
+	gs_overlay_test::Overlay::build_report(in, lines, snap);
+	for (const auto &e : expected) {
+		const Dictionary sec = gs_overlay_test::section(snap, e.section);
+		CHECK_MESSAGE(sec.size() == e.rows, e.section);
+		for (const Variant &key : sec.keys()) {
+			CHECK_MESSAGE(sec[key].get_type() != Variant::NIL, String(e.section) + "." + String(key));
+		}
+	}
+
+	// Not ready: the same keys, every one null (n/a), never 0.
+	in.streaming_monitors_match = false;
+	gs_overlay_test::Overlay::build_report(in, lines, snap);
+	for (const auto &e : expected) {
+		const Dictionary sec = gs_overlay_test::section(snap, e.section);
+		CHECK_MESSAGE(sec.size() == e.rows, e.section);
+		for (const Variant &key : sec.keys()) {
+			CHECK_MESSAGE(sec[key].get_type() == Variant::NIL, String(e.section) + "." + String(key));
+		}
+	}
+}
+
 TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The render-thread stats read completes when invoked as the dispatcher invokes it") {
 	Ref<GaussianSplatRenderer> renderer;
 	renderer.instantiate();
@@ -486,6 +536,13 @@ TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A set_target() cho
 
 	// Back: described again without a new set_target().
 	root->add_child(chosen);
+	overlay->refresh_now();
+	CHECK(overlay->get_target() == chosen);
+	CHECK(String(gs_overlay_test::section(overlay->get_snapshot(), "node").get("name", "")) == "ChosenTarget");
+
+	// The overlay itself leaving and re-entering the tree keeps the choice too.
+	root->remove_child(overlay);
+	root->add_child(overlay);
 	overlay->refresh_now();
 	CHECK(overlay->get_target() == chosen);
 	CHECK(String(gs_overlay_test::section(overlay->get_snapshot(), "node").get("name", "")) == "ChosenTarget");
@@ -611,7 +668,12 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Performance overlay shows
 	CHECK(int64_t(node_section.get("total_splats", -1)) == int64_t(node->get_total_splat_count()));
 
 	// Every pass row is the target renderer's value when (and only when) its
-	// validity flag is set in the renderer's own statistics.
+	// validity flag is set in the renderer's own statistics. This checks the
+	// overlay against whatever this harness's renderer reports, which can be
+	// "no pass resolved"; the gate itself (shown iff valid, n/a otherwise) is
+	// proven with set flags by the pure case "A GPU pass row is shown iff its
+	// own validity flag is set". This case's own claims are target selection,
+	// world filtering and monitor ambiguity, which need no resolved timestamps.
 	const Dictionary gpu = gs_overlay_test::section(snap, "gpu_passes");
 	for (int i = 0; i < 6; i++) {
 		const char *key = gs_overlay_test::PASS_SNAPSHOT_KEYS[i];

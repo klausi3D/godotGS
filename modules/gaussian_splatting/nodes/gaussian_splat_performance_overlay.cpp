@@ -589,6 +589,60 @@ void section_device_vram(const GaussianSplatPerformanceOverlay::ReportInputs &p_
 	r_snap["device_vram"] = s;
 }
 
+// Snapshot key -> custom monitor, for every monitor-backed row the LOD,
+// STREAMING and SH COMPRESSION sections display: get_snapshot() returns all of
+// them (null when the panel shows n/a), not a subset.
+struct SnapshotMonitorRow {
+	const char *key;
+	const char *monitor_id;
+};
+const SnapshotMonitorRow LOD_SNAPSHOT_ROWS[] = {
+	{ "level", "gaussian_splatting/lod_current_level" },
+	{ "reduction_pct", "gaussian_splatting/lod_reduction_ratio_pct" },
+	{ "min_chunk_distance", "gaussian_splatting/lod_min_chunk_distance" },
+	{ "avg_chunk_distance", "gaussian_splatting/lod_avg_chunk_distance" },
+	{ "max_chunk_distance", "gaussian_splatting/lod_max_chunk_distance" },
+	{ "splat_skip_factor", "gaussian_splatting/lod_splat_skip_factor" },
+	{ "opacity_multiplier", "gaussian_splatting/lod_opacity_multiplier" },
+	{ "chunks_in_transition", "gaussian_splatting/lod_chunks_in_transition" },
+	{ "quality_degradation_active", "gaussian_splatting/lod_quality_degradation_active" },
+};
+const SnapshotMonitorRow STREAMING_SNAPSHOT_ROWS[] = {
+	{ "visible_chunks", "gaussian_splatting/streaming_visible_chunks" },
+	{ "loaded_chunks", "gaussian_splatting/streaming_loaded_chunks" },
+	{ "total_chunks", "gaussian_splatting/streaming_total_chunks" },
+	{ "resident_chunks", "gaussian_splatting/streaming_resident_chunks" },
+	{ "chunks_loaded_this_frame", "gaussian_splatting/streaming_chunks_loaded_this_frame" },
+	{ "chunks_evicted_this_frame", "gaussian_splatting/streaming_chunks_evicted_this_frame" },
+	{ "buffer_capacity_splats", "gaussian_splatting/streaming_buffer_capacity_splats" },
+	{ "effective_splat_count", "gaussian_splatting/streaming_effective_splat_count" },
+	{ "total_uploaded_mb", "gaussian_splatting/memory_stream_total_bytes_uploaded_mb" },
+	{ "upload_queue_depth", "gaussian_splatting/chunk_upload_queue_depth" },
+	{ "upload_cap_mb_per_frame", "gaussian_splatting/streaming_effective_upload_cap_mb_per_frame" },
+	{ "upload_cap_mb_per_slice", "gaussian_splatting/streaming_effective_upload_cap_mb_per_slice" },
+	{ "upload_cap_mb_per_second", "gaussian_splatting/streaming_effective_upload_cap_mb_per_second" },
+	{ "vram_budget_mb", "gaussian_splatting/streaming_effective_vram_budget_mb" },
+	{ "vram_max_chunks", "gaussian_splatting/streaming_effective_vram_max_chunks" },
+	{ "upload_frame_cap_hit", "gaussian_splatting/streaming_upload_frame_cap_hit" },
+	{ "upload_bandwidth_cap_hit", "gaussian_splatting/streaming_upload_bandwidth_cap_hit" },
+	{ "chunk_load_cap_hit", "gaussian_splatting/streaming_chunk_load_cap_hit" },
+	{ "vram_chunk_cap_hit", "gaussian_splatting/streaming_vram_chunk_cap_hit" },
+	{ "queue_pressure_active", "gaussian_splatting/streaming_queue_pressure_active" },
+	{ "stall_percent", "gaussian_splatting/memory_stream_stall_percent" },
+};
+const SnapshotMonitorRow SH_SNAPSHOT_ROWS[] = {
+	{ "raw_mb", "gaussian_splatting/sh_compression_raw_mb" },
+	{ "compressed_mb", "gaussian_splatting/sh_compression_compressed_mb" },
+	{ "ratio_pct", "gaussian_splatting/sh_compression_ratio_pct" },
+};
+
+template <size_t N>
+void snapshot_monitor_rows(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, const SnapshotMonitorRow (&p_rows)[N], bool p_ready, Dictionary &r_section) {
+	for (const SnapshotMonitorRow &row : p_rows) {
+		r_section[row.key] = p_ready ? monitor(p_in, row.monitor_id) : Variant();
+	}
+}
+
 // ------------------------------------------------------------------ LOD ----
 void section_lod(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, Vector<String> &r_lines, Dictionary &r_snap) {
 	header(r_lines, "LOD");
@@ -597,8 +651,7 @@ void section_lod(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, Vect
 		// Every LOD monitor is streaming-gated, and two return 1 / 1.0 with no
 		// renderer at all -- exactly what a live reading looks like.
 		r_lines.push_back(vformat(U"%s — all rows %s", streaming_absent_reason(p_in), NA));
-		s["level"] = Variant();
-		s["reduction_pct"] = Variant();
+		snapshot_monitor_rows(p_in, LOD_SNAPSHOT_ROWS, false, s);
 		r_snap["lod"] = s;
 		return;
 	}
@@ -621,8 +674,7 @@ void section_lod(const GaussianSplatPerformanceOverlay::ReportInputs &p_in, Vect
 	if (flag(monitor(p_in, "gaussian_splatting/lod_quality_degradation_active")) > 0) {
 		r_lines.push_back(U"[color=orange]⚠ Quality degradation active (VRAM pressure)[/color]");
 	}
-	s["level"] = level;
-	s["reduction_pct"] = reduction;
+	snapshot_monitor_rows(p_in, LOD_SNAPSHOT_ROWS, true, s);
 	r_snap["lod"] = s;
 }
 
@@ -632,9 +684,7 @@ void section_streaming(const GaussianSplatPerformanceOverlay::ReportInputs &p_in
 	Dictionary s;
 	if (!streaming_ready(p_in)) {
 		r_lines.push_back(vformat(U"%s — all rows %s", streaming_absent_reason(p_in), NA));
-		s["visible_chunks"] = Variant();
-		s["loaded_chunks"] = Variant();
-		s["total_chunks"] = Variant();
+		snapshot_monitor_rows(p_in, STREAMING_SNAPSHOT_ROWS, false, s);
 		r_snap["streaming"] = s;
 		return;
 	}
@@ -686,9 +736,7 @@ void section_streaming(const GaussianSplatPerformanceOverlay::ReportInputs &p_in
 		stall_text = double(stall) > 5.0 ? vformat("[color=orange]%.1f%%[/color]", double(stall)) : vformat("%.1f%%", double(stall));
 	}
 	r_lines.push_back(vformat("Pipeline stalls: %s", stall_text));
-	s["visible_chunks"] = visible;
-	s["loaded_chunks"] = loaded;
-	s["total_chunks"] = total;
+	snapshot_monitor_rows(p_in, STREAMING_SNAPSHOT_ROWS, true, s);
 	r_snap["streaming"] = s;
 }
 
@@ -698,7 +746,7 @@ void section_sh_compression(const GaussianSplatPerformanceOverlay::ReportInputs 
 	Dictionary s;
 	if (!streaming_ready(p_in)) {
 		r_lines.push_back(vformat(U"%s — all rows %s", streaming_absent_reason(p_in), NA));
-		s["ratio_pct"] = Variant();
+		snapshot_monitor_rows(p_in, SH_SNAPSHOT_ROWS, false, s);
 		r_snap["sh_compression"] = s;
 		return;
 	}
@@ -712,7 +760,7 @@ void section_sh_compression(const GaussianSplatPerformanceOverlay::ReportInputs 
 		ratio_text = vformat("[color=%s]%.1f%%[/color]", double(ratio) > 50.0 ? "green" : "yellow", double(ratio));
 	}
 	r_lines.push_back(vformat("Ratio: %s", ratio_text));
-	s["ratio_pct"] = ratio;
+	snapshot_monitor_rows(p_in, SH_SNAPSHOT_ROWS, true, s);
 	r_snap["sh_compression"] = s;
 }
 
@@ -1054,7 +1102,12 @@ void GaussianSplatPerformanceOverlay::_notification(int p_what) {
 		} break;
 		case NOTIFICATION_EXIT_TREE: {
 			set_process_internal(false);
-			target_id = ObjectID();
+			// A discovered target is re-discovered on re-entry (the overlay may
+			// now be in another world); a set_target() choice is kept.
+			if (!target_explicit) {
+				target_id = ObjectID();
+				target_auto = false;
+			}
 		} break;
 		case NOTIFICATION_INTERNAL_PROCESS: {
 			// Spec §1/§8: one wall-clock read per main-loop iteration, never
