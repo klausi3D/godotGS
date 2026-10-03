@@ -1,0 +1,25 @@
+var structGaussianSplatting_1_1TileOverflowStatsSnapshot =
+[
+    [ "overflow_drop_signal", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a6c1a45e6beb67b04a6c7f88bc170d544", null ],
+    [ "overflow_splats_aggregated", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a76bc06ae077c70729bd89fc69d370e91", null ],
+    [ "overflow_splats_clamped", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#ade5fbb2d531e02f559b3d140f3a5b8e6", null ],
+    [ "overflow_tile_count", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a44b9502fde0b76a9abab719daa9a238f", null ],
+    [ "raster_alpha_sum_q10", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a3d82b0c6ad5b10553049c5bdc1881c71", null ],
+    [ "raster_break_final_alpha", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a3950c2cc54728de78681d521cb4aac62", null ],
+    [ "raster_break_remaining_alpha", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a1050329f8022a6ca038d37ef798a65ef", null ],
+    [ "raster_break_subgroup_early_exit", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#afbfc6e9bd3e470e7d3ff11d4e9553844", null ],
+    [ "raster_has_depth", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a7ddae338118db778ac0183d261ccc84d", null ],
+    [ "raster_reject_alpha", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#afbe32c30aee81274242e80c2bad0ae54", null ],
+    [ "raster_reject_base_opacity", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a386f4a3215bf3b373772e286f46d602b", null ],
+    [ "raster_reject_blend_alpha", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#ae9cb66feec703cb7635378204fea84aa", null ],
+    [ "raster_reject_gaussian_idx_oob", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a5da9205461fc6578240542727ce072cd", null ],
+    [ "raster_reject_index_mismatch", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a4eeb41a89fc5e58f1064af8bc7ad569e", null ],
+    [ "raster_reject_lod_opacity", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a01b6d59205b32cb228585cbf55f2fa9e", null ],
+    [ "raster_reject_nan_inf", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#ab81e91dfe4e754a607c8a7d26db93984", null ],
+    [ "raster_reject_quadratic", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a0f3d11e201c1e42f4f9fd23206ff051a", null ],
+    [ "raster_reject_sorted_idx_oob", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#abbc6b18d2d9f1503e89d6bb048e7624e", null ],
+    [ "raster_reject_weight", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a39a9716d04a5e85630fafd65a7f2c8d0", null ],
+    [ "raster_sample_count", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a10971c931f19229eb04478ac8a90b3fb", null ],
+    [ "raster_splats_contributed", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a98551a9846b2a61d5c8094f55c088351", null ],
+    [ "raster_splats_iterated", "structGaussianSplatting_1_1TileOverflowStatsSnapshot.html#a8a6d476f1261cb844c6047a26dda9664", null ]
+];

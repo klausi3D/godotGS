@@ -1,0 +1,28 @@
+var structDebugCounterSnapshot =
+[
+    [ "bbox_integrity_reject", "structDebugCounterSnapshot.html#af94cb2e8f93443163dd4f66e43af9cb5", null ],
+    [ "clip_bounds_reject", "structDebugCounterSnapshot.html#a0dae19982f6949e4876cb25a6e44bde1", null ],
+    [ "clip_w_reject", "structDebugCounterSnapshot.html#ac2c6584a46728e80e53403852b762d1c", null ],
+    [ "covariance_nan_reject", "structDebugCounterSnapshot.html#a8a085152735e6943b59aac4ec7a92785", null ],
+    [ "determinant_reject", "structDebugCounterSnapshot.html#a1a6ed039a06e1e466c5f91ec5d75ba6c", null ],
+    [ "extreme_conic_count", "structDebugCounterSnapshot.html#a8af522c3292b1dd8d2bb1febdab1f296", null ],
+    [ "focal_length_reject", "structDebugCounterSnapshot.html#a576b193d36c903b85f35ace86668b4f7", null ],
+    [ "index_mismatch_count", "structDebugCounterSnapshot.html#afc1e9093dea93649098be8439764cfcc", null ],
+    [ "near_far_reject", "structDebugCounterSnapshot.html#a8c81a01d810518abdd7b10baf8832eb0", null ],
+    [ "overflow_splats_aggregated", "structDebugCounterSnapshot.html#a6da56aeea4e32d3bc131203fe9f2597d", null ],
+    [ "overflow_splats_clamped", "structDebugCounterSnapshot.html#a917d59c2249e7843480b6e58636006b5", null ],
+    [ "overflow_tile_count", "structDebugCounterSnapshot.html#abbe596c209efed1a04b670b7b1582c8d", null ],
+    [ "quaternion_reject", "structDebugCounterSnapshot.html#a0f3fe20b0597968cd086c00ef12bf043", null ],
+    [ "radius_reject", "structDebugCounterSnapshot.html#ad0baa47cb14cd90ddd957be5e986cc66", null ],
+    [ "raster_sample_count", "structDebugCounterSnapshot.html#a628253aea4287eebe5daab6904559052", null ],
+    [ "raster_splats_contributed", "structDebugCounterSnapshot.html#a84bddef08a245546dc1b7ba4de1a0522", null ],
+    [ "raster_splats_iterated", "structDebugCounterSnapshot.html#af25258c8cbf785c0819b4a4750a8b26c", null ],
+    [ "scale_reject", "structDebugCounterSnapshot.html#a0ba9a258c1800017232f35514fa92bbd", null ],
+    [ "screen_nan_reject", "structDebugCounterSnapshot.html#a0552dbb7dc83775d24f0c523576e7584", null ],
+    [ "success_count", "structDebugCounterSnapshot.html#a4b1e13605c5ec74fac227ed3dcae3bc8", null ],
+    [ "tile_extent_reject", "structDebugCounterSnapshot.html#aa4d85e14819b4f608eb54dcf85dbad9a", null ],
+    [ "total_processed", "structDebugCounterSnapshot.html#a378685bdd0fb96b1c4ad0764b5bd6531", null ],
+    [ "view_distance_reject", "structDebugCounterSnapshot.html#ada4d65bb4a85db4f325826031396786e", null ],
+    [ "viewport_bounds_reject", "structDebugCounterSnapshot.html#a3b681004a4fdb6367129b5bd9e3afb80", null ],
+    [ "z_inverse_reject", "structDebugCounterSnapshot.html#ab4703485200b60e5aebc248cb1f681f0", null ]
+];

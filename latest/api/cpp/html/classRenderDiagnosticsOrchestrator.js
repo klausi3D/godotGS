@@ -1,0 +1,27 @@
+var classRenderDiagnosticsOrchestrator =
+[
+    [ "Dependencies", "structRenderDiagnosticsOrchestrator_1_1Dependencies.html", "structRenderDiagnosticsOrchestrator_1_1Dependencies" ],
+    [ "RuntimePorts", "structRenderDiagnosticsOrchestrator_1_1RuntimePorts.html", "structRenderDiagnosticsOrchestrator_1_1RuntimePorts" ],
+    [ "BuildDeviceCapabilityReportFn", "classRenderDiagnosticsOrchestrator.html#a830cc25813b4fb630dd64dd33cc91874", null ],
+    [ "RenderDiagnosticsOrchestrator", "classRenderDiagnosticsOrchestrator.html#a73c0ea43e49e150ad20473ab6c279654", null ],
+    [ "build_render_stats", "classRenderDiagnosticsOrchestrator.html#ad50689296f8ae80de75667fd832fddd5", null ],
+    [ "capture_frame_timing_sample", "classRenderDiagnosticsOrchestrator.html#aad6d8bae7f46818498f53c5ec94770e2", null ],
+    [ "emit_runtime_diagnostics_if_requested", "classRenderDiagnosticsOrchestrator.html#a9d128477740279287134ce845f3c4f38", null ],
+    [ "finalize_frame_metrics", "classRenderDiagnosticsOrchestrator.html#af32747920133317abc0837a5be6f8cb5", null ],
+    [ "get_last_sort_metrics_internal", "classRenderDiagnosticsOrchestrator.html#a45c2e769a9204f4089a33b55eb9c1549", null ],
+    [ "get_render_time_ms_internal", "classRenderDiagnosticsOrchestrator.html#aa351006189d4674d79bfbc5d998c23ed", null ],
+    [ "get_runtime_diagnostic_snapshot", "classRenderDiagnosticsOrchestrator.html#a6330f158189891c586d438695b32a155", null ],
+    [ "get_sort_metrics_history_internal", "classRenderDiagnosticsOrchestrator.html#a214f7ffc332bca43b01a37ba617e2af1", null ],
+    [ "get_sort_time_ms_internal", "classRenderDiagnosticsOrchestrator.html#ae4767ee072bce489c6840870d1a74fc9", null ],
+    [ "get_state", "classRenderDiagnosticsOrchestrator.html#a0ad73e8440c7d9e718691a8da5051486", null ],
+    [ "get_state", "classRenderDiagnosticsOrchestrator.html#a7a1e22981fac9c0d1a81b490d3905331", null ],
+    [ "increment_frame_counter", "classRenderDiagnosticsOrchestrator.html#af6da58d14e33d6c270d495800283e4f6", null ],
+    [ "record_cross_device_operation", "classRenderDiagnosticsOrchestrator.html#af1fcb143a6ce23d5c532d5af1bec690b", null ],
+    [ "record_rendering_error", "classRenderDiagnosticsOrchestrator.html#a058cba2132553c14b0eb8d3466479a3d", null ],
+    [ "record_sort_sample", "classRenderDiagnosticsOrchestrator.html#a69ac5ebddfd8c9199238d5c57f58b825", null ],
+    [ "serialize_cross_device_operations", "classRenderDiagnosticsOrchestrator.html#ad0c2f0ae760a744251bb9c9cdc05b8e8", null ],
+    [ "serialize_error_statistics", "classRenderDiagnosticsOrchestrator.html#a3f101e416ad3306d2ed9c5460c0a010a", null ],
+    [ "serialize_frame_timing", "classRenderDiagnosticsOrchestrator.html#a9323ce39f0175d9c97dd608d9e6716ee", null ],
+    [ "serialize_texture_trace", "classRenderDiagnosticsOrchestrator.html#a806722b11ef24aa67dadf97176e15bf7", null ],
+    [ "transition_recovery_state", "classRenderDiagnosticsOrchestrator.html#a3142c91f7acc187be1cc64ea358f6f18", null ]
+];

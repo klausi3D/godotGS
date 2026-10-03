@@ -1,0 +1,58 @@
+var namespacegs__layout__hint =
+[
+    [ "LayoutHintFailureCounters", "structgs__layout__hint_1_1LayoutHintFailureCounters.html", "structgs__layout__hint_1_1LayoutHintFailureCounters" ],
+    [ "LayoutHintFailureState", "structgs__layout__hint_1_1LayoutHintFailureState.html", "structgs__layout__hint_1_1LayoutHintFailureState" ],
+    [ "LayoutHintIndexRange", "structgs__layout__hint_1_1LayoutHintIndexRange.html", "structgs__layout__hint_1_1LayoutHintIndexRange" ],
+    [ "LayoutHintValidationFailure", "structgs__layout__hint_1_1LayoutHintValidationFailure.html", "structgs__layout__hint_1_1LayoutHintValidationFailure" ],
+    [ "LayoutHintFailureCategory", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561", [
+      [ "INPUT", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561aa84cc046d48610b05c21fd3670d0c829", null ],
+      [ "NON_CONTIGUOUS", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561aa939c419a2120100f14a2cbce647be5a", null ],
+      [ "INDEX_RANGE", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561ae57060685adbbbf9ee61867fd34c8244", null ],
+      [ "REMAP", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561aadb669d52d263091ca78d17561a06d83", null ],
+      [ "OTHER", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561a03570470bad94692ce93e32700d2e1cb", null ],
+      [ "COUNT", "namespacegs__layout__hint.html#a329b5298f6544f2f39c10b80a2e9a561a4905ac9d6a22bdfc1ae096094ce6248d", null ]
+    ] ],
+    [ "LayoutHintFailureReason", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71a", [
+      [ "NONE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aab50339a10e1de285ac99d4c3990b8693", null ],
+      [ "DATA_NULL", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa490e327974673756761ec1002dbf68d0", null ],
+      [ "HINTS_EMPTY", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa6e8939c6a006b0d2439e54b9e90db1de", null ],
+      [ "SPLAT_COUNT_ZERO", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa5c3a46ca3b64dbc39d48c70249af2871", null ],
+      [ "HINT_COUNT_ZERO", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa0b4e2edce28ffa49187f380ac69b36d3", null ],
+      [ "HINT_START_OUT_OF_RANGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aae29cef79e6b7ab007556e1cf097ac1b3", null ],
+      [ "HINT_RANGE_OUT_OF_RANGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa6ef5cd84fea744c7d44a9400659e5cd4", null ],
+      [ "HINT_CHUNK_COUNT_OVERFLOW", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa411c8965bea2c257384c9f5016798768", null ],
+      [ "HINT_NON_CONTIGUOUS_COVERAGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa8f168c4c7d00da44ed096f155e09d458", null ],
+      [ "HINT_OVERLAPPING_RANGES", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa9f6ef1e9ebdf59ce88cd2ff83663f856", null ],
+      [ "REMAP_FLAG_REQUIRED", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aafe98045b7e6c9dbe76f7a6ccce71dc0a", null ],
+      [ "REMAP_FLAG_UNEXPECTED", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa0c07f6b02d4824ef9a3546aaa1503022", null ],
+      [ "REMAP_HINT_CHUNK_TOO_LARGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa1ab9555375bad556b1411989ea14daf9", null ],
+      [ "REMAP_OFFSET_OUT_OF_RANGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa377a67c74a0928d303bc7d63d2d23bcb", null ],
+      [ "REMAP_TOTAL_COUNT_MISMATCH", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aaa5024d26347eb70dc09d009af166fc03", null ],
+      [ "REMAP_SOURCE_COUNT_MISMATCH", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aada7411e882d0dca4a691ae40e653f8f1", null ],
+      [ "REMAP_SOURCE_INDEX_OUT_OF_RANGE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aab5f106ef8e379f680768070bd1517137", null ],
+      [ "REMAP_SOURCE_INDEX_DUPLICATE", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa91767af1bb07ed0ecb5ae34808c2c3c1", null ],
+      [ "VALIDATION_ALLOCATION_FAILED", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa569e6a987d7e0745b46e3cd2079f87e3", null ],
+      [ "COUNT", "namespacegs__layout__hint.html#a905230f559ac3bf027abb9036bdab71aa4905ac9d6a22bdfc1ae096094ce6248d", null ]
+    ] ],
+    [ "LayoutHintUsage", "namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407d", [
+      [ "IO", "namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407dacf3882f1c43ab22bff0bd9d82d83251b", null ],
+      [ "PRIMARY", "namespacegs__layout__hint.html#a651c26a81d5b9e7ab63a9a4c31d1407da428429ba9ea83e4841036fb0508fd6dc", null ]
+    ] ],
+    [ "_layout_hint_build_snapshot", "namespacegs__layout__hint.html#a1b739f39ae81fb00581876e8b117a8f7", null ],
+    [ "_layout_hint_category_code", "namespacegs__layout__hint.html#a4de1afb753919ec9e1e8859b388573fd", null ],
+    [ "_layout_hint_clear_last_failure", "namespacegs__layout__hint.html#a92ce0d634db6e438aa54ad8fe4396c52", null ],
+    [ "_layout_hint_failure_detail", "namespacegs__layout__hint.html#aa151eea2f9a5b774b34edeab1fe505bc", null ],
+    [ "_layout_hint_get_last_failure", "namespacegs__layout__hint.html#a098b22662c1da1f579a90ba4096ab9ec", null ],
+    [ "_layout_hint_get_or_create_state", "namespacegs__layout__hint.html#a6b0eaf2f6f80f2d74f5031a59c6fc275", null ],
+    [ "_layout_hint_get_state", "namespacegs__layout__hint.html#a3368bbad0aa5893a21cc19274510ddb4", null ],
+    [ "_layout_hint_reason_category", "namespacegs__layout__hint.html#a038963a4b2338ec586f025d807ec3c93", null ],
+    [ "_layout_hint_reason_code", "namespacegs__layout__hint.html#a8b712f649d0b6b9ad571a1b9a9f87717", null ],
+    [ "_layout_hint_record_failure", "namespacegs__layout__hint.html#a842df3b6af232c2369066af323749fe6", null ],
+    [ "_layout_hint_reset_state", "namespacegs__layout__hint.html#acce67b027a42317b2b2f43d954f5467e", null ],
+    [ "_layout_hint_set_last_failure", "namespacegs__layout__hint.html#a0dfa7ff82da695a654948ce06f1554a5", null ],
+    [ "_layout_hint_state_key", "namespacegs__layout__hint.html#a1e1b7a65e0ce3689289fc534ea49d054", null ],
+    [ "_layout_hint_strict_validation_enabled", "namespacegs__layout__hint.html#ac4757f1efa5582ea4584447f3e901a8f", null ],
+    [ "_layout_hint_usage_code", "namespacegs__layout__hint.html#ae4cb672e6878b16688ca5803cdf46c07", null ],
+    [ "_validate_layout_hint_ranges", "namespacegs__layout__hint.html#ab1afb2243095c1eaa0e1ad1f872e4ebf", null ],
+    [ "g_layout_hint_failure_states", "namespacegs__layout__hint.html#a936b0c2b4942046b53c44db321a441ec", null ]
+];

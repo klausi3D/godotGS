@@ -1,0 +1,25 @@
+var structGaussianRenderPipeline_1_1StageMetrics =
+[
+    [ "composite_depth_test_honored", "structGaussianRenderPipeline_1_1StageMetrics.html#a690f6c42ab1839e1c35ed67c282f0b4c", null ],
+    [ "composite_executed", "structGaussianRenderPipeline_1_1StageMetrics.html#a3f4c3d88b16da6da1079adab17ec7776", null ],
+    [ "composite_io", "structGaussianRenderPipeline_1_1StageMetrics.html#a1296a4f066c88af771c049f20188575e", null ],
+    [ "composite_result", "structGaussianRenderPipeline_1_1StageMetrics.html#aa97428cd0ff5c90eb21d9fd4cdadbd09", null ],
+    [ "composite_time_ms", "structGaussianRenderPipeline_1_1StageMetrics.html#a74926709fee13cca7bd85a6c1bbb5486", null ],
+    [ "cull", "structGaussianRenderPipeline_1_1StageMetrics.html#a81775c0d0ac90e0d963b4f45c09fe5c4", null ],
+    [ "cull_io", "structGaussianRenderPipeline_1_1StageMetrics.html#a3f592b402db3a3884922afa8fc8fdb80", null ],
+    [ "cull_result", "structGaussianRenderPipeline_1_1StageMetrics.html#a33e6e54cb1588bd75224e18e83034d88", null ],
+    [ "degradation_reason", "structGaussianRenderPipeline_1_1StageMetrics.html#aa8ffc907b4e62dc37cf9c4cf73f407c5", null ],
+    [ "first_failure_instance_index", "structGaussianRenderPipeline_1_1StageMetrics.html#a051a898adcea62fccb36f2a8c202b0a9", null ],
+    [ "first_failure_stage", "structGaussianRenderPipeline_1_1StageMetrics.html#ac0d896ee56ffbbbea68ff7653b3c4722", null ],
+    [ "first_skipped_instance_index", "structGaussianRenderPipeline_1_1StageMetrics.html#ac506095c7d234530c3ae1ccefc7757c2", null ],
+    [ "has_degradation", "structGaussianRenderPipeline_1_1StageMetrics.html#a9b643183d2bfcc4361d30e9db994b95f", null ],
+    [ "raster", "structGaussianRenderPipeline_1_1StageMetrics.html#a6ba47034194a3d38fa04a4af819a03dd", null ],
+    [ "raster_io", "structGaussianRenderPipeline_1_1StageMetrics.html#a19ba0b5e413cb832cd5eb63c444ea635", null ],
+    [ "raster_result", "structGaussianRenderPipeline_1_1StageMetrics.html#aa17d593270f03cefa7f51ea7929ced2d", null ],
+    [ "route_uid", "structGaussianRenderPipeline_1_1StageMetrics.html#a8a38090a90031cc7f46413d9f8d07461", null ],
+    [ "selected_route_backend", "structGaussianRenderPipeline_1_1StageMetrics.html#a6bf7c7344e9290ae427547b359e7c672", null ],
+    [ "skip_cause_stage", "structGaussianRenderPipeline_1_1StageMetrics.html#a1fc7c6c43a20916b1d4632458e627c87", null ],
+    [ "sort", "structGaussianRenderPipeline_1_1StageMetrics.html#ac25e9e3b79aab639987889c7f4483ab3", null ],
+    [ "sort_io", "structGaussianRenderPipeline_1_1StageMetrics.html#a4439e4bd251c1d52109fe17440d7aa45", null ],
+    [ "sort_result", "structGaussianRenderPipeline_1_1StageMetrics.html#a9edfb5f6e1d72a5e4bebc04fa4e7f9ed", null ]
+];

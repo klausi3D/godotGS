@@ -3837,6 +3837,8 @@
       
         
       
+        
+      
     
     
     
@@ -4274,6 +4276,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-open-world-proof-content-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open-World Proof Content Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -4438,7 +4468,7 @@
 
 
 <h1 id="compatibility-matrix">Compatibility Matrix<a class="headerlink" href="#compatibility-matrix" title="Permanent link">¶</a></h1>
-<p>Last generated: 2026-10-02</p>
+<p>Evidence last reviewed: 2026-10-01</p>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
 <p>Use this matrix to track evidence-backed platform status for godotGS Gaussian Splatting.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
@@ -4456,7 +4486,7 @@
 </tr>
 <tr>
 <td>Update compatibility evidence</td>
-<td>Edit <code>docs/reference/compatibility_sources.yaml</code> and regenerate this file.</td>
+<td>Edit <code>docs/reference/compatibility_sources.yaml</code> (including <code>evidence_as_of</code>) and regenerate this file.</td>
 </tr>
 </tbody>
 </table>
@@ -4515,9 +4545,9 @@
 <tr>
 <td>Windows</td>
 <td><code>editor-tested</code></td>
-<td>Conditional nightly Windows editor zips (godotgs-windows-x86_64-<tag>.zip) are published when the self-hosted Windows build succeeds for that release run.</tag></td>
-<td>SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts windows.<br>Gaussian Production Gates builds a Windows editor and runs windows-vulkan runtime validation in .github/workflows/gaussian_production_gates.yml.<br>Fresh PR evidence: PR #368 Gaussian Production Gates run 26128105716 passed the blocking Windows streaming-gpu-ci runtime gate and uploaded runtime-validation-report.<br>Release Builds compiles the Windows editor but publishes it conditionally: publish_release runs when Linux succeeds, downloads Windows only if build_windows succeeded, and uses fail_on_unmatched_files: false.<br>The production evidence route in tests/ci/collect_production_evidence.ps1 exercises non-headless Vulkan runtime scripts on Windows.</td>
-<td>Windows is the strongest in-repo validation lane, but the current fresh green evidence is from PR #368 rather than older failing master runs. Windows nightly assets are current public artifacts when that lane succeeds; they are not a workflow guarantee for every publish. No stable v* release is published yet.</td>
+<td>Nightly prereleases attach the Windows editor zip (godotgs-windows-x86_64-<tag>.zip) and the Windows export template zip only when build_windows, build_windows_export_template and export_smoke_windows all succeeded in that release run. When build_windows fails, the nightly ships Linux-only (nightly-20260930, run 36692364878). No stable v* release is published yet.</tag></td>
+<td>SUPPORTED_PLATFORMS in modules/gaussian_splatting/config.py accepts windows.<br>Gaussian Production Gates builds a Windows editor and runs the windows-vulkan runtime validation, including the blocking streaming-gpu-ci profile, in its module-validation job (.github/workflows/gaussian_production_gates.yml).<br>Newest green master push run of that job as of the evidence review date: Gaussian Production Gates run 36799027578 (2026-10-01, commit eff00db450c); earlier green ones include runs 36309892055 (2026-09-27) and 34744498012 (2026-09-13). Its runtime-validation-report artifact records streaming-gpu-ci on windows-vulkan as passed=3/3 (GPU Streaming Stress, World Streaming Gate, Streaming Residency API); the tier_1m p95/avg frame-time ratio is an unenforced advisory in that report (#883).<br>Release Builds publish_release (.github/workflows/release_builds.yml) needs build_linux, build_windows, finite_math_guard, release_candidate_gate and export_smoke_windows, and asserts build_linux, finite_math_guard and release_candidate_gate succeeded. On the nightly channel it also requires export_smoke_windows to have succeeded unless build_windows did not succeed; the stable channel always requires it.<br>The shipped bytes are re-verified against the release_candidate_gate attestation, which requires the Windows editor and export template zips whenever build_windows succeeded. fail_on_unmatched_files is true only on the stable channel.<br>Published nightlies: nightly-20260926 (run 36228230720) carries the Windows editor and export template zips; the 2026-09-27 run 36306226275 built Windows but failed export_smoke_windows, so no nightly was published that day; nightly-20260928 to nightly-20260930 (runs 36399911439, 36545382430, 36692364878) are Linux-only because build_windows failed at the self-hosted runner's Configure Git safe.directory setup step.<br>The production evidence route in tests/ci/collect_production_evidence.ps1 exercises non-headless Vulkan runtime scripts on Windows.</td>
+<td>Windows is the strongest in-repo validation lane. Windows nightly assets exist only for runs where the Windows build, its export template and the export smoke test all pass; they are not a guarantee for every nightly, and a Windows build that passes but fails the export smoke test blocks that night's publish on every platform. The Release-CI Runtime Evidence lane last passed in run 36314264682 (2026-09-27); its scheduled runs on 2026-09-28, 2026-09-29 and 2026-09-30 (runs 36420796309, 36563672999, 36709070479) failed at the runner's Configure Git safe.directory setup step. That step passes again in Gaussian Production Gates run 36799027578 (2026-10-01), but the lane has not run green since. No stable v* release is published yet.</td>
 </tr>
 <tr>
 <td>Linux</td>
@@ -4568,10 +4598,10 @@
 <td>Windows</td>
 <td><code>editor-tested</code></td>
 <td>Self-hosted Windows runner (OS version not yet published)</td>
-<td>NVIDIA GeForce RTX 3090</td>
-<td>Vulkan 1.4.312 + Forward+ + safe render thread; NVIDIA driver version not yet published</td>
-<td>.github/workflows/gaussian_production_gates.yml module-validation lane<br>tests/runtime/run_runtime_validation.py --gd-mode windows-vulkan<br>tests/ci/collect_production_evidence.ps1<br>PR #368 Actions run 26128105716 runtime-validation-report: passed=3/3; GPU Streaming Stress tier_1m within_budget=true, frame_p95_ms=159.624, residency_ratio=1.0, fallback_rate=0.0</td>
-<td>Fresh passing evidence is PR-scoped until the calibration lands on master. It proves the adapter, render route, and streaming runtime gate; Windows OS version and NVIDIA driver version are still not printed in repo-owned evidence.</td>
+<td>NVIDIA GeForce RTX 3090 (nvidia-smi output in the run 36799027578 job log)</td>
+<td>windows-vulkan runtime mode; Vulkan API and NVIDIA driver versions are not printed in repo-owned evidence</td>
+<td>.github/workflows/gaussian_production_gates.yml module-validation lane<br>tests/runtime/run_runtime_validation.py --gd-mode windows-vulkan --profile streaming-gpu-ci<br>tests/ci/collect_production_evidence.ps1<br>Gaussian Production Gates run 36799027578 (master, 2026-10-01) runtime-validation-report: streaming-gpu-ci passed=3/3, failed=0, skipped=0</td>
+<td>Proves the adapter, render route and streaming runtime gate on one self-hosted machine. Windows OS version and NVIDIA driver version are still not printed in repo-owned evidence.</td>
 </tr>
 <tr>
 <td>Linux</td>
@@ -4646,7 +4676,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 22:00:56 UTC">October 2, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 07:58:46 UTC">October 3, 2026</span>
   </span>
 
     

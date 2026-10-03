@@ -1,0 +1,26 @@
+var structGaussianRenderPipeline_1_1InstancePipelineBuffers =
+[
+    [ "asset_chunk_index_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ae1405a258ab29ed6867ab4f7670be777", null ],
+    [ "asset_meta_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5daa2e6cb2800197c5b52231c072a95f", null ],
+    [ "atlas_gaussian_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a20700e081f6c3c5966699c395e95e24f", null ],
+    [ "atlas_gaussian_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a70bddecdc5dd0abd12ce57c8938066a2", null ],
+    [ "chunk_dispatch_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ad31b561ebc4f6362ced01ea10e7b3c53", null ],
+    [ "chunk_meta_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ac0910c7653e0c51cbf45821c05c17d30", null ],
+    [ "counter_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a8a4a6099dea18547e03410e7afcc8722", null ],
+    [ "dispatch_chunk_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a165a549031d6c0bc8574f87141071371", null ],
+    [ "indirect_count_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a34dbe93776ddfe00b9214010c69e495e", null ],
+    [ "instance_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a3e0892cf12fb6132fb074e8a1db49f69", null ],
+    [ "instance_count", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a12f3c5f01821b9d2de09a26dde715e67", null ],
+    [ "instance_count_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#aeeac8037e3eaef02698e59baabedb793", null ],
+    [ "instance_grading_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a71955265d463f32b747682de5600474e", null ],
+    [ "max_chunk_splats", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#ae5f8748cc8e8faa7f3cade45250f168f", null ],
+    [ "max_visible_chunks", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a6414e19692137f2e2e3683f699558a6f", null ],
+    [ "max_visible_splats", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a1e082a5dc95855376b0db49a865bf7b5", null ],
+    [ "quantization_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a2c0910a7d343ab74bcb59f8580569407", null ],
+    [ "quantization_required", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a5246d389abeb31d1fb8dcda00fbd24c4", null ],
+    [ "sort_key_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a021d79e1e14d70b9d75f03e1cb744039", null ],
+    [ "sort_value_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a34aaef35b03e16ae70a5d750ade3ad94", null ],
+    [ "splat_ref_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afd0c111c52195b667e587f6619b60370", null ],
+    [ "visible_chunk_buffer", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#afdeefd8e6e27e5c993adbd71ce9a816a", null ],
+    [ "world_submission_active", "structGaussianRenderPipeline_1_1InstancePipelineBuffers.html#a10e83882aa4cfae94e6cce6245c2c9a9", null ]
+];

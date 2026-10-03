@@ -1,5 +1,0 @@
-warning: source '../modules/gaussian_splatting' is not a readable file or directory... skipping.
-warning: source '../scripts' is not a readable file or directory... skipping.
-warning: No files to be processed, please check your settings, in particular INPUT, FILE_PATTERNS, and RECURSIVE
-warning: Specified markdown mainpage 'README.md' has not been defined as input file
-/home/runner/work/godotGS/godotGS/docs/api/cpp/html/graph_legend.dot:1: error: Problems running dot: exit code=127, command='dot', arguments='"/home/runner/work/godotGS/godotGS/docs/api/cpp/html/graph_legend.dot" -Tpng -o "/home/runner/work/godotGS/godotGS/docs/api/cpp/html/graph_legend.png"'

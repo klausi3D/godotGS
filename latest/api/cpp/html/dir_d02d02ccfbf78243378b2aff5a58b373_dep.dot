@@ -1,0 +1,30 @@
+digraph "core"
+{
+ // LATEX_PDF_SIZE
+  bgcolor="transparent";
+  edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
+  node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
+  compound=true
+  subgraph clusterdir_a7c5dc539e8692fa7c626776bf229a86 {
+    graph [ bgcolor="#edf0f7", pencolor="grey50", label="gaussian_splatting", fontname=Helvetica,fontsize=10 style="filled,dashed", URL="dir_a7c5dc539e8692fa7c626776bf229a86.html",tooltip=""]
+  dir_096320cb15ce1e91fe87fbbf633d50fb [label="persistence", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_096320cb15ce1e91fe87fbbf633d50fb.html",tooltip=""];
+  dir_0988d10b4b76efdbc3cd9bebbb3508c5 [label="animation", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_0988d10b4b76efdbc3cd9bebbb3508c5.html",tooltip=""];
+  dir_13916f256549b6bbeb0ad7fe043c472e [label="lod", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_13916f256549b6bbeb0ad7fe043c472e.html",tooltip=""];
+  dir_4d9a0851c4af74770921fba31e268bb1 [label="logger", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_4d9a0851c4af74770921fba31e268bb1.html",tooltip=""];
+  dir_5b0b7e2dc47927de6e59864253fc7bdc [label="nodes", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_5b0b7e2dc47927de6e59864253fc7bdc.html",tooltip=""];
+  dir_6f43087885c02412ef74d5fb05a340f1 [label="interfaces", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_6f43087885c02412ef74d5fb05a340f1.html",tooltip=""];
+  dir_7647312eaffe3fbde22451c27808fddd [label="io", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_7647312eaffe3fbde22451c27808fddd.html",tooltip=""];
+  dir_c366402dd28375b68e0f617f5f685a3b [label="resources", fillcolor="#a2b4d6", color="grey25", style="filled", URL="dir_c366402dd28375b68e0f617f5f685a3b.html",tooltip=""];
+  dir_daa26d30b61fdbb555b4333281d6a287 [label="renderer", fillcolor="#a2b4d6", color="red", style="filled", URL="dir_daa26d30b61fdbb555b4333281d6a287.html",tooltip=""];
+  dir_d02d02ccfbf78243378b2aff5a58b373 [label="core", fillcolor="#edf0f7", color="grey25", style="filled,bold", URL="dir_d02d02ccfbf78243378b2aff5a58b373.html",tooltip=""];
+  }
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_096320cb15ce1e91fe87fbbf633d50fb [headlabel="2", labeldistance=1.5 headhref="dir_000003_000013.html" href="dir_000003_000013.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_0988d10b4b76efdbc3cd9bebbb3508c5 [headlabel="1", labeldistance=1.5 headhref="dir_000003_000000.html" href="dir_000003_000000.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_13916f256549b6bbeb0ad7fe043c472e [headlabel="7", labeldistance=1.5 headhref="dir_000003_000008.html" href="dir_000003_000008.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_4d9a0851c4af74770921fba31e268bb1 [headlabel="22", labeldistance=1.5 headhref="dir_000003_000009.html" href="dir_000003_000009.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_5b0b7e2dc47927de6e59864253fc7bdc [headlabel="1", labeldistance=1.5 headhref="dir_000003_000011.html" href="dir_000003_000011.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_6f43087885c02412ef74d5fb05a340f1 [headlabel="7", labeldistance=1.5 headhref="dir_000003_000006.html" href="dir_000003_000006.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_7647312eaffe3fbde22451c27808fddd [headlabel="6", labeldistance=1.5 headhref="dir_000003_000007.html" href="dir_000003_000007.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_c366402dd28375b68e0f617f5f685a3b [headlabel="4", labeldistance=1.5 headhref="dir_000003_000016.html" href="dir_000003_000016.html" color="steelblue1" fontcolor="steelblue1"];
+  dir_d02d02ccfbf78243378b2aff5a58b373->dir_daa26d30b61fdbb555b4333281d6a287 [headlabel="27", labeldistance=1.5 headhref="dir_000003_000015.html" href="dir_000003_000015.html" color="steelblue1" fontcolor="steelblue1"];
+}

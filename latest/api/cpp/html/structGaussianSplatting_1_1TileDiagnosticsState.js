@@ -1,0 +1,24 @@
+var structGaussianSplatting_1_1TileDiagnosticsState =
+[
+    [ "capture_tile_density_snapshot", "structGaussianSplatting_1_1TileDiagnosticsState.html#ad71162c4cacaa9cc6dc520c38c645348", null ],
+    [ "debug_binning_counters_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a914cf73c67b75c16c16d561fd9cd9989", null ],
+    [ "debug_dump_gpu_counters", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7fcd7c0f8c02bb96a34fbf0e1f1a207e", null ],
+    [ "debug_frame_log_frequency", "structGaussianSplatting_1_1TileDiagnosticsState.html#a51a99ca7c3d4ba0e0a809adb1be4f9e3", null ],
+    [ "debug_gpu_counter_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#ad00c0c5a387aadea26fd5a228346d9f4", null ],
+    [ "debug_log_resolve", "structGaussianSplatting_1_1TileDiagnosticsState.html#af99383468adaf07b9b51f487782d2e58", null ],
+    [ "debug_log_resolve_interval_frames", "structGaussianSplatting_1_1TileDiagnosticsState.html#aa31d9eb4f64ccc1de4c04ecae91c0a9e", null ],
+    [ "debug_tile_dispatch_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7171fcf98033deb8418497f04d4eec83", null ],
+    [ "debug_tile_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#a7712d8bce4d33a9a9ce79ec092d37db8", null ],
+    [ "debug_tile_pipeline_logs_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#ab29f497622ba7b426ac26ed2f53c9e1c", null ],
+    [ "last_overlap_keep_ratio", "structGaussianSplatting_1_1TileDiagnosticsState.html#afe4ed2c1bd8a550a61f340487357b28e", null ],
+    [ "last_overlap_record_budget_effective", "structGaussianSplatting_1_1TileDiagnosticsState.html#a1fe387819612c0983b89afb461d16117", null ],
+    [ "last_overlap_record_count", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae8a6798df23c6d84b461e3d36d3c7e55", null ],
+    [ "last_render_stats", "structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216", null ],
+    [ "overflow_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#a26c25fdc27946b9e1b9b49ff02e34bed", null ],
+    [ "perf_capture_raster_shader_counters_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#ab55543a449d46fe10630ad6e7cee5ea1", null ],
+    [ "resolve_debug_visualize_tiles", "structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654", null ],
+    [ "resolve_use_texel_fetch_sampling", "structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627", null ],
+    [ "runtime_statistics_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534", null ],
+    [ "sort_key_32bit_engaged", "structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c", null ],
+    [ "tile_density_snapshot", "structGaussianSplatting_1_1TileDiagnosticsState.html#a3424148b171cb9a1d2b6a1884c3f74df", null ]
+];

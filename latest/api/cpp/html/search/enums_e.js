@@ -1,0 +1,27 @@
+var searchData=
+[
+  ['scopemode_0',['ScopeMode',['../classSphereEffector3D.html#a91be2453bf9f6f6033462cb56dc506fd',1,'SphereEffector3D']]],
+  ['selectionop_1',['SelectionOp',['../interactive__state__interfaces_8h.html#a692305dd621f241fdea36728b8ebc7b4',1,'interactive_state_interfaces.h']]],
+  ['severity_2',['Severity',['../classRenderingError.html#a26195ebe324bdb8bd6483632c8068380',1,'RenderingError']]],
+  ['shadergroup_3',['ShaderGroup',['../classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7',1,'GPUCuller']]],
+  ['shadingstyle_4',['ShadingStyle',['../classPainterlyMaterial.html#aecea4ba2da39b6bb6f953956726ffc54',1,'PainterlyMaterial']]],
+  ['shadowrenderfailurereason_5',['ShadowRenderFailureReason',['../classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808',1,'GaussianSplatRenderer']]],
+  ['shbandlevel_6',['SHBandLevel',['../sh__config_8h.html#a9894bd26324be7adc91699b2e59f140d',1,'sh_config.h']]],
+  ['sortcompletionmode_7',['SortCompletionMode',['../gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7b',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sortfallbackaction_8',['SortFallbackAction',['../namespaceGaussianSplatting.html#ac35d890c929f8b22b35f9fe7e5316fa6',1,'GaussianSplatting']]],
+  ['sortfallbackscenario_9',['SortFallbackScenario',['../namespaceGaussianSplatting.html#a4da9145f34a054fc10a9369700af7ba4',1,'GaussianSplatting']]],
+  ['sortingalgorithm_10',['SortingAlgorithm',['../classGPUSorterFactory.html#aa23c2094b3a98a635805f251aaf06afe',1,'GPUSorterFactory']]],
+  ['sortoperationerrorcode_11',['SortOperationErrorCode',['../gpu__sorting__pipeline__interfaces_8h.html#a2d27fa1b59489b674860ec89b86c35ec',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sortpreflighterror_12',['SortPreflightError',['../gpu__sorter_8h.html#a5b136929190f45514ca4ea0aec0351f1',1,'gpu_sorter.h']]],
+  ['sortrendererfallbackpolicy_13',['SortRendererFallbackPolicy',['../gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3',1,'gpu_sorting_pipeline_interfaces.h']]],
+  ['sphereeffectorscopemode_14',['SphereEffectorScopeMode',['../classGaussianSplatSceneDirector.html#ad72f38c3102960d3202cdff722349a94',1,'GaussianSplatSceneDirector']]],
+  ['stageerrorcode_15',['StageErrorCode',['../namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66',1,'GaussianSplatting::ComputeInfrastructure']]],
+  ['stagestatus_16',['StageStatus',['../structGaussianRenderPipeline_1_1StageResult.html#a42af5f162e96539c39df047ee4d05946',1,'GaussianRenderPipeline::StageResult']]],
+  ['state_17',['State',['../structGaussianRenderFrame_1_1ErrorRecoveryStateMachine.html#a5ff0e41bfcc6cf3b8a10dde67ec303ac',1,'GaussianRenderFrame::ErrorRecoveryStateMachine']]],
+  ['streamingreadinessstate_18',['StreamingReadinessState',['../render__streaming__orchestrator_8cpp.html#a5bdf13d8cdf2b774d0958ffdc29ad97f',1,'render_streaming_orchestrator.cpp']]],
+  ['streaminguploadcompletionmode_19',['StreamingUploadCompletionMode',['../namespaceGaussianStreamingTypes.html#a5a9688a324dcc97e4ee0cc6be55d701e',1,'GaussianStreamingTypes']]],
+  ['streaminguploadlifecyclestate_20',['StreamingUploadLifecycleState',['../namespaceGaussianStreamingTypes.html#a5b6327db19b7056e28608f1c511fa94f',1,'GaussianStreamingTypes']]],
+  ['stylepreset_21',['StylePreset',['../classPainterlyMaterial.html#a16d60e38368200c91d13eed76502a2f7',1,'PainterlyMaterial']]],
+  ['subgroupprefixmode_22',['SubgroupPrefixMode',['../structGPUSortingConfig.html#abe79287de1d3073e1a23585da1959b1e',1,'GPUSortingConfig']]],
+  ['submissionresidencyhint_23',['SubmissionResidencyHint',['../classGaussianSplatSceneDirector.html#a83acb3ba5b077629fb3ae92b42537dc3',1,'GaussianSplatSceneDirector']]]
+];

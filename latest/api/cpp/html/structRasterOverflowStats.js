@@ -1,0 +1,25 @@
+var structRasterOverflowStats =
+[
+    [ "frame_number", "structRasterOverflowStats.html#a30fda317a18308aa0770fad1fb612ae0", null ],
+    [ "overflow_splats_aggregated", "structRasterOverflowStats.html#ae39a56221b87cad386180ed0cc512b9c", null ],
+    [ "overflow_splats_clamped", "structRasterOverflowStats.html#a37cc79dbb8efb01856d0828aa38e4195", null ],
+    [ "overflow_tile_count", "structRasterOverflowStats.html#a2a3224b357c0e5f2b9b3bfc2a8d8eb99", null ],
+    [ "raster_alpha_sum_q10", "structRasterOverflowStats.html#ad442a4a26b5e7681c77e9a93cb1bf2b1", null ],
+    [ "raster_break_final_alpha", "structRasterOverflowStats.html#abad15adcc9c5475a37d6db174d68b387", null ],
+    [ "raster_break_remaining_alpha", "structRasterOverflowStats.html#adc9068d730fd4458de9bd3c1cfa3ba3d", null ],
+    [ "raster_break_subgroup_early_exit", "structRasterOverflowStats.html#aaf358b695239d7faf3efe4a0780d2406", null ],
+    [ "raster_has_depth", "structRasterOverflowStats.html#a9cd94940e4fd531e6b69c852ca83197b", null ],
+    [ "raster_reject_alpha", "structRasterOverflowStats.html#ac8409858373369d39f669eb70ff37e5e", null ],
+    [ "raster_reject_base_opacity", "structRasterOverflowStats.html#a007b834ee41068f19f36636aa34f4095", null ],
+    [ "raster_reject_blend_alpha", "structRasterOverflowStats.html#a0303ea6c88d94ee6fdb3a2251f610b8e", null ],
+    [ "raster_reject_gaussian_idx_oob", "structRasterOverflowStats.html#ad56ff9691f70441869a256a90dd31e35", null ],
+    [ "raster_reject_index_mismatch", "structRasterOverflowStats.html#a408395671a20325ffb422071749cdc7a", null ],
+    [ "raster_reject_lod_opacity", "structRasterOverflowStats.html#a50899a5ab55d93a199e033a9a30aca1e", null ],
+    [ "raster_reject_nan_inf", "structRasterOverflowStats.html#af16248682d3a92c17e5343a8cc0f53f5", null ],
+    [ "raster_reject_quadratic", "structRasterOverflowStats.html#a2fcf0417353ca329912b558819e74a75", null ],
+    [ "raster_reject_sorted_idx_oob", "structRasterOverflowStats.html#a33a826a5d3cf9f9937e36d23d665f2ea", null ],
+    [ "raster_reject_weight", "structRasterOverflowStats.html#aa775db42fbc1f2b7e1a0b52f2e90d49e", null ],
+    [ "raster_sample_count", "structRasterOverflowStats.html#a98acef131224b2075fa0b70ea944faa2", null ],
+    [ "raster_splats_contributed", "structRasterOverflowStats.html#a562c519e878deb458eb3fa5b18dc5c67", null ],
+    [ "raster_splats_iterated", "structRasterOverflowStats.html#a9c463332ae320e1b3c964b889347ca08", null ]
+];

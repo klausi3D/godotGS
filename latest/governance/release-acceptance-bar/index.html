@@ -3854,6 +3854,8 @@
       
         
       
+        
+      
     
     
     
@@ -4278,6 +4280,34 @@
     
   
     Alpha Envelope Widened to Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-open-world-proof-content-validation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Open-World Proof Content Validation
   
 
     
@@ -4836,21 +4866,50 @@ silently rather than failing. Emit ISO-8601 and do not rely on the gate to catch
 malformed one. The workflow binds an eleventh group, <code>windows_export_template_archive</code>,
 via <code>--artifact-sha</code>.</p>
 <blockquote>
-<p><strong>Artifact groups are integrity-checked, never content-checked, and that is load-bearing
-for <code>open_world_proof</code>.</strong> <code>_validate_candidate_artifact_group</code>
-(<code>tests/ci/check_renderer_release_gates.py:1050-1065</code>) runs the required-field, hash,
-commit and mtime checks and nothing else. The bytes <em>are</em> read — <code>:1100-1112</code> hashes
-them — but <strong>no validator inspects what the file says</strong>; any byte string with a matching
-digest satisfies the group. Demonstrated:
-a bundle that is otherwise complete but points <code>open_world_proof</code> at the repository's
-<code>README.md</code>, with a correct digest, <strong>exits 0 with no failures</strong>. The manifest says as
-much about itself — <code>workflow_blocking_behavior_machine_enforced: false</code> (<code>:320-324</code>) and
-"open-world proof must be blocking rather than advisory" under
-<code>documented_non_enforced_rules</code> (<code>:260-264</code>). <strong>So pointing this group at genuine
-corridor-proof output is a #961 and human-signer obligation, not something the gate
-enforces.</strong> Treat it as §4.2's "a lane that passes without executing" until either a
-content validator exists for the group or <code>open_world_corridor_proof</code> is added to
-<code>candidate_required_lanes</code>.</p>
+<p><strong>Artifact groups are integrity-checked; <code>open_world_proof</code> is also content-checked
+(#1016, PR #1046).</strong> <code>_validate_candidate_artifact_group</code>
+(<code>tests/ci/check_renderer_release_gates.py:1100</code>) runs the required-field, hash, commit
+and mtime checks for every group. For a group listed under
+<code>artifact_requirements.content_validators</code> in the manifest, it then also runs
+<code>_validate_candidate_artifact_content</code> (<code>:1206</code>). Today that list holds only
+<code>open_world_proof</code>. Before this validator existed, a bundle pointing
+<code>open_world_proof</code> at the repository's <code>README.md</code> with a correct digest exited 0 with
+no failures; it now fails. The <code>open_world_proof</code> artifact must be the JSON lane report
+that <code>benchmark_suite_lane.gd</code> writes for <code>open_world_corridor_proof</code>, and
+<code>_open_world_corridor_proof_content_failures</code> (<code>:1258</code>) requires all of the following:</p>
+<ul>
+<li><code>lane_id</code> is <code>open_world_corridor_proof</code>.</li>
+<li>The four streaming-telemetry availability flags are <code>true</code>, so the numbers were
+  measured, not defaulted.</li>
+<li>The manifest's <code>minimum_values</code> hold as finite numbers: at least 2 loaded chunks,
+  5,000,000 total splats, a non-empty proof window, 2 chunk loads and 1 chunk eviction.
+  The turnover totals count only the proof window, so warm-up churn does not count.</li>
+<li>The report <strong>passes the lane's own correctness contract</strong>, <code>_corridor_proof_contract_failures</code>
+  (<code>:1376</code>). It is evaluated with <code>run_benchmark.py</code>'s <code>LARGE_WORLD_PROOF_CONTRACTS</code> and
+  <code>_evaluate_large_world_proof_contract</code>, so a <code>fail</code>, <code>missing_telemetry</code> or
+  <code>report_unavailable</code> verdict is refused. That contract covers <code>first_visible_ms</code>,
+  <code>residency_ratio</code>, queue-pressure, no-progress and scan-starved frames, and VRAM cap
+  hits. A <code>warn</code> verdict, which means only soft timing budgets were missed, is accepted.
+  Under the #1086 definitions, <code>scan_starved_frames</code> is null when no proof-window frame
+  was eligible to starve, and <code>residency_ratio</code> is null when no frame had needed-set
+  demand. Both remain refusals, with the reason named (<code>_proof_outcome_detail</code>). A
+  corridor run that streams creates unserved demand while the scan has headroom, so zero
+  eligible frames means the check was never exercised, and an unexercised check is not
+  a pass. Sentinels are missing evidence too (<code>run_benchmark.py</code>
+  <code>_proof_metric_observed_value</code> and <code>_extract_large_world_proof_metrics</code>):</li>
+<li>A negative metric is refused. This covers the producer's never-visible
+    <code>first_visible_ms = -1.0</code>.</li>
+<li>A frame-time budget is not read from an empty (0-sample) summary.</li>
+<li><code>queue_pressure_frames</code> and <code>vram_cap_hit_frames</code> are no longer back-filled from the
+    renderer's no-streaming 0.</li>
+</ul>
+<p><code>--mode contract</code> also fails if the <code>open_world_proof</code> validator is removed from the
+manifest (<code>_validate_content_validation_coverage</code>, <code>:828</code>). What the gate still does
+<strong>not</strong> do is run the lane itself. It validates a supplied report. The gate refuses
+<strong>proof that says the wrong thing</strong>. Producing the proof on the release commit is
+still a #961 and human-signer obligation. <code>workflow_blocking_behavior_machine_enforced:
+false</code> and the "open-world proof must be blocking rather than advisory" entry under
+<code>documented_non_enforced_rules</code> still describe the workflow, which is a separate question.</p>
 </blockquote>
 <p><strong>GPU harness report.</strong> <code>supervisor_exit</code> must be <strong>present</strong> and <code>0</code> — a report without
 it is refused outright, which closes the delete-the-field laundering path. If present,
@@ -4870,7 +4929,21 @@ count that reconciles with that list's length. Zero RID leaks, no timeout, <code
 <code>gpu_timing_available</code> is true, <code>gpu_time_frame_ms</code> must be a positive number; when it is
 not, the row must carry an explicit <code>gpu_frame_time_source</code>/<code>gpu_time_frame_source</code> of
 <code>"unavailable"</code>. Silence is a failure, not an exemption. A timed-out lane fails, and a
-CPU/fallback route fails unless the lane explicitly allows it.</p>
+CPU/fallback route fails unless the lane explicitly allows it. A lane whose repository
+asset manifest (<code>tests/fixtures/benchmark_asset_manifest.json</code>) gives it a <code>proof*</code>
+<code>evidence_role</code> must also carry <em>measured</em> streaming evidence. Today those lanes are
+<code>streaming_corridor</code> and <code>city_flyover</code>. The requirements are
+<code>streaming_telemetry_measured: true</code>, a <code>queue_pressure</code> object with
+<code>source: "streaming_state"</code> and a finite non-negative <code>frames</code>, and a <code>proof_status</code> of
+<code>pass</code> or <code>warn</code> (<code>_candidate_lane_streaming_evidence_failures</code>). The role is read from
+the repository, not from the row, so a row cannot relabel itself out of the requirement.
+The row's own <code>proof_status</code> is not trusted either: the gate re-scores the row's nested
+<code>report</code> against the lane's contract in <code>run_benchmark.py</code>'s <code>LARGE_WORLD_PROOF_CONTRACTS</code>
+with the harness's own <code>_evaluate_large_world_proof_contract</code>, and refuses a lane that has
+no contract whatever status the row claims (<code>_candidate_lane_proof_contract_failures</code>).
+Neither lane has a large-world proof contract today, so the harness writes a null
+<code>proof_status</code> for them, a hand-written <code>pass</code> is refused, and no current run can satisfy
+this.</p>
 <p><strong>Visual acceptance — evaluated per benchmark-lane row, not once per bundle.</strong> Every lane
 row carries its own capture fields and is checked independently
 (<code>_candidate_lane_visual_failures</code>, <code>:1598</code>): at least <code>capture_count_min</code> captures;
@@ -5069,7 +5142,8 @@ the blocker set by this decision rather than by a change in its severity.
 the same kind of reason and with a larger consequence. Three gate requirements must now be
 satisfied before a stable tag: the <strong>benchmark lanes</strong> <code>streaming_corridor</code> and
 <code>city_flyover</code>, whose rows are content-checked, and the <strong>artifact group</strong>
-<code>open_world_proof</code>, which is only integrity-checked — see §9.1. Note the gate runs no lane
+<code>open_world_proof</code>, which is integrity-checked and, since #1046, content-checked against
+the corridor lane's report format and proof contract — see §9.1. Note the gate runs no lane
 itself; it reads a supplied report. "Must run and pass" is a statement about the release
 process, not about what the validator does. Every streaming defect becomes an alpha blocker under §4.1, moving #320,</p>
 <h1 id="786-883-and-the-50m-chunked-asset-out-of-the-v10-list-below-318-stood-in-that-set">786, #883 and the 50M chunked asset out of the v1.0 list below. (#318 stood in that set<a class="headerlink" href="#786-883-and-the-50m-chunked-asset-out-of-the-v10-list-below-318-stood-in-that-set" title="Permanent link">¶</a></h1>
@@ -5460,7 +5534,7 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 2, 2026 22:00:54 UTC">October 2, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 07:58:44 UTC">October 3, 2026</span>
   </span>
 
     

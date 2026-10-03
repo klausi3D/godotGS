@@ -1,0 +1,12 @@
+digraph "streaming_tier_cap_policy.h"
+{
+ // LATEX_PDF_SIZE
+  bgcolor="transparent";
+  edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
+  node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
+  Node1 [id="Node000001",label="streaming_tier_cap\l_policy.h",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip="Shared resolution of streaming tier-cap policy from ProjectSettings."];
+  Node1 -> Node2 [id="edge1_Node000001_Node000002",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node2 [id="Node000002",label="streaming_upload_pipeline.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$streaming__upload__pipeline_8cpp.html",tooltip=" "];
+  Node1 -> Node3 [id="edge2_Node000001_Node000003",dir="back",color="steelblue1",style="solid",tooltip=" "];
+  Node3 [id="Node000003",label="streaming_vram_regulator.cpp",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$streaming__vram__regulator_8cpp.html",tooltip=" "];
+}

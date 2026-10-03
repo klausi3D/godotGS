@@ -1,0 +1,27 @@
+var structQualityTierConfig =
+[
+    [ "enable_fast_raster", "structQualityTierConfig.html#a43c70e6ce301870bd74f2ffbe9dc59c0", null ],
+    [ "enable_packed_stage_data", "structQualityTierConfig.html#a1410b59a909d4c4c0391a1ff4091b78a", null ],
+    [ "enable_sh_amortization", "structQualityTierConfig.html#a631605141e286198ba1e5a750f8bd64a", null ],
+    [ "enable_tighter_bounds", "structQualityTierConfig.html#a56fd65a9be7f0a2a38e5d17faa61d08b", null ],
+    [ "load_ahead_factor", "structQualityTierConfig.html#ab23371d3bf7c4bc65c466e455b3c22cb", null ],
+    [ "lod_base_threshold", "structQualityTierConfig.html#a6cc2fb933c684b1337390cb38f6550f9", null ],
+    [ "lod_max_distance", "structQualityTierConfig.html#a66790be8db44058dc55d65d693066feb", null ],
+    [ "max_concurrent_loads", "structQualityTierConfig.html#af4bc72c30e6a0bbf08a4e68f0fe0024c", null ],
+    [ "max_gpu_memory_mb", "structQualityTierConfig.html#a8057e656f3b517dfdf42a76be00a65e9", null ],
+    [ "max_splats", "structQualityTierConfig.html#a1b13ac59b0407fa830c7880d859ac3c7", null ],
+    [ "name", "structQualityTierConfig.html#a28336f088bbb36fe0ef550a597b9d0eb", null ],
+    [ "quantization_enabled", "structQualityTierConfig.html#a65255271fda7ca88a9457470243ade3d", null ],
+    [ "route_policy", "structQualityTierConfig.html#a25d73436646a93a82ec28ecb031aef23", null ],
+    [ "sh_amortization_divisor", "structQualityTierConfig.html#a7fe918e0769bb2601b71c1a047f6b40e", null ],
+    [ "sh_bands", "structQualityTierConfig.html#a71e2a5204692487e5ec95906bec497c2", null ],
+    [ "stream_budget_ms", "structQualityTierConfig.html#aa2dfc221563b5fcdedf6775859258a06", null ],
+    [ "streaming_max_chunks_in_vram", "structQualityTierConfig.html#aa330b4144463f4c90b67d9d0b07c59c9", null ],
+    [ "streaming_min_chunks_in_vram", "structQualityTierConfig.html#a13196f25922a6b46c72f47c7b49fcb50", null ],
+    [ "streaming_upload_mb_per_frame", "structQualityTierConfig.html#ab33d61564e9aa50efc6ee8241a81b334", null ],
+    [ "streaming_upload_mb_per_second", "structQualityTierConfig.html#a9ad5d0da7cf57f74ef9157d5a6fae1e6", null ],
+    [ "streaming_upload_mb_per_slice", "structQualityTierConfig.html#a36fc5816cd4266237f49496d809eb5b8", null ],
+    [ "streaming_vram_budget_mb", "structQualityTierConfig.html#a62fbd4ec208b77092e6e1cdbb45e6bc1", null ],
+    [ "target_gpu_memory_mb", "structQualityTierConfig.html#ae4b0761998c8c79513847bcfec76a66d", null ],
+    [ "unload_factor", "structQualityTierConfig.html#a5b2b4ab0207bb24a027c27a9692ed3f7", null ]
+];

@@ -1,0 +1,35 @@
+var classGPUCuller =
+[
+    [ "CullingConfig", "structGPUCuller_1_1CullingConfig.html", "structGPUCuller_1_1CullingConfig" ],
+    [ "CullingInputs", "structGPUCuller_1_1CullingInputs.html", "structGPUCuller_1_1CullingInputs" ],
+    [ "CullingState", "structGPUCuller_1_1CullingState.html", "structGPUCuller_1_1CullingState" ],
+    [ "CullingSummary", "structGPUCuller_1_1CullingSummary.html", "structGPUCuller_1_1CullingSummary" ],
+    [ "InstancePipelineInputs", "structGPUCuller_1_1InstancePipelineInputs.html", "structGPUCuller_1_1InstancePipelineInputs" ],
+    [ "ShaderGroup", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7", [
+      [ "SHADER_GROUP_STANDARD", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7affb4a552d679d5f9f0a4b1a3440928de", null ],
+      [ "SHADER_GROUP_SUBGROUPS", "classGPUCuller.html#a584d00cd13a1a1b57fabc064ab2dd1b7ad5a375015dc4aa07be728a826ea2ac24", null ]
+    ] ],
+    [ "GPUCuller", "classGPUCuller.html#a2a6efec4a2d788bf0369b7ff5173b908", null ],
+    [ "~GPUCuller", "classGPUCuller.html#a1a3c99a3b73ecfea0b1fdede1f0b8970", null ],
+    [ "apply_overflow_feedback", "classGPUCuller.html#a7837f4de2926eca933da00f0bb9f88ba", null ],
+    [ "clear_instance_pipeline_inputs", "classGPUCuller.html#a1fb04f42a7bb18a14b2467e71ce229c5", null ],
+    [ "cull", "classGPUCuller.html#ab94d3537015423ef5829f3028570e66e", null ],
+    [ "cull_for_view", "classGPUCuller.html#a7a7092bba9fb037eacb925f757472f22", null ],
+    [ "ensure_hierarchical_structure", "classGPUCuller.html#aaeff0230988c3d8947ffd47a09175a54", null ],
+    [ "get_config", "classGPUCuller.html#af50df689887eb01d850627a277a99a57", null ],
+    [ "get_config", "classGPUCuller.html#a4a6472305a157fb3184ca5fc7a3f1671", null ],
+    [ "get_last_instance_visible_chunk_count", "classGPUCuller.html#a66509a6fcbdeafce397d2ccadff26c0d", null ],
+    [ "get_name", "classGPUCuller.html#a4cfaa901fa363f0b856552efcb0186d5", null ],
+    [ "get_state", "classGPUCuller.html#aed7cf4e316031e993b8f2e50ff037131", null ],
+    [ "get_state", "classGPUCuller.html#a08b31b11f7ddbe2a0c30781330f21b27", null ],
+    [ "initialize", "classGPUCuller.html#adadcc8b954bddc3a44144d191c9ebb37", null ],
+    [ "invalidate_lod_cache", "classGPUCuller.html#acf7fc188af67a3c53da855d48723d45a", null ],
+    [ "is_gpu_based", "classGPUCuller.html#a34d8039b1b7d941067a1aebc9ffe6a3b", null ],
+    [ "is_readback_enabled", "classGPUCuller.html#aa665526ac63f95a43522e271674d815c", null ],
+    [ "is_ready", "classGPUCuller.html#a0c687b4c5c9e78f2e9dfbd53ef803d54", null ],
+    [ "set_instance_pipeline_inputs", "classGPUCuller.html#a818df0324898b0e1ea8487b43c7e6562", null ],
+    [ "set_readback_enabled", "classGPUCuller.html#aa2e6be859f5138ae21005a52f8a18bc8", null ],
+    [ "shutdown", "classGPUCuller.html#ad745ec3f1348be176467c60f13917f9b", null ],
+    [ "update_culling_settings", "classGPUCuller.html#a492d48eedd21a41b79fee450375b32df", null ],
+    [ "update_lod_cache", "classGPUCuller.html#a50bb46df6c30937d3d99f2f0f74a9742", null ]
+];

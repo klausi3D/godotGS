@@ -1,0 +1,27 @@
+var classGaussianSplatWorld3D =
+[
+    [ "_notification", "classGaussianSplatWorld3D.html#a0ae6821f6aba613ecc5495f82f17b3b5", null ],
+    [ "apply_world", "classGaussianSplatWorld3D.html#a98fd0175989cbfb7b0163eef7b5127cf", null ],
+    [ "clear_world", "classGaussianSplatWorld3D.html#a2b98b71f7837ba9cd3fa9ed84b06ef69", null ],
+    [ "get_lod_bias", "classGaussianSplatWorld3D.html#a67c5d9829545a87e8bbdb3521b22e082", null ],
+    [ "get_max_render_distance", "classGaussianSplatWorld3D.html#a235239df833048b84a716988aa3dd7d6", null ],
+    [ "get_max_splat_count", "classGaussianSplatWorld3D.html#a3989795e8b919c54772d25bbb4d8c86a", null ],
+    [ "get_opacity", "classGaussianSplatWorld3D.html#aacc2e8d79cc8f9860b7a68ebfaeff2e2", null ],
+    [ "get_renderer", "classGaussianSplatWorld3D.html#a69e31488248180f9973e7a0d3f981b5a", null ],
+    [ "get_world", "classGaussianSplatWorld3D.html#aff12847a9ad58147a08a95756d600a2f", null ],
+    [ "is_async_upload_enabled", "classGaussianSplatWorld3D.html#acae013dc95502534289610a5747c79e3", null ],
+    [ "is_auto_apply_on_ready", "classGaussianSplatWorld3D.html#a536163d48e80dcc6a010e13d37c3d393", null ],
+    [ "is_cast_shadow", "classGaussianSplatWorld3D.html#ac0d6753dee1371f3bb92ccf8eab259a8", null ],
+    [ "is_frustum_culling_enabled", "classGaussianSplatWorld3D.html#a90af2635bcc3abef4ab66fd71873a875", null ],
+    [ "is_lod_enabled", "classGaussianSplatWorld3D.html#a6c208ac70e8de0460cd082aa4c07acea", null ],
+    [ "set_async_upload_enabled", "classGaussianSplatWorld3D.html#a6800e2999541cdd7cd8ffd120df4676b", null ],
+    [ "set_auto_apply_on_ready", "classGaussianSplatWorld3D.html#a0c0bf09f9da7cc26df5424c2f2f3899f", null ],
+    [ "set_cast_shadow", "classGaussianSplatWorld3D.html#aae320e498b3a87d7a7e9ff408233a115", null ],
+    [ "set_lod_bias", "classGaussianSplatWorld3D.html#ac265cb099bfccb3f6fff3ce31b8ffdda", null ],
+    [ "set_lod_enabled", "classGaussianSplatWorld3D.html#a869373de5308f721aa1403a6eac5a5e5", null ],
+    [ "set_max_render_distance", "classGaussianSplatWorld3D.html#a3985d3ff64d8833fc361f59cca10e93e", null ],
+    [ "set_max_splat_count", "classGaussianSplatWorld3D.html#ad70f79460fd806b74e2419307f1a489d", null ],
+    [ "set_opacity", "classGaussianSplatWorld3D.html#ab4c2bf1a0d92a328d98ec066a9520515", null ],
+    [ "set_use_frustum_culling", "classGaussianSplatWorld3D.html#a0f11960f39ba1526fb2581311089337f", null ],
+    [ "set_world", "classGaussianSplatWorld3D.html#a8dc278550d6bcfa4bbe0219f88587e1a", null ]
+];
