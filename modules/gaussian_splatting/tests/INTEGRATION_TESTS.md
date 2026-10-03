@@ -191,7 +191,7 @@ if (async_available) {
 
 1. **GPU Initialization Failure**
    - Check Vulkan drivers are installed
-   - Verify GPU supports Vulkan 1.3+
+   - Verify GPU supports Vulkan 1.1+
    - Try `--rendering-driver opengl3` fallback
 
 2. **Memory Stream Stalls**

@@ -450,6 +450,8 @@ const char *GaussianSplatRenderer::_shadow_failure_reason_label(ShadowRenderFail
 			return "SHADOW_FAIL_DEPTH_OWNER_ALIAS_INVALID";
 		case ShadowRenderFailureReason::BLIT_FAILED:
 			return "SHADOW_FAIL_BLIT";
+		case ShadowRenderFailureReason::NO_CASTER_RASTERED:
+			return "SHADOW_SKIP_NO_CASTER_RASTERED";
 	}
 	return "SHADOW_FAIL_UNKNOWN";
 }
@@ -2018,15 +2020,41 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     // decision committed by the main color frame so this pass's stage stamping derives
     // from instance_backend_policy exactly as it did before this change.
     reset_authoritative_route_decision();
+    RasterStageOutput shadow_raster;
     render_sorted_splats(nullptr, p_light_transform.affine_inverse(), projection, render_projection, false,
-            RenderPassKind::SHADOW_MAP);
+            RenderPassKind::SHADOW_MAP, &shadow_raster);
+    result.rastered_splat_count = shadow_raster.rastered_splat_count;
 
     if (!subsystem_state.rasterizer.is_valid()) {
         WARN_PRINT_ONCE("[GS Shadow] render_shadow_depth_map: rasterizer not valid after render_sorted_splats");
         result.failure_reason = ShadowRenderFailureReason::RASTERIZER_UNAVAILABLE;
         return _finish_shadow_render_result(result);
     }
-    RID depth_texture = subsystem_state.rasterizer->get_depth_texture();
+    RenderingDevice *main_device = RenderingDevice::get_singleton();
+
+    // Fail closed (#1089, #1095 slice 1). The shadow atlas may only receive a depth
+    // image THIS pass rasterized from the light's view. Every path that rasters
+    // nothing (no visible or sorted splats, zero raster work, a cached reuse,
+    // painterly) still leaves the rasterizer holding the last depth image it wrote,
+    // which is the main camera's; blitting that is what put camera-space splat
+    // depth into every cascade. So: at least one splat rasterized by this pass, into
+    // the rasterizer's current depth target, at exactly the atlas-rect size.
+    // Anything else writes nothing, and the splats cast no shadow from this pass.
+    const RID rasterizer_depth = subsystem_state.rasterizer->get_depth_texture();
+    if (main_device && rasterizer_depth.is_valid() && main_device->texture_is_valid(rasterizer_depth)) {
+        const RD::TextureFormat depth_format = main_device->texture_get_format(rasterizer_depth);
+        result.depth_size = Size2i(int(depth_format.width), int(depth_format.height));
+    }
+    const bool rastered_this_pass = shadow_raster.rastered_splat_count > 0 &&
+            !shadow_raster.reused_cached_render && !shadow_raster.painterly_active &&
+            shadow_raster.depth.is_valid() && shadow_raster.depth == rasterizer_depth &&
+            result.depth_size == p_atlas_rect.size;
+    if (!rastered_this_pass) {
+        result.failure_reason = ShadowRenderFailureReason::NO_CASTER_RASTERED;
+        return _finish_shadow_render_result(result);
+    }
+
+    RID depth_texture = shadow_raster.depth;
     RenderingDevice *depth_owner = subsystem_state.rasterizer->get_depth_texture_owner();
     result.depth_texture = depth_texture;
     result.depth_owner_valid = depth_owner != nullptr;
@@ -2036,7 +2064,6 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
         result.failure_reason = ShadowRenderFailureReason::DEPTH_TEXTURE_INVALID;
         return _finish_shadow_render_result(result);
     }
-    RenderingDevice *main_device = RenderingDevice::get_singleton();
     if (main_device && depth_owner && depth_owner != main_device) {
         if (!main_device->texture_is_valid(depth_texture)) {
             GS_LOG_WARN_DEFAULT("[GS Shadow] Depth texture is not visible on the main RenderingDevice; skipping shadow blit.");
@@ -2668,7 +2695,7 @@ void GaussianSplatRenderer::render_gaussians(RenderDataRD *p_render_data, const 
 
 void GaussianSplatRenderer::render_sorted_splats(RenderDataRD *p_render_data,
 		const Transform3D &p_world_to_camera_transform, const Projection &p_projection, const Projection &p_render_projection,
-	bool p_defer_render_buffers_commit, RenderPassKind p_pass_kind) {
+	bool p_defer_render_buffers_commit, RenderPassKind p_pass_kind, RasterStageOutput *r_raster_output) {
 	if (debug_state_orchestrator) {
 		DebugState &debug_state = get_debug_state();
 		debug_state.sort_route_uid = RenderRouteUID::COMMON_UNSET_SORT_ROUTE;
@@ -2704,6 +2731,9 @@ void GaussianSplatRenderer::render_sorted_splats(RenderDataRD *p_render_data,
 			IndexDomain::SPLAT_REF :
 			IndexDomain::GAUSSIAN_GLOBAL;
 	pipeline_stages->render_sorted_splats_with_context(frame_context);
+	if (r_raster_output) {
+		*r_raster_output = stage_metrics.raster;
+	}
 }
 
 RID GaussianSplatRenderer::get_final_texture() const {
@@ -3404,5 +3434,12 @@ void GaussianSplatRenderer::test_notify_render_thread_dispatch_completed(uint64_
 
 uint64_t GaussianSplatRenderer::test_get_render_thread_dispatch_completed_request_id() const {
     return render_thread_dispatcher ? render_thread_dispatcher->get_completed_request_id() : 0;
+}
+
+std::unique_ptr<IRenderThreadDispatcher> GaussianSplatRenderer::test_swap_render_thread_dispatcher(
+        std::unique_ptr<IRenderThreadDispatcher> p_dispatcher) {
+    std::unique_ptr<IRenderThreadDispatcher> previous = std::move(render_thread_dispatcher);
+    render_thread_dispatcher = std::move(p_dispatcher);
+    return previous;
 }
 #endif

@@ -1,45 +1,117 @@
 nav:
-  - Start Here:
+  - Get Started:
       - getting-started/index.md
       - getting-started/downloads.md
-      - getting-started/try-in-5-minutes.md
-      - getting-started/installation.md
       - getting-started/quick-start.md
-      - troubleshooting/recurring-issues.md
-  - User Guide:
+      - getting-started/installation.md
+      - Troubleshooting:
+          - troubleshooting/index.md
+          - troubleshooting/recurring-issues.md
+  - Guides:
       - user/index.md
-      - user/quickstart.md
-      - user/manual/concepts.md
-      - workflows/importing.md
-      - user/manual/workflows.md
-      - user/manual/runtime-behavior.md
-      - user/manual/lighting-behavior.md
+      - Concepts: user/manual/concepts.md
+      - Importing:
+          - workflows/index.md
+          - Import Workflow: workflows/importing.md
+          - World Bake: workflows/GSPLATWORLD_BAKE.md
+      - Features:
+          - features/index.md
+          - Artist Pipeline: features/artist_pipeline.md
+          - Color Grading Quick Start: features/color-grading-quick-start.md
+          - Streaming: features/streaming.md
+          - Animation: features/animation.md
+      - Runtime Behavior: user/manual/runtime-behavior.md
+      - Lighting Behavior: user/manual/lighting-behavior.md
       - user/manual/performance-presets.md
+      - development/export-templates.md
       - user/manual/faq.md
   - Reference:
       - reference/index.md
-      - reference/project-settings.md
+      - Project Settings:
+          - reference/project-settings.md
+          - Settings Migration: reference/gaussian-project-settings-migration.md
       - reference/compatibility-matrix.md
-      - performance/index.md
-      - api/index.md
-      - api/gaussian_splat_node3d.md
-      - api/gdscript_reference.md
-      - api/shader_reference.md
       - reference/color-grading.md
+      - PLY Loader: features/ply-loader.md
+      - API:
+          - api/index.md
+          - GaussianSplatNode3D: api/gaussian_splat_node3d.md
+          - GaussianSplatAsset: api/gaussian_splat_asset.md
+          - GaussianSplatWorld3D: api/gaussian_splat_world3d.md
+          - GaussianSplatContainer: api/gaussian_splat_container.md
+          - GaussianData: api/gaussian_data.md
+          - GaussianSplatManager: api/gaussian_splat_manager.md
+          - GaussianSplatRenderer: api/gaussian_splat_renderer.md
+          - Sphere Effectors: api/sphere_effector_workflow.md
+          - Effector Consumer Guide: api/effector_system_consumer_guide.md
+          - GDScript Reference: api/gdscript_reference.md
+          - Shader Reference: api/shader_reference.md
       - development/api-stability.md
       - development/known-public-alpha-limitations.md
+      - development/release-channels.md
       - migration/index.md
-  - Contribute:
+  - Performance:
+      - performance/index.md
+      - Timing Metrics: timing_metrics_reference.md
+      - performance/startup-trace.md
+      - Quantization Tradeoff: performance/gs_quantization_tradeoff.md
+  - Contributing:
       - contributor/index.md
-      - contributor/reviewer-fast-path.md
       - contributor/onboarding.md
+      - contributor/reviewer-fast-path.md
       - BUILDING.md
       - reference/build-test-ci.md
-      - testing/setup-guide.md
-      - testing/benchmark-suite.md
-      - architecture/overview.md
-      - governance/contribution-standards.md
-      - governance/release-acceptance-bar.md
-      - development/export-templates.md
-      - development/docs-site.md
-      - style/documentation-style-guide.md
+      - Development Docs: development/index.md
+      - Testing:
+          - testing/index.md
+          - testing/setup-guide.md
+          - testing/benchmark-suite.md
+          - testing/unified-benchmark.md
+      - Governance:
+          - governance/index.md
+          - governance/contribution-standards.md
+          - governance/agentic-engineering.md
+          - governance/review-policy.md
+          - governance/evidence-integrity.md
+          - governance/release-acceptance-bar.md
+          - governance/github-settings.md
+      - Docs Site:
+          - development/docs-site.md
+          - Media: features/media.md
+          - development/screenshot-capture-spec.md
+      - Style:
+          - style/index.md
+          - style/documentation-style-guide.md
+      - Engineering:
+          - architecture/index.md
+          - architecture/overview.md
+          - architecture/render-pipeline.md
+          - architecture/lighting-system.md
+          - architecture/culling-and-hierarchy.md
+          - Contracts:
+              - architecture/gaussian-project-settings-contract.md
+              - architecture/gaussian-resident-instanced-contract.md
+              - architecture/renderer-lifetime-ownership.md
+              - architecture/stage-first-ownership-inventory.md
+          - reference/engine-patch.md
+          - reference/renderer-release-gates.md
+          - reference/test-quarantine.md
+          - api/internal-classes.md
+          - architecture/g2-malformed-corpus.md
+          - Decision Records:
+              - Advisory Lane Result Ledger: architecture/adr-advisory-lane-ledger.md
+              - Decompose GaussianSplatNode3D: architecture/adr-decompose-node3d.md
+              - Decompose the Renderer Facade: architecture/adr-decompose-renderer-facade.md
+              - Decompose the Scene Director: architecture/adr-decompose-scene-director.md
+              - Decompose the Streaming System: architecture/adr-decompose-streaming-system.md
+              - Splat Colour Encoding: architecture/adr-splat-colour-encoding.md
+              - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md
+              - Import Importance Pruning: architecture/adr-import-importance-pruning.md
+              - Import Input Hardening: architecture/adr-import-input-hardening.md
+              - Overflow Drop Telemetry: architecture/adr-overflow-drop-telemetry.md
+              - Gate Evaluates the PR Diff: architecture/adr-gate-evaluates-pr-diff.md
+              - Phase-1 Guard Hardening: architecture/adr-phase1-guard-hardening.md
+              - Single Route per Frame: architecture/adr-single-route-per-frame-node-coexistence.md
+              - Test Quarantine Manifest: architecture/adr-test-quarantine-manifest.md
+              - Alpha Envelope Widened to Streaming: architecture/adr-alpha-envelope-widened-to-streaming.md
+              - Open-World Proof Content Validation: architecture/adr-open-world-proof-content-validation.md

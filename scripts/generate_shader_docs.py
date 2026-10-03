@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -321,9 +320,12 @@ def build_reference(*, include_undocumented: bool) -> tuple[str, CoverageStats]:
     sections = [
         "# Shader Reference",
         "",
-        f"Last generated: {date.today().isoformat()}",
-        "",
+        # No "Last generated" date: the output must be a pure function of the
+        # sources so CI can freshness-check it with `git diff --exit-code`.
+        # Git history records when it was regenerated.
     ]
+    # The coverage summary is inserted here once the stats are known.
+    summary_at = len(sections)
 
     for shader in iter_shader_files():
         entries = parse_shader(shader)
@@ -383,11 +385,11 @@ def build_reference(*, include_undocumented: bool) -> tuple[str, CoverageStats]:
                 sections.append("")
         sections.append("")
 
-    sections.insert(4, f"Coverage summary: `{stats.documented_functions}` documented functions, `{stats.undocumented_functions}` undocumented functions, `{stats.documented_uniform_fields}` documented uniform fields, `{stats.undocumented_uniform_fields}` undocumented uniform fields.")
-    sections.insert(5, "")
+    sections.insert(summary_at, f"Coverage summary: `{stats.documented_functions}` documented functions, `{stats.undocumented_functions}` undocumented functions, `{stats.documented_uniform_fields}` documented uniform fields, `{stats.undocumented_uniform_fields}` undocumented uniform fields.")
+    sections.insert(summary_at + 1, "")
     if not include_undocumented:
-        sections.insert(6, "Undocumented entries are omitted by default. Use `--include-undocumented` to list them.")
-        sections.insert(7, "")
+        sections.insert(summary_at + 2, "Undocumented entries are omitted by default. Use `--include-undocumented` to list them.")
+        sections.insert(summary_at + 3, "")
 
     sections.extend(
         [
@@ -409,7 +411,9 @@ def main() -> int:
 
     content, stats = build_reference(include_undocumented=args.include_undocumented)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(content, encoding="utf-8")
+    # LF on every platform, so a Windows regeneration is byte-identical to CI's.
+    with open(output, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
     print(f"[docs] Wrote shader reference to {output}")
 
     if args.strict:

@@ -347,7 +347,8 @@ BATCHES: tuple[BatchSpec, ...] = (
     # #831 added one case: 23 cases / 297 assertions, measured 86.2 s and 92.9 s
     # wall on an RTX 3090, so the 300 s budget is still ~3.2x on a quiet box.
     BatchSpec("NodeSceneTree", ("*[Node][SceneTree][RequiresGPU]*",), timeout_seconds=300),
-    # #719/#745: the "Explicit resident quantization rejection falls back" case is no longer
+    # #719/#745: the resident quantization case (renamed by #1118 to "Explicit resident route
+    # publishes the resident instance contract for quantized data and renders") is no longer
     # excluded. Its two render-output assertions (has_rendered_content() == true and
     # get_visible_splat_count() > 0) now PASS on a real device (RTX 3090, Vulkan). The
     # published resident quantized contract was always correct (measured: atlas holds 1 splat,
@@ -414,8 +415,9 @@ BATCHES: tuple[BatchSpec, ...] = (
     # The filter is deliberately narrow: only cases carrying exactly
     # [GaussianSplatting][SceneTree][RequiresGPU] join it, and a new case joining
     # that tag triple is a deliberate opt-in to this batch rather than an
-    # accident. Members: the world-streaming case above, and (#1054/#1063) the
-    # band-1 SH reference readback in test_sh_encoding.h. Measured ~16 s end to end on an RTX 3090 (device bring-up
+    # accident. Members: the world-streaming case above, (#1054/#1063) the
+    # band-1 SH reference readback in test_sh_encoding.h, and (#1089/#1095) the
+    # shadow-atlas fail-closed readback in test_shadow_pass_isolation.h. Measured ~16 s end to end on an RTX 3090 (device bring-up
     # dominates); 180 s is ~11x, comfortably clear of the >=1.5x headroom the
     # budget guard in test_gpu_harness_deferred_contract.py encodes as the
     # minimum, and consistent with the other SceneTree batches' budgets.

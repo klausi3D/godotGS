@@ -348,6 +348,9 @@ public:
         DEPTH_TEXTURE_INVALID,
         DEPTH_OWNER_ALIAS_INVALID,
         BLIT_FAILED,
+        // Fail closed (#1089, #1095): this pass rasterized no splat into a depth
+        // target of the atlas-rect size, so it writes nothing to the shadow map.
+        NO_CASTER_RASTERED,
     };
 
     struct ShadowRenderResult {
@@ -359,6 +362,9 @@ public:
         RID depth_texture;
         bool depth_owner_valid = false;
         bool blit_attempted = false;
+        // What this pass itself rasterized, as reported by its own raster stage.
+        uint32_t rastered_splat_count = 0;
+        Size2i depth_size;
     };
 
     // Stage types exposed for RenderPipelineStages and orchestrators
@@ -699,10 +705,12 @@ public:
 #ifdef TESTS_ENABLED
     void _test_dispatch_noop_callback(uint64_t p_request_id);
 #endif
-    void _set_max_splats_on_render_thread(int p_count, uint64_t p_request_id);
-    void _set_gaussian_data_on_render_thread(const Ref<::GaussianData> &p_data, uint64_t p_request_id);
-    void _set_file_backed_payload_source_on_render_thread(const Ref<ChunkPayloadSource> &p_source, uint64_t p_request_id);
-    void _force_sort_for_view_on_render_thread(const Transform3D &p_world_to_camera_transform, uint64_t p_request_id);
+    // p_request_id comes FIRST: see the argument-order contract on
+    // IRenderThreadDispatcher::dispatch_call_on_render_thread_blocking().
+    void _set_max_splats_on_render_thread(uint64_t p_request_id, int p_count);
+    void _set_gaussian_data_on_render_thread(uint64_t p_request_id, const Ref<::GaussianData> &p_data);
+    void _set_file_backed_payload_source_on_render_thread(uint64_t p_request_id, const Ref<ChunkPayloadSource> &p_source);
+    void _force_sort_for_view_on_render_thread(uint64_t p_request_id, const Transform3D &p_world_to_camera_transform);
     RenderingDevice *_acquire_rendering_device();
     RenderingDevice *_get_main_rendering_device() const;
     bool _ensure_rendering_device(const char *p_context);
@@ -755,7 +763,8 @@ public:
             IndexDomain p_input_domain = IndexDomain::UNKNOWN);
     void render_sorted_splats(RenderDataRD *p_render_data, const Transform3D &p_world_to_camera_transform,
             const Projection &p_projection, const Projection &p_render_projection,
-            bool p_defer_render_buffers_commit = false, RenderPassKind p_pass_kind = RenderPassKind::MAIN_VIEW);
+            bool p_defer_render_buffers_commit = false, RenderPassKind p_pass_kind = RenderPassKind::MAIN_VIEW,
+            RasterStageOutput *r_raster_output = nullptr);
     void render_instanced(RenderDataRD *p_render_data, const GaussianSplatManager::SharedDynamicAssetHandle &p_handle,
             const Transform3D &p_world_to_camera_transform, const Projection &p_projection, const Projection &p_render_projection,
             const LocalVector<Transform3D> &p_instance_transforms);
@@ -1983,6 +1992,10 @@ public:
     bool test_is_render_thread_dispatch_path_active() const;
     void test_notify_render_thread_dispatch_completed(uint64_t p_request_id);
     uint64_t test_get_render_thread_dispatch_completed_request_id() const;
+    // Installs p_dispatcher as this renderer's render-thread dispatcher and
+    // returns the previous one. The caller must swap the original back before
+    // the renderer is destroyed (the destructor dispatches teardown).
+    std::unique_ptr<IRenderThreadDispatcher> test_swap_render_thread_dispatcher(std::unique_ptr<IRenderThreadDispatcher> p_dispatcher);
     bool test_shadow_pass_guard_restores_after_scope();
 #endif // TESTS_ENABLED
 

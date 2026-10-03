@@ -70,7 +70,7 @@ breakdown, variance, and caveats live on the [Performance Dashboard](../performa
 
 ## Standard Flags
 
-- `--profile` (`everything|quick|performance|synthetic-only|ab-only`)
+- `--profile` (`everything|quick|performance|synthetic-only|ab-only|sort32|steam-deck`)
 - `--godot-binary`
 - `--project-path`
 - `--output-dir`
@@ -93,6 +93,11 @@ It launches one Godot subprocess per benchmark lane, writes per-lane JSON and lo
 - `performance`: canonical benchmark evidence profile
 - `synthetic-only`: synthetic scenes only
 - `ab-only`: instance pipeline serial vs single-pass lanes
+- `sort32`: four 32-bit sort-key stress lanes (`sort32_coplanar_alpha`, `sort32_near_camera_large`,
+  `sort32_depth_range`, `sort32_tile_bit_pressure`); they carry zero weight in every other profile
+- `steam-deck`: the two 800p handheld lanes (`deck_static_baseline`, `deck_streaming_baseline`), whose
+  scenes live in `tests/examples/godot/test_project_deck`; pass `--project-path` to point the runner
+  at that project
 
 ## Asset Policy
 
@@ -213,12 +218,16 @@ large-scene evidence.
 
 ## CI Surfaces
 
-`streaming-gpu-ci` is the only blocking GPU-backed streaming gate. The benchmark proof
-surfaces below are evidence-only and should not be treated as a second streaming gate.
+`streaming-gpu-ci` is the only GPU-backed streaming gate: it fails the `module-validation` job of
+`.github/workflows/gaussian_production_gates.yml` (self-hosted Windows GPU runner) when it fails. It
+is **not** a required status check — branch protection on `master` requires only `agentic-pr-gate`
+(see [Build / Test / CI reference](../reference/build-test-ci.md#ci-source-of-truth)) — so a red run
+does not by itself block a merge. The benchmark proof surfaces below are evidence-only and should
+not be treated as a second streaming gate.
 
-| Surface | Runner command | Scope | Blocking? |
+| Surface | Runner command | Scope | Fails its workflow? |
 | --- | --- | --- | --- |
-| `streaming-gpu-ci` | `python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci` | Runtime validation for residency and world-streaming regressions | Yes |
+| `streaming-gpu-ci` | `python3 tests/runtime/run_runtime_validation.py --profile streaming-gpu-ci` | Runtime validation for residency and world-streaming regressions | Yes (not a required check) |
 | `openworld-proof-dev` | `python3 tests/runtime/run_benchmark.py --profile performance --lane open_world_corridor_proof --lane city_flyover` | `20M corridor` candidate + boundary-crossing smoke support | No |
 | `openworld-proof-weekly` | `python3 tests/runtime/run_benchmark.py --profile performance --lane long_soak` | City-roam soak smoke support | No |
 
@@ -253,7 +262,7 @@ The benchmark lanes above compose the evidence surfaces as follows:
 - `openworld-proof-dev` = `open_world_corridor_proof` + `city_flyover`
 - `openworld-proof-weekly` = `long_soak`
 - only `open_world_corridor_proof` is a large-world candidate lane today; `city_flyover` and `long_soak` remain smoke-support surfaces until the `50M boundary` and `100M city` lanes are runnable
-- both surfaces are benchmark evidence only, while `streaming-gpu-ci` remains the only blocking gate
+- both surfaces are benchmark evidence only, while `streaming-gpu-ci` remains the only streaming gate (advisory at the merge boundary)
 
 ## Large-World Proof Contract
 
@@ -286,6 +295,45 @@ Metric intent:
 - correctness thresholds are meant to capture lost visibility, stalled forward progress, or residency collapse
 - soft budget warnings are meant to flag machine-noise-sensitive frame spikes or bursty load/eviction pressure without turning one noisy run into a hard blocker
 - missing telemetry is a separate review condition because an unauditable lane is not valid proof evidence
+
+What three of the correctness metrics measure (#1086). All three are read from the engine's
+needed-set telemetry in `streaming_state`. They cover the proof window only (`steady_overall`
+when it has samples). Each is `null`, so the lane reports missing telemetry, when the binary does
+not publish its key. The *needed set* is the visible chunks inside the load distance, which is
+the same set `_load_visible_chunks` treats as load candidates. A frame on which the engine did not
+build the needed set (`needed_set_measured == false`) is counted in
+`needed_set_unmeasured_frames` and kept out of all three metrics; it is not read as "no demand".
+
+- `residency_ratio` is resident needed chunks / needed chunks, averaged over the proof-window
+  frames whose needed set was non-empty. Reported beside it: `residency_ratio_min`,
+  `residency_full_frame_fraction` (the share of those frames at exactly 1.0) and
+  `residency_demand_frames`. It used to be visible splats / world splats, which the corridor's
+  120,000-splat render cap held at or below 0.006 however well streaming worked.
+- `no_progress_frames` counts proof-window frames on which the needed set had been incomplete
+  without *net needed-set progress* for at least 0.5 s
+  (`StreamingQueuePressureController::NEEDED_SET_STALL_THRESHOLD_SECONDS`). The 0.5 s is a sum of
+  streaming frame deltas, each clamped to [0.0005, 0.25] s.
+  - Progress is a needed chunk completing that does not merely refill a slot freed by evicting
+    another needed chunk. Prefetch completions and evict/reload churn of the needed set are not
+    progress.
+  - The onset is time-based, but once a stall has begun every frame counts, so the count still
+    scales with frame rate. `no_progress_episodes` and `no_progress_stall_seconds_max` are
+    reported for a contract that wants to gate on time.
+  - It used to count every frame with zero completions, which at ~200 fps scored a pipeline
+    completing ~37 chunks/s as stalled on ~80% of its frames.
+- `scan_starved_frames` counts proof-window frames on which needed chunks sat unserved (neither
+  loaded nor upload-pending), the visible scan had enqueue headroom, and the scan found no load
+  candidate.
+  - `scan_starvation_eligible_frames` counts the frames that *could* have starved. When it is 0,
+    `scan_starved_frames` is `null`.
+  - Starvation is judged against what the scan saw: it needs a scan budget below the visible
+    count. That happens with `max_visible_chunk_scan_per_frame` below the visible count, or with
+    the queue-pressure throttle, which is on by default
+    (`queue_pressure_candidate_scan_throttle_enabled`, `gaussian_splat_manager.cpp`). The throttle
+    shrinks the budget under queue depth, and the scan then restarts at the nearest prefix.
+  - It used to count `scheduler_visible_scan_budget_effective <= 1`. That is what the throttle
+    deliberately produces when pack jobs in flight reach `max_pack_jobs_in_flight`, which leaves
+    zero headroom.
 
 ## Suite Coverage
 

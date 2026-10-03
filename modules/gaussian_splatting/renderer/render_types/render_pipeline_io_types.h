@@ -225,6 +225,11 @@ struct RasterStageOutput {
 	float render_time_ms = 0.0f;
 	String raster_path = "unknown";
 	uint32_t sorted_splat_count = 0;
+	// Splats this pass actually submitted to the tile rasterizer. Stays 0 on every
+	// path that did not raster (no visible splats, zero raster work, cached reuse,
+	// painterly, failure), where `depth` may still name a texture an EARLIER pass
+	// wrote. The shadow pass uses it to refuse such a depth image (#1089, #1095).
+	uint32_t rastered_splat_count = 0;
 	uint64_t content_generation = 0;
 	uint64_t shader_defines_hash = 0;
 };
