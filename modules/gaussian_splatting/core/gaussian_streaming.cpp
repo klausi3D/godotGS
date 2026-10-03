@@ -612,6 +612,7 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     scheduler.last_sync_fallback_enqueued_count = 0;
     scheduler.last_sync_fallback_drained_count = 0;
     scheduler.last_sync_fallback_dropped_count = 0;
+    scheduler.last_sync_fallback_attempted_count = 0;
     scheduler.last_sync_fallback_stalled_count = 0;
     scheduler.queue_pressure_candidate_scan_throttle_active = false;
     scheduler.queue_pressure_candidate_scan_throttle_queue_depth = 0;
@@ -2810,6 +2811,7 @@ void GaussianStreamingSystem::_reset_per_frame_counters() {
     scheduler.last_sync_fallback_enqueued_count = 0;
     scheduler.last_sync_fallback_drained_count = 0;
     scheduler.last_sync_fallback_dropped_count = 0;
+    scheduler.last_sync_fallback_attempted_count = 0;
     scheduler.last_sync_fallback_stalled_count = 0;
     scheduler.last_needed_chunk_count = 0;
     scheduler.last_needed_resident_chunk_count = 0;
@@ -3021,10 +3023,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
 
     ResidencyBudgetController::AdmissionFrameBudget admission_budget =
             ResidencyBudgetController::make_frame_budget(effective_max, evictions_left, eviction_blocked);
-    const float lod_mult = budget.vram_regulator.is_valid()
-            ? budget.vram_regulator->get_lod_distance_multiplier()
-            : 1.0f;
-    const float load_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
+    const float load_threshold = _get_needed_set_load_threshold();
     uint32_t load_candidates = 0;
     bool blocked_by_chunk_cap = false;
 
@@ -3045,7 +3044,7 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
             continue;
         }
         StreamingChunk &chunk = chunks[chunk_idx];
-        if (chunk.distance >= load_threshold || chunk.is_loaded || chunk.upload_pending) {
+        if (!_is_chunk_within_load_distance(chunk, load_threshold) || chunk.is_loaded || chunk.upload_pending) {
             continue;
         }
         load_candidates++;
@@ -3138,7 +3137,7 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (chunk.distance < p_load_threshold && !chunk.is_loaded && !chunk.upload_pending) {
+            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending) {
                 unscanned_unserved++;
             }
         }
@@ -3173,7 +3172,7 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
         return;
     }
 
-    // Same threshold _load_visible_chunks uses to decide load candidates, so the
+    // Same predicate _load_visible_chunks uses to decide load candidates, so the
     // needed set here is exactly the set the scheduler is trying to make resident.
     const float visible_threshold = _get_needed_set_load_threshold();
 
@@ -3184,7 +3183,7 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
             continue;
         }
         StreamingChunk &chunk = chunks[chunk_idx];
-        if (chunk.distance >= visible_threshold) {
+        if (!_is_chunk_within_load_distance(chunk, visible_threshold)) {
             continue;
         }
         needed_chunks++;
@@ -3590,7 +3589,7 @@ void GaussianStreamingSystem::_process_upload_retirements() {
         // #1086: only a needed chunk (primary, visible, inside the load distance)
         // completing is needed-set progress; prefetch completions are not.
         if (ticket.asset_id == PRIMARY_ASSET_ID && chunk.is_visible &&
-                chunk.distance < _get_needed_set_load_threshold()) {
+                _is_chunk_within_load_distance(chunk, _get_needed_set_load_threshold())) {
             scheduler.last_needed_chunks_completed++;
         }
     }
@@ -4442,10 +4441,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         return 0;
     }
 
-    const float lod_mult = budget.vram_regulator.is_valid()
-            ? budget.vram_regulator->get_lod_distance_multiplier()
-            : 1.0f;
-    const float primary_load_threshold = STREAMING_LOAD_DISTANCE_BASE / lod_mult;
+    const float primary_load_threshold = _get_needed_set_load_threshold();
     const bool primary_prefetch_enabled = visibility.predictive_prefetch_enabled &&
             visibility.prefetch_lookahead_distance > 0.0f &&
             visibility.camera_tracker.has_previous_position &&
@@ -4454,7 +4450,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
     const auto is_primary_chunk_relevant = [&](const StreamingChunk &p_chunk) -> bool {
-        if (p_chunk.is_visible && p_chunk.distance < primary_load_threshold) {
+        if (p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold)) {
             return true;
         }
         if (!primary_prefetch_enabled) {
@@ -4519,6 +4515,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
             }
         }
         attempted++;
+        scheduler.last_sync_fallback_attempted_count++;
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;

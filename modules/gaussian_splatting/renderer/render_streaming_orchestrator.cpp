@@ -950,6 +950,10 @@ bool RenderStreamingOrchestrator::ensure_instance_streaming_system(const Gaussia
 		return false;
 	}
 	streaming_state.current_streaming_system = streaming_system;
+	// #1087: push the load distance limit once the runtime exists, from current
+	// settings (a settings change can be what recreated this system).
+	streaming_system->reload_config_if_dirty();
+	streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 	streaming_state.use_streamed_data = false;
 	streaming_state.cached_streamed_indices_valid = false;
 	streaming_state.current_stream_gpu_buffer = RID();
@@ -1684,6 +1688,11 @@ bool RenderStreamingOrchestrator::render_streaming_frame(RenderDataRD *p_render_
 	streaming_state.current_streaming_system->set_chunk_radius_multiplier(
 			(renderer->*runtime_ports.get_cull_radius_multiplier)() *
 			(renderer->*runtime_ports.get_cull_frustum_plane_slack)());
+	// #1087: demand only what can be drawn (lod_max_distance / lod_bias; 0 = unbounded).
+	// Apply a pending settings reload first, then refresh the culler from it, so the
+	// pushed limit is the one this frame's draw pass uses.
+	streaming_state.current_streaming_system->reload_config_if_dirty();
+	streaming_state.current_streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 
 	streaming_state.current_streaming_system->update_streaming(streaming_camera_transform, cull_projection);
 
@@ -2419,6 +2428,8 @@ void RenderStreamingOrchestrator::tick_streaming_only(const Transform3D &p_camer
 	streaming_system->set_chunk_radius_multiplier(
 			(renderer->*runtime_ports.get_cull_radius_multiplier)() *
 			(renderer->*runtime_ports.get_cull_frustum_plane_slack)());
+	streaming_system->reload_config_if_dirty();
+	streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 	const Projection cull_projection = (renderer->*runtime_ports.build_cull_projection)(nullptr, p_projection);
 	(renderer->*runtime_ports.validate_cull_projection_contract)(nullptr, p_projection, cull_projection,
 			"render_streaming_orchestrator::tick_streaming_only");

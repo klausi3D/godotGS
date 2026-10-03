@@ -600,7 +600,7 @@
 			LOD bias multiplier (0.1 to 4.0). Higher values keep more splats visible at distance.
 		</member>
 		<member name="quality/max_render_distance" type="float" setter="set_max_render_distance" getter="get_max_render_distance" default="1000.0">
-			Maximum rendering distance in meters.
+			Maximum rendering distance in meters. While LOD is enabled, splats farther than this distance divided by the LOD bias are not drawn, and streamed chunks whose bounds lie entirely beyond that distance are neither discovered nor loaded. Exception: predictive prefetch, which loads chunks around the camera's predicted position, measures the same limit from that position rather than from the camera. With LOD disabled or a value of [code]0[/code] there is no limit: streaming then discovers chunks up to the camera's far plane or 10,000 m, whichever is nearer.
 		</member>
 		<member name="quality/max_splat_count" type="int" setter="set_max_splat_count" getter="get_max_splat_count" default="1000000">
 			Maximum number of splats to render per frame.
