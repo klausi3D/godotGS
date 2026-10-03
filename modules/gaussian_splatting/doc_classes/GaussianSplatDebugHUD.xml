@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="GaussianSplatDebugHUD" inherits="Control" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
 	<brief_description>
-		In-viewport debug overlay that displays Gaussian Splatting performance statistics.
+		Internal "Route &amp; residency HUD": route, policy and residency diagnostics drawn by a [GaussianSplatNode3D].
 	</brief_description>
 	<description>
-		GaussianSplatDebugHUD is a Control node that draws runtime performance statistics directly in the game or editor viewport. It renders splat count, FPS, GPU memory usage, streaming status, sort/render timings, and other key metrics collected from the linked [GaussianSplatRenderer].
+		GaussianSplatDebugHUD is the internal "Route &amp; residency HUD". It draws the diagnostic lines the linked [GaussianSplatRenderer] publishes (selected render, sort and cull route, requested policy, backend reason, splat counts, device boundaries, texture states and residency) directly in the viewport.
+		It deliberately shows no frame rate, frame time or GPU pass timing. The one runtime performance overlay is [GaussianSplatPerformanceOverlay].
 		The HUD is created and managed by [GaussianSplatNode3D] when its debug HUD property is enabled. Use [member corner] to choose which viewport corner displays the overlay, [member update_interval] to control refresh frequency, and [member font_size] or [member background_color] to adjust visual presentation.
 		The HUD automatically ignores mouse input so it does not interfere with scene interaction.
 	</description>

@@ -54,6 +54,16 @@ script = ExtResource("1")
 """
 
 
+CLEAN_OVERLAY_CPP = """#include "gaussian_splat_performance_overlay.h"
+// A comment quoting "gaussian_splatting/not_registered" is prose, not a read.
+void f(Performance *perf) {
+	const uint64_t drawn = Engine::get_singleton()->get_frames_drawn();
+	read("gaussian_splatting/registered_one");
+	perf->get_custom_monitor(id);
+}
+"""
+
+
 def _synthetic_registry() -> str:
     """A minimal performance_monitors.cpp shaped like the real one.
 
@@ -96,6 +106,10 @@ class GuardFixture:
         # _register_monitor_definitions(), and refuses to run if it cannot
         # parse a plausible number of them.
         self.write("/".join(guard.MONITOR_REGISTRY), _synthetic_registry())
+        # A stand-in for the one performance overlay (#1084): detector 8 asserts
+        # it exists and checks its monitor literals; detector 7 lets it (and
+        # only it) read the engine frame counters.
+        self.write("/".join(guard.OVERLAY_CPP), CLEAN_OVERLAY_CPP)
 
     def write(self, rel: str, text: str) -> None:
         path = self.root / rel
@@ -423,6 +437,145 @@ theme_override_styles/panel = null
             '\treturn out\n')
         code, messages = self.fx.run()
         self.assertEqual(code, 0, messages)
+
+    # ---- detector 7: no second performance overlay (#1084) -----------------
+
+    def test_performance_overlay_class_name_is_flagged(self) -> None:
+        self.fx.write("shipped/hud.gd", "extends MarginContainer\nclass_name GaussianPerformanceOverlay\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_perf_overlay_class_name_in_any_case_is_flagged(self) -> None:
+        self.fx.write("shipped/hud.gd", "extends Control\nclass_name MyPERFOverlay\n")
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_overlay_file_name_is_flagged(self) -> None:
+        self.fx.write("shipped/ui/performance_overlay.gd", "extends Control\n")
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_scene_loading_an_overlay_scene_is_flagged(self) -> None:
+        self.fx.write(
+            "shipped/level.tscn",
+            '[gd_scene load_steps=2 format=3]\n\n'
+            '[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="2"]\n\n'
+            '[node name="Root" type="Node3D"]\n\n'
+            '[node name="PerformanceOverlay" parent="." instance=ExtResource("2")]\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_scene_using_the_engine_overlay_class_is_clean(self) -> None:
+        self.fx.write(
+            "shipped/level.tscn",
+            '[gd_scene format=3]\n\n'
+            '[node name="Root" type="Node3D"]\n\n'
+            '[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_script_drawing_a_frame_rate_readout_is_flagged(self) -> None:
+        self.fx.write(
+            "shipped/fps_label.gd",
+            "extends Label\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n"
+            "\tself.text = str(fps)\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_bare_text_assignment_in_a_label_script_is_flagged(self) -> None:
+        # ONLY the bare form: `extends Label` scripts write their own `text`.
+        self.fx.write(
+            "shipped/fps_label.gd",
+            "extends Label\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n"
+            "\ttext = str(fps)\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_variable_merely_ending_in_text_is_not_a_ui_write(self) -> None:
+        self.fx.write(
+            "shipped/recorder.gd",
+            "extends Node\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n"
+            "\tvar context = fps\n\tvar mytext = str(fps)\n\tprint(mytext, context)\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_frame_rate_readout_via_set_text_is_flagged(self) -> None:
+        self.fx.write(
+            "shipped/fps_label.gd",
+            "extends Node\n\nfunc _process(_d):\n"
+            "\t$Label.set_text(\"%d\" % Performance.get_monitor(Performance.TIME_FPS))\n")
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_frame_rate_recorded_without_ui_text_is_clean(self) -> None:
+        # Benchmark recorders read the frame rate and print or store it.
+        self.fx.write(
+            "shipped/recorder.gd",
+            "extends Node\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n\tprint(\"FPS: %d\" % fps)\n"
+            "\tif fps == 0:\n\t\tpass\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_ui_text_without_a_frame_rate_read_is_clean(self) -> None:
+        self.fx.write(
+            "shipped/label.gd",
+            "extends Label\n\n# get_frames_per_second() in a comment is prose\n"
+            "func _ready():\n\ttext = \"TIME_FPS\"\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_module_cpp_reading_frame_counters_is_flagged(self) -> None:
+        self.fx.write(
+            "modules/gaussian_splatting/nodes/other_hud.cpp",
+            "void f() {\n\tdouble fps = Engine::get_singleton()->get_frames_per_second();\n}\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_frame_counter_named_in_a_cpp_comment_is_clean(self) -> None:
+        self.fx.write(
+            "modules/gaussian_splatting/nodes/other.cpp",
+            "// Engine::get_frames_drawn() is read by the overlay only.\n/* get_frames_per_second() */\nvoid f() {}\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    def test_module_tests_may_read_frame_counters(self) -> None:
+        self.fx.write(
+            "modules/gaussian_splatting/tests/test_overlay.h",
+            "TEST_CASE(\"x\") { CHECK(Engine::get_singleton()->get_frames_drawn() >= 0); }\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
+
+    # ---- detector 8: the overlay's C++ monitor ids ---------------------------
+
+    def test_overlay_cpp_unregistered_monitor_is_flagged(self) -> None:
+        self.fx.write("/".join(guard.OVERLAY_CPP),
+                      CLEAN_OVERLAY_CPP + 'void g() { read("gaussian_splatting/no_such_monitor"); }\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("cpp-overlay-unregistered-monitor", self.fx.detectors())
+
+    def test_overlay_cpp_id_built_at_runtime_is_flagged(self) -> None:
+        self.fx.write("/".join(guard.OVERLAY_CPP),
+                      CLEAN_OVERLAY_CPP + 'void g() { perf->get_custom_monitor(String("gaussian_splatting/") + name); }\n')
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("gdscript-monitor-id-built-at-runtime", self.fx.detectors())
+
+    def test_missing_overlay_cpp_is_an_error_not_a_pass(self) -> None:
+        (self.fx.root.joinpath(*guard.OVERLAY_CPP)).unlink()
+        code, messages = self.fx.run()
+        self.assertEqual(code, 2, messages)
+
+    def test_overlay_cpp_without_any_monitor_literal_is_an_error_not_a_pass(self) -> None:
+        self.fx.write("/".join(guard.OVERLAY_CPP), "void f() {}\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 2, messages)
 
     def test_unparseable_monitor_registry_is_an_error_not_a_pass(self) -> None:
         registry = self.fx.root.joinpath(*guard.MONITOR_REGISTRY)

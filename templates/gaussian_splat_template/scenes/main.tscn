@@ -1,8 +1,7 @@
-[gd_scene load_steps=7 format=3 uid="uid://gaussian_template_main"]
+[gd_scene load_steps=6 format=3 uid="uid://gaussian_template_main"]
 
 [ext_resource type="Script" path="res://scripts/main_scene.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/camera/orbit_camera_rig.gd" id="2"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="3"]
 [ext_resource type="GaussianSplatAsset" path="res://assets/template_splats.ply" id="4"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_1"]
@@ -41,7 +40,7 @@ debug/show_statistics = false
 debug/show_tile_grid = false
 debug/show_density_heatmap = false
 debug/show_performance_hud = false
-debug/show_performance_overlay = false
+debug/show_timing_gizmo = false
 debug/debug_draw_mode = 2
 debug/runtime_preview = false
 debug/show_residency_hud = false
@@ -66,10 +65,26 @@ mesh = SubResource("BoxMesh_1")
 material_override = SubResource("StandardMaterial3D_1")
 cast_shadow = 0
 
-; `layer` belongs to CanvasLayer, not to the MarginContainer instanced under
-; it. It used to be set on the instance, where Godot discards it in silence --
-; the same defect class as the `script=` header above. 1 is CanvasLayer's
-; default anyway, so the correct value is simply not written.
+; The camera-controls hint belongs to this template (it describes
+; OrbitCameraRig), not to the performance overlay. mouse_filter = 2 (IGNORE):
+; a Label that consumed mouse events would eat orbit/pan/zoom input over its
+; rect, because OrbitCameraRig listens on _unhandled_input.
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
-[node name="PerformanceOverlay" parent="CanvasLayer" instance=ExtResource("3")]
+[node name="ControlsHint" type="Label" parent="CanvasLayer"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -40.0
+offset_right = 900.0
+offset_bottom = -16.0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.7, 0.8, 0.9, 1)
+theme_override_font_sizes/font_size = 12
+text = "WASD: move | Space/C: ascend/descend | Shift: boost | RMB: orbit | MMB: pan | Wheel: zoom | F3: hide the performance overlay"
+
+; The engine's one performance overlay (#1084). It finds the splat node and
+; the camera by itself; nothing needs wiring.
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]

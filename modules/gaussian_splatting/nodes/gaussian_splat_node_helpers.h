@@ -62,7 +62,7 @@ public:
     void set_show_density_heatmap(bool p_show);
     void set_show_performance_hud(bool p_show);
     void set_show_lod_spheres(bool p_show);
-    void set_show_performance_overlay(bool p_show);
+    void set_show_timing_gizmo(bool p_show);
     void set_debug_overlay_opacity(float p_opacity);
     void set_debug_draw_mode(int p_mode);
     void set_runtime_preview_enabled(bool p_enabled);

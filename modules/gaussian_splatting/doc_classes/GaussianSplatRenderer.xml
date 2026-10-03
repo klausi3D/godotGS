@@ -650,13 +650,13 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				Enables or disables the performance HUD overlay displaying frame timing, splat counts, and sort metrics.
+				Enables or disables the renderer's internal "Route &amp; residency" HUD (shown through [GaussianSplatDebugHUD]). It reports which route each stage took and why: route, sort and cull routes, instance backend and contract, data source, raster path and tile size, overlap records, per-stage counts and IO status, GPU memory, and residency. It shows no frame timing, FPS or GPU pass times; those are on [GaussianSplatPerformanceOverlay].
 			</description>
 		</method>
 		<method name="is_debug_show_performance_hud">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if the performance HUD is visible.
+				Returns [code]true[/code] if the "Route &amp; residency" HUD is enabled. See [method set_debug_show_performance_hud].
 			</description>
 		</method>
 		<method name="set_debug_show_residency_hud">
@@ -1126,7 +1126,7 @@
 			Shows the per-tile density heatmap overlay.
 		</member>
 		<member name="debug/show_performance_hud" type="bool" setter="set_debug_show_performance_hud" getter="is_debug_show_performance_hud" default="false">
-			Shows the performance HUD overlay.
+			Shows the internal "Route &amp; residency" HUD (routes, stage counts, data source, residency). It shows no timing; use [GaussianSplatPerformanceOverlay] for frame and GPU timing.
 		</member>
 		<member name="debug/show_residency_hud" type="bool" setter="set_debug_show_residency_hud" getter="is_debug_show_residency_hud" default="false">
 			Shows the GPU residency HUD overlay.
