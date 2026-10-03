@@ -2,13 +2,16 @@
 
 #ifdef TOOLS_ENABLED
 
+#include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "../core/gaussian_data.h"
+#include "../core/gaussian_splat_world.h"
 #include "../core/streaming_chunk_payload_source.h"
 #include "../logger/gs_logger.h"
+#include "gaussian_splat_world_io.h"
 #include "gs_atomic_file_writer.h"
 #include <cstdint>
 
@@ -30,6 +33,7 @@ static bool _checked_mul_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_result) {
 }
 
 struct GSplatWorldHeaderInfo {
+	uint32_t version = 0;
 	bool compressed = false;
 	bool resident_payload = false;
 	uint32_t splat_count = 0;
@@ -41,7 +45,8 @@ struct GSplatWorldHeaderInfo {
 
 static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWorldHeaderInfo *r_info = nullptr) {
 	constexpr uint32_t world_magic = 0x57505347u; // 'GSPW' little-endian.
-	constexpr uint32_t world_version = 1u;
+	constexpr uint32_t world_version_v1 = 1u;
+	constexpr uint32_t world_version_v2 = 2u; // HLOD worlds; fully validated by the loader below
 	constexpr uint32_t max_sh_degree = 3u;
 	constexpr uint32_t max_sh_first_order = 3u;
 	constexpr uint32_t flag_has_metadata = 1u << 0u;
@@ -75,7 +80,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != world_version) {
+	if (version != world_version_v1 && version != world_version_v2) {
 		return ERR_FILE_CORRUPT;
 	}
 
@@ -112,6 +117,21 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 
 	if (gaussian_offset < header_size_bytes || gaussian_offset >= file_size) {
 		return ERR_FILE_CORRUPT;
+	}
+	if (version == world_version_v2) {
+		// The v2 sections (interior payload, node tables) are validated by the loader, which
+		// import() runs on the output before accepting it; only record what import() needs.
+		if (r_info) {
+			r_info->version = version;
+			r_info->compressed = (flags & flag_compressed) != 0u;
+			r_info->resident_payload = (flags & flag_resident_payload) != 0u;
+			r_info->splat_count = splat_count;
+			r_info->chunk_count = chunk_count;
+			r_info->sh_degree = sh_degree;
+			r_info->sh_first_order = sh_first_order;
+			r_info->sh_high_order = sh_high_order;
+		}
+		return OK;
 	}
 
 	uint64_t gaussian_bytes = 0u;
@@ -173,6 +193,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	if (r_info) {
+		r_info->version = version;
 		r_info->compressed = (flags & flag_compressed) != 0u;
 		r_info->resident_payload = (flags & flag_resident_payload) != 0u;
 		r_info->splat_count = splat_count;
@@ -255,6 +276,41 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 			});
 }
 
+// Loads a v1 source resident, bakes its HLOD tree and writes the v2 imported copy with the same
+// payload mode as the source (streamable, resident or resident-compressed). The source file is
+// only read.
+static Error _bake_world_copy(const String &p_source_file, const String &p_dest_file, const GSplatWorldHeaderInfo &p_info) {
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error load_err = OK;
+	Ref<GaussianSplatWorld> world = loader.load_resident(p_source_file, &load_err);
+	if (world.is_null()) {
+		return load_err != OK ? load_err : ERR_FILE_CORRUPT;
+	}
+	const Error bake_err = world->bake_hlod();
+	if (bake_err != OK) {
+		return bake_err;
+	}
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode mode = ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED;
+	if (p_info.compressed) {
+		mode = ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED;
+	} else if (p_info.resident_payload) {
+		mode = ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED;
+	}
+	// Write a sibling temp file, then replace the destination through the same reader-suspending
+	// atomic copy the plain import uses (#714: a world being streamed holds the destination open).
+	const String temp_file = p_dest_file + ".hlodtmp";
+	Error err = saver.save_with_payload_mode(world, temp_file, mode);
+	world.unref();
+	if (err == OK) {
+		err = _copy_binary_file(temp_file, p_dest_file);
+	}
+	if (FileAccess::exists(temp_file)) {
+		DirAccess::remove_absolute(temp_file);
+	}
+	return err;
+}
+
 } // namespace
 
 String ResourceImporterGSplatWorld::get_importer_name() const {
@@ -323,8 +379,23 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	}
 
 	String save_path = p_save_path + "." + get_save_extension();
-	// Keep imports cheap for large worlds: source/destination formats are identical.
-	Error err = _copy_binary_file(p_source_file, save_path);
+	// v1 sources are baked into a v2 imported copy (HLOD, ADR §7). v2 sources (already baked) and
+	// empty worlds are copied unchanged.
+	// An in-place import (destination == source) must not rewrite the user's source file (ADR §7:
+	// "the source file is not touched"); it keeps the plain, byte-preserving copy.
+	const bool in_place = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path() ==
+			ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
+	const bool bake = header_info.version == 1u && header_info.splat_count > 0u && !in_place;
+	Error err = OK;
+	String hlod_skip_reason;
+	if (bake) {
+		err = _bake_world_copy(p_source_file, save_path, header_info);
+	} else {
+		hlod_skip_reason = header_info.version != 1u ? String("source_already_v2")
+				: in_place                          ? String("destination_is_source")
+													: String("empty_world");
+		err = _copy_binary_file(p_source_file, save_path);
+	}
 	if (err == ERR_BUSY) {
 		// #714: the copy itself succeeded; the atomic replace was refused because a
 		// streaming read still held the destination open when the drain budget
@@ -338,8 +409,8 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 		return err;
 	}
 	if (err != OK) {
-		GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer failed to copy %s -> %s (error %d)",
-				p_source_file, save_path, err));
+		GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer failed to %s %s -> %s (error %d)",
+				bake ? "bake" : "copy", p_source_file, save_path, err));
 		return err;
 	}
 	Error imported_decode_err = OK;
@@ -370,7 +441,11 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 		import_metadata[StringName("streamable")] = !resident_only;
 		import_metadata[StringName("resident_only_reason")] = resident_only_reason;
 		import_metadata[StringName("splat_count")] = static_cast<int64_t>(header_info.splat_count);
-		import_metadata[StringName("chunk_count")] = static_cast<int64_t>(header_info.chunk_count);
+		const Ref<GaussianSplatWorld> imported = imported_world;
+		import_metadata[StringName("chunk_count")] = imported.is_valid() ? static_cast<int64_t>(imported->get_chunk_count())
+																		  : static_cast<int64_t>(header_info.chunk_count);
+		import_metadata[StringName("hlod")] = imported.is_valid() ? imported->get_hlod_info() : Dictionary();
+		import_metadata[StringName("hlod_skip_reason")] = hlod_skip_reason;
 		import_metadata[StringName("sh_degree")] = static_cast<int64_t>(header_info.sh_degree);
 		import_metadata[StringName("sh_first_order")] = static_cast<int64_t>(header_info.sh_first_order);
 		import_metadata[StringName("sh_high_order")] = static_cast<int64_t>(header_info.sh_high_order);

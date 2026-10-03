@@ -7,6 +7,7 @@
 #include "core/variant/variant.h"
 
 #include "gaussian_data.h"
+#include "gaussian_splat_hlod_tree.h"
 #include "streaming_chunk_payload_source.h"
 #include "../renderer/gaussian_splat_renderer.h"
 
@@ -25,6 +26,11 @@ private:
     uint32_t sh_first_order_count_metadata = 0;
     uint32_t sh_high_order_count_metadata = 0;
     bool is_2d_metadata = false;
+    // HLOD tree (ADR adr-hlod-streaming.md, slice S1a). Empty unless baked or loaded from a v2
+    // file. Its leaf payload IS the gaussian payload above (same order); a new payload drops it.
+    GaussianSplatHlodTree hlod_tree;
+
+    void _assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod);
 
 protected:
     static void _bind_methods();
@@ -70,6 +76,20 @@ public:
     void clear();
 
     Error save_to_file(const String &p_path) const;
+
+    // HLOD (slice S1a). bake_hlod() bakes the tree from the resident payload (materializing a
+    // file-backed one first), reorders the payload into leaf order and replaces the chunks with
+    // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
+    Error bake_hlod();
+    bool has_hlod_tree() const { return !hlod_tree.is_empty(); }
+    Dictionary get_hlod_info() const;
+    const GaussianSplatHlodTree &get_hlod_tree() const { return hlod_tree; }
+    // Installs a tree whose leaf payload is the current gaussian payload (loader use).
+    void set_hlod_tree(GaussianSplatHlodTree &&p_tree);
+    // One StaticChunk per leaf, in payload order: the leaf's world bounds and sphere and its
+    // contiguous index range. Until S2's cut, today's chunk runtime streams the leaves as chunks.
+    // Returns false (r_chunks empty) when an allocation fails.
+    static bool build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<GaussianSplatRenderer::StaticChunk> &r_chunks);
 };
 
 #endif // GAUSSIAN_SPLAT_WORLD_H

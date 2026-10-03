@@ -34,6 +34,24 @@
 				Removes all data from this world resource, releasing the [GaussianData] reference, clearing chunks, resetting bounds, and emptying metadata.
 			</description>
 		</method>
+		<method name="bake_hlod">
+			<return type="int" enum="Error" />
+			<description>
+				Bakes the hierarchical level-of-detail tree of this world: a world-aligned octree whose leaves hold the original splats (at most 16,384 each) and whose interior nodes hold merged splats. The payload is reordered into leaf order and the chunks are replaced by the leaves; a file-backed payload is loaded into memory first. Saving a baked world writes a version 2 [code].gsplatworld[/code] file. Nothing bakes implicitly: worlds from [method GaussianSplatContainer.export_world_resource] stay tree-less until this is called. Returns [constant ERR_INVALID_DATA] for splats with non-finite fields.
+			</description>
+		</method>
+		<method name="get_hlod_info" qualifiers="const">
+			<return type="Dictionary" />
+			<description>
+				Returns a summary of the HLOD tree: [code]has_hlod[/code], node, leaf and interior-splat counts, height, the interior overhead and, after [method bake_hlod] in this session, the bake timings in milliseconds.
+			</description>
+		</method>
+		<method name="has_hlod_tree" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] if this world has an HLOD tree, baked by [method bake_hlod] or loaded from a version 2 file.
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="gaussian_data" type="GaussianData" setter="set_gaussian_data" getter="get_gaussian_data">

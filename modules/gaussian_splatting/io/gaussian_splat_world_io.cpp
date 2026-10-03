@@ -11,17 +11,24 @@
 #include "io_settings_utils.h"
 #include "gs_atomic_file_writer.h"
 #include "../core/gaussian_data.h"
+#include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
 #include "../interfaces/gpu_culler.h"
 #include "../logger/gs_logger.h"
 
+#include <algorithm>
+#include <cfloat>
 #include <cstring>
 #include <cstdint>
 
 namespace {
 
 static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
-static constexpr uint32_t kWorldVersion = 1;
+// v2 = HLOD worlds (ADR adr-hlod-streaming.md §7). Worlds without a tree are still written as v1,
+// byte-identical to before (so .gsplatcache files and tree-less exports do not change), and v1
+// stays readable.
+static constexpr uint32_t kWorldVersion = 2;
+static constexpr uint32_t kWorldVersionV1 = 1;
 static constexpr uint32_t kMaxShDegree = 3;
 // Gaussian.sh_1[3] holds at most 3 first-order coefficients on disk, and
 // GaussianData::set_gaussian_payload() clamps p_sh_first_order_count to 3, so
@@ -36,7 +43,12 @@ static constexpr uint32_t kFlagHasChunks = 1u << 2u;
 static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
 static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
+static constexpr uint32_t kFlagHasHlod = 1u << 6u;
+static constexpr uint32_t kKnownFlagsV2 = kFlagHasMetadata | kFlagIs2D | kFlagHasChunks | kFlagHasHighSh | kFlagCompressed |
+		kFlagResidentPayload | kFlagHasHlod;
 static constexpr uint64_t kHeaderSizeBytes = 104u;
+// v1 header + the 80-byte HLOD extension.
+static constexpr uint64_t kHeaderSizeBytesV2 = 184u;
 
 // Bound on the *decompressed* resident gaussian payload for compressed worlds.
 // The uncompressed path is bounded structurally by `fits_within` (you cannot claim
@@ -367,7 +379,7 @@ static Error _write_world_save_header(const Ref<FileAccess> &p_file,
 		const GaussianSplatWorld *p_world,
 		const WorldSaveLayout &p_layout) {
 	p_file->store_32(kWorldMagic);
-	p_file->store_32(kWorldVersion);
+	p_file->store_32(kWorldVersionV1);
 	p_file->store_32(p_layout.flags);
 	p_file->store_32(p_layout.splat_count);
 	p_file->store_32(p_layout.sh_degree);
@@ -506,6 +518,600 @@ static Error _write_world_save_sections(const Ref<FileAccess> &p_file,
 	return _ensure_file_write_ok(p_file, "save(final)");
 }
 
+// ------------------------------------------------------------------------------------------------
+// .gsplatworld v2: HLOD worlds (ADR docs/architecture/adr-hlod-streaming.md §7, head 74bf3699702).
+//
+// Layout. The 104-byte v1 header (version = 2, chunk fields zero) is followed by an 80-byte
+// extension, then the sections:
+//   [gaussians: leaf payload | interior payload]  (total = splat_count + interior_splat_count;
+//                                                   gzip'd as one blob when kFlagCompressed)
+//   [high-order SH: same order]
+//   [node table: node_count x 128 B]
+//   [top-level node table: top_level_node_count x 128 B]   (stage 1: written empty, see §6.9)
+//   [instance table: instance_count x 128 B]
+//   [metadata JSON]
+// Positions in the gaussian section are relative to each node's cell centre (§6.2). Every count
+// and offset is validated before anything is allocated, and the node table is validated as a
+// tree (gs_hlod_validate_tree) before the world is published: persistence is R3, fail closed.
+// ------------------------------------------------------------------------------------------------
+
+struct HlodHeaderExtension {
+	double origin[3] = { 0.0, 0.0, 0.0 };
+	uint32_t bake_rule_version = 0u;
+	uint32_t interior_splat_count = 0u;
+	uint64_t node_table_offset = 0u;
+	uint32_t node_count = 0u;
+	uint32_t top_level_node_count = 0u;
+	uint64_t top_level_node_table_offset = 0u;
+	uint64_t instance_table_offset = 0u;
+	uint32_t instance_count = 0u;
+	uint32_t reserved0 = 0u;
+	uint64_t reserved1 = 0u;
+};
+
+static void _write_hlod_extension(const Ref<FileAccess> &p_file, const HlodHeaderExtension &p_ext) {
+	for (int a = 0; a < 3; a++) {
+		p_file->store_double(p_ext.origin[a]);
+	}
+	p_file->store_32(p_ext.bake_rule_version);
+	p_file->store_32(p_ext.interior_splat_count);
+	p_file->store_64(p_ext.node_table_offset);
+	p_file->store_32(p_ext.node_count);
+	p_file->store_32(p_ext.top_level_node_count);
+	p_file->store_64(p_ext.top_level_node_table_offset);
+	p_file->store_64(p_ext.instance_table_offset);
+	p_file->store_32(p_ext.instance_count);
+	p_file->store_32(p_ext.reserved0);
+	p_file->store_64(p_ext.reserved1);
+}
+
+static HlodHeaderExtension _read_hlod_extension(const Ref<FileAccess> &p_file) {
+	HlodHeaderExtension ext;
+	for (int a = 0; a < 3; a++) {
+		ext.origin[a] = p_file->get_double();
+	}
+	ext.bake_rule_version = p_file->get_32();
+	ext.interior_splat_count = p_file->get_32();
+	ext.node_table_offset = p_file->get_64();
+	ext.node_count = p_file->get_32();
+	ext.top_level_node_count = p_file->get_32();
+	ext.top_level_node_table_offset = p_file->get_64();
+	ext.instance_table_offset = p_file->get_64();
+	ext.instance_count = p_file->get_32();
+	ext.reserved0 = p_file->get_32();
+	ext.reserved1 = p_file->get_64();
+	return ext;
+}
+
+// 128-byte node record (§7). Field order and widths are the on-disk contract.
+static void _write_hlod_node(const Ref<FileAccess> &p_file, const GaussianSplatHlodNode &p_node) {
+	p_file->store_8(uint8_t(int8_t(p_node.cell.e)));
+	p_file->store_8(uint8_t(p_node.child_count));
+	p_file->store_16(uint16_t(p_node.height));
+	p_file->store_32(p_node.flags);
+	p_file->store_64(uint64_t(p_node.cell.ix));
+	p_file->store_64(uint64_t(p_node.cell.iy));
+	p_file->store_64(uint64_t(p_node.cell.iz));
+	_write_vec3(p_file, p_node.aabb_min);
+	_write_vec3(p_file, p_node.aabb_max);
+	p_file->store_float(p_node.radius);
+	p_file->store_float(p_node.geometric_error);
+	p_file->store_float(p_node.error_chosen);
+	p_file->store_float(p_node.error_rejected);
+	p_file->store_32(p_node.parent);
+	p_file->store_32(p_node.first_child);
+	p_file->store_64(p_node.payload_first);
+	p_file->store_32(p_node.payload_count);
+	p_file->store_float(p_node.overlap_footprint);
+	for (int i = 0; i < 4; i++) {
+		p_file->store_64(0u); // reserved (32 B): per-node SH degree, quantization block
+	}
+}
+
+static GaussianSplatHlodNode _read_hlod_node(const Ref<FileAccess> &p_file) {
+	GaussianSplatHlodNode node;
+	node.cell.e = int32_t(int8_t(p_file->get_8()));
+	node.child_count = p_file->get_8();
+	node.height = p_file->get_16();
+	node.flags = p_file->get_32();
+	node.cell.ix = int64_t(p_file->get_64());
+	node.cell.iy = int64_t(p_file->get_64());
+	node.cell.iz = int64_t(p_file->get_64());
+	node.aabb_min = _read_vec3(p_file);
+	node.aabb_max = _read_vec3(p_file);
+	node.radius = p_file->get_float();
+	node.geometric_error = p_file->get_float();
+	node.error_chosen = p_file->get_float();
+	node.error_rejected = p_file->get_float();
+	node.parent = p_file->get_32();
+	node.first_child = p_file->get_32();
+	node.payload_first = p_file->get_64();
+	node.payload_count = p_file->get_32();
+	node.overlap_footprint = p_file->get_float();
+	for (int i = 0; i < 4; i++) {
+		(void)p_file->get_64(); // reserved: ignored on read so stage-2 fields need no format bump
+	}
+	return node;
+}
+
+// 128-byte instance record (§6.9).
+static void _write_hlod_instance(const Ref<FileAccess> &p_file, const GaussianSplatHlodInstance &p_inst) {
+	p_file->store_64(p_inst.instance_key);
+	p_file->store_64(uint64_t(p_inst.asset_uid));
+	for (int k = 0; k < 9; k++) {
+		p_file->store_double(p_inst.basis[k]);
+	}
+	for (int k = 0; k < 3; k++) {
+		p_file->store_double(p_inst.origin[k]);
+	}
+	p_file->store_32(p_inst.top_level_node);
+	p_file->store_32(0u); // flags
+	p_file->store_64(0u); // reserved
+}
+
+static GaussianSplatHlodInstance _read_hlod_instance(const Ref<FileAccess> &p_file, uint32_t &r_flags, uint64_t &r_reserved) {
+	GaussianSplatHlodInstance inst;
+	inst.instance_key = p_file->get_64();
+	inst.asset_uid = int64_t(p_file->get_64());
+	for (int k = 0; k < 9; k++) {
+		inst.basis[k] = p_file->get_double();
+	}
+	for (int k = 0; k < 3; k++) {
+		inst.origin[k] = p_file->get_double();
+	}
+	inst.top_level_node = p_file->get_32();
+	r_flags = p_file->get_32();
+	r_reserved = p_file->get_64();
+	return inst;
+}
+
+// Leaf frames: for every leaf, its payload range and cell centre, in payload order.
+static void _collect_leaf_frames(const GaussianSplatHlodTree &p_tree, LocalVector<StagedFileChunkPayloadSource::PositionFrame> &r_frames) {
+	r_frames.clear();
+	for (uint32_t i = 0; i < p_tree.nodes.size(); i++) {
+		const GaussianSplatHlodNode &n = p_tree.nodes[i];
+		if (n.child_count != 0u) {
+			continue;
+		}
+		StagedFileChunkPayloadSource::PositionFrame f;
+		f.first = uint32_t(n.payload_first);
+		f.count = n.payload_count;
+		p_tree.node_cell_center(n, f.center);
+		r_frames.push_back(f);
+	}
+	std::sort(r_frames.ptr(), r_frames.ptr() + r_frames.size(),
+			[](const StagedFileChunkPayloadSource::PositionFrame &p_a, const StagedFileChunkPayloadSource::PositionFrame &p_b) {
+				return p_a.first < p_b.first;
+			});
+}
+
+// Converts leaf positions between absolute (runtime) and node-relative (disk) frames.
+static void _shift_leaf_positions(LocalVector<Gaussian> &r_leaf, const LocalVector<StagedFileChunkPayloadSource::PositionFrame> &p_frames, bool p_to_relative) {
+	for (uint32_t f = 0; f < p_frames.size(); f++) {
+		const StagedFileChunkPayloadSource::PositionFrame &frame = p_frames[f];
+		const double sign = p_to_relative ? -1.0 : 1.0;
+		for (uint32_t i = frame.first; i < frame.first + frame.count; i++) {
+			Vector3 &p = r_leaf[i].position;
+			p = Vector3(real_t(double(p.x) + sign * frame.center[0]), real_t(double(p.y) + sign * frame.center[1]),
+					real_t(double(p.z) + sign * frame.center[2]));
+		}
+	}
+}
+
+static bool _allocation_probe(uint64_t p_bytes) {
+	if (p_bytes == 0u) {
+		return true;
+	}
+	void *probe = memalloc(p_bytes);
+	if (probe == nullptr) {
+		return false;
+	}
+	memfree(probe);
+	return true;
+}
+
+static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
+		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
+		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
+		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
+		uint64_t p_metadata_size, Error *r_error, float *r_progress, bool p_force_resident) {
+	auto refuse = [&](const String &p_why, Error p_err = ERR_FILE_CORRUPT) {
+		if (r_error) {
+			*r_error = p_err;
+		}
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: %s", p_path, p_why));
+		return Ref<Resource>();
+	};
+
+	if (p_file_len < kHeaderSizeBytesV2) {
+		return refuse("truncated v2 header");
+	}
+	if ((p_flags & ~kKnownFlagsV2) != 0u) {
+		return refuse(vformat("unknown header flags 0x%x", p_flags & ~kKnownFlagsV2));
+	}
+	if ((p_flags & kFlagHasHlod) == 0u) {
+		return refuse("a v2 file must carry an HLOD tree");
+	}
+	if ((p_flags & kFlagHasChunks) != 0u || p_chunk_count != 0u || p_chunk_table_offset != 0u || p_indices_offset != 0u) {
+		return refuse("a v2 file declares v1 chunk index lists");
+	}
+	p_file->seek(kHeaderSizeBytes);
+	const HlodHeaderExtension ext = _read_hlod_extension(p_file);
+	for (int a = 0; a < 3; a++) {
+		if (!Math::is_finite(ext.origin[a])) {
+			return refuse("non-finite lattice origin");
+		}
+	}
+	if (ext.bake_rule_version == 0u || ext.reserved0 != 0u || ext.reserved1 != 0u) {
+		return refuse("invalid bake rule version or non-zero reserved header fields");
+	}
+	const uint64_t total = uint64_t(p_splat_count) + uint64_t(ext.interior_splat_count);
+	if (total > uint64_t(UINT32_MAX)) {
+		return refuse("payload exceeds the 32-bit splat index space");
+	}
+	if (ext.node_count == 0u || uint64_t(ext.node_count) > total) {
+		return refuse(vformat("node count %d for %s splats", ext.node_count, String::num_uint64(total)));
+	}
+	if (p_gaussian_offset < kHeaderSizeBytesV2 || p_gaussian_offset >= p_file_len) {
+		return refuse("gaussian section offset out of range");
+	}
+	const uint64_t gaussian_bytes = total * sizeof(Gaussian);
+	const bool compressed = (p_flags & kFlagCompressed) != 0u;
+	if (compressed) {
+		if (!fits_within(p_gaussian_offset, sizeof(uint64_t), p_file_len)) {
+			return refuse("compressed gaussian header out of range");
+		}
+		p_file->seek(p_gaussian_offset);
+		const uint64_t compressed_size = p_file->get_64();
+		if (compressed_size == 0u || !fits_within(p_gaussian_offset + sizeof(uint64_t), compressed_size, p_file_len)) {
+			return refuse("compressed gaussian blob out of range");
+		}
+		if (gaussian_bytes > kMaxCompressedGaussianBytes) {
+			return refuse("compressed payload larger than the gzip decompression limit");
+		}
+	} else if (!fits_within(p_gaussian_offset, gaussian_bytes, p_file_len)) {
+		return refuse("gaussian section out of range");
+	}
+	if (p_sh_first_order > kMaxShFirstOrder || p_sh_degree > kMaxShDegree) {
+		return refuse("SH header out of range");
+	}
+	if (p_sh_high_order > 0u && (p_flags & kFlagHasHighSh) == 0u) {
+		return refuse("high-order SH count without the high-SH flag");
+	}
+	uint64_t sh_count = 0u;
+	uint64_t sh_bytes = 0u;
+	if (p_sh_high_order > 0u) {
+		if (!checked_mul_u64(total, uint64_t(p_sh_high_order), sh_count) || sh_count > uint64_t(UINT32_MAX) ||
+				!checked_mul_u64(sh_count, uint64_t(sizeof(Vector3)), sh_bytes) || !fits_within(p_sh_offset, sh_bytes, p_file_len)) {
+			return refuse("SH section out of range");
+		}
+	}
+	auto table_fits = [&](uint64_t p_offset, uint32_t p_count, uint64_t p_record) {
+		if (p_count == 0u) {
+			return p_offset == 0u;
+		}
+		return p_offset >= kHeaderSizeBytesV2 && fits_within(p_offset, uint64_t(p_count) * p_record, p_file_len);
+	};
+	if (!table_fits(ext.node_table_offset, ext.node_count, gs_hlod::kNodeRecordBytes)) {
+		return refuse("node table out of range");
+	}
+	if (!table_fits(ext.top_level_node_table_offset, ext.top_level_node_count, gs_hlod::kNodeRecordBytes) ||
+			!table_fits(ext.instance_table_offset, ext.instance_count, gs_hlod::kInstanceRecordBytes)) {
+		return refuse("top-level node or instance table out of range");
+	}
+	if ((p_flags & kFlagHasMetadata) != 0u && p_metadata_size > 0u && !fits_within(p_metadata_offset, p_metadata_size, p_file_len)) {
+		return refuse("metadata out of range");
+	}
+
+	// Tables (their sizes are bounded by the file length above).
+	GaussianSplatHlodTree tree;
+	for (int a = 0; a < 3; a++) {
+		tree.origin[a] = ext.origin[a];
+	}
+	tree.bake_rule_version = ext.bake_rule_version;
+	tree.leaf_splat_count = p_splat_count;
+	tree.interior_splat_count = ext.interior_splat_count;
+	tree.sh_high_order_count = p_sh_high_order;
+	if (!_allocation_probe(uint64_t(ext.node_count + ext.top_level_node_count) * sizeof(GaussianSplatHlodNode) +
+				uint64_t(ext.instance_count) * sizeof(GaussianSplatHlodInstance))) {
+		return refuse("cannot allocate the node tables", ERR_OUT_OF_MEMORY);
+	}
+	tree.nodes.resize(ext.node_count);
+	p_file->seek(ext.node_table_offset);
+	for (uint32_t i = 0; i < ext.node_count; i++) {
+		tree.nodes[i] = _read_hlod_node(p_file);
+	}
+	tree.top_level_nodes.resize(ext.top_level_node_count);
+	if (ext.top_level_node_count > 0u) {
+		p_file->seek(ext.top_level_node_table_offset);
+		for (uint32_t i = 0; i < ext.top_level_node_count; i++) {
+			tree.top_level_nodes[i] = _read_hlod_node(p_file);
+		}
+	}
+	tree.instances.resize(ext.instance_count);
+	if (ext.instance_count > 0u) {
+		p_file->seek(ext.instance_table_offset);
+		for (uint32_t i = 0; i < ext.instance_count; i++) {
+			uint32_t inst_flags = 0u;
+			uint64_t inst_reserved = 0u;
+			tree.instances[i] = _read_hlod_instance(p_file, inst_flags, inst_reserved);
+			if (inst_flags != 0u || inst_reserved != 0u) {
+				return refuse(vformat("instance %d has non-zero reserved fields", i));
+			}
+		}
+	}
+	if (p_file->get_error() != OK) {
+		return refuse("read error in the node tables");
+	}
+	String reason;
+	if (!gs_hlod_validate_tree(tree, &reason)) {
+		return refuse(reason);
+	}
+	if (r_progress) {
+		*r_progress = 0.25f;
+	}
+
+	LocalVector<StagedFileChunkPayloadSource::PositionFrame> frames;
+	_collect_leaf_frames(tree, frames);
+
+	const bool materialize = compressed || (p_flags & kFlagResidentPayload) != 0u || p_force_resident;
+	Ref<GaussianData> gaussian_data;
+	if (materialize) {
+		if (!_allocation_probe(gaussian_bytes + sh_bytes)) {
+			return refuse("cannot allocate the resident payload", ERR_OUT_OF_MEMORY);
+		}
+		LocalVector<Gaussian> all;
+		all.resize(uint32_t(total));
+		p_file->seek(p_gaussian_offset);
+		if (compressed) {
+			const uint64_t compressed_size = p_file->get_64();
+			PackedByteArray blob;
+			if (blob.resize(compressed_size) != OK || !_read_exact(p_file, blob.ptrw(), compressed_size) ||
+					!_decompress_data(blob.ptr(), compressed_size, reinterpret_cast<uint8_t *>(all.ptr()), gaussian_bytes)) {
+				return refuse("compressed gaussian payload does not decompress to the declared size");
+			}
+		} else if (!_read_exact(p_file, all.ptr(), gaussian_bytes)) {
+			return refuse("short read in the gaussian section");
+		}
+		LocalVector<Vector3> all_sh;
+		if (sh_count > 0u) {
+			all_sh.resize(uint32_t(sh_count));
+			p_file->seek(p_sh_offset);
+			if (!_read_exact(p_file, all_sh.ptr(), sh_bytes)) {
+				return refuse("short read in the SH section");
+			}
+		}
+		LocalVector<Gaussian> leaf;
+		leaf.resize(p_splat_count);
+		memcpy(leaf.ptr(), all.ptr(), sizeof(Gaussian) * p_splat_count);
+		_shift_leaf_positions(leaf, frames, false);
+		tree.interior_gaussians.resize(ext.interior_splat_count);
+		memcpy(tree.interior_gaussians.ptr(), all.ptr() + p_splat_count, sizeof(Gaussian) * ext.interior_splat_count);
+		LocalVector<Vector3> leaf_sh;
+		if (sh_count > 0u) {
+			const uint64_t leaf_sh_count = uint64_t(p_splat_count) * p_sh_high_order;
+			leaf_sh.resize(uint32_t(leaf_sh_count));
+			memcpy(leaf_sh.ptr(), all_sh.ptr(), sizeof(Vector3) * leaf_sh_count);
+			tree.interior_sh_high_order.resize(uint32_t(sh_count - leaf_sh_count));
+			memcpy(tree.interior_sh_high_order.ptr(), all_sh.ptr() + leaf_sh_count, sizeof(Vector3) * (sh_count - leaf_sh_count));
+		}
+		tree.interior_resident = true;
+		gaussian_data.instantiate();
+		gaussian_data->set_gaussian_payload(leaf, leaf_sh, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u);
+	} else {
+		tree.interior_resident = false;
+		tree.interior_file_path = p_path;
+		tree.interior_gaussian_offset = p_gaussian_offset + uint64_t(p_splat_count) * sizeof(Gaussian);
+		tree.interior_sh_offset = sh_count > 0u ? p_sh_offset + uint64_t(p_splat_count) * p_sh_high_order * sizeof(Vector3) : 0u;
+	}
+
+	Dictionary file_metadata;
+	if ((p_flags & kFlagHasMetadata) != 0u && p_metadata_size > 0u) {
+		p_file->seek(p_metadata_offset);
+		PackedByteArray metadata_bytes = p_file->get_buffer(p_metadata_size);
+		Variant parsed = JSON::parse_string(String::utf8((const char *)metadata_bytes.ptr(), metadata_bytes.size()));
+		if (parsed.get_type() == Variant::DICTIONARY) {
+			file_metadata = parsed;
+		}
+	}
+
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_payload_metadata(p_splat_count, p_sh_degree, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u);
+	if (gaussian_data.is_valid()) {
+		world->set_gaussian_data(gaussian_data);
+	}
+	world->set_bounds(AABB(p_bounds_pos, p_bounds_size));
+	world->set_metadata(file_metadata);
+	Vector<StaticChunk> leaf_chunks;
+	if (!GaussianSplatWorld::build_hlod_leaf_chunks(tree, leaf_chunks)) {
+		return refuse("cannot allocate the leaf chunks", ERR_OUT_OF_MEMORY);
+	}
+	world->set_static_chunks(leaf_chunks);
+	if (!materialize) {
+		Ref<StagedFileChunkPayloadSource> file_source;
+		file_source.instantiate();
+		file_source->configure(p_path, p_gaussian_offset, sh_count > 0u ? p_sh_offset : 0u, p_splat_count, p_sh_degree,
+				p_sh_first_order, p_sh_high_order, AABB(p_bounds_pos, p_bounds_size));
+		if (!file_source->set_position_frames(frames)) {
+			return refuse("leaf position frames do not tile the payload");
+		}
+		world->set_chunk_payload_source(file_source);
+	}
+	world->set_hlod_tree(std::move(tree));
+
+	if (r_error) {
+		*r_error = OK;
+	}
+	if (r_progress) {
+		*r_progress = 1.0f;
+	}
+	return world;
+}
+
+static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
+		const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode) {
+	const GaussianSplatHlodTree &tree = p_world->get_hlod_tree();
+	String reason;
+	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason), ERR_INVALID_DATA,
+			vformat("Refusing to save %s: invalid HLOD tree: %s", p_path, reason));
+	const uint32_t leaf_count = p_gaussian_data->get_count();
+	ERR_FAIL_COND_V_MSG(leaf_count != tree.leaf_splat_count, ERR_INVALID_DATA,
+			vformat("Refusing to save %s: the payload (%d splats) does not match the HLOD leaves (%d).", p_path, leaf_count, tree.leaf_splat_count));
+	ERR_FAIL_COND_V_MSG(p_gaussian_data->get_sh_high_order_count() != tree.sh_high_order_count, ERR_INVALID_DATA,
+			"Refusing to save: SH layout does not match the HLOD tree.");
+
+	LocalVector<Gaussian> leaf;
+	LocalVector<Vector3> leaf_sh;
+	uint32_t sh_first = 0u, sh_high = 0u;
+	ERR_FAIL_COND_V(!p_gaussian_data->capture_chunk_snapshot(0, leaf_count, leaf, leaf_sh, sh_first, sh_high), ERR_CANT_ACQUIRE_RESOURCE);
+	LocalVector<Gaussian> interior;
+	LocalVector<Vector3> interior_sh;
+	const Error interior_err = tree.read_interior_payload(interior, interior_sh);
+	ERR_FAIL_COND_V_MSG(interior_err != OK, interior_err, vformat("Cannot read the HLOD interior payload to save %s.", p_path));
+
+	// Staleness check: every leaf centre must lie in its leaf's bounds (they were built from it).
+	// Tolerance: a centre that went through a node-relative round trip may move by an ulp.
+	for (uint32_t li = 0; li < tree.nodes.size(); li++) {
+		const GaussianSplatHlodNode &n = tree.nodes[li];
+		if (n.child_count != 0u) {
+			continue;
+		}
+		double center[3];
+		tree.node_cell_center(n, center);
+		for (uint32_t i = uint32_t(n.payload_first); i < uint32_t(n.payload_first) + n.payload_count; i++) {
+			const double p[3] = { leaf[i].position.x, leaf[i].position.y, leaf[i].position.z };
+			for (int a = 0; a < 3; a++) {
+				const double tol = MAX(1.0, Math::abs(p[a])) * 4.0 * double(FLT_EPSILON);
+				if (p[a] < center[a] + double(n.aabb_min[a]) - tol || p[a] > center[a] + double(n.aabb_max[a]) + tol) {
+					ERR_FAIL_V_MSG(ERR_INVALID_DATA, vformat("Refusing to save %s: the gaussian payload no longer matches its HLOD tree (splat %d).", p_path, i));
+				}
+			}
+		}
+	}
+	LocalVector<StagedFileChunkPayloadSource::PositionFrame> frames;
+	_collect_leaf_frames(tree, frames);
+	_shift_leaf_positions(leaf, frames, true);
+
+	const uint64_t total = uint64_t(leaf_count) + interior.size();
+	const uint32_t sh_count_per = tree.sh_high_order_count;
+	const uint64_t gaussian_bytes = total * sizeof(Gaussian);
+	const uint64_t sh_bytes = total * sh_count_per * sizeof(Vector3);
+
+	uint32_t flags = kFlagHasHlod;
+	if (p_gaussian_data->get_2d_mode()) {
+		flags |= kFlagIs2D;
+	}
+	if (!p_world->get_metadata().is_empty()) {
+		flags |= kFlagHasMetadata;
+	}
+	if (sh_count_per > 0u) {
+		flags |= kFlagHasHighSh;
+	}
+	const bool resident = p_mode == ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED ||
+			p_mode == ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED;
+	if (resident) {
+		flags |= kFlagResidentPayload;
+	}
+	PackedByteArray compressed_blob;
+	if (p_mode == ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED) {
+		LocalVector<Gaussian> all;
+		all.resize(uint32_t(total));
+		memcpy(all.ptr(), leaf.ptr(), sizeof(Gaussian) * leaf_count);
+		memcpy(all.ptr() + leaf_count, interior.ptr(), sizeof(Gaussian) * interior.size());
+		compressed_blob = _compress_data(reinterpret_cast<const uint8_t *>(all.ptr()), gaussian_bytes);
+		ERR_FAIL_COND_V_MSG(compressed_blob.is_empty(), ERR_CANT_CREATE, "HLOD world: gaussian payload compression failed.");
+		flags |= kFlagCompressed;
+	}
+	const PackedByteArray metadata_bytes = _build_world_metadata_bytes(p_world, flags);
+
+	HlodHeaderExtension ext;
+	for (int a = 0; a < 3; a++) {
+		ext.origin[a] = tree.origin[a];
+	}
+	ext.bake_rule_version = tree.bake_rule_version;
+	ext.interior_splat_count = interior.size();
+	ext.node_count = tree.nodes.size();
+	ext.top_level_node_count = tree.top_level_nodes.size();
+	ext.instance_count = tree.instances.size();
+	const uint64_t gaussian_offset = kHeaderSizeBytesV2;
+	const uint64_t gaussian_stored = compressed_blob.is_empty() ? gaussian_bytes : 8u + uint64_t(compressed_blob.size());
+	const uint64_t sh_offset = gaussian_offset + gaussian_stored;
+	ext.node_table_offset = sh_offset + sh_bytes;
+	uint64_t cursor = ext.node_table_offset + uint64_t(ext.node_count) * gs_hlod::kNodeRecordBytes;
+	if (ext.top_level_node_count > 0u) {
+		ext.top_level_node_table_offset = cursor;
+		cursor += uint64_t(ext.top_level_node_count) * gs_hlod::kNodeRecordBytes;
+	}
+	if (ext.instance_count > 0u) {
+		ext.instance_table_offset = cursor;
+		cursor += uint64_t(ext.instance_count) * gs_hlod::kInstanceRecordBytes;
+	}
+	const uint64_t metadata_offset = metadata_bytes.is_empty() ? 0u : cursor;
+
+	return gs_atomic_file_write(p_path, [&](const Ref<FileAccess> &file) -> Error {
+		file->store_32(kWorldMagic);
+		file->store_32(kWorldVersion);
+		file->store_32(flags);
+		file->store_32(leaf_count);
+		file->store_32(p_gaussian_data->get_sh_degree());
+		file->store_32(sh_first);
+		file->store_32(sh_count_per);
+		_write_vec3(file, p_world->get_bounds().position);
+		_write_vec3(file, p_world->get_bounds().size);
+		file->store_32(0u); // chunk_count: v2 writes no chunk index lists
+		file->store_64(gaussian_offset);
+		file->store_64(sh_offset);
+		file->store_64(0u); // chunk_table_offset
+		file->store_64(0u); // indices_offset
+		file->store_64(metadata_offset);
+		file->store_64(metadata_bytes.size());
+		_write_hlod_extension(file, ext);
+		Error err = _ensure_file_write_ok(file, "save(v2 header)");
+		if (err != OK) {
+			return err;
+		}
+		if (!compressed_blob.is_empty()) {
+			file->store_64(compressed_blob.size());
+			err = _write_buffer_sliced(file, compressed_blob.ptr(), compressed_blob.size(), "save(v2 gaussians)");
+		} else {
+			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf.ptr()), uint64_t(leaf_count) * sizeof(Gaussian), "save(v2 leaves)");
+			if (err == OK && !interior.is_empty()) {
+				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior.ptr()), uint64_t(interior.size()) * sizeof(Gaussian), "save(v2 interior)");
+			}
+		}
+		if (err != OK) {
+			return err;
+		}
+		if (sh_bytes > 0u) {
+			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf_sh.ptr()), uint64_t(leaf_sh.size()) * sizeof(Vector3), "save(v2 leaf SH)");
+			if (err == OK && !interior_sh.is_empty()) {
+				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior_sh.ptr()), uint64_t(interior_sh.size()) * sizeof(Vector3), "save(v2 interior SH)");
+			}
+			if (err != OK) {
+				return err;
+			}
+		}
+		for (uint32_t i = 0; i < tree.nodes.size(); i++) {
+			_write_hlod_node(file, tree.nodes[i]);
+		}
+		for (uint32_t i = 0; i < tree.top_level_nodes.size(); i++) {
+			_write_hlod_node(file, tree.top_level_nodes[i]);
+		}
+		for (uint32_t i = 0; i < tree.instances.size(); i++) {
+			_write_hlod_instance(file, tree.instances[i]);
+		}
+		err = _ensure_file_write_ok(file, "save(v2 tables)");
+		if (err != OK) {
+			return err;
+		}
+		if (!metadata_bytes.is_empty()) {
+			file->store_buffer(metadata_bytes.ptr(), metadata_bytes.size());
+		}
+		return _ensure_file_write_ok(file, "save(v2 final)");
+	});
+}
+
 } // namespace
 
 static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
@@ -538,7 +1144,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != kWorldVersion) {
+	if (version != kWorldVersionV1 && version != kWorldVersion) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
@@ -578,6 +1184,19 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	const uint64_t indices_offset = file->get_64();
 	const uint64_t metadata_offset = file->get_64();
 	const uint64_t metadata_size = file->get_64();
+
+	if (version == kWorldVersion) {
+		return _load_gsplatworld_v2(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
+				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
+				metadata_offset, metadata_size, r_error, r_progress, p_force_resident);
+	}
+	if ((flags & kFlagHasHlod) != 0u) {
+		// The HLOD flag is a v2 feature; a v1 file carrying it is corrupt or forged.
+		if (r_error) {
+			*r_error = ERR_FILE_CORRUPT;
+		}
+		return Ref<Resource>();
+	}
 
 	if (gaussian_offset >= file_len || gaussian_offset < kHeaderSizeBytes) {
 		if (r_error) {
@@ -1012,6 +1631,10 @@ Error ResourceFormatSaverGaussianSplatWorld::save_with_payload_mode(const Ref<Re
 				vformat("Failed to read source-backed GaussianSplatWorld payload before save: %s", p_path));
 	}
 	ERR_FAIL_COND_V_MSG(gaussian_data.is_null(), ERR_INVALID_DATA, "GaussianSplatWorld has no GaussianData.");
+
+	if (world->has_hlod_tree()) {
+		return _save_gsplatworld_v2(world, gaussian_data, p_path, p_mode);
+	}
 
 	const Vector<StaticChunk> &chunks = world->get_static_chunks();
 	WorldSaveLayout layout;
