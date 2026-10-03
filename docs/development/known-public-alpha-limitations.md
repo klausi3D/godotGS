@@ -38,7 +38,7 @@ fixed them.
 | Painterly ignores sphere effectors and per-splat depth clipping | [#1079](https://github.com/klausi3D/godotGS/issues/1079) | Active |
 | The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
-| The starter template prints a render-thread error at shutdown (the crash is fixed) | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | Active (narrowed) |
+| The starter template prints a render-thread error at shutdown (the crash is fixed) | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | **Alpha blocker** (§11) |
 | A world and a `GaussianSplatNode3D` in one scene: one of them renders nothing | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
 | An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
@@ -55,8 +55,10 @@ fixed them.
 
 **Blocking defects are not listed as limitations here** — they are in the
 [acceptance bar](../governance/release-acceptance-bar.md)'s §11 list. This page is for
-what we ship knowing about. No §11 blocker has an entry here today. The last one this page
-named, #851 (painterly ignoring scene lighting), closed on 2026-10-01, fixed by #1078; see
+what we ship knowing about. One §11 blocker has an entry here so that a user who sees its
+symptom can find the issue: #1077, the shutdown error (see its entry). It is a blocker, not
+an accepted limitation. Before it, the last blocker this page named was #851 (painterly
+ignoring scene lighting), which closed on 2026-10-01, fixed by #1078; see
 [Recently resolved](#recently-resolved).
 
 The other exception is the clearly-fenced **"Proposed, not yet accepted"** section near
@@ -74,7 +76,8 @@ section after it lists only fixed defects.
 > closed on 2026-09-20, carrying only `program:prod-ready`; #54 when it was accepted on
 > 2026-09-25 (it is now listed under [Rendering](#rendering)); #833 when it was struck from
 > §11 (item 9) on 2026-09-30, fixed by #1027, #1031 and #1032; and #851, which is
-> `priority:P2`, when it closed on 2026-10-01, fixed by #1078 (§11 item 8). The streaming
+> `priority:P2`, when it closed on 2026-10-01, fixed by #1078 (§11 item 8). #1077, a §11
+> blocker since 2026-10-03 (item 11), carries none of those labels either. The streaming
 > items §11 still lists (#320, #786, #883) are `priority:P1` and visible to the gate; its
 > 50M-asset lane item has no issue at all. Read "it is in the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
@@ -530,7 +533,10 @@ The per-frame render-thread syncs that #1092 reported are fixed by #1094 (see
 
 ### The starter template prints a render-thread error at shutdown ([#1077](https://github.com/klausi3D/godotGS/issues/1077))
 
-**Status: Active, narrowed.** The shutdown **crash** is fixed by
+**Status: public-alpha blocker** (maintainer decision 2026-10-03,
+[record](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739); acceptance
+bar §11 item 11). It is listed here only so its symptom can be found, and is not an accepted
+limitation. The shutdown **crash** is fixed by
 [#1133](https://github.com/klausi3D/godotGS/pull/1133) (merged 2026-10-02). One error line
 remains.
 
@@ -547,8 +553,8 @@ with the `free` / `SafeRefCount` errors gone.
 **What remains.** Every fixed run prints one
 `This function (finalize) can only be called from the render thread` at quit and still exits
 0. The review attributes it, by inference and not by trace, to the manager destroying its
-local rendering devices on the main thread once the render loop has stopped. Whether it
-blocks the alpha is an open maintainer decision; see the acceptance bar's §11.
+local rendering devices on the main thread once the render loop has stopped. The
+maintainer has decided that this error blocks the public alpha until it is fixed.
 
 **Evidence:** the #1133 numbers are 3+3 windowed runs on one NVIDIA GPU. Release or
 exported builds, a `GaussianSplatWorld3D` scene and `thread_model=1` have not been run

@@ -434,10 +434,11 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > #351 and #352 are closed and must appear in `resolved_manifest_issues` with
 > `state: CLOSED`, because an open-only snapshot will not contain them.
 >
-> **A gap in the other direction.** None of §11's ten ranked items still blocks, but the
-> last four to block — #851, #833, #929 and #54 — were all invisible to this population.
+> **A gap in the other direction.** The one open item in §11's numbered list, **#1077** (item 11), is
+> invisible to this population: it carries no `priority:` or `release blocker` label. So
+> were the last four before it — #851, #833, #929 and #54.
 > (The streaming items #1016 admitted, #320, #786 and #883, are `priority:P1` and so are
-> visible to it; the 50M-asset lane has no issue at all.) All four have left the list. (#851, still
+> visible to it; the 50M-asset lane has no issue at all.) Those four have all left the list. (#851, still
 > `priority:P2`, was fixed by #1078 and closed on 2026-10-01 (§11 item 8). #833 was fixed on master by #1027, #1031 and #1032 (§11 item 9). #929 closed on 2026-09-20; it carried only `program:prod-ready` and was never visible
 > here either. #54 was accepted on 2026-09-25; it is still `priority:P2`, and its ledger
 > entry answers for it only if a snapshot contains it — see its §8.1 row.)
@@ -683,9 +684,11 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 12 identified, 11 fixed or closed, 1 accepted as a limitation, 0 open, 0 refuted;
-plus one item undecided, the #1077 residual (see after item 10)**
-(re-counted 2026-10-01: **#851 fixed on master** by #1078 (`eed9879edb1`), and the issue
+**Status: 13 identified, 11 fixed or closed, 1 accepted as a limitation, 1 open, 0 refuted**
+(re-counted 2026-10-03: **#1077 added as an open alpha blocker** by maintainer decision,
+[#1077 comment 5972710739](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739)
+— see item 11; that moves the count from 12 identified, 11/1/0, to 13 identified, 11/1/1.
+Re-counted before that on 2026-10-01: **#851 fixed on master** by #1078 (`eed9879edb1`), and the issue
 is closed — see item 8; that moves the count from 10/1/1 to 11/1/0. Re-counted before that
 on 2026-09-30: **#833 fixed on master** by #1027, #1031 and #1032, confirmed at
 run time on 2026-09-27, signed off by the maintainer on 2026-09-30, and re-confirmed on
@@ -846,9 +849,9 @@ rather than a ceiling.
    **Signed off on 2026-09-30.** The maintainer gave the visual sign-off, on the runtime
    contact sheet from the 2026-09-27 runs
    ([record](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5919843709)). It
-   covers the overlay only, not the gaps listed next. It predates #1093. The 2026-10-03
-   re-run's screenshot (panel legible, every block populated or `n/a`) has not been put to
-   the maintainer.
+   covers the overlay only, not the gaps listed next. It predated #1093, so **the maintainer
+   re-confirmed it for the current template on 2026-10-03**, on the 2026-10-03 re-run
+   ([record](https://github.com/klausi3D/godotGS/issues/833#issuecomment-5972710512)).
 
    **Not checked:** the streaming rows with a streaming system attached, and a second GPU
    vendor.
@@ -860,7 +863,7 @@ rather than a ceiling.
    fixed on master by #1133** (`4047cb4b091`). The independent review
    ([#1133 review](https://github.com/klausi3D/godotGS/pull/1133#pullrequestreview-5389066529))
    measured the base at `0xC0000409` in 3 of 3 windowed runs and #1133 at exit 0 in 3 of 3,
-   with the `free` / `SafeRefCount` errors gone. What remains is the item after item 10. The
+   with the `free` / `SafeRefCount` errors gone. What remains is item 11. The
    #1030 polling crash was not observed.
 10. ~~**#54** — dropped tiles when overlap-record demand outruns the allocated capacity~~
    (briefly after a sudden close-up at defaults; lastingly only above the configured
@@ -888,22 +891,20 @@ rather than a ceiling.
    `GaussianSplatWorld3D`) do. That is an estimate, and whether real scenes reach
    it is unmeasured.
 
-**Undecided, needs a maintainer disposition: the #1077 residual.** The starter template
-runs under `thread_model=2` and is in the envelope (a `GaussianSplatNode3D` with an imported
-asset, Forward+, §10.1). Its shutdown crash was a §4.1 blocker until #1133 fixed it (item 9).
-One error remains on every fixed run: `This function (finalize) can only be called from the
-render thread` (`rendering_device.cpp:7191`), printed once at quit, with exit 0. The review
-traces it, by inference and not by trace, to the manager destroying its local devices on the
-main thread (`gaussian_splat_manager.cpp:414-423`). #1077 stays open, narrowed to this
-error. The rules do not settle whether it blocks:
-- §4 item 1 blocks "any defect a user can hit in a supported configuration", and a user who
-  quits the template sees this error;
-- §10's alpha column blocks "user-visible correctness", and nothing wrong has been measured
-  in the output or the exit code.
-
-The §10.1 exception does not apply as written, because no named human has accepted it
-(condition 4). Until the maintainer decides, it is listed here, outside the ranked count. It
-is also invisible to the gate: #1077 carries no `priority:` or `release blocker` label.
+11. **#1077** — the starter template prints `This function (finalize) can only be called
+   from the render thread` (`rendering_device.cpp:7191`) once at quit, under its
+   `thread_model=2`, with exit 0. **Open; added on 2026-10-03 by maintainer decision**
+   ([record](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739)).
+   It is not ranked against items 1–10. The template is in the envelope (a
+   `GaussianSplatNode3D` with an imported asset, Forward+, §10.1). Its shutdown crash was
+   fixed by #1133 (item 9), and #1077 stays open, narrowed to this error. The #1133 review
+   traces it, by inference and not by trace, to the manager destroying its local devices on
+   the main thread (`gaussian_splat_manager.cpp:414-423`). Before the decision the rules did
+   not settle it: §4 item 1 blocks "any defect a user can hit in a supported
+   configuration", while §10's alpha column blocks "user-visible correctness". The
+   maintainer resolved that in favour of blocking. **The gate cannot see it:** #1077
+   carries no `priority:` or `release blocker` label, so it is held only by a human (§9
+   gap note).
 
 **Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
 re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
