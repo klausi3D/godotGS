@@ -424,7 +424,7 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] Each camera projection 
 TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries every displayed LOD, streaming and SH value") {
 	gs_overlay_test::Overlay::ReportInputs in;
 	in.sections = gs_overlay_test::Overlay::SECTION_LOD | gs_overlay_test::Overlay::SECTION_STREAMING |
-			gs_overlay_test::Overlay::SECTION_SH_COMPRESSION;
+			gs_overlay_test::Overlay::SECTION_SH_COMPRESSION | gs_overlay_test::Overlay::SECTION_DEVICE_VRAM;
 	in.has_target = true;
 	const char *const ids[] = { "lod_current_level", "lod_reduction_ratio_pct", "lod_min_chunk_distance",
 		"lod_avg_chunk_distance", "lod_max_chunk_distance", "lod_splat_skip_factor", "lod_opacity_multiplier",
@@ -437,7 +437,8 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries ev
 		"streaming_effective_vram_budget_mb", "streaming_effective_vram_max_chunks", "streaming_upload_frame_cap_hit",
 		"streaming_upload_bandwidth_cap_hit", "streaming_chunk_load_cap_hit", "streaming_vram_chunk_cap_hit",
 		"streaming_queue_pressure_active", "memory_stream_stall_percent", "sh_compression_raw_mb",
-		"sh_compression_compressed_mb", "sh_compression_ratio_pct" };
+		"sh_compression_compressed_mb", "sh_compression_ratio_pct", "vram_budget_warning_active",
+		"vram_evicted_this_frame", "vram_thrashing_events" };
 	in.streaming_monitors_match = true;
 	in.monitors["gaussian_splatting/streaming_monitor_ready"] = 1;
 	for (const char *id : ids) {
@@ -457,6 +458,13 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries ev
 		for (const Variant &key : sec.keys()) {
 			CHECK_MESSAGE(sec.get(key, Variant()).get_type() != Variant::NIL, (String(e.section) + "." + String(key)));
 		}
+	}
+	// DEVICE VRAM's displayed streaming counters are in the snapshot too.
+	const char *const vram_keys[] = { "streaming_budget_warning_active", "streaming_evicted_this_frame",
+		"streaming_thrashing_events" };
+	const Dictionary vram = gs_overlay_test::section(snap, "device_vram");
+	for (const char *key : vram_keys) {
+		CHECK_MESSAGE(vram.get(key, Variant()).get_type() != Variant::NIL, key);
 	}
 
 	// Not ready: the same keys, every one null (n/a), never 0.

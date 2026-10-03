@@ -225,7 +225,9 @@ OVERLAY_FILE_STEM_RE = re.compile(r"(performance_overlay|perf_overlay)", re.IGNO
 OVERLAY_EXT_RESOURCE_RE = re.compile(
     r'^\[ext_resource\b[^\n]*\bpath="[^"]*(?:performance_overlay|perf_overlay)[^"]*"', re.IGNORECASE)
 FRAME_RATE_READ_RE = re.compile(r"\bget_frames_per_second\s*\(|\bTIME_FPS\b")
-UI_TEXT_WRITE_RE = re.compile(r"\.text\s*\+?=(?!=)|\b(?:set_text|append_text|add_text)\s*\(")
+# `text` written as a property: `label.text = ...`, `self.text = ...`, and the
+# bare `text = ...` of a script that extends Label. Not `context =` / `mytext =`.
+UI_TEXT_WRITE_RE = re.compile(r"(?<![A-Za-z0-9_])text\s*\+?=(?!=)|\b(?:set_text|append_text|add_text)\s*\(")
 MODULE_ROOT = ("modules", "gaussian_splatting")
 MODULE_TESTS_PREFIX = "modules/gaussian_splatting/tests/"
 CPP_SUFFIXES = (".cpp", ".h")

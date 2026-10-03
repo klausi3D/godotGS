@@ -479,10 +479,30 @@ theme_override_styles/panel = null
             "shipped/fps_label.gd",
             "extends Label\n\nfunc _process(_d):\n"
             "\tvar fps = Engine.get_frames_per_second()\n"
-            "\ttext = str(fps)\n\tself.text = str(fps)\n")
+            "\tself.text = str(fps)\n")
         code, messages = self.fx.run()
         self.assertEqual(code, 1, messages)
         self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_bare_text_assignment_in_a_label_script_is_flagged(self) -> None:
+        # ONLY the bare form: `extends Label` scripts write their own `text`.
+        self.fx.write(
+            "shipped/fps_label.gd",
+            "extends Label\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n"
+            "\ttext = str(fps)\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 1, messages)
+        self.assertIn("second-performance-overlay", self.fx.detectors())
+
+    def test_variable_merely_ending_in_text_is_not_a_ui_write(self) -> None:
+        self.fx.write(
+            "shipped/recorder.gd",
+            "extends Node\n\nfunc _process(_d):\n"
+            "\tvar fps = Engine.get_frames_per_second()\n"
+            "\tvar context = fps\n\tvar mytext = str(fps)\n\tprint(mytext, context)\n")
+        code, messages = self.fx.run()
+        self.assertEqual(code, 0, messages)
 
     def test_frame_rate_readout_via_set_text_is_flagged(self) -> None:
         self.fx.write(

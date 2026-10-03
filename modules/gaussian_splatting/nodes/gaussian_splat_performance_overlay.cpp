@@ -561,6 +561,9 @@ void section_device_vram(const GaussianSplatPerformanceOverlay::ReportInputs &p_
 	s["streaming_usage_mb"] = Variant();
 	s["streaming_budget_mb"] = Variant();
 	s["streaming_usage_percent"] = Variant();
+	s["streaming_budget_warning_active"] = Variant();
+	s["streaming_evicted_this_frame"] = Variant();
+	s["streaming_thrashing_events"] = Variant();
 	if (!streaming_ready(p_in)) {
 		r_lines.push_back(vformat("Streaming VRAM budget: %s (%s)", NA, streaming_absent_reason(p_in)));
 		r_snap["device_vram"] = s;
@@ -586,6 +589,9 @@ void section_device_vram(const GaussianSplatPerformanceOverlay::ReportInputs &p_
 	s["streaming_usage_mb"] = usage;
 	s["streaming_budget_mb"] = budget;
 	s["streaming_usage_percent"] = percent;
+	s["streaming_budget_warning_active"] = monitor(p_in, "gaussian_splatting/vram_budget_warning_active");
+	s["streaming_evicted_this_frame"] = monitor(p_in, "gaussian_splatting/vram_evicted_this_frame");
+	s["streaming_thrashing_events"] = monitor(p_in, "gaussian_splatting/vram_thrashing_events");
 	r_snap["device_vram"] = s;
 }
 
@@ -1213,40 +1219,65 @@ uint64_t GaussianSplatPerformanceOverlay::issue_render_stats_request_id() {
 	return gs_overlay_stats_dispatcher().issue_request_id();
 }
 
-void GaussianSplatPerformanceOverlay::_read_renderer_side(ReportInputs &r_in, const Ref<GaussianSplatRenderer> &p_renderer, bool p_want_stats) {
-	// #1030: get_render_stats() reads -- and on a dirty flag rebuilds -- state the
-	// render thread writes every frame (build_render_stats(),
-	// finalize_frame_metrics()), and the custom monitor callbacks read the same
-	// state. With a separate render thread, reading them from here races; a low
-	// rate only makes that rarer. So both run ON the render thread, between
-	// frames (the command queue is FIFO), while this thread waits, so no
-	// main-thread writer races them either. Single-threaded, or with the render
-	// loop stopped, nothing writes concurrently and they run inline.
-	Dictionary out; // shared with the bound copy, filled on the render thread
-	RenderThreadDispatcher &dispatcher = gs_overlay_stats_dispatcher();
+// #1030: get_render_stats() reads -- and on a dirty flag rebuilds -- state the
+// render thread writes every frame (build_render_stats(),
+// finalize_frame_metrics()); the custom monitor callbacks and
+// get_monitor_source_info() read the same state. With a separate render thread,
+// reading them from the main thread races; a low rate only makes that rarer. So
+// every such read runs ON the render thread, between frames (the command queue
+// is FIFO), while this thread waits, so no main-thread writer races it either.
+// Single-threaded, or with the render loop stopped, nothing writes concurrently
+// and p_read runs inline -- invoked exactly as the dispatcher would invoke it.
+// Returns false (show n/a) when the read did not complete; never falls back to
+// an unsynchronized read.
+static bool gs_overlay_run_read(const Callable &p_read) {
+	GsOverlayStatsDispatcher &dispatcher = gs_overlay_stats_dispatcher();
 	if (!dispatcher.is_render_thread_dispatch_path_active()) {
-		gs_overlay_read_renderer_side_into(p_renderer, r_in.sections, p_want_stats, out);
-	} else if (gs_overlay_stats_read_failed.load(std::memory_order_acquire)) {
-		r_in.monitor_mismatch = "renderer statistics unavailable: an earlier render-thread read did not complete";
+		p_read.bind(dispatcher.issue_request_id()).call();
+		return true;
+	}
+	if (gs_overlay_stats_read_failed.load(std::memory_order_acquire)) {
+		return false;
+	}
+	bool dispatched = false;
+	if (dispatcher.dispatch_call_on_render_thread_blocking(p_read, &dispatched, true, nullptr,
+				"[GaussianSplatPerformanceOverlay] render-stats read")) {
+		return true;
+	}
+	if (dispatched && !gs_overlay_stats_read_failed.exchange(true, std::memory_order_acq_rel)) {
+		ERR_PRINT("[GaussianSplatPerformanceOverlay] A render-thread statistics read did not complete before the dispatcher timeout. "
+				  "Renderer statistics rows show n/a for the rest of this run; the overlay will not read them unsynchronized (#1030).");
+	}
+	return false;
+}
+
+void GaussianSplatPerformanceOverlay::_read_renderer_side(ReportInputs &r_in, const Ref<GaussianSplatRenderer> &p_renderer, bool p_want_stats) {
+	Dictionary out; // shared with the bound copy, filled on the render thread
+	if (!gs_overlay_run_read(make_renderer_read_callable(p_renderer, r_in.sections, p_want_stats, out))) {
+		r_in.monitor_mismatch = "renderer statistics unavailable: the render-thread read did not complete";
 		return;
-	} else {
-		bool dispatched = false;
-		if (!dispatcher.dispatch_call_on_render_thread_blocking(make_renderer_read_callable(p_renderer, r_in.sections, p_want_stats, out),
-					&dispatched, true, nullptr, "[GaussianSplatPerformanceOverlay] render-stats read")) {
-			if (dispatched && !gs_overlay_stats_read_failed.exchange(true, std::memory_order_acq_rel)) {
-				ERR_PRINT("[GaussianSplatPerformanceOverlay] A render-thread statistics read did not complete before the dispatcher timeout. "
-						  "Renderer statistics rows show n/a for the rest of this run; the overlay will not read them unsynchronized (#1030).");
-			}
-			// Timed out or not dispatched: show n/a rather than read unsynchronized.
-			r_in.monitor_mismatch = "renderer statistics unavailable: the render-thread read did not complete";
-			return;
-		}
 	}
 	r_in.render_stats = out.get("render_stats", Dictionary());
 	r_in.monitors = out.get("monitors", Dictionary());
 	r_in.tile_monitors_match = out.get("tile_monitors_match", false);
 	r_in.streaming_monitors_match = out.get("streaming_monitors_match", false);
 	r_in.monitor_mismatch = out.get("monitor_mismatch", String());
+}
+
+// Request id first (see gs_overlay_collect_renderer_side).
+static void gs_overlay_collect_preferred_renderer(uint64_t p_request_id, Dictionary p_out) {
+	const GaussianSplattingPerformanceMonitors *monitors = GaussianSplattingPerformanceMonitors::get_singleton();
+	const GaussianSplatRenderer *preferred = monitors ? monitors->get_monitor_source_info().splat_renderer : nullptr;
+	p_out["preferred"] = preferred ? int64_t(uint64_t(preferred->get_instance_id())) : int64_t(0);
+	gs_overlay_stats_dispatcher().notify_completed(p_request_id);
+}
+
+ObjectID GaussianSplatPerformanceOverlay::_read_preferred_renderer_id() {
+	Dictionary out;
+	if (!gs_overlay_run_read(callable_mp_static(&gs_overlay_collect_preferred_renderer).bind(out))) {
+		return ObjectID();
+	}
+	return ObjectID(uint64_t(int64_t(out.get("preferred", int64_t(0)))));
 }
 
 Node *GaussianSplatPerformanceOverlay::_discover_target() const {
@@ -1256,8 +1287,9 @@ Node *GaussianSplatPerformanceOverlay::_discover_target() const {
 	}
 	Viewport *display_vp = _get_display_viewport();
 	const Ref<World3D> world = display_vp ? display_vp->find_world_3d() : Ref<World3D>();
-	const GaussianSplattingPerformanceMonitors *monitors = GaussianSplattingPerformanceMonitors::get_singleton();
-	const GaussianSplatRenderer *preferred = monitors ? monitors->get_monitor_source_info().splat_renderer : nullptr;
+	// The renderer the process-global monitors track, read on the render thread
+	// like every other renderer-state read (#1030). Compared by id only.
+	const ObjectID preferred = _read_preferred_renderer_id();
 
 	// Pre-order walk in tree order. Runs only while there is no target, at most
 	// once per refresh window, so it adds no per-node cost to normal frames.
@@ -1280,7 +1312,7 @@ Node *GaussianSplatPerformanceOverlay::_discover_target() const {
 		// a SubViewport describes that SubViewport's splats.
 		if (spatial && renderer.is_valid() && spatial->is_inside_tree() &&
 				(world.is_null() || spatial->get_world_3d() == world)) {
-			if (preferred && renderer.ptr() == preferred) {
+			if (preferred.is_valid() && renderer->get_instance_id() == preferred) {
 				return n;
 			}
 			if (!first) {

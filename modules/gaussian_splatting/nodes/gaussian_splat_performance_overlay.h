@@ -202,6 +202,7 @@ private:
 	Node *_discover_target() const;
 	Viewport *_get_display_viewport() const;
 	static void _read_renderer_side(ReportInputs &r_in, const Ref<GaussianSplatRenderer> &p_renderer, bool p_want_stats);
+	static ObjectID _read_preferred_renderer_id();
 	void _gather(ReportInputs &r_in, Node *p_target, const String &p_problem) const;
 	void _refresh();
 	static void _split_columns(const Vector<String> &p_lines, Vector<String> &r_left, Vector<String> &r_right);
