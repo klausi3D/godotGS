@@ -455,7 +455,7 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries ev
 		const Dictionary sec = gs_overlay_test::section(snap, e.section);
 		CHECK_MESSAGE(sec.size() == e.rows, e.section);
 		for (const Variant &key : sec.keys()) {
-			CHECK_MESSAGE(sec[key].get_type() != Variant::NIL, String(e.section) + "." + String(key));
+			CHECK_MESSAGE(sec.get(key, Variant()).get_type() != Variant::NIL, (String(e.section) + "." + String(key)));
 		}
 	}
 
@@ -466,7 +466,7 @@ TEST_CASE("[GaussianSplatting][Node][PerformanceOverlay] The snapshot carries ev
 		const Dictionary sec = gs_overlay_test::section(snap, e.section);
 		CHECK_MESSAGE(sec.size() == e.rows, e.section);
 		for (const Variant &key : sec.keys()) {
-			CHECK_MESSAGE(sec[key].get_type() == Variant::NIL, String(e.section) + "." + String(key));
+			CHECK_MESSAGE(sec.get(key, Variant()).get_type() == Variant::NIL, (String(e.section) + "." + String(key)));
 		}
 	}
 }
