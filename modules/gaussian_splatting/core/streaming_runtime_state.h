@@ -145,6 +145,9 @@ struct DiagnosticsState {
     uint32_t vram_cap_hit_frames = 0;
     uint64_t visible_evict_fallback_attempts = 0;
     uint64_t visible_evict_fallback_successes = 0;
+    // #1088: evictions beyond the first that admission needed before a contiguous page run
+    // existed for the chunk (fragmentation or a victim smaller than the incoming chunk).
+    uint64_t atlas_fit_extra_evictions = 0;
 
     uint32_t last_total_chunks = 0;
     uint32_t last_visible_chunks = 0;
