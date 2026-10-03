@@ -930,7 +930,6 @@ bool RenderStreamingOrchestrator::ensure_instance_streaming_system(const Gaussia
 	streaming_system->set_chunk_radius_multiplier(
 			(renderer->*runtime_ports.get_cull_radius_multiplier)() *
 			(renderer->*runtime_ports.get_cull_frustum_plane_slack)());
-	streaming_system->set_load_distance_limit(renderer->get_streaming_load_distance_limit());
 	const Ref<GaussianData> primary_data = state_view.get_scene_state().gaussian_data;
 	if (primary_data.is_valid() && primary_data->get_count() > 0) {
 		// World/static callers can populate primary gaussian data before any SceneDirector
@@ -951,6 +950,10 @@ bool RenderStreamingOrchestrator::ensure_instance_streaming_system(const Gaussia
 		return false;
 	}
 	streaming_state.current_streaming_system = streaming_system;
+	// #1087: push the load distance limit once the runtime exists, from current
+	// settings (a settings change can be what recreated this system).
+	streaming_system->reload_config_if_dirty();
+	streaming_system->set_load_distance_limit(renderer->refresh_streaming_load_distance_limit());
 	streaming_state.use_streamed_data = false;
 	streaming_state.cached_streamed_indices_valid = false;
 	streaming_state.current_stream_gpu_buffer = RID();

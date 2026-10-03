@@ -1925,10 +1925,17 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
             project_settings->set_setting(lod_max_setting, 321.0);
             project_settings->emit_signal("settings_changed");
             renderer->render_scene_instance(&render_data);
-            const Dictionary changed_stats = renderer->get_render_stats();
-            const Dictionary changed_state = changed_stats.get("streaming_state", Dictionary());
+            // Read the limit the frame actually pushed straight from the streaming system:
+            // nothing pushes again until the next frame.
+            const Ref<GaussianStreamingSystem> changed_system = renderer->get_streaming_state().current_streaming_system;
             const float expected_changed = 321.0f / MAX(renderer->get_lod_bias(), 0.0001f);
-            CHECK(float(double(changed_state.get("load_distance_limit", -1.0))) == doctest::Approx(expected_changed));
+            if (changed_system.is_null()) {
+                FAIL("streaming system unavailable after the settings-change frame");
+            } else {
+                MESSAGE("pushed limit after settings change: ", changed_system->get_load_distance_limit(),
+                        " renderer limit: ", renderer->get_streaming_load_distance_limit());
+                CHECK(changed_system->get_load_distance_limit() == doctest::Approx(expected_changed));
+            }
             CHECK(renderer->get_streaming_load_distance_limit() == doctest::Approx(expected_changed));
         }
         project_settings->emit_signal("settings_changed");
