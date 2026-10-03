@@ -65,6 +65,18 @@ struct AnimationClip {
 class GaussianAnimationStateMachine : public Resource {
     GDCLASS(GaussianAnimationStateMachine, Resource);
 
+public:
+    // Class-scope names for the namespace-scope enums above (#1106). The
+    // VARIANT_ENUM_CAST at the end of this file names the enums through these
+    // aliases, so the bound parameter/return type is
+    // "GaussianAnimationStateMachine.AnimationProperty", the same enum that
+    // BIND_ENUM_CONSTANT registers the constants under. The enums stay at
+    // namespace scope because incremental_saver.h forward-declares
+    // AnimationProperty; the aliases are the same types, so C++ callers and
+    // serialized int values are unchanged.
+    using AnimationProperty = GaussianSplatting::AnimationProperty;
+    using AnimationState = GaussianSplatting::AnimationState;
+
 private:
     // Animation state
     AnimationState state = ANIMATION_STATE_STOPPED;
@@ -192,7 +204,13 @@ public:
 
 } // namespace GaussianSplatting
 
-VARIANT_ENUM_CAST(GaussianSplatting::AnimationProperty);
-VARIANT_ENUM_CAST(GaussianSplatting::AnimationState);
+// Name the enums through the class, not the namespace: VARIANT_ENUM_CAST derives
+// the bound class_name from the last two `::` parts of its argument
+// (core/variant/type_info.h, enum_qualified_name_to_class_info_name), so
+// `GaussianSplatting::AnimationProperty` produced the unregistered type
+// "GaussianSplatting.AnimationProperty" and GDScript rejected the class's own
+// constants as arguments (#1106).
+VARIANT_ENUM_CAST(GaussianSplatting::GaussianAnimationStateMachine::AnimationProperty);
+VARIANT_ENUM_CAST(GaussianSplatting::GaussianAnimationStateMachine::AnimationState);
 
 #endif // GAUSSIAN_ANIMATION_STATE_MACHINE_H
