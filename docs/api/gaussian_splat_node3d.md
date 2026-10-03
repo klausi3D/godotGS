@@ -325,11 +325,11 @@ A `GaussianSplatNode3D` is always resident (it never streams; see [Streaming](..
       <td><code>GaussianSplatNodeDebugHelper::set_show_lod_spheres</code></td>
     </tr>
     <tr>
-      <td><code>debug/show_performance_overlay</code></td>
+      <td><code>debug/show_timing_gizmo</code></td>
       <td><code>bool</code></td>
-      <td><code>set_show_performance_overlay</code>, <code>is_showing_performance_overlay</code></td>
-      <td>Updates gizmos only.</td>
-      <td><code>GaussianSplatNodeDebugHelper::set_show_performance_overlay</code></td>
+      <td><code>set_show_timing_gizmo</code>, <code>is_showing_timing_gizmo</code></td>
+      <td>Updates gizmos only: the editor timing gizmo (update/render/sort bars). The runtime performance overlay is the <code>GaussianSplatPerformanceOverlay</code> node.</td>
+      <td><code>GaussianSplatNodeDebugHelper::set_show_timing_gizmo</code></td>
     </tr>
     <tr>
       <td><code>debug/overlay_opacity</code></td>

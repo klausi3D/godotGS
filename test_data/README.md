@@ -54,16 +54,6 @@ These larger files are excluded via `.gitignore` to keep the repository lightwei
 
 > _Tip_: Run `python validate_visual_quality.py --update-reference` after you
 > intentionally change the fixture to refresh the stored reference checksum.
-### 5. Demo Scene
-- **Scene**: `gaussian_splat_demo.tscn`
-- **Controller**: `demo_controller.gd`
-- **Features**:
-  - Interactive camera controls (WASD + mouse)
-  - Quality preset switching (1-4 keys)
-  - Load different splat counts
-  - Multi-instance demo
-  - Real-time performance overlay
-
 ### 6. Test Runner
 - **Primary script**: `tests/ci/run_baseline_qa.py` - The main CI test orchestrator
 - **Capabilities**:
@@ -101,11 +91,6 @@ python tests/ci/run_baseline_qa.py
 ```bash
 # From repository root — options: ply, pipeline, sorting, runtime, module, qa
 python tests/ci/run_baseline_qa.py --category pipeline
-```
-
-### Run Demo Scene
-```bash
-godot gaussian_splat_demo.tscn
 ```
 
 ## Success Metrics
@@ -200,8 +185,6 @@ test_data/
 ├── test_phase4_integration.gd   # Integration tests
 ├── benchmark_performance.py     # Performance benchmarks
 ├── validate_visual_quality.py   # Visual validation
-├── gaussian_splat_demo.tscn     # Interactive demo
-├── demo_controller.gd           # Demo logic
 ├── README.md                    # This file
 ├── visual_quality_reference.json # Stored preview baseline
 └── *.json                       # Test results and reports

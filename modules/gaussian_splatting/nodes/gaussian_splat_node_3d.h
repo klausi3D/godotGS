@@ -279,7 +279,7 @@ private:
     bool show_density_heatmap = false;
     bool show_performance_hud = false;
     bool show_lod_spheres = true;
-    bool show_performance_overlay = false;
+    bool show_timing_gizmo = false;
     float debug_overlay_opacity = 0.3f;
     DebugDrawMode debug_draw_mode = DEBUG_DRAW_POINTS;
     bool runtime_preview_enabled = false;
@@ -813,7 +813,7 @@ public:
      *   - "visible_splats", "total_splats" - Splat counts
      *   - "update_time_ms", "gpu_memory_mb" - Performance metrics
      *   - "bounds" - AABB of the splat data
-     *   - "debug_draw_mode", "show_lod_spheres", "show_performance_overlay", "preview_enabled" - Debug state
+     *   - "debug_draw_mode", "show_lod_spheres", "show_timing_gizmo", "preview_enabled" - Debug state
      *   - Additional renderer statistics from get_render_stats()
      */
     Dictionary get_statistics() const;
@@ -882,12 +882,12 @@ public:
     bool is_showing_density_heatmap() const { return show_density_heatmap; }
 
     /**
-     * @brief Shows or hides the performance HUD.
+     * @brief Shows or hides the internal Route & residency HUD (no timings; #1084).
      * @param p_show When true, displays frame time and splat count.
      */
     void set_show_performance_hud(bool p_show);
 
-    /** @brief Returns true if the performance HUD is being shown. */
+    /** @brief Returns true if the Route & residency HUD is requested. */
     bool is_showing_performance_hud() const { return show_performance_hud; }
 
     /**
@@ -900,13 +900,13 @@ public:
     bool is_showing_lod_spheres() const { return show_lod_spheres; }
 
     /**
-     * @brief Shows or hides the performance overlay.
+     * @brief Shows or hides the editor timing gizmo (update/render/sort bars).
      * @param p_show When true, renders performance metrics.
      */
-    void set_show_performance_overlay(bool p_show);
+    void set_show_timing_gizmo(bool p_show);
 
-    /** @brief Returns true if the performance overlay is being shown. */
-    bool is_showing_performance_overlay() const { return show_performance_overlay; }
+    /** @brief Returns true if the editor timing gizmo is drawn. */
+    bool is_showing_timing_gizmo() const { return show_timing_gizmo; }
 
     /**
      * @brief Sets the opacity of debug overlays (tile grid, heatmap).
@@ -954,6 +954,15 @@ public:
      * @return Reference to the renderer, or an invalid reference if not initialized.
      */
     Ref<GaussianSplatRenderer> get_renderer();
+
+    /**
+     * @brief The renderer this node already holds, without creating one.
+     *
+     * get_renderer() calls _ensure_renderer(); an observer such as
+     * GaussianSplatPerformanceOverlay must not bring renderers into existence
+     * just by looking for one (#1084). C++ only, not bound.
+     */
+    Ref<GaussianSplatRenderer> get_existing_renderer() const;
 
     /// @}
 

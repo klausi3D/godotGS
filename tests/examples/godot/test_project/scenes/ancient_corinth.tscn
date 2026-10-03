@@ -1,8 +1,7 @@
-[gd_scene load_steps=14 format=3 uid="uid://c2s4a6jfjggrb"]
+[gd_scene load_steps=13 format=3 uid="uid://c2s4a6jfjggrb"]
 
 [ext_resource type="GaussianSplatAsset" uid="uid://cj2jsug8hxpi0" path="res://tests/fixtures/test_splats.ply" id="corinth_asset"]
 [ext_resource type="Script" uid="uid://dg380v6a1qpek" path="res://fps_camera_controller.gd" id="fps_script"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="perf_overlay"]
 
 [sub_resource type="PainterlyBrushProfile" id="PainterlyBrushProfile_p2jju"]
 display_name = "Gaussian"
@@ -106,7 +105,7 @@ temporal_stability = 0.9
 [node name="AncientCorinth" type="Node3D"]
 transform = Transform3D(1, 0, 0, 0, 0.9995844, 0.028828844, 0, -0.028828844, 0.9995844, 0, 0, 0)
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("perf_overlay")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="Corinth" type="GaussianSplatNode3D" parent="."]
 splat_asset = ExtResource("corinth_asset")
