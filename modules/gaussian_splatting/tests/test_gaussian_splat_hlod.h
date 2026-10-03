@@ -1163,8 +1163,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 			}
 		}
 		CHECK_EQ(off_by_more, 0u);
-		MESSAGE(vformat("mode %d: %d of %d coordinates moved by the node-relative round trip; worst = ", mode, moved, leaf.size() * 3u) +
-				String::num_scientific(worst_over_edge) + " x cell edge (2^-23 = 1.19e-07)");
+		const String moved_note = vformat("mode %d: %d of %d coordinates moved by the node-relative round trip; worst = ", mode, moved, leaf.size() * 3u) +
+				String::num_scientific(worst_over_edge) + " x cell edge (2^-23 = 1.19e-07)";
+		MESSAGE(moved_note);
 		CHECK(rest_same);
 		// The indexed read path applies the frames too.
 		if (mode == 0) {
