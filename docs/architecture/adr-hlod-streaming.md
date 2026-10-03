@@ -161,11 +161,10 @@ The prior art D draws on, and what is taken from each:
 
 ### 5.2 Image quality at equal budget (region-of-change crop, PSNR dB / SSIM)
 
-Distances are camera-to-centre. "Cut splats" is what every column draws. The `sat` and `hyb`
-columns for holzbank and baum3 are from the re-run with single-child cells copied unchanged
-(§6.3, implementer question (d)); the fix moved `sat` by at most 0.02 dB and `hyb` by at most 0.1 dB, because a lone small
-splat in a merge cell is sub-pixel at the distances where that node is drawn. The baum2 rows
-are still from the run before the fix (its re-run is queued behind other GPU work). **Bold** is the best
+Distances are camera-to-centre. "Cut splats" is what every column draws. All rows are from the re-run with single-child cells copied unchanged (§6.3, implementer
+question (d)). The fix moved `sat` by at most 0.02 dB and `hyb` by at most 0.1 dB on holzbank
+and baum3, and both by at most 0.003 dB on baum2 (identical at the precision shown), because a
+lone small splat in a merge cell is sub-pixel at the distances where that node is drawn. **Bold** is the best
 in the row. `hyb` is `sat` plus "keep the most important child unchanged in sparse cells".
 `mass` and `mm` were also run (`mm` was the worst merge everywhere and was dropped from the
 later runs); A-max (today's `gaussian_importance`) was 0.3–2.9 dB below A-area on every run that had it,
@@ -724,8 +723,7 @@ is still not reachable, they report the numbers to the maintainer for an explici
    (the head that is merged), **not from the run they judge** and not from S1a's re-run on the
    world grid: in every row, the implementation (the per-node choice) must reach PSNR ≥ the
    better of the `sat` and A-area columns minus 1.0 dB, and SSIM ≥ that column's SSIM minus
-   0.01. The baum2 rows are replaced by their post-fix re-run before this ADR merges; until
-   then they carry the pre-fix values, as §5.2 states.
+   0.01. All rows, baum2 included, are post-fix values.
 9. **Transitions (S6):** a dolly through several switch distances at 60 fps. The worst
    per-frame step with the cross-fade must be at most half that of the hard switch, **and**
    every mid-fade frame must be at least as close to both endpoints as the endpoints are to
