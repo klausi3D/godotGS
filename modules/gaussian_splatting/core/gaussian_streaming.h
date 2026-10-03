@@ -279,6 +279,10 @@ public:
     // pushes its effective render distance every frame; <= 0 means unbounded.
     void set_load_distance_limit(float p_limit) { visibility.set_load_distance_limit(p_limit); }
     float get_load_distance_limit() const { return visibility.get_load_distance_limit(); }
+    // #1087: apply a pending project-settings reload (g_lod_config included) now, so a
+    // caller can derive this frame's load distance limit from current settings before
+    // update_streaming() (which would otherwise reload them only after the push).
+    void reload_config_if_dirty() { _reload_config_if_dirty(); }
 
     // Debug statistics for chunk culling
     Dictionary get_chunk_culling_stats() const;
@@ -469,6 +473,7 @@ public:
         persistent_buffer = RID::from_uint64(1);
         persistent_buffer_size = uint32_t(uint64_t(p_capacity_chunks) * CHUNK_SIZE * _atlas_gaussian_stride_bytes());
         streaming_initialized = true;
+        scheduler.prefetch_scan_budget_remaining_this_frame = scheduler.max_prefetch_chunk_scan_per_frame;
     }
     void _test_end_device_free_load_scan() {
         persistent_buffer = RID();

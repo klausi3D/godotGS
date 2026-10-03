@@ -1913,6 +1913,26 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
                 "streaming analytics must publish load_distance_limit (#1087)");
         CHECK(float(double(streaming_state.get("load_distance_limit", -1.0))) == doctest::Approx(expected_limit));
     }
+    // #1087: a project-settings change must reach the pushed limit in the same frame.
+    // With no per-renderer override the culler follows lod/max_distance (g_lod_config),
+    // which streaming reloads on settings_changed. Pushing before that reload would hand
+    // streaming last frame's limit while the draw pass already uses the new one.
+    {
+        const String lod_max_setting = "rendering/gaussian_splatting/lod/max_distance";
+        {
+            ScopedProjectSetting lod_max_guard(project_settings, lod_max_setting);
+            renderer->test_clear_lod_max_distance_override();
+            project_settings->set_setting(lod_max_setting, 321.0);
+            project_settings->emit_signal("settings_changed");
+            renderer->render_scene_instance(&render_data);
+            const Dictionary changed_stats = renderer->get_render_stats();
+            const Dictionary changed_state = changed_stats.get("streaming_state", Dictionary());
+            const float expected_changed = 321.0f / MAX(renderer->get_lod_bias(), 0.0001f);
+            CHECK(float(double(changed_state.get("load_distance_limit", -1.0))) == doctest::Approx(expected_changed));
+            CHECK(renderer->get_streaming_load_distance_limit() == doctest::Approx(expected_changed));
+        }
+        project_settings->emit_signal("settings_changed");
+    }
     CHECK(stats.get("instance_contract_shape", String()) == String("atlas_emulation"));
 
     Dictionary sort_metrics = renderer->get_last_sort_metrics();

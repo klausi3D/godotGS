@@ -295,9 +295,17 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
             ? camera_tracker.last_position
             : Vector3();
 
+    // #1087: recovery may only force chunks the load distance limit lets through;
+    // a forced chunk past the limit is never demanded, so it would leave the view blank.
+    const auto recoverable = [&](uint32_t p_ci) -> bool {
+        const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[p_ci];
+        return is_within_load_distance(
+                compute_chunk_near_distance(chunk.bounds, chunk.center, recovery_pos), load_distance_limit);
+    };
+
     if (spatial_grid.is_built()) {
         // Bounded local recovery: search outward from camera position
-        // through expanding rings of grid cells.
+        // through expanding rings of grid cells, until a ring yields an in-range chunk.
         visible_chunk_indices.clear();
 
         for (int r = 0; r <= RECOVERY_MAX_CELL_RADIUS && visible_chunk_indices.is_empty(); r++) {
@@ -305,7 +313,7 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
             spatial_grid.query_nearby(recovery_pos, r, nearby);
             for (uint32_t j = 0; j < nearby.size(); j++) {
                 uint32_t ci = nearby[j];
-                if (!system.chunks[ci].is_visible) {
+                if (!system.chunks[ci].is_visible && recoverable(ci)) {
                     system.chunks[ci].is_visible = true;
                     visible_chunk_indices.push_back(ci);
                 }
@@ -316,27 +324,27 @@ void StreamingVisibilityController::handle_zero_visible_chunk_recovery(GaussianS
 
         if (forced_count == 0) {
             // Grid search exhausted without finding any chunks — fall back
-            // to all-visible so rendering can proceed.
-            for (uint32_t i = 0; i < system.chunks.size(); i++) {
-                system.chunks[i].is_visible = true;
-            }
+            // to all-visible (all in-range, #1087) so rendering can proceed.
             visible_chunk_indices.reserve(system.chunks.size());
             for (uint32_t i = 0; i < system.chunks.size(); i++) {
-                visible_chunk_indices.push_back(i);
+                if (recoverable(i)) {
+                    system.chunks[i].is_visible = true;
+                    visible_chunk_indices.push_back(i);
+                }
             }
-            forced_count = total_chunks;
+            forced_count = visible_chunk_indices.size();
         }
     } else {
-        // No spatial grid — original all-visible fallback.
-        for (uint32_t i = 0; i < system.chunks.size(); i++) {
-            system.chunks[i].is_visible = true;
-        }
+        // No spatial grid — original all-visible fallback (all in-range, #1087).
         visible_chunk_indices.clear();
         visible_chunk_indices.reserve(system.chunks.size());
         for (uint32_t i = 0; i < system.chunks.size(); i++) {
-            visible_chunk_indices.push_back(i);
+            if (recoverable(i)) {
+                system.chunks[i].is_visible = true;
+                visible_chunk_indices.push_back(i);
+            }
         }
-        forced_count = total_chunks;
+        forced_count = visible_chunk_indices.size();
     }
 
     // Recompute distances for the recovered set and sort nearest-first.
@@ -1069,6 +1077,12 @@ void StreamingVisibilityController::collect_prefetch_candidates(
 
         float dist_sq = (predicted_pos - chunk.center).length_squared();
         if (dist_sq >= prefetch_threshold_sq) {
+            continue;
+        }
+        // #1087: do not prefetch a chunk that would be past the load distance limit
+        // even from the predicted position; it could not be drawn there either.
+        if (!is_within_load_distance(compute_chunk_near_distance(chunk.bounds, chunk.center, predicted_pos),
+                    load_distance_limit)) {
             continue;
         }
 
