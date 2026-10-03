@@ -547,6 +547,18 @@ TEST_CASE("[GaussianSplatting][PerformanceOverlay][SceneTree] A set_target() cho
 	overlay->refresh_now();
 	CHECK(overlay->get_target() == chosen);
 
+	// A node that is neither kind is refused, and the current choice is kept.
+	Node *plain = memnew(Node);
+	root->add_child(plain);
+	ERR_PRINT_OFF;
+	overlay->set_target(plain);
+	ERR_PRINT_ON;
+	overlay->refresh_now();
+	CHECK(overlay->get_target() == chosen);
+	CHECK(String(gs_overlay_test::section(overlay->get_snapshot(), "node").get("name", "")) == "ChosenTarget");
+	root->remove_child(plain);
+	memdelete(plain);
+
 	// Away: the rows are n/a, and the explicit choice is not replaced.
 	root->remove_child(chosen);
 	overlay->refresh_now();

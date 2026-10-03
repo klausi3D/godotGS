@@ -1599,6 +1599,10 @@ void GaussianSplatPerformanceOverlay::set_target_path(const NodePath &p_path) {
 }
 
 void GaussianSplatPerformanceOverlay::set_target(Node *p_node) {
+	// Same rule target_path is held to: anything else would be reported as a
+	// valid target with no renderer behind it. The current target is kept.
+	ERR_FAIL_COND_MSG(p_node && !Object::cast_to<GaussianSplatNode3D>(p_node) && !Object::cast_to<GaussianSplatWorld3D>(p_node),
+			"GaussianSplatPerformanceOverlay.set_target() needs a GaussianSplatNode3D or GaussianSplatWorld3D (or null).");
 	target_path = NodePath();
 	target_id = p_node ? p_node->get_instance_id() : ObjectID();
 	target_auto = false;
