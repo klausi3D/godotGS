@@ -106,3 +106,14 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   warning (once per renderer) and its own `raster_tile_cap_drop_events` counter;
   `overflow_drop_events` still counts read intervals with a drop on any channel. Layout is
   unchanged.
+- **Addendum (#1137 review): read-and-reset replaces the frame-start re-arm.** With two
+  channels, the re-arm above lost drops. A readback copied the word while it held one
+  channel's bit. The other channel's bit then landed during the ~2-frame callback latency,
+  and the next frame-start full clear erased it unseen, with no warning and no counter. Now
+  `poll_overflow_drop_signal` clears the signal word right after recording its copy, in the
+  same command stream. RenderingDevice records the copy into the draw graph at the call and
+  orders the clear after it, so every bit is seen by exactly one copy. `clear_counters` only
+  clears the per-frame prefix, and `overflow_signal_needs_clear` is gone. The poll now runs on
+  every rendered frame, not only when the global-sort EMIT pass ran, because the rasterizers
+  write the signal too. The fragment rasterizer's drop counters now count each tile once,
+  from the tile-origin fragment; they used to count once per fragment.

@@ -1393,11 +1393,9 @@ private:
 		renderer._dump_gpu_debug_counters(params);
 
 		// C4b (exit criterion G4, "no silent degradation"): always-on overlap-record drop
-		// telemetry. Only meaningful when the global-sort EMIT pass ran (the sole writer of the
-		// resident drop signal), so gate on it to avoid a wasted async readback otherwise.
-		if (renderer.render_settings.global_sort_enabled) {
-			renderer._poll_overflow_drop_telemetry();
-		}
+		// telemetry. Polled on every rendered frame: since #1137 the rasterizers write the
+		// resident drop signal too (per-tile raster cap), not only the global-sort EMIT pass.
+		renderer._poll_overflow_drop_telemetry();
 
 		if (renderer.render_settings.global_sort_enabled) {
 			renderer.global_sort_resources.prepare_next_tile_counts_buffer(resource_device);

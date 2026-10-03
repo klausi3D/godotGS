@@ -182,8 +182,8 @@ layout(set = 0, binding = 3, std430) buffer OverflowStats {
     // this 88-byte buffer every production frame (a small always-on async readback) to raise a
     // WARN_PRINT_ONCE + bump the persistent overflow_drop_events counter, so overlap-record
     // overflow is loud + counted in production instead of silently dropped. The drop COUNT
-    // stays in overflow_splats_clamped (reused, no redundant GPU counter). Sticky: the
-    // per-frame clear skips this word until a readback has counted it (see clear_counters).
+    // stays in overflow_splats_clamped (reused, no redundant GPU counter). Sticky: only the
+    // host poll resets this word, right after the copy that reads it (read-and-reset, #1137).
     uint overflow_drop_signal;
 } overflow_stats;
 
