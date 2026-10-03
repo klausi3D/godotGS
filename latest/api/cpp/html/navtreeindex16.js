@@ -1,5 +1,7 @@
 var NAVTREEINDEX16 =
 {
+"gaussian__splat__config__registry_8cpp.html":[2,0,0,0,3,12],
+"gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13],
 "gaussian__splat__config__registry_8h_source.html":[2,0,0,0,3,13],
 "gaussian__splat__container_8cpp.html":[2,0,0,0,9,0],
 "gaussian__splat__container_8h.html":[2,0,0,0,9,1],
@@ -69,8 +71,8 @@ var NAVTREEINDEX16 =
 "gaussian__thumbnail__generator_8cpp.html":[2,0,0,0,4,18],
 "gaussian__thumbnail__generator_8h.html":[2,0,0,0,4,19],
 "gaussian__thumbnail__generator_8h_source.html":[2,0,0,0,4,19],
-"globals.html":[2,1,0],
 "globals.html":[2,1,0,0],
+"globals.html":[2,1,0],
 "globals_b.html":[2,1,0,1],
 "globals_c.html":[2,1,0,2],
 "globals_d.html":[2,1,0,3],
@@ -247,7 +249,5 @@ var NAVTREEINDEX16 =
 "gs__debug__trace_8cpp.html#ac3156e8023fb9d956251f887a95b9cf0":[2,0,0,0,8,0,26],
 "gs__debug__trace_8cpp.html#ac7a7b7b7ff47a019fe9a0290418760b7":[2,0,0,0,8,0,58],
 "gs__debug__trace_8cpp.html#ac84d1e0eca48de434dff918bfdcbf3d8":[2,0,0,0,8,0,4],
-"gs__debug__trace_8cpp.html#acd18c0daa978bc72c767aadc56717bfe":[2,0,0,0,8,0,22],
-"gs__debug__trace_8cpp.html#acf231e07162ea9f86445210afca4ada8":[2,0,0,0,8,0,23],
-"gs__debug__trace_8cpp.html#ad0b73c454aa57924c5d97af8f396e1b9":[2,0,0,0,8,0,24]
+"gs__debug__trace_8cpp.html#acd18c0daa978bc72c767aadc56717bfe":[2,0,0,0,8,0,22]
 };

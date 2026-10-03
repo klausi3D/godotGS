@@ -57,7 +57,7 @@ var classGaussianData =
     [ "query_octree", "classGaussianData.html#afb3d3abd51bd18a49cba474037469fb1", null ],
     [ "resize", "classGaussianData.html#a9581a995f15ca0d863211c25d8d7d1c7", null ],
     [ "restore_brush_stroke", "classGaussianData.html#adcf459a49a4806ef7975b501a3521e55", null ],
-    [ "restore_original_colors", "classGaussianData.html#a704e570f1adac9e6c49bb27c60e4f473", null ],
+    [ "restore_original_colors", "classGaussianData.html#a11f19f2c6d8040456f446b9b025333f4", null ],
     [ "revert_runtime_changes", "classGaussianData.html#a77b035d0293cda2752865c2b6b97b9fb", null ],
     [ "save_to_file", "classGaussianData.html#a8ad160adce838835dd9aa82397418467", null ],
     [ "set_2d_mode", "classGaussianData.html#ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6", null ],

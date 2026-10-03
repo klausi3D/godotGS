@@ -357,9 +357,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ab92acfa907ddeb24f3590f6dc4917c72" id="r_ab92acfa907ddeb24f3590f6dc4917c72"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72">bake_color_grading</a> (const Ref&lt; class <a class="el" href="classColorGradingResource.html">ColorGradingResource</a> &gt; &amp;p_grading)</td></tr>
 <tr class="memdesc:ab92acfa907ddeb24f3590f6dc4917c72"><td class="mdescLeft">&#160;</td><td class="mdescRight">Bakes color grading into the <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> SH DC coefficients.  <br /></td></tr>
 <tr class="separator:ab92acfa907ddeb24f3590f6dc4917c72"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a704e570f1adac9e6c49bb27c60e4f473" id="r_a704e570f1adac9e6c49bb27c60e4f473"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a704e570f1adac9e6c49bb27c60e4f473">restore_original_colors</a> ()</td></tr>
-<tr class="memdesc:a704e570f1adac9e6c49bb27c60e4f473"><td class="mdescLeft">&#160;</td><td class="mdescRight">Restores the original colors before any color grading was baked.  <br /></td></tr>
-<tr class="separator:a704e570f1adac9e6c49bb27c60e4f473"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a11f19f2c6d8040456f446b9b025333f4" id="r_a11f19f2c6d8040456f446b9b025333f4"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a11f19f2c6d8040456f446b9b025333f4">restore_original_colors</a> ()</td></tr>
+<tr class="memdesc:a11f19f2c6d8040456f446b9b025333f4"><td class="mdescLeft">&#160;</td><td class="mdescRight">Restores the original colors before any color grading was baked.  <br /></td></tr>
+<tr class="separator:a11f19f2c6d8040456f446b9b025333f4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a089626b157d28d9d60fc571e525e06eb" id="r_a089626b157d28d9d60fc571e525e06eb"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a089626b157d28d9d60fc571e525e06eb">is_color_grading_baked</a> () const</td></tr>
 <tr class="memdesc:a089626b157d28d9d60fc571e525e06eb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns true if color grading has been baked into the data.  <br /></td></tr>
 <tr class="separator:a089626b157d28d9d60fc571e525e06eb"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -656,7 +656,7 @@ Static Protected Member Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>OK on success, error code on failure.</dd></dl>
-<p>This permanently modifies the base color (SH DC coefficients) of each <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> by applying the specified color grading. The original colors are backed up and can be restored via <a class="el" href="classGaussianData.html#a704e570f1adac9e6c49bb27c60e4f473" title="Restores the original colors before any color grading was baked.">restore_original_colors()</a>.</p>
+<p>This permanently modifies the base color (SH DC coefficients) of each <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> by applying the specified color grading. The original colors are backed up and can be restored via <a class="el" href="classGaussianData.html#a11f19f2c6d8040456f446b9b025333f4" title="Restores the original colors before any color grading was baked.">restore_original_colors()</a>.</p>
 <dl class="section user"><dt>Note: Baking color grading has zero runtime cost - the modified colors are</dt><dd>"frozen" into the splat data. Real-time color grading in the shader has a small cost (~0.2ms for 1M splats). </dd></dl>
 
 </div>
@@ -2111,14 +2111,14 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a704e570f1adac9e6c49bb27c60e4f473" name="a704e570f1adac9e6c49bb27c60e4f473"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a704e570f1adac9e6c49bb27c60e4f473">&#9670;&#160;</a></span>restore_original_colors()</h2>
+<a id="a11f19f2c6d8040456f446b9b025333f4" name="a11f19f2c6d8040456f446b9b025333f4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a11f19f2c6d8040456f446b9b025333f4">&#9670;&#160;</a></span>restore_original_colors()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void GaussianData::restore_original_colors </td>
+          <td class="memname">Error GaussianData::restore_original_colors </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -2127,7 +2127,7 @@ Static Protected Member Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Restores the original colors before any color grading was baked. </p>
-<p>This reverts all <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> SH DC coefficients to their state before the first <a class="el" href="classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72" title="Bakes color grading into the Gaussian SH DC coefficients.">bake_color_grading()</a> call. Does nothing if no baking has been applied. </p>
+<p>This reverts all <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> SH DC coefficients to their state before the first <a class="el" href="classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72" title="Bakes color grading into the Gaussian SH DC coefficients.">bake_color_grading()</a> call. Does nothing (OK) if no baking has been applied. </p><dl class="section return"><dt>Returns</dt><dd>OK, or ERR_INVALID_DATA when the splat count changed since the bake (the backup no longer matches); nothing is restored in that case. </dd></dl>
 
 </div>
 </div>

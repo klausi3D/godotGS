@@ -345,12 +345,18 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a324163be57fc91f5e925a5104f532a9b" id="r_a324163be57fc91f5e925a5104f532a9b"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a324163be57fc91f5e925a5104f532a9b">bake_color_grading_snapshot</a> (const Ref&lt; class <a class="el" href="classColorGradingResource.html">ColorGradingResource</a> &gt; &amp;p_grading_snapshot)</td></tr>
 <tr class="memdesc:a324163be57fc91f5e925a5104f532a9b"><td class="mdescLeft">&#160;</td><td class="mdescRight">Bakes a provided color grading snapshot into the splat data.  <br /></td></tr>
 <tr class="separator:a324163be57fc91f5e925a5104f532a9b"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8a65fbfb9575f95059401078bfa6da22" id="r_a8a65fbfb9575f95059401078bfa6da22"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a8a65fbfb9575f95059401078bfa6da22">restore_color_grading</a> ()</td></tr>
-<tr class="memdesc:a8a65fbfb9575f95059401078bfa6da22"><td class="mdescLeft">&#160;</td><td class="mdescRight">Restores original colors before any color grading was baked.  <br /></td></tr>
-<tr class="separator:a8a65fbfb9575f95059401078bfa6da22"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aea577d7c480670e1f045f6ac2fb497d4" id="r_aea577d7c480670e1f045f6ac2fb497d4"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#aea577d7c480670e1f045f6ac2fb497d4">restore_color_grading</a> ()</td></tr>
+<tr class="memdesc:aea577d7c480670e1f045f6ac2fb497d4"><td class="mdescLeft">&#160;</td><td class="mdescRight">Restores original colors before any color grading was baked.  <br /></td></tr>
+<tr class="separator:aea577d7c480670e1f045f6ac2fb497d4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a8c9b7b98e2769f33f0fc5f40e38399c3" id="r_a8c9b7b98e2769f33f0fc5f40e38399c3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a8c9b7b98e2769f33f0fc5f40e38399c3">is_color_grading_baked</a> () const</td></tr>
 <tr class="memdesc:a8c9b7b98e2769f33f0fc5f40e38399c3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns true if color grading has been baked into the splat data.  <br /></td></tr>
 <tr class="separator:a8c9b7b98e2769f33f0fc5f40e38399c3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5d0b964d0ef1c985dae7344aedd911c5" id="r_a5d0b964d0ef1c985dae7344aedd911c5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a5d0b964d0ef1c985dae7344aedd911c5">can_bake_color_grading</a> () const</td></tr>
+<tr class="memdesc:a5d0b964d0ef1c985dae7344aedd911c5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns true if this node holds its own bakeable data (<a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a>).  <br /></td></tr>
+<tr class="separator:a5d0b964d0ef1c985dae7344aedd911c5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a2a2c832eb505f362a0a2e214a6769f7c" id="r_a2a2c832eb505f362a0a2e214a6769f7c"><td class="memItemLeft" align="right" valign="top">Ref&lt; class <a class="el" href="classColorGradingResource.html">ColorGradingResource</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a2a2c832eb505f362a0a2e214a6769f7c">get_baked_color_grading</a> () const</td></tr>
+<tr class="memdesc:a2a2c832eb505f362a0a2e214a6769f7c"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns a copy of the grade that is currently baked into the data, or null.  <br /></td></tr>
+<tr class="separator:a2a2c832eb505f362a0a2e214a6769f7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr><td colspan="2"><div class="groupHeader">Performance Monitoring</div></td></tr>
 <tr class="memitem:ac707db09e41067913d605004fe0fa42f" id="r_ac707db09e41067913d605004fe0fa42f"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#ac707db09e41067913d605004fe0fa42f">get_visible_splat_count</a> () const</td></tr>
 <tr class="memdesc:ac707db09e41067913d605004fe0fa42f"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns the number of splats visible after culling.  <br /></td></tr>
@@ -855,7 +861,8 @@ Basic Usage</h2>
 
 <p>Bakes the current color grading into the splat data. </p>
 <dl class="section return"><dt>Returns</dt><dd>OK on success, error code on failure.</dd></dl>
-<p>This permanently applies color grading to the base colors (SH DC coefficients). The original colors are backed up and can be restored via <a class="el" href="classGaussianSplatNode3D.html#a8a65fbfb9575f95059401078bfa6da22" title="Restores original colors before any color grading was baked.">restore_color_grading()</a>. Baked color grading has zero runtime cost. </p>
+<p>This permanently applies color grading to the base colors (SH DC coefficients). The original colors are backed up and can be restored via <a class="el" href="classGaussianSplatNode3D.html#aea577d7c480670e1f045f6ac2fb497d4" title="Restores original colors before any color grading was baked.">restore_color_grading()</a>. Baked color grading has zero runtime cost.</p>
+<p>Only data supplied through <a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a> can be baked. A node that renders a splat_asset returns ERR_UNAVAILABLE (#1105): its live color grading already applies per instance, and the asset is shared and must not be rewritten. </p>
 
 </div>
 </div>
@@ -882,7 +889,27 @@ Basic Usage</h2>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>OK on success, error code on failure. </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>OK on success, ERR_UNAVAILABLE on a splat_asset node (#1105), other error code on failure. </dd></dl>
+
+</div>
+</div>
+<a id="a5d0b964d0ef1c985dae7344aedd911c5" name="a5d0b964d0ef1c985dae7344aedd911c5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5d0b964d0ef1c985dae7344aedd911c5">&#9670;&#160;</a></span>can_bake_color_grading()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianSplatNode3D::can_bake_color_grading </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Returns true if this node holds its own bakeable data (<a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a>). </p>
+<p>False for a node that renders a splat_asset (#1105) and for a node with no data. The inspector gates its Bake/Restore section on this, not on the shared renderer's data, which can belong to a peer node. </p>
 
 </div>
 </div>
@@ -938,6 +965,26 @@ Basic Usage</h2>
         </tr>
       </table>
 </div><div class="memdoc">
+
+</div>
+</div>
+<a id="a2a2c832eb505f362a0a2e214a6769f7c" name="a2a2c832eb505f362a0a2e214a6769f7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a2a2c832eb505f362a0a2e214a6769f7c">&#9670;&#160;</a></span>get_baked_color_grading()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt; <a class="el" href="classColorGradingResource.html">ColorGradingResource</a> &gt; GaussianSplatNode3D::get_baked_color_grading </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Returns a copy of the grade that is currently baked into the data, or null. </p>
+<p>The copy carries the grade's state at bake time, including enabled = true, although the bake disables the node's own resource. The inspector's Restore action uses it as the undo snapshot, so Undo re-bakes the grade that was actually applied. </p>
 
 </div>
 </div>
@@ -2423,14 +2470,14 @@ Basic Usage</h2>
 
 </div>
 </div>
-<a id="a8a65fbfb9575f95059401078bfa6da22" name="a8a65fbfb9575f95059401078bfa6da22"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8a65fbfb9575f95059401078bfa6da22">&#9670;&#160;</a></span>restore_color_grading()</h2>
+<a id="aea577d7c480670e1f045f6ac2fb497d4" name="aea577d7c480670e1f045f6ac2fb497d4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aea577d7c480670e1f045f6ac2fb497d4">&#9670;&#160;</a></span>restore_color_grading()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">void GaussianSplatNode3D::restore_color_grading </td>
+          <td class="memname">Error GaussianSplatNode3D::restore_color_grading </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>
@@ -2439,7 +2486,7 @@ Basic Usage</h2>
 </div><div class="memdoc">
 
 <p>Restores original colors before any color grading was baked. </p>
-<p>This reverts all splat colors to their state before the first <a class="el" href="classGaussianSplatNode3D.html#ab735c41b1c164c9fa58f24d41ad00c9b" title="Bakes the current color grading into the splat data.">bake_color_grading()</a> call. Does nothing if no baking has been applied. </p>
+<p>This reverts all splat colors to their state before the first <a class="el" href="classGaussianSplatNode3D.html#ab735c41b1c164c9fa58f24d41ad00c9b" title="Bakes the current color grading into the splat data.">bake_color_grading()</a> call. Does nothing (and returns OK) if no baking has been applied. </p><dl class="section return"><dt>Returns</dt><dd>OK, ERR_UNAVAILABLE on a splat_asset node (#1105), ERR_UNCONFIGURED with no data, or ERR_INVALID_DATA when <a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a> replaced the data since the bake (nothing restored; grading stays disabled). </dd></dl>
 
 </div>
 </div>

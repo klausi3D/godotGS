@@ -4545,18 +4545,18 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 </tr>
 <tr>
 <td>4</td>
-<td>Optional: run <code>bake_color_grading()</code> or click <code>Bake Color Grading</code> to write grading into base SH DC values. Check the returned <code>Error</code>; see <a href="#baking-limitation">Baking limitation</a>.</td>
+<td>Optional, <code>set_splat_data()</code> nodes only: run <code>bake_color_grading()</code> or click <code>Bake Color Grading</code> to write grading into base SH DC values. A <code>splat_asset</code> node returns <code>ERR_UNAVAILABLE</code>; see <a href="#baking-limitation">Baking limitation</a>.</td>
 <td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code>, <code>GaussianSplatNodeInspectorPlugin::parse_begin</code></td>
 </tr>
 <tr>
 <td>5</td>
-<td>Run <code>restore_color_grading()</code> or click <code>Restore Original</code> to restore pre-bake colors.</td>
+<td><code>set_splat_data()</code> nodes only: run <code>restore_color_grading()</code> or click <code>Restore Original</code> to restore pre-bake colors.</td>
 <td><code>GaussianSplatNode3D::restore_color_grading</code></td>
 </tr>
 </tbody>
 </table>
 <h3 id="baking-limitation">Baking limitation<a class="headerlink" href="#baking-limitation" title="Permanent link">¶</a></h3>
-<p><code>bake_color_grading()</code> and <code>restore_color_grading()</code> operate on the node's CPU-side data (<code>renderer_data</code>). At this revision that data is created only when the node is populated with <code>set_splat_data()</code> (<code>GaussianSplatNode3D::_ensure_renderer_data_for_splats</code>); a node that renders a <code>splat_asset</code> never creates it. Code reading and a headless run show <code>bake_color_grading()</code> returning <code>ERR_UNCONFIGURED</code> ("Cannot bake color grading: no gaussian data loaded") on an asset-backed node. This is not yet confirmed on a GPU run and is tracked as a suspected defect. Real-time grading (steps 1-3) does not depend on it.</p>
+<p>Baking works only on a node whose splats come from <code>set_splat_data()</code>. A node that renders a <code>splat_asset</code> (the normal import path) cannot bake: <code>bake_color_grading()</code>, <code>bake_color_grading_snapshot()</code> and <code>restore_color_grading()</code> return <code>ERR_UNAVAILABLE</code> and change nothing, and the inspector does not show the Bake section for it (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>). You lose nothing by it: real-time grading (steps 1-3) already applies to that node, per instance, so keep <code>enabled = true</code>. The asset may be shared by other nodes and is never rewritten. Separately, a bake does not yet reproduce the live look exactly (<a href="https://github.com/klausi3D/godotGS/issues/1124">#1124</a>).</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -4583,13 +4583,13 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 <tr>
 <td><code>bake_color_grading()</code></td>
 <td>Method</td>
-<td>Applies grading on CPU to SH DC coefficients and disables grading to avoid double-application. Returns <code>ERR_UNCONFIGURED</code> without a grading resource or without CPU-side node data (see <a href="#baking-limitation">Baking limitation</a>).</td>
+<td>Applies grading on CPU to SH DC coefficients and disables grading to avoid double-application. Returns <code>ERR_UNAVAILABLE</code> on a <code>splat_asset</code> node (see <a href="#baking-limitation">Baking limitation</a>) and <code>ERR_UNCONFIGURED</code> without a grading resource or without any splat data.</td>
 <td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code>, <code>GaussianData::bake_color_grading</code></td>
 </tr>
 <tr>
 <td><code>restore_color_grading()</code></td>
 <td>Method</td>
-<td>Restores original SH DC coefficients and re-enables grading.</td>
+<td>Restores original SH DC coefficients and re-enables grading. Returns <code>Error</code>: <code>OK</code>, <code>ERR_UNAVAILABLE</code> on a <code>splat_asset</code> node, or <code>ERR_INVALID_DATA</code> if the data was replaced since the bake (nothing restored, grading stays disabled).</td>
 <td><code>GaussianSplatNode3D::restore_color_grading</code></td>
 </tr>
 <tr>
@@ -4703,7 +4703,7 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 <span class="w">    </span><span class="n">splat</span><span class="o">.</span><span class="n">set_color_grading</span><span class="p">(</span><span class="n">grading</span><span class="p">)</span>
 
 <span class="k">func</span><span class="w"> </span><span class="n">bake_grading</span><span class="p">()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="nb nb-Type">void</span><span class="p">:</span>
-<span class="w">    </span><span class="c1"># ERR_UNCONFIGURED on asset-backed nodes at this revision; see "Baking limitation".</span>
+<span class="w">    </span><span class="c1"># ERR_UNAVAILABLE on a node that renders a splat_asset; see "Baking limitation".</span>
 <span class="w">    </span><span class="k">var</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="p">:</span><span class="o">=</span><span class="w"> </span><span class="n">splat</span><span class="o">.</span><span class="n">bake_color_grading</span><span class="p">()</span>
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="n">OK</span><span class="p">:</span>
 <span class="w">        </span><span class="n">push_warning</span><span class="p">(</span><span class="s2">"bake_color_grading failed: </span><span class="si">%s</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">error_string</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
@@ -4723,9 +4723,15 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 </thead>
 <tbody>
 <tr>
+<td><code>bake_color_grading()</code> returns <code>ERR_UNAVAILABLE</code></td>
+<td>The node renders a <code>splat_asset</code>; baking is not supported there (see <a href="#baking-limitation">Baking limitation</a>).</td>
+<td>Nothing to fix: keep the grading resource enabled, the live grade already applies. Bake only <code>set_splat_data()</code> nodes.</td>
+<td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code></td>
+</tr>
+<tr>
 <td><code>bake_color_grading()</code> returns <code>ERR_UNCONFIGURED</code></td>
-<td>No grading resource, or the node has no CPU-side data (asset-backed nodes, see <a href="#baking-limitation">Baking limitation</a>).</td>
-<td>Assign <code>rendering/color_grading</code>. For asset-backed nodes, keep real-time grading instead of baking.</td>
+<td>No grading resource, or the node has no splat data at all.</td>
+<td>Assign <code>rendering/color_grading</code>, and supply data through <code>set_splat_data()</code>.</td>
 <td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code></td>
 </tr>
 <tr>
@@ -4744,6 +4750,12 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 <td>Restore does not bring back expected base colors</td>
 <td>No previous bake state was recorded.</td>
 <td>Bake once before expecting restore behavior.</td>
+<td><code>GaussianData::restore_original_colors</code></td>
+</tr>
+<tr>
+<td><code>restore_color_grading()</code> returns <code>ERR_INVALID_DATA</code></td>
+<td><code>set_splat_data()</code> replaced the node's data after the bake, so the saved colors no longer match. Nothing was restored.</td>
+<td>Re-supply the original data, or leave grading disabled.</td>
 <td><code>GaussianData::restore_original_colors</code></td>
 </tr>
 </tbody>
@@ -4768,7 +4780,7 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 18:55:54 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 20:16:18 UTC">October 3, 2026</span>
   </span>
 
     

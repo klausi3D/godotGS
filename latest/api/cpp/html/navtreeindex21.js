@@ -1,5 +1,7 @@
 var NAVTREEINDEX21 =
 {
+"rendering__error_8cpp.html#a47e5e5cb71e50b02c18dc6bf01e51d5c":[2,0,0,0,12,62,3],
+"rendering__error_8cpp.html#a6b62149717dfad1543da0e764e4ff4f0":[2,0,0,0,12,62,1],
 "rendering__error_8cpp.html#a7ee9457aa356e157bbb6b7b506b330ba":[2,0,0,0,12,62,6],
 "rendering__error_8cpp.html#acc560631917fd39976afce2a06be2c29":[2,0,0,0,12,62,7],
 "rendering__error_8cpp.html#ad89b42441118d2f23b4a16334b875aac":[2,0,0,0,12,62,4],
@@ -247,7 +249,5 @@ var NAVTREEINDEX21 =
 "streaming__lod__policy_8cpp.html":[2,0,0,0,3,57],
 "streaming__quantization_8cpp.html":[2,0,0,0,3,58],
 "streaming__quantization_8h.html":[2,0,0,0,3,59],
-"streaming__quantization_8h_source.html":[2,0,0,0,3,59],
-"streaming__queue__pressure__controller_8cpp.html":[2,0,0,0,3,60],
-"streaming__queue__pressure__controller_8h.html":[2,0,0,0,3,61]
+"streaming__quantization_8h_source.html":[2,0,0,0,3,59]
 };

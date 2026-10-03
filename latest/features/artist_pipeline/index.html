@@ -4523,14 +4523,14 @@ It complements the canonical <a href="../../user/">Guides overview</a>.</p>
 </tr>
 <tr>
 <td>Bake or restore color grading</td>
-<td>Use <code>Bake Color Grading</code> or <code>Restore Original</code> in the node inspector. See the limitation below.</td>
+<td>Use <code>Bake Color Grading</code> or <code>Restore Original</code> in the node inspector. Shown only for nodes fed by <code>set_splat_data()</code>; see the limitation below.</td>
 <td><code>GaussianSplatNodeInspectorPlugin::parse_begin</code>, <code>GaussianSplatNode3D::bake_color_grading</code></td>
 </tr>
 </tbody>
 </table>
 <div class="admonition warning">
 <p class="admonition-title">Color grading bake on asset-backed nodes</p>
-<p><code>GaussianSplatNode3D.bake_color_grading()</code> bakes into the node's CPU-side data (<code>renderer_data</code>). At this revision that data is created only by <code>set_splat_data()</code> (<code>GaussianSplatNode3D::_ensure_renderer_data_for_splats</code>); a node that renders a <code>splat_asset</code> does not create it. Code reading and a headless run both show <code>bake_color_grading()</code> returning <code>ERR_UNCONFIGURED</code> ("Cannot bake color grading: no gaussian data loaded") on an asset-backed node. This has not been confirmed on a GPU run yet. Until it is resolved, treat baking as available only for nodes populated with <code>set_splat_data()</code>, and check the returned <code>Error</code>.</p>
+<p>Baking is supported only for nodes populated with <code>set_splat_data()</code>. On a node that renders a <code>splat_asset</code> (the normal import path), <code>bake_color_grading()</code>, <code>bake_color_grading_snapshot()</code> and <code>restore_color_grading()</code> return <code>ERR_UNAVAILABLE</code> and change nothing, and the inspector does not show the Bake section (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>). The live grade already applies to that node, so keep the <code>ColorGradingResource</code> enabled. See the <a href="../color-grading-quick-start/#baking-limitation">Color Grading Quick Start</a>.</p>
 </div>
 <table>
 <thead>
@@ -4666,9 +4666,9 @@ It complements the canonical <a href="../../user/">Guides overview</a>.</p>
 <td><code>GaussianData::_on_gaussian_storage_changed_locked</code>, <code>GaussianData::set_gaussian_payload</code></td>
 </tr>
 <tr>
-<td><code>Bake Color Grading</code> fails</td>
-<td>Assign a <code>ColorGradingResource</code>. On asset-backed nodes the bake is currently expected to fail with <code>ERR_UNCONFIGURED</code>; see the warning above.</td>
-<td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code></td>
+<td><code>Bake Color Grading</code> fails, or is missing</td>
+<td>Assign a <code>ColorGradingResource</code> and supply data through <code>set_splat_data()</code>. On a <code>splat_asset</code> node the section is hidden and the API returns <code>ERR_UNAVAILABLE</code> by design (#1105); the live grade applies.</td>
+<td><code>GaussianSplatNode3D::bake_color_grading_snapshot</code>, <code>GaussianSplatNode3D::can_bake_color_grading</code></td>
 </tr>
 </tbody>
 </table>
@@ -4692,7 +4692,7 @@ It complements the canonical <a href="../../user/">Guides overview</a>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 18:55:53 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 20:16:18 UTC">October 3, 2026</span>
   </span>
 
     

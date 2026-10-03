@@ -1,5 +1,7 @@
 var NAVTREEINDEX15 =
 {
+"debug__overlay__macros_8h.html#ac8045973574f8a4c7271af9a5079bf4d":[2,0,0,0,5,2,3],
+"debug__overlay__macros_8h.html#ad90c8ba2ae9e3c48752f3e5f18dfcbf3":[2,0,0,0,5,2,7],
 "debug__overlay__macros_8h_source.html":[2,0,0,0,5,2],
 "debug__overlay__methods_8cpp.html":[2,0,0,0,12,3],
 "debug__overlay__system_8cpp.html":[2,0,0,0,5,3],
@@ -68,8 +70,8 @@ var NAVTREEINDEX15 =
 "functions_enum.html":[1,3,4],
 "functions_eval.html":[1,3,5],
 "functions_f.html":[1,3,0,6],
-"functions_func.html":[1,3,1,0],
 "functions_func.html":[1,3,1],
+"functions_func.html":[1,3,1,0],
 "functions_func_a.html":[1,3,1,1],
 "functions_func_b.html":[1,3,1,2],
 "functions_func_c.html":[1,3,1,3],
@@ -111,8 +113,8 @@ var NAVTREEINDEX15 =
 "functions_type.html":[1,3,3],
 "functions_u.html":[1,3,0,21],
 "functions_v.html":[1,3,0,22],
-"functions_vars.html":[1,3,2,0],
 "functions_vars.html":[1,3,2],
+"functions_vars.html":[1,3,2,0],
 "functions_vars_a.html":[1,3,2,1],
 "functions_vars_b.html":[1,3,2,2],
 "functions_vars_c.html":[1,3,2,3],
@@ -247,7 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__splat__asset_8h.html":[2,0,0,0,3,11],
 "gaussian__splat__asset_8h.html#a298ea4c90a915ee929c7ab87efeecdcc":[2,0,0,0,3,11,3],
 "gaussian__splat__asset_8h.html#abf36ddb19757804470c39772c9788267":[2,0,0,0,3,11,2],
-"gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11],
-"gaussian__splat__config__registry_8cpp.html":[2,0,0,0,3,12],
-"gaussian__splat__config__registry_8h.html":[2,0,0,0,3,13]
+"gaussian__splat__asset_8h_source.html":[2,0,0,0,3,11]
 };

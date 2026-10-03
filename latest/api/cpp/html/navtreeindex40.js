@@ -1,5 +1,7 @@
 var NAVTREEINDEX40 =
 {
+"structOverflowAutoTuneConfig.html#a52e0831a4b4889620c030fc6f06b64d0":[1,0,134,12],
+"structOverflowAutoTuneConfig.html#a6602208167a76cae59cc629f2a5b25a7":[1,0,134,0],
 "structOverflowAutoTuneConfig.html#a6b6830a4e1e99c9841e906aed2cccfe4":[1,0,134,1],
 "structOverflowAutoTuneConfig.html#a88fcf09efaf7c757d5dc8e5be55a92ad":[1,0,134,11],
 "structOverflowAutoTuneConfig.html#a9c063f7ec07338a24b2618faeb1126d9":[1,0,134,14],
@@ -247,7 +249,5 @@ var NAVTREEINDEX40 =
 "structRasterOverflowStats.html#ae39a56221b87cad386180ed0cc512b9c":[1,0,160,1],
 "structRasterOverflowStats.html#af16248682d3a92c17e5343a8cc0f53f5":[1,0,160,15],
 "structRasterParams.html":[1,0,161],
-"structRasterParams.html#a0228bc269bea0425f3da89c48d754b64":[1,0,161,22],
-"structRasterParams.html#a054167eebe4cc91ccfd9a934782bdd69":[1,0,161,33],
-"structRasterParams.html#a1a99f2d5175e742fc532a5770895f611":[1,0,161,27]
+"structRasterParams.html#a0228bc269bea0425f3da89c48d754b64":[1,0,161,22]
 };

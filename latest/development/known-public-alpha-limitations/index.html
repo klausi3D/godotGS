@@ -5082,6 +5082,25 @@ of what a user on a quiet machine would hit.</p>
 direction — both figures move the same way from the same premise.)</p>
 <p><strong>The defect is real either way, and both numbers still need retaking on a quiet machine</strong> —
 an overestimate is not a measurement, and one clean run is not a safety proof.</p>
+<h3 id="color-grading-cannot-be-baked-on-a-node-that-renders-a-splat_asset-1105">Color grading cannot be baked on a node that renders a <code>splat_asset</code> (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>)<a class="headerlink" href="#color-grading-cannot-be-baked-on-a-node-that-renders-a-splat_asset-1105" title="Permanent link">¶</a></h3>
+<p><code>GaussianSplatNode3D.bake_color_grading()</code>, <code>bake_color_grading_snapshot()</code> and
+<code>restore_color_grading()</code> work only on data supplied through <code>set_splat_data()</code>. On a node
+that renders a <code>splat_asset</code> (the normal import path) they return <code>ERR_UNAVAILABLE</code>, print
+why, and change nothing. The inspector shows the Bake section only for a node that holds
+its own bakeable data.</p>
+<p><strong>Impact:</strong> none on the rendered result. The live <code>rendering/color_grading</code> grade already
+applies to an asset-backed node, per instance on the GPU, so keep the resource enabled.
+What you lose is only a bake's saving of about 20 ALU operations per splat
+(<code>shaders/includes/color_grading_binning.glsl:8</code>).</p>
+<p><strong>Why it is unsupported, not fixed:</strong> the asset can be shared by several nodes and is
+sealed once handed to the runtime, so it must not be rewritten. A node-owned copy would
+duplicate the payload, take the node off the shared path, and would not survive a scene
+reload. The bake math also does not yet match the live grade
+(<a href="https://github.com/klausi3D/godotGS/issues/1124">#1124</a>, suspected).</p>
+<p><strong>Status:</strong> <strong>reproduced</strong> on an RTX 3090 (Vulkan) before the change. On the same binary,
+the asset-backed node's bake returned <code>ERR_UNCONFIGURED</code> ("no gaussian data loaded") and a
+<code>set_splat_data()</code> node's bake returned <code>OK</code>. The unsupported-path error is now explicit
+and covered by tests.</p>
 <h2 id="separate-render-thread-thread_model2">Separate render thread (<code>thread_model=2</code>)<a class="headerlink" href="#separate-render-thread-thread_model2" title="Permanent link">¶</a></h2>
 <p>Only the starter template ships <code>rendering/driver/threads/thread_model=2</code>. The repository's
 test project uses <code>1</code>. One CI case runs with a separate render thread: the
@@ -5359,7 +5378,7 @@ re-checked in code at <code>eff00db450c</code>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 18:55:52 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 20:16:17 UTC">October 3, 2026</span>
   </span>
 
     

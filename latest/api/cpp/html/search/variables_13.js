@@ -337,7 +337,7 @@ var searchData=
   ['strict_5ffailure_5ftotal_334',['strict_failure_total',['../structgs__layout__hint_1_1LayoutHintFailureCounters.html#a1384f00bcb38f9da89d9ec8186b80a55',1,'gs_layout_hint::LayoutHintFailureCounters']]],
   ['strict_5fglobal_5fsort_335',['strict_global_sort',['../structGPUSortingConfig.html#a6e485aa653621ab3ac975fe011a6c8b9',1,'GPUSortingConfig']]],
   ['strict_5fglobal_5fsort_5fpath_336',['STRICT_GLOBAL_SORT_PATH',['../structGPUSortingConfig.html#a93ac5e5da27f444b70f22987caba936c',1,'GPUSortingConfig']]],
-  ['stride_337',['stride',['../structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html#a7639f4a17e843ef9a28e1327bafd4cfa',1,'GaussianSplatting::TilePrefixPass2ControlLayout::stride'],['../structTileProjectionLayout.html#a8243993132fa5893877712843826e51e',1,'TileProjectionLayout::STRIDE']]],
+  ['stride_337',['stride',['../structTileProjectionLayout.html#a8243993132fa5893877712843826e51e',1,'TileProjectionLayout::STRIDE'],['../structGaussianSplatting_1_1TilePrefixPass2ControlLayout.html#a7639f4a17e843ef9a28e1327bafd4cfa',1,'GaussianSplatting::TilePrefixPass2ControlLayout::stride']]],
   ['stride_5fflip_5fdropped_5fprewrite_5fuploads_338',['stride_flip_dropped_prewrite_uploads',['../structGaussianStreamingTypes_1_1BudgetState.html#a1b9baf54d86721ef8634511a7118be66',1,'GaussianStreamingTypes::BudgetState']]],
   ['stride_5fflip_5fdropped_5fupload_5fretirements_339',['stride_flip_dropped_upload_retirements',['../structGaussianStreamingTypes_1_1BudgetState.html#af0d046ed88c9db7bb15d0c1a6a570a7b',1,'GaussianStreamingTypes::BudgetState']]],
   ['stride_5ffull_340',['STRIDE_FULL',['../structTileProjectionLayout.html#ac8ebe88772fd83811df5622abc9d0f3b',1,'TileProjectionLayout']]],
