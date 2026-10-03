@@ -356,19 +356,20 @@
 			<return type="int" enum="Error" />
 			<description>
 				Permanently applies the current color grading transform to all splat colors. The original colors are backed up and can be restored via [method restore_color_grading]. Returns [constant OK] on success.
+				Only data supplied through [method set_splat_data] can be baked. On a node that renders a [member splat_asset], this returns [constant ERR_UNAVAILABLE] and changes nothing: the live [member rendering/color_grading] already applies to that node, and the asset may be shared by other nodes.
 			</description>
 		</method>
 		<method name="bake_color_grading_snapshot">
 			<return type="int" enum="Error" />
 			<param index="0" name="grading_snapshot" type="ColorGradingResource" />
 			<description>
-				Permanently applies the given [param grading_snapshot] color grading transform to all splat colors. Returns [constant OK] on success.
+				Permanently applies the given [param grading_snapshot] color grading transform to all splat colors. Returns [constant OK] on success, and [constant ERR_UNAVAILABLE] on a node that renders a [member splat_asset] (see [method bake_color_grading]).
 			</description>
 		</method>
 		<method name="restore_color_grading">
-			<return type="void" />
+			<return type="int" enum="Error" />
 			<description>
-				Reverts all splat colors to their state before the first [method bake_color_grading] call, restoring the original unbaked colors.
+				Reverts all splat colors to their state before the first [method bake_color_grading] call, restoring the original unbaked colors. Returns [constant OK], including when nothing was baked. Returns [constant ERR_UNAVAILABLE] on a node that renders a [member splat_asset], where baking is not supported. Returns [constant ERR_INVALID_DATA] when [method set_splat_data] replaced the data with a different splat count since the bake; nothing is restored and color grading stays disabled.
 			</description>
 		</method>
 		<method name="is_color_grading_baked">

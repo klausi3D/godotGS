@@ -513,6 +513,30 @@ direction — both figures move the same way from the same premise.)
 **The defect is real either way, and both numbers still need retaking on a quiet machine** —
 an overestimate is not a measurement, and one clean run is not a safety proof.
 
+### Color grading cannot be baked on a node that renders a `splat_asset` ([#1105](https://github.com/klausi3D/godotGS/issues/1105))
+
+`GaussianSplatNode3D.bake_color_grading()`, `bake_color_grading_snapshot()` and
+`restore_color_grading()` work only on data supplied through `set_splat_data()`. On a node
+that renders a `splat_asset` (the normal import path) they return `ERR_UNAVAILABLE`, print
+why, and change nothing. The inspector shows the Bake section only for a node that holds
+its own bakeable data.
+
+**Impact:** none on the rendered result. The live `rendering/color_grading` grade already
+applies to an asset-backed node, per instance on the GPU, so keep the resource enabled.
+What you lose is only a bake's saving of about 20 ALU operations per splat
+(`shaders/includes/color_grading_binning.glsl:8`).
+
+**Why it is unsupported, not fixed:** the asset can be shared by several nodes and is
+sealed once handed to the runtime, so it must not be rewritten. A node-owned copy would
+duplicate the payload, take the node off the shared path, and would not survive a scene
+reload. The bake math also does not yet match the live grade
+([#1124](https://github.com/klausi3D/godotGS/issues/1124), suspected).
+
+**Status:** **reproduced** on an RTX 3090 (Vulkan) before the change. On the same binary,
+the asset-backed node's bake returned `ERR_UNCONFIGURED` ("no gaussian data loaded") and a
+`set_splat_data()` node's bake returned `OK`. The unsupported-path error is now explicit
+and covered by tests.
+
 ## Separate render thread (`thread_model=2`)
 
 Only the starter template ships `rendering/driver/threads/thread_model=2`. The repository's

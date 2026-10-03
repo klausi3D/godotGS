@@ -500,8 +500,23 @@ void GaussianSplatNodeInspectorPlugin::_on_restore_color_grading_pressed(ObjectI
         return;
     }
 
-    Ref<ColorGradingResource> grading_snapshot = clone_color_grading_resource(node->get_color_grading());
-    node->restore_color_grading();
+    // #1128 review: the undo must re-bake the grade that was BAKED. The node's own resource
+    // is disabled by the bake (and, for bake_color_grading(), is the baked object itself), so
+    // a clone of it would re-bake a disabled, no-op grade while still marking the data baked.
+    Ref<ColorGradingResource> grading_snapshot = node->get_baked_color_grading();
+    if (grading_snapshot.is_null()) {
+        ERR_PRINT("Cannot restore color grading: the baked grade is unknown");
+        return;
+    }
+    // #1128 review: record the action only for a restore that happened. A failed
+    // restore (ERR_INVALID_DATA after the data was replaced) changed nothing, and its
+    // undo would bake the replacement payload.
+    const Error err = node->restore_color_grading();
+    if (err != OK) {
+        ERR_PRINT("Failed to restore color grading");
+        node->notify_property_list_changed();
+        return;
+    }
     EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
     if (undo_redo) {
         undo_redo->create_action(TTR("Restore Gaussian Color Grading"), UndoRedo::MERGE_DISABLE, node);
@@ -839,11 +854,14 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         }
     }
 
-    // Color Grading section: only shown when the node has valid GaussianData.
+    // Color Grading bake section: only shown when the node holds its OWN bakeable data
+    // (set_splat_data()). #1105: this used to read the shared renderer's GaussianData,
+    // which is not the node's and was null on the instance-pipeline path, so the section
+    // was hidden even for a set_splat_data() node that CAN bake (measured on an RTX 3090:
+    // the old gate offered Bake to neither node in the #1105 GPU case). Baking is
+    // unsupported on splat_asset nodes; live grading applies there.
     {
-        Ref<GaussianSplatRenderer> cg_renderer = node->get_renderer();
-        Ref<::GaussianData> cg_data = cg_renderer.is_valid() ? cg_renderer->get_gaussian_data() : Ref<::GaussianData>();
-        const bool cg_has_valid_data = cg_data.is_valid() && cg_data->get_count() > 0;
+        const bool cg_has_valid_data = node->can_bake_color_grading();
 
         if (cg_has_valid_data) {
             HSeparator *color_grading_separator = memnew(HSeparator);
