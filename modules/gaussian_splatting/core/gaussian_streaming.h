@@ -37,6 +37,16 @@ public:
     static constexpr uint32_t CHUNK_SIZE = 65536;  // 64K splats per chunk
     static constexpr uint32_t MAX_CHUNKS_IN_VRAM = 32;  // ~2GB @ 64K splats/chunk
     static constexpr uint32_t RING_BUFFER_FRAMES = 3;  // Triple buffering
+    // #1088: atlas allocation granularity. A chunk owns ceil(count / ATLAS_PAGE_SPLATS)
+    // contiguous pages instead of a fixed CHUNK_SIZE slot. 1,024 was chosen by measurement on
+    // the corridor layout (mean 12.8k splats/chunk): fill 0.96 vs 0.85 at 4,096 and 0.20 for
+    // the old fixed slot, with no worse fragmentation in an eviction simulation.
+    static constexpr uint32_t ATLAS_PAGE_SPLATS = 1024;
+    static constexpr uint32_t ATLAS_PAGES_PER_MAX_CHUNK = CHUNK_SIZE / ATLAS_PAGE_SPLATS;
+    static_assert(CHUNK_SIZE % ATLAS_PAGE_SPLATS == 0, "CHUNK_SIZE must be a whole number of atlas pages");
+    static constexpr uint32_t atlas_pages_for_splats(uint32_t p_splat_count) {
+        return (p_splat_count + ATLAS_PAGE_SPLATS - 1u) / ATLAS_PAGE_SPLATS;
+    }
 
     using ConfigOverrides = GaussianStreamingTypes::ConfigOverrides;
     using ChunkLayoutHint = GaussianStreamingTypes::ChunkLayoutHint;
@@ -91,9 +101,10 @@ private:
     uint32_t persistent_buffer_size = 0;
 
     // Persistent buffer sizing (Phase 3 right-sized init + growth path)
-    uint32_t streaming_initial_capacity = 0;     // Slots allocated at init (asset-scaled).
-    uint32_t streaming_current_capacity = 0;     // Current allocator/buffer slot count.
-    uint32_t streaming_max_capacity = 0;         // Growth ceiling (effective_max_chunks at init).
+    // #1088: all three are in atlas PAGES (ATLAS_PAGE_SPLATS splats each), not chunk slots.
+    uint32_t streaming_initial_capacity = 0;     // Pages allocated at init (asset-scaled, budget-clamped).
+    uint32_t streaming_current_capacity = 0;     // Current allocator/buffer page count.
+    uint32_t streaming_max_capacity = 0;         // Growth ceiling (_compute_atlas_page_ceiling at init).
     uint32_t streaming_grow_count = 0;           // Number of successful grow operations.
 
     // Source data reference
@@ -440,6 +451,32 @@ public:
 	void _test_mark_chunk_loaded_for_eviction(uint32_t p_asset_id, uint32_t p_chunk_id, bool p_visible,
 			uint64_t p_last_loaded_frame, uint64_t p_last_used_frame, float p_distance);
 	void _test_reset_atlas_allocator(uint32_t p_capacity) { atlas_allocator.reset(p_capacity); }
+	void _test_set_atlas_page_ceiling(uint32_t p_pages) { streaming_max_capacity = p_pages; }
+	uint32_t _test_atlas_occupancy_target_pages() const { return _atlas_occupancy_target_pages(); }
+	void _test_update_vram_regulator() { _update_vram_regulator(); }
+	bool _test_regulator_allows_load() const {
+		return budget.vram_regulator.is_valid() && budget.vram_regulator->can_load_more_chunks(_get_reserved_chunk_count());
+	}
+	uint32_t _test_evict_for_vram_budget(bool &r_blocked) {
+		uint32_t evictions_left = 0;
+		_evict_for_vram_budget(evictions_left, r_blocked);
+		const uint32_t max_evictions = eviction_controller.get_max_evictions_per_frame();
+		return max_evictions == 0 ? 0 : max_evictions - evictions_left;
+	}
+	// #1088: drive the admission path's evict-until-fit loop for an atlas-full gate with an
+	// eviction budget of p_max_evictions. r_evictions receives how many chunks it evicted.
+	bool _test_evict_until_atlas_fit(uint32_t p_required_pages, uint32_t p_max_evictions, uint32_t &r_evictions) {
+		ResidencyBudgetController::AdmissionPolicy policy;
+		policy.atlas_slots_full = !atlas_allocator.can_allocate(p_required_pages);
+		ResidencyBudgetController::AdmissionFrameBudget frame_budget =
+				ResidencyBudgetController::make_frame_budget(UINT32_MAX, p_max_evictions, false);
+		const ResidencyBudgetController::AdmissionGate gate =
+				ResidencyBudgetController::compute_admission_gate(budget.loaded_chunks_count, frame_budget, policy);
+		const bool fits = _evict_until_atlas_fit(gate, p_required_pages, frame_budget);
+		r_evictions = p_max_evictions - frame_budget.evictions_left;
+		return fits;
+	}
+	uint64_t _test_get_evictable_vram_usage_bytes() const { return _get_evictable_vram_usage_bytes(); }
 	EvictionResult _test_evict_least_recently_used(bool p_allow_visible_eviction) {
 		return _evict_least_recently_used(p_allow_visible_eviction);
 	}
@@ -469,9 +506,10 @@ public:
     void _test_begin_device_free_load_scan(const Ref<::GaussianData> &p_data, uint32_t p_capacity_chunks) {
         source_data = p_data;
         _register_primary_asset();
-        atlas_allocator.reset(p_capacity_chunks);
+        // #1088: p_capacity_chunks full-size chunks' worth of atlas pages, buffer sized to match.
+        atlas_allocator.reset(p_capacity_chunks * ATLAS_PAGES_PER_MAX_CHUNK);
         persistent_buffer = RID::from_uint64(1);
-        persistent_buffer_size = uint32_t(uint64_t(p_capacity_chunks) * CHUNK_SIZE * _atlas_gaussian_stride_bytes());
+        persistent_buffer_size = uint32_t(uint64_t(p_capacity_chunks) * ATLAS_PAGES_PER_MAX_CHUNK * _atlas_page_bytes());
         streaming_initialized = true;
         scheduler.prefetch_scan_budget_remaining_this_frame = scheduler.max_prefetch_chunk_scan_per_frame;
     }
@@ -538,8 +576,27 @@ private:
     void _log_streaming_telemetry();
     void _reload_config_if_dirty();
     float _resolve_frame_delta_seconds(float p_frame_delta_seconds);
+    // #1088: capacity in atlas PAGES (allocator capacity bounded by the live buffer size).
+    // Every resident chunk owns at least one page, so it is also an upper bound on chunks.
     uint32_t _compute_runtime_chunk_capacity_limit() const;
     uint64_t _get_auxiliary_vram_overhead_bytes() const;
+    uint64_t _atlas_page_bytes() const;
+    // Bytes a chunk holds in the atlas: its whole page run as the allocator records it (falls
+    // back to ceil(count / page) pages only when no run is mapped). Call before releasing the run.
+    uint64_t _chunk_atlas_bytes(uint32_t p_asset_id, uint32_t p_chunk_idx, const StreamingChunk &p_chunk) const;
+    // Auxiliary atlas bytes (meta/index/quantization buffers): the live buffer sizes, or an
+    // estimate from the registered chunk counts when those buffers do not exist yet (startup).
+    uint64_t _estimate_auxiliary_vram_overhead_bytes() const;
+    // #1088: atlas occupancy the VRAM regulator steers to: the growth ceiling minus one full-size
+    // chunk of headroom for incoming loads.
+    uint32_t _atlas_occupancy_target_pages() const;
+    // Regulator decision basis: atlas page occupancy mapped onto the budget so that the regulator's
+    // warning threshold is reached exactly at the occupancy target.
+    uint64_t _get_regulator_decision_usage_bytes() const;
+    // Largest atlas page count the persistent buffer may reach: the VRAM budget (bytes),
+    // the 32-bit buffer addressing limit, and the max_chunks_in_vram backstop
+    // (p_max_chunks full-size chunks), whichever is smallest.
+    uint32_t _compute_atlas_page_ceiling(uint32_t p_max_chunks) const;
     uint64_t _get_total_vram_usage_bytes() const;
     uint64_t _get_evictable_vram_usage_bytes() const;
     uint32_t _get_reserved_chunk_count() const;
@@ -608,7 +665,7 @@ private:
     void _finalize_chunk_load(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, uint32_t buffer_slot, uint32_t asset_chunk_count);
     void _unload_chunk(uint32_t chunk_idx);
     void _unload_chunk(uint32_t asset_id, uint32_t chunk_idx);
-    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction);
+    EvictionResult _evict_least_recently_used(bool p_allow_visible_eviction, uint32_t p_visible_fit_pages = 0);
     bool _is_chunk_in_frustum(const AABB &p_bounds, const Vector<Plane> &p_frustum_planes) const;
     void _reload_debug_logging_config();
     void _load_streaming_tuning_config_from_project_settings();
@@ -638,10 +695,10 @@ private:
     void _process_upload_queue();
     void _clear_pending_uploads();
     void _release_persistent_buffer(RenderingDevice *p_rd, const char *p_context);
-    // Grow the persistent buffer to p_new_capacity slots, preserving currently
+    // Grow the persistent buffer to p_new_capacity atlas pages, preserving currently
     // resident chunks. Returns false on any failure without corrupting state.
     bool _grow_persistent_buffer(uint32_t p_new_capacity);
-    bool _try_grow_persistent_buffer_for_atlas_pressure(uint32_t p_loaded_chunks,
+    bool _try_grow_persistent_buffer_for_atlas_pressure(uint32_t p_required_pages, uint32_t p_loaded_chunks,
             uint32_t p_effective_max,
             bool p_enforce_vram_regulator_gate,
             bool p_vram_regulator_allows_load);
@@ -668,9 +725,15 @@ private:
             LocalVector<StreamingChunk> &asset_chunks);
     bool _load_requested_chunks(uint32_t asset_id, AtlasAssetState &asset,
             LocalVector<StreamingChunk> &asset_chunks, bool trace_enabled, bool can_async_pack);
+    // #1088: p_required_pages is the incoming chunk's page count. While no run of that size is
+    // free, a visible victim is only taken if releasing it completes such a run.
     EvictionResult _evict_for_admission_gate(
             const ResidencyBudgetController::AdmissionGate &p_admission_gate,
-            bool &r_visible_fallback_attempted);
+            bool &r_visible_fallback_attempted, uint32_t p_required_pages = 0);
+    // #1088: after an EvictThenLoad eviction, keep evicting (LRU, within the frame's eviction
+    // budget) until a contiguous run of p_required_pages exists. Returns whether it fits.
+    bool _evict_until_atlas_fit(const ResidencyBudgetController::AdmissionGate &p_admission_gate,
+            uint32_t p_required_pages, ResidencyBudgetController::AdmissionFrameBudget &r_frame_budget);
     EvictionResult _evict_non_primary_lru();
 
     // Distance-based LOD (Octree-GS) helpers

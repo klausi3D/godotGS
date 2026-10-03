@@ -22,7 +22,8 @@ public:
     };
 
     struct UploadCoalescingCandidate {
-        uint32_t buffer_slot = UINT32_MAX;
+        uint32_t buffer_slot = UINT32_MAX; // #1088: first page of the chunk's run
+        uint32_t page_count = 0;           // #1088: pages in the chunk's run
         uint32_t packed_count = 0;
         uint32_t bytes_uploaded = 0;
     };

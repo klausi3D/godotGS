@@ -17,6 +17,24 @@
 using namespace gs_tier_cap;
 
 namespace {
+// #1088: bytes the chunk's page run holds at the async (PackedGaussian) stride, or 0 when the
+// allocator does not map p_chunk_key to a run starting at p_slot.
+static uint64_t _chunk_run_capacity_bytes(const GaussianAtlasAllocator &p_allocator, uint64_t p_chunk_key,
+        uint32_t p_slot, uint32_t *r_page_count = nullptr) {
+    GaussianAtlasAllocator::PageRun run;
+    if (p_slot == UINT32_MAX || !p_allocator.get_run(p_chunk_key, run) || run.first_page != p_slot) {
+        return 0;
+    }
+    if (r_page_count) {
+        *r_page_count = run.page_count;
+    }
+    return uint64_t(run.page_count) * GaussianStreamingSystem::ATLAS_PAGE_SPLATS * sizeof(PackedGaussian);
+}
+
+static uint64_t _slot_byte_offset(uint32_t p_slot) {
+    return uint64_t(p_slot) * GaussianStreamingSystem::ATLAS_PAGE_SPLATS * sizeof(PackedGaussian);
+}
+
 static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_FRAME = 128;
 static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_SLICE = 16;
 static constexpr uint32_t STREAMING_DEFAULT_MAX_UPLOAD_MB_PER_SECOND = 0;
@@ -553,7 +571,9 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         return false;
     }
 
-    if (!system.atlas_allocator.has_free_slots()) {
+    // #1088: the chunk needs a contiguous run of its own page count, not a fixed slot.
+    const uint32_t required_pages = GaussianStreamingSystem::atlas_pages_for_splats(chunk.count);
+    if (required_pages > 0 && !system.atlas_allocator.can_allocate(required_pages)) {
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
         admission_policy.enforce_vram_regulator_gate = system.budget.vram_regulator.is_valid();
@@ -562,11 +582,12 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
                 !admission_policy.enforce_vram_regulator_gate ||
                 system.budget.vram_regulator->can_load_more_chunks(reserved_chunks);
         system._try_grow_persistent_buffer_for_atlas_pressure(
+                required_pages,
                 reserved_chunks,
                 system.get_regulated_max_chunks(),
                 admission_policy.enforce_vram_regulator_gate,
                 admission_policy.vram_regulator_allows_load);
-        admission_policy.atlas_slots_full = !system.atlas_allocator.has_free_slots();
+        admission_policy.atlas_slots_full = required_pages > 0 && !system.atlas_allocator.can_allocate(required_pages);
 
         const uint32_t max_evictions_per_frame = system.eviction_controller.get_max_evictions_per_frame();
         const uint32_t chunks_evicted_this_frame = system.eviction_controller.get_chunks_evicted_this_frame();
@@ -575,7 +596,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
                 : (chunks_evicted_this_frame >= max_evictions_per_frame
                         ? 0
                         : max_evictions_per_frame - chunks_evicted_this_frame);
-        const ResidencyBudgetController::AdmissionFrameBudget admission_budget =
+        ResidencyBudgetController::AdmissionFrameBudget admission_budget =
                 ResidencyBudgetController::make_frame_budget(
                         system.get_effective_max_chunks(),
                         evictions_left,
@@ -591,7 +612,8 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
 
         bool visible_fallback_attempted = false;
         const GaussianStreamingSystem::EvictionResult result =
-                system._evict_for_admission_gate(admission_gate, visible_fallback_attempted);
+                system._evict_for_admission_gate(admission_gate, visible_fallback_attempted,
+                        admission_gate.context.atlas_slots_full ? required_pages : 0u);
         if (visible_fallback_attempted) {
             system.diagnostics.visible_evict_fallback_attempts++;
             if (result == GaussianStreamingSystem::EvictionResult::EvictedNonVisible ||
@@ -602,14 +624,18 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         if (result == GaussianStreamingSystem::EvictionResult::EvictedNonVisible ||
                 result == GaussianStreamingSystem::EvictionResult::EvictedVisible) {
             system.eviction_controller.record_eviction_result(result);
+            ResidencyBudgetController::note_successful_eviction(admission_budget);
         } else {
+            return false;
+        }
+        if (!system._evict_until_atlas_fit(admission_gate, required_pages, admission_budget)) {
             return false;
         }
     }
 
     const uint64_t chunk_key = system._make_chunk_key(asset_id, chunk_idx);
     uint32_t buffer_slot = UINT32_MAX;
-    if (!system.atlas_allocator.allocate_slot(chunk_key, buffer_slot)) {
+    if (!system.atlas_allocator.allocate_slot(chunk_key, required_pages, buffer_slot)) {
         return false;
     }
 
@@ -723,7 +749,8 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
 
     auto inspect_upload_chunk_for_coalescing = [&](PendingChunkUpload *job,
                                                    GaussianStreamingSystem::StreamingChunk *&chunk,
-                                                   uint64_t &total_bytes) -> bool {
+                                                   uint64_t &total_bytes,
+                                                   uint32_t &run_page_count) -> bool {
         if (!job) {
             return false;
         }
@@ -748,7 +775,9 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
 
         const uint64_t chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
-        if (!_chunk_slot_matches_allocator(system.atlas_allocator, chunk_key, job->buffer_slot)) {
+        const uint64_t run_capacity_bytes =
+                _chunk_run_capacity_bytes(system.atlas_allocator, chunk_key, job->buffer_slot, &run_page_count);
+        if (run_capacity_bytes == 0) {
             return false;
         }
 
@@ -757,7 +786,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
         total_bytes = uint64_t(job->packed_data.size()) * sizeof(PackedGaussian);
         if (total_bytes == 0 ||
-                total_bytes > uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian) ||
+                total_bytes > run_capacity_bytes ||
                 job->bytes_uploaded > total_bytes) {
             return false;
         }
@@ -786,15 +815,17 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         if (job->bytes_uploaded > total_bytes) {
             return false;
         }
-        const uint64_t slot_capacity_bytes = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
-        if (total_bytes > slot_capacity_bytes) {
+        // #1088: the write must stay inside this chunk's own page run.
+        const uint64_t run_capacity_bytes = _chunk_run_capacity_bytes(system.atlas_allocator,
+                system._make_chunk_key(job->asset_id, job->chunk_idx), chunk.buffer_slot);
+        if (run_capacity_bytes == 0 || total_bytes > run_capacity_bytes) {
             return false;
         }
         if (slice_limit != UINT64_MAX && total_bytes > slice_limit) {
             upload_slice_cap_hit_this_frame = true;
         }
 
-        const uint64_t slot_offset = uint64_t(chunk.buffer_slot) * GaussianStreamingSystem::CHUNK_SIZE * sizeof(PackedGaussian);
+        const uint64_t slot_offset = _slot_byte_offset(chunk.buffer_slot);
         if (slot_offset >= system.persistent_buffer_size) {
             return false;
         }
@@ -966,7 +997,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
 
         // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
         // 128 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
-        // the write by sizeof(PackedGaussian) (slot_capacity_bytes / slot_offset below) --
+        // the write by sizeof(PackedGaussian) (run capacity / slot_offset below) --
         // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
         // If the effective atlas stride flipped 144->80 while this job was in flight (a
         // mixed-DC (un)registration toggling per-chunk quantization DC-compatibility),
@@ -991,8 +1022,11 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             continue;
         }
 
-        const uint64_t slot_capacity_bytes =
-                uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+        // #1088: merge only jobs that fill their whole page run exactly, so a batch of
+        // back-to-back runs is one gap-free byte range.
+        uint32_t first_run_pages = 0;
+        const uint64_t first_run_bytes = _chunk_run_capacity_bytes(system.atlas_allocator,
+                system._make_chunk_key(job->asset_id, job->chunk_idx), job->buffer_slot, &first_run_pages);
         const uint32_t remaining_chunk_budget = upload_budget_state.completed_chunks < upload_budget_state.chunk_limit
                 ? (upload_budget_state.chunk_limit - upload_budget_state.completed_chunks)
                 : 0;
@@ -1000,9 +1034,10 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                 ? upload_budget_state.upload_budget
                 : MIN(upload_budget_state.upload_budget, upload_budget_state.slice_limit);
         if (job->bytes_uploaded == 0 &&
-                total_bytes == slot_capacity_bytes &&
+                first_run_bytes != 0 &&
+                total_bytes == first_run_bytes &&
                 remaining_chunk_budget > 1 &&
-                coalescing_byte_limit >= slot_capacity_bytes) {
+                coalescing_byte_limit >= first_run_bytes) {
             peek_upload_jobs_buffer.clear();
             coalesced_upload_jobs.clear();
             coalesced_upload_chunks.clear();
@@ -1014,6 +1049,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             coalesced_upload_total_bytes.push_back(total_bytes);
             UploadCoalescingCandidate first_candidate;
             first_candidate.buffer_slot = job->buffer_slot;
+            first_candidate.page_count = first_run_pages;
             first_candidate.packed_count = static_cast<uint32_t>(job->packed_data.size());
             first_candidate.bytes_uploaded = job->bytes_uploaded;
             coalescing_candidates.push_back(first_candidate);
@@ -1024,7 +1060,9 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                 PendingChunkUpload *candidate_job = peek_upload_jobs_buffer[i];
                 GaussianStreamingSystem::StreamingChunk *candidate_chunk = nullptr;
                 uint64_t candidate_total_bytes = 0;
-                if (!inspect_upload_chunk_for_coalescing(candidate_job, candidate_chunk, candidate_total_bytes)) {
+                uint32_t candidate_run_pages = 0;
+                if (!inspect_upload_chunk_for_coalescing(candidate_job, candidate_chunk, candidate_total_bytes,
+                            candidate_run_pages)) {
                     break;
                 }
 
@@ -1033,6 +1071,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                 coalesced_upload_total_bytes.push_back(candidate_total_bytes);
                 UploadCoalescingCandidate candidate;
                 candidate.buffer_slot = candidate_job->buffer_slot;
+                candidate.page_count = candidate_run_pages;
                 candidate.packed_count = static_cast<uint32_t>(candidate_job->packed_data.size());
                 candidate.bytes_uploaded = candidate_job->bytes_uploaded;
                 coalescing_candidates.push_back(candidate);
@@ -1041,7 +1080,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
             const UploadCoalescingPlan coalescing_plan =
                     _plan_coalesced_upload_batch(coalescing_candidates, coalescing_byte_limit);
             if (coalescing_plan.coalesced_job_count > 1) {
-                const uint64_t first_slot_offset = uint64_t(chunk->buffer_slot) * slot_capacity_bytes;
+                const uint64_t first_slot_offset = _slot_byte_offset(chunk->buffer_slot);
                 const bool offset_in_range =
                         first_slot_offset <= uint64_t(UINT32_MAX) &&
                         coalescing_plan.total_bytes <= uint64_t(UINT32_MAX) &&
@@ -1052,8 +1091,11 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
                     const uint32_t consumed_jobs = consume_upload_jobs(additional_jobs_to_consume);
                     const uint32_t batched_job_count = 1 + consumed_jobs;
                     if (batched_job_count > 1) {
-                        const uint32_t batched_gaussian_count =
-                                uint32_t((uint64_t(batched_job_count) * slot_capacity_bytes) / sizeof(PackedGaussian));
+                        uint64_t batched_bytes = 0;
+                        for (uint32_t i = 0; i < batched_job_count; i++) {
+                            batched_bytes += coalesced_upload_total_bytes[i];
+                        }
+                        const uint32_t batched_gaussian_count = uint32_t(batched_bytes / sizeof(PackedGaussian));
                         // #798: scratch_ptr is a memcpy DESTINATION whose write offsets are
                         // bounded by the batched payload sizes, not by the scratch's own size().
                         // Vector::resize() reports OOM only through its return value and leaves
@@ -1093,14 +1135,14 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
 
                         submission_rd->buffer_update(system.persistent_buffer,
                                 static_cast<uint32_t>(first_slot_offset),
-                                uint32_t(uint64_t(batched_job_count) * slot_capacity_bytes),
+                                uint32_t(batched_bytes),
                                 reinterpret_cast<const uint8_t *>(upload_coalescing_scratch.ptr()));
                         if (upload_budget_state.upload_budget != UINT64_MAX) {
-                            upload_budget_state.upload_budget -= uint64_t(batched_job_count) * slot_capacity_bytes;
+                            upload_budget_state.upload_budget -= batched_bytes;
                         }
                         submitted = true;
                         if (telemetry.is_enabled()) {
-                            telemetry.add_upload_bytes(uint64_t(batched_job_count) * slot_capacity_bytes);
+                            telemetry.add_upload_bytes(batched_bytes);
                         }
 
                         for (uint32_t i = 0; i < batched_job_count; i++) {
@@ -1433,33 +1475,43 @@ StreamingUploadPipeline::UploadCoalescingPlan StreamingUploadPipeline::_plan_coa
         return plan;
     }
 
-    const uint64_t slot_capacity_bytes = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
+    // #1088: a candidate "fills its run" when its payload is exactly its page run, and the next
+    // candidate is "contiguous" when its run starts on the page right after the previous run.
+    // Only such a chain is one gap-free byte range that a single buffer_update can write.
+    auto run_bytes = [](const UploadCoalescingCandidate &p_candidate) -> uint64_t {
+        return uint64_t(p_candidate.page_count) * GaussianStreamingSystem::ATLAS_PAGE_SPLATS * sizeof(PackedGaussian);
+    };
+    auto fills_run = [](const UploadCoalescingCandidate &p_candidate) -> bool {
+        return p_candidate.page_count > 0 &&
+                uint64_t(p_candidate.packed_count) ==
+                uint64_t(p_candidate.page_count) * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    };
     const UploadCoalescingCandidate &first = p_candidates[0];
     if (first.buffer_slot == UINT32_MAX ||
             first.bytes_uploaded != 0 ||
-            first.packed_count != GaussianStreamingSystem::CHUNK_SIZE ||
-            p_byte_limit < slot_capacity_bytes) {
+            !fills_run(first) ||
+            p_byte_limit < run_bytes(first)) {
         return plan;
     }
 
     plan.coalesced_job_count = 1;
-    plan.total_bytes = slot_capacity_bytes;
+    plan.total_bytes = run_bytes(first);
 
-    uint32_t expected_slot = first.buffer_slot;
+    uint64_t expected_slot = uint64_t(first.buffer_slot) + first.page_count;
     for (uint32_t i = 1; i < p_candidates.size(); i++) {
         const UploadCoalescingCandidate &candidate = p_candidates[i];
-        const bool contiguous_slot = candidate.buffer_slot == expected_slot + 1u;
-        const bool full_slot = candidate.packed_count == GaussianStreamingSystem::CHUNK_SIZE;
+        const bool contiguous_run = uint64_t(candidate.buffer_slot) == expected_slot;
         const bool untouched = candidate.bytes_uploaded == 0;
-        if (!contiguous_slot || !full_slot || !untouched) {
+        if (!contiguous_run || !fills_run(candidate) || !untouched) {
             break;
         }
-        if (plan.total_bytes > p_byte_limit - slot_capacity_bytes) {
+        const uint64_t candidate_bytes = run_bytes(candidate);
+        if (plan.total_bytes > p_byte_limit || candidate_bytes > p_byte_limit - plan.total_bytes) {
             break;
         }
         plan.coalesced_job_count++;
-        plan.total_bytes += slot_capacity_bytes;
-        expected_slot = candidate.buffer_slot;
+        plan.total_bytes += candidate_bytes;
+        expected_slot = uint64_t(candidate.buffer_slot) + candidate.page_count;
     }
 
     return plan;

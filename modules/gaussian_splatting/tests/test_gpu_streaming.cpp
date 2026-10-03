@@ -1871,7 +1871,7 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk loads do not count as ev
     auto &chunk = asset_chunks[0];
     const uint64_t chunk_key = system->_test_make_chunk_key(asset_id, 0);
     uint32_t buffer_slot = UINT32_MAX;
-    REQUIRE(system->_test_atlas_allocator().allocate_slot(chunk_key, buffer_slot));
+    REQUIRE(system->_test_atlas_allocator().allocate_slot(chunk_key, GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot));
     REQUIRE(system->_test_begin_chunk_upload(asset_id, 0, chunk, buffer_slot));
     CHECK(chunk.upload_pending);
     CHECK_FALSE(chunk.is_loaded);
@@ -2642,10 +2642,10 @@ TEST_CASE("[Streaming Pipeline] Effective max chunks are clamped to runtime buff
     system->set_config_overrides(low_capacity_overrides);
     system->initialize_empty(rd);
 
-    const uint64_t chunk_bytes = uint64_t(GaussianStreamingSystem::CHUNK_SIZE) * sizeof(PackedGaussian);
-    const uint32_t runtime_capacity_chunks = chunk_bytes > 0
-            ? static_cast<uint32_t>(uint64_t(system->get_buffer_capacity_splats()) / uint64_t(GaussianStreamingSystem::CHUNK_SIZE))
-            : 0;
+    // #1088: the runtime capacity is in atlas pages; every resident chunk owns at least one
+    // page, so the page count is the most chunks the buffer can ever hold.
+    const uint32_t runtime_capacity_chunks = static_cast<uint32_t>(
+            uint64_t(system->get_buffer_capacity_splats()) / uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS));
     if (runtime_capacity_chunks == 0) {
         MESSAGE("Skipping - Runtime streaming buffer capacity is zero");
         return;

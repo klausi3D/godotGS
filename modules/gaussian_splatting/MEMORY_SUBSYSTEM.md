@@ -119,8 +119,8 @@ Each successful grow increments `streaming_grow_count`.
 
 | Metric | Meaning |
 | --- | --- |
-| `streaming_initial_capacity` | Chunks reserved at init (post right-sizing). |
-| `streaming_current_capacity` | Chunks the persistent buffer currently fits. |
+| `streaming_initial_capacity` | Atlas pages (1,024 splats each) reserved at init, after right-sizing and the byte-budget clamp (#1088). |
+| `streaming_current_capacity` | Atlas pages the persistent buffer currently holds (#1088). |
 | `streaming_grow_count` | Number of in-place grows since init. |
 
 A non-zero `streaming_grow_count` for a stable scene is a tuning signal:
