@@ -28,14 +28,11 @@ Describe per-splat property values (position, color, opacity, scale, rotation) o
 
 This is a complete script. Attach it to a `Node` and point the path at a PLY in your project.
 
-!!! note "Pass `AnimationProperty` values through `int()`"
-    The property enum is declared at namespace scope in C++ (`GaussianSplatting::AnimationProperty`) but its constants are bound on the class. The GDScript analyzer therefore types `GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION` and the method parameter as two different enums and rejects a direct pass with a parse error (*Cannot pass a value of type "GaussianAnimationStateMachine.AnimationProperty" as "GaussianSplatting.AnimationProperty"*). Wrapping the constant in `int()` compiles and works. This is a binding defect, not intended usage; it is tracked in [#1106](https://github.com/klausi3D/godotGS/issues/1106), and once that is fixed the `int()` wrapper is no longer needed.
-
 ```gdscript
 extends Node
 
-const POSITION := int(GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION)
-const OPACITY := int(GaussianAnimationStateMachine.ANIMATION_PROPERTY_OPACITY)
+const POSITION := GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION
+const OPACITY := GaussianAnimationStateMachine.ANIMATION_PROPERTY_OPACITY
 
 var data := GaussianData.new()
 var anim := GaussianAnimationStateMachine.new()
@@ -166,7 +163,7 @@ wrapping backwards.
 # Create a second clip.
 var idle_idx := anim.add_clip("idle", 3.0)
 anim.set_clip_looping(idle_idx, true)
-var position_property := int(GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION)
+var position_property := GaussianAnimationStateMachine.ANIMATION_PROPERTY_POSITION
 anim.add_track_to_clip(idle_idx, position_property)
 anim.add_keyframe(idle_idx, position_property, 0.0, Vector3.ZERO)
 
