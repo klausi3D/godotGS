@@ -4593,9 +4593,9 @@ fixed them.</p>
 <td>Active</td>
 </tr>
 <tr>
-<td>The starter template exits abnormally at shutdown</td>
+<td>The starter template prints a render-thread error at shutdown (the crash is fixed)</td>
 <td><a href="https://github.com/klausi3D/godotGS/issues/1077">#1077</a></td>
-<td>Active</td>
+<td><strong>Alpha blocker</strong> (§11)</td>
 </tr>
 <tr>
 <td>A world and a <code>GaussianSplatNode3D</code> in one scene: one of them renders nothing</td>
@@ -4666,8 +4666,10 @@ fixed them.</p>
 </table>
 <p><strong>Blocking defects are not listed as limitations here</strong> — they are in the
 <a href="../../governance/release-acceptance-bar/">acceptance bar</a>'s §11 list. This page is for
-what we ship knowing about. No §11 blocker has an entry here today. The last one this page
-named, #851 (painterly ignoring scene lighting), closed on 2026-10-01, fixed by #1078; see
+what we ship knowing about. One §11 blocker has an entry here so that a user who sees its
+symptom can find the issue: #1077, the shutdown error (see its entry). It is a blocker, not
+an accepted limitation. Before it, the last blocker this page named was #851 (painterly
+ignoring scene lighting), which closed on 2026-10-01, fixed by #1078; see
 <a href="#recently-resolved">Recently resolved</a>.</p>
 <p>The other exception is the clearly-fenced <strong>"Proposed, not yet accepted"</strong> section near
 the bottom. A defect lands there when someone has proposed shipping it but no named human has
@@ -4677,15 +4679,17 @@ section may be cited as an <code>accepted_alpha_limitation</code>. If you are lo
 alpha actually ships with, read everything <em>above</em> that heading. The "Recently resolved"
 section after it lists only fixed defects.</p>
 <blockquote>
-<p>That list is <strong>human-maintained, and the machine gate cannot see most of it.</strong> The
+<p>That list is <strong>human-maintained, and the machine gate cannot see all of it.</strong> The
 candidate gate's population is issues labelled <code>priority:P0</code>, <code>priority:P1</code> or
 <code>release blocker</code>. The §11 blockers this page has named carried none of those, so nothing
 automated would have stopped a release on them. Four have left that list: #929 when it
 closed on 2026-09-20, carrying only <code>program:prod-ready</code>; #54 when it was accepted on
 2026-09-25 (it is now listed under <a href="#rendering">Rendering</a>); #833 when it was struck from
 §11 (item 9) on 2026-09-30, fixed by #1027, #1031 and #1032; and #851, which is
-<code>priority:P2</code>, when it closed on 2026-10-01, fixed by #1078. The bar's §11 count has not
-yet been updated for #851. Read "it is in the blocker set" as "a human has to hold the
+<code>priority:P2</code>, when it closed on 2026-10-01, fixed by #1078 (§11 item 8). #1077, a §11
+blocker since 2026-10-03 (item 11), carries none of those labels either. The streaming
+items §11 still lists (#320, #786, #883) are <code>priority:P1</code> and visible to the gate; its
+50M-asset lane item has no issue at all. Read "it is in the blocker set" as "a human has to hold the
 release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
 an obligation on the bar.</p>
 </blockquote>
@@ -5112,25 +5116,33 @@ verdict markers, not its exit code, because its own comment records that shutdow
 mode is unstable.</p>
 <p>The per-frame render-thread syncs that #1092 reported are fixed by #1094 (see
 <a href="#recently-resolved">Recently resolved</a>).</p>
-<h3 id="the-starter-template-exits-abnormally-at-shutdown-1077">The starter template exits abnormally at shutdown (<a href="https://github.com/klausi3D/godotGS/issues/1077">#1077</a>)<a class="headerlink" href="#the-starter-template-exits-abnormally-at-shutdown-1077" title="Permanent link">¶</a></h3>
-<p><strong>Status: Active.</strong></p>
-<p>On 2026-09-27, 6 of 6 windowed runs of the starter template ended abnormally <strong>after</strong> the
-scene had quit (exit 127 or 139, no normal shutdown). Each run logged
+<h3 id="the-starter-template-prints-a-render-thread-error-at-shutdown-1077">The starter template prints a render-thread error at shutdown (<a href="https://github.com/klausi3D/godotGS/issues/1077">#1077</a>)<a class="headerlink" href="#the-starter-template-prints-a-render-thread-error-at-shutdown-1077" title="Permanent link">¶</a></h3>
+<p><strong>Status: public-alpha blocker</strong> (maintainer decision 2026-10-03,
+<a href="https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739">record</a>; acceptance
+bar §11 item 11). It is listed here only so its symptom can be found, and is not an accepted
+limitation. The shutdown <strong>crash</strong> is fixed by
+<a href="https://github.com/klausi3D/godotGS/pull/1133">#1133</a> (merged 2026-10-02). One error line
+remains.</p>
+<p><strong>What was fixed.</strong> Before #1133, every windowed run of the starter template ended
+abnormally <strong>after</strong> the scene had quit, under its <code>thread_model=2</code>: 6 of 6 runs on
+2026-09-27, and 3 of 3 on 2026-10-03 on a build from before #1133. The runs logged
 <code>This function (free) can only be called from the render thread</code> from
-<code>RenderingDevice::free</code> during teardown. Some runs also logged
-<code>RenderDeviceManager::shutdown</code> reporting still-tracked owned resources, or a <code>SafeRefCount</code>
-misuse error. This happened with and without the #833 overlay fix, so the overlay is not
-the cause.</p>
-<p><strong>Evidence:</strong> reproduced, not diagnosed. Every run had a probe script attached. A run with
-no probe, and runs at <code>thread_model=1</code>, have not been made. The issue's hypothesis is that
-module-owned RIDs are freed from the main thread during teardown, which a separate render
-thread rejects; that is not verified. Whether the editor or an exported game shows a crash
-dialog on quit has not been checked.</p>
-<p><strong>Workaround:</strong> set <code>rendering/driver/threads/thread_model</code> to <code>1</code> (Godot's default). That this avoids the
-crash is <strong>not</strong> measured. A non-zero exit is attributable to this entry only when it comes
-<strong>after</strong> the scene has quit and is preceded by the <code>RenderingDevice::free ... can only be
-called from the render thread</code> errors above. A failure before quit, or with a different
-error signature, is not explained by this entry and should be treated as a new failure.</p>
+<code>RenderingDevice::free</code>, and sometimes a <code>SafeRefCount</code> misuse error. The cause was a
+dispatcher argument-order bug that let the renderer's teardown run off the render thread.
+The <a href="https://github.com/klausi3D/godotGS/pull/1133#pullrequestreview-5389066529">independent review of #1133</a>
+measured the base crashing (<code>0xC0000409</code>) in 3 of 3 runs and #1133 exiting 0 in 3 of 3,
+with the <code>free</code> / <code>SafeRefCount</code> errors gone.</p>
+<p><strong>What remains.</strong> Every fixed run prints one
+<code>This function (finalize) can only be called from the render thread</code> at quit and still exits
+0. The review attributes it, by inference and not by trace, to the manager destroying its
+local rendering devices on the main thread once the render loop has stopped. The
+maintainer has decided that this error blocks the public alpha until it is fixed.</p>
+<p><strong>Evidence:</strong> the #1133 numbers are 3+3 windowed runs on one NVIDIA GPU. Release or
+exported builds, a <code>GaussianSplatWorld3D</code> scene and <code>thread_model=1</code> have not been run
+against the residual.</p>
+<p><strong>Workaround:</strong> none needed for the exit code. The remaining line is printed only at quit.
+A non-zero exit at shutdown on a build that includes #1133 is not explained by this entry
+and should be treated as a new failure.</p>
 <h2 id="gaussiansplatworld3d">GaussianSplatWorld3D<a class="headerlink" href="#gaussiansplatworld3d" title="Permanent link">¶</a></h2>
 <h3 id="with-a-gaussiansplatworld3d-and-a-gaussiansplatnode3d-in-one-scene-one-of-them-renders-nothing-788">With a <code>GaussianSplatWorld3D</code> and a <code>GaussianSplatNode3D</code> in one scene, one of them renders nothing (<a href="https://github.com/klausi3D/godotGS/issues/788">#788</a>)<a class="headerlink" href="#with-a-gaussiansplatworld3d-and-a-gaussiansplatnode3d-in-one-scene-one-of-them-renders-nothing-788" title="Permanent link">¶</a></h3>
 <p><strong>Status: Active.</strong></p>
@@ -5378,7 +5390,7 @@ re-checked in code at <code>eff00db450c</code>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 22:06:58 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 22:09:49 UTC">October 3, 2026</span>
   </span>
 
     
