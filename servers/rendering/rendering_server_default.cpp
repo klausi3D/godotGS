@@ -277,6 +277,13 @@ void RenderingServerDefault::finish() {
 	} else {
 		_finish();
 	}
+	// GodotGS (#1077), backport of upstream godotengine/godot#123391 (fixes
+	// godotengine/godot#119000); drop when upstream merges an equivalent.
+	// The display server destroys the main device after the render worker
+	// has stopped. Return ownership to the calling (main) thread first.
+	if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+		rd->make_current();
+	}
 }
 
 /* STATUS INFORMATION */
