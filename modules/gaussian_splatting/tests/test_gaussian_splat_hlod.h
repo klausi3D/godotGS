@@ -1774,9 +1774,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] radius validation accepts isotropi
 	// A diagonal-plane overlap cannot disappear just because the serialized sphere is tight.
 	const Vector3 normal = Vector3(1, 1, 1).normalized();
 	const float distance = chunks[0].bounds.size.length() * 0.5f;
-	const Plane boundary(normal, normal.dot(chunks[0].center) + distance);
-	CHECK(boundary.distance_to(chunks[0].center) >= -chunks[0].radius);
-	CHECK(leaf.radius < distance);
+	const Plane boundary(normal, normal.dot(chunks[0].center) - distance);
+	CHECK(boundary.distance_to(chunks[0].center) <= chunks[0].radius);
+	CHECK(boundary.distance_to(chunks[0].center) > leaf.radius);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] save rejects edits before snapshot and freezes metadata after snapshot") {
