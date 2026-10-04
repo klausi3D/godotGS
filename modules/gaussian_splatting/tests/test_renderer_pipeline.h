@@ -9,6 +9,7 @@
 #include "test_macros.h"
 
 #include "gs_test_pump.h"
+#include "gs_test_setting_guard.h"
 
 #include <cstring>
 #include <cstddef>
@@ -5570,6 +5571,99 @@ TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused when
             final_texture, 11, 19, 13, 17, false));
 
     rid_owner.free(final_texture);
+}
+
+// #1162: the reuse key must cover every raster input that render_tile_fallback() and the
+// painterly path push to the GPU. Painterly knobs other than `enabled` and the low-pass
+// filter project setting reached the GPU but no signature, and their setters never call
+// invalidate_cached_render(), so a static camera kept showing the previous parameters.
+// Tagged [ViewTransform] for the same reason as the jitter case above: the [Renderer]
+// lane is advisory, and a reuse-key proof that cannot fail CI is not a proof. No GPU:
+// the signature reads host-side config only, and the compositor is never initialize()d.
+namespace TestRasterParamsSignature {
+
+inline uint64_t signature_of(const Ref<GaussianSplatRenderer> &p_renderer) {
+    GaussianSplatRenderer::FrameStateProvider provider(p_renderer.ptr());
+    return RenderPipelineStages::compute_raster_params_signature(*p_renderer.ptr(), provider,
+            RD::DATA_FORMAT_R8G8B8A8_UNORM);
+}
+
+// Primes the cache with p_cached_signature and reports whether a frame carrying
+// p_frame_signature (everything else identical) would be served from it.
+inline bool reuse_granted(uint64_t p_cached_signature, uint64_t p_frame_signature) {
+    Ref<OutputCompositor> compositor;
+    compositor.instantiate();
+    struct RasterParamsRidTag {};
+    RID_Owner<RasterParamsRidTag> rid_owner;
+    const RID final_texture = rid_owner.make_rid();
+    const Transform3D view_transform(Basis(), Vector3(0.0f, 0.0f, 6.0f));
+    const Size2i resolution(16, 16);
+    Projection projection;
+    projection.set_perspective(65.0f, 1.0f, 0.1f, 200.0f);
+    const Projection gpu_projection = GaussianSplatRenderer::build_render_projection(projection, true, Vector2());
+    compositor->set_has_valid_render(true);
+    compositor->update_render_cache_signature(view_transform, projection, gpu_projection, resolution, false,
+            RID(), resolution, final_texture, 11, 19, 13, 17, false, p_cached_signature);
+    const bool granted = compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution,
+            false, final_texture, 11, 19, 13, 17, false, p_frame_signature);
+    rid_owner.free(final_texture);
+    return granted;
+}
+
+} // namespace TestRasterParamsSignature
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a painterly edge_threshold edit (#1162)") {
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    if (renderer.is_null()) {
+        FAIL("GaussianSplatRenderer must instantiate");
+        return;
+    }
+
+    const float original_threshold = renderer->get_painterly_edge_threshold();
+    const uint64_t before = TestRasterParamsSignature::signature_of(renderer);
+    // Deterministic for unchanged inputs: otherwise every refusal below is vacuous.
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), before);
+    CHECK(TestRasterParamsSignature::reuse_granted(before, before));
+
+    const float edited_threshold = original_threshold < 0.5f ? 0.75f : 0.1f;
+    renderer->set_painterly_edge_threshold(edited_threshold);
+    REQUIRE(renderer->get_painterly_edge_threshold() != original_threshold);
+    const uint64_t after = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_NE(after, before);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(before, after));
+
+    // Undoing the edit restores the key: the signature is a function of the inputs,
+    // not a counter that would refuse reuse forever.
+    renderer->set_painterly_edge_threshold(original_threshold);
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), before);
+}
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a low_pass_filter project-setting edit (#1162)") {
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (ps == nullptr) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    const String low_pass_path = "rendering/gaussian_splatting/rasterization/low_pass_filter";
+    ProjectSettingGuard low_pass_guard(ps, low_pass_path);
+
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    if (renderer.is_null()) {
+        FAIL("GaussianSplatRenderer must instantiate");
+        return;
+    }
+
+    ps->set_setting(low_pass_path, 0.1);
+    const uint64_t sharp = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), sharp);
+
+    ps->set_setting(low_pass_path, 0.6);
+    const uint64_t soft = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_NE(soft, sharp);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(sharp, soft));
+    CHECK(TestRasterParamsSignature::reuse_granted(soft, soft));
 }
 
 TEST_CASE("[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch times out when callback never signals completion") {

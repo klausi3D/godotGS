@@ -591,6 +591,8 @@ public:
         uint64_t cull_config_signature = 0;
         uint64_t color_grading_signature = 0;
         uint64_t lighting_signature = 0;
+        // RenderPipelineStages::compute_raster_params_signature() (#1162).
+        uint64_t raster_params_signature = 0;
         float sort_time_ms = 0.0f;
         IndexDomain sorted_index_domain = IndexDomain::UNKNOWN;
         bool painterly_requested = false;
