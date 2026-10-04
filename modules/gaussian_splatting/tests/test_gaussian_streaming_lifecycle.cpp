@@ -1857,3 +1857,134 @@ TEST_CASE("[Streaming Pipeline] The VRAM regulator lets the budget-sized atlas f
         CHECK(system._test_atlas_allocator().get_used_page_count() <= system._test_atlas_occupancy_target_pages());
     }
 }
+
+// ---------------------------------------------------------------------------
+// #1176: a predictive prefetch is a guess about where the camera will be, not demand.
+// It used to share the admission path of needed loads, so when the atlas held only
+// visible chunks it took the visible-eviction fallback and opened a hole on screen for
+// an off-screen chunk. The admission intent now forbids that fallback for prefetch.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr float PREFETCH_ADMISSION_TEST_HALF_EXTENT = 1.0f;
+
+// Four visible 4-page chunks fill a 16-page atlas: A=[0,4) B=[4,8) C=[8,12) D=[12,16).
+// Chunk 4 also needs 4 pages, is not visible, and sits at p_predicted_pos, so prefetch
+// selects it. Any single visible victim would complete its run: nothing but the
+// admission intent keeps a visible chunk in place.
+void _setup_full_visible_atlas_with_prefetch_candidate(GaussianStreamingSystem &r_system,
+        const Vector3 &p_predicted_pos) {
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
+    chunks.resize(5);
+    const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    const Vector3 half(PREFETCH_ADMISSION_TEST_HALF_EXTENT, PREFETCH_ADMISSION_TEST_HALF_EXTENT,
+            PREFETCH_ADMISSION_TEST_HALF_EXTENT);
+    for (uint32_t i = 0; i < 5; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * 4 * page;
+        chunk.count = 4 * page;
+        chunk.effective_count = chunk.count;
+        // The resident chunks are on screen next to the camera; the candidate is ahead.
+        chunk.center = i < 4 ? Vector3(float(i) * 3.0f, 0.0f, -3.0f) : p_predicted_pos;
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.max_radius = PREFETCH_ADMISSION_TEST_HALF_EXTENT;
+        chunk.is_visible = i < 4;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    for (int i = 0; i < 10; i++) {
+        r_system.begin_frame(); // clear the eviction hysteresis window
+    }
+    // Primary asset with source data, a placeholder buffer and a fresh prefetch scan budget.
+    r_system._test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(64), 1);
+    r_system._test_reset_atlas_allocator(16);
+    for (uint32_t i = 0; i < 4; i++) {
+        r_system._test_mark_chunk_loaded_for_eviction(0, i, true, 0, i + 1, 3.0f);
+    }
+    // Prefetch needs a moving camera: here at (0, 0, -5) heading down -Z.
+    StreamingVisibilityController &visibility = r_system._test_get_visibility_controller();
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, 0.0f), 0.1f);
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+}
+
+int64_t _read_prefetch_visible_eviction_refusals(GaussianStreamingSystem &r_system) {
+    r_system.end_frame();
+    return int64_t(r_system.get_streaming_analytics().get("prefetch_visible_eviction_refusals", int64_t(-1)));
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Predictive prefetch never evicts a visible chunk to make room (#1176)") {
+    // 1.0 x prefetch_lookahead_distance (10 m) ahead of the camera, so the sync drain's
+    // own prediction check also places the candidate there.
+    const Vector3 predicted(0.0f, 0.0f, -15.0f);
+
+    SUBCASE("async route: the prefetch is skipped and counted, and a needed load still evicts") {
+        GaussianStreamingSystem system;
+        _setup_full_visible_atlas_with_prefetch_candidate(system, predicted);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        auto &uploads = system._internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true); // prefetch takes queue_chunk_load()
+        if (system.get_loaded_chunks() != 4 || system._test_atlas_allocator().get_free_page_count() != 0) {
+            system._test_end_device_free_load_scan();
+            FAIL("fixture precondition: four visible resident chunks must fill the atlas");
+            return;
+        }
+
+        const uint32_t queued = system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                system, predicted, 8, 8, UINT32_MAX);
+        CHECK(queued == 0);
+        CHECK(system.get_loaded_chunks() == 4);
+        for (uint32_t i = 0; i < 4; i++) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+        CHECK_FALSE(chunks[4].upload_pending);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+
+        // The legal route still works: the same chunk requested as needed demand may take
+        // the visible-eviction fallback (one victim) and is queued.
+        CHECK(uploads.queue_chunk_load(system, 0, 4));
+        CHECK(chunks[4].upload_pending);
+        CHECK(system.get_loaded_chunks() == 3);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+
+        system._test_end_device_free_load_scan();
+        // Wired into the published analytics: exactly the one refused prefetch admission.
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("sync route: the drain admits a predicted-only chunk without visible eviction") {
+        GaussianStreamingSystem system;
+        _setup_full_visible_atlas_with_prefetch_candidate(system, predicted);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        // No async pack owner: prefetch only queues into the sync-fallback queue and the
+        // drain makes the admission decision.
+        const uint32_t queued = system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                system, predicted, 8, 8, UINT32_MAX);
+        if (queued != 1 || !system._test_sync_fallback_queued(0u, 4)) {
+            system._test_end_device_free_load_scan();
+            FAIL("fixture precondition: prefetch must queue the candidate for the sync drain");
+            return;
+        }
+
+        uint32_t evictions_left = 4;
+        bool eviction_blocked = false;
+        system._test_drain_sync_fallback_chunk_loads(32, evictions_left, eviction_blocked);
+        CHECK(system._test_get_sync_fallback_attempted_count() == 1);
+        CHECK(system.get_loaded_chunks() == 4);
+        for (uint32_t i = 0; i < 4; i++) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+        CHECK_FALSE(chunks[4].is_loaded);
+        CHECK_FALSE(chunks[4].upload_pending);
+        CHECK(evictions_left == 4);
+        // A refused prediction leaves the frame's eviction budget to the needed loads.
+        CHECK_FALSE(eviction_blocked);
+
+        system._test_end_device_free_load_scan();
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+}

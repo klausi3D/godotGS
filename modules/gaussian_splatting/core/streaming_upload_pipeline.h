@@ -291,7 +291,10 @@ public:
     void stop_pack_threads(GaussianStreamingSystem &system);
     static void pack_thread_entry(void *p_userdata);
     void pack_thread_func(GaussianStreamingSystem &system, uint32_t p_thread_index);
-    bool queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx);
+    // #1176: p_allow_visible_eviction = false (predictive prefetch) never takes the
+    // visible-eviction fallback when the atlas has no run for the chunk; the load is skipped.
+    bool queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx,
+            bool p_allow_visible_eviction = true);
     void process_upload_queue(GaussianStreamingSystem &system);
     void clear_pending_uploads(GaussianStreamingSystem &system);
     void cancel_asset_jobs(GaussianStreamingSystem &system, uint32_t asset_id);

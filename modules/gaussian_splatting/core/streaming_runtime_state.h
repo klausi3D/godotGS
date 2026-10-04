@@ -148,6 +148,9 @@ struct DiagnosticsState {
     // #1088: evictions beyond the first that admission needed before a contiguous page run
     // existed for the chunk (fragmentation or a victim smaller than the incoming chunk).
     uint64_t atlas_fit_extra_evictions = 0;
+    // #1176: admissions of a predictive prefetch that found only visible chunks to evict and
+    // were skipped instead of taking the visible-eviction fallback. Cumulative.
+    uint64_t prefetch_visible_eviction_refusals = 0;
 
     uint32_t last_total_chunks = 0;
     uint32_t last_visible_chunks = 0;

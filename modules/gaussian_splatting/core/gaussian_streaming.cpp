@@ -3010,6 +3010,11 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
             ResidencyBudgetController::should_attempt_visible_evict_fallback(p_admission_gate)) {
         r_visible_fallback_attempted = true;
         result = _evict_least_recently_used(true, visible_fit_pages);
+    } else if (result == EvictionResult::SkippedAllVisible &&
+            ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(p_admission_gate)) {
+        // #1176: only visible chunks are left to evict, and this admission is a prediction
+        // (prefetch). The load is skipped instead; counted so the skip is observable.
+        diagnostics.prefetch_visible_eviction_refusals++;
     }
 
     return result;
@@ -3040,7 +3045,12 @@ bool GaussianStreamingSystem::_evict_until_atlas_fit(const ResidencyBudgetContro
             }
         }
         if (!evicted) {
-            ResidencyBudgetController::note_blocked_eviction(r_frame_budget);
+            // #1176: a prefetch refused only because the victims left are visible does not
+            // block the frame's eviction budget: a needed load after it may still use it.
+            if (!(result == EvictionResult::SkippedAllVisible &&
+                        ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(p_admission_gate))) {
+                ResidencyBudgetController::note_blocked_eviction(r_frame_budget);
+            }
             return false;
         }
         eviction_controller.record_eviction_result(result);
@@ -4425,9 +4435,10 @@ void GaussianStreamingSystem::_stop_pack_threads() {
 }
 
 bool GaussianStreamingSystem::_enqueue_chunk_load_request(
-        uint32_t asset_id, uint32_t chunk_idx, bool can_async_pack, bool prioritize_sync_fallback) {
+        uint32_t asset_id, uint32_t chunk_idx, bool can_async_pack, bool prioritize_sync_fallback,
+        bool p_allow_visible_eviction) {
     if (can_async_pack) {
-        return _queue_chunk_load(asset_id, chunk_idx);
+        return _queue_chunk_load(asset_id, chunk_idx, p_allow_visible_eviction);
     }
     return _enqueue_sync_fallback_chunk_load(asset_id, chunk_idx, prioritize_sync_fallback);
 }
@@ -4608,10 +4619,12 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const Vector3 primary_camera_pos = visibility.camera_tracker.last_position;
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
-    const auto is_primary_chunk_relevant = [&](const StreamingChunk &p_chunk) -> bool {
-        if (p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold)) {
-            return true;
-        }
+    const auto is_primary_chunk_needed = [&](const StreamingChunk &p_chunk) -> bool {
+        return p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+    };
+    // #1176: relevant only through the camera prediction (the prefetch branch). Such a chunk
+    // is admitted with allow_visible_eviction = false below.
+    const auto is_primary_chunk_predicted = [&](const StreamingChunk &p_chunk) -> bool {
         if (!primary_prefetch_enabled) {
             return false;
         }
@@ -4659,11 +4672,14 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         }
         const bool explicitly_requested = _is_requested_chunk_in_current_generation(*asset, chunk_idx);
         bool enforce_vram_regulator_gate = true;
+        bool allow_visible_eviction = true;
         if (asset_id == PRIMARY_ASSET_ID) {
-            if (!explicitly_requested && !is_primary_chunk_relevant(chunk)) {
+            const bool needed = explicitly_requested || is_primary_chunk_needed(chunk);
+            if (!needed && !is_primary_chunk_predicted(chunk)) {
                 scheduler.last_sync_fallback_stalled_count++;
                 continue;
             }
+            allow_visible_eviction = needed;
             if (explicitly_requested) {
                 enforce_vram_regulator_gate = false;
             }
@@ -4678,6 +4694,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
+        admission_policy.allow_visible_eviction = allow_visible_eviction;
         admission_policy.enforce_vram_regulator_gate =
                 enforce_vram_regulator_gate && budget.vram_regulator.is_valid();
         const uint32_t reserved_chunks = _get_reserved_chunk_count();
@@ -4722,7 +4739,9 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
             if (evicted) {
                 eviction_controller.record_eviction_result(result);
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
-            } else {
+            } else if (!(result == EvictionResult::SkippedAllVisible &&
+                               ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(admission_gate))) {
+                // #1176: a refused prefetch leaves the budget to the needed loads behind it.
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
             }
             if (!evicted || !_evict_until_atlas_fit(admission_gate, required_pages, admission_budget)) {
@@ -4802,8 +4821,8 @@ bool GaussianStreamingSystem::_queue_chunk_load(uint32_t chunk_idx) {
     return _queue_chunk_load(PRIMARY_ASSET_ID, chunk_idx);
 }
 
-bool GaussianStreamingSystem::_queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx) {
-    return upload_pipeline.queue_chunk_load(*this, asset_id, chunk_idx);
+bool GaussianStreamingSystem::_queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction) {
+    return upload_pipeline.queue_chunk_load(*this, asset_id, chunk_idx, p_allow_visible_eviction);
 }
 
 void GaussianStreamingSystem::_process_upload_queue() {

@@ -419,6 +419,8 @@ void GaussianStreamingSystem::end_frame() {
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
     analytics_snapshot["visible_evict_fallback_successes"] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
+    analytics_snapshot["prefetch_visible_eviction_refusals"] =
+            static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
 
     Dictionary streaming_diagnostics = _build_streaming_diagnostics_snapshot(
             pack_queue_depth, upload_queue_depth, sync_fallback_queue_depth);
@@ -851,6 +853,8 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
     diagnostics_snapshot["visible_evict_fallback_successes"] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
+    diagnostics_snapshot["prefetch_visible_eviction_refusals"] =
+            static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
     diagnostics_snapshot["invariant_slot_ownership_violations"] =
             static_cast<int64_t>(diagnostics.invariant_slot_ownership_violations);
     diagnostics_snapshot["invariant_upload_lifecycle_violations"] =

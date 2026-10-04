@@ -491,7 +491,8 @@ void StreamingUploadPipeline::pack_thread_func(GaussianStreamingSystem &system, 
     }
 }
 
-bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx) {
+bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, uint32_t asset_id, uint32_t chunk_idx,
+        bool p_allow_visible_eviction) {
     if (!async_pack_enabled) {
         return false;
     }
@@ -576,6 +577,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
     if (required_pages > 0 && !system.atlas_allocator.can_allocate(required_pages)) {
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
+        admission_policy.allow_visible_eviction = p_allow_visible_eviction;
         admission_policy.enforce_vram_regulator_gate = system.budget.vram_regulator.is_valid();
         const uint32_t reserved_chunks = system._get_reserved_chunk_count();
         admission_policy.vram_regulator_allows_load =

@@ -672,9 +672,12 @@ private:
     void _start_pack_threads();
     void _stop_pack_threads();
     bool _queue_chunk_load(uint32_t chunk_idx);
-    bool _queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx);
+    bool _queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction = true);
+    // #1176: p_allow_visible_eviction is the admission intent. Needed loads keep the default
+    // (true); predictive prefetch passes false so it can never evict a visible chunk. The sync
+    // fallback queue stores only chunk keys, so its drain re-derives the intent per chunk.
     bool _enqueue_chunk_load_request(uint32_t asset_id, uint32_t chunk_idx,
-            bool can_async_pack, bool prioritize_sync_fallback = false);
+            bool can_async_pack, bool prioritize_sync_fallback = false, bool p_allow_visible_eviction = true);
     bool _enqueue_sync_fallback_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool prioritize = false);
     uint32_t _drain_sync_fallback_chunk_loads(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
     bool _should_force_sync_fallback_for_async_stall(uint32_t pack_queue_depth, uint32_t upload_queue_depth);
