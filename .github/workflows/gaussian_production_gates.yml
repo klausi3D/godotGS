@@ -59,10 +59,14 @@ on:
         required: false
         default: false
         type: boolean
+      # #1164: enforcement is the default on EVERY event that produced evidence.
+      # This input exists only so a maintainer can run a manual, diagnostic
+      # dispatch that collects without enforcing; it cannot switch enforcement
+      # off for pull_request, push or merge_group runs.
       enforce_gpu_readiness:
-        description: "Fail if summary.json readiness booleans are not all true"
+        description: "Fail if summary.json readiness booleans are not all true (set false only for a diagnostic manual run)"
         required: false
-        default: false
+        default: true
         type: boolean
       runtime_loops:
         description: "Runtime loop count for evidence collection"
@@ -445,12 +449,19 @@ jobs:
             -GodotBinary "${{ steps.godot_bin.outputs.path }}" `
             -OutputRoot (Join-Path $PWD "artifacts\evidence") `
             -RuntimeLoops $runtimeLoops
+          # #1164: the script exits non-zero when any recorded sub-command did
+          # not pass. Capture it before anything else runs, publish the evidence
+          # directory so the upload step still ships the logs, then fail.
+          $evidenceExit = $LASTEXITCODE
 
           $latest = Get-ChildItem (Join-Path $PWD "artifacts\evidence") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
           if (-not $latest) {
             throw "Evidence directory not found after run."
           }
           "dir=$($latest.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ($null -eq $evidenceExit -or $evidenceExit -ne 0) {
+            throw "collect_production_evidence.ps1 exited '$evidenceExit': at least one recorded sub-command did not pass (see results[].passed in summary.json)."
+          }
 
       - name: Upload evidence artifact
         if: ${{ always() && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outputs.dir != '' }}
@@ -459,8 +470,18 @@ jobs:
           name: windows-gpu-production-evidence
           path: ${{ steps.evidence.outputs.dir }}
 
+      # #1164: this used to run only on a workflow_dispatch with
+      # enforce_gpu_readiness=true (default false), so on pull_request, push and
+      # merge_group the booleans were collected, uploaded and never compared.
+      # It now runs on every event that produced evidence; the only way to skip
+      # it is an explicit enforce_gpu_readiness=false on a manual dispatch.
+      # Careful when editing: for non-dispatch events `inputs.*` is null, and in
+      # Actions expressions null == false is TRUE, so a bare
+      # `inputs.enforce_gpu_readiness != false` would silently skip every PR.
+      # tests/ci/test_production_readiness_enforcement.py evaluates this
+      # condition per event and fails if any non-dispatch event can skip it.
       - name: Enforce readiness booleans
-        if: ${{ (inputs.enforce_gpu_readiness == true || inputs.enforce_gpu_readiness == 'true') && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outcome == 'success' && steps.evidence.outputs.dir != '' }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.enforce_gpu_readiness == false || inputs.enforce_gpu_readiness == 'false')) && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outcome == 'success' && steps.evidence.outputs.dir != '' }}
         shell: pwsh
         run: |
           $summaryPath = Join-Path "${{ steps.evidence.outputs.dir }}" "summary.json"
@@ -469,7 +490,9 @@ jobs:
           }
 
           $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json
-          $required = @("897_907_ready", "900_ready", "871_ready", "815_ready", "902_ready")
+          # Every boolean summary.json carries under `issues` (#1164 added
+          # 943_ready; 902_ready now also requires module_tests to pass).
+          $required = @("897_907_ready", "900_ready", "943_ready", "871_ready", "815_ready", "902_ready")
           $missing = @()
           foreach ($key in $required) {
             if (-not $summary.issues.$key) {

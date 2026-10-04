@@ -84,7 +84,7 @@ contract-source ADR.
 | `gaussian_production_gates.yml` | `run_gpu_lane` | `true`, `false` |
 | `gaussian_production_gates.yml` | `run_openworld_proof_dev` | `true`, `false` |
 | `gaussian_production_gates.yml` | `run_openworld_proof_weekly` | `true`, `false` |
-| `gaussian_production_gates.yml` | `enforce_gpu_readiness` | `true`, `false` |
+| `gaussian_production_gates.yml` | `enforce_gpu_readiness` | `true` (default), `false` (manual diagnostic run only; pull_request, push and merge_group always enforce, #1164) |
 | `gaussian_production_gates.yml` | `runtime_loops` | integer string |
 | `release_builds.yml` | `publish_channel` | `none`, `nightly`, `stable` |
 | `release_builds.yml` | `release_tag` | string (`vX.Y.Z` when `publish_channel=stable`) |
