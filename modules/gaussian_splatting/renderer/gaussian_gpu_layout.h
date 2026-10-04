@@ -79,7 +79,15 @@ struct SHCompressionMetrics {
     uint64_t raw_bytes = 0;
     uint64_t compressed_bytes = 0;
     uint32_t coefficient_count = 0;
+    // #1175: records this pack rejected because a render-critical field
+    // (gaussian_render_fields_finite()) was NaN/Inf. A rejected record is uploaded
+    // finite and fully transparent (opacity 0) instead of its poisoned values.
+    uint32_t non_finite_rejected = 0;
 };
+
+// #1175: process-wide total of records any GPU packer rejected as non-finite
+// (the sum of every SHCompressionMetrics::non_finite_rejected ever produced).
+uint64_t gs_get_non_finite_pack_rejection_count();
 
 // ============================================================================
 // Instance Pipeline GPU Layout (std430)
@@ -625,6 +633,9 @@ static_assert(offsetof(InstanceDepthParamsGPU, cull_frustum_radius) == 448, "Ins
 // Per-chunk quantization bounds (defined in core/streaming_quantization.h).
 struct ChunkQuantizationInfo;
 
+// #1175: non-finite input is the GPU boundary's problem, not the caller's. A splat whose
+// render-critical fields (gaussian_render_fields_finite()) are not all finite is packed
+// finite and fully transparent and counted in metrics.non_finite_rejected.
 void pack_gaussian(const Gaussian &src,
         PackedGaussian &dst,
         SHCompressionMetrics &metrics,
@@ -637,7 +648,8 @@ void pack_gaussian(const Gaussian &src,
 // chunk_quant supplies the position/scale normalization bounds and bit depths; chunk_id
 // is the global index into the ChunkQuantizationGPU buffer the shader dereferences.
 // Bit-matches the GLSL dequantization in shaders/includes/quantization_dequant.glsl.
-// Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically.
+// Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically,
+// and a non-finite render-critical field rejects the splat (opacity 0, counted; #1175).
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
         uint16_t chunk_id,

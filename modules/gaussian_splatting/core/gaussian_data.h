@@ -197,6 +197,28 @@ static_assert(sizeof(Gaussian) == 144, "Gaussian authoring struct size changed; 
 static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes must stay 8-byte aligned for std430 layout");
 
 /**
+ * @brief True when every render-critical field of ONE splat is finite.
+ *
+ * The fields the rasterizer consumes directly: position, scale, rotation, opacity,
+ * the DC colour and the first-order SH coefficients. One definition shared by the
+ * load-time gate (GaussianData::all_render_fields_finite()) and the GPU packers
+ * (pack_gaussian() / pack_gaussian_quantized(), #1175), so the file-load paths and
+ * the upload boundary can never disagree on what "finite" means.
+ */
+inline bool gaussian_render_fields_finite(const Gaussian &p_g) {
+    return Math::is_finite(p_g.position.x) && Math::is_finite(p_g.position.y) && Math::is_finite(p_g.position.z) &&
+            Math::is_finite(p_g.scale.x) && Math::is_finite(p_g.scale.y) && Math::is_finite(p_g.scale.z) &&
+            Math::is_finite(p_g.rotation.x) && Math::is_finite(p_g.rotation.y) &&
+            Math::is_finite(p_g.rotation.z) && Math::is_finite(p_g.rotation.w) &&
+            Math::is_finite(p_g.opacity) &&
+            Math::is_finite(p_g.sh_dc.r) && Math::is_finite(p_g.sh_dc.g) &&
+            Math::is_finite(p_g.sh_dc.b) && Math::is_finite(p_g.sh_dc.a) &&
+            Math::is_finite(p_g.sh_1[0].x) && Math::is_finite(p_g.sh_1[0].y) && Math::is_finite(p_g.sh_1[0].z) &&
+            Math::is_finite(p_g.sh_1[1].x) && Math::is_finite(p_g.sh_1[1].y) && Math::is_finite(p_g.sh_1[1].z) &&
+            Math::is_finite(p_g.sh_1[2].x) && Math::is_finite(p_g.sh_1[2].y) && Math::is_finite(p_g.sh_1[2].z);
+}
+
+/**
  * @brief Packs palette ID and painterly flags into a single uint32.
  * @param palette_id 16-bit palette index for color lookup.
  * @param flags 16-bit bitfield for painterly rendering options or brush override IDs.

@@ -207,6 +207,7 @@ void _record_successful_upload_retirement(GaussianStreamingTypes::BudgetState &r
     r_total_metrics.raw_bytes += p_ticket.metrics.raw_bytes;
     r_total_metrics.compressed_bytes += p_ticket.metrics.compressed_bytes;
     r_total_metrics.coefficient_count += p_ticket.metrics.coefficient_count;
+    r_total_metrics.non_finite_rejected += p_ticket.metrics.non_finite_rejected;
     r_last_completed_upload_ticket_id = p_ticket.ticket_id;
     r_last_upload_completion_mode = _streaming_upload_completion_mode_name(p_ticket.completion_mode);
 }
@@ -4018,6 +4019,7 @@ void GaussianStreamingSystem::_log_chunk_load_metrics(uint32_t chunk_idx, const 
     total_sh_metrics.raw_bytes += metrics.raw_bytes;
     total_sh_metrics.compressed_bytes += metrics.compressed_bytes;
     total_sh_metrics.coefficient_count += metrics.coefficient_count;
+    total_sh_metrics.non_finite_rejected += metrics.non_finite_rejected;
 
     if (total_sh_metrics.coefficient_count > 0) {
         float total_raw_mb = total_sh_metrics.raw_bytes / (1024.0f * 1024.0f);

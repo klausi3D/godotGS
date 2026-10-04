@@ -12,10 +12,43 @@
 #include "core/math/math_funcs.h"
 #include "core/variant/variant.h"
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 
 namespace {
 static bool _is_data_log_enabled() { return gs::settings::is_data_log_enabled(); }
+
+// #1175: the GPU boundary's non-finite gate. Every upload route -- the resident
+// atlas publisher, GPUBufferManager, GPUMemoryStream, the streaming upload
+// pipeline and the streaming system's chunk loads -- packs through pack_gaussian()
+// or pack_gaussian_quantized(), so the check lives here once instead of at each
+// install site (set_gaussian_data, set_splat_data, the .gsplatworld loader, a
+// runtime GaussianData edit), none of which every route shares. A splat whose
+// render-critical fields are not all finite is REJECTED: uploaded with every lane
+// finite and opacity 0, so it contributes nothing, while every other splat of the
+// payload still renders. The rejection is counted (per pack in
+// SHCompressionMetrics::non_finite_rejected, process-wide here) and announced once.
+static std::atomic<uint64_t> g_non_finite_pack_rejections{ 0 };
+
+static void _record_non_finite_rejection(SHCompressionMetrics &r_metrics, const char *p_packer) {
+    r_metrics.non_finite_rejected++;
+    if (g_non_finite_pack_rejections.fetch_add(1, std::memory_order_relaxed) == 0) {
+        WARN_PRINT(vformat("[GPU Pack] %s rejected a splat with a non-finite position/scale/rotation/opacity/colour "
+                           "at the GPU upload boundary; it is uploaded fully transparent. Further rejections are counted "
+                           "(SHCompressionMetrics::non_finite_rejected, gs_get_non_finite_pack_rejection_count()) "
+                           "without another warning.",
+                String(p_packer)));
+    }
+}
+
+static inline float _finite_or(float p_value, float p_fallback) {
+    return Math::is_finite(p_value) ? p_value : p_fallback;
+}
+
+static inline Vector3 _finite_vec3_or(const Vector3 &p_value, const Vector3 &p_fallback) {
+    return Vector3(_finite_or(p_value.x, p_fallback.x), _finite_or(p_value.y, p_fallback.y),
+            _finite_or(p_value.z, p_fallback.z));
+}
 
 // #1054: SH coefficients are signed (trained SH has zero mean). They used to be stored as
 // unsigned RGB9E5, which clamped every negative channel to zero on every GPU path. They are
@@ -92,7 +125,11 @@ void PackedSphericalHarmonics::clear() {
     }
 }
 
-void pack_gaussian(const Gaussian &src,
+uint64_t gs_get_non_finite_pack_rejection_count() {
+    return g_non_finite_pack_rejections.load(std::memory_order_relaxed);
+}
+
+static void _pack_gaussian_finite(const Gaussian &src,
         PackedGaussian &dst,
         SHCompressionMetrics &metrics,
         const Vector3 *higher_order_coeffs,
@@ -175,6 +212,49 @@ void pack_gaussian(const Gaussian &src,
     metrics.coefficient_count += encoded_total;
 }
 
+void pack_gaussian(const Gaussian &src,
+        PackedGaussian &dst,
+        SHCompressionMetrics &metrics,
+        const Vector3 *higher_order_coeffs,
+        uint32_t first_order_count,
+        uint32_t higher_order_count,
+        uint32_t coefficient_limit) {
+    const bool render_fields_finite = gaussian_render_fields_finite(src);
+    const bool normal_finite = Math::is_finite(src.normal.x) && Math::is_finite(src.normal.y) &&
+            Math::is_finite(src.normal.z);
+    if (render_fields_finite && normal_finite) {
+        _pack_gaussian_finite(src, dst, metrics, higher_order_coeffs, first_order_count, higher_order_count,
+                coefficient_limit);
+        return;
+    }
+    // #1175: this packer used to copy position/opacity/scale/rotation/DC verbatim, so a
+    // NaN from GaussianSplatNode3D.set_splat_data(), a runtime edit or a .gsplatworld
+    // payload reached cov3d and the sort keys on the default resident route. Floor
+    // every lane the way pack_gaussian_quantized() does (SH is already sanitised by
+    // encode_sh_snorm10()); a bad render-critical field rejects the splat (opacity 0).
+    // A non-finite normal alone is a shading-only lane: floored, not rejected.
+    Gaussian safe = src;
+    safe.position = _finite_vec3_or(src.position, Vector3());
+    safe.scale = _finite_vec3_or(src.scale, Vector3(1.0e-6f, 1.0e-6f, 1.0e-6f));
+    if (!(Math::is_finite(src.rotation.x) && Math::is_finite(src.rotation.y) &&
+                Math::is_finite(src.rotation.z) && Math::is_finite(src.rotation.w))) {
+        safe.rotation = Quaternion();
+    }
+    safe.opacity = _finite_or(src.opacity, 0.0f);
+    safe.sh_dc = Color(_finite_or(src.sh_dc.r, 0.0f), _finite_or(src.sh_dc.g, 0.0f),
+            _finite_or(src.sh_dc.b, 0.0f), _finite_or(src.sh_dc.a, 0.0f));
+    for (int i = 0; i < 3; i++) {
+        safe.sh_1[i] = _finite_vec3_or(src.sh_1[i], Vector3());
+    }
+    safe.normal = _finite_vec3_or(src.normal, Vector3());
+    if (!render_fields_finite) {
+        safe.opacity = 0.0f;
+        _record_non_finite_rejection(metrics, "pack_gaussian");
+    }
+    _pack_gaussian_finite(safe, dst, metrics, higher_order_coeffs, first_order_count, higher_order_count,
+            coefficient_limit);
+}
+
 namespace {
 // Non-finite inputs must never poison the quantized packer: quantize_position/scale
 // pass NaN straight through CLAMP (NaN compares false against both bounds), and a
@@ -219,6 +299,13 @@ void pack_gaussian_quantized(const Gaussian &src,
 
     // Opacity: FP32, kept exact (precision-critical; never quantized).
     dst.opacity = sanitize_finite(src.opacity, 0.0f);
+    // #1175: flooring alone left a NaN-position splat visible at the chunk's min
+    // corner. A non-finite render-critical field rejects the splat, exactly as
+    // pack_gaussian() does: every lane stays floored and finite, opacity is 0.
+    if (!gaussian_render_fields_finite(src)) {
+        dst.opacity = 0.0f;
+        _record_non_finite_rejection(metrics, "pack_gaussian_quantized");
+    }
 
     // Scale: per-chunk quantized when the chunk enables it, else zeros (the GLSL
     // returns vec3(1.0) when scale_bits==0, so the stored value is irrelevant then).
