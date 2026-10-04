@@ -686,7 +686,8 @@
     {
       "effective_state": "g_gpu_sorting_config.max_raster_splats_per_tile",
       "key": "rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile",
-      "test_coverage": "inventory_only"
+      "notes": "0 = auto: the active gpu_preset's per-tile raster cap (65536 under custom). A positive value is an explicit override that wins under a named preset too, like max_overlap_records (#1137). Records past the cap are not drawn; that raises a WARN_ONCE + raster_tile_cap_drop_events.",
+      "test_coverage": "covered"
     },
     {
       "effective_state": "g_gpu_sorting_config.max_sort_elements",

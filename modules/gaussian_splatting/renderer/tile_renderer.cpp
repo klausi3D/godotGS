@@ -1393,11 +1393,9 @@ private:
 		renderer._dump_gpu_debug_counters(params);
 
 		// C4b (exit criterion G4, "no silent degradation"): always-on overlap-record drop
-		// telemetry. Only meaningful when the global-sort EMIT pass ran (the sole writer of the
-		// resident drop signal), so gate on it to avoid a wasted async readback otherwise.
-		if (renderer.render_settings.global_sort_enabled) {
-			renderer._poll_overflow_drop_telemetry();
-		}
+		// telemetry. Polled on every rendered frame: since #1137 the rasterizers write the
+		// resident drop signal too (per-tile raster cap), not only the global-sort EMIT pass.
+		renderer._poll_overflow_drop_telemetry();
 
 		if (renderer.render_settings.global_sort_enabled) {
 			renderer.global_sort_resources.prepare_next_tile_counts_buffer(resource_device);
@@ -2381,11 +2379,14 @@ Vector<String> TileRenderer::_build_binning_shader_defines() const {
 	return defines;
 }
 
+uint32_t TileRenderer::_get_effective_raster_tile_cap() {
+	return CLAMP<uint32_t>(g_gpu_sorting_config.max_raster_splats_per_tile, 256u, 131072u);
+}
+
 Vector<String> TileRenderer::_build_raster_shader_defines() const {
 	Vector<String> defines = _build_common_shader_defines(false);
 	defines.push_back(vformat("#define GS_TILE_SPLAT_CAPACITY %d\n", MAX_SPLATS_PER_TILE));
-	const uint32_t raster_cap = CLAMP<uint32_t>(g_gpu_sorting_config.max_raster_splats_per_tile, 256u, 131072u);
-	defines.push_back(vformat("#define GS_MAX_RASTER_SPLATS_PER_TILE %d\n", raster_cap));
+	defines.push_back(vformat("#define GS_MAX_RASTER_SPLATS_PER_TILE %d\n", _get_effective_raster_tile_cap()));
 	// Per-splat scene-depth clip (slice D): the raster needs the sort key width to pick
 	// break vs continue on the first behind-mesh splat. 64-bit keys pack the exact fp32
 	// payload depth (traversal strictly non-decreasing in the compared value -> break is
@@ -3629,7 +3630,7 @@ void TileRenderer::_collect_render_statistics() {
 		r_stats.feature_quantized_storage = instance_pipeline_buffers.quantization_required;
 		r_stats.feature_debug_counters = diagnostics.debug_binning_counters_enabled;
 		r_stats.raster_tile_splat_capacity = uint32_t(MAX_SPLATS_PER_TILE);
-		r_stats.max_raster_splats_per_tile = CLAMP<uint32_t>(g_gpu_sorting_config.max_raster_splats_per_tile, 256u, 131072u);
+		r_stats.max_raster_splats_per_tile = _get_effective_raster_tile_cap();
 		r_stats.shader_defines_hash = shader_resources.shader_defines_hash;
 	};
 	auto reset_stats_and_disable = [&]() {

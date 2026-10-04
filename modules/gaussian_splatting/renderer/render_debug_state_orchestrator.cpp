@@ -556,6 +556,8 @@ Dictionary RenderDebugStateOrchestrator::get_binning_debug_counters() const {
 	// in the tile-binning EMIT pass, surfaced via the always-on resident-signal readback.
 	// Channel B: instance-count clamp overflow in the GPU sorting pipeline.
 	out["overflow_drop_events"] = (int64_t)tr->get_overflow_drop_events();
+	// #1137: the per-tile raster cap channel of the same resident signal.
+	out["raster_tile_cap_drop_events"] = (int64_t)tr->get_raster_tile_cap_drop_events();
 	int64_t instance_count_overflow_events = 0;
 	if (renderer) {
 		const Ref<GPUSortingPipeline> &sorting_pipeline = renderer->get_subsystem_state().sorting_pipeline;
@@ -897,6 +899,19 @@ Dictionary RenderDebugStateOrchestrator::get_overflow_stats() const {
 	out["raster_sample_count"] = static_cast<int64_t>(overflow.raster_sample_count);
 	out["raster_splats_iterated"] = static_cast<int64_t>(overflow.raster_splats_iterated);
 	out["raster_splats_contributed"] = static_cast<int64_t>(overflow.raster_splats_contributed);
+	// #1137: production (always-on) drop telemetry, independent of the debug-gated readback
+	// above, for the most recently sampled frame: sampled_dropped_records counts records dropped
+	// on every channel; sampled_raster_truncated_tiles counts only tiles the rasterizer truncated
+	// (raster cap, or the whole range beyond the overlap budget), not tiles that lost records in
+	// binning (see TileDiagnosticsState). raster_tile_cap_drop_events counts read-intervals in
+	// which the per-tile raster cap truncated a tile; raster_tile_cap is the cap in force.
+	const TileRenderer *tr = tile_renderer->ptr();
+	out["sampled_dropped_records"] = static_cast<int64_t>(tr->get_sampled_dropped_records());
+	out["sampled_raster_truncated_tiles"] = static_cast<int64_t>(tr->get_sampled_raster_truncated_tiles());
+	out["sampled_drop_frame_serial"] = static_cast<int64_t>(tr->get_sampled_drop_frame_serial());
+	out["overflow_drop_events"] = static_cast<int64_t>(tr->get_overflow_drop_events());
+	out["raster_tile_cap_drop_events"] = static_cast<int64_t>(tr->get_raster_tile_cap_drop_events());
+	out["raster_tile_cap"] = static_cast<int64_t>(tr->get_raster_tile_cap());
 	return out;
 }
 

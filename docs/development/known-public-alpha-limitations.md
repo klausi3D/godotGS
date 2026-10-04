@@ -32,6 +32,7 @@ fixed them.
 | --- | --- | --- |
 | Splats trail by about 1.5 px under TAA in motion | [#1025](https://github.com/klausi3D/godotGS/issues/1025) | Accepted |
 | The bottom of the frame can go empty when overlap records run out | [#54](https://github.com/klausi3D/godotGS/issues/54) | Accepted |
+| Far views of dense content can show 16 px black tiles | [#1137](https://github.com/klausi3D/godotGS/issues/1137) | Active |
 | Transparent viewports are opaque under TAA or FSR2 | [#989](https://github.com/klausi3D/godotGS/issues/989) | Engine limitation |
 | Shadow-casting splats darken themselves; the starter template renders dark | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | Active |
 | Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) (closed) | Mitigated |
@@ -311,6 +312,45 @@ default-configured, in-envelope real scene **measured with demand above the cap*
 that persists at the default `max_overlap_records`, rather than one that clears as the
 capacity catches up, with no failed-grow warning (`… could not build its replacement`) in
 the log.
+
+### Far views of dense content can show 16 px black tiles ([#1137](https://github.com/klausi3D/godotGS/issues/1137))
+
+**Status: Active — shipping by maintainer decision** (2026-10-02, recorded on
+[#1138](https://github.com/klausi3D/godotGS/pull/1138)) until hierarchical LOD
+([#1136](https://github.com/klausi3D/godotGS/issues/1136)) lands. It is not yet a
+ledger-accepted limitation: there is no acceptance-bar §8.1 row and no
+`public_alpha_issue_ledger` entry, so a release candidate cannot cite it.
+
+The rasterizer draws at most a fixed number of overlap records per 16 px tile. Records are
+sorted near to far, so in a tile with more records than that, **the farthest ones are not
+drawn**. When an object is far enough away to collapse into a few tiles, those tiles can
+exceed the limit, and what was behind the front-most records shows as a **tile-aligned
+black (background) rectangle**. The limit is
+`rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile`; in Project Settings
+it reads `0`, which means "use the `gpu_sorting/gpu_preset` limit". The default `high`
+preset's limit is **12,288** (low 4,096, medium 8,192, ultra 16,384).
+
+**Affects:** dense real scans viewed from a distance at the default settings. Measured on an
+RTX 3090 (Vulkan) at 960×540 on four scans from GrandmasHouse: up to 2,295 missing pixels
+per view, starting between about 6 m and 23 m depending on the scan, and in one large scan
+already at its fitted view (14 m). At
+1920×1080 the same object covers more tiles, so the holes start further away (holzbank:
+from about 47 m instead of 23 m).
+
+**How you know:** the first time it happens, a renderer logs
+`Per-tile raster cap reached: …` once. `get_overflow_stats()` reports
+`raster_tile_cap_drop_events` (intervals with at least one truncated tile). For the most
+recently sampled frame it also reports `sampled_dropped_records` (records not drawn, from every
+cause) and `sampled_raster_truncated_tiles` (tiles the rasterizer truncated; tiles that lost
+records earlier, in tile binning, are not counted there).
+
+**Workaround:** set `max_raster_splats_per_tile` to a positive value, up to `65536`. A
+positive value overrides any preset. This costs **frame time, not memory**: one workgroup
+walks all records of its tile, so the densest tile sets the length of the raster pass. At
+`65536` the measured scans lost nothing, at **+33% to +75% GPU time** in the affected views
+(+2.3 to +10.9 ms on the 3090); `32768` cost up to +60% and still left holes in two views
+(lamp at 19 m, weg-gartenanlage at 14 m). Near views are unaffected either way. The measurements and images are on
+[#1138](https://github.com/klausi3D/godotGS/pull/1138).
 
 ### Splats cast no shadows ([#1089](https://github.com/klausi3D/godotGS/issues/1089), [#1095](https://github.com/klausi3D/godotGS/issues/1095))
 
