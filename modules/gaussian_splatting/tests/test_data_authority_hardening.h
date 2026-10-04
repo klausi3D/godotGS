@@ -654,6 +654,81 @@ TEST_CASE("[GaussianSplatting][DataAuthority] GaussianSplatAsset payload snapsho
 #endif
 }
 
+namespace {
+
+// Records payload_version at the moment `changed` fires. That instant is the one that
+// matters: GaussianSplatNode3D::_on_asset_changed() re-registers with the scene
+// director synchronously, and InstanceStore::refresh_asset() keeps the cached
+// GaussianData whenever the version it reads then has not moved.
+class GS1174PayloadVersionProbe : public Object {
+public:
+    GaussianSplatAsset *asset = nullptr;
+    int emissions = 0;
+    uint32_t version_at_emit = 0;
+    void on_changed() {
+        emissions++;
+        version_at_emit = asset->get_payload_version();
+    }
+};
+
+} // namespace
+
+// #1174: GaussianSplatNode3D::reload_asset() loads with CACHE_MODE_REPLACE, which applies
+// Resource::copy_from() to the SAME asset object. The packed setters it runs never bumped
+// payload_version, so the director's AssetRecord kept rendering the pre-reload GaussianData.
+TEST_CASE("[GaussianSplatting][DataAuthority] A copy_from hot reload bumps payload_version before it announces the change (#1174)") {
+    Ref<GaussianSplatAsset> target = _make_asset_snapshot_pattern(11.0f, Color(1, 0, 0, 1));
+    Ref<GaussianSplatAsset> reloaded_source = _make_asset_snapshot_pattern(-23.0f, Color(0, 1, 0, 1));
+
+    // Materialise (and seal) the target the way registration does, so the reload has a
+    // cached payload to invalidate and has to take the unseal path.
+    Ref<::GaussianData> before_reload = target->get_gaussian_data();
+    REQUIRE(before_reload.is_valid());
+    const uint32_t version_before = target->get_payload_version();
+
+    GS1174PayloadVersionProbe *probe = memnew(GS1174PayloadVersionProbe);
+    probe->asset = target.ptr();
+    const Callable on_changed = callable_mp(probe, &GS1174PayloadVersionProbe::on_changed);
+    target->connect(SNAME("changed"), on_changed);
+
+    REQUIRE(target->copy_from(reloaded_source) == OK);
+
+    // The reload really replaced the lanes (otherwise a version check proves nothing).
+    const PackedFloat32Array reloaded_positions = target->get_positions();
+    if (reloaded_positions.is_empty()) {
+        target->disconnect(SNAME("changed"), on_changed);
+        memdelete(probe);
+        FAIL("copy_from() must leave the reloaded positions in place");
+        return;
+    }
+    CHECK(reloaded_positions[0] == doctest::Approx(-23.0f));
+    CHECK(target->get_payload_version() != version_before);
+    CHECK_MESSAGE(probe->emissions >= 1,
+            "copy_from() must announce the reload; without an emission the next check is vacuous");
+    CHECK_MESSAGE(probe->version_at_emit != version_before,
+            "payload_version must already have moved when `changed` fires, or the director's "
+            "synchronous refresh keeps the stale GaussianData");
+
+    // The asset's own materialised payload is rebuilt from the reloaded lanes.
+    Ref<::GaussianData> after_reload = target->get_gaussian_data();
+    REQUIRE(after_reload.is_valid());
+    CHECK(after_reload != before_reload);
+
+    // A rejected copy (null source) changes nothing and must not announce a new payload.
+    const uint32_t version_after = target->get_payload_version();
+    Error rejected;
+    {
+        ERR_PRINT_OFF;
+        rejected = target->copy_from(Ref<Resource>());
+        ERR_PRINT_ON;
+    }
+    CHECK(rejected != OK);
+    CHECK(target->get_payload_version() == version_after);
+
+    target->disconnect(SNAME("changed"), on_changed);
+    memdelete(probe);
+}
+
 TEST_CASE("[GaussianSplatting][DataAuthority] Raw storage accessors compile-survivable and main-thread safe") {
     // This test merely exercises the accessor to confirm the debug diagnostic
     // is a no-op on the main thread (fires at most once off-main-thread in

@@ -285,6 +285,19 @@ Error GaussianSplatAsset::copy_from(const Ref<Resource> &p_resource) {
     MutexLock cache_lock(populate_mutex);
     const bool previous_seal = payload_sealed;
     payload_sealed = false;
+    // #1174: a hot reload replaces the payload, so it must be announced on
+    // payload_version exactly like populate_from_gaussian_data() announces one --
+    // the scene director's AssetRecord gates its cached GaussianData on that
+    // version (edited_version is TOOLS-only and a load never bumps it). The bump
+    // has to land BEFORE Resource::copy_from(): that call blocks `changed` while
+    // the packed setters run and emits it once from its own _unblock_emit_changed()
+    // before returning here, and the node's synchronous handler re-registers with
+    // the director right then. A bump after the call would be read by nobody.
+    // Only bumped when the base call will actually copy (it rejects a null or
+    // different-class source before touching anything).
+    if (p_resource.is_valid() && p_resource->get_class() == get_class()) {
+        payload_version++;
+    }
     const Error err = Resource::copy_from(p_resource);
     if (err != OK) {
         // Restore seal on failure so a rejected copy (null/incompatible
