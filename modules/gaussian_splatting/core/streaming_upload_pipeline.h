@@ -13,6 +13,9 @@
 #include <atomic>
 
 class GaussianStreamingSystem;
+namespace GaussianStreamingTypes {
+struct StreamingChunk;
+} // namespace GaussianStreamingTypes
 
 class StreamingUploadPipeline {
 public:
@@ -38,6 +41,7 @@ public:
         uint32_t chunk_idx = UINT32_MAX;
         uint32_t buffer_slot = UINT32_MAX;
         uint32_t asset_generation = 0;
+        uint32_t upload_sequence = 0; // #1177: StreamingChunk::upload_sequence at queue time
         uint64_t enqueue_usec = 0;
         uint32_t chunk_start = 0;
         uint32_t chunk_count = 0;
@@ -52,6 +56,7 @@ public:
         uint32_t chunk_idx = UINT32_MAX;
         uint32_t buffer_slot = UINT32_MAX;
         uint32_t asset_generation = 0;
+        uint32_t upload_sequence = 0; // #1177: copied from the PackJob
         uint64_t enqueue_usec = 0;
         Vector<PackedGaussian> packed_data;
         // #766 (extends #757): the atlas byte stride the async payload in `packed_data` is
@@ -325,12 +330,33 @@ public:
             const LocalVector<UploadCoalescingCandidate> &p_candidates, uint64_t p_byte_limit) {
         return _plan_coalesced_upload_batch(p_candidates, p_byte_limit);
     }
+    // #1177: drive the pack/upload lifecycle without worker threads or a device.
+    // _test_pop_pack_job() is a worker's dequeue; _test_complete_pack_job() is what the
+    // worker then does with the job (pack_thread_func: build, enqueue, release the in-flight
+    // slot). _test_finalize_completed_uploads_without_gpu_write() is process_upload_queue()
+    // minus the buffer write: every completed upload goes through the same
+    // accept_completed_upload() and finalize_completed_upload() steps. Returns the number of
+    // retirement tickets staged.
+    bool _test_pop_pack_job(PackJob &r_job) { return pop_pack_job(r_job); }
+    void _test_complete_pack_job(const PackJob &p_job);
+    uint32_t _test_complete_pack_jobs();
+    uint32_t _test_finalize_completed_uploads_without_gpu_write(GaussianStreamingSystem &system);
 #endif
 
 private:
     bool has_async_pack_queue_owner() const;
     bool pop_pack_job(PackJob &r_job);
     PendingChunkUpload *build_pending_upload_from_pack_job(const PackJob &p_job, PackSnapshotScratch &r_scratch);
+    // Main-thread validation of one completed upload before any buffer write (chunk, slot,
+    // generation, #1177 upload sequence, payload size, checksum, #766 stride). On false the job
+    // was dropped (deleted) and the chunk handled; on true r_chunk/r_total_bytes describe it.
+    bool accept_completed_upload(GaussianStreamingSystem &system, PendingChunkUpload *p_job,
+            GaussianStreamingTypes::StreamingChunk *&r_chunk, uint64_t &r_total_bytes,
+            bool p_checksum_validation_enabled);
+    // After the payload is written: stage the retirement ticket. Always consumes p_job.
+    // Returns whether a ticket was staged.
+    bool finalize_completed_upload(GaussianStreamingSystem &system, PendingChunkUpload *p_job,
+            GaussianStreamingTypes::StreamingChunk &r_chunk, RenderingDevice *p_submission_rd);
     void enqueue_upload_job(PendingChunkUpload *p_job);
     uint32_t promote_pack_jobs_sync(uint32_t p_max_jobs);
     bool pop_upload_job(PendingChunkUpload *&job);

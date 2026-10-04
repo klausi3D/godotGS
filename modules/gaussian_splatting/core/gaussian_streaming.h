@@ -175,6 +175,9 @@ private:
         // against the current stride and fail-closes (drops the ticket) on a mismatch instead of
         // reinterpreting the old-stride payload at the new stride.
         uint64_t packed_stride_bytes = 0;
+        // #1177: StreamingChunk::upload_sequence of the upload this ticket retires. A ticket
+        // whose sequence no longer matches the chunk is dropped without touching the chunk.
+        uint32_t upload_sequence = 0;
         uint8_t completion_mode = GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE;
         SHCompressionMetrics metrics;
     };
@@ -654,7 +657,11 @@ private:
             // the current effective stride -- identical to pre-#766 behavior. Non-zero (async
             // finalize_upload_job, carrying PendingChunkUpload::packed_stride_bytes) is recorded
             // verbatim so the #757 retirement guard compares against the true pack stride.
-            uint64_t override_packed_stride_bytes = 0);
+            uint64_t override_packed_stride_bytes = 0,
+            // #1177: sequence of the upload being staged. 0 (sync path, where begin and stage are
+            // one call) takes the chunk's current upload_sequence; the async finalize passes the
+            // sequence its job carried.
+            uint32_t override_upload_sequence = 0);
     void _process_upload_retirements();
     bool _has_pending_upload_retirement(uint32_t asset_id, uint32_t chunk_idx, uint32_t buffer_slot) const;
     void _mark_chunk_upload_failed(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, const char *context);

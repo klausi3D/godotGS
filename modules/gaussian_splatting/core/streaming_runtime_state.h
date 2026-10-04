@@ -40,6 +40,12 @@ struct BudgetState {
     // drop above: this one fires BEFORE the write, so no neighbor slot is corrupted. Cumulative,
     // like the retirement counter, so the pre-write degraded path is explicit and observable.
     uint64_t stride_flip_dropped_prewrite_uploads = 0;
+    // #1177: completed uploads dropped at pack completion (process_upload_queue) and retirement
+    // tickets dropped at retirement because their upload_sequence no longer matched the chunk's:
+    // the chunk was cancelled while a worker held the job and has been re-queued since.
+    // Cumulative, and kept apart so each guard stays individually observable.
+    uint64_t stale_sequence_dropped_uploads = 0;
+    uint64_t stale_sequence_dropped_upload_retirements = 0;
 
     Dictionary get_vram_debug_stats() const;
     bool is_vram_budget_warning_active() const;

@@ -1988,3 +1988,130 @@ TEST_CASE("[Streaming Pipeline] Predictive prefetch never evicts a visible chunk
         CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
     }
 }
+
+// ---------------------------------------------------------------------------
+// #1177: cancel_chunk_jobs() filters only the pack and upload queues. A pack job a
+// worker has already dequeued survives the cancel; the chunk is rolled back and its run
+// released, and when the chunk is queued again best fit hands back the same run. The
+// stale upload then matched the chunk's slot, was accepted, and staged a second
+// retirement ticket whose retirement rolled back the valid upload. Every upload now
+// carries the chunk's upload_sequence, checked at pack completion and at retirement.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int64_t _read_streaming_analytics_counter(GaussianStreamingSystem &r_system, const char *p_key) {
+    r_system.end_frame();
+    return int64_t(r_system.get_streaming_analytics().get(p_key, int64_t(-1)));
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] A cancelled pack job a worker already holds cannot retire over the re-queued upload (#1177)") {
+    SUBCASE("pack completion drops the stale upload; only the re-queued upload stages a ticket and loads") {
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+        chunks.resize(1);
+        chunks[0] = GaussianStreamingTypes::StreamingChunk();
+        chunks[0].start_idx = 0;
+        chunks[0].count = 128;
+        chunks[0].effective_count = chunks[0].count;
+        chunks[0].is_visible = true;
+        chunks[0].buffer_slot = UINT32_MAX;
+        system->_test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(256), 1);
+        auto &uploads = system->_internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true); // queue_chunk_load() needs a pack-queue owner
+
+        if (!uploads.queue_chunk_load(*system.ptr(), 0, 0)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: the chunk must be queued for packing");
+            return;
+        }
+        const uint32_t first_run = chunks[0].buffer_slot;
+        // A pack worker dequeues the job (pack_thread_func moves it out of pack_queue)...
+        StreamingUploadPipeline::PackJob stale_job;
+        if (!uploads._test_pop_pack_job(stale_job)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: the queued pack job must be dequeued");
+            return;
+        }
+        // ...and before it finishes the chunk is cancelled. The cancel cannot see the job.
+        uploads.cancel_chunk_jobs(*system.ptr(), 0, 0, UINT32_MAX);
+        // The chunk is requested again and best fit hands back the run just freed.
+        if (chunks[0].upload_pending || !uploads.queue_chunk_load(*system.ptr(), 0, 0) ||
+                chunks[0].buffer_slot != first_run) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: cancel, then re-queue into the same page run");
+            return;
+        }
+
+        // The worker finishes the cancelled job, then the re-queued one.
+        uploads._test_complete_pack_job(stale_job);
+        CHECK(uploads._test_complete_pack_jobs() == 1);
+        // process_upload_queue()'s acceptance and finalize steps, without the buffer write.
+        const uint32_t staged = uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+        CHECK(staged == 1);
+        CHECK(chunks[0].upload_pending);
+        CHECK(chunks[0].buffer_slot == first_run);
+
+        _advance_frames_until_upload_retired(system);
+        CHECK(chunks[0].is_loaded);
+        CHECK_FALSE(chunks[0].upload_pending);
+        CHECK(chunks[0].buffer_slot == first_run);
+        CHECK(system->get_loaded_chunks() == 1);
+        CHECK(system->_test_get_failed_upload_retirements() == 0);
+        CHECK(system->get_pending_upload_retirement_slots() == 0);
+
+        system->_test_end_device_free_load_scan();
+        CHECK(_read_streaming_analytics_counter(*system.ptr(), "stale_sequence_dropped_uploads") == 1);
+        CHECK(int64_t(system->get_streaming_analytics().get("pending_upload_retirement_tickets", int64_t(-1))) == 0);
+    }
+
+    SUBCASE("retirement drops a ticket of a superseded upload instead of rolling back the current one") {
+        // Defense in depth for the pack-completion check: a ticket staged for an upload that
+        // was rolled back and begun again in the same run must not retire over the new one.
+        GaussianStreamingSystem system;
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        chunks.resize(1);
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[0];
+        chunk.start_idx = 0;
+        chunk.count = 128;
+        chunk.is_visible = true;
+        chunk.effective_count = chunk.count;
+        system._test_register_primary_asset_for_chunks();
+        system._test_reset_atlas_allocator(4);
+
+        const uint64_t chunk_key = system._test_make_chunk_key(0, 0);
+        const uint32_t pages = GaussianStreamingSystem::atlas_pages_for_splats(chunk.count);
+        const uint64_t upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+        uint32_t first_run = UINT32_MAX;
+        REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, pages, first_run));
+        REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, first_run));
+        REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, first_run, upload_bytes, 2,
+                GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER));
+        // The upload is cancelled while its ticket is in flight...
+        system._test_rollback_pending_chunk(0, 0, chunk, true);
+        // ...and the chunk begins a new upload in the same run, with its own ticket.
+        uint32_t second_run = UINT32_MAX;
+        REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, pages, second_run));
+        if (second_run != first_run) {
+            FAIL("fixture precondition: best fit must hand back the same run");
+            return;
+        }
+        REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, second_run));
+        REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, second_run, upload_bytes, 2,
+                GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER));
+
+        for (int frame = 0; frame < 8 && !chunk.is_loaded; frame++) {
+            system.begin_frame();
+        }
+        CHECK(chunk.is_loaded);
+        CHECK(chunk.buffer_slot == second_run);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system._test_get_failed_upload_retirements() == 0);
+        CHECK(system._test_atlas_allocator().get_used_page_count() == pages);
+        CHECK(_read_streaming_analytics_counter(system, "stale_sequence_dropped_upload_retirements") == 1);
+        CHECK(int64_t(system.get_streaming_analytics().get("pending_upload_retirement_tickets", int64_t(-1))) == 0);
+    }
+}

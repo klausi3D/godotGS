@@ -582,6 +582,8 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     budget.failed_upload_retirements = 0;
     budget.stride_flip_dropped_upload_retirements = 0;
     budget.stride_flip_dropped_prewrite_uploads = 0;
+    budget.stale_sequence_dropped_uploads = 0;
+    budget.stale_sequence_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -3529,6 +3531,9 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
     chunk.buffer_slot = buffer_slot;
     chunk.upload_pending = true;
     chunk.gpu_resident = false;
+    // #1177: a new upload of this chunk; any job or ticket still carrying the previous
+    // sequence is stale from here on. 0 is reserved for "never began".
+    chunk.upload_sequence = chunk.upload_sequence == UINT32_MAX ? 1u : chunk.upload_sequence + 1u;
     chunk.upload_lifecycle_state = GaussianStreamingTypes::STREAMING_UPLOAD_STATE_CPU_PACKED;
     chunk.upload_completion_mode = GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE;
     chunk.upload_ticket_id = 0;
@@ -3547,7 +3552,8 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
         const SHCompressionMetrics &metrics, RenderingDevice *submission_rd,
         uint32_t override_retire_after_frames,
         StreamingUploadCompletionMode override_completion_mode,
-        uint64_t override_packed_stride_bytes) {
+        uint64_t override_packed_stride_bytes,
+        uint32_t override_upload_sequence) {
     if (!chunk.upload_pending || chunk.is_loaded || chunk.buffer_slot != buffer_slot ||
             buffer_slot == UINT32_MAX || bytes == 0) {
         _mark_chunk_upload_failed(asset_id, chunk_idx, chunk, "_stage_chunk_upload_retirement.invalid_state");
@@ -3599,6 +3605,7 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
     ticket.packed_stride_bytes = override_packed_stride_bytes != 0
             ? override_packed_stride_bytes
             : _atlas_gaussian_stride_bytes();
+    ticket.upload_sequence = override_upload_sequence != 0 ? override_upload_sequence : chunk.upload_sequence;
     ticket.completion_mode = completion_mode;
     ticket.metrics = metrics;
     pending_upload_retirements.push_back(ticket);
@@ -3708,6 +3715,21 @@ void GaussianStreamingSystem::_process_upload_retirements() {
         }
 
         StreamingChunk &chunk = asset_chunks[ticket.chunk_idx];
+        if (ticket.upload_sequence != chunk.upload_sequence) {
+            // #1177: the ticket belongs to an upload that was cancelled and superseded by a later
+            // _begin_chunk_upload(), which may own the very same page run. Rolling the chunk back
+            // here (the state-mismatch path below) would discard that newer, valid upload, so
+            // drop the ticket and leave the chunk and any run it owns alone.
+            const bool chunk_owns_ticket_slot = chunk.buffer_slot == ticket.buffer_slot &&
+                    (chunk.upload_pending || chunk.is_loaded);
+            if (!chunk_owns_ticket_slot) {
+                _release_chunk_slot_if_matches(atlas_allocator,
+                        _make_chunk_key(ticket.asset_id, ticket.chunk_idx), ticket.buffer_slot);
+            }
+            budget.stale_sequence_dropped_upload_retirements++;
+            last_completed_upload_ticket_id = ticket.ticket_id;
+            continue;
+        }
         if (!_retirement_ticket_matches_chunk(ticket, chunk)) {
             if (_retirement_state_mismatch_can_rollback(ticket, chunk)) {
                 _mark_chunk_upload_failed(ticket.asset_id, ticket.chunk_idx, chunk,

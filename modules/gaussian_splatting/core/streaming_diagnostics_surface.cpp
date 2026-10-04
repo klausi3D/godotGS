@@ -166,6 +166,10 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     analytics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     analytics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    // #1177: stale (cancelled-then-superseded) uploads dropped at pack completion and retirement.
+    analytics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    analytics_snapshot["stale_sequence_dropped_upload_retirements"] =
+            static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
     analytics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     // #1087: the distance bound on chunk demand (0 = unbounded) and what it removed this frame.
     analytics_snapshot["load_distance_limit"] = visibility.load_distance_limit;
@@ -774,6 +778,9 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     diagnostics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     diagnostics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    diagnostics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    diagnostics_snapshot["stale_sequence_dropped_upload_retirements"] =
+            static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
     diagnostics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     diagnostics_snapshot["last_completed_upload_ticket_id"] = static_cast<int64_t>(last_completed_upload_ticket_id);
     diagnostics_snapshot["sync_promoted_pack_jobs_this_frame"] = static_cast<int64_t>(upload_pipeline.last_sync_promoted_pack_jobs);

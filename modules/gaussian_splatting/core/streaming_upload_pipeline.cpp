@@ -658,6 +658,7 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, buffer_slot);
         return false;
     }
+    job.upload_sequence = chunk.upload_sequence; // #1177: set by _begin_chunk_upload()
     queued_chunk_loads_this_frame++;
     pack_jobs_in_flight.fetch_add(1);
 
@@ -670,6 +671,212 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
         sync_cached_queue_depths_locked();
     }
     pack_semaphore.post();
+    return true;
+}
+
+bool StreamingUploadPipeline::accept_completed_upload(GaussianStreamingSystem &system, PendingChunkUpload *job,
+        GaussianStreamingTypes::StreamingChunk *&r_chunk, uint64_t &r_total_bytes,
+        bool p_checksum_validation_enabled) {
+    r_chunk = nullptr;
+    r_total_bytes = 0;
+    const uint64_t chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
+    GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(job->asset_id);
+    if (!asset) {
+        _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        memdelete(job);
+        return false;
+    }
+
+    LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._get_asset_chunks(*asset);
+    if (job->chunk_idx >= asset_chunks.size()) {
+        _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        memdelete(job);
+        return false;
+    }
+
+    if (asset->generation != job->asset_generation) {
+        system.diagnostics.invariant_generation_violations++;
+        system.diagnostics.last_invariant_context = "resolve_upload_chunk.asset_generation";
+        system.diagnostics.last_invariant_message = vformat(
+                "[Streaming] Stale upload job dropped: asset=%d chunk=%d queued_generation=%d current_generation=%d.",
+                job->asset_id, job->chunk_idx, job->asset_generation, asset->generation);
+        GaussianStreamingSystem::StreamingChunk &stale_chunk = asset_chunks[job->chunk_idx];
+        const bool current_chunk_owns_job_slot = (stale_chunk.buffer_slot == job->buffer_slot) &&
+                (stale_chunk.upload_pending || stale_chunk.is_loaded);
+        if (!current_chunk_owns_job_slot) {
+            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        }
+        memdelete(job);
+        return false;
+    }
+
+    GaussianStreamingSystem::StreamingChunk &resolved_chunk = asset_chunks[job->chunk_idx];
+    if (job->upload_sequence != resolved_chunk.upload_sequence) {
+        // #1177: this job was dequeued by a pack worker before cancel_chunk_jobs() ran, so the
+        // cancel could not remove it, and the chunk has been queued again since (a new
+        // _begin_chunk_upload(), usually into the very run this job targets). The chunk and
+        // its run belong to that newer upload: drop the job without rolling the chunk back and
+        // without releasing a run the chunk owns, before anything is written or staged.
+        const bool chunk_owns_job_slot = (resolved_chunk.buffer_slot == job->buffer_slot) &&
+                (resolved_chunk.upload_pending || resolved_chunk.is_loaded);
+        if (!chunk_owns_job_slot) {
+            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        }
+        system.budget.stale_sequence_dropped_uploads++;
+        memdelete(job);
+        return false;
+    }
+    if (!resolved_chunk.upload_pending || resolved_chunk.buffer_slot != job->buffer_slot) {
+        if (!resolved_chunk.is_loaded && resolved_chunk.buffer_slot == job->buffer_slot) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, resolved_chunk, true);
+        } else if (!resolved_chunk.is_loaded) {
+            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        }
+        memdelete(job);
+        return false;
+    }
+
+    uint32_t mapped_slot = UINT32_MAX;
+    if (!_chunk_slot_matches_allocator(system.atlas_allocator, chunk_key, job->buffer_slot, &mapped_slot)) {
+        if (!resolved_chunk.is_loaded && resolved_chunk.upload_pending) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, resolved_chunk, false);
+        }
+        if (mapped_slot != UINT32_MAX) {
+            system.atlas_allocator.release_slot(chunk_key);
+        } else {
+            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
+        }
+        memdelete(job);
+        return false;
+    }
+
+    system._assert_chunk_state_invariant(job->asset_id, job->chunk_idx, resolved_chunk, "resolve_upload_chunk");
+    GaussianStreamingSystem::StreamingChunk *chunk = &resolved_chunk;
+    if (chunk->count == 0 || chunk->count > GaussianStreamingSystem::CHUNK_SIZE) {
+        system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        memdelete(job);
+        return false;
+    }
+    if (job->packed_data.size() != static_cast<int>(chunk->count)) {
+        system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        memdelete(job);
+        return false;
+    }
+
+    const uint64_t total_bytes = uint64_t(job->packed_data.size()) * sizeof(PackedGaussian);
+    if (total_bytes == 0) {
+        system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        memdelete(job);
+        return false;
+    }
+
+    uint32_t actual_checksum = 0;
+    const PayloadChecksumValidationResult checksum_result = p_checksum_validation_enabled ?
+            _validate_pending_upload_payload_checksum(*job, &actual_checksum) :
+            PayloadChecksumValidationResult::VALID;
+    if (checksum_result != PayloadChecksumValidationResult::VALID) {
+        system.diagnostics.invariant_upload_lifecycle_violations++;
+        system.diagnostics.integrity_mismatch_count++;
+        if (checksum_result == PayloadChecksumValidationResult::MISSING_BASELINE) {
+            system.diagnostics.last_invariant_context = "process_upload_queue.payload_checksum_missing";
+            system.diagnostics.last_invariant_message = vformat(
+                    "[Streaming] Upload payload checksum validation is enabled, but job was packed without a checksum baseline: asset=%d chunk=%d.",
+                    job->asset_id, job->chunk_idx);
+        } else {
+            system.diagnostics.last_invariant_context = "process_upload_queue.payload_checksum";
+            system.diagnostics.last_invariant_message = vformat(
+                    "[Streaming] Upload payload checksum mismatch: asset=%d chunk=%d expected=0x%x actual=0x%x.",
+                    job->asset_id, job->chunk_idx,
+                    (unsigned int)job->payload_checksum,
+                    (unsigned int)actual_checksum);
+        }
+        system.diagnostics.last_integrity_mismatch_message = system.diagnostics.last_invariant_message;
+        WARN_PRINT(system.diagnostics.last_invariant_message);
+        system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        memdelete(job);
+        return false;
+    }
+
+    // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
+    // 128 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
+    // the write by sizeof(PackedGaussian) (run capacity / slot_offset below) --
+    // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
+    // If the effective atlas stride flipped 144->80 while this job was in flight (a
+    // mixed-DC (un)registration toggling per-chunk quantization DC-compatibility),
+    // buffer_update() would splice this 144 B payload across the now-80 B slot grid and
+    // clobber neighboring resident 80 B slots. The #757 retirement guard only drops the
+    // ticket AFTER the write and cannot un-corrupt those neighbors, so compare the
+    // pack-time stride against the current effective stride HERE, before any buffer
+    // copy. On a mismatch, roll the chunk back to idle and drop the job; the scheduler
+    // re-packs it at the current stride on a later frame (symmetric with the retirement
+    // guard's recovery). A payload packed at one stride cannot be reinterpreted into the
+    // other's slots, so drop-and-repack -- not a re-strided write -- is the only correct
+    // action. packed_stride_bytes == 0 means "unset" (pre-#766 job) -> fall through to
+    // the effective stride, matching _stage_chunk_upload_retirement's override handling.
+    // The job is dropped before a retirement ticket is staged, and it increments a DISTINCT
+    // counter (stride_flip_dropped_prewrite_uploads) from the retirement-time drop, so the two
+    // fail-closed sites stay individually observable and never double-count one job.
+    if (job->packed_stride_bytes != 0 &&
+            job->packed_stride_bytes != system._atlas_gaussian_stride_bytes()) {
+        system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        system.budget.stride_flip_dropped_prewrite_uploads++;
+        memdelete(job);
+        return false;
+    }
+
+    r_chunk = chunk;
+    r_total_bytes = total_bytes;
+    return true;
+}
+
+bool StreamingUploadPipeline::finalize_completed_upload(GaussianStreamingSystem &system, PendingChunkUpload *job,
+        GaussianStreamingTypes::StreamingChunk &chunk, RenderingDevice *p_submission_rd) {
+    if (job->upload_sequence != chunk.upload_sequence) {
+        // #1177: superseded while its payload was being written (see accept_completed_upload).
+        // Checked first: the state checks below would roll back the newer upload's chunk.
+        system.budget.stale_sequence_dropped_uploads++;
+        memdelete(job);
+        return false;
+    }
+    if (chunk.is_loaded || !chunk.upload_pending || chunk.buffer_slot != job->buffer_slot) {
+        if (!chunk.is_loaded) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, chunk, true);
+        }
+        memdelete(job);
+        return false;
+    }
+
+    const uint64_t chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
+    uint32_t mapped_slot = UINT32_MAX;
+    if (!_chunk_slot_matches_allocator(system.atlas_allocator, chunk_key, chunk.buffer_slot, &mapped_slot)) {
+        if (!chunk.is_loaded && chunk.upload_pending) {
+            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, chunk, false);
+        }
+        if (mapped_slot != UINT32_MAX) {
+            system.atlas_allocator.release_slot(chunk_key);
+        }
+        memdelete(job);
+        return false;
+    }
+
+    const uint64_t uploaded_bytes = job->bytes_uploaded;
+    // #766: pass the stride the payload was PACKED at (recorded on the worker thread in
+    // build_pending_upload_from_pack_job), not the effective stride sampled here at stage
+    // time. Async pack and stage are decoupled, so a 144->80 flip in between would otherwise be
+    // snapshotted as the post-flip stride and slip past the #757 retirement guard. With the true
+    // pack-time stride threaded through, _stage_chunk_upload_retirement records it verbatim and
+    // _process_upload_retirements() fail-closes on a mismatch symmetrically for the async path.
+    if (!system._stage_chunk_upload_retirement(job->asset_id, job->chunk_idx, chunk,
+                job->buffer_slot, uploaded_bytes, job->metrics, p_submission_rd,
+                /*override_retire_after_frames*/ UINT32_MAX,
+                /*override_completion_mode*/ GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE,
+                /*override_packed_stride_bytes*/ job->packed_stride_bytes,
+                /*override_upload_sequence*/ job->upload_sequence)) {
+        memdelete(job);
+        return false;
+    }
+
+    memdelete(job);
     return true;
 }
 
@@ -686,68 +893,6 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         return;
     }
     const bool checksum_validation_enabled = validate_upload_payload_checksums.load(std::memory_order_acquire);
-
-    auto resolve_upload_chunk = [&](PendingChunkUpload *job, GaussianStreamingSystem::StreamingChunk *&chunk) -> bool {
-        const uint64_t chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
-        GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(job->asset_id);
-        if (!asset) {
-            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
-            memdelete(job);
-            return false;
-        }
-
-        LocalVector<GaussianStreamingSystem::StreamingChunk> &asset_chunks = system._get_asset_chunks(*asset);
-        if (job->chunk_idx >= asset_chunks.size()) {
-            _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
-            memdelete(job);
-            return false;
-        }
-
-        if (asset->generation != job->asset_generation) {
-            system.diagnostics.invariant_generation_violations++;
-            system.diagnostics.last_invariant_context = "resolve_upload_chunk.asset_generation";
-            system.diagnostics.last_invariant_message = vformat(
-                    "[Streaming] Stale upload job dropped: asset=%d chunk=%d queued_generation=%d current_generation=%d.",
-                    job->asset_id, job->chunk_idx, job->asset_generation, asset->generation);
-            GaussianStreamingSystem::StreamingChunk &stale_chunk = asset_chunks[job->chunk_idx];
-            const bool current_chunk_owns_job_slot = (stale_chunk.buffer_slot == job->buffer_slot) &&
-                    (stale_chunk.upload_pending || stale_chunk.is_loaded);
-            if (!current_chunk_owns_job_slot) {
-                _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
-            }
-            memdelete(job);
-            return false;
-        }
-
-        GaussianStreamingSystem::StreamingChunk &resolved_chunk = asset_chunks[job->chunk_idx];
-        if (!resolved_chunk.upload_pending || resolved_chunk.buffer_slot != job->buffer_slot) {
-            if (!resolved_chunk.is_loaded && resolved_chunk.buffer_slot == job->buffer_slot) {
-                system._rollback_pending_chunk(job->asset_id, job->chunk_idx, resolved_chunk, true);
-            } else if (!resolved_chunk.is_loaded) {
-                _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
-            }
-            memdelete(job);
-            return false;
-        }
-
-        uint32_t mapped_slot = UINT32_MAX;
-        if (!_chunk_slot_matches_allocator(system.atlas_allocator, chunk_key, job->buffer_slot, &mapped_slot)) {
-            if (!resolved_chunk.is_loaded && resolved_chunk.upload_pending) {
-                system._rollback_pending_chunk(job->asset_id, job->chunk_idx, resolved_chunk, false);
-            }
-            if (mapped_slot != UINT32_MAX) {
-                system.atlas_allocator.release_slot(chunk_key);
-            } else {
-                _release_chunk_slot_if_matches(system.atlas_allocator, chunk_key, job->buffer_slot);
-            }
-            memdelete(job);
-            return false;
-        }
-
-        system._assert_chunk_state_invariant(job->asset_id, job->chunk_idx, resolved_chunk, "resolve_upload_chunk");
-        chunk = &resolved_chunk;
-        return true;
-    };
 
     auto inspect_upload_chunk_for_coalescing = [&](PendingChunkUpload *job,
                                                    GaussianStreamingSystem::StreamingChunk *&chunk,
@@ -770,6 +915,7 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         GaussianStreamingSystem::StreamingChunk &resolved_chunk = asset_chunks[job->chunk_idx];
         if (!resolved_chunk.upload_pending ||
                 resolved_chunk.is_loaded ||
+                resolved_chunk.upload_sequence != job->upload_sequence || // #1177: never batch a stale job
                 resolved_chunk.buffer_slot != job->buffer_slot ||
                 resolved_chunk.count == 0 ||
                 resolved_chunk.count > GaussianStreamingSystem::CHUNK_SIZE) {
@@ -874,44 +1020,9 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
     auto finalize_upload_job = [&](PendingChunkUpload *job,
                                    GaussianStreamingSystem::StreamingChunk &chunk,
                                    UploadBudgetState &budget_state) {
-        if (chunk.is_loaded || !chunk.upload_pending || chunk.buffer_slot != job->buffer_slot) {
-            if (!chunk.is_loaded) {
-                system._rollback_pending_chunk(job->asset_id, job->chunk_idx, chunk, true);
-            }
-            memdelete(job);
+        if (!finalize_completed_upload(system, job, chunk, submission_rd)) {
             return;
         }
-
-        const uint64_t chunk_key = system._make_chunk_key(job->asset_id, job->chunk_idx);
-        uint32_t mapped_slot = UINT32_MAX;
-        if (!_chunk_slot_matches_allocator(system.atlas_allocator, chunk_key, chunk.buffer_slot, &mapped_slot)) {
-            if (!chunk.is_loaded && chunk.upload_pending) {
-                system._rollback_pending_chunk(job->asset_id, job->chunk_idx, chunk, false);
-            }
-            if (mapped_slot != UINT32_MAX) {
-                system.atlas_allocator.release_slot(chunk_key);
-            }
-            memdelete(job);
-            return;
-        }
-
-        const uint64_t uploaded_bytes = job->bytes_uploaded;
-        // #766: pass the stride the payload was PACKED at (recorded on the worker thread in
-        // build_pending_upload_from_pack_job), not the effective stride sampled here at stage
-        // time. Async pack and stage are decoupled, so a 144->80 flip in between would otherwise be
-        // snapshotted as the post-flip stride and slip past the #757 retirement guard. With the true
-        // pack-time stride threaded through, _stage_chunk_upload_retirement records it verbatim and
-        // _process_upload_retirements() fail-closes on a mismatch symmetrically for the async path.
-        if (!system._stage_chunk_upload_retirement(job->asset_id, job->chunk_idx, chunk,
-                    job->buffer_slot, uploaded_bytes, job->metrics, submission_rd,
-                    /*override_retire_after_frames*/ UINT32_MAX,
-                    /*override_completion_mode*/ GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE,
-                    /*override_packed_stride_bytes*/ job->packed_stride_bytes)) {
-            memdelete(job);
-            return;
-        }
-
-        memdelete(job);
         budget_state.completed_chunks++;
         if (telemetry.is_enabled()) {
             telemetry.add_upload_chunk();
@@ -949,78 +1060,8 @@ void StreamingUploadPipeline::process_upload_queue(GaussianStreamingSystem &syst
         }
 
         GaussianStreamingSystem::StreamingChunk *chunk = nullptr;
-        if (!resolve_upload_chunk(job, chunk)) {
-            continue;
-        }
-        if (chunk->count == 0 || chunk->count > GaussianStreamingSystem::CHUNK_SIZE) {
-            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
-            memdelete(job);
-            continue;
-        }
-        if (job->packed_data.size() != static_cast<int>(chunk->count)) {
-            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
-            memdelete(job);
-            continue;
-        }
-
-        const uint64_t total_bytes = uint64_t(job->packed_data.size()) * sizeof(PackedGaussian);
-        if (total_bytes == 0) {
-            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
-            memdelete(job);
-            continue;
-        }
-
-        uint32_t actual_checksum = 0;
-        const PayloadChecksumValidationResult checksum_result = checksum_validation_enabled ?
-                _validate_pending_upload_payload_checksum(*job, &actual_checksum) :
-                PayloadChecksumValidationResult::VALID;
-        if (checksum_result != PayloadChecksumValidationResult::VALID) {
-            system.diagnostics.invariant_upload_lifecycle_violations++;
-            system.diagnostics.integrity_mismatch_count++;
-            if (checksum_result == PayloadChecksumValidationResult::MISSING_BASELINE) {
-                system.diagnostics.last_invariant_context = "process_upload_queue.payload_checksum_missing";
-                system.diagnostics.last_invariant_message = vformat(
-                        "[Streaming] Upload payload checksum validation is enabled, but job was packed without a checksum baseline: asset=%d chunk=%d.",
-                        job->asset_id, job->chunk_idx);
-            } else {
-                system.diagnostics.last_invariant_context = "process_upload_queue.payload_checksum";
-                system.diagnostics.last_invariant_message = vformat(
-                        "[Streaming] Upload payload checksum mismatch: asset=%d chunk=%d expected=0x%x actual=0x%x.",
-                        job->asset_id, job->chunk_idx,
-                        (unsigned int)job->payload_checksum,
-                        (unsigned int)actual_checksum);
-            }
-            system.diagnostics.last_integrity_mismatch_message = system.diagnostics.last_invariant_message;
-            WARN_PRINT(system.diagnostics.last_invariant_message);
-            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
-            memdelete(job);
-            continue;
-        }
-
-        // #766 follow-up (pre-write, fail-closed): the async pack path always emits the
-        // 128 B PackedGaussian layout, and upload_job_slices()/coalescing size and OFFSET
-        // the write by sizeof(PackedGaussian) (run capacity / slot_offset below) --
-        // unlike the SYNC path, which offsets by the runtime _atlas_gaussian_stride_bytes().
-        // If the effective atlas stride flipped 144->80 while this job was in flight (a
-        // mixed-DC (un)registration toggling per-chunk quantization DC-compatibility),
-        // buffer_update() would splice this 144 B payload across the now-80 B slot grid and
-        // clobber neighboring resident 80 B slots. The #757 retirement guard only drops the
-        // ticket AFTER the write and cannot un-corrupt those neighbors, so compare the
-        // pack-time stride against the current effective stride HERE, before any buffer
-        // copy. On a mismatch, roll the chunk back to idle and drop the job; the scheduler
-        // re-packs it at the current stride on a later frame (symmetric with the retirement
-        // guard's recovery). A payload packed at one stride cannot be reinterpreted into the
-        // other's slots, so drop-and-repack -- not a re-strided write -- is the only correct
-        // action. packed_stride_bytes == 0 means "unset" (pre-#766 job) -> fall through to
-        // the effective stride, matching _stage_chunk_upload_retirement's override handling.
-        // The job is dropped before a retirement ticket is staged, and it increments a DISTINCT
-        // counter (stride_flip_dropped_prewrite_uploads) from the retirement-time drop, so the two
-        // fail-closed sites stay individually observable and never double-count one job.
-        if (job->packed_stride_bytes != 0 &&
-                job->packed_stride_bytes != system._atlas_gaussian_stride_bytes()) {
-            system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
-            system.budget.stride_flip_dropped_prewrite_uploads++;
-            memdelete(job);
+        uint64_t total_bytes = 0;
+        if (!accept_completed_upload(system, job, chunk, total_bytes, checksum_validation_enabled)) {
             continue;
         }
 
@@ -1270,6 +1311,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
     upload->chunk_idx = p_job.chunk_idx;
     upload->buffer_slot = p_job.buffer_slot;
     upload->asset_generation = p_job.asset_generation;
+    upload->upload_sequence = p_job.upload_sequence;
     // #766: stamp the true pack-time stride. This function is the sole producer of async upload
     // jobs and always packs the 128 B PackedGaussian layout (pack_gaussians_range writes
     // Vector<PackedGaussian>; upload_job_slices()/coalescing size and offset by sizeof(PackedGaussian)).
@@ -1931,3 +1973,41 @@ void StreamingUploadPipeline::clear_pending_uploads(GaussianStreamingSystem &sys
     }
 
 }
+
+#if defined(TESTS_ENABLED)
+void StreamingUploadPipeline::_test_complete_pack_job(const PackJob &p_job) {
+    // Same three steps as pack_thread_func() for one dequeued job.
+    PendingChunkUpload *upload = build_pending_upload_from_pack_job(p_job, sync_pack_scratch);
+    enqueue_upload_job(upload);
+    _atomic_saturating_sub(pack_jobs_in_flight, 1);
+}
+
+uint32_t StreamingUploadPipeline::_test_complete_pack_jobs() {
+    uint32_t completed = 0;
+    PackJob job;
+    while (pop_pack_job(job)) {
+        _test_complete_pack_job(job);
+        completed++;
+    }
+    return completed;
+}
+
+uint32_t StreamingUploadPipeline::_test_finalize_completed_uploads_without_gpu_write(GaussianStreamingSystem &system) {
+    const bool checksum_validation_enabled = validate_upload_payload_checksums.load(std::memory_order_acquire);
+    uint32_t staged = 0;
+    PendingChunkUpload *job = nullptr;
+    while (pop_upload_job(job) && job) {
+        GaussianStreamingTypes::StreamingChunk *chunk = nullptr;
+        uint64_t total_bytes = 0;
+        if (!accept_completed_upload(system, job, chunk, total_bytes, checksum_validation_enabled)) {
+            continue;
+        }
+        // The buffer write process_upload_queue() would make here is the only step skipped.
+        job->bytes_uploaded = uint32_t(total_bytes);
+        if (finalize_completed_upload(system, job, *chunk, nullptr)) {
+            staged++;
+        }
+    }
+    return staged;
+}
+#endif
