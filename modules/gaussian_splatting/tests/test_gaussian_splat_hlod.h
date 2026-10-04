@@ -1779,6 +1779,40 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] radius validation accepts isotropi
 	CHECK(boundary.distance_to(chunks[0].center) > leaf.radius);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] resident chunk radius survives far-offset center rounding") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(0u, 2u, g);
+	for (uint32_t i = 0; i < g.size(); i++) {
+		g[i].position = Vector3(1000000.0f + float(i) * 0.0625f, 0, 0);
+		g[i].scale = Vector3(0.01f, 0.01f, 0.01f);
+		g[i].rotation = Quaternion();
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK || world->get_static_chunks().size() != 1) {
+		FAIL("far-offset pair must bake to one leaf chunk");
+		return;
+	}
+	const GaussianSplatRenderer::StaticChunk &chunk = world->get_static_chunks()[0];
+	const Plane boundary(Vector3(-1, 0, 0), -g[1].position.x);
+	CHECK(boundary.distance_to(g[1].position) == 0.0f);
+	CHECK(boundary.distance_to(chunk.center) <= chunk.radius);
+	// Bound every exact stored corner about the emitted float center, not a rounded midpoint.
+	const GaussianSplatHlodTree &tree = world->get_hlod_tree();
+	const GaussianSplatHlodNode &leaf = tree.nodes[0];
+	double cell_center[3];
+	tree.node_cell_center(leaf, cell_center);
+	for (uint32_t corner = 0; corner < 8u; corner++) {
+		double distance_squared = 0.0;
+		for (int a = 0; a < 3; a++) {
+			const double endpoint = cell_center[a] + double((corner & (1u << a)) != 0u ? leaf.aabb_max[a] : leaf.aabb_min[a]);
+			const double delta = endpoint - double(chunk.center[a]);
+			distance_squared += delta * delta;
+		}
+		CHECK(double(chunk.radius) >= std::sqrt(distance_squared));
+	}
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] save rejects edits before snapshot and freezes metadata after snapshot") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;

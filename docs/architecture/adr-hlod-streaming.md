@@ -404,6 +404,9 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   enclose every AABB corner: an isotropic three-sigma sphere is smaller than its box
   half-diagonal. S1's resident leaf-chunk adapter conservatively enlarges its runtime
   sphere to at least the AABB half-diagonal, as the streaming adapter already does.
+  It also accounts for rounding of the emitted float centre at large coordinates:
+  exact stored and runtime AABB corners are bounded about that centre, the serialized
+  sphere is padded by its centre displacement, and the runtime radius rounds upward.
 - **World chunks are not the leaves.** Today's 10 m grid chunks reach 22,618 splats; the bake
   partitions by the octree instead.
 

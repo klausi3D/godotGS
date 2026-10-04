@@ -5,6 +5,8 @@
 #include "gs_vector_alloc.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 void GaussianSplatWorld::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_gaussian_data", "data"), &GaussianSplatWorld::set_gaussian_data);
@@ -374,9 +376,30 @@ bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_t
         GaussianSplatRenderer::StaticChunk chunk;
         chunk.bounds = p_tree.node_world_aabb(leaf);
         chunk.center = chunk.bounds.get_center();
-        // The current chunk culler must not trust a tight or malformed serialized sphere.
-        // Match the streaming path's conservative AABB-derived lower bound.
-        chunk.radius = MAX(leaf.radius, (chunk.bounds.size * 0.5f).length());
+        // The culler uses a float center; bound exact stored and runtime AABB corners about
+        // that center, and pad the serialized sphere for its midpoint's rounding displacement.
+        double cell_center[3];
+        p_tree.node_cell_center(leaf, cell_center);
+        double shift_squared = 0.0;
+        double extent_squared = 0.0;
+        for (int a = 0; a < 3; a++) {
+            const double lo = cell_center[a] + double(leaf.aabb_min[a]);
+            const double hi = cell_center[a] + double(leaf.aabb_max[a]);
+            const double midpoint = 0.5 * (lo + hi);
+            const double center = double(chunk.center[a]);
+            const double shift = midpoint - center;
+            shift_squared += shift * shift;
+            const double runtime_lo = double(chunk.bounds.position[a]);
+            const double runtime_hi = runtime_lo + double(chunk.bounds.size[a]);
+            const double extent = MAX(MAX(std::abs(lo - center), std::abs(hi - center)),
+                    MAX(std::abs(runtime_lo - center), std::abs(runtime_hi - center)));
+            extent_squared += extent * extent;
+        }
+        const double radius = MAX(double(leaf.radius) + std::sqrt(shift_squared), std::sqrt(extent_squared));
+        chunk.radius = float(radius);
+        if (double(chunk.radius) < radius) {
+            chunk.radius = std::nextafter(chunk.radius, std::numeric_limits<float>::infinity());
+        }
         if (!gs_resize_or_fail(chunk.indices, int64_t(leaf.payload_count), "GaussianSplatWorld::build_hlod_leaf_chunks indices")) {
             return false;
         }
