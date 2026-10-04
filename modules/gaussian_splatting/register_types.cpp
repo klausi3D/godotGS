@@ -57,6 +57,7 @@
 // Global resource loader instance
 static Ref<ResourceFormatLoaderGaussianSplat> gaussian_format_loader;
 static Ref<ResourceFormatLoaderGaussianSplatWorld> gaussian_world_format_loader;
+static Ref<ResourceFormatLoaderImportedGaussianSplatWorld> gaussian_world_import_format_loader;
 static Ref<ResourceFormatSaverGaussianSplatWorld> gaussian_world_format_saver;
 
 static GaussianSplatManager *gaussian_splat_manager_singleton = nullptr;
@@ -208,6 +209,12 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
                 gaussian_world_format_loader.instantiate();
                 ResourceLoader::add_resource_format_loader(gaussian_world_format_loader, true);
             }
+            // Resolve source imports before the generic binary loader claims the
+            // custom extension; keep the raw loader separate for prevalidation.
+            if (!gaussian_world_import_format_loader.is_valid()) {
+                gaussian_world_import_format_loader.instantiate();
+                ResourceLoader::add_resource_format_loader(gaussian_world_import_format_loader, true);
+            }
             if (!gaussian_world_format_saver.is_valid()) {
                 gaussian_world_format_saver.instantiate();
                 ResourceSaver::add_resource_format_saver(gaussian_world_format_saver, true);
@@ -250,6 +257,10 @@ void uninitialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             if (gaussian_format_loader.is_valid()) {
                 ResourceLoader::remove_resource_format_loader(gaussian_format_loader);
                 gaussian_format_loader.unref();
+            }
+            if (gaussian_world_import_format_loader.is_valid()) {
+                ResourceLoader::remove_resource_format_loader(gaussian_world_import_format_loader);
+                gaussian_world_import_format_loader.unref();
             }
             if (gaussian_world_format_loader.is_valid()) {
                 ResourceLoader::remove_resource_format_loader(gaussian_world_format_loader);

@@ -776,7 +776,12 @@ is still not reachable, they report the numbers to the maintainer for an explici
    within float32 resolution of the cell; a v2 file round-trips; a v1 file still loads.
 4. **Importer re-import (S1a):** a v1 `.gsplatworld` re-imports once after the bump and gains
    a tree; the source file is unchanged; `bake_hlod()` on a runtime-built world gives the same
-   tree as the importer.
+   tree as the importer. Ordinary source-path loading must resolve the editor-generated
+   `.import` sidecar to that tree, while direct format-loader calls must still validate the
+   raw source. After an actual editor import, run
+   `godot --headless --path <project> --script <repo>/tests/runtime/test_hlod_import_remap.gd -- <source> <imported-artifact>`.
+   This manual integration test checks public dispatch, explicit v2 loading, a sidecar-free
+   raw-v1 control and source preservation; it is not a substitute for the guard lane.
 5. **Mixed-size thrash test (S3):** a synthetic tree with node sizes from 1 to 16 pages, a byte
    budget at 60% of demand, a camera sweeping back and forth. Every requested node is admitted
    within **N frames, where N is computed before the run** from the configured upload bytes per

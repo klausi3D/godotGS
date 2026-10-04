@@ -4,6 +4,7 @@
 
 #include "core/error/error_macros.h"
 #include "core/io/file_access.h"
+#include "core/io/resource_importer.h"
 #include "core/io/json.h"
 #include "core/io/compression.h"
 #include "core/string/ustring.h"
@@ -1630,6 +1631,45 @@ Ref<GaussianSplatWorld> ResourceFormatLoaderGaussianSplatWorld::load_resident(co
 
 void ResourceFormatLoaderGaussianSplatWorld::get_recognized_extensions(List<String> *p_extensions) const {
 	p_extensions->push_back("gsplatworld");
+}
+
+bool ResourceFormatLoaderGaussianSplatWorld::recognize_path(const String &p_path, const String &p_for_type) const {
+	// Let Godot's importer resolve source sidecars, including invalid ones. Direct
+	// load()/load_resident() still inspect raw bytes for importer prevalidation.
+	return ResourceFormatLoader::recognize_path(p_path, p_for_type) && ResourceLoader::import_remap(p_path) == p_path;
+}
+
+Ref<Resource> ResourceFormatLoaderImportedGaussianSplatWorld::load(const String &p_path, const String &p_original_path,
+		Error *r_error, bool p_use_sub_threads, float *r_progress, CacheMode p_cache_mode) {
+	return ResourceFormatImporter::get_singleton()->load(p_path, p_original_path, r_error, p_use_sub_threads, r_progress, p_cache_mode);
+}
+
+bool ResourceFormatLoaderImportedGaussianSplatWorld::recognize_path(const String &p_path, const String &p_for_type) const {
+	return ResourceFormatLoader::recognize_path(p_path, p_for_type) && ResourceLoader::import_remap(p_path) != p_path;
+}
+
+bool ResourceFormatLoaderImportedGaussianSplatWorld::is_import_valid(const String &p_path) const {
+	return ResourceFormatImporter::get_singleton()->is_import_valid(p_path);
+}
+
+bool ResourceFormatLoaderImportedGaussianSplatWorld::is_imported(const String &p_path) const {
+	return ResourceFormatImporter::get_singleton()->is_imported(p_path);
+}
+
+bool ResourceFormatLoaderImportedGaussianSplatWorld::has_custom_uid_support() const {
+	return ResourceFormatImporter::get_singleton()->has_custom_uid_support();
+}
+
+int ResourceFormatLoaderImportedGaussianSplatWorld::get_import_order(const String &p_path) const {
+	return ResourceFormatImporter::get_singleton()->get_import_order(p_path);
+}
+
+String ResourceFormatLoaderImportedGaussianSplatWorld::get_import_group_file(const String &p_path) const {
+	return ResourceFormatImporter::get_singleton()->get_import_group_file(p_path);
+}
+
+void ResourceFormatLoaderImportedGaussianSplatWorld::get_classes_used(const String &p_path, HashSet<StringName> *r_classes) {
+	ResourceFormatImporter::get_singleton()->get_classes_used(p_path, r_classes);
 }
 
 bool ResourceFormatLoaderGaussianSplatWorld::handles_type(const String &p_type) const {
