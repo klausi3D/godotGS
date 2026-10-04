@@ -144,7 +144,8 @@ location and the signer field described below. Its policy choices were decided o
 2026-09-27 by the coordinator, on the maintainer's delegation: the maintainer signs; the
 bundle lives at `evidence/visual/`, outside the published docs; both import routes; the
 exhibition recipe is AgX at −1.5 stops. It has **not been executed**, and its streaming
-configuration is blocked on #1075. It discharges the alpha half of the §11 item
+configuration still requires its corridor capture and load/eviction proofs; the
+corridor-builder blocker #1075 was fixed by #1080. It discharges the alpha half of the §11 item
 "Evidence-bundle format and location (§6)". v1.0 still needs the bundle machine-checked
 (§9).
 

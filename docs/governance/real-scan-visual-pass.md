@@ -7,10 +7,11 @@ public alpha and for v1.0 (§6, §9, §10). Tracked as
 
 > **Status: not yet executed.** The policy decisions this page needed were made on
 > 2026-09-27 by the coordinator, on the maintainer's delegation. They are recorded in
-> [Decisions](#decisions) at the end. One item is still open: **C7 (streaming) is
-> blocked on [#1075](https://github.com/klausi3D/godotGS/issues/1075).** Until the
-> corridor world runs, no pass can reach `ACCEPT`, and a pass run before then is
-> evidence, not a sign-off.
+> [Decisions](#decisions) at the end. The corridor-builder blocker
+> [#1075](https://github.com/klausi3D/godotGS/issues/1075) was fixed by
+> [#1080](https://github.com/klausi3D/godotGS/pull/1080). **C7 (streaming) still
+> requires its corridor capture and load/eviction proofs.** An incomplete pass
+> cannot reach `ACCEPT` and is evidence, not a sign-off.
 
 ## What the pass is, and what it is not
 
@@ -137,7 +138,7 @@ All configurations use Forward+ and a single view (bar §10.1).
 | C4 | Node | TAA on, scale 1.0, a 28-frame burst with the camera moving | The second temporal consumer. |
 | C5 | Node | An opaque mesh standing inside the splat cloud | Depth interleaving and the composite occlusion claim. |
 | C6 | World | `GaussianSplatWorld3D` with a resident payload, scale 1.0, and one live swap from payload A to a different payload B during the run | The world route, which is in the alpha envelope (§10.1). |
-| C7 | Streaming | `GaussianSplatWorld3D` streaming the open-world corridor world (`open_world_corridor_20m`), with a camera path that crosses chunk boundaries so chunks load **and evict** | Streaming open worlds, which stay in the alpha envelope. **Blocked on #1075.** |
+| C7 | Streaming | `GaussianSplatWorld3D` streaming the open-world corridor world (`open_world_corridor_20m`), with a camera path that crosses chunk boundaries so chunks load **and evict** | Streaming open worlds, which stay in the alpha envelope. Required for the alpha pass. |
 | C8 | Node | C1's camera with the exhibition recipe | The bar's required exhibition-recipe check (§6). |
 | C9 | Multi-node | **v1.0 only.** Several `GaussianSplatNode3D` instances of the primary and control assets in one scene, with overlapping screen coverage and one opaque mesh between them | The multi-node scope that the v1.0 envelope adds (bar §5). It is not run for an alpha pass. |
 
@@ -182,12 +183,13 @@ Notes on individual rows:
   **not** show real-scan appearance under streaming, and the proof boundary has to say so.
   Whether a streamable world derived from a hashed real scan should be required is left
   to the procedure's first execution.
-- **C7 content and its interim.** C7 uses the corridor world as soon as
-  [#1075](https://github.com/klausi3D/godotGS/issues/1075) makes it run. Until then, C7
-  may be captured on the `lightweight_smoke` streaming content only as a labelled
+- **C7 content and its interim.** C7 uses the corridor world; its builder was fixed by
+  [#1080](https://github.com/klausi3D/godotGS/pull/1080) (Refs
+  [#1075](https://github.com/klausi3D/godotGS/issues/1075)). The
+  `lightweight_smoke` streaming content may be captured only as a labelled
   **interim**, `C7-interim-lightweight-smoke`. It does not substitute for C7: while C7
-  has only its interim capture, the Streaming dimension's verdict is `BLOCKED #1075`,
-  and the pass cannot reach `ACCEPT`.
+  has only its interim capture, C7 remains incomplete and the pass cannot reach
+  `ACCEPT`. Use `BLOCKED #N` only for a current, tracked blocking issue.
 - **C3 and C4 have to prove that the temporal stage was engaged, and the proof has to
   discriminate.** Moving-camera GS output is very nearly, but not exactly,
   frame-deterministic (see #1025 on
@@ -426,7 +428,7 @@ boundary says that too.
 | Depth interleaving | PASS / FAIL | |
 | Temporal | PASS / FAIL / KNOWN #N | |
 | World route | PASS / FAIL | |
-| Streaming | PASS / FAIL / BLOCKED #1075 | |
+| Streaming | PASS / FAIL / BLOCKED #N | |
 | Exhibition recipe | PASS / FAIL | |
 | Discrimination | PASS / FAIL | |
 | Multi-node (v1.0 only) | PASS / FAIL / N/A for an alpha pass | |
@@ -475,8 +477,8 @@ Decided on 2026-09-27 by the coordinator, on the maintainer's delegation.
 5. **Exhibition recipe:** AgX, with `tonemap_exposure = 0.354` (−1.5 stops), as the #921
    packet recorded.
 6. **Streaming:** streaming stays in the alpha envelope, so the pass needs a real
-   streaming configuration: the corridor world, once #1075 makes it run. Until then C7
-   is `BLOCKED #1075`. `lightweight_smoke` is allowed only as a labelled interim, never
+   streaming configuration: the corridor world, then blocked on #1075 (subsequently
+   fixed by #1080). `lightweight_smoke` is allowed only as a labelled interim, never
    as a substitute.
 7. **Platform:** Windows plus one NVIDIA GPU is enough for the alpha. That is a stated
    single-vendor blind spot.
