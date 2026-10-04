@@ -89,8 +89,8 @@ public:
     const GaussianSplatHlodTree &get_hlod_tree() const { return hlod_tree; }
     // Installs a tree whose leaf payload is the current gaussian payload (loader use).
     void set_hlod_tree(GaussianSplatHlodTree &&p_tree);
-    // One StaticChunk per leaf, in payload order: the leaf's world bounds and sphere and its
-    // contiguous index range. Until S2's cut, today's chunk runtime streams the leaves as chunks.
+    // One StaticChunk per leaf, in payload order: world bounds, a sphere enclosing at least
+    // its AABB, and its contiguous index range. Until S2's cut, today's runtime streams leaves as chunks.
     // Returns false (r_chunks empty) when an allocation fails.
     static bool build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_tree, Vector<GaussianSplatRenderer::StaticChunk> &r_chunks);
 };

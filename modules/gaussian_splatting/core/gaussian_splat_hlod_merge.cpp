@@ -529,6 +529,9 @@ void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		}
 		w++;
 	}
+	if (entries.is_empty()) {
+		return; // All payload and SH entries have already been copied unchanged.
+	}
 	LocalVector<uint32_t> &members = r_scratch.members;
 	uint32_t run_start = 0u;
 	for (uint32_t i = 1; i <= entries.size(); i++) {

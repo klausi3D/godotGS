@@ -642,6 +642,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		const double mid[3] = { 0.5 * (node_lo[i * 3u] + node_hi[i * 3u]), 0.5 * (node_lo[i * 3u + 1u] + node_hi[i * 3u + 1u]),
 			0.5 * (node_lo[i * 3u + 2u] + node_hi[i * 3u + 2u]) };
 		double radius = payload_radius(own, rel_shift, mid);
+		for (int a = 0; a < 3; a++) {
+			radius = MAX(radius, 0.5 * (double(node.aabb_max[a]) - double(node.aabb_min[a])));
+		}
 		for (uint32_t c = 0; c < node.child_count; c++) {
 			const uint32_t ci = node.first_child + c;
 			const double cmid[3] = { 0.5 * (node_lo[ci * 3u] + node_hi[ci * 3u]), 0.5 * (node_lo[ci * 3u + 1u] + node_hi[ci * 3u + 1u]),

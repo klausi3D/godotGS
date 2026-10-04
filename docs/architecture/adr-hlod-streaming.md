@@ -399,6 +399,11 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   stored node-relative, rounded outward with the same double arithmetic the loader's validator
   uses, so containment holds exactly; the sphere is about the AABB centre. Culling and the
   error distance use these; the cell address is only for structure.
+  The loader rejects radii below any stored AABB half-axis extent or the distance to
+  a child's AABB centre plus that child's radius. This is not a requirement to
+  enclose every AABB corner: an isotropic three-sigma sphere is smaller than its box
+  half-diagonal. S1's resident leaf-chunk adapter conservatively enlarges its runtime
+  sphere to at least the AABB half-diagonal, as the streaming adapter already does.
 - **World chunks are not the leaves.** Today's 10 m grid chunks reach 22,618 splats; the bake
   partitions by the octree instead.
 

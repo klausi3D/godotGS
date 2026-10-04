@@ -123,6 +123,14 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 		if (n.radius < 0.0f || n.error_chosen < 0.0f || n.error_rejected < 0.0f || n.geometric_error < 0.0f || n.overlap_footprint < 0.0f) {
 			return _fail(r_reason, vformat("%s %d has a negative radius or error.", what, i));
 		}
+		// Necessary sphere bound, not an AABB-corner requirement: an isotropic Gaussian's
+		// three-sigma sphere is legitimately smaller than its AABB half-diagonal.
+		for (int a = 0; a < 3; a++) {
+			const double half_extent = 0.5 * (double(n.aabb_max[a]) - double(n.aabb_min[a]));
+			if (double(n.radius) < half_extent) {
+				return _fail(r_reason, vformat("%s %d radius is smaller than its AABB axis extent.", what, i));
+			}
+		}
 		if ((n.flags & ~gs_hlod::kNodeFlagKnownMask) != 0u) {
 			return _fail(r_reason, vformat("%s %d has unknown flag bits 0x%x.", what, i, n.flags));
 		}
@@ -168,6 +176,16 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 				if (child_lo < parent_lo || child_hi > parent_hi) {
 					return _fail(r_reason, vformat("%s %d does not contain the bounds of child %d.", what, i, c));
 				}
+			}
+			double distance_squared = 0.0;
+			for (int a = 0; a < 3; a++) {
+				const double parent_mid = 0.5 * ((parent_center[a] + double(n.aabb_min[a])) + (parent_center[a] + double(n.aabb_max[a])));
+				const double child_mid = 0.5 * ((child_center[a] + double(child.aabb_min[a])) + (child_center[a] + double(child.aabb_max[a])));
+				const double delta = child_mid - parent_mid;
+				distance_squared += delta * delta;
+			}
+			if (!(double(n.radius) >= std::sqrt(distance_squared) + double(child.radius))) {
+				return _fail(r_reason, vformat("%s %d sphere does not contain child %d's sphere.", what, i, c));
 			}
 			if (!(child.geometric_error <= n.geometric_error)) {
 				return _fail(r_reason, vformat("%s geometric error is not monotone at node %d (child %d).", what, i, c));

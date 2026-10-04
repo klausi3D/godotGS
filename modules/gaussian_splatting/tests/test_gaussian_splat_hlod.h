@@ -312,6 +312,34 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] sat merge matches the ADR prototyp
 	CHECK_MESSAGE(found, "A single-child cell must be a bit-exact copy of its child.");
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] merge preserves every pass-through splat and SH when there are no merge cells") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(0u, 3u, g);
+	LocalVector<Vector3> sh;
+	sh.resize(g.size() * 12u);
+	for (uint32_t i = 0; i < g.size(); i++) {
+		g[i].scale = Vector3(2.0f, 2.0f, 2.0f);
+	}
+	for (uint32_t i = 0; i < sh.size(); i++) {
+		sh[i] = Vector3(float(i), float(i + 1u), float(i + 2u));
+	}
+	gs_hlod::SplatSpan span = hlod_span(g);
+	span.sh_high_order = sh.ptr();
+	span.sh_high_order_count = 12u;
+	gs_hlod::MergeScratch scratch;
+	gs_hlod::SplatList merged;
+	CHECK_EQ(gs_hlod::merged_count_at_eps(span, Vector3(), 0.125, scratch), g.size());
+	gs_hlod::merge_at_eps(span, Vector3(), 0.125, scratch, merged);
+	CHECK(scratch.entries.is_empty());
+	if (merged.size() != g.size() || merged.sh_high_order.size() != sh.size()) {
+		FAIL("all pass-through payload and SH must be retained");
+		return;
+	}
+	CHECK(memcmp(merged.gaussians.ptr(), g.ptr(), g.size() * sizeof(Gaussian)) == 0);
+	CHECK(memcmp(merged.sh_high_order.ptr(), sh.ptr(), sh.size() * sizeof(Vector3)) == 0);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] moment matching preserves the weighted moments before inflation") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
@@ -1042,6 +1070,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] node-table valida
 		{ "NaN bound", [](GaussianSplatHlodTree &t) { t.nodes[3].aabb_max.y = NAN; } },
 		{ "infinite radius", [](GaussianSplatHlodTree &t) { t.nodes[0].radius = INFINITY; } },
 		{ "negative radius", [](GaussianSplatHlodTree &t) { t.nodes[0].radius = -1.0f; } },
+		{ "tiny positive leaf radius", [](GaussianSplatHlodTree &t) { t.nodes[1].radius = 0.001f; } },
+		{ "zero radius for nonzero bounds", [](GaussianSplatHlodTree &t) { t.nodes[1].radius = 0.0f; } },
+		{ "parent sphere excludes a child sphere", [](GaussianSplatHlodTree &t) { t.nodes[0].radius = 2.0f; } },
 		{ "inverted AABB", [](GaussianSplatHlodTree &t) { t.nodes[4].aabb_min.x = t.nodes[4].aabb_max.x + 1.0f; } },
 		{ "child outside parent", [](GaussianSplatHlodTree &t) { t.nodes[3].aabb_max.x += 2.0f; } },
 		{ "wrong height", [](GaussianSplatHlodTree &t) { t.nodes[0].height = 1u; } },
@@ -1478,6 +1509,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		{ "node: payload count over 16,384", node1 + 88, 4, 16385u },
 		{ "node: payload start past the end", node1 + 80, 8, 0xFFFFFFFFFFull },
 		{ "node: NaN bound", node1 + 32, 4, 0x7FC00000u },
+		{ "node: tiny positive radius", node1 + 56, 4, 0x3A83126Fu },
+		{ "node: zero radius", node1 + 56, 4, 0u },
 		{ "node: root error negative", int64_t(node_table) + 60, 4, 0xBF800000u },
 	};
 	int index = 0;
@@ -1711,6 +1744,40 @@ struct HlodSnapshotEdit {
 };
 
 } // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] radius validation accepts isotropic spheres and resident chunks enclose their AABB") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(0u, 1u, g);
+	g[0].position = Vector3();
+	g[0].scale = Vector3(0.125f, 0.125f, 0.125f);
+	g[0].rotation = Quaternion();
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK || world->get_hlod_tree().nodes.size() != 1u) {
+		FAIL("single isotropic splat must bake to one leaf");
+		return;
+	}
+	const GaussianSplatHlodTree &tree = world->get_hlod_tree();
+	const GaussianSplatHlodNode &leaf = tree.nodes[0];
+	String reason;
+	CHECK_MESSAGE(gs_hlod_validate_tree(tree, &reason), reason.utf8().get_data());
+	CHECK(leaf.radius < tree.node_world_aabb(leaf).size.length() * 0.5f);
+	for (int axis = 0; axis < 3; axis++) {
+		CHECK(double(leaf.radius) >= 0.5 * (double(leaf.aabb_max[axis]) - double(leaf.aabb_min[axis])));
+	}
+	const Vector<GaussianSplatRenderer::StaticChunk> &chunks = world->get_static_chunks();
+	if (chunks.size() != 1) {
+		FAIL("resident world must have one HLOD leaf chunk");
+		return;
+	}
+	CHECK(chunks[0].radius >= chunks[0].bounds.size.length() * 0.5f);
+	// A diagonal-plane overlap cannot disappear just because the serialized sphere is tight.
+	const Vector3 normal = Vector3(1, 1, 1).normalized();
+	const float distance = chunks[0].bounds.size.length() * 0.5f;
+	const Plane boundary(normal, normal.dot(chunks[0].center) + distance);
+	CHECK(boundary.distance_to(chunks[0].center) >= -chunks[0].radius);
+	CHECK(leaf.radius < distance);
+}
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] save rejects edits before snapshot and freezes metadata after snapshot") {
 	using namespace TestGaussianSplatHlod;

@@ -374,7 +374,9 @@ bool GaussianSplatWorld::build_hlod_leaf_chunks(const GaussianSplatHlodTree &p_t
         GaussianSplatRenderer::StaticChunk chunk;
         chunk.bounds = p_tree.node_world_aabb(leaf);
         chunk.center = chunk.bounds.get_center();
-        chunk.radius = leaf.radius;
+        // The current chunk culler must not trust a tight or malformed serialized sphere.
+        // Match the streaming path's conservative AABB-derived lower bound.
+        chunk.radius = MAX(leaf.radius, (chunk.bounds.size * 0.5f).length());
         if (!gs_resize_or_fail(chunk.indices, int64_t(leaf.payload_count), "GaussianSplatWorld::build_hlod_leaf_chunks indices")) {
             return false;
         }
