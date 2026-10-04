@@ -156,6 +156,10 @@ All configurations use Forward+ and a single view (bar §10.1).
 
 Notes on individual rows:
 
+- **C1-C5 and C8 use the primary scan on both import routes.** Each required run
+  uses `baum-mit-wiese2.ply`, identified by the primary SHA-256 above, not merely
+  listed elsewhere in the bundle. The small-scene control may supply additional
+  labelled diagnostic runs, but does not replace any of these primary runs.
 - **C6 and C7 use the same node but require different backends.**
   `rendering/gaussian_splatting/streaming/route_policy`
   defaults to `1` (streaming) and applies to world submissions only
@@ -247,6 +251,11 @@ Notes on individual rows:
   −1.5 stops. This is the recipe the #921 packet recorded. It is set on the
   `Environment` resource, not through camera attributes or GS colour grading. Record
   both values.
+  C8's WorldEnvironment must actually be active: a Camera3D environment override
+  is not allowed for this configuration. On each judged frame record
+  `Environment.get_tonemapper()` and `get_tonemap_exposure()` from that active
+  resource, and retain the frame-linked trace. Requested settings alone do not
+  establish that the exhibition recipe was rendered.
 
 ### Controls: pose-matched, one per judged frame
 
@@ -262,6 +271,19 @@ is a **failed run**, not a passed one ([evidence integrity](evidence-integrity.m
 Comparing a frame to a control from a different pose proves nothing, because the
 background differs anyway.
 
+Bit inequality alone is not presence proof either. For every judged frame, choose
+and record a splat-content region of interest (ROI) and a pixel-difference metric.
+Capture **two splats-hidden repetitions**, preserving the capture's active temporal
+settings, path, frame timing, warmup and background. Measure their per-frame
+repeatability difference in that ROI as the noise floor. With the same metric and
+ROI, the capture-to-control difference must be **greater than** that floor.
+Record both control references and the measurements in `presence_proof`; retain
+the full-resolution images bound by their hashes. Missing measurements or a
+difference at or below the floor require recapture, never Presence or Discrimination
+`PASS`. This also applies to still configurations with temporally varying output.
+This presence floor is separate from C3/C4's no-temporal engagement floor: its
+controls retain the temporal settings of the judged configuration.
+
 ## What the signer judges
 
 | Dimension | A failure |
@@ -274,7 +296,7 @@ background differs anyway.
 | Streaming (C7) | Holes where chunks should be, chunks that pop in or out in view, stale content after an eviction, or a scene that never becomes visually ready (the shape of #786). |
 | Exhibition recipe (C8) | Splats and meshes graded differently, rather than as one consistent look. |
 | Multi-node (C9, v1.0 only) | A node missing, nodes sorting or occluding each other wrongly where their coverage overlaps, or one node's content drawn with another's transform. |
-| Discrimination | Any capture that matches its paired control, or any engagement proof above that did not hold. |
+| Discrimination | Any capture that matches its paired control, whose splat-ROI difference does not exceed its repeatability floor, or whose required presence/engagement proof did not hold. |
 
 **Verdicts per dimension:** `PASS`, `FAIL`, `KNOWN #N` or `BLOCKED #N`.
 
@@ -398,6 +420,8 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
       "runtime_budget_splats": 8000000,
       "scaling_3d_mode": "off | bilinear | fsr2", "scaling_3d_scale": 1.0,
       "use_taa": false, "route_policy": null,
+      "tonemap_mode": 0, "tonemap_exposure": 1.0,
+      "environment_trace": "<frame-linked active Environment values and Camera3D override state>",
       "visible_splats": 0,
       "payload_mode": null, "payload_streamable": null,
       "selected_route_backend": null,
@@ -406,7 +430,14 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
         {
           "capture": {"file": "captures/C1-auto_capture.png", "sha256_reduced": "…", "sha256_full": "…"},
           "control": {"file": "captures/C1-auto_control.png", "sha256_reduced": "…", "sha256_full": "…"},
-          "capture_equals_control": false
+          "capture_equals_control": false,
+          "presence_proof": {
+            "roi_pixels": [0, 0, 100, 100],
+            "metric": "<pixel-difference metric and colour space>",
+            "repeat_control": {"file": "captures/C1-auto_control_repeat.png", "sha256_reduced": "…", "sha256_full": "…"},
+            "noise_floor": 0.0, "capture_control_difference": 1.0,
+            "replay_trace": "<pose, timing, warmup and active settings shared by these frames>"
+          }
         }
       ]
     }
@@ -430,6 +461,19 @@ Field rules:
   template archive was verified.
   If both targets are captured, use distinct configuration ids and capture filenames
   (for example `C1-auto-editor` and `C1-auto-exported-game`).
+- C1-C5 and C8 each require both `automatic` and `dialog` configurations. Their
+  `asset` resolves to the `assets[].id` with the designated primary file's SHA-256
+  and source count. Record the node's actual `get_splat_asset()` assignment and
+  the corresponding import artifact/source binding in the capture trace. Listing
+  the primary in `assets[]` while rendering another asset does not satisfy this
+  requirement. Small-scene diagnostic configurations cannot substitute.
+- `tonemap_mode`, `tonemap_exposure` and `environment_trace` are required for
+  every configuration, with actual active-Environment values linked to all judged
+  frames. C8 requires mode `4` (AgX) and exposure `0.354` (allow only ordinary
+  floating-point representation error, not a different exposure). Its trace must
+  show that the recorded WorldEnvironment was active and no Camera3D environment
+  override replaced it. Missing or mismatched values fail C8; archive provenance
+  or requested resource properties alone are insufficient.
 - The fields depend on the route. Leave the other route's fields `null` rather than
   inventing values:
   - `asset`, `import_route` and `node_quality_preset` are for `node`
@@ -457,6 +501,13 @@ Field rules:
     ids, both at the recorded shared camera pose.
 - `frames` pairs every judged capture with its pose-matched control.
   `capture_equals_control: true` in any frame makes the run a failure.
+  Every frame also requires `presence_proof`, binding the splat ROI, metric and
+  colour space, second hidden control with hashes, replay conditions, noise floor
+  and capture-to-control difference. Both measurements use the same ROI and metric
+  on the full-resolution images. The second hidden control must replay the same
+  judged frame with the same active settings; C3/C4's no-temporal engagement replay
+  cannot stand in for it. A missing proof or a difference not strictly above the
+  floor cannot yield `PASS`; recapture instead.
 
 ### `EVIDENCE_README.md`
 
