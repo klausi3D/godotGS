@@ -317,7 +317,9 @@ public:
     // a TypedArray and forwards valid entries to the LocalVector overload.
     static void prefetch_parallel(const TypedArray<GaussianSplatAsset> &p_assets);
     Error populate_from_gaussian_data(const Ref<::GaussianData> &p_gaussian_data);
-    Error save_to_file(const String &p_path) const;
+    // Writes the asset as a PLY via GaussianData::save_to_file(); see there for
+    // the layout. p_include_painterly_fields opts in to the GodotGS-only columns.
+    Error save_to_file(const String &p_path, bool p_include_painterly_fields = false) const;
 
     // Import-time importance pruning (GS-PERF-PRUNE, issue #456). Thin adapter
     // that reuses GaussianData::prune_by_importance (slice 2a) on a materialized

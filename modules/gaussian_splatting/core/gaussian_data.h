@@ -663,11 +663,20 @@ public:
     Error populate_from_asset(const Ref<class GaussianSplatAsset> &p_asset);
 
     /**
-     * @brief Saves current Gaussian data to a PLY file.
+     * @brief Saves current Gaussian data to a binary PLY file.
+     *
+     * The default output is the canonical Inria 3DGS layout: position, optional
+     * normals (2D mode), f_dc_0..2, f_rest_0..44 (channel-major, written when any
+     * band-1..3 SH is stored), opacity, scale and rotation. The payload is
+     * snapshotted under data_rwlock before any byte is written.
+     *
      * @param p_path Destination path.
+     * @param p_include_painterly_fields Also write the GodotGS-only painterly
+     *        columns (palette_id, brush_override_id, brush_axis_u/v, stroke_age).
+     *        Off by default because third-party viewers expect the Inria layout.
      * @return OK on success, or an error code.
      */
-    Error save_to_file(const String &p_path) const;
+    Error save_to_file(const String &p_path, bool p_include_painterly_fields = false) const;
 
     /// @}
 

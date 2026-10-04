@@ -2889,7 +2889,8 @@ TEST_CASE("[GaussianSplatting][Importer] GaussianSplatAsset save_to_file persist
         CHECK_EQ(asset->get_painterly_flags_buffer()[0], brush_override_ids[0]);
     }
 
-    const Error save_err = asset->save_to_file(output_path);
+    // #1170: painterly columns are opt-in; this case asserts they round-trip.
+    const Error save_err = asset->save_to_file(output_path, true);
     CHECK_MESSAGE(save_err == OK, "save_to_file should persist GaussianData-backed assets");
     CHECK_MESSAGE(FileAccess::exists(output_path), "save_to_file should produce an output file");
     if (save_err != OK || !FileAccess::exists(output_path)) {

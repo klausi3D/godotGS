@@ -113,7 +113,7 @@ void GaussianData::_bind_methods() {
 
     // File I/O
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianData::load_from_file);
-    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianData::save_to_file);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianData::save_to_file, DEFVAL(false));
 
     // Spatial queries
     ClassDB::bind_method(D_METHOD("build_octree", "max_depth", "min_gaussians"), &GaussianData::build_octree, DEFVAL(8), DEFVAL(32));

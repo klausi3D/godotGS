@@ -147,8 +147,11 @@
 		<method name="save_to_file">
 			<return type="int" enum="Error" />
 			<param index="0" name="path" type="String" />
+			<param index="1" name="include_painterly_fields" type="bool" default="false" />
 			<description>
-				Saves the current Gaussian splat data to a file at the given [param path]. Returns [constant OK] on success.
+				Saves the current Gaussian splat data to a binary PLY file at the given [param path]. Returns [constant OK] on success.
+				The default output is the canonical 3D Gaussian Splatting layout: positions, normals (2D mode only), [code]f_dc_0..2[/code], [code]f_rest_0..44[/code] in channel-major order when any band 1-3 spherical harmonics are stored, opacity, scale and rotation. The DC term is written as [code]sh_dc / SH_C0[/code], which restores the source coefficients; splats tagged [code]legacy_bias[/code] are written the same way and a warning is logged because this engine displays them through a different transfer.
+				Set [param include_painterly_fields] to [code]true[/code] to also write the GodotGS-only [code]palette_id[/code], [code]brush_override_id[/code], [code]brush_axis_u[/code], [code]brush_axis_v[/code] and [code]stroke_age[/code] columns.
 			</description>
 		</method>
 		<method name="build_octree">

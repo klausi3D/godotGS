@@ -126,7 +126,7 @@ void GaussianSplatAsset::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_source_path", "path"), &GaussianSplatAsset::set_source_path);
     ClassDB::bind_method(D_METHOD("get_source_path"), &GaussianSplatAsset::get_source_path);
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianSplatAsset::load_from_file);
-    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatAsset::save_to_file);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianSplatAsset::save_to_file, DEFVAL(false));
 
     ClassDB::bind_method(D_METHOD("set_streaming_chunk_records", "records"), &GaussianSplatAsset::set_streaming_chunk_records);
     ClassDB::bind_method(D_METHOD("get_streaming_chunk_records"), &GaussianSplatAsset::get_streaming_chunk_records);
@@ -1542,12 +1542,12 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 	return OK;
 }
 
-Error GaussianSplatAsset::save_to_file(const String &p_path) const {
+Error GaussianSplatAsset::save_to_file(const String &p_path, bool p_include_painterly_fields) const {
     Ref<::GaussianData> data = get_gaussian_data();
     if (data.is_null()) {
         return ERR_INVALID_DATA;
     }
-    return data->save_to_file(p_path);
+    return data->save_to_file(p_path, p_include_painterly_fields);
 }
 
 // Contract: holding populate_mutex across the read of the source SoA arrays is

@@ -251,8 +251,8 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
       <td><code>GaussianData::load_from_file</code></td>
     </tr>
     <tr>
-      <td><code>save_to_file(path: String) -> Error</code></td>
-      <td>Saves current Gaussian data to a PLY file. Returns <code>OK</code> on success or an error code on failure.</td>
+      <td><code>save_to_file(path: String, include_painterly_fields: bool = false) -> Error</code></td>
+      <td>Saves current Gaussian data to a binary PLY file in the canonical 3DGS layout, including <code>f_rest_*</code> for every stored SH band. Pass <code>include_painterly_fields = true</code> to also write the GodotGS-only painterly columns. Returns <code>OK</code> on success or an error code on failure.</td>
       <td><code>GaussianData::save_to_file</code></td>
     </tr>
   </tbody>

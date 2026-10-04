@@ -43,10 +43,57 @@ static constexpr float SAVE_TO_FILE_MIN_OPACITY = 0.001f;
 static constexpr float SAVE_TO_FILE_MAX_OPACITY = 0.999f;
 static constexpr float SAVE_TO_FILE_FALLBACK_OPACITY = 0.5f;
 
+// PLY f_rest layout written by save_to_file (#1170). The canonical Inria 3DGS
+// export stores the 15 non-DC coefficients of a degree-3 expansion channel-major:
+// f_rest_[0..14] are the R values of SH terms 1..15, f_rest_[15..29] the G values
+// and f_rest_[30..44] the B values. This is the exact inverse of
+// PLYLoader::assemble_sh_coefficients(), which reads term t (1-based) channel c
+// from f_rest_[(t - 1) + c * 15] with a FIXED per-channel stride of 15.
+//
+// Because that reader's stride is fixed, a payload of degree < 3 is written
+// zero-padded to all 45 columns rather than with a degree-dependent stride:
+// every 3DGS reader (including ours) then decodes it as a degree-3 asset whose
+// missing bands are exactly zero, i.e. the same radiance. A degree-dependent
+// stride would be canonical for third-party tools but misread by our own loader.
+static constexpr int SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL = 15;
+static constexpr int SAVE_TO_FILE_SH_REST_COMPONENTS = SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL * 3;
+static constexpr uint32_t SAVE_TO_FILE_SH_FIRST_ORDER_TERMS = 3u;
+
 struct SaveToFileSnapshot {
     LocalVector<Gaussian> gaussians;
+    // High-order (band 2-3) SH sidecar, stride sh_high_order_count per splat.
+    LocalVector<Vector3> sh_high_order;
+    uint32_t sh_first_order_count = 0;
+    uint32_t sh_high_order_count = 0;
     bool is_2d_mode = false;
 };
+
+// Fill the 45 channel-major f_rest values for one splat (see layout note above).
+static void _build_sh_rest_row(const SaveToFileSnapshot &p_snapshot, uint32_t p_index,
+        float r_rest[SAVE_TO_FILE_SH_REST_COMPONENTS]) {
+    for (int i = 0; i < SAVE_TO_FILE_SH_REST_COMPONENTS; i++) {
+        r_rest[i] = 0.0f;
+    }
+    const Gaussian &g = p_snapshot.gaussians[p_index];
+    const uint32_t first = MIN(p_snapshot.sh_first_order_count, SAVE_TO_FILE_SH_FIRST_ORDER_TERMS);
+    for (uint32_t term = 0; term < first; term++) {
+        r_rest[term] = g.sh_1[term].x;
+        r_rest[term + SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL] = g.sh_1[term].y;
+        r_rest[term + 2 * SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL] = g.sh_1[term].z;
+    }
+    // High-order terms always start at rest index 3 (SH term 4), independent of
+    // how many first-order terms are populated -- the loader's convention.
+    const uint32_t high_slots = uint32_t(SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL) - SAVE_TO_FILE_SH_FIRST_ORDER_TERMS;
+    const uint32_t high = MIN(p_snapshot.sh_high_order_count, high_slots);
+    const size_t base = size_t(p_index) * size_t(p_snapshot.sh_high_order_count);
+    for (uint32_t term = 0; term < high; term++) {
+        const Vector3 &coeff = p_snapshot.sh_high_order[base + term];
+        const uint32_t rest_index = SAVE_TO_FILE_SH_FIRST_ORDER_TERMS + term;
+        r_rest[rest_index] = coeff.x;
+        r_rest[rest_index + SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL] = coeff.y;
+        r_rest[rest_index + 2 * SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL] = coeff.z;
+    }
+}
 
 static float _sanitize_scale_for_serialization(float p_scale, uint32_t &r_invalid_count) {
     if (!Math::is_finite(p_scale) || p_scale <= 0.0f) {
@@ -297,12 +344,67 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
     return OK;
 }
 
-Error GaussianData::save_to_file(const String &p_path) const {
+Error GaussianData::save_to_file(const String &p_path, bool p_include_painterly_fields) const {
+    // One coherent snapshot under the read lock (#774 / #1170): the payload, the
+    // SH band counts and the high-order sidecar must come from the same revision,
+    // or a concurrent structural setter could pair splat i with another
+    // revision's coefficients. Nothing below touches live storage.
     SaveToFileSnapshot snapshot;
     {
         RWLockRead lock(data_rwlock);
         copy_local_vector(snapshot.gaussians, gaussians);
         snapshot.is_2d_mode = is_2d_mode;
+        snapshot.sh_first_order_count = sh_first_order_count;
+        snapshot.sh_high_order_count = sh_high_order_count;
+        if (sh_high_order_count > 0) {
+            const uint64_t required = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
+            if (uint64_t(sh_high_order_coefficients.size()) < required) {
+                GS_LOG_ERROR_DEFAULT(vformat(
+                        "[GaussianData] save_to_file refused %s: high-order SH sidecar holds %d coefficients but %d splats x %d terms need %d.",
+                        p_path, int64_t(sh_high_order_coefficients.size()), int64_t(gaussians.size()),
+                        int64_t(sh_high_order_count), int64_t(required)));
+                return ERR_INVALID_DATA;
+            }
+            copy_local_vector(snapshot.sh_high_order, sh_high_order_coefficients);
+        }
+    }
+
+    const uint32_t high_order_slots = uint32_t(SAVE_TO_FILE_SH_REST_TERMS_PER_CHANNEL) - SAVE_TO_FILE_SH_FIRST_ORDER_TERMS;
+    if (snapshot.sh_high_order_count > high_order_slots) {
+        // A PLY has room for degree 3 (15 non-DC terms). Anything above that cannot
+        // be expressed in the format; refuse rather than drop it silently.
+        GS_LOG_ERROR_DEFAULT(vformat(
+                "[GaussianData] save_to_file refused %s: %d high-order SH terms exceed the PLY degree-3 limit (%d).",
+                p_path, snapshot.sh_high_order_count, high_order_slots));
+        return ERR_INVALID_DATA;
+    }
+    const bool write_sh_rest = snapshot.sh_first_order_count > 0 || snapshot.sh_high_order_count > 0;
+
+    // DC encoding (#1170). Every in-tree producer stores sh_dc = SH_C0 * f_dc:
+    // the PLY loader does so for both tags (an untagged PLYLoader payload carries
+    // render_meta == 0, i.e. LEGACY_BIAS, and pre-v4 PLY imports were tagged
+    // legacy_bias explicitly). The tag only selects the in-engine display
+    // transfer:
+    //   LINEAR_RGB : colour = sh_dc + 0.5          (canonical Inria SH2RGB)
+    //   LEGACY_BIAS: colour = 1.5 * sigmoid(sh_dc) - 0.25
+    // so the inverse that restores the source coefficients is f_dc = sh_dc / SH_C0
+    // for both tags, and a canonical viewer renders the export exactly as GodotGS
+    // renders a LINEAR_RGB payload. For LEGACY_BIAS splats that is NOT what this
+    // engine displays today; converting through the sigmoid would instead corrupt
+    // every untagged PLY round-trip, so the export keeps the source coefficients
+    // and says so loudly rather than changing them without telling the caller.
+    uint32_t legacy_bias_splats = 0;
+    for (uint32_t i = 0; i < snapshot.gaussians.size(); i++) {
+        if (gaussian_get_dc_encoding(snapshot.gaussians[i].render_meta) == GAUSSIAN_DC_ENCODING_LEGACY_BIAS) {
+            legacy_bias_splats++;
+        }
+    }
+    if (legacy_bias_splats > 0) {
+        GS_LOG_WARN_DEFAULT(vformat(
+                "[GaussianData] save_to_file %s: %d of %d splats carry the legacy_bias DC tag (or no tag). f_dc is written as sh_dc / SH_C0, "
+                "which restores the source PLY coefficients; GodotGS displays legacy_bias DC through 1.5*sigmoid(x)-0.25, so the "
+                "exported colours will look different in canonical 3DGS viewers than they do in this engine.",
+                p_path, legacy_bias_splats, int64_t(snapshot.gaussians.size())));
     }
 
     Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
@@ -339,6 +441,13 @@ Error GaussianData::save_to_file(const String &p_path) const {
     file->store_string("property float f_dc_1\n");
     file->store_string("property float f_dc_2\n");
 
+    // View-dependent SH (bands 1-3), channel-major. See SAVE_TO_FILE_SH_REST_*.
+    if (write_sh_rest) {
+        for (int i = 0; i < SAVE_TO_FILE_SH_REST_COMPONENTS; i++) {
+            file->store_string(vformat("property float f_rest_%d\n", i));
+        }
+    }
+
     // Scale properties (log scale)
     file->store_string("property float scale_0\n");
     file->store_string("property float scale_1\n");
@@ -353,12 +462,15 @@ Error GaussianData::save_to_file(const String &p_path) const {
     // Opacity (logit)
     file->store_string("property float opacity\n");
 
-    // Painterly fields
-    file->store_string("property ushort palette_id\n");
-    file->store_string("property ushort brush_override_id\n");
-    file->store_string("property float brush_axis_u\n");
-    file->store_string("property float brush_axis_v\n");
-    file->store_string("property float stroke_age\n");
+    // Painterly fields are GodotGS-only and opt-in: the default export is the
+    // canonical Inria layout that third-party 3DGS viewers expect (#1170).
+    if (p_include_painterly_fields) {
+        file->store_string("property ushort palette_id\n");
+        file->store_string("property ushort brush_override_id\n");
+        file->store_string("property float brush_axis_u\n");
+        file->store_string("property float brush_axis_v\n");
+        file->store_string("property float stroke_age\n");
+    }
 
     file->store_string("end_header\n");
 
@@ -381,10 +493,18 @@ Error GaussianData::save_to_file(const String &p_path) const {
             file->store_float(g.normal.z);
         }
 
-        // Color (convert from RGB to SH DC coefficients)
+        // DC: f_dc = sh_dc / SH_C0 for both DC tags (see the encoding note above).
         file->store_float(g.sh_dc.r * SAVE_TO_FILE_SH_C0_INV);
         file->store_float(g.sh_dc.g * SAVE_TO_FILE_SH_C0_INV);
         file->store_float(g.sh_dc.b * SAVE_TO_FILE_SH_C0_INV);
+
+        if (write_sh_rest) {
+            float sh_rest[SAVE_TO_FILE_SH_REST_COMPONENTS];
+            _build_sh_rest_row(snapshot, uint32_t(i), sh_rest);
+            for (int j = 0; j < SAVE_TO_FILE_SH_REST_COMPONENTS; j++) {
+                file->store_float(sh_rest[j]);
+            }
+        }
 
         // Scale (convert to log scale)
         const float scale_x = _sanitize_scale_for_serialization(g.scale.x, invalid_scale_components);
@@ -404,16 +524,18 @@ Error GaussianData::save_to_file(const String &p_path) const {
         const float clamped_opacity = _sanitize_opacity_for_serialization(g.opacity, invalid_opacity_values);
         file->store_float(log(clamped_opacity / (1.0f - clamped_opacity)));
 
-        // Painterly properties
-        uint16_t palette = gaussian_get_palette_id(g.painterly_meta);
-        uint8_t palette_bytes[2] = { (uint8_t)(palette & 0xFF), (uint8_t)((palette >> 8) & 0xFF) };
-        file->store_buffer(palette_bytes, 2);
-        uint16_t brush_override_id = gaussian_get_brush_override_id(g.painterly_meta);
-        uint8_t brush_override_bytes[2] = { (uint8_t)(brush_override_id & 0xFF), (uint8_t)((brush_override_id >> 8) & 0xFF) };
-        file->store_buffer(brush_override_bytes, 2);
-        file->store_float(g.brush_axes.x);
-        file->store_float(g.brush_axes.y);
-        file->store_float(g.stroke_age);
+        // Painterly properties (opt-in, see header)
+        if (p_include_painterly_fields) {
+            uint16_t palette = gaussian_get_palette_id(g.painterly_meta);
+            uint8_t palette_bytes[2] = { (uint8_t)(palette & 0xFF), (uint8_t)((palette >> 8) & 0xFF) };
+            file->store_buffer(palette_bytes, 2);
+            uint16_t brush_override_id = gaussian_get_brush_override_id(g.painterly_meta);
+            uint8_t brush_override_bytes[2] = { (uint8_t)(brush_override_id & 0xFF), (uint8_t)((brush_override_id >> 8) & 0xFF) };
+            file->store_buffer(brush_override_bytes, 2);
+            file->store_float(g.brush_axes.x);
+            file->store_float(g.brush_axes.y);
+            file->store_float(g.stroke_age);
+        }
     }
 
     if (invalid_scale_components > 0 || invalid_opacity_values > 0) {
@@ -430,6 +552,8 @@ Error GaussianData::save_to_file(const String &p_path) const {
         return ERR_FILE_CANT_WRITE;
     }
 
-    GS_LOG_INFO_DEFAULT(vformat("[GaussianData] Saved %d splats to: %s", count, p_path));
+    GS_LOG_INFO_DEFAULT(vformat("[GaussianData] Saved %d splats to: %s (sh_rest=%s, first_order=%d, high_order=%d, painterly=%s)",
+            count, p_path, write_sh_rest ? "yes" : "no", snapshot.sh_first_order_count, snapshot.sh_high_order_count,
+            p_include_painterly_fields ? "yes" : "no"));
     return OK;
 }
