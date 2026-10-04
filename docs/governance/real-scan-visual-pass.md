@@ -150,7 +150,7 @@ All configurations use Forward+ and a single view (bar §10.1).
 | C4 | Node | TAA on, scale 1.0, a 28-frame burst with the camera moving | The second temporal consumer. |
 | C5 | Node | An opaque mesh standing inside the splat cloud | Depth interleaving and the composite occlusion claim. |
 | C6 | World | `GaussianSplatWorld3D` with a resident payload, scale 1.0, and one live swap from payload A to a different payload B during the run | The world route, which is in the alpha envelope (§10.1). |
-| C7 | Streaming | `GaussianSplatWorld3D` streaming the open-world corridor world (`open_world_corridor_20m`), with a camera path that crosses chunk boundaries so chunks load **and evict** | Streaming open worlds, which stay in the alpha envelope. Required for the alpha pass. |
+| C7 | Streaming | `GaussianSplatWorld3D` streaming the open-world corridor world (`open_world_corridor_20m`), with a camera path that crosses chunk boundaries so chunks load **and evict**, then returns to an identified evicted region and captures it after reload | Streaming open worlds, which stay in the alpha envelope. Required for the alpha pass. |
 | C8 | Node | C1's camera with the exhibition recipe | The bar's required exhibition-recipe check (§6). |
 | C9 | Multi-node | **v1.0 only.** Several `GaussianSplatNode3D` instances of the primary and control assets in one scene, with overlapping screen coverage and one opaque mesh between them | The multi-node scope that the v1.0 envelope adds (bar §5). It is not run for an alpha pass. |
 
@@ -203,6 +203,16 @@ Notes on individual rows:
   Record the per-frame series of both monitors, and of
   `gaussian_splatting/streaming_loaded_chunks`. A streaming run that quietly ran
   resident, never loaded, or never evicted, has not exercised what the Streaming dimension judges.
+  The path must return to a previously loaded region whose chunks were demonstrably
+  evicted. Retain a chronological trace identifying the region/chunks, the original
+  loaded frame, their eviction, and the reload of those same chunks on return.
+  Capture the region before departure and after its reload at the same camera pose,
+  each with its pose-matched control. Link both judged frames to the lifecycle trace
+  in `engagement_proof`. Aggregate load/eviction counters alone do not establish this
+  identity: an unrelated load after an unrelated eviction is insufficient. This
+  trace is capture-harness evidence, not an additional renderer-stat field claimed
+  by this procedure. Without the identified eviction, reload and subsequent judged
+  capture, recapture; do not award Streaming `PASS`.
 - **C7's content is synthetic, not a real scan.** `open_world_corridor_20m` is built by
   repeating `synthetic_spiral.ply` (25,000 splats, 800 instances, about 20M in total;
   `tests/fixtures/benchmark_asset_manifest.json:140-157`). It is classified as a
@@ -442,7 +452,9 @@ Field rules:
   - for C6: the before/after frame pair, the shared camera pose and the difference,
     plus the required resident-backend/payload stats for both captures;
   - for C7: the per-frame series of `streaming_chunks_loaded_this_frame`,
-    `streaming_chunks_evicted_this_frame` and `streaming_loaded_chunks`.
+    `streaming_chunks_evicted_this_frame` and `streaming_loaded_chunks`, plus the
+    region/chunk lifecycle trace and its linked pre-departure and post-reload frame
+    ids, both at the recorded shared camera pose.
 - `frames` pairs every judged capture with its pose-matched control.
   `capture_equals_control: true` in any frame makes the run a failure.
 
