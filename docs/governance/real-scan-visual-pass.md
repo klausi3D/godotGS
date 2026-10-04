@@ -11,7 +11,11 @@ v1.0 (§6, §9, §10). This component alone does not discharge the release-wide 
 > [Decisions](#decisions) at the end. The corridor-builder blocker
 > [#1075](https://github.com/klausi3D/godotGS/issues/1075) was fixed by
 > [#1080](https://github.com/klausi3D/godotGS/pull/1080). **C7 (streaming) still
-> requires its corridor capture and load/eviction proofs.** An incomplete pass
+> requires its corridor capture and load/eviction proofs, and an observable chunk
+> lifecycle signal that the current release-editor API does not provide.** C7's
+> identity proof is pending separate instrumentation in
+> [#1152](https://github.com/klausi3D/godotGS/issues/1152); its full procedure is not
+> executable against the current signed editor. An incomplete pass
 > cannot reach `ACCEPT_EDITOR` and is evidence, not a component sign-off.
 > **Scope decided by the maintainer, 2026-10-04: editor component only.**
 > Export visual acceptance remains **OPEN**, not waived. Archive provenance alone
@@ -195,10 +199,21 @@ Notes on individual rows:
   synthetic content. Capture at least one frame **before** and one **after** the
   swap, each with its pose-matched control. **The before and after captures share one
   camera pose**: the camera stays still across the swap, and the bundle records the pose
-  once for both. The splat region must differ between the before and after captures.
-  Otherwise a camera move could supply the difference while payload A is still on
-  screen. A bundle with no post-swap capture, or with A and B
-  identical, fails the run.
+  once for both. Choose a splat ROI, pixel-difference metric and colour space, and
+  replay the same sequence **twice with visible payload A throughout**, reapplying
+  A instead of B at the swap frame. Retain the pre- and post-swap-position captures
+  from both A-to-A replays. Keep the same camera pose, active temporal settings,
+  frame timing, warmup and payload-application sequence as the judged A-to-B run.
+  The **swap noise floor** is the largest difference between any pair of these four
+  A-only captures in the chosen ROI, using the same metric on full-resolution images.
+  The judged before/after difference must be **strictly greater than** that floor;
+  a difference at or below it, or missing controls, fails the swap proof.
+  This floor includes same-payload changes across the scheduled swap interval, so
+  TAA noise or history changes while A remains on screen cannot alone prove B.
+  It is separate from each frame's splats-hidden `presence_proof`. Retain the
+  control images and hashes, measurements and replay conditions in C6's
+  `engagement_proof`. A bundle with no post-swap capture, or with A and B identical,
+  fails the run.
 - **C7 has to prove that it streamed and evicted.** The run fails, as a run, unless all
   of these hold:
   - `payload_streamable` is true;
@@ -219,9 +234,40 @@ Notes on individual rows:
   each with its pose-matched control. Link both judged frames to the lifecycle trace
   in `engagement_proof`. Aggregate load/eviction counters alone do not establish this
   identity: an unrelated load after an unrelated eviction is insufficient. This
-  trace is capture-harness evidence, not an additional renderer-stat field claimed
-  by this procedure. Without the identified eviction, reload and subsequent judged
-  capture, recapture; do not award Streaming `PASS`.
+  trace must come from an observable signal of the **active renderer's** runtime
+  chunk lifecycle. The current release editor exposes aggregate stats through
+  `GaussianSplatRenderer.get_render_stats()`, but its script bindings do not expose
+  `current_streaming_system` (`renderer/gaussian_splat_renderer_bindings.cpp`).
+  `GaussianStreamingSystem.get_residency_request_status()` is bound on that class
+  (`core/gaussian_streaming.cpp:494-506`), but an independently constructed system
+  does not observe the renderer's system. The load debug log identifies chunks
+  (`:3818-3820`); `_unload_chunk()` emits no matching identity event (`:3870-3906`).
+  World chunk bounds identify source regions, not their live GPU residency.
+
+  **This identity proof is not executable with the current release-editor API.**
+  Separate instrumentation in
+  [#1152](https://github.com/klausi3D/godotGS/issues/1152) must first provide a
+  script-readable, frame-linked lifecycle trace from the active renderer, or a
+  separately reviewed observable mechanism that establishes the same identity.
+  The required trace contract is:
+
+  - each successful GPU-resident load and each eviction identifies the world
+    payload hash/generation, renderer/system instance, asset id and runtime chunk
+    id, with an explicit mapping to that payload's source chunk/region;
+  - event sequence and rendered-frame ids bind the initial load, actual eviction
+    and later reload of the same runtime chunks to the captured frames;
+  - resets, world replacement and failed/pending uploads are distinguishable from
+    completed loads and evictions; missing events or lost trace entries are
+    reported as unavailable evidence.
+
+  This is a requirement for follow-up tooling, **not an API available today**.
+  The harness must check that the candidate editor supplies it before attempting
+  a complete C7. Until then record C7 as incomplete, with `engagement_proof: null`
+  and the missing signal explained in `EVIDENCE_README.md`; record
+  `BLOCKED #1152` while that dependency is open. Aggregate-only corridor captures
+  remain diagnostic evidence and cannot yield Streaming `PASS` or `ACCEPT_EDITOR`.
+  Once the signal exists, missing identified eviction/reload evidence requires
+  recapture, never a waiver.
 - **C7's content is synthetic, not a real scan.** `open_world_corridor_20m` is built by
   repeating `synthetic_spiral.ply` (25,000 splats, 800 instances, about 20M in total;
   `tests/fixtures/benchmark_asset_manifest.json:140-157`). It is classified as a
@@ -503,12 +549,16 @@ Field rules:
   C6 that is **both** A and B, in swap order.
 - `engagement_proof` is required for C3, C4, C6 and C7:
   - for C3 and C4: the noise floor, the control region and the measured difference;
-  - for C6: the before/after frame pair, the shared camera pose and the difference,
-    plus the required resident-backend/payload stats for both captures;
+  - for C6: the before/after frame pair, shared camera pose, ROI, metric and colour
+    space, the four hashed A-only control captures, swap noise floor, measured
+    before/after difference and replay conditions, plus the required
+    resident-backend/payload stats for both judged captures;
   - for C7: the per-frame series of `streaming_chunks_loaded_this_frame`,
     `streaming_chunks_evicted_this_frame` and `streaming_loaded_chunks`, plus the
     region/chunk lifecycle trace and its linked pre-departure and post-reload frame
-    ids, both at the recorded shared camera pose.
+    ids, both at the recorded shared camera pose. While the active-renderer
+    lifecycle signal is unavailable, this field is `null` with the dependency
+    explained in `EVIDENCE_README.md`; that incomplete C7 cannot yield `PASS`.
 - `frames` pairs every judged capture with its pose-matched control.
   `capture_equals_control: true` in any frame makes the run a failure.
   Every frame also requires `presence_proof`, binding the splat ROI, metric and
@@ -596,6 +646,14 @@ into `tests/visual/run_realscan_visual_pass.py`, taking `--godot-binary`, `--ass
 controls, the reduced and full-resolution images, and `summary.json`, so that the
 maintainer reviews and does not operate. That is R1 work in its own change. The #921
 runner lacks C4, C6, C7, C8, both import routes, and the per-frame controls.
+The R1 capture harness cannot supply C7's missing runtime identity signal by itself.
+Its active-renderer instrumentation is tracked in
+[#1152](https://github.com/klausi3D/godotGS/issues/1152), a separate change subject to the
+streaming/public-API risk and review requirements in
+[agentic engineering](agentic-engineering.md#risk-classes). C7 remains required
+and incomplete until that mechanism is shipped in the candidate editor and its
+frame-linked lifecycle proof is captured. This page defines the procedure and
+pending dependency; it does not certify an executable complete pass today.
 
 *Estimated* time for one pass once that tool exists: about 15 minutes to download,
 verify and import under both routes; about 45 minutes of unattended capture; about 20
