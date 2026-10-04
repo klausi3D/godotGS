@@ -20,6 +20,7 @@
 #include <cfloat>
 #include <cstring>
 #include <cstdint>
+#include <iterator>
 
 namespace {
 
@@ -760,6 +761,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		return refuse("gaussian section offset out of range");
 	}
 	const uint64_t gaussian_bytes = total * sizeof(Gaussian);
+	uint64_t gaussian_stored_bytes = gaussian_bytes;
 	const bool compressed = (p_flags & kFlagCompressed) != 0u;
 	if (compressed) {
 		if (!fits_within(p_gaussian_offset, sizeof(uint64_t), p_file_len)) {
@@ -773,6 +775,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		if (gaussian_bytes > kMaxCompressedGaussianBytes) {
 			return refuse("compressed payload larger than the gzip decompression limit");
 		}
+		gaussian_stored_bytes = sizeof(uint64_t) + compressed_size;
 	} else if (!fits_within(p_gaussian_offset, gaussian_bytes, p_file_len)) {
 		return refuse("gaussian section out of range");
 	}
@@ -805,6 +808,36 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	}
 	if ((p_flags & kFlagHasMetadata) != 0u && p_metadata_size > 0u && !fits_within(p_metadata_offset, p_metadata_size, p_file_len)) {
 		return refuse("metadata out of range");
+	}
+	// File-length bounds alone would accept the header or another section as payload.
+	// All present extents above fit the file, so their end additions are overflow-safe.
+	struct Section {
+		const char *name;
+		uint64_t offset;
+		uint64_t bytes;
+	};
+	const Section sections[] = {
+		{ "Gaussian", p_gaussian_offset, gaussian_stored_bytes },
+		{ "SH", p_sh_offset, sh_bytes },
+		{ "nodes", ext.node_table_offset, uint64_t(ext.node_count) * gs_hlod::kNodeRecordBytes },
+		{ "top-level nodes", ext.top_level_node_table_offset, uint64_t(ext.top_level_node_count) * gs_hlod::kNodeRecordBytes },
+		{ "instances", ext.instance_table_offset, uint64_t(ext.instance_count) * gs_hlod::kInstanceRecordBytes },
+		{ "metadata", p_metadata_offset, (p_flags & kFlagHasMetadata) != 0u ? p_metadata_size : 0u },
+	};
+	for (size_t i = 0; i < std::size(sections); i++) {
+		const Section &first = sections[i];
+		if (first.bytes == 0u) {
+			continue;
+		}
+		if (first.offset < kHeaderSizeBytesV2) {
+			return refuse(vformat("%s section overlaps the header", first.name));
+		}
+		for (size_t j = i + 1; j < std::size(sections); j++) {
+			const Section &second = sections[j];
+			if (second.bytes > 0u && first.offset < second.offset + second.bytes && second.offset < first.offset + first.bytes) {
+				return refuse(vformat("%s and %s sections overlap", first.name, second.name));
+			}
+		}
 	}
 
 	// Tables (their sizes are bounded by the file length above).

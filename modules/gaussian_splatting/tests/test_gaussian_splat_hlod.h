@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 namespace TestGaussianSplatHlod {
 
@@ -1530,6 +1531,147 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		DirAccess::remove_absolute(path);
 	}
 	DirAccess::remove_absolute(valid_path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overlapping sections and preserves a prior import") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(3000u, 1000u, g);
+	LocalVector<Vector3> sh;
+	sh.resize(g.size() * 12u);
+	for (uint32_t i = 0; i < sh.size(); i++) {
+		sh[i] = Vector3(0.125f, -0.25f, 0.5f);
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	Dictionary metadata;
+	metadata["note"] = "section extent control";
+	world->set_metadata(metadata);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake SH3 section fixture");
+		return;
+	}
+	auto u64_at = [](const PackedByteArray &p_bytes, int p_offset) {
+		uint64_t value;
+		memcpy(&value, p_bytes.ptr() + p_offset, sizeof(value));
+		return value;
+	};
+	auto patch_u64 = [](PackedByteArray &r_bytes, int p_offset, uint64_t p_value) {
+		memcpy(r_bytes.ptrw() + p_offset, &p_value, sizeof(p_value));
+	};
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int mode = 0; mode < 3; mode++) {
+		const String valid_path = hlod_temp_path("section_control");
+		if (saver.save_with_payload_mode(world, valid_path,
+				ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode + 1)) != OK) {
+			FAIL("save section control");
+			return;
+		}
+		const PackedByteArray valid = hlod_read_file(valid_path);
+		if (valid.size() <= 184) {
+			FAIL("complete producer-generated v2 header required");
+			return;
+		}
+		const uint64_t gaussian_offset = u64_at(valid, 56);
+		const uint64_t sh_offset = u64_at(valid, 64);
+		const uint64_t node_offset = u64_at(valid, 136);
+		const uint64_t metadata_offset = u64_at(valid, 88);
+		const uint64_t metadata_size = u64_at(valid, 96);
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> control = loader.load(valid_path, "", &err);
+		if (control.is_null() || err != OK) {
+			FAIL("unpatched producer control must load");
+			return;
+		}
+		CHECK(control->has_hlod_tree());
+		control.unref();
+#ifdef TOOLS_ENABLED
+		Ref<ResourceImporterGSplatWorld> importer;
+		importer.instantiate();
+		HashMap<StringName, Variant> options;
+		const String import_base = hlod_temp_path("section_previous");
+		if (importer->import(ResourceUID::INVALID_ID, valid_path, import_base, options, nullptr, nullptr, nullptr) != OK) {
+			FAIL("establish previous good import");
+			return;
+		}
+		const PackedByteArray previous = hlod_read_file(import_base + ".gsplatworld");
+		if (previous != valid) {
+			FAIL("the positive importer control must publish the complete producer file");
+			return;
+		}
+#endif
+		struct Patch {
+			const char *name;
+			int offset;
+			uint64_t value;
+		};
+		const Patch patches[] = {
+			{ "SH in header", 64, 0u },
+			{ "SH overlaps last header byte", 64, 183u },
+			{ "SH in Gaussian section", 64, gaussian_offset },
+			{ "SH overlaps last Gaussian byte", 64, sh_offset - 1u },
+			{ "SH overlaps first node byte", 64, sh_offset + 1u },
+			{ "Gaussian in SH section", 56, sh_offset },
+			{ "metadata in header", 88, 0u },
+			{ "metadata in Gaussian section", 88, gaussian_offset },
+			{ "metadata in SH section", 88, sh_offset },
+			{ "metadata in node table", 88, node_offset },
+		};
+		for (const Patch &patch : patches) {
+			INFO("mode ", mode, ", mutation ", std::string(patch.name));
+			PackedByteArray corrupted = valid;
+			patch_u64(corrupted, patch.offset, patch.value);
+			const String bad_path = hlod_temp_path("section_overlap");
+			if (!hlod_write_file(bad_path, corrupted)) {
+				FAIL("write section mutation");
+				return;
+			}
+			err = ERR_BUG;
+			Ref<GaussianSplatWorld> rejected = loader.load(bad_path, "", &err);
+			CHECK(rejected.is_null());
+			CHECK(err == ERR_FILE_CORRUPT);
+			rejected.unref();
+			err = ERR_BUG;
+			rejected = loader.load_resident(bad_path, &err);
+			CHECK(rejected.is_null());
+			CHECK(err == ERR_FILE_CORRUPT);
+			rejected.unref();
+#ifdef TOOLS_ENABLED
+			CHECK(importer->import(ResourceUID::INVALID_ID, bad_path, import_base, options, nullptr, nullptr, nullptr) != OK);
+			const bool previous_unchanged = hlod_read_file(import_base + ".gsplatworld") == previous;
+			CHECK(previous_unchanged);
+#endif
+			DirAccess::remove_absolute(bad_path);
+		}
+		// Ordering is not the contract: move metadata before the Gaussian section, disjointly.
+		PackedByteArray reordered = valid.slice(0, 184);
+		reordered.append_array(valid.slice(metadata_offset, metadata_offset + metadata_size));
+		reordered.append_array(valid.slice(184, metadata_offset));
+		patch_u64(reordered, 56, gaussian_offset + metadata_size);
+		patch_u64(reordered, 64, sh_offset + metadata_size);
+		patch_u64(reordered, 136, node_offset + metadata_size);
+		patch_u64(reordered, 88, 184u);
+		const String reordered_path = hlod_temp_path("section_reordered");
+		if (!hlod_write_file(reordered_path, reordered)) {
+			FAIL("write reordered control");
+			return;
+		}
+		err = ERR_BUG;
+		Ref<GaussianSplatWorld> reordered_world = loader.load(reordered_path, "", &err);
+		CHECK(err == OK);
+		if (reordered_world.is_valid()) {
+			CHECK(reordered_world->get_metadata() == metadata);
+		} else {
+			FAIL("disjoint reordered sections must load");
+		}
+		reordered_world.unref();
+		DirAccess::remove_absolute(reordered_path);
+#ifdef TOOLS_ENABLED
+		DirAccess::remove_absolute(import_base + ".gsplatworld");
+#endif
+		DirAccess::remove_absolute(valid_path);
+	}
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a failed bake leaves the world untouched; an edited payload is not saved with a stale tree") {

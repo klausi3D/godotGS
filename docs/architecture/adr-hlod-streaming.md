@@ -691,6 +691,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.
     tables, then two reserved words.
   - Sections: gaussians (leaf payload, then interior payload), SH in the same order, node
     table, top-level node table, instance table (128 B records), metadata.
+    Every present section must fit the file, start after the 184 B header and be disjoint
+    from every other section. The compressed Gaussian extent includes its size prefix.
+    Disjoint reordered sections remain readable; the writer's section order is not a loader gate.
   - Node flags: bits 0–1 the representation kind, bit 2 `split_by_index`, bit 3 `grouped_leaf`,
     bit 4 `origin_centred_root` (§6.1).
   - **Reserved bytes:** the node record's 32 reserved bytes are the stage-2 extension area, so
