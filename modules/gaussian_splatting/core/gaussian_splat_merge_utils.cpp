@@ -1,5 +1,6 @@
 #include "gaussian_splat_merge_utils.h"
 
+#include "gaussian_sh_rotation.h"
 #include "gs_project_settings.h"
 #include "gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
@@ -21,6 +22,45 @@ static Quaternion _safe_quaternion_from_asset(const TypedArray<Quaternion> &p_ro
         }
     }
     return Quaternion();
+}
+
+// #1171: the merge bakes each source's rotation into the splat quaternions and
+// normals, so it must bake the same rotation into the view-dependent SH as well:
+// the merged world is drawn with an identity transform, while an unmerged node
+// rotates the view direction into the asset frame before evaluating SH. The
+// rotation is built from the same quaternion the splat orientations use.
+// p_block holds p_splat_count splats of p_floats_per_splat floats laid out as
+// RGB triplets in basis order (DC first). Returns false when the block carries
+// a partially populated band, which is left unrotated (complete bands are
+// rotated); the caller reports that.
+static bool _rotate_source_sh_block(const Quaternion &p_world_rotation, float *p_block,
+        uint32_t p_splat_count, uint32_t p_floats_per_splat) {
+    if (p_block == nullptr || p_splat_count == 0u || p_floats_per_splat < 6u) {
+        return true; // DC only: rotation-invariant.
+    }
+    const Basis rotation(p_world_rotation);
+    double r[3][3];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            r[i][j] = double(rotation.rows[i][j]);
+        }
+    }
+    GaussianSHRotation::Rotation sh_rotation;
+    if (!GaussianSHRotation::make_rotation(r, sh_rotation)) {
+        // Basis(Quaternion) of a normalized quaternion is always a proper
+        // rotation; reaching this means a non-finite source transform.
+        ERR_PRINT("[GaussianSplatMerge] source rotation is not a proper rotation; SH bands left unrotated.");
+        return false;
+    }
+    if (sh_rotation.identity) {
+        return true;
+    }
+    const uint32_t terms = p_floats_per_splat / 3u;
+    bool complete = true;
+    for (uint32_t splat = 0; splat < p_splat_count; splat++) {
+        complete = GaussianSHRotation::rotate_terms(sh_rotation, p_block + size_t(splat) * size_t(p_floats_per_splat), terms) && complete;
+    }
+    return complete;
 }
 
 static GaussianDCEncoding _resolve_asset_dc_encoding(const Ref<GaussianSplatAsset> &p_asset) {
@@ -462,24 +502,34 @@ bool gaussian_splat_merge_sources(const Vector<GaussianSplatMergeSource> &source
         const uint32_t copy_terms = MIN(source_stride, target_stride);
 
         const uint32_t asset_sh_size = uint32_t(asset_sh.size());
+        float *const target_block = sh_ptr + size_t(base_offset) * size_t(target_stride);
         if (asset_sh_ptr != nullptr && source_stride == target_stride && splat_count > 0u &&
                 uint64_t(asset_sh_size) >= uint64_t(splat_count) * uint64_t(source_stride)) {
             const size_t copy_bytes = size_t(splat_count) * size_t(source_stride) * sizeof(float);
-            std::memcpy(sh_ptr + size_t(base_offset) * size_t(target_stride), asset_sh_ptr, copy_bytes);
-            continue;
+            std::memcpy(target_block, asset_sh_ptr, copy_bytes);
+        } else {
+            for (uint32_t splat = 0; splat < splat_count; splat++) {
+                const uint32_t target_base = (base_offset + splat) * target_stride;
+                const uint32_t source_base = splat * source_stride;
+                const uint32_t source_available_terms = source_base < asset_sh_size ? asset_sh_size - source_base : 0u;
+                const uint32_t available_terms = MIN(copy_terms, source_available_terms);
+                if (asset_sh_ptr != nullptr && available_terms > 0u) {
+                    std::memcpy(sh_ptr + target_base, asset_sh_ptr + source_base, size_t(available_terms) * sizeof(float));
+                }
+                for (uint32_t term = available_terms; term < target_stride; term++) {
+                    sh_ptr[target_base + term] = 0.0f;
+                }
+            }
         }
 
-        for (uint32_t splat = 0; splat < splat_count; splat++) {
-            const uint32_t target_base = (base_offset + splat) * target_stride;
-            const uint32_t source_base = splat * source_stride;
-            const uint32_t source_available_terms = source_base < asset_sh_size ? asset_sh_size - source_base : 0u;
-            const uint32_t available_terms = MIN(copy_terms, source_available_terms);
-            if (asset_sh_ptr != nullptr && available_terms > 0u) {
-                std::memcpy(sh_ptr + target_base, asset_sh_ptr + source_base, size_t(available_terms) * sizeof(float));
-            }
-            for (uint32_t term = available_terms; term < target_stride; term++) {
-                sh_ptr[target_base + term] = 0.0f;
-            }
+        // #1171: rotate bands 1-3 by the rotation already baked into this
+        // source's quaternions (same derivation as the first pass).
+        const Quaternion world_rotation = source.transform.basis.orthonormalized().get_rotation_quaternion();
+        if (!_rotate_source_sh_block(world_rotation, target_block, splat_count, target_stride)) {
+            GS_LOG_WARN_DEFAULT(vformat(
+                    "GaussianSplat merge: source %d carries a partially populated SH band (%d coefficients per splat); "
+                    "that band could not be rotated into world space and its view-dependent colour stays in the source frame.",
+                    source_index, int64_t(target_stride / 3u)));
         }
     }
 
