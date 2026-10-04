@@ -618,16 +618,16 @@
 		<member name="painterly/stroke_width" type="float" setter="set_stroke_width" getter="get_stroke_width" default="1.0">
 			Width of painterly brush strokes.
 		</member>
-		<member name="painterly/temporal_blend" type="float" setter="set_temporal_blend" getter="get_temporal_blend" default="0.5">
+		<member name="painterly/temporal_blend" type="float" setter="set_temporal_blend" getter="get_temporal_blend" default="0.9">
 			Temporal blending factor for frame-to-frame smoothness of painterly effects.
 		</member>
-		<member name="painterly/seed" type="int" setter="set_painterly_seed" getter="get_painterly_seed" default="0">
+		<member name="painterly/seed" type="int" setter="set_painterly_seed" getter="get_painterly_seed" default="1337">
 			Random seed for painterly noise generation.
 		</member>
 		<member name="painterly/material" type="PainterlyMaterial" setter="set_painterly_material" getter="get_painterly_material">
 			The [PainterlyMaterial] this node renders with. Painterly rendering requires one; without it the painterly path falls back to the baseline raster and the frame is indistinguishable from [member painterly/enabled] being off.
 		</member>
-		<member name="rendering/update_mode" type="int" setter="set_update_mode" getter="get_update_mode" enum="GaussianSplatNode3D.ViewportUpdateMode" default="0">
+		<member name="rendering/update_mode" type="int" setter="set_update_mode" getter="get_update_mode" enum="GaussianSplatNode3D.ViewportUpdateMode" default="1">
 			Controls when rendering updates occur.
 		</member>
 		<member name="rendering/cast_shadow" type="bool" setter="set_cast_shadow" getter="get_cast_shadow" default="false">
@@ -642,13 +642,13 @@
 		<member name="rendering/wind_override_enabled" type="bool" setter="set_wind_override_enabled" getter="is_wind_override_enabled" default="false">
 			Enables per-node wind parameter overrides.
 		</member>
-		<member name="rendering/wind_enabled" type="bool" setter="set_wind_enabled" getter="is_wind_enabled" default="false">
-			Enables wind simulation for this node's splats.
+		<member name="rendering/wind_enabled" type="bool" setter="set_wind_enabled" getter="is_wind_enabled" default="true">
+			Enables wind simulation for this node's splats. Only takes effect while [member rendering/wind_override_enabled] is on; otherwise the node inherits the project wind settings.
 		</member>
 		<member name="rendering/wind_strength" type="float" setter="set_wind_strength" getter="get_wind_strength" default="1.0">
 			Wind displacement strength multiplier.
 		</member>
-		<member name="rendering/wind_direction" type="Vector3" setter="set_wind_direction" getter="get_wind_direction" default="Vector3(1, 0, 0)">
+		<member name="rendering/wind_direction" type="Vector3" setter="set_wind_direction" getter="get_wind_direction" default="Vector3(0, 0, 0)">
 			Wind direction vector.
 		</member>
 		<member name="rendering/wind_frequency" type="float" setter="set_wind_frequency" getter="get_wind_frequency" default="1.0">
@@ -657,7 +657,7 @@
 		<member name="rendering/color_grading" type="ColorGradingResource" setter="set_color_grading" getter="get_color_grading">
 			Color grading transform applied to splat colors.
 		</member>
-		<member name="debug/preview_enabled" type="bool" setter="set_preview_enabled" getter="is_preview_enabled" default="false">
+		<member name="debug/preview_enabled" type="bool" setter="set_preview_enabled" getter="is_preview_enabled" default="true">
 			Enables editor preview rendering.
 		</member>
 		<member name="debug/show_bounds" type="bool" setter="set_show_bounds" getter="is_showing_bounds" default="false">
@@ -675,13 +675,13 @@
 		<member name="debug/show_performance_hud" type="bool" setter="set_show_performance_hud" getter="is_showing_performance_hud" default="false">
 			Requests the internal Route &amp; residency HUD ([GaussianSplatDebugHUD]): render, sort and cull route, requested policy, backend and residency lines. It shows no frame or GPU timings; those live in [GaussianSplatPerformanceOverlay].
 		</member>
-		<member name="debug/show_lod_spheres" type="bool" setter="set_show_lod_spheres" getter="is_showing_lod_spheres" default="false">
+		<member name="debug/show_lod_spheres" type="bool" setter="set_show_lod_spheres" getter="is_showing_lod_spheres" default="true">
 			Shows LOD transition sphere visualization.
 		</member>
 		<member name="debug/show_timing_gizmo" type="bool" setter="set_show_timing_gizmo" getter="is_showing_timing_gizmo" default="false">
 			Draws the editor timing gizmo: three bars above the node for its update, render and sort time. A time that was not measured draws no bar. This is an editor aid, not the runtime performance overlay; for that, add a [GaussianSplatPerformanceOverlay] to the scene.
 		</member>
-		<member name="debug/overlay_opacity" type="float" setter="set_debug_overlay_opacity" getter="get_debug_overlay_opacity" default="0.5">
+		<member name="debug/overlay_opacity" type="float" setter="set_debug_overlay_opacity" getter="get_debug_overlay_opacity" default="0.3">
 			Opacity of debug overlays.
 		</member>
 		<member name="debug/debug_draw_mode" type="int" setter="set_debug_draw_mode" getter="get_debug_draw_mode" enum="GaussianSplatNode3D.DebugDrawMode" default="0">
