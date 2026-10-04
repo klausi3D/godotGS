@@ -119,6 +119,10 @@ void GaussianSplatWorld::set_gaussian_data(const Ref<GaussianData> &p_data) {
 void GaussianSplatWorld::_assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod) {
     if (!p_keep_hlod) {
         hlod_tree.clear();
+    } else if (!hlod_tree.is_empty() && p_data.is_valid()) {
+        // Same payload (materialized from the file the tree was loaded with).
+        hlod_tree.leaf_payload_revision = p_data->get_content_revision();
+        hlod_tree.leaf_payload_revision_valid = true;
     }
     gaussian_data = p_data;
     if (gaussian_data.is_valid()) {
@@ -342,6 +346,8 @@ Error GaussianSplatWorld::save_to_file(const String &p_path) const {
 
 void GaussianSplatWorld::set_hlod_tree(GaussianSplatHlodTree &&p_tree) {
     hlod_tree = std::move(p_tree);
+    hlod_tree.leaf_payload_revision_valid = gaussian_data.is_valid();
+    hlod_tree.leaf_payload_revision = gaussian_data.is_valid() ? gaussian_data->get_content_revision() : 0u;
     notify_property_list_changed();
     emit_changed();
 }
@@ -398,42 +404,61 @@ Error GaussianSplatWorld::bake_hlod() {
     ERR_FAIL_COND_V_MSG(gaussian_data.is_null() || gaussian_data->get_count() == 0, ERR_UNCONFIGURED,
             "GaussianSplatWorld.bake_hlod(): the world has no splats.");
 
-    LocalVector<Gaussian> gaussians;
-    LocalVector<Vector3> sh_high_order;
+    gs_hlod::BakeResult result;
     uint32_t sh_first_order = 0;
     uint32_t sh_high_order_count = 0;
-    ERR_FAIL_COND_V(!gaussian_data->capture_chunk_snapshot(0, gaussian_data->get_count(), gaussians, sh_high_order,
-                            sh_first_order, sh_high_order_count),
-            ERR_CANT_ACQUIRE_RESOURCE);
-
-    gs_hlod::BakeInput input;
-    input.gaussians = gaussians.ptr();
-    input.count = gaussians.size();
-    input.sh_high_order_count = sh_high_order_count;
-    input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
-    gs_hlod::BakeParams params;
-    gs_hlod::BakeResult result;
-    String error;
-    if (!gs_hlod::bake_world(input, params, result, &error)) {
-        ERR_FAIL_V_MSG(ERR_INVALID_DATA, vformat("GaussianSplatWorld.bake_hlod(): %s", error));
+    const bool is_2d = gaussian_data->get_2d_mode();
+    {
+        // Scoped so the snapshot is freed as soon as the bake has consumed it (peak memory).
+        LocalVector<Gaussian> gaussians;
+        LocalVector<Vector3> sh_high_order;
+        ERR_FAIL_COND_V(!gaussian_data->capture_chunk_snapshot(0, gaussian_data->get_count(), gaussians, sh_high_order,
+                                sh_first_order, sh_high_order_count),
+                ERR_CANT_ACQUIRE_RESOURCE);
+        gs_hlod::BakeInput input;
+        input.gaussians = gaussians.ptr();
+        input.count = gaussians.size();
+        input.sh_high_order_count = sh_high_order_count;
+        input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
+        gs_hlod::BakeParams params;
+        String error;
+        if (!gs_hlod::bake_world(input, params, result, &error)) {
+            ERR_FAIL_V_MSG(ERR_INVALID_DATA, vformat("GaussianSplatWorld.bake_hlod(): %s", error));
+        }
     }
 
-    Ref<GaussianData> baked;
-    baked.instantiate();
-    baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order,
-            sh_high_order_count, gaussian_data->get_2d_mode());
-    const AABB keep_bounds = bounds;
-    _assign_gaussian_data(baked, false);
-    bounds = keep_bounds.has_volume() ? keep_bounds : baked->get_aabb();
-    // The file-backed source (if any) indexes the old order; the baked payload is resident now.
-    chunk_payload_source.unref();
+    // Build every fallible piece of the replacement before touching the world, so a failure
+    // leaves the world exactly as it was (payload, chunks, source, tree).
     Vector<GaussianSplatRenderer::StaticChunk> leaf_chunks;
     if (!build_hlod_leaf_chunks(result.tree, leaf_chunks)) {
         ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY, "GaussianSplatWorld.bake_hlod(): cannot allocate the leaf chunks.");
     }
+    result.leaf_source_index.reset();
+
+    // Commit. Drop the old payload first (peak memory: the source is freed here unless the caller
+    // holds another reference), then build the baked one from the leaf section.
+    const AABB keep_bounds = bounds;
+    gaussian_data.unref();
+    chunk_payload_source.unref(); // it indexes the old order; the baked payload is resident
+    Ref<GaussianData> baked;
+    baked.instantiate();
+    baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order, sh_high_order_count, is_2d);
+    result.leaf_gaussians.reset();
+    result.leaf_sh_high_order.reset();
+    _assign_gaussian_data(baked, false);
+    bounds = keep_bounds.has_volume() ? keep_bounds : baked->get_aabb();
     hlod_tree = std::move(result.tree);
+    hlod_tree.leaf_payload_revision = baked->get_content_revision();
+    hlod_tree.leaf_payload_revision_valid = true;
     static_chunks = leaf_chunks;
     notify_property_list_changed();
     emit_changed();
     return OK;
+}
+
+bool GaussianSplatWorld::is_hlod_payload_current() const {
+    if (hlod_tree.is_empty() || gaussian_data.is_null()) {
+        return true; // no tree, or a file-backed payload (immutable on disk)
+    }
+    return hlod_tree.leaf_payload_revision_valid && hlod_tree.leaf_payload_revision == gaussian_data->get_content_revision();
 }

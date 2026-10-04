@@ -154,6 +154,12 @@ struct GaussianSplatHlodTree {
 	GaussianSplatHlodBakeStats bake_stats;
 	bool has_bake_stats = false;
 
+	// GaussianData::get_content_revision() of the world's resident leaf payload when the tree was
+	// installed. GaussianData setters bump it without knowing about the tree, so the saver
+	// compares it to refuse a tree whose leaves were edited in place (stale interior payloads).
+	uint64_t leaf_payload_revision = 0u;
+	bool leaf_payload_revision_valid = false;
+
 	// Interior payload, positions relative to each node's cell centre: resident (baked here, or
 	// loaded resident), or left in the source file and read on demand.
 	bool interior_resident = false;

@@ -70,8 +70,11 @@ bool _cell_is_child(const GaussianSplatHlodNode &p_parent, const GaussianSplatHl
 	const GaussianSplatHlodCell &cc = p_child.cell;
 	if ((p_child.flags & (gs_hlod::kNodeFlagSplitByIndex | gs_hlod::kNodeFlagGroupedLeaf)) != 0u) {
 		// Shared cell. Under the origin-centred root the shared cell is the root's cube, which
-		// has no lattice address; such children carry the root's address and centre.
-		return cc == pc;
+		// has no lattice address; such children carry the root's address AND its flag, so the
+		// flag alone says which frame a node uses (one encoding per tree).
+		const bool parent_centred = (p_parent.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u;
+		const bool child_centred = (p_child.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u;
+		return cc == pc && parent_centred == child_centred;
 	}
 	if ((p_parent.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u) {
 		return cc.e == pc.e && _adjacent_to_origin(cc.ix) && _adjacent_to_origin(cc.iy) && _adjacent_to_origin(cc.iz);
@@ -110,14 +113,14 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 				return _fail(r_reason, vformat("%s %d is origin-centred but neither the root nor a shared-cell child of it.", what, i));
 			}
 		}
-		if (!_finite3(n.aabb_min) || !_finite3(n.aabb_max) || !Math::is_finite(n.radius) ||
+		if (!_finite3(n.aabb_min) || !_finite3(n.aabb_max) || !Math::is_finite(n.radius) || !Math::is_finite(n.overlap_footprint) ||
 				!Math::is_finite(n.geometric_error) || !Math::is_finite(n.error_chosen) || !Math::is_finite(n.error_rejected)) {
 			return _fail(r_reason, vformat("%s %d has a non-finite field.", what, i));
 		}
 		if (n.aabb_min.x > n.aabb_max.x || n.aabb_min.y > n.aabb_max.y || n.aabb_min.z > n.aabb_max.z) {
 			return _fail(r_reason, vformat("%s %d has an inverted AABB.", what, i));
 		}
-		if (n.radius < 0.0f || n.error_chosen < 0.0f || n.error_rejected < 0.0f || n.geometric_error < 0.0f) {
+		if (n.radius < 0.0f || n.error_chosen < 0.0f || n.error_rejected < 0.0f || n.geometric_error < 0.0f || n.overlap_footprint < 0.0f) {
 			return _fail(r_reason, vformat("%s %d has a negative radius or error.", what, i));
 		}
 		if ((n.flags & ~gs_hlod::kNodeFlagKnownMask) != 0u) {

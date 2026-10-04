@@ -220,11 +220,16 @@ bool bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 			continue;
 		}
 		// Lexicographic (x, y, z) order of the relative cell = the prototype's
-		// key (cx * dy + cy) * dz + cz order.
+		// key (cx * dy + cy) * dz + cz order. Bit 63 is the splat's DC encoding: sh_dc is decoded
+		// as dc + 0.5 (LINEAR_RGB) or 1.5 sigmoid(dc) - 0.25 (LEGACY_BIAS, gs_sh_binning.glsl),
+		// so averaging across encodings would mix colour spaces; worlds merged from several
+		// assets carry both (core/gaussian_splat_merge_utils.cpp). Cells never mix them. With a
+		// single encoding the bit is constant and the order is the prototype's.
 		const uint64_t cx = uint64_t(cells[i * 3u + 0u] - lo[0]);
 		const uint64_t cy = uint64_t(cells[i * 3u + 1u] - lo[1]);
 		const uint64_t cz = uint64_t(cells[i * 3u + 2u] - lo[2]);
-		r_entries[w].key = (cx << (2u * kCellCoordBits)) | (cy << kCellCoordBits) | cz;
+		const uint64_t encoding = gaussian_get_dc_encoding(p_rep.gaussians[i].render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB ? 1u : 0u;
+		r_entries[w].key = (encoding << 63u) | (cx << (2u * kCellCoordBits)) | (cy << kCellCoordBits) | cz;
 		r_entries[w].index = i;
 		w++;
 	}

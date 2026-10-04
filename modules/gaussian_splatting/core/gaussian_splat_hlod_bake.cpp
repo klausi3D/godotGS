@@ -660,6 +660,10 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	if (uint64_t(n) + interior_total > uint64_t(UINT32_MAX)) {
 		return fail("HLOD payload exceeds the 32-bit splat index space.");
 	}
+	// The loader refuses an SH section over UINT32_MAX vectors; refuse to bake one it cannot load.
+	if ((uint64_t(n) + interior_total) * uint64_t(sh_count) > uint64_t(UINT32_MAX)) {
+		return fail("HLOD payload's SH section exceeds the 32-bit element count the loader accepts.");
+	}
 	tree.interior_splat_count = uint32_t(interior_total);
 	tree.interior_gaussians.resize(tree.interior_splat_count);
 	if (sh_count > 0u) {

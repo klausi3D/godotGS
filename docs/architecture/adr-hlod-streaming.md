@@ -355,7 +355,26 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   region and stitched at the top, (b) an edit changes only its own branch, and (c) cell edges
   halve per level, which is what makes a geometric error per level meaningful. k-d trees and
   BVHs (H3DGS uses a per-chunk BVH) give none of these. 64-bit indices cover planetary extents
-  down to the smallest cell edge.
+  down to the smallest cell edge; S1a bounds them to `|i| < 2^52` so a cell centre
+  `O + (i + 0.5) 2^e` is exact in double, which still reaches `2^36` m at the `2^-16` m floor.
+- **Origin-centred root (ratified 2026-10-04, decision 9).** The planes through `O` are cell
+  boundaries at every scale, so content that straddles one of them, as every scan centred on
+  its origin does, lies in no single lattice cell, and "the smallest lattice cell that contains
+  the content" has no answer. Such a root is the cube `[O - 2^e, O + 2^e)` for the smallest `e`
+  that holds every centre. It is stored with node flag bit 4 (`origin_centred_root`) and the
+  address `(e, 0, 0, 0)`; its centre is `O` and its edge `2^(e+1)`. Its children are the
+  ordinary lattice cells `(e, {-1, 0}^3)`, so everything below the root is the lattice. Its
+  grouped and index-split children are addressed by the cube and carry the same flag (one
+  encoding per tree; the validator rejects the other). Consumers must take a node's frame from
+  the node (address and flag), never from the address alone. Otherwise the root is the smallest
+  lattice cell holding every centre.
+- **Growth and local edits.** A lattice root survives growth as a child of the new root. An
+  origin-centred root grows into a larger cube; its interior children keep their addresses
+  (`floor(-1 / 2) = -1`) and become grandchildren. Only its **direct leaves** (including the
+  grouped and split leaves addressed by the old cube) are re-addressed or regrouped, which is
+  about what a lattice root costs when it is itself a leaf. **Every node at depth 2 or more is
+  unchanged by root growth**, and every node off a new splat's path is unchanged by an edit
+  inside the root (both are S1a tests).
 - **Children are the eight octants.** Empty octants are not stored. Flat content therefore
   occupies four of them and **behaves as a quadtree automatically**, with no data-dependent
   choice of split axis. (The prototype measured in §5 split only along "long" axes of the
@@ -370,12 +389,16 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
   15 µm, an absolute lattice level), or when all centres in a cell are bit-identical. A cell that still holds more than 16,384
   centres is emitted as an **index-split group**: its splats, ordered by
   `(Morton code at full precision, source index)`, are cut into `ceil(N / 16,384)` sibling
-  leaves that share the cell's bounds and carry the flag `split_by_index`. **The bake never
-  emits a node over 16,384 splats (16 pages, within #1134's 64-page cap).** Interior nodes are
-  bounded the same way (§6.3).
+  leaves that share the cell's bounds and carry the flag `split_by_index`. A group of more than 8
+  leaves gets intermediate interior nodes on the same cell (also `split_by_index`), 8 children
+  at most per node. **The bake never emits a node over 16,384 splats (16 pages, within #1134's
+  64-page cap).** Interior nodes are bounded the same way (§6.3).
 - **Node bounds come from the node's own payload** (centres plus three sigma of each splat,
-  after merging and inflation), stored as a tight AABB and sphere next to the cell address.
-  Culling and the error distance use these; the cell address is only for structure.
+  after merging and inflation), **united with the children's bounds**, so a parent always
+  contains its children (conservative for culling and for the error distance). They are
+  stored node-relative, rounded outward with the same double arithmetic the loader's validator
+  uses, so containment holds exactly; the sphere is about the AABB centre. Culling and the
+  error distance use these; the cell address is only for structure.
 - **World chunks are not the leaves.** Today's 10 m grid chunks reach 22,618 splats; the bake
   partitions by the octree instead.
 
@@ -435,9 +458,14 @@ independent review of `7fa337d4a41` (13 findings); §13 maps each finding to its
 ### 6.3 Interior nodes: two candidates, chosen per node (decision 2)
 
 - **Merge cell and error.** Each interior node is built from its children. Its merge cell
-  `eps` starts at `cell edge / 64` and at least twice the children's `eps`, and is raised until
-  the merged candidate is at most a quarter of the children's total and at most 16,384 splats.
-  `eps` is stored as the node's **geometric error**.
+  `eps` starts at `cell edge / 64` and at least twice the children's `eps`, and is raised (by a
+  factor of 1.25 per step, as the prototype) until the merged candidate is at most a quarter of
+  the children's total and at most 16,384 splats. `eps` is stored as the node's **geometric
+  error**. The merge cells are anchored at the node's cell corner, so they are world-aligned too.
+- **Merge cells never mix DC encodings.** `sh_dc` is decoded as `dc + 0.5` (`linear_rgb`) or
+  `1.5 sigmoid(dc) - 0.25` (`legacy_bias`, `shaders/includes/gs_sh_binning.glsl`), and worlds
+  merged from several assets carry both, so the encoding is part of the cell key: splats with
+  different encodings are never averaged together.
 - **Candidate `merged` (`sat`).** Splats with `2 sigma_max >= eps` pass through unchanged.
   Every other cell becomes one splat by **moment matching** (H3DGS): weights
   `w = alpha x sigma_a x sigma_b`; mean, covariance (`Sigma_i + (mu_i - mu)(mu_i - mu)^T`), DC
@@ -620,8 +648,11 @@ inconsistency. The #420 importance clamp is retired in the same slice.
 - **Error under a transform.** An instance's node error is scaled by the instance's uniform
   scale, and distances are taken in world space.
 - **Stage 2+: instance proxies.** Far groups of instances need merged proxy payloads in the
-  top-level cells (true HLOD across instances). The top-level node record reserves the payload
-  fields, so adding proxies is a bake change, not a format change.
+  top-level cells (true HLOD across instances). The top-level node record already has the
+  payload fields, so proxies need no layout change. They do need a **reader** change: S1a's
+  validator refuses top-level payloads and non-leaf kinds (fail closed), so files with proxies
+  must be gated (a format version or a `bake_rule_version` the reader checks), decided when
+  proxies are designed.
 
 ## 7. Format and version bumps
 
@@ -653,10 +684,39 @@ inconsistency. The #420 importance clamp is retired in the same slice.
 
   The per-draw `DrawnNodeGPU` record, the per-node centre in `ChunkMetaGPU`, the instance
   rules and the threshold hysteresis are **runtime only** and do not touch the file.
+- **Recorded in S1a (#1149)**, beyond the delta above:
+  - `kFlagHasHlod` is header flag bit 6. The v2 header is the 104 B v1 header (version 2,
+    chunk fields zero) plus an 80 B extension: `O` (3 x float64), `bake_rule_version`, the
+    interior splat count, and offset and count of the node, top-level node and instance
+    tables, then two reserved words.
+  - Sections: gaussians (leaf payload, then interior payload), SH in the same order, node
+    table, top-level node table, instance table (128 B records), metadata.
+  - Node flags: bits 0–1 the representation kind, bit 2 `split_by_index`, bit 3 `grouped_leaf`,
+    bit 4 `origin_centred_root` (§6.1).
+  - **Reserved bytes:** the node record's 32 reserved bytes are the stage-2 extension area, so
+    readers ignore them. Reserved words in the header and the instance record have no designated
+    use and must be zero. `overlap_footprint` is finite and `>= 0` (0 until S2a).
+  - **Worlds without a tree are still written as v1**, byte-identical, so `.gsplatcache` files
+    and tree-less exports do not change.
+  - The leaf section is still handed to today's runtime in absolute float32 (resident loads
+    convert; file-backed loads apply a per-leaf frame in the payload source) until S2a draws
+    node-relative positions.
+  - Importer: v2 sources are fully validated before they can replace a previous import; an
+    in-place import (destination is the source) is copied, not baked; **a failed bake falls
+    back to the plain tree-less copy with a warning** (`hlod_skip_reason = "bake_failed"`),
+    so a world that imported before the bump still imports. While baking, the importer holds
+    the payload about three times over (source, snapshot, bake working set), then about twice.
+  - The 2D flag is carried through the bake and the format, not refused: the PLY loader sets
+    it for any PLY with normals, which standard 3DGS exports carry, and no shader reads it.
+  - A tree records its leaf payload's content revision; the saver refuses a tree whose payload
+    was edited in place afterwards (its merged nodes would be stale).
 - **The v2 loader still reads v1.** `.gsplatcache` files are written through the world saver
   (`io/ply_loader.cpp:98-105`), so v1 caches exist on disk; rejecting them would only force a
   re-parse, but accepting them is free. v1 content renders through the tree-less fallback
   (§6.5).
+- **Version numbers (decision 10, 2026-10-04).** HLOD takes `.gsplatworld` v2 and world importer
+  v3. The colour-encoding ADR's DC-contract slice (#1056), which had planned the same numbers,
+  takes the next ones when it lands.
 - **`ResourceImporterGSplatWorld::get_format_version` 2 → 3**
   (`io/resource_importer_gsplatworld.h:27`). Today the importer copies the file
   (`io/resource_importer_gsplatworld.cpp:327`); from v3 it bakes v1 sources into a v2 imported
@@ -855,8 +915,14 @@ budget-driven selection, done here by the cut.
    `sat` single-child mapping was a prototype bug; single-child cells are now the identity and
    §5.2 was re-measured.
 
+9. **Origin-centred root ratified (2026-10-04)** for content that straddles a plane through the
+   lattice origin (§6.1).
+10. **Version numbers (2026-10-04):** HLOD takes `.gsplatworld` v2 and world importer v3; #1056
+    takes the next numbers (§7).
+
 Follow-up review of `a1da9be37bf` (one P1, two P2, six P3): resolved in §6.1, §6.2, §6.4–§6.7,
-§6.9, §7 (with the exact S1a format delta), §8 and §9; see §13.
+§6.9, §7 (with the exact S1a format delta), §8 and §9; see §13. The S1a implementation review
+(#1149) is recorded in §6.1, §6.3, §6.9 and §7.
 
 Still open, not blocking stage 1: whether the corridor lane keeps its 120,000 cap, which binds
 by about 50x and under the cut means "draw a coarse world"; S3's A/B data informs it.

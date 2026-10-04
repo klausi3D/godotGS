@@ -79,7 +79,8 @@ static constexpr double kMaxMergedAlpha = 0.99;
 void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t p_member_count,
 		Gaussian &r_out, Vector3 *p_out_sh, CellMergeMoments *r_moments = nullptr);
 
-// One bucketed splat: its cell (21 bits per axis, lexicographic x, y, z) and its index.
+// One bucketed splat: its cell (bit 63: DC encoding; then 21 bits per axis, lexicographic x, y, z)
+// and its index.
 struct MergeCellEntry {
 	uint64_t key = 0u;
 	uint32_t index = 0u;
@@ -98,6 +99,7 @@ struct MergeScratch {
 
 // Number of splats the merge produces at cell size p_eps: the pass-through splats
 // (2 sigma_max >= eps) plus the number of occupied cells of the grid anchored at p_origin.
+// A cell is per DC encoding: splats with different encodings never merge.
 // Returns UINT32_MAX when the grid is too fine for the content (more than 2^21 cells per axis).
 uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch);
 

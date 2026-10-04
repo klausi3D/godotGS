@@ -82,6 +82,9 @@ public:
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
     Error bake_hlod();
     bool has_hlod_tree() const { return !hlod_tree.is_empty(); }
+    // False when the resident payload was edited in place (GaussianData setters) after the tree
+    // was baked or loaded: the interior payload no longer summarizes the leaves.
+    bool is_hlod_payload_current() const;
     Dictionary get_hlod_info() const;
     const GaussianSplatHlodTree &get_hlod_tree() const { return hlod_tree; }
     // Installs a tree whose leaf payload is the current gaussian payload (loader use).

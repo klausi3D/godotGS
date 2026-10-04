@@ -429,6 +429,38 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] moment matching preserves the weig
 	CHECK(one_out_sh[1] == one_sh[1]);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] merge never mixes DC encodings in one cell") {
+	using namespace TestGaussianSplatHlod;
+	// Four small splats in one 1 m cell: two LINEAR_RGB, two LEGACY_BIAS (worlds merged from
+	// several assets carry both, core/gaussian_splat_merge_utils.cpp).
+	LocalVector<Gaussian> g;
+	for (uint32_t i = 0; i < 4u; i++) {
+		Gaussian s;
+		s.position = Vector3(0.1f + 0.2f * float(i), 0.5f, 0.5f);
+		s.scale = Vector3(0.01f, 0.01f, 0.01f);
+		s.opacity = 0.5f;
+		const bool linear = i < 2u;
+		s.sh_dc = linear ? Color(0.4f, 0.4f, 0.4f, 1.0f) : Color(-2.0f, -2.0f, -2.0f, 1.0f);
+		s.render_meta = gaussian_set_dc_encoding(0u, linear ? GAUSSIAN_DC_ENCODING_LINEAR_RGB : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+		g.push_back(s);
+	}
+	gs_hlod::MergeScratch scratch;
+	CHECK_EQ(gs_hlod::merged_count_at_eps(hlod_span(g), Vector3(0, 0, 0), 1.0, scratch), 2u);
+	gs_hlod::SplatList merged;
+	gs_hlod::merge_at_eps(hlod_span(g), Vector3(0, 0, 0), 1.0, scratch, merged);
+	if (merged.size() != 2u) {
+		FAIL("expected one merged splat per encoding");
+		return;
+	}
+	for (uint32_t i = 0; i < 2u; i++) {
+		const Gaussian &m = merged.gaussians[i];
+		const bool linear = gaussian_get_dc_encoding(m.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB;
+		// Each output averages only its own colour space.
+		CHECK(hlod_close(m.sh_dc.r, linear ? 0.4 : -2.0, 1e-6));
+	}
+	CHECK(gaussian_get_dc_encoding(merged.gaussians[0].render_meta) != gaussian_get_dc_encoding(merged.gaussians[1].render_meta));
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importance order is opacity x area, ties by index") {
 	LocalVector<Gaussian> g;
 	g.resize(4);
@@ -685,63 +717,130 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake: 40,000 coincident centres be
 	CHECK(grouped.tree.nodes[0].height >= 2u);
 }
 
+namespace TestGaussianSplatHlod {
+
+// Depth of each node (root = 0).
+inline void hlod_depths(const GaussianSplatHlodTree &p_tree, LocalVector<uint32_t> &r_depth) {
+	r_depth.resize(p_tree.nodes.size());
+	for (uint32_t i = 0; i < p_tree.nodes.size(); i++) {
+		r_depth[i] = i == 0u ? 0u : r_depth[p_tree.nodes[i].parent] + 1u;
+	}
+}
+
+// True when p_node of tree A has an identical counterpart in tree B: same cell, flags, size,
+// error, bounds and payload bytes (leaf payloads compared as the source splats they hold).
+inline bool hlod_node_survives(const gs_hlod::BakeResult &p_a, const GaussianSplatHlodNode &p_node, const gs_hlod::BakeResult &p_b) {
+	for (uint32_t j = 0; j < p_b.tree.nodes.size(); j++) {
+		const GaussianSplatHlodNode &nb = p_b.tree.nodes[j];
+		if (!(nb.cell == p_node.cell) || nb.flags != p_node.flags || nb.payload_count != p_node.payload_count ||
+				nb.geometric_error != p_node.geometric_error || !(nb.aabb_min == p_node.aabb_min) || !(nb.aabb_max == p_node.aabb_max)) {
+			continue;
+		}
+		if (p_node.child_count == 0u) {
+			if (memcmp(p_a.leaf_gaussians.ptr() + p_node.payload_first, p_b.leaf_gaussians.ptr() + nb.payload_first,
+						sizeof(Gaussian) * p_node.payload_count) == 0) {
+				return true;
+			}
+		} else if (memcmp(p_a.tree.interior_gaussians.ptr() + (p_node.payload_first - p_a.tree.leaf_splat_count),
+						   p_b.tree.interior_gaussians.ptr() + (nb.payload_first - p_b.tree.leaf_splat_count),
+						   sizeof(Gaussian) * p_node.payload_count) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace TestGaussianSplatHlod
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake: the lattice is stable, adding a splat changes only the cells on its path") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> base;
 	hlod_make_fixture(24000u, 16000u, base);
-	LocalVector<Gaussian> edited = base;
-	Gaussian extra = base[123];
-	extra.position = Vector3(-11.3f, 0.002f, 6.7f); // inside the existing root region
-	edited.push_back(extra);
-
-	gs_hlod::BakeResult a, b;
-	if (!(hlod_bake(base, 2048u, a))) {
-		FAIL("hlod_bake(base, 2048u, a)");
+	gs_hlod::BakeResult a;
+	if (!hlod_bake(base, 2048u, a)) {
+		FAIL("base bake");
 		return;
 	}
-	if (!(hlod_bake(edited, 2048u, b))) {
-		FAIL("hlod_bake(edited, 2048u, b)");
-		return;
-	}
-	CHECK(a.tree.nodes[0].cell == b.tree.nodes[0].cell);
+	// The fixture spans [-16, 16) x [-0.016, 5] x [-16, 16): origin-centred root cube [-16, 16)^3.
+	CHECK((a.tree.nodes[0].flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u);
 
-	auto on_path = [&](const GaussianSplatHlodTree &p_tree, const GaussianSplatHlodNode &p_node) {
-		double lo[3], hi[3];
-		hlod_cell_region(p_tree, p_node, lo, hi);
-		const Vector3 &p = extra.position;
-		return p.x >= lo[0] && p.x < hi[0] && p.y >= lo[1] && p.y < hi[1] && p.z >= lo[2] && p.z < hi[2];
-	};
-	// Every node off the new splat's path must exist unchanged in the edited bake: same cell,
-	// flags, payload size and payload bytes (leaf payloads compared by source splats).
-	uint32_t compared = 0u, skipped = 0u;
-	for (uint32_t i = 0; i < a.tree.nodes.size(); i++) {
-		const GaussianSplatHlodNode &na = a.tree.nodes[i];
-		if (on_path(a.tree, na)) {
-			skipped++;
-			continue;
+	// Case 1: the new splat lies OUTSIDE the data bounds (y = 7 > 5) but inside the root cube. A
+	// split at the data's bounding-box midpoint (the withdrawn prototype rule) moves split planes
+	// everywhere; the lattice moves none. Case 2: inside the data bounds.
+	const Vector3 additions[2] = { Vector3(-11.3f, 7.0f, 6.7f), Vector3(-11.3f, 0.002f, 6.7f) };
+	for (int which = 0; which < 2; which++) {
+		CAPTURE(which);
+		LocalVector<Gaussian> edited = base;
+		Gaussian extra = base[123];
+		extra.position = additions[which];
+		edited.push_back(extra);
+		gs_hlod::BakeResult b;
+		if (!hlod_bake(edited, 2048u, b)) {
+			FAIL("edited bake");
+			return;
 		}
-		bool matched = false;
-		for (uint32_t j = 0; j < b.tree.nodes.size() && !matched; j++) {
-			const GaussianSplatHlodNode &nb = b.tree.nodes[j];
-			if (!(nb.cell == na.cell) || nb.flags != na.flags || nb.payload_count != na.payload_count ||
-					nb.geometric_error != na.geometric_error || !(nb.aabb_min == na.aabb_min) || !(nb.aabb_max == na.aabb_max)) {
+		CHECK(a.tree.nodes[0].cell == b.tree.nodes[0].cell);
+		CHECK(a.tree.nodes[0].flags == b.tree.nodes[0].flags);
+		// Every node off the new splat's path must exist unchanged in the edited bake.
+		uint32_t compared = 0u, skipped = 0u, survived = 0u;
+		for (uint32_t i = 0; i < a.tree.nodes.size(); i++) {
+			const GaussianSplatHlodNode &na = a.tree.nodes[i];
+			double lo[3], hi[3];
+			hlod_cell_region(a.tree, na, lo, hi);
+			const Vector3 &p = extra.position;
+			if (p.x >= lo[0] && p.x < hi[0] && p.y >= lo[1] && p.y < hi[1] && p.z >= lo[2] && p.z < hi[2]) {
+				skipped++;
 				continue;
 			}
-			if (na.child_count == 0u) {
-				matched = memcmp(a.leaf_gaussians.ptr() + na.payload_first, b.leaf_gaussians.ptr() + nb.payload_first,
-								  sizeof(Gaussian) * na.payload_count) == 0;
-			} else {
-				matched = memcmp(a.tree.interior_gaussians.ptr() + (na.payload_first - a.tree.leaf_splat_count),
-								  b.tree.interior_gaussians.ptr() + (nb.payload_first - b.tree.leaf_splat_count),
-								  sizeof(Gaussian) * na.payload_count) == 0;
-			}
+			compared++;
+			survived += hlod_node_survives(a, na, b) ? 1u : 0u;
 		}
-		CAPTURE(i);
-		CHECK(matched);
-		compared++;
+		CHECK_EQ(survived, compared);
+		CHECK(compared > 10u);
+		CHECK(skipped >= 2u); // the root and at least one cell under it
 	}
-	CHECK(compared > 10u);
-	CHECK(skipped >= 2u); // the root and at least one cell under it
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake: growing the root re-addresses only the root's direct leaves") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> base;
+	hlod_make_fixture(24000u, 16000u, base);
+	gs_hlod::BakeResult a;
+	if (!hlod_bake(base, 2048u, a)) {
+		FAIL("base bake");
+		return;
+	}
+	// A splat outside the root cube [-16, 16)^3: the origin-centred root grows to [-32, 32)^3.
+	LocalVector<Gaussian> grown = base;
+	Gaussian extra = base[7];
+	extra.position = Vector3(3.0f, 20.0f, -2.0f);
+	grown.push_back(extra);
+	gs_hlod::BakeResult b;
+	if (!hlod_bake(grown, 2048u, b)) {
+		FAIL("grown bake");
+		return;
+	}
+	CHECK(b.tree.nodes[0].cell.e == a.tree.nodes[0].cell.e + 1);
+	// Every node at depth >= 2 is untouched (its cell, bounds and payload bytes). Depth-1 interior
+	// nodes keep their address as lattice cells too (floor_half(-1) = -1); only the old root's
+	// direct LEAVES (and its grouped / split leaves, addressed by the cube) may change.
+	LocalVector<uint32_t> depth;
+	hlod_depths(a.tree, depth);
+	uint32_t deep = 0u, deep_survived = 0u, interior1 = 0u, interior1_survived = 0u;
+	for (uint32_t i = 0; i < a.tree.nodes.size(); i++) {
+		const GaussianSplatHlodNode &na = a.tree.nodes[i];
+		if (depth[i] >= 2u) {
+			deep++;
+			deep_survived += hlod_node_survives(a, na, b) ? 1u : 0u;
+		} else if (depth[i] == 1u && na.child_count > 0u) {
+			interior1++;
+			interior1_survived += hlod_node_survives(a, na, b) ? 1u : 0u;
+		}
+	}
+	CHECK(deep > 10u);
+	CHECK_EQ(deep_survived, deep);
+	CHECK(interior1 > 0u);
+	CHECK_EQ(interior1_survived, interior1);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake: lattice roots, node-relative precision far from the origin, fail-closed input") {
@@ -917,6 +1016,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] node-table valida
 		{ "grouped node with children", [](GaussianSplatHlodTree &t) { t.nodes[2].flags |= gs_hlod::kNodeFlagGroupedLeaf; } },
 		{ "origin-centred flag below the root", [](GaussianSplatHlodTree &t) { t.nodes[3].flags |= gs_hlod::kNodeFlagOriginCentredRoot; } },
 		{ "origin-centred root with an index", [](GaussianSplatHlodTree &t) { t.nodes[0].flags |= gs_hlod::kNodeFlagOriginCentredRoot; } },
+		{ "negative overlap footprint", [](GaussianSplatHlodTree &t) { t.nodes[1].overlap_footprint = -1.0f; } },
+		{ "NaN overlap footprint", [](GaussianSplatHlodTree &t) { t.nodes[1].overlap_footprint = NAN; } },
 		{ "cell exponent below the 2^-16 m floor", [](GaussianSplatHlodTree &t) { t.nodes[3].cell.e = -17; } },
 		{ "cell index beyond 2^52", [](GaussianSplatHlodTree &t) { t.nodes[1].cell.iz = int64_t(1) << 53; } },
 		{ "empty payload", [](GaussianSplatHlodTree &t) { t.nodes[1].payload_count = 0u; } },
@@ -978,6 +1079,47 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] node-table valida
 
 	GaussianSplatHlodTree empty;
 	CHECK_FALSE(gs_hlod_validate_tree(empty, &reason));
+
+	// One encoding per tree: a shared-cell child of an origin-centred root must carry the flag
+	// (it names the root's cube), and a shared-cell child of a lattice cell must not.
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	gs_hlod::BakeResult baked;
+	if (!hlod_bake(g, gs_hlod::kMaxNodeSplats, baked)) { // default leaves: small root octants group at the root
+		FAIL("bake for the canonical-flag check");
+		return;
+	}
+	CHECK_MESSAGE(gs_hlod_validate_tree(baked.tree, &reason), reason.utf8().get_data());
+	// Widen the root's bounds (still valid) so the float rounding of the shifted child bounds
+	// below cannot trip the containment check instead of the encoding rule.
+	baked.tree.nodes[0].aabb_min -= Vector3(1.0f, 1.0f, 1.0f);
+	baked.tree.nodes[0].aabb_max += Vector3(1.0f, 1.0f, 1.0f);
+	CHECK_MESSAGE(gs_hlod_validate_tree(baked.tree, &reason), reason.utf8().get_data());
+	bool found_shared = false;
+	for (uint32_t i = 1; i < baked.tree.nodes.size(); i++) {
+		GaussianSplatHlodNode &n = baked.tree.nodes[i];
+		const bool shared = (n.flags & (gs_hlod::kNodeFlagSplitByIndex | gs_hlod::kNodeFlagGroupedLeaf)) != 0u;
+		if (shared && n.parent == 0u) {
+			found_shared = true;
+			CHECK((n.flags & gs_hlod::kNodeFlagOriginCentredRoot) != 0u);
+			// The other encoding: same address, no flag. Without the flag the address names the
+			// lattice cell [O, O + 2^e), whose centre is half a cell away, so shift the
+			// node-relative bounds to keep the world bounds identical: only the canonical-encoding
+			// rule can reject this.
+			const Vector3 keep_min = n.aabb_min;
+			const Vector3 keep_max = n.aabb_max;
+			const float half = float(std::ldexp(1.0, n.cell.e - 1));
+			n.flags &= ~gs_hlod::kNodeFlagOriginCentredRoot;
+			n.aabb_min -= Vector3(half, half, half);
+			n.aabb_max -= Vector3(half, half, half);
+			CHECK_FALSE(gs_hlod_validate_tree(baked.tree, &reason));
+			n.flags |= gs_hlod::kNodeFlagOriginCentredRoot;
+			n.aabb_min = keep_min;
+			n.aabb_max = keep_max;
+			break;
+		}
+	}
+	CHECK(found_shared);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1390,7 +1532,109 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 	DirAccess::remove_absolute(valid_path);
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a failed bake leaves the world untouched; an edited payload is not saved with a stale tree") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	// Failure: non-finite input. The world keeps its payload, chunks and (absent) tree.
+	LocalVector<Gaussian> bad;
+	hlod_make_fixture(3000u, 1000u, bad);
+	bad[10].opacity = NAN;
+	Ref<GaussianSplatWorld> broken = hlod_make_world(bad);
+	const Ref<GaussianData> before = broken->get_gaussian_data();
+	const int chunks_before = broken->get_chunk_count();
+	CHECK(broken->bake_hlod() == ERR_INVALID_DATA);
+	CHECK(broken->get_gaussian_data() == before);
+	CHECK_EQ(broken->get_chunk_count(), chunks_before);
+	CHECK_FALSE(broken->has_hlod_tree());
+
+	// Staleness: an in-place edit of the baked payload must not be saved with the old tree.
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake");
+		return;
+	}
+	CHECK(world->is_hlod_payload_current());
+	const String path = hlod_temp_path("stale");
+	CHECK(saver.save(world, path) == OK);
+	Gaussian edited = g[0];
+	edited.opacity = 0.01f;
+	world->get_gaussian_data()->set_gaussian(5, edited);
+	CHECK_FALSE(world->is_hlod_payload_current());
+	CHECK(saver.save(world, path) == ERR_INVALID_DATA);
+	// Re-baking makes it current again.
+	CHECK(world->bake_hlod() == OK);
+	CHECK(world->is_hlod_payload_current());
+	CHECK(saver.save(world, path) == OK);
+	// A resident load records the loaded payload as current.
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> loaded = loader.load_resident(path, &err);
+	if (loaded.is_null()) {
+		FAIL("resident load");
+		return;
+	}
+	CHECK(loaded->is_hlod_payload_current());
+	loaded.unref();
+	DirAccess::remove_absolute(path);
+}
+
 #ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when the bake fails, and never replaces a good import with a corrupt v2 source") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+
+	// A v1 source the bake refuses (non-finite opacity) still imports, tree-less, with a reason.
+	LocalVector<Gaussian> bad;
+	hlod_make_fixture(3000u, 1000u, bad);
+	bad[10].opacity = NAN;
+	const String bad_source = hlod_temp_path("import_bad_source");
+	if (saver.save(hlod_make_world(bad), bad_source) != OK) {
+		FAIL("save bad source");
+		return;
+	}
+	const String bad_base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_bad_" + itos(OS::get_singleton()->get_ticks_usec()));
+	Variant bad_md;
+	CHECK(importer->import(ResourceUID::INVALID_ID, bad_source, bad_base, options, nullptr, nullptr, &bad_md) == OK);
+	CHECK(String(Dictionary(bad_md)["hlod_skip_reason"]) == String("bake_failed"));
+	CHECK(hlod_read_file(bad_base + ".gsplatworld") == hlod_read_file(bad_source));
+
+	// A good import exists; re-importing a corrupt v2 source over it fails and leaves it intact.
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	const String good_source = hlod_temp_path("import_good_source");
+	if (saver.save(hlod_make_world(g), good_source) != OK) {
+		FAIL("save good source");
+		return;
+	}
+	const String base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_keep_" + itos(OS::get_singleton()->get_ticks_usec()));
+	if (importer->import(ResourceUID::INVALID_ID, good_source, base, options, nullptr, nullptr, nullptr) != OK) {
+		FAIL("good import");
+		return;
+	}
+	const PackedByteArray good_import = hlod_read_file(base + ".gsplatworld");
+	PackedByteArray corrupt = good_import;
+	const uint32_t zero = 0u;
+	memcpy(corrupt.ptrw() + 144, &zero, 4); // node_count = 0
+	const String corrupt_source = hlod_temp_path("import_corrupt_v2");
+	if (!hlod_write_file(corrupt_source, corrupt)) {
+		FAIL("write corrupt source");
+		return;
+	}
+	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_source, base, options, nullptr, nullptr, nullptr) != OK);
+	CHECK(hlod_read_file(base + ".gsplatworld") == good_import);
+
+	DirAccess::remove_absolute(corrupt_source);
+	DirAccess::remove_absolute(base + ".gsplatworld");
+	DirAccess::remove_absolute(good_source);
+	DirAccess::remove_absolute(bad_base + ".gsplatworld");
+	DirAccess::remove_absolute(bad_source);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a v2 copy; source untouched; same tree as bake_hlod()") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;

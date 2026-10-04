@@ -278,8 +278,15 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 
 // Loads a v1 source resident, bakes its HLOD tree and writes the v2 imported copy with the same
 // payload mode as the source (streamable, resident or resident-compressed). The source file is
-// only read.
-static Error _bake_world_copy(const String &p_source_file, const String &p_dest_file, const GSplatWorldHeaderInfo &p_info) {
+// only read. r_bake_failed tells a failure to produce the baked file (load, bake, temp save) apart
+// from a failure to publish it (the final replace, e.g. #714's ERR_BUSY).
+//
+// Peak memory: the source payload is resident while the bake runs (snapshot + bake working set,
+// about 3x the payload), then about 2x while the baked copy is saved; bake_hlod() frees the
+// source and the snapshot as soon as the bake has consumed them.
+static Error _bake_world_copy(const String &p_source_file, const String &p_dest_file, const GSplatWorldHeaderInfo &p_info,
+		bool &r_bake_failed) {
+	r_bake_failed = true;
 	ResourceFormatLoaderGaussianSplatWorld loader;
 	Error load_err = OK;
 	Ref<GaussianSplatWorld> world = loader.load_resident(p_source_file, &load_err);
@@ -303,6 +310,7 @@ static Error _bake_world_copy(const String &p_source_file, const String &p_dest_
 	Error err = saver.save_with_payload_mode(world, temp_file, mode);
 	world.unref();
 	if (err == OK) {
+		r_bake_failed = false;
 		err = _copy_binary_file(temp_file, p_dest_file);
 	}
 	if (FileAccess::exists(temp_file)) {
@@ -377,6 +385,19 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 				p_source_file, validation_err));
 		return validation_err;
 	}
+	if (header_info.version == 2u) {
+		// The header check above stops at the v1 fields; run the loader's full v2 validation (tables,
+		// tree, sections) on the SOURCE before anything replaces a previous good import.
+		ResourceFormatLoaderGaussianSplatWorld source_loader;
+		Error source_err = OK;
+		Ref<Resource> source_world = source_loader.load(p_source_file, "", &source_err);
+		if (source_world.is_null()) {
+			const Error final_err = source_err != OK ? source_err : ERR_FILE_CORRUPT;
+			GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer rejected invalid v2 payload %s (error %d); the previous import is unchanged.",
+					p_source_file, final_err));
+			return final_err;
+		}
+	}
 
 	String save_path = p_save_path + "." + get_save_extension();
 	// v1 sources are baked into a v2 imported copy (HLOD, ADR §7). v2 sources (already baked) and
@@ -389,7 +410,17 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	Error err = OK;
 	String hlod_skip_reason;
 	if (bake) {
-		err = _bake_world_copy(p_source_file, save_path, header_info);
+		bool bake_failed = false;
+		err = _bake_world_copy(p_source_file, save_path, header_info, bake_failed);
+		if (err != OK && bake_failed) {
+			// A world that imported before the HLOD bump must still import: fall back to the plain
+			// (tree-less) copy, which renders through the tree-less path (ADR §6.5), and say so.
+			GS_LOG_WARN_DEFAULT(vformat("GaussianSplatWorld importer could not bake an HLOD tree for %s (error %d); "
+										"importing it without one. It will render without HLOD until it bakes.",
+					p_source_file, err));
+			hlod_skip_reason = String("bake_failed");
+			err = _copy_binary_file(p_source_file, save_path);
+		}
 	} else {
 		hlod_skip_reason = header_info.version != 1u ? String("source_already_v2")
 				: in_place                          ? String("destination_is_source")

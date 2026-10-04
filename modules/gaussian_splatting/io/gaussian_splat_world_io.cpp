@@ -628,8 +628,12 @@ static GaussianSplatHlodNode _read_hlod_node(const Ref<FileAccess> &p_file) {
 	node.payload_first = p_file->get_64();
 	node.payload_count = p_file->get_32();
 	node.overlap_footprint = p_file->get_float();
+	// Reserved-byte policy: the node record's 32 reserved bytes are the format's designated stage-2
+	// extension area (ADR §7: per-node SH degree, quantization block), so readers ignore them and a
+	// later bake can fill them without a format bump. Reserved words in the header and the
+	// instance record have no designated use and must be zero.
 	for (int i = 0; i < 4; i++) {
-		(void)p_file->get_64(); // reserved: ignored on read so stage-2 fields need no format bump
+		(void)p_file->get_64();
 	}
 	return node;
 }
@@ -812,7 +816,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	tree.leaf_splat_count = p_splat_count;
 	tree.interior_splat_count = ext.interior_splat_count;
 	tree.sh_high_order_count = p_sh_high_order;
-	if (!_allocation_probe(uint64_t(ext.node_count + ext.top_level_node_count) * sizeof(GaussianSplatHlodNode) +
+	if (!_allocation_probe((uint64_t(ext.node_count) + uint64_t(ext.top_level_node_count)) * sizeof(GaussianSplatHlodNode) +
 				uint64_t(ext.instance_count) * sizeof(GaussianSplatHlodInstance))) {
 		return refuse("cannot allocate the node tables", ERR_OUT_OF_MEMORY);
 	}
@@ -952,6 +956,10 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
 		const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode) {
 	const GaussianSplatHlodTree &tree = p_world->get_hlod_tree();
+	ERR_FAIL_COND_V_MSG(!p_world->is_hlod_payload_current(), ERR_INVALID_DATA,
+			vformat("Refusing to save %s: the gaussian payload was edited after its HLOD tree was baked, so the tree's merged "
+					"nodes are stale. Call bake_hlod() again, or set_gaussian_data() to drop the tree.",
+					p_path));
 	String reason;
 	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason), ERR_INVALID_DATA,
 			vformat("Refusing to save %s: invalid HLOD tree: %s", p_path, reason));
