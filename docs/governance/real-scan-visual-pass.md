@@ -268,10 +268,14 @@ background differs anyway.
 
 **Verdicts per dimension:** `PASS`, `FAIL`, `KNOWN #N` or `BLOCKED #N`.
 
-**`KNOWN #N` is available only for an issue that has been admitted as an accepted
-limitation.** That means it appears in `public_alpha_issue_ledger` in
+**`KNOWN #N` is available only when `candidate.stage` is `public-alpha`, for an issue
+that has been admitted as an accepted alpha limitation.** That means it appears in `public_alpha_issue_ledger` in
 `docs/reference/renderer_release_gate_manifest.json` with
 `status: accepted_alpha_limitation`, **and the acceptance's own conditions still hold**.
+The alpha ledger does not waive defects for a `v1.0` candidate. In this procedure a
+reproduced v1.0 defect is `FAIL`, not `KNOWN #N`; a different production disposition
+would require a separate maintainer decision in the canonical acceptance bar, not
+reuse of the alpha admission.
 On 2026-09-27 the ledger has two such issues: #1025, the ≈1.5 px TAA trail in C4, and #54.
 #54's acceptance lapses if a default-configured, in-envelope real scene is measured above
 `max_overlap_records` (the ledger entry's `rationale` and last `evidence_required` item in
@@ -378,6 +382,7 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
     {
       "id": "C1-auto", "route": "node | world | streaming | multi_node",
       "execution_target": "editor | exported_game",
+      "rendering_method": "forward_plus", "view_count": 1,
       "asset": "A1", "import_route": "automatic", "world_payloads": [],
       "node_quality_preset": "balanced", "max_splat_count": 500000,
       "runtime_budget_splats": 8000000,
@@ -401,6 +406,15 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
 
 Field rules:
 
+- Every configuration records its actual `rendering_method` and `view_count`.
+  `RenderingServer.get_current_rendering_method()` must report `forward_plus`;
+  record the rendered view count from `RenderSceneBuffersRD.get_view_count()` via
+  the capture's render callback (`RenderData.get_render_scene_buffers()`), and
+  retain the trace in the bundle. All judged frames must have one view. Vulkan,
+  a requested project setting or a disabled-XR setting is not a substitute for
+  these runtime observations. Neither value is a GS `render_stats` field.
+  A missing value, another rendering method or a view count other than one makes
+  that run outside the procedure's envelope: recapture it, never mark it `PASS`.
 - `execution_target` records the executable actually used for every configuration.
   Editor captures cannot be relabelled as exported-game proof merely because the
   template archive was verified.
@@ -480,9 +494,12 @@ boundary says that too.
 Disposition: ACCEPT | FIX: <dimension and expected result> | SANCTION_BASELINE_UPDATE: <reason>
 ```
 
-The three dispositions follow the wording of the #921 packet. `ACCEPT` requires every
-dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted limitation. Multi-node may
-also be `N/A`, but only in an alpha pass. Any `FAIL` or `BLOCKED` rules `ACCEPT` out.
+The three dispositions follow the wording of the #921 packet. For `public-alpha`,
+`ACCEPT` requires every dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted
+alpha limitation whose conditions still hold. Multi-node may also be `N/A`, but only
+in an alpha pass. For `v1.0`, every dimension must be `PASS`, including Multi-node;
+alpha `KNOWN #N` waivers and `N/A` do not authorize production acceptance. Any `FAIL`
+or `BLOCKED` rules `ACCEPT` out.
 The unresolved export-proof scope also rules out release-wide `ACCEPT`; an editor-only
 component verdict is not a template visual pass or release sign-off.
 
