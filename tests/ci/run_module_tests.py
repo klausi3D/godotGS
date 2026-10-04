@@ -33,6 +33,8 @@ PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_project
 PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_project_settings_reference.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layout_sync.py"
+# Shader numerical contracts evaluated from the .glsl source on the host (#1157, #1153, #1168).
+SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -889,6 +891,22 @@ def _run_gaussian_layout_guard() -> tuple[bool, list[str]]:
                 output_lines = [f"{label} failed with exit code {code}."]
             return False, output_lines
 
+    return True, output_lines
+
+
+def _run_shader_host_numerics_guard() -> tuple[bool, list[str]]:
+    """Shader numerics (SH basis vs the Inria reference, payload encodings) evaluated from the
+    real .glsl source by tests/ci/glsl_host_eval.py. A construct the evaluator cannot model
+    raises, so this lane fails rather than skips when a shader leaves the modelled subset."""
+    script = SHADER_HOST_NUMERICS_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing shader host-numerics test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Shader host-numerics tests failed with exit code {code}."]
+        return False, output_lines
     return True, output_lines
 
 
@@ -3582,6 +3600,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_gaussian_layout_guard,
             "Gaussian layout guard failed.",
             "Gaussian layout guard passed.",
+        ),
+        (
+            True,
+            _run_shader_host_numerics_guard,
+            "Shader host-numerics tests failed.",
+            "Shader host-numerics tests passed.",
         ),
         (
             True,

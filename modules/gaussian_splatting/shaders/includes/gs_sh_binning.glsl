@@ -69,6 +69,7 @@ const float SH_C3_0 = 0.5900435899266435;
 const float SH_C3_1 = 2.890611442640554;
 const float SH_C3_2 = 0.4570457994644658;
 const float SH_C3_3 = 0.3731763325901154;
+const float SH_C3_5 = 1.445305721320277; // Inria SH_C3[5]; SH_C3_1 / 2 (#1157)
 
 #ifndef GS_DC_LOGIT
 #define GS_DC_LOGIT 0
@@ -126,10 +127,13 @@ void compute_sh_basis(vec3 dir, uint max_band, out float basis[16]) {
     // Band 3 (3rd order)
     basis[9] = -SH_C3_0 * y * (3.0 * xx - yy);
     basis[10] = SH_C3_1 * x * y * z;
-    basis[11] = -SH_C3_2 * y * (1.0 - 5.0 * zz);
+    // #1157: 11, 13 and 14 are written in the Inria computeColorFromSH form, whose
+    // signed constants are SH_C3[2] = SH_C3[4] = -SH_C3_2 and SH_C3[5] = SH_C3_5.
+    // (They used to read -SH_C3_2 * (1 - 5zz), the opposite sign, and SH_C3_1 for 14.)
+    basis[11] = -SH_C3_2 * y * (4.0 * zz - xx - yy);
     basis[12] = SH_C3_3 * z * (5.0 * zz - 3.0);
-    basis[13] = -SH_C3_2 * x * (1.0 - 5.0 * zz);
-    basis[14] = SH_C3_1 * z * (xx - yy);
+    basis[13] = -SH_C3_2 * x * (4.0 * zz - xx - yy);
+    basis[14] = SH_C3_5 * z * (xx - yy);
     basis[15] = -SH_C3_0 * x * (xx - 3.0 * yy);
 }
 
