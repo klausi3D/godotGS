@@ -274,19 +274,15 @@ void RenderingServerDefault::finish() {
 			server_task_id = WorkerThreadPool::INVALID_TASK_ID;
 		}
 		server_thread = Thread::MAIN_ID;
-
-		// GodotGS (#1077), backport of upstream godotengine/godot#123391 (fixes
-		// godotengine/godot#119000): _assign_mt_ids() made the main
-		// RenderingDevice current on the render thread, which has now exited.
-		// DisplayServer deletes that device on this thread in finalize_display(),
-		// and RenderingDevice::finalize() rejects any thread but the recorded
-		// one, so without this hand-back the main device is never finalized.
-		RenderingDevice *rd = RenderingDevice::get_singleton();
-		if (rd) {
-			rd->make_current();
-		}
 	} else {
 		_finish();
+	}
+	// GodotGS (#1077), backport of upstream godotengine/godot#123391 (fixes
+	// godotengine/godot#119000); drop when upstream merges an equivalent.
+	// The display server destroys the main device after the render worker
+	// has stopped. Return ownership to the calling (main) thread first.
+	if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+		rd->make_current();
 	}
 }
 

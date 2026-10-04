@@ -121,6 +121,17 @@ Initialize the gaussian_storage global.
 ### `servers/rendering/rendering_server_default.cpp` (+9 / −~3)
 Wires `gaussian_storage` into global initialization path.
 
+Also (GS #1077): `RenderingServerDefault::finish()` calls
+`RenderingDevice::get_singleton()->make_current()` after the render thread has
+stopped. This backports upstream godotengine/godot#123391 (for
+godotengine/godot#119000). Under `thread_model=2`, `_assign_mt_ids()` makes the
+main device current on the render thread. Without the hand-back,
+`DisplayServer` deletes the device on the main thread, and
+`RenderingDevice::finalize()` fails its render-thread guard and never runs. The
+error is printed on every windowed exit, and the never-destroyed VkDevice can
+fault in the driver after exit. Drop this patch when upstream merges an
+equivalent.
+
 ### `servers/rendering/renderer_viewport.cpp` (+4)
 Commented-out debug logging (no functional change, could be removed).
 
