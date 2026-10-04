@@ -1,8 +1,9 @@
 # Real-Scan Visual Pass
 
-The procedure, evidence-bundle format, location and signer field for the human visual
-pass that the [release acceptance bar](release-acceptance-bar.md) makes a gate for the
-public alpha and for v1.0 (§6, §9, §10). Tracked as
+The procedure, evidence-bundle format, location and signer field for the **editor
+component** of the human visual pass required by the
+[release acceptance bar](release-acceptance-bar.md) for the public alpha and for
+v1.0 (§6, §9, §10). This component alone does not discharge the release-wide gate. Tracked as
 [#1012](https://github.com/klausi3D/godotGS/issues/1012).
 
 > **Status: not yet executed.** The policy decisions this page needed were made on
@@ -11,11 +12,11 @@ public alpha and for v1.0 (§6, §9, §10). Tracked as
 > [#1075](https://github.com/klausi3D/godotGS/issues/1075) was fixed by
 > [#1080](https://github.com/klausi3D/godotGS/pull/1080). **C7 (streaming) still
 > requires its corridor capture and load/eviction proofs.** An incomplete pass
-> cannot reach `ACCEPT` and is evidence, not a sign-off.
-> **Export proof scope remains undecided.** Archive provenance alone does not prove
-> real-scan rendering in an exported game. Until the maintainer specifies that coverage
-> and the corresponding captures are complete, editor-only evidence cannot discharge
-> the release-wide visual gate or yield release `ACCEPT`.
+> cannot reach `ACCEPT_EDITOR` and is evidence, not a component sign-off.
+> **Scope decided by the maintainer, 2026-10-04: editor component only.**
+> Export visual acceptance remains **OPEN**, not waived. Archive provenance alone
+> does not prove real-scan rendering in an exported game. This procedure cannot
+> yield release-wide `ACCEPT` or discharge the export part of the visual gate.
 
 ## What the pass is, and what it is not
 
@@ -32,6 +33,9 @@ a pre-tag build of the commit, not the published bytes.
 - It does **not** replace automated pixel coverage. An FSR2 row in
   `qa_composite_production_defaults.gd` is separate work. Neither substitutes for the
   other.
+- Its successful disposition is `ACCEPT_EDITOR`, not release `ACCEPT`.
+  The maintainer explicitly left export acceptance open; separate required export
+  coverage and its evidence must be established before release-wide sign-off.
 - It does **not** feed the candidate gate today. The gate's ten artifact groups
   (bar §9.1) do not include this bundle, so a missing or failed pass does not stop a
   tag mechanically. Holding the release for it is a human obligation.
@@ -71,9 +75,10 @@ as not controlled.
    `execution_target`: `editor` or `exported_game`. Running the scenes in the candidate
    editor covers editor bytes only; downloading and hashing the export template does
    not cover its rendering. The workflow's exported synthetic-cube smoke does not
-   supply real-scan appearance proof. Required real-scan export configurations, or an
-   explicitly narrower component sign-off, still need maintainer disposition; there
-   is no implicit template visual `PASS` or release-gate waiver.
+   supply real-scan appearance proof. The maintainer chose the narrower editor
+   component sign-off on 2026-10-04. Required export configurations and their
+   separate acceptance remain open; there is no implicit template visual `PASS`
+   or release-gate waiver.
 
    **The current release workflow publishes before any pass can run.** Every `v*` tag
    maps to a stable, non-prerelease publish (`release_builds.yml:183-188`), and the
@@ -232,7 +237,7 @@ Notes on individual rows:
   `lightweight_smoke` streaming content may be captured only as a labelled
   **interim**, `C7-interim-lightweight-smoke`. It does not substitute for C7: while C7
   has only its interim capture, C7 remains incomplete and the pass cannot reach
-  `ACCEPT`. Use `BLOCKED #N` only for a current, tracked blocking issue.
+  `ACCEPT_EDITOR`. Use `BLOCKED #N` only for a current, tracked blocking issue.
 - **C3 and C4 have to prove that the temporal stage was engaged, and the proof has to
   discriminate.** Moving-camera GS output is very nearly, but not exactly,
   frame-deterministic (see #1025 on
@@ -375,6 +380,8 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
   "schema": "godotgs-realscan-visual-pass/2",
   "operator": "<who ran the captures>",
   "signer": "<the maintainer>",
+  "signoff_scope": "editor_component",
+  "export_visual_acceptance": "OPEN",
   "candidate": {
     "stage": "public-alpha | v1.0",
     "candidate_commit": "<40-hex: the commit the signed artifacts were built from>",
@@ -457,10 +464,13 @@ Field rules:
   A missing value, another rendering method or a view count other than one makes
   that run outside the procedure's envelope: recapture it, never mark it `PASS`.
 - `execution_target` records the executable actually used for every configuration.
+  All required configurations for this component sign-off have target `editor`.
   Editor captures cannot be relabelled as exported-game proof merely because the
   template archive was verified.
   If both targets are captured, use distinct configuration ids and capture filenames
   (for example `C1-auto-editor` and `C1-auto-exported-game`).
+  Additional export captures are supplemental evidence only: they do not change
+  `signoff_scope` or close `export_visual_acceptance` under this procedure.
 - C1-C5 and C8 each require both `automatic` and `dialog` configurations. Their
   `asset` resolves to the `assets[].id` with the designated primary file's SHA-256
   and source count. Record the node's actual `get_splat_asset()` assignment and
@@ -533,13 +543,16 @@ boundary says that too.
 ### `SIGNOFF.md`
 
 ```markdown
-# Real-scan visual pass sign-off
+# Real-scan editor-component visual sign-off
 
 - Signer: <maintainer's full name> (@<github-handle>)
 - Captures run by: <name> (@<github-handle>)
 - Date: <YYYY-MM-DD>
 - Candidate: <candidate_commit> (pre-tag run <workflow_run_id>; tag <release_tag> added after tagging)
 - Executed targets: <editor; exported_game only if actually captured>
+- Sign-off scope: editor_component
+- Export visual acceptance: OPEN (not waived)
+- Release-wide visual acceptance: NOT ASSESSED by this component sign-off
 - Bundle: evidence/visual/<YYYY-MM-DD>-<commit12>/
 
 | Dimension | Verdict | Note |
@@ -554,17 +567,20 @@ boundary says that too.
 | Discrimination | PASS / FAIL | |
 | Multi-node (v1.0 only) | PASS / FAIL / N/A for an alpha pass | |
 
-Disposition: ACCEPT | FIX: <dimension and expected result> | SANCTION_BASELINE_UPDATE: <reason>
+Disposition: ACCEPT_EDITOR | FIX: <dimension and expected result> | SANCTION_BASELINE_UPDATE: <reason>
 ```
 
-The three dispositions follow the wording of the #921 packet. For `public-alpha`,
-`ACCEPT` requires every dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted
+The fix/baseline dispositions follow the #921 packet; acceptance is deliberately
+named `ACCEPT_EDITOR` to bind its narrower scope. For `public-alpha`,
+`ACCEPT_EDITOR` requires every dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted
 alpha limitation whose conditions still hold. Multi-node may also be `N/A`, but only
 in an alpha pass. For `v1.0`, every dimension must be `PASS`, including Multi-node;
 alpha `KNOWN #N` waivers and `N/A` do not authorize production acceptance. Any `FAIL`
-or `BLOCKED` rules `ACCEPT` out.
-The unresolved export-proof scope also rules out release-wide `ACCEPT`; an editor-only
-component verdict is not a template visual pass or release sign-off.
+or `BLOCKED` rules `ACCEPT_EDITOR` out.
+`signoff_scope` must be `editor_component` and `export_visual_acceptance` must remain
+`OPEN`, in both the summary and the signature. A complete editor verdict is not a
+template visual pass or release sign-off. Export acceptance needs its own maintainer
+disposition and execution evidence; it cannot be inferred from this bundle.
 
 **The signer is the maintainer, and only the maintainer.** The maintainer may also run
 the captures. It is a solo project, and the bundle records who did each. **The signature
@@ -611,3 +627,10 @@ Decided on 2026-09-27 by the coordinator, on the maintainer's delegation.
 8. **Scope:** this page discharges the **alpha half** of bar §11's "Evidence-bundle
    format and location (§6)" item. v1.0 still needs the bundle to be machine-checked for
    freshness and hashes (bar §9).
+
+Scope addendum, decided directly by the maintainer on 2026-10-04:
+
+9. **Execution and acceptance:** this procedure signs only the editor component.
+   Required runs execute in the candidate editor and can yield `ACCEPT_EDITOR`.
+   Export visual acceptance stays `OPEN`, explicitly not waived. Neither the
+   editor verdict nor export-template hashes satisfy release-wide visual acceptance.
