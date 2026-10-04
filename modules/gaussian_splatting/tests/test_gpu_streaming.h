@@ -695,7 +695,8 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops a pending upload s
 	CHECK(upload_bytes > 0);
 
 	uint32_t buffer_slot = UINT32_MAX;
-	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0), buffer_slot)) {
+	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0),
+				GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot)) {
 		FAIL("failed to allocate atlas slot for the pending chunk");
 		return;
 	}
@@ -828,7 +829,8 @@ TEST_CASE("[GaussianSplatting][Streaming] A stride flip drops an ASYNC-packed pe
 	CHECK(upload_bytes > 0);
 
 	uint32_t buffer_slot = UINT32_MAX;
-	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0), buffer_slot)) {
+	if (!system._test_atlas_allocator().allocate_slot(system._test_make_chunk_key(asset_uniform, 0),
+				GaussianStreamingSystem::atlas_pages_for_splats(chunk.count), buffer_slot)) {
 		FAIL("failed to allocate atlas slot for the pending chunk");
 		return;
 	}

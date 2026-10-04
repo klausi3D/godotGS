@@ -1,14 +1,13 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://fps_camera_controller.gd" id="fps_script"]
 [ext_resource type="Script" path="res://scenes/static_10_spinning.gd" id="spin_script"]
 [ext_resource type="GaussianSplatAsset" path="res://tests/fixtures/test_splats.ply" id="cabin_asset"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="perf_overlay"]
 
 [node name="Static10Spinning" type="Node3D"]
 script = ExtResource("spin_script")
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("perf_overlay")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="Instance_00" type="GaussianSplatNode3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

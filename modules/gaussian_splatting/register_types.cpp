@@ -31,6 +31,7 @@
 #include "painterly/painterly_material.h"
 #include "nodes/gaussian_splat_node_3d.h"
 #include "nodes/gaussian_splat_debug_hud.h"
+#include "nodes/gaussian_splat_performance_overlay.h"
 #include "nodes/gaussian_splat_container.h"
 #include "nodes/gaussian_splat_dynamic_instance_3d.h"
 #include "nodes/gaussian_splat_world_3d.h"
@@ -102,6 +103,7 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
             // Node classes
             GDREGISTER_CLASS(GaussianSplatNode3D);
             GDREGISTER_CLASS(GaussianSplatDebugHUD);
+            GDREGISTER_CLASS(GaussianSplatPerformanceOverlay);
             GDREGISTER_CLASS(GaussianSplatContainer);
 #ifndef DISABLE_DEPRECATED
             // One-release compatibility shim — keeps serialized scenes that still

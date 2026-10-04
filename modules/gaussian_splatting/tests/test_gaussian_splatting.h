@@ -90,6 +90,7 @@
 #include "test_synthetic_bml_traffic_generator.h"
 #include "test_gaussian_splat_node.h"
 #include "test_debug_hud_lifecycle.h"
+#include "test_performance_overlay.h"
 #include "test_node_bootstrap.h"
 #include "test_node_surface_cleanup.h"
 #include "test_shadow_pass_isolation.h"

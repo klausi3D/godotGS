@@ -184,14 +184,9 @@ void GPUCuller::update_lod_cache() {
             ? culling_config.lod_min_screen_size * effective_bias
             : 0.0f;
 
-    if (culling_config.lod_max_distance > 0.0f) {
-        float adjusted = culling_config.lod_max_distance / effective_bias;
-        culling_config.lod_cached_max_distance = adjusted;
-        culling_config.lod_cached_max_distance_sq = adjusted * adjusted;
-    } else {
-        culling_config.lod_cached_max_distance = 0.0f;
-        culling_config.lod_cached_max_distance_sq = 0.0f;
-    }
+    const float adjusted = compute_effective_max_distance(culling_config);
+    culling_config.lod_cached_max_distance = adjusted;
+    culling_config.lod_cached_max_distance_sq = adjusted * adjusted;
 
     culling_config.lod_cache_dirty = false;
 }
@@ -292,11 +287,18 @@ void GPUCuller::update_culling_settings() {
         culling_config.importance_cull_baseline = culling_config.importance_cull_threshold;
     }
 
-    if (!culling_config.lod_min_screen_size_override) {
+    // #1087: these feed lod_cached_*; a project-setting/tier change must refresh the
+    // cache, or the depth pass keeps the old cut while streaming already follows the
+    // new value (GaussianSplatRenderer::get_streaming_load_distance_limit()).
+    if (!culling_config.lod_min_screen_size_override &&
+            !Math::is_equal_approx(culling_config.lod_min_screen_size, min_screen_setting)) {
         culling_config.lod_min_screen_size = min_screen_setting;
+        culling_config.lod_cache_dirty = true;
     }
-    if (!culling_config.lod_max_distance_override) {
+    if (!culling_config.lod_max_distance_override &&
+            !Math::is_equal_approx(culling_config.lod_max_distance, max_distance_setting)) {
         culling_config.lod_max_distance = max_distance_setting;
+        culling_config.lod_cache_dirty = true;
     }
     culling_config.cull_frustum_plane_slack = CLAMP(frustum_slack_setting, 1.0f, 8.0f);
 }

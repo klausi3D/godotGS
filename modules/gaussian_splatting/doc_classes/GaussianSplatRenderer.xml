@@ -651,13 +651,13 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				Enables or disables the performance HUD overlay displaying frame timing, splat counts, and sort metrics.
+				Enables or disables the renderer's internal "Route &amp; residency" HUD (shown through [GaussianSplatDebugHUD]). It reports which route each stage took and why: route, sort and cull routes, instance backend and contract, data source, raster path and tile size, overlap records, per-stage counts and IO status, GPU memory, and residency. It shows no frame timing, FPS or GPU pass times; those are on [GaussianSplatPerformanceOverlay].
 			</description>
 		</method>
 		<method name="is_debug_show_performance_hud">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if the performance HUD is visible.
+				Returns [code]true[/code] if the "Route &amp; residency" HUD is enabled. See [method set_debug_show_performance_hud].
 			</description>
 		</method>
 		<method name="set_debug_show_residency_hud">
@@ -1049,7 +1049,7 @@
 			Minimum projected screen size in pixels below which splats are culled.
 		</member>
 		<member name="lod_max_distance" type="float" setter="set_lod_max_distance" getter="get_lod_max_distance" default="500.0">
-			Maximum distance from camera beyond which splats are culled.
+			Maximum distance from camera beyond which splats are culled (divided by the LOD bias, and only while LOD is enabled). Streaming applies the same limit to chunk demand: a chunk whose bounds lie entirely beyond it is neither discovered nor loaded. On the streamed-world route the per-splat distance cut is off, so there the limit applies per chunk only. [code]0[/code] disables the limit.
 		</member>
 		<member name="cull/importance_threshold" type="float" setter="set_importance_cull_threshold" getter="get_importance_cull_threshold" default="0.0">
 			Importance culling threshold. Splats below this value are discarded.
@@ -1127,7 +1127,7 @@
 			Shows the per-tile density heatmap overlay.
 		</member>
 		<member name="debug/show_performance_hud" type="bool" setter="set_debug_show_performance_hud" getter="is_debug_show_performance_hud" default="false">
-			Shows the performance HUD overlay.
+			Shows the internal "Route &amp; residency" HUD (routes, stage counts, data source, residency). It shows no timing; use [GaussianSplatPerformanceOverlay] for frame and GPU timing.
 		</member>
 		<member name="debug/show_residency_hud" type="bool" setter="set_debug_show_residency_hud" getter="is_debug_show_residency_hud" default="false">
 			Shows the GPU residency HUD overlay.

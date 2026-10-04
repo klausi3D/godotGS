@@ -211,6 +211,15 @@ public:
     uint32_t get_last_instance_visible_chunk_count() const { return last_instance_visible_chunk_count; }
     void invalidate_lod_cache();
     void update_lod_cache();
+    // Distance beyond which the depth pass drops every splat (lod_max_distance /
+    // lod_bias), or 0 when nothing is distance-culled (LOD off or no max distance).
+    // The one definition both the cull cache and streaming demand (#1087) read.
+    static float compute_effective_max_distance(const CullingConfig &p_config) {
+        if (!p_config.lod_enabled || !(p_config.lod_max_distance > 0.0f)) {
+            return 0.0f;
+        }
+        return p_config.lod_max_distance / MAX(p_config.lod_bias, 0.0001f);
+    }
     void update_culling_settings();
     void ensure_hierarchical_structure(const Ref<GaussianData> &p_data);
     CullingSummary cull_for_view(const Transform3D &p_cam_transform, const Projection &p_projection, const Size2i &p_viewport_size,

@@ -1784,6 +1784,10 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     }
     Ref<GaussianSplatRenderer> renderer = fixture.renderer;
     renderer->test_release_current_streaming_system();
+    // #1087: give the renderer a finite draw distance well past the fixture, so the
+    // wiring check below compares two non-zero values.
+    renderer->set_lod_enabled(true);
+    renderer->set_lod_max_distance(5000.0f);
 
     // #690: attempt a REAL render target, but do NOT require one.
     //
@@ -1899,6 +1903,43 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] World-backed RenderSceneI
     CHECK_MESSAGE(valid_data_source, vformat("Unexpected render stats data_source: %s", data_source));
     CHECK(stats.get("gpu_sorter_ready", false));
     CHECK(bool(stats.get("instance_contract_ready", false)));
+    // #1087 wiring: the streaming frame must carry the renderer's draw distance into
+    // the streaming system (render_streaming_orchestrator pushes it every frame).
+    {
+        const Dictionary streaming_state = stats.get("streaming_state", Dictionary());
+        const float expected_limit = renderer->get_streaming_load_distance_limit();
+        CHECK(expected_limit > 0.0f);
+        CHECK_MESSAGE(streaming_state.has("load_distance_limit"),
+                "streaming analytics must publish load_distance_limit (#1087)");
+        CHECK(float(double(streaming_state.get("load_distance_limit", -1.0))) == doctest::Approx(expected_limit));
+    }
+    // #1087: a project-settings change must reach the pushed limit in the same frame.
+    // With no per-renderer override the culler follows lod/max_distance (g_lod_config),
+    // which streaming reloads on settings_changed. Pushing before that reload would hand
+    // streaming last frame's limit while the draw pass already uses the new one.
+    {
+        const String lod_max_setting = "rendering/gaussian_splatting/lod/max_distance";
+        {
+            ScopedProjectSetting lod_max_guard(project_settings, lod_max_setting);
+            renderer->test_clear_lod_max_distance_override();
+            project_settings->set_setting(lod_max_setting, 321.0);
+            project_settings->emit_signal("settings_changed");
+            renderer->render_scene_instance(&render_data);
+            // Read the limit the frame actually pushed straight from the streaming system:
+            // nothing pushes again until the next frame.
+            const Ref<GaussianStreamingSystem> changed_system = renderer->get_streaming_state().current_streaming_system;
+            const float expected_changed = 321.0f / MAX(renderer->get_lod_bias(), 0.0001f);
+            if (changed_system.is_null()) {
+                FAIL("streaming system unavailable after the settings-change frame");
+            } else {
+                MESSAGE("pushed limit after settings change: ", changed_system->get_load_distance_limit(),
+                        " renderer limit: ", renderer->get_streaming_load_distance_limit());
+                CHECK(changed_system->get_load_distance_limit() == doctest::Approx(expected_changed));
+            }
+            CHECK(renderer->get_streaming_load_distance_limit() == doctest::Approx(expected_changed));
+        }
+        project_settings->emit_signal("settings_changed");
+    }
     CHECK(stats.get("instance_contract_shape", String()) == String("atlas_emulation"));
 
     Dictionary sort_metrics = renderer->get_last_sort_metrics();
@@ -2035,18 +2076,24 @@ TEST_CASE("[GaussianSplatting] Chunk meta upload planner escalates fragmented ch
 TEST_CASE("[GaussianSplatting] Upload coalescing planner batches contiguous full-slot uploads") {
     LocalVector<StreamingUploadPipeline::UploadCoalescingCandidate> candidates;
 
+    // #1088: buffer_slot is the first atlas page of each chunk's run; a full-size chunk's run is
+    // ATLAS_PAGES_PER_MAX_CHUNK pages, so back-to-back runs start that many pages apart.
+    const uint32_t run_pages = GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK;
     StreamingUploadPipeline::UploadCoalescingCandidate first;
-    first.buffer_slot = 10;
+    first.buffer_slot = 10 * run_pages;
+    first.page_count = run_pages;
     first.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(first);
 
     StreamingUploadPipeline::UploadCoalescingCandidate second;
-    second.buffer_slot = 11;
+    second.buffer_slot = 11 * run_pages;
+    second.page_count = run_pages;
     second.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(second);
 
     StreamingUploadPipeline::UploadCoalescingCandidate tail;
-    tail.buffer_slot = 12;
+    tail.buffer_slot = 12 * run_pages;
+    tail.page_count = 1;
     tail.packed_count = 128;
     candidates.push_back(tail);
 
@@ -2061,19 +2108,23 @@ TEST_CASE("[GaussianSplatting] Upload coalescing planner batches contiguous full
 TEST_CASE("[GaussianSplatting] Upload coalescing planner stops at partial or noncontiguous uploads") {
     LocalVector<StreamingUploadPipeline::UploadCoalescingCandidate> candidates;
 
+    const uint32_t run_pages = GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK;
     StreamingUploadPipeline::UploadCoalescingCandidate first;
-    first.buffer_slot = 20;
+    first.buffer_slot = 20 * run_pages;
+    first.page_count = run_pages;
     first.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(first);
 
     StreamingUploadPipeline::UploadCoalescingCandidate partial;
-    partial.buffer_slot = 21;
+    partial.buffer_slot = 21 * run_pages;
+    partial.page_count = run_pages;
     partial.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     partial.bytes_uploaded = sizeof(PackedGaussian);
     candidates.push_back(partial);
 
     StreamingUploadPipeline::UploadCoalescingCandidate gap;
-    gap.buffer_slot = 23;
+    gap.buffer_slot = 23 * run_pages;
+    gap.page_count = run_pages;
     gap.packed_count = GaussianStreamingSystem::CHUNK_SIZE;
     candidates.push_back(gap);
 
@@ -5868,7 +5919,7 @@ TEST_CASE("[GaussianSplatting][Pipeline] Chunk culling stats scope loaded counts
 	Ref<GaussianStreamingSystem> system;
 	system.instantiate();
 	system->initialize(primary_data);
-	system->_test_reset_atlas_allocator(8);
+	system->_test_reset_atlas_allocator(8 * GaussianStreamingSystem::ATLAS_PAGES_PER_MAX_CHUNK);
 
 	LocalVector<GaussianStreamingTypes::StreamingChunk> &primary_chunks = system->_test_get_primary_chunks();
 	REQUIRE(primary_chunks.size() >= 1);

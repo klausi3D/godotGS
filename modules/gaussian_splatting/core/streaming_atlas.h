@@ -18,26 +18,56 @@
 #include "core/templates/local_vector.h"
 #include <cstdint>
 
+// #1088: the atlas is allocated in fixed-size PAGES, and every chunk owns one
+// contiguous run of pages sized to its own splat count. A chunk's "slot" id is the
+// first page of its run, so the GPU-side splat base is slot * page_splats and the
+// shaders (which index gaussians[atlas_base + i]) are unchanged. Before #1088 every
+// chunk took a fixed 65,536-splat slot regardless of its size.
+//
+// Placement is best-fit (smallest free run that fits, lowest address on a tie) and
+// freed runs coalesce with their neighbours immediately. There is no compaction: when
+// no run fits, admission evicts least-recently-used chunks until one does (bounded by
+// the per-frame eviction budget; see GaussianStreamingSystem::_evict_until_atlas_fit).
 class GaussianAtlasAllocator {
 public:
-	void reset(uint32_t p_slot_count);
-	// Grow capacity while preserving existing slot assignments. Returns false
-	// if `p_new_capacity` is not strictly greater than the current capacity
-	// (shrinking is intentionally unsupported — callers must release slots
-	// first if they need to lower capacity).
+	struct PageRun {
+		uint32_t first_page = 0;
+		uint32_t page_count = 0;
+	};
+
+	void reset(uint32_t p_page_count);
+	// Grow capacity (in pages) while preserving existing runs. Returns false if
+	// `p_new_capacity` is not strictly greater than the current capacity
+	// (shrinking is intentionally unsupported).
 	bool resize_preserve(uint32_t p_new_capacity);
-	bool has_free_slots() const { return !free_slots.is_empty(); }
-	uint32_t get_free_slot_count() const { return free_slots.size(); }
+	// True when a contiguous free run of at least `p_page_count` pages exists.
+	bool can_allocate(uint32_t p_page_count) const;
+	uint32_t get_free_page_count() const { return free_page_count; }
+	uint32_t get_used_page_count() const { return capacity - free_page_count; }
+	uint32_t get_largest_free_run() const;
+	uint32_t get_free_run_count() const { return free_runs.size(); }
+	uint32_t get_allocation_count() const { return run_map.size(); }
 	uint32_t get_capacity() const { return capacity; }
-	bool allocate_slot(uint64_t p_chunk_key, uint32_t &r_slot);
+	// Allocate a contiguous run of `p_page_count` pages for `p_chunk_key`; `r_slot`
+	// receives the run's first page. Re-allocating a key that already owns a run
+	// returns that run only if it has the requested size.
+	bool allocate_slot(uint64_t p_chunk_key, uint32_t p_page_count, uint32_t &r_slot);
 	void release_slot(uint64_t p_chunk_key);
 	bool get_slot(uint64_t p_chunk_key, uint32_t &r_slot) const;
+	bool get_run(uint64_t p_chunk_key, PageRun &r_run) const;
+	// Length of the free run that releasing `p_run` would leave (the run plus any free
+	// neighbours it coalesces with).
+	uint32_t get_coalesced_run_if_released(const PageRun &p_run) const;
 	void clear();
 
 private:
+	void _insert_free_run(uint32_t p_first_page, uint32_t p_page_count);
+
 	uint32_t capacity = 0;
-	LocalVector<uint32_t> free_slots;
-	HashMap<uint64_t, uint32_t> slot_map;
+	uint32_t free_page_count = 0;
+	// Free runs, sorted by first_page, never adjacent (always coalesced).
+	LocalVector<PageRun> free_runs;
+	HashMap<uint64_t, PageRun> run_map;
 };
 
 #endif // STREAMING_ATLAS_H
