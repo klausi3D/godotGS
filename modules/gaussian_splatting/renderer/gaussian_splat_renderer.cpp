@@ -2363,6 +2363,46 @@ void GaussianSplatRenderer::_render_resident_frame(RenderDataRD *p_render_data, 
             p_render_projection, p_render_buffers, nullptr);
 }
 
+uint32_t GaussianSplatRenderer::get_render_view_count(const RenderDataRD *p_render_data) {
+    uint32_t view_count = 1;
+    if (!p_render_data) {
+        return view_count;
+    }
+    if (p_render_data->scene_data) {
+        view_count = MAX(view_count, p_render_data->scene_data->view_count);
+    }
+    if (p_render_data->render_buffers.is_valid()) {
+        const RenderSceneBuffersRD *render_buffers =
+                Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr());
+        if (render_buffers) {
+            view_count = MAX(view_count, render_buffers->get_view_count());
+        }
+    }
+    return view_count;
+}
+
+void GaussianSplatRenderer::_finish_skipped_scene_instance_frame(const StageMetrics &p_stage_metrics) {
+    get_frame_state().visible_splat_count.store(0, std::memory_order_release);
+    get_frame_state().render_time_ms = 0.0f;
+    get_frame_state().sort_time_ms = 0.0f;
+    get_sorting_state().sorted_splat_count = 0;
+    if (get_subsystem_state().gpu_culler.is_valid()) {
+        get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
+        get_subsystem_state().gpu_culler->get_state().culled_distances_sq.clear();
+        get_subsystem_state().gpu_culler->get_state().culled_importance_weights.clear();
+    }
+    pipeline_stages->reset_render_state_for_frame();
+    if (debug_state_orchestrator) {
+        debug_state_orchestrator->store_stage_metrics(p_stage_metrics);
+    }
+    if (get_streaming_state().memory_stream.is_valid()) {
+        get_streaming_state().memory_stream->end_frame();
+    }
+    if (get_streaming_state().current_streaming_system.is_valid()) {
+        get_streaming_state().current_streaming_system->end_frame();
+    }
+}
+
 void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
     // Render flow: render_scene_instance -> (streaming ? render_streaming_frame : render_resident_frame)
     // -> RenderPipelineStages::render_sorted_splats_with_context -> raster/composite.
@@ -2387,29 +2427,31 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
         output_cache.pending_painterly_commit = false;
     }
 
+    // #1160: refuse multiview (XR/stereo) viewports before any GPU work. The
+    // pipeline renders one view with scene_data->cam_projection, which for a
+    // multiview viewport is the engine's COMBINED frustum, and the composite
+    // cannot address the 2-layer array target, so rendering would pay the full
+    // cull/sort/raster cost, fail the composite every frame and show nothing.
+    // Per-eye rendering is tracked as step 2 of #1160.
+    const uint32_t render_view_count = get_render_view_count(p_render_data);
+    if (render_view_count != 1) {
+        WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] Gaussian splats are not rendered in this viewport: view_count=%d (multiview/XR) is not supported yet, only view_count=1 (#1160). Splats are skipped; meshes render normally.",
+                render_view_count));
+        if (debug_state_orchestrator) {
+            get_debug_state().route_uid = RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED;
+        }
+        StageMetrics skipped_metrics;
+        skipped_metrics.route_uid = RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED;
+        skipped_metrics.skip_cause_stage = "view_count";
+        _finish_skipped_scene_instance_frame(skipped_metrics);
+        return;
+    }
+
     if (!ensure_rendering_device("render_scene_instance")) {
         if (debug_state_orchestrator) {
             get_debug_state().route_uid = RenderRouteUID::COMMON_FAIL_NO_DEVICE;
         }
-        get_frame_state().visible_splat_count.store(0, std::memory_order_release);
-        get_frame_state().render_time_ms = 0.0f;
-        get_frame_state().sort_time_ms = 0.0f;
-        get_sorting_state().sorted_splat_count = 0;
-        if (get_subsystem_state().gpu_culler.is_valid()) {
-            get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
-            get_subsystem_state().gpu_culler->get_state().culled_distances_sq.clear();
-            get_subsystem_state().gpu_culler->get_state().culled_importance_weights.clear();
-        }
-        pipeline_stages->reset_render_state_for_frame();
-        if (debug_state_orchestrator) {
-            debug_state_orchestrator->store_stage_metrics(StageMetrics());
-        }
-        if (get_streaming_state().memory_stream.is_valid()) {
-            get_streaming_state().memory_stream->end_frame();
-        }
-        if (get_streaming_state().current_streaming_system.is_valid()) {
-            get_streaming_state().current_streaming_system->end_frame();
-        }
+        _finish_skipped_scene_instance_frame(StageMetrics());
         return;
     }
 

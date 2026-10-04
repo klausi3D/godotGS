@@ -758,6 +758,24 @@ public:
     void _render_resident_frame(RenderDataRD *p_render_data, const Transform3D &p_world_to_camera_transform,
             const Projection &p_projection, const Projection &p_render_projection,
             RenderSceneBuffersRD *p_render_buffers);
+    // Ends a render_scene_instance() frame that renders nothing: zero visible
+    // count and timings, clear cull outputs and per-frame render state, store
+    // p_stage_metrics, and close the streaming frames. Shared by the no-device
+    // and the unsupported-view-count (#1160) early exits.
+    void _finish_skipped_scene_instance_frame(const StageMetrics &p_stage_metrics);
+
+    /**
+     * @brief Number of views the engine is rendering this frame (#1160).
+     *
+     * The larger of the render buffers' view count (the layer count of the
+     * target the composite writes) and the scene data's view count; 1 when
+     * neither is available (manual render_for_view(), shadow passes). The
+     * splat pipeline renders exactly one view: for a multiview (XR/stereo)
+     * viewport `scene_data->cam_projection` is the engine's COMBINED frustum
+     * and the target is a 2-layer array the composite cannot address, so
+     * render_scene_instance() refuses any value other than 1.
+     */
+    static uint32_t get_render_view_count(const RenderDataRD *p_render_data);
     const Gaussian *_get_streamed_gaussian(uint32_t p_index) const;
     SortStageSummary sort_gaussians_for_view(const Transform3D &p_world_to_camera_transform,
             IndexDomain p_input_domain = IndexDomain::UNKNOWN);

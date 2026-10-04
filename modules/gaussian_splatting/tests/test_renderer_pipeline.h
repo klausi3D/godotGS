@@ -1013,6 +1013,56 @@ TEST_CASE("[GaussianSplatting] Cull projection under flip_y keeps the real off-a
 	CHECK(!renderer->validate_cull_projection_contract(&render_data, projection, old_flip, "unit_test_1159_old"));
 }
 
+// #1160 step 1: a multiview (XR/stereo) viewport must be refused cleanly. Before
+// this, render_scene_instance() rendered the engine's COMBINED stereo frustum
+// with the full cull/sort/raster cost and then failed the composite into the
+// 2-layer target every frame, with nothing keyed on the view count. Now the
+// frame exits before any GPU work, says why in the route telemetry, and leaves
+// no visible splats behind.
+//
+// The view count is driven through scene_data here because the doctest harness
+// cannot configure an RD-backed RenderSceneBuffersRD (TextureStorage is null
+// under the dummy rasterizer; see #690). get_render_view_count() reads the
+// render buffers' view count by the same MAX, which only the central build's
+// XR/GPU runs exercise.
+TEST_CASE("[GaussianSplatting] Multiview viewports are refused with a skip route, not rendered (#1160)") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	REQUIRE(renderer.is_valid());
+
+	CHECK(GaussianSplatRenderer::get_render_view_count(nullptr) == 1);
+
+	RenderSceneDataRD scene_data;
+	scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
+	scene_data.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	scene_data.view_count = 1;
+
+	RenderDataRD render_data;
+	render_data.scene_data = &scene_data;
+	render_data.render_buffers = Ref<RenderSceneBuffersRD>();
+	CHECK(GaussianSplatRenderer::get_render_view_count(&render_data) == 1);
+
+	scene_data.view_count = 2;
+	CHECK(GaussianSplatRenderer::get_render_view_count(&render_data) == 2);
+
+	// Non-vacuity: the skip route must be written by THIS frame, not be left over.
+	REQUIRE(renderer->get_debug_state().route_uid != String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+
+	renderer->render_scene_instance(&render_data);
+
+	CHECK(renderer->get_debug_state().route_uid == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+	CHECK(renderer->get_debug_state().last_stage_metrics_valid);
+	CHECK(renderer->get_debug_state().last_stage_metrics.route_uid == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+	CHECK(renderer->get_debug_state().last_stage_metrics.skip_cause_stage == String("view_count"));
+	CHECK(renderer->get_visible_splat_count() == 0);
+
+	// The reason reaches the existing stats surface the HUD and harness read.
+	const Dictionary stats = renderer->get_render_stats();
+	CHECK_MESSAGE(stats.get("route_uid", String()) == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED),
+			vformat("Expected the multiview skip route, got '%s'", String(stats.get("route_uid", String()))));
+	CHECK(String(stats.get("route_label", String())).contains("multiview"));
+}
+
 TEST_CASE("[GaussianSplatting] Instanced readiness gate requires quantization buffer when enabled") {
     GaussianRenderPipeline::InstancePipelineBuffers missing_quantization =
             make_ready_instance_pipeline_buffers(true);

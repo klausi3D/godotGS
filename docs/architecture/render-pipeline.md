@@ -151,7 +151,11 @@ rather than by the six-config visual matrix.
   `sampler2D`/`image2D` bindings cannot address the multiview 2D-array internal
   color (`_copy_final_output_compute`'s scratch-fill exclusion in
   `output_compositor.cpp`), so `view_count > 1` keeps the legacy post-scene
-  composite path with its pre-existing behavior.
+  hook. Since #1160 (step 1) `GaussianSplatRenderer::render_scene_instance()`
+  refuses such a frame before any GPU work: one `WARN_PRINT_ONCE` naming the
+  view count, route `COMMON.SKIP.MULTIVIEW_UNSUPPORTED` (stage metrics
+  `skip_cause_stage = "view_count"`), no splats, meshes unaffected. Per-eye
+  rendering is #1160 step 2.
 - **Forward mobile** has no pre-upscale hook yet; it keeps the legacy
   post-scene path (mobile-parity delta tracked as follow-up work on #921).
 - **Reflection probes** never run post-process and keep the legacy path.

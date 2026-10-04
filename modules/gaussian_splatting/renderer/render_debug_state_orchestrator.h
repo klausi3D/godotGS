@@ -14,6 +14,9 @@ struct RenderRouteUID {
 	static constexpr const char *COMMON_SKIP_STREAMING_NOT_READY = "COMMON.SKIP.STREAMING_NOT_READY";
 	static constexpr const char *COMMON_SKIP_RESIDENT_NOT_FEASIBLE = "COMMON.SKIP.RESIDENT_NOT_FEASIBLE";
 	static constexpr const char *COMMON_SKIP_GPU_CULLER_UNAVAILABLE = "COMMON.SKIP.GPU_CULLER_UNAVAILABLE";
+	// #1160: the viewport renders more than one view (XR/stereo); per-eye splat
+	// rendering is not implemented, so the frame is refused before any GPU work.
+	static constexpr const char *COMMON_SKIP_MULTIVIEW_UNSUPPORTED = "COMMON.SKIP.MULTIVIEW_UNSUPPORTED";
 	static constexpr const char *COMMON_FAIL_NO_DEVICE = "COMMON.FAIL.NO_DEVICE";
 	static constexpr const char *COMMON_FAIL_SORT_FAILED = "COMMON.FAIL.SORT_FAILED";
 	static constexpr const char *COMMON_FAIL_NO_OUTPUT = "COMMON.FAIL.NO_OUTPUT";
