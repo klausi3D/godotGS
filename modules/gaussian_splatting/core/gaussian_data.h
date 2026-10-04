@@ -691,6 +691,12 @@ public:
      */
     static void _debug_check_raw_storage_access(const char *p_method);
 
+    struct ChunkSnapshotMetadata {
+        uint64_t content_revision = 0;
+        uint32_t sh_degree = 0;
+        bool is_2d_mode = false;
+    };
+
     /**
      * @brief Captures a coherent chunk snapshot for async pack jobs.
      *
@@ -704,13 +710,15 @@ public:
      * @param[out] r_sh_high_order Snapshot of high-order SH coefficients for the chunk.
      * @param[out] r_sh_first_order_count First-order SH coefficient count.
      * @param[out] r_sh_high_order_count High-order SH coefficient count.
+     * @param[out] r_metadata Optional header state and revision, captured under data_rwlock with the payload.
      * @return True when a valid snapshot was captured.
      */
     bool capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
             LocalVector<Gaussian> &r_gaussians,
             LocalVector<Vector3> &r_sh_high_order,
             uint32_t &r_sh_first_order_count,
-            uint32_t &r_sh_high_order_count) const;
+            uint32_t &r_sh_high_order_count,
+            ChunkSnapshotMetadata *r_metadata = nullptr) const;
 
     bool capture_indexed_chunk_snapshot(const uint32_t *p_indices, uint32_t p_count,
             LocalVector<Gaussian> &r_gaussians,

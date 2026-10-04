@@ -23,6 +23,11 @@
 #include <cstdint>
 #include <iterator>
 
+#ifdef TESTS_ENABLED
+ResourceFormatSaverGaussianSplatWorld::HlodSnapshotTestHook ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook = nullptr;
+void *ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = nullptr;
+#endif
+
 namespace {
 
 static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
@@ -997,16 +1002,28 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 	String reason;
 	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason), ERR_INVALID_DATA,
 			vformat("Refusing to save %s: invalid HLOD tree: %s", p_path, reason));
-	const uint32_t leaf_count = p_gaussian_data->get_count();
-	ERR_FAIL_COND_V_MSG(leaf_count != tree.leaf_splat_count, ERR_INVALID_DATA,
-			vformat("Refusing to save %s: the payload (%d splats) does not match the HLOD leaves (%d).", p_path, leaf_count, tree.leaf_splat_count));
-	ERR_FAIL_COND_V_MSG(p_gaussian_data->get_sh_high_order_count() != tree.sh_high_order_count, ERR_INVALID_DATA,
-			"Refusing to save: SH layout does not match the HLOD tree.");
+	const uint32_t leaf_count = tree.leaf_splat_count;
 
 	LocalVector<Gaussian> leaf;
 	LocalVector<Vector3> leaf_sh;
 	uint32_t sh_first = 0u, sh_high = 0u;
-	ERR_FAIL_COND_V(!p_gaussian_data->capture_chunk_snapshot(0, leaf_count, leaf, leaf_sh, sh_first, sh_high), ERR_CANT_ACQUIRE_RESOURCE);
+	GaussianData::ChunkSnapshotMetadata snapshot_metadata;
+#ifdef TESTS_ENABLED
+	if (ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook) {
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook(ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata, p_gaussian_data, false);
+	}
+#endif
+	ERR_FAIL_COND_V(!p_gaussian_data->capture_chunk_snapshot(0, leaf_count, leaf, leaf_sh, sh_first, sh_high, &snapshot_metadata), ERR_CANT_ACQUIRE_RESOURCE);
+#ifdef TESTS_ENABLED
+	if (ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook) {
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook(ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata, p_gaussian_data, true);
+	}
+#endif
+	ERR_FAIL_COND_V_MSG(p_world->get_gaussian_data().is_valid() &&
+			(!tree.leaf_payload_revision_valid || snapshot_metadata.content_revision != tree.leaf_payload_revision), ERR_INVALID_DATA,
+			vformat("Refusing to save %s: the gaussian payload was edited before its HLOD snapshot was captured. Call bake_hlod() again.", p_path));
+	ERR_FAIL_COND_V_MSG(sh_high != tree.sh_high_order_count, ERR_INVALID_DATA,
+			"Refusing to save: captured SH layout does not match the HLOD tree.");
 	LocalVector<Gaussian> interior;
 	LocalVector<Vector3> interior_sh;
 	const Error interior_err = tree.read_interior_payload(interior, interior_sh);
@@ -1041,7 +1058,7 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 	const uint64_t sh_bytes = total * sh_count_per * sizeof(Vector3);
 
 	uint32_t flags = kFlagHasHlod;
-	if (p_gaussian_data->get_2d_mode()) {
+	if (snapshot_metadata.is_2d_mode) {
 		flags |= kFlagIs2D;
 	}
 	if (!p_world->get_metadata().is_empty()) {
@@ -1096,7 +1113,7 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		file->store_32(kWorldVersion);
 		file->store_32(flags);
 		file->store_32(leaf_count);
-		file->store_32(p_gaussian_data->get_sh_degree());
+		file->store_32(snapshot_metadata.sh_degree);
 		file->store_32(sh_first);
 		file->store_32(sh_count_per);
 		_write_vec3(file, p_world->get_bounds().position);

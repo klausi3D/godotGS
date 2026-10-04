@@ -5,6 +5,7 @@
 #include "core/io/resource_saver.h"
 
 class GaussianSplatWorld;
+class GaussianData;
 
 class ResourceFormatLoaderGaussianSplatWorld : public ResourceFormatLoader {
 public:
@@ -34,6 +35,11 @@ public:
 
 class ResourceFormatSaverGaussianSplatWorld : public ResourceFormatSaver {
 public:
+#ifdef TESTS_ENABLED
+	using HlodSnapshotTestHook = void (*)(void *, const Ref<GaussianData> &, bool);
+	static HlodSnapshotTestHook hlod_snapshot_test_hook;
+	static void *hlod_snapshot_test_userdata;
+#endif
 	enum PayloadSaveMode {
 		SAVE_PAYLOAD_PRESERVE = 0,
 		SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,

@@ -1674,6 +1674,85 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overla
 	}
 }
 
+namespace TestGaussianSplatHlod {
+
+struct HlodSnapshotEdit {
+	bool after_capture = false;
+	bool fired = false;
+
+	static void edit(void *p_userdata, const Ref<GaussianData> &p_data, bool p_after_capture) {
+		HlodSnapshotEdit *probe = static_cast<HlodSnapshotEdit *>(p_userdata);
+		if (probe->fired || probe->after_capture != p_after_capture) {
+			return;
+		}
+		probe->fired = true;
+		if (p_after_capture) {
+			LocalVector<Gaussian> leaf;
+			LocalVector<Vector3> sh;
+			uint32_t first = 0u, high = 0u;
+			if (p_data->capture_chunk_snapshot(0, p_data->get_count(), leaf, sh, first, high)) {
+				p_data->set_gaussian_payload(leaf, sh, 3u, 0u, true);
+			}
+		} else {
+			Gaussian edited = p_data->get_gaussian(0);
+			edited.opacity = 0.01f;
+			p_data->set_gaussian(0, edited);
+		}
+	}
+
+	explicit HlodSnapshotEdit(bool p_after_capture) : after_capture(p_after_capture) {
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = this;
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook = edit;
+	}
+	~HlodSnapshotEdit() {
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_hook = nullptr;
+		ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = nullptr;
+	}
+};
+
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] save rejects edits before snapshot and freezes metadata after snapshot") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(3000u, 1000u, g);
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (bool after_capture : { false, true }) {
+		Ref<GaussianSplatWorld> world = hlod_make_world(g);
+		if (world->bake_hlod() != OK) {
+			FAIL("bake snapshot control");
+			return;
+		}
+		const String path = hlod_temp_path(after_capture ? "snapshot_metadata" : "snapshot_stale");
+		if (saver.save(world, path) != OK) {
+			FAIL("save snapshot control");
+			return;
+		}
+		const PackedByteArray before = hlod_read_file(path);
+		{
+			HlodSnapshotEdit edit(after_capture);
+			CHECK(saver.save(world, path) == (after_capture ? OK : ERR_INVALID_DATA));
+			CHECK(edit.fired);
+		}
+		// An edit after capture may not change the coherent old snapshot on disk.
+		const bool unchanged = hlod_read_file(path) == before;
+		CHECK(unchanged);
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded = loader.load_resident(path, &err);
+		CHECK(err == OK);
+		if (loaded.is_null() || loaded->get_gaussian_data().is_null()) {
+			FAIL("resident snapshot control load");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		CHECK_FALSE(loaded->get_gaussian_data()->get_2d_mode());
+		CHECK_EQ(loaded->get_gaussian_data()->get_sh_degree(), 0u);
+		loaded.unref();
+		DirAccess::remove_absolute(path);
+	}
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a failed bake leaves the world untouched; an edited payload is not saved with a stale tree") {
 	using namespace TestGaussianSplatHlod;
 	ResourceFormatSaverGaussianSplatWorld saver;

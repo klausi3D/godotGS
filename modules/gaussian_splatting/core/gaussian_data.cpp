@@ -636,8 +636,14 @@ bool GaussianData::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
         LocalVector<Gaussian> &r_gaussians,
         LocalVector<Vector3> &r_sh_high_order,
         uint32_t &r_sh_first_order_count,
-        uint32_t &r_sh_high_order_count) const {
+        uint32_t &r_sh_high_order_count,
+        ChunkSnapshotMetadata *r_metadata) const {
     RWLockRead lock(data_rwlock);
+    if (r_metadata) {
+        r_metadata->content_revision = get_content_revision();
+        r_metadata->sh_degree = sh_degree;
+        r_metadata->is_2d_mode = is_2d_mode;
+    }
 
 #ifdef DEBUG_ENABLED
     const uint32_t gaussians_size_before_copy = gaussians.size();
