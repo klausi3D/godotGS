@@ -515,6 +515,9 @@ bool StreamingUploadPipeline::queue_chunk_load(GaussianStreamingSystem &system, 
     if (chunk.is_loaded || chunk.upload_pending) {
         return false;
     }
+    if (system._is_chunk_load_backing_off(chunk)) {
+        return false; // #1178: its payload read failed recently
+    }
     if (system._has_pending_upload_retirement(asset_id, chunk_idx, UINT32_MAX)) {
         return false;
     }
@@ -759,6 +762,9 @@ bool StreamingUploadPipeline::accept_completed_upload(GaussianStreamingSystem &s
     }
     if (job->packed_data.size() != static_cast<int>(chunk->count)) {
         system._rollback_pending_chunk(job->asset_id, job->chunk_idx, *chunk, true);
+        if (job->payload_read_failed) {
+            system._record_chunk_payload_read_failure(job->asset_id, job->chunk_idx, *chunk);
+        }
         memdelete(job);
         return false;
     }
@@ -1360,6 +1366,7 @@ StreamingUploadPipeline::PendingChunkUpload *StreamingUploadPipeline::build_pend
         }
     }
     if (!snapshot_ok || p_job.chunk_count > static_cast<uint32_t>(r_scratch.gaussian_snapshot.size())) {
+        upload->payload_read_failed = true; // #1178: reported on the main thread
         return upload;
     }
 

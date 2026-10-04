@@ -73,6 +73,10 @@ public:
         uint64_t packed_stride_bytes = 0;
         uint32_t payload_checksum = 0;
         bool payload_checksum_valid = false;
+        // #1178: the payload source could not deliver the chunk (capture_*_chunk_snapshot
+        // failed or came back short). packed_data is empty; the main thread records the
+        // failure on the chunk instead of silently re-queueing it every frame.
+        bool payload_read_failed = false;
         SHCompressionMetrics metrics;
         uint32_t bytes_uploaded = 0;
     };

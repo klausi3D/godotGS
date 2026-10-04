@@ -2115,3 +2115,127 @@ TEST_CASE("[Streaming Pipeline] A cancelled pack job a worker already holds cann
         CHECK(int64_t(system.get_streaming_analytics().get("pending_upload_retirement_tickets", int64_t(-1))) == 0);
     }
 }
+
+// ---------------------------------------------------------------------------
+// #1178: a chunk whose payload read fails permanently used to be rolled back silently
+// (no counter, no log, no memo) and re-queued by the load scan on the very next frame,
+// forever. It is now counted, logged once, and retried with exponential backoff.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// In-memory payload source whose reads of one chunk (by start index) always fail, as a
+// truncated .gsplatworld or a short network read would. Counts the reads of that chunk.
+class FailingChunkPayloadSource : public InMemoryChunkPayloadSource {
+    uint32_t failing_start = UINT32_MAX;
+
+public:
+    mutable uint32_t failing_reads = 0;
+
+    FailingChunkPayloadSource(const Ref<GaussianData> &p_data, uint32_t p_failing_start) :
+            InMemoryChunkPayloadSource(p_data), failing_start(p_failing_start) {}
+
+    bool capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
+            LocalVector<Gaussian> &r_gaussians,
+            LocalVector<Vector3> &r_sh_high_order,
+            uint32_t &r_sh_first_order_count,
+            uint32_t &r_sh_high_order_count) const override {
+        if (p_start == failing_start) {
+            failing_reads++;
+            return false;
+        }
+        return InMemoryChunkPayloadSource::capture_chunk_snapshot(p_start, p_count, r_gaussians,
+                r_sh_high_order, r_sh_first_order_count, r_sh_high_order_count);
+    }
+};
+
+int _count_payload_read_failure_logs(const ScopedStreamingErrorCapture &p_capture) {
+    int n = 0;
+    for (int i = 0; i < p_capture.messages.size(); i++) {
+        if (p_capture.messages[i].contains("[Streaming]") && p_capture.messages[i].contains("payload read failed")) {
+            n++;
+        }
+    }
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs off, is counted and logged once (#1178)") {
+    const uint32_t chunk_count = 4;
+    const uint32_t splats_per_chunk = 128;
+    const uint32_t failing_chunk = 1;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        chunk.center = Vector3(0.0f, 0.0f, -(10.0f + 10.0f * float(i))); // all in view, in range
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.max_radius = 2.0f;
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    FailingChunkPayloadSource *source = memnew(FailingChunkPayloadSource(data, chunks[failing_chunk].start_idx));
+    system->set_chunk_payload_source(0, Ref<ChunkPayloadSource>(source));
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    ScopedStreamingErrorCapture capture;
+    // One streaming frame as update_streaming() orders it, minus the GPU write: visibility,
+    // load scan, pack (worker stand-in), pack completion and ticket staging.
+    auto run_frames = [&](uint32_t p_frames) {
+        for (uint32_t frame = 0; frame < p_frames; frame++) {
+            system->begin_frame();
+            system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+            system->_test_load_visible_chunks(32);
+            uploads._test_complete_pack_jobs();
+            uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+            system->end_frame();
+        }
+    };
+
+    // 20 frames: inside the first backoff window (30 frames).
+    run_frames(20);
+    if (source->failing_reads == 0) {
+        system->_test_end_device_free_load_scan();
+        FAIL("fixture precondition: the load scan must reach the failing chunk's payload read");
+        return;
+    }
+    // One read, not one per frame.
+    CHECK(source->failing_reads == 1);
+    CHECK(int64_t(system->get_streaming_analytics().get("chunk_payload_read_failures", int64_t(-1))) == 1);
+    CHECK(_count_payload_read_failure_logs(capture) == 1);
+    CHECK_FALSE(chunks[failing_chunk].is_loaded);
+    CHECK_FALSE(chunks[failing_chunk].upload_pending);
+    // The healthy chunks were not starved by the failing one.
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        if (i != failing_chunk) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+    }
+    CHECK(system->get_loaded_chunks() == chunk_count - 1);
+
+    // 40 more frames: the retry happens once the backoff expires (bounded retry, not
+    // "never retried", #56), fails again and doubles the wait. Still one log line.
+    run_frames(40);
+    CHECK(source->failing_reads == 2);
+    CHECK(int64_t(system->get_streaming_analytics().get("chunk_payload_read_failures", int64_t(-1))) == 2);
+    CHECK(_count_payload_read_failure_logs(capture) == 1);
+    CHECK_FALSE(chunks[failing_chunk].is_loaded);
+    CHECK(system->get_loaded_chunks() == chunk_count - 1);
+
+    system->_test_end_device_free_load_scan();
+}

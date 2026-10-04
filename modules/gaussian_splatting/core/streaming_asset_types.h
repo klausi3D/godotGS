@@ -74,6 +74,11 @@ struct StreamingChunk {
     // had already dequeued it; it must neither stage nor roll back the chunk's current one.
     // upload_ticket_id cannot serve: it is 0 until the retirement ticket is staged.
     uint32_t upload_sequence = 0;
+    // #1178: per-chunk failure memo for payload reads that fail (truncated world file, short
+    // read). load_failures counts consecutive failed reads and resets on a successful load;
+    // no load of this chunk is queued while retry_after_frame is ahead of the frame counter.
+    uint32_t load_failures = 0;
+    uint64_t retry_after_frame = 0;
     uint64_t upload_submit_frame = 0;
     uint64_t upload_retire_frame = 0;
     uint64_t pending_upload_bytes = 0;

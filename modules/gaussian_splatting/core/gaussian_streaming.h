@@ -639,7 +639,16 @@ private:
     // Packs a chunk into raw atlas bytes (PackedGaussian or PackedGaussianQuantized,
     // per _atlas_gaussian_stride_bytes()). Output size is chunk.count * stride.
     bool _pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-            Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics);
+            Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics, bool *r_payload_read_failed = nullptr);
+    // #1178: exponential backoff for chunks whose payload read failed, in frames.
+    static constexpr uint32_t CHUNK_LOAD_RETRY_BASE_FRAMES = 30;
+    static constexpr uint32_t CHUNK_LOAD_RETRY_MAX_FRAMES = 30 * 64;
+    // Records a failed payload read of a chunk that has already been rolled back to idle:
+    // counts it, logs once per failure episode of the chunk, and schedules the next attempt.
+    void _record_chunk_payload_read_failure(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk);
+    bool _is_chunk_load_backing_off(const StreamingChunk &p_chunk) const {
+        return p_chunk.retry_after_frame > total_frame_count;
+    }
     void _complete_chunk_load_common(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk);
     void _log_chunk_load_metrics(uint32_t chunk_idx, const SHCompressionMetrics &metrics);
     bool _upload_chunk_to_gpu(RenderingDevice *submission_rd, uint32_t buffer_offset,

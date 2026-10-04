@@ -157,6 +157,10 @@ struct DiagnosticsState {
     // #1176: admissions of a predictive prefetch that found only visible chunks to evict and
     // were skipped instead of taking the visible-eviction fallback. Cumulative.
     uint64_t prefetch_visible_eviction_refusals = 0;
+    // #1178: chunk payload reads that failed (async pack snapshot or sync pack), cumulative.
+    // Each failure backs its chunk off exponentially, so a permanently unreadable chunk adds
+    // O(log frames) here, not one per frame; the open-world proof can assert it stays 0.
+    uint64_t chunk_payload_read_failures = 0;
 
     uint32_t last_total_chunks = 0;
     uint32_t last_visible_chunks = 0;

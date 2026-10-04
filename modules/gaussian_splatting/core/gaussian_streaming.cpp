@@ -3199,6 +3199,9 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         if (!_is_chunk_within_load_distance(chunk, load_threshold) || chunk.is_loaded || chunk.upload_pending) {
             continue;
         }
+        if (_is_chunk_load_backing_off(chunk)) {
+            continue; // #1178: its payload read failed recently; not a load candidate yet
+        }
         load_candidates++;
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
@@ -3297,7 +3300,8 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending) {
+            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending &&
+                    !_is_chunk_load_backing_off(chunk)) {
                 unscanned_unserved++;
             }
         }
@@ -3684,6 +3688,26 @@ void GaussianStreamingSystem::_rollback_pending_chunk(uint32_t asset_id, uint32_
             !release_slot);
 }
 
+void GaussianStreamingSystem::_record_chunk_payload_read_failure(uint32_t asset_id, uint32_t chunk_idx,
+        StreamingChunk &chunk) {
+    // #1178: without this memo the rolled-back chunk is idle and still in range, so the load
+    // scan re-queued it on the very next frame, forever, each attempt taking a pack slot and a
+    // failed disk read while healthy chunks behind it starved, with nothing in the log.
+    diagnostics.chunk_payload_read_failures++;
+    if (chunk.load_failures < UINT32_MAX) {
+        chunk.load_failures++;
+    }
+    const uint32_t doublings = MIN<uint32_t>(chunk.load_failures - 1u, 6u);
+    const uint32_t backoff_frames = MIN<uint32_t>(CHUNK_LOAD_RETRY_BASE_FRAMES << doublings, CHUNK_LOAD_RETRY_MAX_FRAMES);
+    chunk.retry_after_frame = total_frame_count + backoff_frames;
+    if (chunk.load_failures == 1) {
+        // Once per failure episode of this chunk; later failures only count.
+        WARN_PRINT(vformat("[Streaming] Chunk payload read failed: asset=%d chunk=%d (start=%d, %d splats). "
+                           "Retrying with backoff from %d frames up to %d; repeats are counted in chunk_payload_read_failures.",
+                asset_id, chunk_idx, chunk.start_idx, chunk.count, CHUNK_LOAD_RETRY_BASE_FRAMES, CHUNK_LOAD_RETRY_MAX_FRAMES));
+    }
+}
+
 void GaussianStreamingSystem::_process_upload_retirements() {
     if (pending_upload_retirements.is_empty()) {
         return;
@@ -3835,8 +3859,12 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
 
     Vector<uint8_t> chunk_data;
     SHCompressionMetrics metrics;
-    if (!_pack_chunk_data(asset_id, chunk_idx, *asset, chunk, chunk_data, metrics)) {
+    bool payload_read_failed = false;
+    if (!_pack_chunk_data(asset_id, chunk_idx, *asset, chunk, chunk_data, metrics, &payload_read_failed)) {
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
+        if (payload_read_failed) {
+            _record_chunk_payload_read_failure(asset_id, chunk_idx, chunk);
+        }
         return FAILED;
     }
     _log_chunk_load_metrics(chunk_idx, metrics);
@@ -3885,9 +3913,12 @@ uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_bytes() const {
 }
 
 bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-        Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics) {
+        Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics, bool *r_payload_read_failed) {
     chunk_bytes.clear();
     metrics = SHCompressionMetrics();
+    if (r_payload_read_failed) {
+        *r_payload_read_failed = false;
+    }
 
     // Resolve data source: prefer payload_source (supports out-of-core),
     // fall back to in-memory asset.data.
@@ -3931,11 +3962,17 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         }
         if (!read_indexed(source_indices.ptr(), chunk.count,
                     gaussian_snapshot, sh_high_order_snapshot, sh_first_order, sh_high_order)) {
+            if (r_payload_read_failed) {
+                *r_payload_read_failed = true;
+            }
             return false;
         }
     } else {
         if (!read_contiguous(chunk.start_idx, chunk.count,
                     gaussian_snapshot, sh_high_order_snapshot, sh_first_order, sh_high_order)) {
+            if (r_payload_read_failed) {
+                *r_payload_read_failed = true;
+            }
             return false;
         }
     }
@@ -3944,6 +3981,9 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         return true;
     }
     if (gaussian_snapshot.size() != chunk.count) {
+        if (r_payload_read_failed) {
+            *r_payload_read_failed = true;
+        }
         return false;
     }
 
@@ -4122,6 +4162,9 @@ void GaussianStreamingSystem::_finalize_chunk_load(uint32_t asset_id, uint32_t c
 }
 
 void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk) {
+    // #1178: a successful load ends the chunk's failure episode.
+    chunk.load_failures = 0;
+    chunk.retry_after_frame = 0;
     if (chunk.pending_upload_bytes > 0) {
         budget.pending_upload_bytes = budget.pending_upload_bytes > chunk.pending_upload_bytes
                 ? (budget.pending_upload_bytes - chunk.pending_upload_bytes)
@@ -4561,6 +4604,9 @@ bool GaussianStreamingSystem::_enqueue_sync_fallback_chunk_load(uint32_t asset_i
     const StreamingChunk &chunk = asset_chunks[chunk_idx];
     if (chunk.is_loaded || chunk.upload_pending) {
         return false;
+    }
+    if (_is_chunk_load_backing_off(chunk)) {
+        return false; // #1178: its payload read failed recently
     }
 
     const uint64_t chunk_key = _make_chunk_key(asset_id, chunk_idx);

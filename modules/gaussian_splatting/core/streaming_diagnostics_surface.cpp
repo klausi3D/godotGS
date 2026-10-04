@@ -372,6 +372,9 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["needed_chunks_completed"] = static_cast<int64_t>(scheduler.last_needed_chunks_completed);
     analytics_snapshot["needed_set_net_progress"] = static_cast<int64_t>(scheduler.last_needed_set_net_progress);
     analytics_snapshot["needed_set_displacement_debt"] = static_cast<int64_t>(scheduler.needed_set_displacement_debt);
+    // #1178: failed chunk payload reads (cumulative). A failing chunk stays needed and unserved
+    // while it backs off, so this names the cause when needed_unserved_chunks does not drain.
+    analytics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
     analytics_snapshot["scheduler_visible_scan_starvation_eligible"] = scheduler.last_visible_scan_starvation_eligible;
     analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
@@ -778,6 +781,7 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     diagnostics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     diagnostics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    diagnostics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
     diagnostics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
     diagnostics_snapshot["stale_sequence_dropped_upload_retirements"] =
             static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
