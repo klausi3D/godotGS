@@ -35,6 +35,7 @@
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
+#include "scene/gui/button.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/viewport.h"
@@ -6210,6 +6211,264 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] A failed set_splat_
 
 	// No teardown statement here: ~ScopedTestNode() detaches and frees the node on this
 	// exit and on every early one above.
+}
+
+// ── #1105: color-grading bake on splat_asset nodes ──────────────────────
+//
+// Baking rewrites the node's own set_splat_data() payload. A node that renders a
+// splat_asset has none, and the asset is shared and sealed, so baking there is
+// unsupported by decision (2026-10-01). The defect was that the refusal was reported
+// as "no gaussian data loaded" / ERR_UNCONFIGURED -- false for a node that renders
+// thousands of splats -- and that restore_color_grading() returned nothing at all.
+
+namespace {
+
+// Counts property_list_changed emissions: the signal that makes the inspector rerun
+// parse_begin() and so rebuild (or drop) the Bake section.
+struct Gs1105PropertyListCounter : public Object {
+    int count = 0;
+    void bump() { count++; }
+};
+
+bool gs_1105_message_says_unsupported_on_asset(const String &p_errors) {
+    return p_errors.contains("splat_asset") &&
+            p_errors.contains("Live color grading already applies") &&
+            !p_errors.contains("no gaussian data loaded");
+}
+
+#ifdef TOOLS_ENABLED
+// True when parse_begin() constructed the "Bake Color Grading" button anywhere in the
+// controls it handed to the inspector. Observes the built UI, not the gate predicate.
+bool gs_1105_tree_has_bake_button(Node *p_control) {
+    if (p_control == nullptr) {
+        return false;
+    }
+    if (Button *button = Object::cast_to<Button>(p_control)) {
+        if (button->get_text() == TTR("Bake Color Grading")) {
+            return true;
+        }
+    }
+    for (int i = 0; i < p_control->get_child_count(true); i++) {
+        if (gs_1105_tree_has_bake_button(p_control->get_child(i, true))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool gs_1105_inspector_offers_bake(GaussianSplatNode3D *p_node) {
+    Ref<GaussianSplatNodeInspectorPlugin> plugin;
+    plugin.instantiate();
+    if (plugin.is_null()) {
+        return false;
+    }
+    plugin->parse_begin(p_node);
+    bool found = false;
+    for (const EditorInspectorPlugin::AddedEditor &added : plugin->added_editors) {
+        found = found || gs_1105_tree_has_bake_button(added.property_editor);
+        if (added.property_editor) {
+            memdelete(added.property_editor);
+        }
+    }
+    plugin->added_editors.clear();
+    return found;
+}
+#endif
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Node] #1105 Baking on a splat_asset node is refused as unsupported and changes nothing") {
+    ScopedTestNode<GaussianSplatNode3D> node(memnew(GaussianSplatNode3D));
+    node->set_splat_asset(make_single_splat_asset());
+    Ref<ColorGradingResource> grading = make_color_grading_resource();
+    if (grading.is_null()) {
+        FAIL("could not create a ColorGradingResource");
+        return;
+    }
+    node->set_color_grading(grading);
+
+    CHECK_FALSE(node->can_bake_color_grading());
+
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(node->bake_color_grading(), ERR_UNAVAILABLE);
+        CHECK_MESSAGE(gs_1105_message_says_unsupported_on_asset(errors.joined()),
+                "bake_color_grading() must say baking is unsupported on a splat_asset node and that live grading applies; got: ",
+                errors.joined());
+    }
+    {
+        ScopedEngineErrorCapture errors;
+        Ref<ColorGradingResource> snapshot = make_color_grading_resource();
+        CHECK_EQ(node->bake_color_grading_snapshot(snapshot), ERR_UNAVAILABLE);
+        CHECK_MESSAGE(gs_1105_message_says_unsupported_on_asset(errors.joined()),
+                "bake_color_grading_snapshot() must give the same reason; got: ", errors.joined());
+    }
+
+    // Refused means refused: the live grade stays enabled (a bake disables it) and no
+    // bake state appears.
+    CHECK(grading->get_enabled());
+    CHECK_FALSE(node->is_color_grading_baked());
+
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(node->restore_color_grading(), ERR_UNAVAILABLE);
+        CHECK_MESSAGE(gs_1105_message_says_unsupported_on_asset(errors.joined()),
+                "restore_color_grading() must give the same reason; got: ", errors.joined());
+    }
+    CHECK(grading->get_enabled());
+
+    // A node with no data at all is a different case and keeps ERR_UNCONFIGURED, but
+    // with a message that names the supported path rather than "no gaussian data loaded".
+    ScopedTestNode<GaussianSplatNode3D> empty_node(memnew(GaussianSplatNode3D));
+    empty_node->set_color_grading(make_color_grading_resource());
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(empty_node->bake_color_grading(), ERR_UNCONFIGURED);
+        CHECK_MESSAGE(errors.joined().contains("set_splat_data()"), "got: ", errors.joined());
+        CHECK_FALSE(errors.joined().contains("no gaussian data loaded"));
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] #1105 A set_splat_data node still bakes and restores while a splat_asset peer is refused") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr || tree->get_root() == nullptr) {
+        FAIL("SceneTree with a root window required");
+        return;
+    }
+    Window *root = tree->get_root();
+
+    // Both nodes share one world, so one renderer. The old inspector gate read the
+    // RENDERER's GaussianData and could not tell them apart: measured on base behaviour,
+    // it offered Bake to neither node, although the set_splat_data() node can bake.
+    ScopedTestNode<GaussianSplatNode3D> asset_node(memnew(GaussianSplatNode3D));
+    Ref<ColorGradingResource> asset_grading = make_color_grading_resource();
+    asset_node->set_splat_asset(make_single_splat_asset(9600.0f));
+    asset_node->set_color_grading(asset_grading);
+    // asset_node enters the tree only after manual_node has its data (below), so that
+    // manual_node is ALONE on the renderer when it becomes bake-eligible: joining a peer
+    // already refreshes the inspector through the shared-state convergence hook, which
+    // would mask a missing eligibility notification.
+
+    ScopedTestNode<GaussianSplatNode3D> manual_node(memnew(GaussianSplatNode3D));
+    Ref<ColorGradingResource> manual_grading = make_color_grading_resource();
+    manual_node->set_color_grading(manual_grading);
+    root->add_child(manual_node.get());
+    tree->process(0.0);
+
+    PackedVector3Array positions;
+    positions.push_back(Vector3(9610.0f, 0.0f, 0.0f));
+    positions.push_back(Vector3(9611.0f, 0.0f, 0.0f));
+    PackedColorArray colors;
+    colors.push_back(Color(0.8f, 0.2f, 0.2f, 1.0f));
+    colors.push_back(Color(0.2f, 0.2f, 0.8f, 1.0f));
+    PackedVector3Array scales;
+    scales.push_back(Vector3(0.1f, 0.1f, 0.1f));
+    scales.push_back(Vector3(0.1f, 0.1f, 0.1f));
+    PackedFloat32Array opacities;
+    opacities.push_back(1.0f);
+    opacities.push_back(1.0f);
+    TypedArray<Quaternion> rotations;
+    rotations.push_back(Quaternion());
+    rotations.push_back(Quaternion());
+    // #1128 review: becoming bake-eligible through set_splat_data() (e.g. an @tool script on
+    // a selected node) must tell the inspector, or the Bake section stays absent.
+    Gs1105PropertyListCounter *list_changes = memnew(Gs1105PropertyListCounter);
+    const Callable count_list_change = callable_mp(list_changes, &Gs1105PropertyListCounter::bump);
+    manual_node->connect("property_list_changed", count_list_change);
+    const bool eligible_before = manual_node->can_bake_color_grading();
+    manual_node->set_splat_data(positions, colors, scales, opacities, rotations,
+            PackedFloat32Array(), PackedInt32Array(), PackedInt32Array(), PackedVector3Array(),
+            PackedVector2Array(), PackedFloat32Array(), false);
+    const int list_changes_on_gaining_data = list_changes->count;
+    manual_node->disconnect("property_list_changed", count_list_change);
+    memdelete(list_changes);
+    CHECK_FALSE(eligible_before);
+    CHECK_MESSAGE(list_changes_on_gaining_data > 0,
+            "set_splat_data() made the node bake-eligible without notifying the inspector");
+    tree->process(0.0);
+    root->add_child(asset_node.get());
+    tree->process(0.0);
+
+    Ref<GaussianSplatRenderer> renderer = manual_node->get_renderer();
+    if (renderer.is_null() || asset_node->get_renderer() != renderer) {
+        FAIL("both nodes must share one GaussianSplatRenderer (needs a RenderingDevice)");
+        return;
+    }
+
+    // splat_asset node: refused, nothing changed, and its live grade is still routed.
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(asset_node->bake_color_grading(), ERR_UNAVAILABLE);
+        CHECK_MESSAGE(gs_1105_message_says_unsupported_on_asset(errors.joined()), "got: ", errors.joined());
+    }
+    CHECK_FALSE(asset_node->is_color_grading_baked());
+    CHECK(asset_grading->get_enabled());
+    tree->process(0.0);
+    CHECK_MESSAGE(node_color_grading(asset_node.get(), renderer) == asset_grading,
+            "the refused node's live grade must still reach the director");
+    CHECK_EQ(asset_node->restore_color_grading(), ERR_UNAVAILABLE);
+
+    // set_splat_data node: the supported path still round-trips.
+    CHECK(manual_node->can_bake_color_grading());
+    CHECK_EQ(manual_node->bake_color_grading(), OK);
+    CHECK(manual_node->is_color_grading_baked());
+    CHECK_FALSE_MESSAGE(manual_grading->get_enabled(), "a bake disables live grading to avoid double application");
+    // #1128 review: the grade that was baked stays knowable. bake_color_grading() baked the
+    // node's own resource, which the bake has just disabled; the inspector's Restore action
+    // captures this as its undo snapshot, so it must be the enabled grade that was applied.
+    Ref<ColorGradingResource> baked_grade = manual_node->get_baked_color_grading();
+    if (baked_grade.is_null()) {
+        FAIL("a baked node must report the grade it baked");
+        return;
+    }
+    CHECK_MESSAGE(baked_grade->get_enabled(), "the captured baked grade must be the enabled one that was applied");
+    CHECK(baked_grade->get_exposure() == manual_grading->get_exposure());
+    CHECK(baked_grade != manual_grading);
+    tree->process(0.0);
+    CHECK_EQ(manual_node->restore_color_grading(), OK);
+    CHECK_FALSE(manual_node->is_color_grading_baked());
+    CHECK(manual_grading->get_enabled());
+    CHECK(manual_node->get_baked_color_grading().is_null());
+    // Inspector Restore -> Undo replays bake_color_grading_snapshot(<captured grade>): it must
+    // re-bake that enabled grade, not a disabled no-op that only marks the data baked.
+    CHECK_EQ(manual_node->bake_color_grading_snapshot(baked_grade), OK);
+    CHECK(manual_node->is_color_grading_baked());
+    Ref<ColorGradingResource> rebaked_grade = manual_node->get_baked_color_grading();
+    const bool rebaked_grade_enabled = rebaked_grade.is_valid() && rebaked_grade->get_enabled();
+    CHECK(rebaked_grade_enabled);
+    CHECK_EQ(manual_node->restore_color_grading(), OK);
+    CHECK(manual_grading->get_enabled());
+    // Restoring with nothing baked is a successful no-op.
+    CHECK_EQ(manual_node->restore_color_grading(), OK);
+
+    // A restore that cannot happen must say so (#1128 review): bake, then replace the data
+    // with a different splat count, so the saved colors no longer match. The restore must
+    // fail and must not re-enable live grading over the still-baked colors.
+    CHECK_EQ(manual_node->bake_color_grading(), OK);
+    positions.push_back(Vector3(9612.0f, 0.0f, 0.0f));
+    colors.push_back(Color(0.2f, 0.8f, 0.2f, 1.0f));
+    scales.push_back(Vector3(0.1f, 0.1f, 0.1f));
+    opacities.push_back(1.0f);
+    rotations.push_back(Quaternion());
+    manual_node->set_splat_data(positions, colors, scales, opacities, rotations,
+            PackedFloat32Array(), PackedInt32Array(), PackedInt32Array(), PackedVector3Array(),
+            PackedVector2Array(), PackedFloat32Array(), false);
+    tree->process(0.0);
+    {
+        ScopedEngineErrorCapture errors;
+        CHECK_EQ(manual_node->restore_color_grading(), ERR_INVALID_DATA);
+        CHECK_MESSAGE(errors.joined().contains("replaced since the bake"), "got: ", errors.joined());
+    }
+    CHECK_FALSE_MESSAGE(manual_grading->get_enabled(),
+            "a failed restore must not re-enable live grading over the still-baked colors");
+
+#ifdef TOOLS_ENABLED
+    // The inspector offers Bake on the node that can bake, and not on its asset peer,
+    // although both see the same renderer. (Under the old renderer-data gate the first
+    // CHECK is the one that fails.)
+    CHECK(gs_1105_inspector_offers_bake(manual_node.get()));
+    CHECK_FALSE(gs_1105_inspector_offers_bake(asset_node.get()));
+#endif
 }
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

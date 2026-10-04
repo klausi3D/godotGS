@@ -57,6 +57,9 @@ struct StreamingChunk {
     AABB bounds;
     float max_radius = 0.0f;
     float distance = 0.0f;
+    // Camera distance to the nearest point of `bounds` (0 inside), set with
+    // `distance`. Streaming demand is bounded on it (#1087).
+    float near_distance = 0.0f;
     bool is_loaded = false;
     bool gpu_resident = false;
     bool is_visible = true;

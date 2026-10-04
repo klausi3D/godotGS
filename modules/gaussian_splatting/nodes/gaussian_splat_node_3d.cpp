@@ -282,9 +282,9 @@ void GaussianSplatNode3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_showing_lod_spheres"), &GaussianSplatNode3D::is_showing_lod_spheres);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_lod_spheres"), "set_show_lod_spheres", "is_showing_lod_spheres");
 
-    ClassDB::bind_method(D_METHOD("set_show_performance_overlay", "show"), &GaussianSplatNode3D::set_show_performance_overlay);
-    ClassDB::bind_method(D_METHOD("is_showing_performance_overlay"), &GaussianSplatNode3D::is_showing_performance_overlay);
-    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_performance_overlay"), "set_show_performance_overlay", "is_showing_performance_overlay");
+    ClassDB::bind_method(D_METHOD("set_show_timing_gizmo", "show"), &GaussianSplatNode3D::set_show_timing_gizmo);
+    ClassDB::bind_method(D_METHOD("is_showing_timing_gizmo"), &GaussianSplatNode3D::is_showing_timing_gizmo);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "debug/show_timing_gizmo"), "set_show_timing_gizmo", "is_showing_timing_gizmo");
 
     ClassDB::bind_method(D_METHOD("set_debug_overlay_opacity", "opacity"), &GaussianSplatNode3D::set_debug_overlay_opacity);
     ClassDB::bind_method(D_METHOD("get_debug_overlay_opacity"), &GaussianSplatNode3D::get_debug_overlay_opacity);
@@ -753,6 +753,8 @@ void GaussianSplatNode3D::set_splat_asset(const Ref<GaussianSplatAsset> &p_asset
     }
 
     notify_property_list_changed();
+    // Already notified unconditionally; keep the eligibility cache in step (#1128 review).
+    bake_eligibility_last_notified = can_bake_color_grading();
     update_configuration_warnings();
 }
 
@@ -843,12 +845,14 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
         bounds_dirty = true;
         _unregister_shared_renderer();
         update_configuration_warnings();
+        _notify_if_bake_eligibility_changed();
         return;
     }
     renderer_data->set_2d_mode(p_is_2d_mode);
     _populate_runtime_asset_from_renderer_data();
     _compute_manual_splat_bounds(splat_count, p_positions, p_scales);
     _finalize_manual_splat_setup(splat_count);
+    _notify_if_bake_eligibility_changed();
 }
 
 bool GaussianSplatNode3D::_ensure_renderer_for_manual_data() {
@@ -1483,8 +1487,8 @@ void GaussianSplatNode3D::set_show_lod_spheres(bool p_show) {
     debug_helper.set_show_lod_spheres(p_show);
 }
 
-void GaussianSplatNode3D::set_show_performance_overlay(bool p_show) {
-    debug_helper.set_show_performance_overlay(p_show);
+void GaussianSplatNode3D::set_show_timing_gizmo(bool p_show) {
+    debug_helper.set_show_timing_gizmo(p_show);
 }
 
 void GaussianSplatNode3D::set_debug_overlay_opacity(float p_opacity) {
@@ -1526,7 +1530,7 @@ Dictionary GaussianSplatNode3D::get_statistics() const {
     stats["debug_draw_mode"] = debug_draw_mode;
     stats["debug_preview_mode"] = debug_draw_mode;
     stats["show_lod_spheres"] = show_lod_spheres;
-    stats["show_performance_overlay"] = show_performance_overlay;
+    stats["show_timing_gizmo"] = show_timing_gizmo;
     stats["preview_enabled"] = preview_enabled;
 
     if (renderer.is_valid()) {
@@ -3147,6 +3151,10 @@ Ref<GaussianSplatRenderer> GaussianSplatNode3D::get_renderer() {
     return renderer;
 }
 
+Ref<GaussianSplatRenderer> GaussianSplatNode3D::get_existing_renderer() const {
+    return renderer;
+}
+
 // ============================================================================
 // Color Grading
 // ============================================================================
@@ -3184,18 +3192,59 @@ Error GaussianSplatNode3D::bake_color_grading() {
     return bake_color_grading_snapshot(color_grading);
 }
 
+// #1105: baking rewrites the node's own CPU-side GaussianData (renderer_data), which only
+// set_splat_data() creates. A node that renders a splat_asset has none: its splats reach
+// the GPU through the director from the (shared, sealed-after-handout) asset, and its live
+// ColorGradingResource is already applied per instance (InstanceGradingGPU). Baking is
+// therefore unsupported there, and says so instead of reporting "no data".
+static const char *GS_BAKE_UNSUPPORTED_ON_ASSET_MSG =
+        "baking is not supported on a GaussianSplatNode3D that renders a splat_asset (#1105). "
+        "Live color grading already applies to this node; keep the ColorGradingResource enabled. "
+        "Only data supplied through set_splat_data() can be baked. "
+        "See docs/features/color-grading-quick-start.md (Baking limitation).";
+static const char *GS_BAKE_NO_DATA_MSG =
+        "this node has no splat data. Only data supplied through set_splat_data() can be baked.";
+
+// A value copy of a grading resource. The bake keeps one so the grade it applied stays
+// knowable after bake_color_grading_snapshot() disables the node's own resource -- which,
+// for bake_color_grading(), is the very object that was baked (#1128 review).
+static Ref<ColorGradingResource> gs_copy_color_grading(const Ref<ColorGradingResource> &p_grading) {
+    if (p_grading.is_null()) {
+        return Ref<ColorGradingResource>();
+    }
+    Ref<ColorGradingResource> copy;
+    copy.instantiate();
+    copy->set_enabled(p_grading->get_enabled());
+    copy->set_exposure(p_grading->get_exposure());
+    copy->set_contrast(p_grading->get_contrast());
+    copy->set_saturation(p_grading->get_saturation());
+    copy->set_temperature(p_grading->get_temperature());
+    copy->set_tint(p_grading->get_tint());
+    copy->set_hue_shift(p_grading->get_hue_shift());
+    return copy;
+}
+
+bool GaussianSplatNode3D::_is_bake_unsupported_asset_node() const {
+    return renderer_data.is_null() && splat_asset.is_valid();
+}
+
 Error GaussianSplatNode3D::bake_color_grading_snapshot(const Ref<ColorGradingResource> &p_grading_snapshot) {
+    if (_is_bake_unsupported_asset_node()) {
+        ERR_PRINT(vformat("Cannot bake color grading: %s", GS_BAKE_UNSUPPORTED_ON_ASSET_MSG));
+        return ERR_UNAVAILABLE;
+    }
+
     if (!p_grading_snapshot.is_valid()) {
         ERR_PRINT("Cannot bake color grading: no ColorGradingResource assigned");
         return ERR_UNCONFIGURED;
     }
 
     if (!renderer_data.is_valid()) {
-        ERR_PRINT("Cannot bake color grading: no gaussian data loaded");
+        ERR_PRINT(vformat("Cannot bake color grading: %s", GS_BAKE_NO_DATA_MSG));
         return ERR_UNCONFIGURED;
     }
 
-    Error err = renderer_data->bake_color_grading(p_grading_snapshot);
+    Error err = renderer_data->bake_color_grading(gs_copy_color_grading(p_grading_snapshot));
     if (err != OK) {
         ERR_PRINT("Failed to bake color grading");
         return err;
@@ -3211,13 +3260,23 @@ Error GaussianSplatNode3D::bake_color_grading_snapshot(const Ref<ColorGradingRes
     return OK;
 }
 
-void GaussianSplatNode3D::restore_color_grading() {
-    if (!renderer_data.is_valid()) {
-        ERR_PRINT("Cannot restore color grading: no gaussian data loaded");
-        return;
+Error GaussianSplatNode3D::restore_color_grading() {
+    if (_is_bake_unsupported_asset_node()) {
+        ERR_PRINT(vformat("Cannot restore color grading: %s", GS_BAKE_UNSUPPORTED_ON_ASSET_MSG));
+        return ERR_UNAVAILABLE;
     }
 
-    renderer_data->restore_original_colors();
+    if (!renderer_data.is_valid()) {
+        ERR_PRINT(vformat("Cannot restore color grading: %s", GS_BAKE_NO_DATA_MSG));
+        return ERR_UNCONFIGURED;
+    }
+
+    const Error restore_err = renderer_data->restore_original_colors();
+    if (restore_err != OK) {
+        // Nothing was restored: leave grading disabled (the baked colors are still in
+        // the data) rather than double-applying it, and tell the caller.
+        return restore_err;
+    }
 
     // Re-enable color grading so it can be applied in real-time again
     if (color_grading.is_valid()) {
@@ -3225,6 +3284,30 @@ void GaussianSplatNode3D::restore_color_grading() {
     }
 
     render_state_dirty = true;
+    return OK;
+}
+
+bool GaussianSplatNode3D::can_bake_color_grading() const {
+    return renderer_data.is_valid() && renderer_data->get_count() > 0;
+}
+
+Ref<ColorGradingResource> GaussianSplatNode3D::get_baked_color_grading() const {
+    if (!renderer_data.is_valid() || !renderer_data->is_color_grading_baked()) {
+        return Ref<ColorGradingResource>();
+    }
+    return gs_copy_color_grading(renderer_data->get_baked_grading());
+}
+
+void GaussianSplatNode3D::_notify_if_bake_eligibility_changed() {
+    // #1128 review: the inspector builds its Bake section in parse_begin(), which only
+    // reruns on property_list_changed. set_splat_data() (e.g. from an @tool script) can
+    // make a selected node bake-eligible, and a failed one can make it ineligible, without
+    // anything else telling the inspector.
+    const bool eligible = can_bake_color_grading();
+    if (eligible != bake_eligibility_last_notified) {
+        bake_eligibility_last_notified = eligible;
+        notify_property_list_changed();
+    }
 }
 
 bool GaussianSplatNode3D::is_color_grading_baked() const {

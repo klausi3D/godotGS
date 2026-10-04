@@ -75,6 +75,23 @@ public:
      */
     void cleanup_monitors();
 
+    /**
+     * Which renderers the process-global custom monitors are currently reporting.
+     *
+     * GaussianSplatPerformanceOverlay (#1084) reads per-renderer rows from the
+     * custom monitors, which follow the most recently registered renderer
+     * (register_splat_renderer()), while its GPU-pass rows come from its own
+     * target renderer. It shows a monitor row only when this says the monitors
+     * unambiguously describe that same target.
+     */
+    struct MonitorSourceInfo {
+        const GaussianSplatRenderer *splat_renderer = nullptr; // _get_active_splat_renderer(false)
+        const GaussianSplatRenderer *streaming_splat_renderer = nullptr; // _get_active_splat_renderer(true)
+        int splat_renderer_count = 0;
+        int tile_renderer_count = 0;
+    };
+    MonitorSourceInfo get_monitor_source_info() const;
+
     // Destructor must be public for memdelete() to access it
     ~GaussianSplattingPerformanceMonitors();
 

@@ -1,8 +1,7 @@
-[gd_scene load_steps=12 format=3 uid="uid://sphere_effector_test"]
+[gd_scene load_steps=11 format=3 uid="uid://sphere_effector_test"]
 
 [ext_resource type="GaussianSplatAsset" uid="uid://vnhu3dprb1x1" path="res://tests/fixtures/test_splats.ply" id="cabin_asset"]
 [ext_resource type="Script" uid="uid://dg380v6a1qpek" path="res://fps_camera_controller.gd" id="fps_script"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="perf_overlay"]
 [ext_resource type="Script" path="res://scenes/sphere_effector_animator.gd" id="effector_animator"]
 [ext_resource type="Script" path="res://scenes/sphere_effector_mover.gd" id="effector_mover"]
 
@@ -50,7 +49,7 @@ roughness = 0.85
 
 [node name="SphereEffectorTest" type="Node3D"]
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("perf_overlay")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="MainEffector" type="SphereEffector3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)

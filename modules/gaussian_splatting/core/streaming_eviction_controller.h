@@ -36,7 +36,11 @@ public:
     uint32_t get_chunks_evicted_this_frame() const { return chunks_evicted_this_frame; }
     uint32_t get_visible_chunks_evicted_this_frame() const { return visible_chunks_evicted_this_frame; }
 
-    EvictionResult evict_least_recently_used(GaussianStreamingSystem &system, bool p_allow_visible_eviction);
+    // #1088: p_visible_fit_pages > 0 restricts a VISIBLE victim to one whose release completes a
+    // contiguous free run of that many atlas pages, so an on-screen chunk is only ever evicted when
+    // that eviction alone lets the incoming chunk load. Non-visible victims stay plain LRU.
+    EvictionResult evict_least_recently_used(GaussianStreamingSystem &system, bool p_allow_visible_eviction,
+            uint32_t p_visible_fit_pages = 0);
     // Returns EvictionResult and does NOT internally call record_eviction_result(),
     // matching the contract of evict_least_recently_used() so callers can drive
     // bookkeeping explicitly. Returns NoEviction when nothing was evicted (either

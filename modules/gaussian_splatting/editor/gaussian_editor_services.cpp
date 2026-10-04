@@ -112,9 +112,15 @@ String format_gaussian_splat_stats(GaussianSplatNode3D *p_node, const Ref<Gaussi
     const double update_ms = dict_get_double(node_stats, "update_time_ms", 0.0);
     const double gpu_mb = dict_get_double(node_stats, "gpu_memory_mb", 0.0);
 
+    // #1084: a timing that nothing measured renders as n/a, never as 0.00 ms.
+    // These are zero-initialised when absent or not yet measured.
+    auto ms_or_na = [](double p_ms) -> String {
+        return p_ms > 0.0 ? String::num(p_ms, 2) + " ms" : String("n/a");
+    };
+
     String text = vformat("Visible Splats: %d / %d", int(visible), int(total));
     text += "\nGPU Memory: " + String::num(gpu_mb, 2) + " MB";
-    text += "\nUpdate Time: " + String::num(update_ms, 2) + " ms";
+    text += "\nUpdate Time: " + ms_or_na(update_ms);
 
     if (p_renderer.is_valid()) {
         Dictionary render_stats = p_renderer->get_render_stats();
@@ -135,8 +141,8 @@ String format_gaussian_splat_stats(GaussianSplatNode3D *p_node, const Ref<Gaussi
         const String cull_route_reason = dict_get_string(render_stats, "cull_route_reason");
         const String cull_route_reason_label = dict_get_string(render_stats, "cull_route_reason_label");
 
-        text += "\nSort Time: " + String::num(sort_ms, 2) + " ms";
-        text += "\nRender Time: " + String::num(render_ms, 2) + " ms";
+        text += "\nSort Time: " + ms_or_na(sort_ms);
+        text += "\nRender Time: " + ms_or_na(render_ms);
         if (frame_count > 0) {
             text += "\nFrames Rendered: " + itos(frame_count);
         }
@@ -190,7 +196,7 @@ String format_gaussian_splat_stats(GaussianSplatNode3D *p_node, const Ref<Gaussi
         text += "\nNode Preview: " + String(node_mode_names[node_mode]);
     }
     text += "\nLOD Spheres: " + String(p_node->is_showing_lod_spheres() ? "On" : "Off");
-    text += "\nOverlay: " + String(p_node->is_showing_performance_overlay() ? "On" : "Off");
+    text += "\nTiming Gizmo: " + String(p_node->is_showing_timing_gizmo() ? "On" : "Off");
 
     const Dictionary effective_config = node_stats.get(StringName("effective_config_snapshot"), Dictionary());
     if (!effective_config.is_empty()) {

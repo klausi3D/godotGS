@@ -124,7 +124,7 @@ void GaussianSplatGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
     }
 
     // Draw statistics overlay and performance metrics
-    if (splat_node->is_showing_statistics() || splat_node->is_showing_performance_overlay()) {
+    if (splat_node->is_showing_statistics() || splat_node->is_showing_timing_gizmo()) {
         draw_statistics(p_gizmo, splat_node);
     }
 
@@ -242,7 +242,7 @@ void GaussianSplatGizmoPlugin::draw_statistics(EditorNode3DGizmo *p_gizmo, Gauss
         p_gizmo->add_lines(cross_lines, statistics_material, true);
     }
 
-    if (p_node->is_showing_performance_overlay()) {
+    if (p_node->is_showing_timing_gizmo()) {
         auto get_material_for_time = [this](float p_ms) -> Ref<StandardMaterial3D> {
             if (p_ms <= 16.0f) {
                 return performance_material_good;
@@ -253,6 +253,9 @@ void GaussianSplatGizmoPlugin::draw_statistics(EditorNode3DGizmo *p_gizmo, Gauss
             return performance_material_critical;
         };
 
+        // Timing gizmo (#1084). A time that is absent, or still at its zero
+        // initialiser, was not measured: its bar is not drawn rather than drawn
+        // as a 0 ms reading.
         float update_ms = stats.has(StringName("update_time_ms")) ? float(stats[StringName("update_time_ms")]) : 0.0f;
         float render_ms = stats.has(StringName("render_time_ms")) ? float(stats[StringName("render_time_ms")]) : 0.0f;
         float sort_ms = stats.has(StringName("sort_time_ms")) ? float(stats[StringName("sort_time_ms")]) : 0.0f;
@@ -272,6 +275,9 @@ void GaussianSplatGizmoPlugin::draw_statistics(EditorNode3DGizmo *p_gizmo, Gauss
         };
 
         for (int i = 0; i < 3; i++) {
+            if (!(bars[i].ms > 0.0f)) {
+                continue;
+            }
             float normalized = CLAMP(bars[i].ms / 50.0f, 0.0f, 1.0f);
             float bar_height = base_height + normalized * max_height;
             Vector<Vector3> bar_lines;

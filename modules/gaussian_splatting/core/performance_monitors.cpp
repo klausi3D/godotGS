@@ -187,6 +187,15 @@ GaussianSplatRenderer *GaussianSplattingPerformanceMonitors::_get_active_splat_r
     return fallback;
 }
 
+GaussianSplattingPerformanceMonitors::MonitorSourceInfo GaussianSplattingPerformanceMonitors::get_monitor_source_info() const {
+    MonitorSourceInfo info;
+    info.splat_renderer = _get_active_splat_renderer(false);
+    info.streaming_splat_renderer = _get_active_splat_renderer(true);
+    info.splat_renderer_count = static_cast<int>(registered_splat_renderers.size());
+    info.tile_renderer_count = static_cast<int>(registered_renderers.size());
+    return info;
+}
+
 bool GaussianSplattingPerformanceMonitors::_is_telemetry_active() const {
     return active_renderer != nullptr || active_splat_renderer != nullptr ||
             !registered_renderers.is_empty() || !registered_splat_renderers.is_empty();

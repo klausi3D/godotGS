@@ -1,12 +1,11 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://scenes/benchmark_small_baseline.gd" id="1"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="2"]
 
 [node name="BenchmarkSmallBaseline" type="Node3D"]
 script = ExtResource("1")
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("2")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="InstanceRoot" type="Node3D" parent="."]
 
