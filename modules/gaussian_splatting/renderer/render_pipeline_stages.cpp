@@ -902,6 +902,29 @@ void RenderPipelineStages::stamp_stage_result_contract(StageResult &r_result, co
 	}
 }
 
+// Which sort output the raster consumes (#1163). The metrics' sort block is only
+// authoritative when a sort stage in THIS pass produced it (`did_sort`). Entries that
+// run no sort stage -- render_sorted_splats(), the shadow-pass entry -- hand over a
+// default-constructed StageMetrics whose sort block reads sorted_count = 0; preferring
+// it whenever metrics was non-null sent the raster down the zero-splat path although
+// the snapshot carried the real sorted count.
+void RenderPipelineStages::resolve_raster_sort_input(const RenderFrameContext &p_context,
+		GaussianSplatRenderer::RasterStageInput &r_input) {
+	if (p_context.metrics && p_context.metrics->sort.did_sort) {
+		r_input.sorted_splat_count = p_context.metrics->sort.sorted_count;
+		r_input.sort_time_ms = p_context.metrics->sort.sort_time_ms;
+		r_input.sorted_index_domain = p_context.metrics->sort.output_domain;
+	} else if (p_context.snapshot.valid) {
+		r_input.sorted_splat_count = p_context.snapshot.sorted_splats;
+		r_input.sort_time_ms = 0.0f;
+		r_input.sorted_index_domain = p_context.snapshot.sorted_index_domain;
+	} else {
+		r_input.sorted_splat_count = 0;
+		r_input.sort_time_ms = 0.0f;
+		r_input.sorted_index_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
+	}
+}
+
 RenderPipelineStages::StageResult RenderPipelineStages::make_downstream_skip_result(const char *p_stage_name,
 		const StageResult &p_upstream_result, const String &p_reason, RenderFallbackReason p_fallback_reason) {
 	StageResult result = _make_stage_result(StageResult::StageStatus::SKIPPED, p_reason, false, p_fallback_reason);
@@ -1813,19 +1836,7 @@ struct RenderPipelineStages::RasterCompositeStage {
 		raster_input.render_projection = p_context.render_projection;
 		raster_input.viewport_size = p_context.viewport_size;
 		raster_input.viewport_format = p_context.viewport_format;
-		if (p_context.metrics) {
-			raster_input.sorted_splat_count = p_context.metrics->sort.sorted_count;
-			raster_input.sort_time_ms = p_context.metrics->sort.sort_time_ms;
-			raster_input.sorted_index_domain = p_context.metrics->sort.output_domain;
-		} else if (p_context.snapshot.valid) {
-			raster_input.sorted_splat_count = p_context.snapshot.sorted_splats;
-			raster_input.sort_time_ms = 0.0f;
-			raster_input.sorted_index_domain = p_context.snapshot.sorted_index_domain;
-		} else {
-			raster_input.sorted_splat_count = 0;
-			raster_input.sort_time_ms = 0.0f;
-			raster_input.sorted_index_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
-		}
+		RenderPipelineStages::resolve_raster_sort_input(p_context, raster_input);
 		raster_input.content_generation = renderer->get_instance_pipeline_content_generation();
 		raster_input.cull_config_signature = _compute_cull_config_signature(*renderer, state_view);
 		raster_input.color_grading_signature = _compute_color_grading_signature(state_view.get_render_config_view(), renderer);

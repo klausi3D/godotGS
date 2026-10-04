@@ -54,6 +54,11 @@ public:
 				const String &p_copy_error, bool p_copy_degraded, const String &p_degradation_reason,
 				bool p_depth_test_honored, bool p_viewport_copy_success, bool p_strict_depth_contract_required);
 	static void finalize_stage_contracts(StageMetrics &r_metrics, const RenderFramePlan &p_frame_plan);
+	// Fills the raster's sorted count / sort time / index domain: from the metrics' sort
+	// block only when a sort stage in this pass set `did_sort`, otherwise from the frame
+	// snapshot (#1163).
+	static void resolve_raster_sort_input(const RenderFrameContext &p_context,
+			GaussianSplatRenderer::RasterStageInput &r_input);
 	// Single producer for RenderRouteDecision (#351). Both the route selection site
 	// (GaussianSplatRenderer::render_scene_instance) and build_frame_plan derive the
 	// per-frame route contract from here so there is exactly one decision per frame.
