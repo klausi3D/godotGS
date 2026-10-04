@@ -1069,6 +1069,62 @@ class EmptyCategorySelectionIsNotAPassTest(unittest.TestCase):
         self.assertEqual(run_mock.call_count, 1, "expected exactly one launch")
 
 
+class QaImportPreparationTest(unittest.TestCase):
+    def _run(self, result=None, category="qa"):
+        runner = run_baseline_qa.BaselineQARunner(godot_binary="tested-godot.exe")
+        events = []
+
+        def import_project(command, **kwargs):
+            events.append("import")
+            self.assertEqual(command[0], runner.godot_binary)
+            self.assertIn("--headless", command)
+            self.assertIn("--import", command)
+            self.assertEqual(command[command.index("--path") + 1],
+                             str(ROOT / "tests/examples/godot/test_project"))
+            self.assertGreater(kwargs["timeout"], 0)
+            self.assertEqual(kwargs["encoding"], "utf-8")
+            self.assertEqual(kwargs["errors"], "replace")
+            if isinstance(result, Exception):
+                raise result
+            return run_baseline_qa.subprocess.CompletedProcess(command, result or 0, "", "")
+
+        def execute(tests):
+            events.append("scenes")
+            return True
+
+        with mock.patch.object(run_baseline_qa, "prepare_synthetic_assets",
+                               side_effect=lambda: events.append("fixtures")), \
+                mock.patch.object(run_baseline_qa.subprocess, "run", side_effect=import_project), \
+                mock.patch.object(runner, "_execute_selected_tests", side_effect=execute):
+            ok = runner.run_all_tests(categories={category})
+        return ok, events
+
+    def test_editor_import_runs_after_fixtures_before_qa(self):
+        ok, events = self._run()
+        self.assertTrue(ok)
+        self.assertEqual(events, ["fixtures", "import", "scenes"])
+
+    def test_failed_import_prevents_qa_execution(self):
+        ok, events = self._run(result=1)
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import"])
+
+    def test_import_timeout_prevents_qa_execution(self):
+        ok, events = self._run(result=run_baseline_qa.subprocess.TimeoutExpired("godot", 120))
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import"])
+
+    def test_unlaunchable_import_prevents_qa_execution(self):
+        ok, events = self._run(result=OSError("cannot launch tested binary"))
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import"])
+
+    def test_unselected_qa_does_not_import(self):
+        ok, events = self._run(category="renderer")
+        self.assertTrue(ok)
+        self.assertEqual(events, ["fixtures", "scenes"])
+
+
 class QaRequireCaptureTest(unittest.TestCase):
     """The third laundering path (#522): a lane that promised a GPU, skipped.
 

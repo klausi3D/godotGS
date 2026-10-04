@@ -810,6 +810,26 @@ class BaselineQARunner:
         elif quick:
             quick_categories = {"ply", "sorting"}
             selected_tests = [test for test in tests if test.get("category") in quick_categories]
+        if any(test.get("category") == "qa" for test in selected_tests):
+            # Runtime scripts do not run the editor's import scan. Tracked sidecars
+            # can refer to absent caches on a fresh checkout, so prepare them first.
+            command = [self.godot_binary, "--headless", "--path",
+                       str(ROOT / "tests/examples/godot/test_project"), "--import"]
+            try:
+                result = subprocess.run(command, capture_output=True, text=True,
+                                        encoding="utf-8", errors="replace",
+                                        cwd=ROOT, timeout=120, check=False)
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"QA editor import failed (exit {result.returncode}): "
+                        f"{result.stdout}\n{result.stderr}"
+                    )
+            except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
+                print(f"[FAIL] QA import preparation: {exc}")
+                self.test_results["failed_tests"] = 1
+                self.test_results["end_time"] = time.time()
+                return False
+            print("[PASS] QA editor import complete.")
         return self._execute_selected_tests(selected_tests)
 
     def _build_test_table(self) -> List[Dict]:
