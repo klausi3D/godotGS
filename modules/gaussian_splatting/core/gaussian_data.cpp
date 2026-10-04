@@ -1099,6 +1099,12 @@ void GaussianData::set_stroke_ages(const PackedFloat32Array &p_stroke_ages) {
 }
 
 void GaussianData::set_2d_mode(bool p_enabled) {
+    if (p_enabled) {
+        // #1185: the flag reaches the GPU asset/instance flags, but no shader reads
+        // GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D and project_gaussian_2d always
+        // builds the 3D covariance. Say so rather than let the API imply surfels.
+        WARN_PRINT_ONCE("[GaussianData] set_2d_mode(true): 2D mode is metadata-only: no renderer path reads it, so splats still render as 3D ellipsoids; it only makes save_to_file() write normal columns (#1185).");
+    }
     RWLockWrite lock(data_rwlock);
     is_2d_mode = p_enabled;
     // PERSIST-001: is_2d_mode is outside the per-index delta contract (and the GSF baseline

@@ -50,6 +50,7 @@
 			<param index="11" name="is_2d_mode" type="bool" default="false" />
 			<description>
 				Creates a Gaussian splat dataset from raw arrays and assigns it to this node. Only [param positions] is required; all other arrays default to empty or sensible values. This is the programmatic alternative to loading a PLY file.
+				[param is_2d_mode] only sets the metadata-only [member GaussianData.2d_mode] flag; it does not change how the splats are rendered, and a one-time warning says so when it is [code]true[/code].
 			</description>
 		</method>
 		<method name="set_quality_preset">

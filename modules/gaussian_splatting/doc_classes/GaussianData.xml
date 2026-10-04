@@ -121,20 +121,20 @@
 			<return type="void" />
 			<param index="0" name="enabled" type="bool" />
 			<description>
-				Enables or disables 2D surfel mode. When enabled, splats are rendered as oriented discs using surface normals instead of 3D ellipsoids.
+				Sets the 2D (surfel) mode flag. The flag is metadata only: no renderer path reads it, so splats are still rendered as 3D ellipsoids. Its only effect is that [method save_to_file] writes the normal columns and declares the mode in the PLY header. Enabling it prints a one-time warning saying so.
 			</description>
 		</method>
 		<method name="get_2d_mode">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if 2D surfel rendering mode is active.
+				Returns [code]true[/code] if the metadata-only 2D (surfel) flag is set. See [method set_2d_mode]; it does not change how splats are rendered.
 			</description>
 		</method>
 		<method name="set_normals">
 			<return type="void" />
 			<param index="0" name="normals" type="PackedVector3Array" />
 			<description>
-				Sets the surface normal vectors for all splats. Normals are used when 2D surfel mode is enabled for oriented disc rendering.
+				Sets the surface normal vectors for all splats. Normals are stored per splat and used as shading normals; they do not change the projected splat footprint.
 			</description>
 		</method>
 		<method name="load_from_file">
@@ -377,7 +377,7 @@
 	</methods>
 	<members>
 		<member name="2d_mode" type="bool" setter="set_2d_mode" getter="get_2d_mode" default="false">
-			When enabled, splats are rendered as oriented 2D surfels rather than 3D ellipsoids. Requires surface normals to be set via [method set_normals].
+			Metadata-only 2D (surfel) flag. No renderer path reads it: splats are rendered as 3D ellipsoids whether it is set or not. It only makes [method save_to_file] write normal columns and declare the mode in the PLY header. PLY files set it only when their header declares it ([code]comment gs_2d_mode[/code]), not because they carry [code]nx[/code]/[code]ny[/code]/[code]nz[/code] columns.
 		</member>
 		<member name="count" type="int" setter="" getter="get_count" default="0">
 			The total number of Gaussian splats in this resource. Read-only.

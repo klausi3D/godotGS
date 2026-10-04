@@ -201,7 +201,7 @@ Use `GaussianSplatAsset` to store, serialize, and exchange Gaussian splat data a
       <td><code>data/normals</code></td>
       <td><code>PackedFloat32Array</code></td>
       <td><code>set_normals</code>, <code>get_normals</code></td>
-      <td>Optional per-splat normals (3 floats per splat) for surfel mode.</td>
+      <td>Optional per-splat normals (3 floats per splat), used as shading normals.</td>
       <td><code>GaussianSplatAsset::set_normals</code></td>
     </tr>
     <tr>

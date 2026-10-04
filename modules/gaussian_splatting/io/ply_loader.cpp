@@ -393,6 +393,12 @@ Error PLYLoader::parse_header(Ref<FileAccess> file) {
                 }
                 // Properties of a trailing (post-vertex) element are ignored.
             }
+        } else if (line.begins_with("comment")) {
+            // #1185: the only way a PLY switches on (metadata-only) 2D mode.
+            const Vector<String> parts = line.split(" ", false);
+            if (parts.size() >= 2 && parts[0] == "comment" && parts[1] == "gs_2d_mode") {
+                header.declares_2d_mode = true;
+            }
         } else if (line == "end_header") {
             // Fold a preceding element that ended immediately before end_header
             // (defensive: `vertex` normally follows, but stay consistent).
@@ -559,12 +565,15 @@ Error PLYLoader::parse_binary_data(Ref<FileAccess> file) {
     const int ny_idx = find_property_index("ny");
     const int nz_idx = find_property_index("nz");
 
-    // Check if normal properties exist to determine 2D mode
+    // Normal columns are loaded as per-splat shading normals when present.
     const bool has_normals = (nx_idx >= 0 && ny_idx >= 0 && nz_idx >= 0);
 
-    if (has_normals) {
+    // #1185: 2D mode only when the header declares it. nx/ny/nz columns alone are
+    // not a declaration: stock INRIA/3DGS PLYs carry them as zeros, so inferring the
+    // mode from them flagged most imported scans 2D (and they rendered as 3D anyway).
+    if (header.declares_2d_mode) {
         gaussian_data->set_2d_mode(true);
-        GS_LOG_STREAMING_INFO("PLY contains normal vectors - enabling 2D mode");
+        GS_LOG_STREAMING_INFO("PLY header declares gs_2d_mode - setting the (metadata-only) 2D flag");
     }
 
     int palette_idx = find_property_index("palette_id");
@@ -888,14 +897,17 @@ Error PLYLoader::parse_ascii_data(Ref<FileAccess> file) {
 
     gaussian_data->resize(header.vertex_count);
 
-    // Check if normal properties exist to determine 2D mode
-    bool has_normals = (find_property_index("nx") >= 0 &&
+    // Normal columns are loaded as per-splat shading normals when present.
+    const bool has_normals = (find_property_index("nx") >= 0 &&
                         find_property_index("ny") >= 0 &&
                         find_property_index("nz") >= 0);
 
-    if (has_normals) {
+    // #1185: 2D mode only when the header declares it. nx/ny/nz columns alone are
+    // not a declaration: stock INRIA/3DGS PLYs carry them as zeros, so inferring the
+    // mode from them flagged most imported scans 2D (and they rendered as 3D anyway).
+    if (header.declares_2d_mode) {
         gaussian_data->set_2d_mode(true);
-        GS_LOG_STREAMING_INFO("PLY contains normal vectors - enabling 2D mode");
+        GS_LOG_STREAMING_INFO("PLY header declares gs_2d_mode - setting the (metadata-only) 2D flag");
     }
 
     int sh_dc_indices[SH_DC_COMPONENTS];

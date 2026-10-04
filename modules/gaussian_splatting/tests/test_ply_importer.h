@@ -146,6 +146,131 @@ end_header
     _remove_ply_fixture(path);
 }
 
+// #1185: the loader set (metadata-only) 2D mode whenever nx/ny/nz columns existed. Stock
+// INRIA/3DGS PLYs carry those columns as zeros, so most imported scans were silently
+// flagged 2D. The mode is now set only when the header declares it.
+namespace {
+
+String _ply_2d_mode_ascii(bool p_declare_2d_mode) {
+    String text = "ply\nformat ascii 1.0\n";
+    if (p_declare_2d_mode) {
+        text += "comment gs_2d_mode\n";
+    }
+    text += "element vertex 1\n"
+            "property float x\nproperty float y\nproperty float z\n"
+            "property float nx\nproperty float ny\nproperty float nz\n"
+            "property float scale_0\nproperty float scale_1\nproperty float scale_2\n"
+            "property float rot_0\nproperty float rot_1\nproperty float rot_2\nproperty float rot_3\n"
+            "property float opacity\n"
+            "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n"
+            "end_header\n"
+            "0.5 0.5 0.5 0 0 0 1.0 1.0 1.0 1.0 0.0 0.0 0.0 0.8 0.5 0.5 0.5\n";
+    return text;
+}
+
+bool _load_ply_text(const String &p_path, const String &p_text, Ref<GaussianData> &r_data) {
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    f->store_string(p_text);
+    f.unref();
+    PLYLoader loader;
+    if (loader.load_file(p_path) != OK) {
+        return false;
+    }
+    r_data = loader.get_gaussian_data();
+    return r_data.is_valid() && r_data->get_count() == 1;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][PLY] normal columns alone do not set 2D mode; a gs_2d_mode header comment does (#1185)") {
+    SUBCASE("ASCII PLY with zero nx/ny/nz and no declaration stays 3D") {
+        const String path = _make_ply_fixture_path("normals_undeclared");
+        Ref<GaussianData> data;
+        if (!_load_ply_text(path, _ply_2d_mode_ascii(false), data)) {
+            _remove_ply_fixture(path);
+            FAIL("ASCII PLY with undeclared normals must load one splat");
+            return;
+        }
+        CHECK_FALSE(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("ASCII PLY declaring gs_2d_mode is flagged 2D") {
+        const String path = _make_ply_fixture_path("normals_declared");
+        Ref<GaussianData> data;
+        if (!_load_ply_text(path, _ply_2d_mode_ascii(true), data)) {
+            _remove_ply_fixture(path);
+            FAIL("ASCII PLY declaring gs_2d_mode must load one splat");
+            return;
+        }
+        CHECK(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("binary PLY with nx/ny/nz and no declaration stays 3D") {
+        const String path = _make_ply_fixture_path("normals_binary");
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        if (f.is_null()) {
+            FAIL("cannot create the binary PLY fixture");
+            return;
+        }
+        f->store_string("ply\nformat binary_little_endian 1.0\nelement vertex 1\n"
+                        "property float x\nproperty float y\nproperty float z\n"
+                        "property float nx\nproperty float ny\nproperty float nz\n"
+                        "property float scale_0\nproperty float scale_1\nproperty float scale_2\n"
+                        "property float rot_0\nproperty float rot_1\nproperty float rot_2\nproperty float rot_3\n"
+                        "property float opacity\n"
+                        "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n"
+                        "end_header\n");
+        const float v[17] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+            1.0f, 1.0f, 0.0f, 0.0f };
+        f->store_buffer((const uint8_t *)v, sizeof(v));
+        f.unref();
+        PLYLoader loader;
+        REQUIRE(loader.load_file(path) == OK);
+        Ref<GaussianData> data = loader.get_gaussian_data();
+        if (data.is_null()) {
+            _remove_ply_fixture(path);
+            FAIL("binary PLY with undeclared normals must load");
+            return;
+        }
+        CHECK_FALSE(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("save_to_file declares the mode, so a 2D-flagged export round-trips") {
+        Ref<GaussianData> source;
+        source.instantiate();
+        LocalVector<Gaussian> gaussians;
+        gaussians.resize(1);
+        gaussians[0].position = Vector3(1.0f, 2.0f, 3.0f);
+        gaussians[0].scale = Vector3(0.1f, 0.1f, 0.1f);
+        gaussians[0].rotation = Quaternion();
+        gaussians[0].opacity = 0.5f;
+        gaussians[0].normal = Vector3(0.0f, 0.0f, 1.0f);
+        source->set_gaussians(gaussians);
+        for (const bool flagged : { true, false }) {
+            {
+                ERR_PRINT_OFF; // set_2d_mode(true) warns once that the flag is metadata-only.
+                source->set_2d_mode(flagged);
+                ERR_PRINT_ON;
+            }
+            const String path = _make_ply_fixture_path(flagged ? "export_2d" : "export_3d");
+            REQUIRE(source->save_to_file(path) == OK);
+            PLYLoader loader;
+            REQUIRE(loader.load_file(path) == OK);
+            Ref<GaussianData> loaded = loader.get_gaussian_data();
+            if (loaded.is_null()) {
+                _remove_ply_fixture(path);
+                FAIL("save_to_file() output must load back");
+                return;
+            }
+            CHECK(loaded->get_2d_mode() == flagged);
+            _remove_ply_fixture(path);
+        }
+    }
+}
+
 TEST_CASE("[GaussianSplatting][PLYLoader] Cache version mismatch forces re-parse") {
     // Write a minimal binary PLY fixture using the same pattern as other tests.
     const String ply_path = _make_ply_fixture_path("cache_version");

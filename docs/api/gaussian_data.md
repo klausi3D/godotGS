@@ -64,7 +64,7 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
       <td><code>2d_mode</code></td>
       <td><code>bool</code></td>
       <td><code>set_2d_mode</code>, <code>get_2d_mode</code></td>
-      <td>Enables 2D Gaussian (surfel) rendering where splats use normals as disc orientation.</td>
+      <td>Metadata-only 2D (surfel) flag. No renderer path reads it: splats render as 3D ellipsoids either way. It only makes <code>save_to_file</code> write normal columns and the <code>comment gs_2d_mode</code> header line.</td>
       <td><code>GaussianData::set_2d_mode</code></td>
     </tr>
     <tr>
@@ -206,7 +206,7 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
     </tr>
     <tr>
       <td><code>set_normals(normals: PackedVector3Array)</code></td>
-      <td>Sets per-splat surface normals for 2D Gaussian (surfel) rendering. Array size must match <code>get_count()</code>.</td>
+      <td>Sets per-splat surface normals (shading normals; they do not change the projected footprint). Array size must match <code>get_count()</code>.</td>
       <td><code>GaussianData::set_normals</code></td>
     </tr>
   </tbody>
@@ -224,12 +224,12 @@ Use `GaussianData` to store, manipulate, and query Gaussian splat point-cloud da
   <tbody>
     <tr>
       <td><code>set_2d_mode(enabled: bool)</code></td>
-      <td>Enables or disables 2D Gaussian (surfel) mode, where splats render as oriented discs using normals.</td>
+      <td>Sets the metadata-only 2D (surfel) flag; rendering is unchanged. Enabling it prints a one-time warning saying so.</td>
       <td><code>GaussianData::set_2d_mode</code></td>
     </tr>
     <tr>
       <td><code>get_2d_mode() -> bool</code></td>
-      <td>Returns <code>true</code> if 2D surfel mode is active.</td>
+      <td>Returns <code>true</code> if the metadata-only 2D (surfel) flag is set.</td>
       <td><code>GaussianData::get_2d_mode</code></td>
     </tr>
   </tbody>

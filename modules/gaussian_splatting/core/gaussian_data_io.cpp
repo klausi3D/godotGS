@@ -315,6 +315,11 @@ Error GaussianData::save_to_file(const String &p_path) const {
     // Write PLY header
     file->store_string("ply\n");
     file->store_string("format binary_little_endian 1.0\n");
+    if (snapshot.is_2d_mode) {
+        // #1185: the loader sets 2D mode only from this declaration, never from
+        // the presence of the normal columns below.
+        file->store_string("comment gs_2d_mode\n");
+    }
     file->store_string(vformat("element vertex %d\n", count));
 
     // Position properties

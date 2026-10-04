@@ -632,14 +632,19 @@ public:
     /// @{
 
     /**
-     * @brief Enables or disables 2D Gaussian (surfel) mode.
-     * @param p_enabled When true, splats use normals for disc-like rendering.
+     * @brief Sets the 2D Gaussian (surfel) flag. METADATA ONLY (#1185).
+     *
+     * No renderer path reads the flag: splats are still projected as 3D ellipsoids.
+     * Its only effect is that save_to_file() writes nx/ny/nz columns and declares the
+     * mode in the PLY header. Enabling it warns once.
+     * @param p_enabled Flag value to store.
      */
     void set_2d_mode(bool p_enabled);
     bool get_2d_mode() const { return is_2d_mode; }
 
     /**
-     * @brief Sets surface normals for 2D Gaussian (surfel) rendering.
+     * @brief Sets per-splat surface normals (shading normals; they do not change the
+     *        projected footprint, see set_2d_mode()).
      * @param p_normals Array of unit normal vectors (must match get_count()).
      */
     void set_normals(const PackedVector3Array &p_normals);

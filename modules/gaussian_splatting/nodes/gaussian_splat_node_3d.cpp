@@ -848,6 +848,9 @@ void GaussianSplatNode3D::set_splat_data(const PackedVector3Array &p_positions,
         _notify_if_bake_eligibility_changed();
         return;
     }
+    if (p_is_2d_mode) {
+        WARN_PRINT_ONCE("[GaussianSplatNode3D] set_splat_data(..., is_2d_mode = true): 2D mode is metadata-only: no renderer path reads it, so splats still render as 3D ellipsoids; it only makes save_to_file() write normal columns (#1185).");
+    }
     renderer_data->set_2d_mode(p_is_2d_mode);
     _populate_runtime_asset_from_renderer_data();
     _compute_manual_splat_bounds(splat_count, p_positions, p_scales);
