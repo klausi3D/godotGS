@@ -1444,16 +1444,16 @@ ABI_CONTRACTS: tuple[ValidationContract, ...] = (
                 path=MODULE_DIR / "renderer" / "tile_render_types.h",
                 patterns=(
                     r"struct TileProjectionLayout",
-                    r"static_assert\(sizeof\(Payload\) == 36",
-                    r"static_assert\(sizeof\(PackedPayload\) == 32",
+                    r"static_assert\(sizeof\(Payload\) == 40",
+                    r"static_assert\(sizeof\(PackedPayload\) == 36",
                 ),
             ),
             FilePatternSet(
                 path=SHADERS_DIR / "includes" / "tile_projection_common.glsl",
                 patterns=(
                     r"struct ProjectedGaussian",
+                    r"uint data\[10\];",
                     r"uint data\[9\];",
-                    r"uint data\[8\];",
                 ),
             ),
         ),

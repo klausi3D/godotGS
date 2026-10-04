@@ -15,21 +15,26 @@
 // composite's depth_epsilon and caused silhouette shimmer when depth-testing splats
 // against mesh depth. Opacity + flags moved to the free high 16 bits of the normal-z
 // word (data[8] full / data[7] packed) -- gs_unpack_normal reads only the low half of
-// that word, so both strides stay unchanged (36 B / 32 B).
+// that word.
+//
+// The screen centre is RAW fp32 too (#1153): x in data[0], y in the last word
+// (GS_PG_SCREEN_Y_WORD). It used to be packHalf2x16 in pixels, whose spacing is 1 px for
+// x in [1024, 2048) and 2 px above, so the right half of a 1080p frame rasterized every
+// centre snapped to an integer pixel and sub-pixel TAA jitter could not move it. A
+// viewport-normalised unorm16 would have kept the stride but clamps off-screen centres,
+// which large splats overlapping the screen edge legitimately have. Strides: 40 B full,
+// 36 B packed (host mirror: TileProjectionLayout in renderer/tile_render_types.h).
 #ifdef GS_PACKED_STAGE_DATA
-struct ProjectedGaussian {
-    uint data[8];
-};
-#else
+#define GS_PG_SCREEN_Y_WORD 8
 struct ProjectedGaussian {
     uint data[9];
 };
+#else
+#define GS_PG_SCREEN_Y_WORD 9
+struct ProjectedGaussian {
+    uint data[10];
+};
 #endif
-
-// Pack screen-space position into two half-floats.
-uint gs_pack_screen_xy(vec2 screen_pos) {
-    return packHalf2x16(screen_pos);
-}
 
 // Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of
 // flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw +
@@ -91,11 +96,6 @@ uint gs_pack_conic_y_and_index(float conic_y, uint global_idx) {
     return conic_y_bits | (idx_bits << 16u);
 }
 
-// Unpack the packed screen-space position.
-vec2 gs_unpack_screen_xy(uint packed) {
-    return unpackHalf2x16(packed);
-}
-
 // Unpack opacity and flags from the high 16 bits of the normal-z word.
 void gs_unpack_opacity_flags(uint packed, out float opacity, out uint flags) {
     opacity = float((packed >> 16u) & 0xFFu) / 255.0;
@@ -142,7 +142,7 @@ void gs_unpack_conic_y_and_index(uint packed, out float conic_y, out uint global
 void gs_unpack_projected_gaussian(in ProjectedGaussian pg,
         out vec2 screen_pos, out float depth, out float opacity,
         out vec3 color, out vec3 normal, out vec3 conic, out uint global_idx) {
-    screen_pos = gs_unpack_screen_xy(pg.data[0]);
+    screen_pos = vec2(uintBitsToFloat(pg.data[0]), uintBitsToFloat(pg.data[GS_PG_SCREEN_Y_WORD]));
 
     depth = uintBitsToFloat(pg.data[1]);
 
@@ -169,7 +169,8 @@ void gs_unpack_projected_gaussian(in ProjectedGaussian pg,
 void gs_pack_projected_gaussian(out ProjectedGaussian pg,
         vec2 screen_pos, float depth, float opacity,
         vec3 color, vec3 normal, vec3 conic, uint global_idx) {
-    pg.data[0] = gs_pack_screen_xy(screen_pos);
+    pg.data[0] = floatBitsToUint(screen_pos.x);
+    pg.data[GS_PG_SCREEN_Y_WORD] = floatBitsToUint(screen_pos.y);
     pg.data[1] = floatBitsToUint(depth);
     pg.data[2] = gs_pack_color_r11g11b10(color);
     pg.data[3] = floatBitsToUint(conic.x);

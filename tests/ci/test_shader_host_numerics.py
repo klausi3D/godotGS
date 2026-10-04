@@ -206,5 +206,90 @@ class ShBasisMatchesInriaReference(unittest.TestCase):
         self.assertAlmostEqual(reference[13], -0.4570457994644658 * math.sqrt(0.5) * (4 * 0.5 - 0.5), places=12)
 
 
+# ---------------------------------------------------------------------------
+# #1153: the raster payload must carry the splat screen centre exactly.
+# ---------------------------------------------------------------------------
+
+TILE_PROJECTION_COMMON = INCLUDES_DIR / "tile_projection_common.glsl"
+TILE_RENDER_TYPES_H = ROOT / "modules" / "gaussian_splatting" / "renderer" / "tile_render_types.h"
+PAYLOAD_LAYOUTS = (("full", {}, "Payload"), ("packed", {"GS_PACKED_STAGE_DATA": ""}, "PackedPayload"))
+
+
+def _f32(x: float) -> float:
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def _host_payload_words(struct_name: str) -> int:
+    text = TILE_RENDER_TYPES_H.read_text(encoding="utf-8")
+    m = re.search(r"struct\s+alignas\(4\)\s+" + struct_name + r"\s*\{\s*uint32_t\s+data\[(\d+)\];", text)
+    if not m:
+        raise AssertionError(f"TileProjectionLayout::{struct_name} not found in {TILE_RENDER_TYPES_H}")
+    return int(m.group(1))
+
+
+# Centres across a 4K frame and well off-screen (large splats overlapping the edge keep an
+# off-screen centre). fp16 spacing is 1 px in [1024, 2048), 2 px in [2048, 4096) and it
+# overflows above 65504, so most of these were snapped or lost by the old encoding.
+SCREEN_CENTRES = [
+    (0.5, 0.5), (12.125, 7.875), (511.3, 1023.6), (1024.5, 1079.5), (1500.3, 1079.6),
+    (1919.4, 1079.6), (2047.75, 2049.25), (3001.2, 2159.4), (3839.9, 0.25), (-37.3, 5120.6),
+    (-6000.25, 70000.5), (1800.25 + 0.25, 900.0 - 0.25),
+] + [(7.0 + i * 3.7131, 2160.0 - i * 1.9173) for i in range(0, 2000, 7)]
+
+
+class PayloadScreenCentreIsExact(unittest.TestCase):
+    """#1153: packHalf2x16 in pixels snapped centres to 1 px above x = 1024."""
+
+    def _round_trip(self, program, centre):
+        vec2, vec3 = program.namespace["vec2"], program.namespace["vec3"]
+        payload = program.struct("ProjectedGaussian")()
+        program.fn("gs_pack_projected_gaussian")(
+            payload, vec2(*centre), 12.5, 0.75, vec3(0.25, 0.5, 1.0), vec3(0.0, 0.6, 0.8),
+            vec3(0.125, -0.0625, 0.5), glsl.U32(4321))
+        for index, word in enumerate(payload.data):
+            self.assertIsInstance(word, glsl.U32, f"payload word {index} was never written")
+        result = program.fn("gs_unpack_projected_gaussian")(payload, None, None, None, None, None, None, None)
+        _ret, screen_pos, depth, opacity, color, normal, conic, global_idx = result
+        return payload, screen_pos, depth, opacity, color, normal, conic, global_idx
+
+    def test_glsl_payload_word_count_matches_the_host_mirror(self) -> None:
+        for label, defines, host_struct in PAYLOAD_LAYOUTS:
+            program = glsl.load(TILE_PROJECTION_COMMON, defines)
+            payload = program.struct("ProjectedGaussian")()
+            with self.subTest(layout=label):
+                self.assertEqual(len(payload.data), _host_payload_words(host_struct),
+                                 f"ProjectedGaussian ({label}) and TileProjectionLayout::{host_struct} "
+                                 "disagree on the payload size")
+
+    def test_screen_centre_round_trips_bit_exactly(self) -> None:
+        for label, defines, _host in PAYLOAD_LAYOUTS:
+            program = glsl.load(TILE_PROJECTION_COMMON, defines)
+            worst = 0.0
+            for centre in SCREEN_CENTRES:
+                _payload, screen_pos, *_rest = self._round_trip(program, centre)
+                expected = (_f32(centre[0]), _f32(centre[1]))
+                error = max(abs(screen_pos.x - expected[0]), abs(screen_pos.y - expected[1]))
+                worst = max(worst, error)
+            with self.subTest(layout=label):
+                self.assertEqual(worst, 0.0, f"{label} payload moves splat centres by up to {worst} px")
+
+    def test_other_payload_fields_survive_next_to_the_centre(self) -> None:
+        # The centre took a new word; nothing may alias it.
+        for label, defines, _host in PAYLOAD_LAYOUTS:
+            program = glsl.load(TILE_PROJECTION_COMMON, defines)
+            _payload, screen_pos, depth, opacity, color, normal, conic, global_idx = self._round_trip(
+                program, (1919.4, 1079.6))
+            with self.subTest(layout=label):
+                self.assertEqual(depth, 12.5)
+                self.assertAlmostEqual(opacity, 0.75, delta=0.5 / 255.0)
+                self.assertEqual(int(global_idx), 4321)
+                self.assertEqual((conic.x, conic.z), (0.125, 0.5))
+                self.assertAlmostEqual(conic.y, -0.0625, places=4)
+                self.assertAlmostEqual(normal.y, 0.6, places=3)
+                self.assertAlmostEqual(normal.z, 0.8, places=3)
+                for got, want in zip((color.x, color.y, color.z), (0.25, 0.5, 1.0)):
+                    self.assertAlmostEqual(got, want, delta=want / 32.0)
+
+
 if __name__ == "__main__":
     unittest.main()

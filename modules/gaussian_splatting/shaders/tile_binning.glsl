@@ -870,11 +870,8 @@ void main() {
         return;
     }
 
-    // Align screen_pos with packed precision to keep binning consistent with rasterization.
-    vec2 screen_pos_full = screen_pos;
-    vec2 screen_pos_packed = gs_unpack_screen_xy(gs_pack_screen_xy(screen_pos));
-    vec2 screen_pos_error = abs(screen_pos_packed - screen_pos_full);
-    screen_pos = screen_pos_packed;
+    // The payload stores screen_pos as raw fp32 (#1153), so binning and rasterization see
+    // the same centre without re-quantizing it here.
 
     float max_sigma = MAX_SIGMA;
     // GS_TIGHTER_BOUNDS multiplier (was MAX_SIGMA * 0.85) removed: silently
@@ -1118,14 +1115,13 @@ void main() {
     float inv_tile = 1.0 / float(TILE_SIZE);
     // Pad bounds before tile quantization to avoid edge cutoffs.
     // For close-up splats with large footprints, we need more padding because:
-    // 1. Half-float quantization errors grow with coordinate magnitude
-    // 2. Large splats have more numerical error in their bbox computation
-    // 3. Edge tiles are sensitive to sub-pixel rounding
-    // Base padding of half a tile, plus a fraction of the splat's footprint.
+    // 1. Large splats have more numerical error in their bbox computation
+    // 2. Edge tiles are sensitive to sub-pixel rounding
+    // Base padding of half a tile, plus a fraction of the splat's footprint. (The
+    // half-float centre quantization pad is gone: the payload centre is exact fp32, #1153.)
     float base_pad = float(TILE_SIZE) * 0.5;
     float footprint_pad = max(ellipse_half_extent.x, ellipse_half_extent.y) * 0.02;
-    float quant_pad = max(screen_pos_error.x, screen_pos_error.y);
-    float tile_pad = max(base_pad, max(footprint_pad, quant_pad));
+    float tile_pad = max(base_pad, footprint_pad);
     vec2 padded_min = bbox_min - vec2(tile_pad);
     vec2 padded_max = bbox_max + vec2(tile_pad);
     int min_tile_x = int(floor(padded_min.x * inv_tile));
