@@ -2441,6 +2441,11 @@ void GaussianSplatNode3D::_ensure_gaussian_base() {
         return;
     }
 
+	// #1161: allocation and the field setters (here and in _sync_gaussian_storage)
+	// stay on the scene thread. The owner is thread-safe and every field access is
+	// guarded, and the render thread cannot reach the slot before the queued
+	// instance_set_base() names it. Only the free is ordered through the server
+	// queue (_release_gaussian_base).
 	gaussian_base = storage->gaussian_allocate();
 	storage->gaussian_initialize(gaussian_base);
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
@@ -2456,17 +2461,29 @@ void GaussianSplatNode3D::_release_gaussian_base() {
         return;
     }
 
+    // #1161: unset base -> clear renderer -> free, and the free must go through
+    // the RenderingServer. Under thread_model=2 instance_set_base() is queued, so
+    // a direct gaussian_free() ran before it and the render thread's cull list
+    // could still name a freed slot. RenderingServer::free() is queued behind the
+    // unset (it reaches GaussianSplatStorage::gaussian_free via
+    // RendererRD::Utilities::free on the render thread); under thread_model=1
+    // both run synchronously in the same order. The renderer Ref is cleared here,
+    // on the scene thread, through the storage's guarded swap: the scene
+    // director's prune decides by the renderer's reference count in this same
+    // frame (_world_renderer_unshared), so the drop must not wait for the queue.
     _set_instance_base(RID());
 
     RendererRD::GaussianSplatStorage *storage = RendererRD::GaussianSplatStorage::get_singleton();
-	if (storage) {
+    if (storage) {
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
-		storage->gaussian_set_renderer(gaussian_base, Ref<GaussianSplatRenderer>());
+        storage->gaussian_set_renderer(gaussian_base, Ref<GaussianSplatRenderer>());
 #endif
-		storage->gaussian_set_aabb(gaussian_base, AABB());
-		storage->gaussian_set_casts_shadow(gaussian_base, false);
-		storage->gaussian_free(gaussian_base);
-	}
+        if (RenderingServer *rs = RS::get_singleton()) {
+            rs->free(gaussian_base);
+        } else {
+            storage->gaussian_free(gaussian_base);
+        }
+    }
 
     gaussian_base = RID();
 }
