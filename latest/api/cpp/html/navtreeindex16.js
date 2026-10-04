@@ -1,5 +1,10 @@
 var NAVTREEINDEX16 =
 {
+"gaussian__gpu__layout_8cpp.html#a73e1e162f15578d6f1d204de862db7d7":[2,0,0,0,12,6,4],
+"gaussian__gpu__layout_8cpp.html#aab4eb255b15552150f26952cdd7f26dc":[2,0,0,0,12,6,1],
+"gaussian__gpu__layout_8cpp.html#ab23a830e3fd4cdde8de536b81bf038bb":[2,0,0,0,12,6,0],
+"gaussian__gpu__layout_8cpp.html#ada42a0470fc7122440dc8b3c1b498c21":[2,0,0,0,12,6,2],
+"gaussian__gpu__layout_8h.html":[2,0,0,0,12,7],
 "gaussian__gpu__layout_8h.html#a178c9cc5e58f97a6568a7805f9552d0d":[2,0,0,0,12,7,23],
 "gaussian__gpu__layout_8h.html#a206bb123d6e2813ddf6b3e3e37d30774":[2,0,0,0,12,7,26],
 "gaussian__gpu__layout_8h.html#a2b6b0a4b03e379b0f72ef504a64967a0":[2,0,0,0,12,7,22],
@@ -190,8 +195,8 @@ var NAVTREEINDEX16 =
 "gpu__performance__monitor_8h_source.html":[2,0,0,0,12,18],
 "gpu__sorter_8cpp.html":[2,0,0,0,12,19],
 "gpu__sorter_8cpp.html#a2388faef2aad78558ec37998c7b7ecfd":[2,0,0,0,12,19,6],
-"gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,3],
 "gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,4],
+"gpu__sorter_8cpp.html#a375006dbaab9dde798cf5c2ff07e6ef2":[2,0,0,0,12,19,3],
 "gpu__sorter_8cpp.html#a812ff155ff6749521d47f16d89e4b068":[2,0,0,0,12,19,5],
 "gpu__sorter_8cpp.html#acb8109ae62d68f47c0702c9a7217240b":[2,0,0,0,12,19,2],
 "gpu__sorter_8h.html":[2,0,0,0,12,20],
@@ -244,10 +249,5 @@ var NAVTREEINDEX16 =
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3a9daa79b56a04cd7de8ee15128dd2c99a":[2,0,0,0,5,9,14,2],
 "gpu__sorting__pipeline__interfaces_8h.html#a69f10c97bc84c192d23ea9ee6dd2b6d3ab50339a10e1de285ac99d4c3990b8693":[2,0,0,0,5,9,14,0],
 "gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7b":[2,0,0,0,5,9,12],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5":[2,0,0,0,5,9,12,3],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba45de8a00d77faa4078a3e80a7759baf7":[2,0,0,0,5,9,12,2],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bab9e14d9b2886bcff408b85aefa780419":[2,0,0,0,5,9,12,0],
-"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7bae942f322499ca486eb7eeb6fa5ef3a99":[2,0,0,0,5,9,12,1],
-"gpu__sorting__pipeline__interfaces_8h_source.html":[2,0,0,0,5,9],
-"gs__atomic__file__writer_8cpp.html":[2,0,0,0,6,6]
+"gpu__sorting__pipeline__interfaces_8h.html#af90f621375407c832ea0ac76182cfa7ba453ff96dc7e039691b670d8b246a54f5":[2,0,0,0,5,9,12,3]
 };

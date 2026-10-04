@@ -1,5 +1,10 @@
 var NAVTREEINDEX30 =
 {
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#adcba55325dc9c7cc049badaec4f0422a":[1,0,61,0,10],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#ae2c8f8eceed7b4afa62c259d58e505e3":[1,0,61,0,18],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#af422cf8c58782a104c0e461e2170851c":[1,0,61,0,7],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#af76677bc66bc172a72b22c1dbfcf17b3":[1,0,61,0,8],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#af86859b427743b57cd45f9458eca3845":[1,0,61,0,16],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#afc83f4265c06169d9149d81756ec3080":[1,0,61,0,11],
 "structGaussianSplatManager_1_1SharedDynamicAssetHandle.html":[1,0,66,1],
 "structGaussianSplatManager_1_1SharedDynamicAssetHandle.html#a09943a322b0e760ea7bc710ddb1fea48":[1,0,66,1,0],
@@ -244,10 +249,5 @@ var NAVTREEINDEX30 =
 "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html":[1,0,77,16],
 "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a04695d09e1f89038614f07ab2f000fb8":[1,0,77,16,4],
 "structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a162986661dca6014503d97d970eec0c9":[1,0,77,16,17],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a2dc0e461321baeebefbe16c6774d15df":[1,0,77,16,1],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a3ca190b08e78f15e2448867c02040d13":[1,0,77,16,9],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a40ce29470a6f004fe24698346449001d":[1,0,77,16,8],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a5b01c41d683af9913d6e2c6796a29008":[1,0,77,16,3],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a6b1c220b8c9a405604ea7e8e9665fdcb":[1,0,77,16,6],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a7a69dad81a1b2b72e8af57f2b62604b8":[1,0,77,16,7]
+"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a2dc0e461321baeebefbe16c6774d15df":[1,0,77,16,1]
 };

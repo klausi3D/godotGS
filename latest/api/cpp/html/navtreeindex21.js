@@ -1,5 +1,10 @@
 var NAVTREEINDEX21 =
 {
+"render__route__labels_8h.html#aee57c25563d34135764e8001a376362f":[2,0,0,0,12,55,6],
+"render__route__labels_8h.html#afed255357ea6477a01b4a5a29b831320":[2,0,0,0,12,55,3],
+"render__route__labels_8h_source.html":[2,0,0,0,12,55],
+"render__sorting__orchestrator_8cpp.html":[2,0,0,0,12,56],
+"render__sorting__orchestrator_8h.html":[2,0,0,0,12,57],
 "render__sorting__orchestrator_8h_source.html":[2,0,0,0,12,57],
 "render__state__types_8h.html":[2,0,0,0,12,0,6],
 "render__state__types_8h.html#a4218918624f7d386c4ccda75fefab934":[2,0,0,0,12,0,6,6],
@@ -244,10 +249,5 @@ var NAVTREEINDEX21 =
 "streaming__eviction__controller_8h_source.html":[2,0,0,0,3,52],
 "streaming__global__atlas__registry_8cpp.html":[2,0,0,0,3,53],
 "streaming__global__atlas__registry_8h.html":[2,0,0,0,3,54],
-"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,54],
-"streaming__layout__hint_8cpp.html":[2,0,0,0,3,55],
-"streaming__layout__hint_8cpp.html#a038963a4b2338ec586f025d807ec3c93":[2,0,0,0,3,55,7],
-"streaming__layout__hint_8cpp.html#a098b22662c1da1f579a90ba4096ab9ec":[2,0,0,0,3,55,4],
-"streaming__layout__hint_8cpp.html#a0dfa7ff82da695a654948ce06f1554a5":[2,0,0,0,3,55,11],
-"streaming__layout__hint_8cpp.html#a1b739f39ae81fb00581876e8b117a8f7":[2,0,0,0,3,55,0]
+"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,54]
 };

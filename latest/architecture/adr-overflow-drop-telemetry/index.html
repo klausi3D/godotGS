@@ -4598,6 +4598,31 @@ go non-zero and the WARN fires once. Classify with <code>scripts/agentic/classif
   reliably non-zero whenever drops happen (the WARN is the primary signal). Layout parity is
   unchanged: the signal is still a trailing <code>uint</code>, still validated by the OverflowStats
   layout-sync guard.</li>
+<li><strong>Addendum (#1137): a third drop channel, the per-tile raster cap.</strong> Both rasterizers
+  (<code>tile_rasterizer_compute.glsl</code>, <code>tile_rasterizer.glsl</code>) truncate a tile to
+  <code>GS_MAX_RASTER_SPLATS_PER_TILE</code> records, dropping its farthest records. That drop was
+  counted only on the debug-gated readback (the fragment path counted nothing), so at the
+  default <code>gpu_preset="high"</code> (12288) far views of real scans lost content in silence. The
+  signal word is now a bitmask written with <code>atomicOr</code>: <code>GS_OVERFLOW_DROP_BINNING</code> (1, the
+  binning EMIT sites, formerly <code>atomicMax(…, 1)</code>) and <code>GS_OVERFLOW_DROP_RASTER_TILE_CAP</code> (2,
+  the rasterizers; the fragment path counts once per tile, from the tile-origin fragment).
+  The always-on readback now copies the whole 88-byte snapshot instead of the signal word, in
+  the same single async copy, and keeps the sampled frame's <code>overflow_splats_clamped</code> /
+  <code>overflow_tile_count</code> as production per-frame counters (<code>sampled_dropped_records</code>, from every channel, and <code>sampled_raster_truncated_tiles</code>, which counts only tiles the rasterizer truncated, since binning drops are per record and carry no per-tile once-flag). The raster channel has its own
+  warning (once per renderer) and its own <code>raster_tile_cap_drop_events</code> counter;
+  <code>overflow_drop_events</code> still counts read intervals with a drop on any channel. Layout is
+  unchanged.</li>
+<li><strong>Addendum (#1137 review): read-and-reset replaces the frame-start re-arm.</strong> With two
+  channels, the re-arm above lost drops. A readback copied the word while it held one
+  channel's bit. The other channel's bit then landed during the ~2-frame callback latency,
+  and the next frame-start full clear erased it unseen, with no warning and no counter. Now
+  <code>poll_overflow_drop_signal</code> clears the signal word right after recording its copy, in the
+  same command stream. RenderingDevice records the copy into the draw graph at the call and
+  orders the clear after it, so every bit is seen by exactly one copy. <code>clear_counters</code> only
+  clears the per-frame prefix, and <code>overflow_signal_needs_clear</code> is gone. The poll now runs on
+  every rendered frame, not only when the global-sort EMIT pass ran, because the rasterizers
+  write the signal too. The fragment rasterizer's drop counters now count each tile once,
+  from the tile-origin fragment; they used to count once per fragment.</li>
 </ul>
 
 
@@ -4619,7 +4644,7 @@ go non-zero and the WARN fires once. Classify with <code>scripts/agentic/classif
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 23:52:45 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 4, 2026 07:36:12 UTC">October 4, 2026</span>
   </span>
 
     

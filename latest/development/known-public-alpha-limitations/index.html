@@ -2123,6 +2123,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#far-views-of-dense-content-can-show-16-px-black-tiles-1137" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Far views of dense content can show 16 px black tiles (#1137)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#splats-cast-no-shadows-1089-1095" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4458,6 +4469,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#far-views-of-dense-content-can-show-16-px-black-tiles-1137" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Far views of dense content can show 16 px black tiles (#1137)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#splats-cast-no-shadows-1089-1095" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4561,6 +4583,11 @@ fixed them.</p>
 <td>The bottom of the frame can go empty when overlap records run out</td>
 <td><a href="https://github.com/klausi3D/godotGS/issues/54">#54</a></td>
 <td>Accepted</td>
+</tr>
+<tr>
+<td>Far views of dense content can show 16 px black tiles</td>
+<td><a href="https://github.com/klausi3D/godotGS/issues/1137">#1137</a></td>
+<td>Active</td>
 </tr>
 <tr>
 <td>Transparent viewports are opaque under TAA or FSR2</td>
@@ -4918,6 +4945,39 @@ default-configured, in-envelope real scene <strong>measured with demand above th
 that persists at the default <code>max_overlap_records</code>, rather than one that clears as the
 capacity catches up, with no failed-grow warning (<code>… could not build its replacement</code>) in
 the log.</p>
+<h3 id="far-views-of-dense-content-can-show-16-px-black-tiles-1137">Far views of dense content can show 16 px black tiles (<a href="https://github.com/klausi3D/godotGS/issues/1137">#1137</a>)<a class="headerlink" href="#far-views-of-dense-content-can-show-16-px-black-tiles-1137" title="Permanent link">¶</a></h3>
+<p><strong>Status: Active — shipping by maintainer decision</strong> (2026-10-02, recorded on
+<a href="https://github.com/klausi3D/godotGS/pull/1138">#1138</a>) until hierarchical LOD
+(<a href="https://github.com/klausi3D/godotGS/issues/1136">#1136</a>) lands. It is not yet a
+ledger-accepted limitation: there is no acceptance-bar §8.1 row and no
+<code>public_alpha_issue_ledger</code> entry, so a release candidate cannot cite it.</p>
+<p>The rasterizer draws at most a fixed number of overlap records per 16 px tile. Records are
+sorted near to far, so in a tile with more records than that, <strong>the farthest ones are not
+drawn</strong>. When an object is far enough away to collapse into a few tiles, those tiles can
+exceed the limit, and what was behind the front-most records shows as a <strong>tile-aligned
+black (background) rectangle</strong>. The limit is
+<code>rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile</code>; in Project Settings
+it reads <code>0</code>, which means "use the <code>gpu_sorting/gpu_preset</code> limit". The default <code>high</code>
+preset's limit is <strong>12,288</strong> (low 4,096, medium 8,192, ultra 16,384).</p>
+<p><strong>Affects:</strong> dense real scans viewed from a distance at the default settings. Measured on an
+RTX 3090 (Vulkan) at 960×540 on four scans from GrandmasHouse: up to 2,295 missing pixels
+per view, starting between about 6 m and 23 m depending on the scan, and in one large scan
+already at its fitted view (14 m). At
+1920×1080 the same object covers more tiles, so the holes start further away (holzbank:
+from about 47 m instead of 23 m).</p>
+<p><strong>How you know:</strong> the first time it happens, a renderer logs
+<code>Per-tile raster cap reached: …</code> once. <code>get_overflow_stats()</code> reports
+<code>raster_tile_cap_drop_events</code> (intervals with at least one truncated tile). For the most
+recently sampled frame it also reports <code>sampled_dropped_records</code> (records not drawn, from every
+cause) and <code>sampled_raster_truncated_tiles</code> (tiles the rasterizer truncated; tiles that lost
+records earlier, in tile binning, are not counted there).</p>
+<p><strong>Workaround:</strong> set <code>max_raster_splats_per_tile</code> to a positive value, up to <code>65536</code>. A
+positive value overrides any preset. This costs <strong>frame time, not memory</strong>: one workgroup
+walks all records of its tile, so the densest tile sets the length of the raster pass. At
+<code>65536</code> the measured scans lost nothing, at <strong>+33% to +75% GPU time</strong> in the affected views
+(+2.3 to +10.9 ms on the 3090); <code>32768</code> cost up to +60% and still left holes in two views
+(lamp at 19 m, weg-gartenanlage at 14 m). Near views are unaffected either way. The measurements and images are on
+<a href="https://github.com/klausi3D/godotGS/pull/1138">#1138</a>.</p>
 <h3 id="splats-cast-no-shadows-1089-1095">Splats cast no shadows (<a href="https://github.com/klausi3D/godotGS/issues/1089">#1089</a>, <a href="https://github.com/klausi3D/godotGS/issues/1095">#1095</a>)<a class="headerlink" href="#splats-cast-no-shadows-1089-1095" title="Permanent link">¶</a></h3>
 <p>A <code>GaussianSplatNode3D</code> casts no shadow, from any light type (directional, spot, omni),
 onto meshes, onto other splats or onto itself. <code>rendering/cast_shadow</code> has no visible
@@ -5390,7 +5450,7 @@ re-checked in code at <code>eff00db450c</code>.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 3, 2026 23:52:50 UTC">October 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 4, 2026 07:36:18 UTC">October 4, 2026</span>
   </span>
 
     

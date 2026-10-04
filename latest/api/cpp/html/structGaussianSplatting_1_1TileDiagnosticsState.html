@@ -111,6 +111,14 @@ Public Attributes</h2></td></tr>
 <tr class="separator:a9f76320c198298513d1a93076743d35c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a26c25fdc27946b9e1b9b49ff02e34bed" id="r_a26c25fdc27946b9e1b9b49ff02e34bed"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#a26c25fdc27946b9e1b9b49ff02e34bed">overflow_drop_events</a> = 0</td></tr>
 <tr class="separator:a26c25fdc27946b9e1b9b49ff02e34bed"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a3bc987effd24e2e2edb00bed1c8f56d3" id="r_a3bc987effd24e2e2edb00bed1c8f56d3"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#a3bc987effd24e2e2edb00bed1c8f56d3">raster_tile_cap_drop_events</a> = 0</td></tr>
+<tr class="separator:a3bc987effd24e2e2edb00bed1c8f56d3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae5489ba582da14d4e91bd2aa4f3a6922" id="r_ae5489ba582da14d4e91bd2aa4f3a6922"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922">sampled_dropped_records</a> = 0</td></tr>
+<tr class="separator:ae5489ba582da14d4e91bd2aa4f3a6922"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5200915c0cd9cac741d4406810d5b548" id="r_a5200915c0cd9cac741d4406810d5b548"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#a5200915c0cd9cac741d4406810d5b548">sampled_raster_truncated_tiles</a> = 0</td></tr>
+<tr class="separator:a5200915c0cd9cac741d4406810d5b548"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abdf374cd02a7b973c0f977a08ecf51db" id="r_abdf374cd02a7b973c0f977a08ecf51db"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#abdf374cd02a7b973c0f977a08ecf51db">sampled_drop_frame_serial</a> = 0</td></tr>
+<tr class="separator:abdf374cd02a7b973c0f977a08ecf51db"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aea848fb7a377423231a3e73d0ba03534" id="r_aea848fb7a377423231a3e73d0ba03534"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534">runtime_statistics_enabled</a> = false</td></tr>
 <tr class="separator:aea848fb7a377423231a3e73d0ba03534"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3424148b171cb9a1d2b6a1884c3f74df" id="r_a3424148b171cb9a1d2b6a1884c3f74df"><td class="memItemLeft" align="right" valign="top">Vector&lt; uint32_t &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianSplatting_1_1TileDiagnosticsState.html#a3424148b171cb9a1d2b6a1884c3f74df">tile_density_snapshot</a></td></tr>
@@ -389,6 +397,28 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a3bc987effd24e2e2edb00bed1c8f56d3" name="a3bc987effd24e2e2edb00bed1c8f56d3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a3bc987effd24e2e2edb00bed1c8f56d3">&#9670;&#160;</a></span>raster_tile_cap_drop_events</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileDiagnosticsState::raster_tile_cap_drop_events = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a96c6529c25ebb67097f145b2a2e40654" name="a96c6529c25ebb67097f145b2a2e40654"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a96c6529c25ebb67097f145b2a2e40654">&#9670;&#160;</a></span>resolve_debug_visualize_tiles</h2>
 
@@ -427,6 +457,72 @@ Public Attributes</h2></td></tr>
           <td class="memname">bool GaussianSplatting::TileDiagnosticsState::runtime_statistics_enabled = false</td>
         </tr>
       </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abdf374cd02a7b973c0f977a08ecf51db" name="abdf374cd02a7b973c0f977a08ecf51db"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abdf374cd02a7b973c0f977a08ecf51db">&#9670;&#160;</a></span>sampled_drop_frame_serial</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianSplatting::TileDiagnosticsState::sampled_drop_frame_serial = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae5489ba582da14d4e91bd2aa4f3a6922" name="ae5489ba582da14d4e91bd2aa4f3a6922"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae5489ba582da14d4e91bd2aa4f3a6922">&#9670;&#160;</a></span>sampled_dropped_records</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileDiagnosticsState::sampled_dropped_records = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a5200915c0cd9cac741d4406810d5b548" name="a5200915c0cd9cac741d4406810d5b548"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5200915c0cd9cac741d4406810d5b548">&#9670;&#160;</a></span>sampled_raster_truncated_tiles</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatting::TileDiagnosticsState::sampled_raster_truncated_tiles = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span></span>  </td>
+  </tr>
+</table>
 </div><div class="memdoc">
 
 </div>

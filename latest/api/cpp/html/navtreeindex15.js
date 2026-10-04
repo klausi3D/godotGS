@@ -1,5 +1,10 @@
 var NAVTREEINDEX15 =
 {
+"classVRAMBudgetRegulator.html#a1e963e55eba70fa0eedf9720a9c8e584":[1,0,240,13],
+"classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e":[1,0,240,0],
+"classVRAMBudgetRegulator.html#a537c768394145aa9d3d2d73eb745698f":[1,0,240,4],
+"classVRAMBudgetRegulator.html#a7174dac664d7694bfc8c55e943e1ecda":[1,0,240,8],
+"classVRAMBudgetRegulator.html#a78078b1db5f8bd1652b72a47988daf64":[1,0,240,11],
 "classVRAMBudgetRegulator.html#a7adf72c76c3e18d0315f0e672f788b25":[1,0,240,7],
 "classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b":[1,0,240,1],
 "classVRAMBudgetRegulator.html#a9a0745032d504e44d173a796c27322ed":[1,0,240,6],
@@ -121,8 +126,8 @@ var NAVTREEINDEX15 =
 "float16__utils_8h.html#ae94e3aaedc72714f65e0ddef18b30f08":[2,0,0,0,12,5,7],
 "float16__utils_8h.html#afbd8cadebbee8d40ded6edf3a4196859":[2,0,0,0,12,5,8],
 "float16__utils_8h_source.html":[2,0,0,0,12,5],
-"functions.html":[1,3,0,0],
 "functions.html":[1,3,0],
+"functions.html":[1,3,0,0],
 "functions_a.html":[1,3,0,1],
 "functions_b.html":[1,3,0,2],
 "functions_c.html":[1,3,0,3],
@@ -131,8 +136,8 @@ var NAVTREEINDEX15 =
 "functions_enum.html":[1,3,4],
 "functions_eval.html":[1,3,5],
 "functions_f.html":[1,3,0,6],
-"functions_func.html":[1,3,1],
 "functions_func.html":[1,3,1,0],
+"functions_func.html":[1,3,1],
 "functions_func_a.html":[1,3,1,1],
 "functions_func_b.html":[1,3,1,2],
 "functions_func_c.html":[1,3,1,3],
@@ -244,10 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__gpu__layout_8cpp.html":[2,0,0,0,12,6],
 "gaussian__gpu__layout_8cpp.html#a209dc33d3828ba249436a40c4a1786b1":[2,0,0,0,12,6,5],
 "gaussian__gpu__layout_8cpp.html#a526f5cdbe71ac61e60c38f6a64dceb35":[2,0,0,0,12,6,6],
-"gaussian__gpu__layout_8cpp.html#a54f4877865c5e9e3dc121d8618f98744":[2,0,0,0,12,6,3],
-"gaussian__gpu__layout_8cpp.html#a73e1e162f15578d6f1d204de862db7d7":[2,0,0,0,12,6,4],
-"gaussian__gpu__layout_8cpp.html#aab4eb255b15552150f26952cdd7f26dc":[2,0,0,0,12,6,1],
-"gaussian__gpu__layout_8cpp.html#ab23a830e3fd4cdde8de536b81bf038bb":[2,0,0,0,12,6,0],
-"gaussian__gpu__layout_8cpp.html#ada42a0470fc7122440dc8b3c1b498c21":[2,0,0,0,12,6,2],
-"gaussian__gpu__layout_8h.html":[2,0,0,0,12,7]
+"gaussian__gpu__layout_8cpp.html#a54f4877865c5e9e3dc121d8618f98744":[2,0,0,0,12,6,3]
 };

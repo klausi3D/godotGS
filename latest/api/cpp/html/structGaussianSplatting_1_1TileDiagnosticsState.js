@@ -16,9 +16,13 @@ var structGaussianSplatting_1_1TileDiagnosticsState =
     [ "last_render_stats", "structGaussianSplatting_1_1TileDiagnosticsState.html#a866b99fc34677588f1f8e919242ec216", null ],
     [ "overflow_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#a26c25fdc27946b9e1b9b49ff02e34bed", null ],
     [ "perf_capture_raster_shader_counters_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#ab55543a449d46fe10630ad6e7cee5ea1", null ],
+    [ "raster_tile_cap_drop_events", "structGaussianSplatting_1_1TileDiagnosticsState.html#a3bc987effd24e2e2edb00bed1c8f56d3", null ],
     [ "resolve_debug_visualize_tiles", "structGaussianSplatting_1_1TileDiagnosticsState.html#a96c6529c25ebb67097f145b2a2e40654", null ],
     [ "resolve_use_texel_fetch_sampling", "structGaussianSplatting_1_1TileDiagnosticsState.html#a942ebd74baf934acab5442f11659a627", null ],
     [ "runtime_statistics_enabled", "structGaussianSplatting_1_1TileDiagnosticsState.html#aea848fb7a377423231a3e73d0ba03534", null ],
+    [ "sampled_drop_frame_serial", "structGaussianSplatting_1_1TileDiagnosticsState.html#abdf374cd02a7b973c0f977a08ecf51db", null ],
+    [ "sampled_dropped_records", "structGaussianSplatting_1_1TileDiagnosticsState.html#ae5489ba582da14d4e91bd2aa4f3a6922", null ],
+    [ "sampled_raster_truncated_tiles", "structGaussianSplatting_1_1TileDiagnosticsState.html#a5200915c0cd9cac741d4406810d5b548", null ],
     [ "sort_key_32bit_engaged", "structGaussianSplatting_1_1TileDiagnosticsState.html#a9f76320c198298513d1a93076743d35c", null ],
     [ "tile_density_snapshot", "structGaussianSplatting_1_1TileDiagnosticsState.html#a3424148b171cb9a1d2b6a1884c3f74df", null ]
 ];

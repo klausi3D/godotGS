@@ -271,7 +271,7 @@ var searchData=
   ['lod_5franges_268',['lod_ranges',['../structAssetMetaGPU.html#abfe9a33e052fe12cfaa9d5451bf417bd',1,'AssetMetaGPU']]],
   ['lod_5fstats_269',['lod_stats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult.html#a026286897f0d8ed8511bdc7b61525c45',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]],
   ['lod_5fweights_270',['lod_weights',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult.html#a46f2f966296c505d60935efac6c141ff',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]],
-  ['log_5finterval_5fframes_271',['log_interval_frames',['../structGaussianStreamingTypes_1_1DiagnosticsState.html#abe60cce699aea08b0ba6c6a50d040a34',1,'GaussianStreamingTypes::DiagnosticsState::LOG_INTERVAL_FRAMES'],['../structSortingStrategyConfig.html#a729f51a8c7f9430c763aaec07dc0fcf3',1,'SortingStrategyConfig::log_interval_frames']]],
+  ['log_5finterval_5fframes_271',['log_interval_frames',['../structSortingStrategyConfig.html#a729f51a8c7f9430c763aaec07dc0fcf3',1,'SortingStrategyConfig::log_interval_frames'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html#abe60cce699aea08b0ba6c6a50d040a34',1,'GaussianStreamingTypes::DiagnosticsState::LOG_INTERVAL_FRAMES']]],
   ['log_5finterval_5fpath_272',['LOG_INTERVAL_PATH',['../structGPUSortingConfig.html#ae29dcc828899b861ab7299609502c7b6',1,'GPUSortingConfig']]],
   ['log_5fmetrics_273',['log_metrics',['../structSortingStrategyConfig.html#a9f344c865269beb0f1b9dc34bc176a98',1,'SortingStrategyConfig']]],
   ['log_5fthrottle_5fframes_274',['LOG_THROTTLE_FRAMES',['../structGaussianRenderState_1_1StreamingState.html#aa523e911d4c815e7d0865ca936672b17',1,'GaussianRenderState::StreamingState']]],

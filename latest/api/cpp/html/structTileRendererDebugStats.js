@@ -35,7 +35,6 @@ var structTileRendererDebugStats =
     [ "last_logged_overlap_records", "structTileRendererDebugStats.html#a74c4e2e969e60c768365b5a0f867480c", null ],
     [ "last_logged_tighter_bounds", "structTileRendererDebugStats.html#a2d1b28849a72bdf6ef74d4c3dd4a9e88", null ],
     [ "last_logged_valid", "structTileRendererDebugStats.html#ae31d852041cf27d92df9f51d0ae4c254", null ],
-    [ "overflow_signal_needs_clear", "structTileRendererDebugStats.html#a7a308b9884ae46697d53b2da00d12895", null ],
     [ "overflow_signal_readback", "structTileRendererDebugStats.html#ac57319e4a2ef1705d4ca1d54567c084e", null ],
     [ "overflow_statistics_buffer", "structTileRendererDebugStats.html#a0336c59c1deb29fa0b94175e16ca7441", null ],
     [ "overflow_stats_owner", "structTileRendererDebugStats.html#ae6da431d49e241b95e2b8385b2101a8e", null ],
