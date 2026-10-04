@@ -1070,23 +1070,30 @@ class EmptyCategorySelectionIsNotAPassTest(unittest.TestCase):
 
 
 class QaImportPreparationTest(unittest.TestCase):
-    def _run(self, result=None, category="qa"):
+    def _run(self, result=None, category="qa", verification_result=0, marker=True):
         runner = run_baseline_qa.BaselineQARunner(godot_binary="tested-godot.exe")
         events = []
 
         def import_project(command, **kwargs):
-            events.append("import")
+            verifying = "--script" in command
+            events.append("verify" if verifying else "import")
             self.assertEqual(command[0], runner.godot_binary)
             self.assertIn("--headless", command)
-            self.assertIn("--import", command)
+            if verifying:
+                self.assertEqual(command[command.index("--script") + 1],
+                                 str(ROOT / "tests/ci/verify_qa_imports.gd"))
+            else:
+                self.assertIn("--import", command)
             self.assertEqual(command[command.index("--path") + 1],
                              str(ROOT / "tests/examples/godot/test_project"))
             self.assertGreater(kwargs["timeout"], 0)
             self.assertEqual(kwargs["encoding"], "utf-8")
             self.assertEqual(kwargs["errors"], "replace")
-            if isinstance(result, Exception):
-                raise result
-            return run_baseline_qa.subprocess.CompletedProcess(command, result or 0, "", "")
+            outcome = verification_result if verifying else result
+            if isinstance(outcome, Exception):
+                raise outcome
+            stdout = "QA_IMPORTS_VERIFIED count=1 skipped=0" if verifying and marker else ""
+            return run_baseline_qa.subprocess.CompletedProcess(command, outcome or 0, stdout, "")
 
         def execute(tests):
             events.append("scenes")
@@ -1102,7 +1109,22 @@ class QaImportPreparationTest(unittest.TestCase):
     def test_editor_import_runs_after_fixtures_before_qa(self):
         ok, events = self._run()
         self.assertTrue(ok)
-        self.assertEqual(events, ["fixtures", "import", "scenes"])
+        self.assertEqual(events, ["fixtures", "import", "verify", "scenes"])
+
+    def test_invalid_import_artifacts_prevent_qa_even_after_import_exit_zero(self):
+        ok, events = self._run(verification_result=1)
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import", "verify"])
+
+    def test_zero_exit_without_verification_marker_prevents_qa(self):
+        ok, events = self._run(marker=False)
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import", "verify"])
+
+    def test_verification_timeout_prevents_qa(self):
+        ok, events = self._run(verification_result=run_baseline_qa.subprocess.TimeoutExpired("verify", 120))
+        self.assertFalse(ok)
+        self.assertEqual(events, ["fixtures", "import", "verify"])
 
     def test_failed_import_prevents_qa_execution(self):
         ok, events = self._run(result=1)

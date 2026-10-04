@@ -824,6 +824,22 @@ class BaselineQARunner:
                         f"QA editor import failed (exit {result.returncode}): "
                         f"{result.stdout}\n{result.stderr}"
                     )
+                # Godot can exit zero even when a resource import failed. Inspect
+                # native ConfigFile sidecars and all declared outputs before QA.
+                verify_command = [self.godot_binary, "--headless", "--path",
+                                  str(ROOT / "tests/examples/godot/test_project"),
+                                  "--script", str(ROOT / "tests/ci/verify_qa_imports.gd")]
+                verified = subprocess.run(verify_command, capture_output=True, text=True,
+                                          encoding="utf-8", errors="replace",
+                                          cwd=ROOT, timeout=120, check=False)
+                if verified.returncode != 0 or not any(
+                    line.startswith("QA_IMPORTS_VERIFIED ") for line in verified.stdout.splitlines()
+                ):
+                    raise RuntimeError(
+                        f"QA import artifact verification failed (exit {verified.returncode}): "
+                        f"{verified.stdout}\n{verified.stderr}"
+                    )
+                print(verified.stdout.strip())
             except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
                 print(f"[FAIL] QA import preparation: {exc}")
                 self.test_results["failed_tests"] = 1
