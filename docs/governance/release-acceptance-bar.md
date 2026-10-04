@@ -434,9 +434,10 @@ to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER 
 > #351 and #352 are closed and must appear in `resolved_manifest_issues` with
 > `state: CLOSED`, because an open-only snapshot will not contain them.
 >
-> **A gap in the other direction.** The one open item in §11's numbered list, **#1077** (item 11), is
-> invisible to this population: it carries no `priority:` or `release blocker` label. So
-> were the last four before it — #851, #833, #929 and #54.
+> **A gap in the other direction.** No item in §11's numbered list is still open, but
+> the last five to block were all invisible to this population: #1077 (item 11, fixed
+> 2026-10-04), which carries no `priority:` or `release blocker` label, and before it
+> #851, #833, #929 and #54.
 > (The streaming items #1016 admitted, #320, #786 and #883, are `priority:P1` and so are
 > visible to it; the 50M-asset lane has no issue at all.) Those four have all left the list. (#851, still
 > `priority:P2`, was fixed by #1078 and closed on 2026-10-01 (§11 item 8). #833 was fixed on master by #1027, #1031 and #1032 (§11 item 9). #929 closed on 2026-09-20; it carried only `program:prod-ready` and was never visible
@@ -684,8 +685,11 @@ this document.
 Derived by applying §4 to the open-issue set, scoped to §10.1, and verified
 against this base. Ranked by user impact.
 
-**Status: 13 identified, 11 fixed or closed, 1 accepted as a limitation, 1 open, 0 refuted**
-(re-counted 2026-10-03: **#1077 added as an open alpha blocker** by maintainer decision,
+**Status: 13 identified, 12 fixed or closed, 1 accepted as a limitation, 0 open, 0 refuted**
+(re-counted 2026-10-04: **#1077 fixed on master** by #1133 and #1145 (`0e78f528537`), and
+the issue is closed — see item 11; that moves the count from 11/1/1 to 12/1/0. The four
+streaming items admitted by #1016, listed after item 11, are outside this count and still
+open. Re-counted before that on 2026-10-03: **#1077 added as an open alpha blocker** by maintainer decision,
 [#1077 comment 5972710739](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739)
 — see item 11; that moves the count from 12 identified, 11/1/0, to 13 identified, 11/1/1.
 Re-counted before that on 2026-10-01: **#851 fixed on master** by #1078 (`eed9879edb1`), and the issue
@@ -863,7 +867,7 @@ rather than a ceiling.
    fixed on master by #1133** (`4047cb4b091`). The independent review
    ([#1133 review](https://github.com/klausi3D/godotGS/pull/1133#pullrequestreview-5389066529))
    measured the base at `0xC0000409` in 3 of 3 windowed runs and #1133 at exit 0 in 3 of 3,
-   with the `free` / `SafeRefCount` errors gone. What remains is item 11. The
+   with the `free` / `SafeRefCount` errors gone. What remained is item 11, now fixed by #1145. The
    #1030 polling crash was not observed.
 10. ~~**#54** — dropped tiles when overlap-record demand outruns the allocated capacity~~
    (briefly after a sudden close-up at defaults; lastingly only above the configured
@@ -891,20 +895,40 @@ rather than a ceiling.
    `GaussianSplatWorld3D`) do. That is an estimate, and whether real scenes reach
    it is unmeasured.
 
-11. **#1077** — the starter template prints `This function (finalize) can only be called
-   from the render thread` (`rendering_device.cpp:7191`) once at quit, under its
-   `thread_model=2`, with exit 0. **Open; added on 2026-10-03 by maintainer decision**
-   ([record](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739)).
-   It is not ranked against items 1–10. The template is in the envelope (a
-   `GaussianSplatNode3D` with an imported asset, Forward+, §10.1). Its shutdown crash was
-   fixed by #1133 (item 9), and #1077 stays open, narrowed to this error. The #1133 review
-   traces it, by inference and not by trace, to the manager destroying its local devices on
-   the main thread (`gaussian_splat_manager.cpp:414-423`). Before the decision the rules did
-   not settle it: §4 item 1 blocks "any defect a user can hit in a supported
-   configuration", while §10's alpha column blocks "user-visible correctness". The
-   maintainer resolved that in favour of blocking. **The gate cannot see it:** #1077
-   carries no `priority:` or `release blocker` label, so it is held only by a human (§9
-   gap note).
+11. ~~**#1077** — the starter template prints `This function (finalize) can only be called
+   from the render thread` once at quit, under its `thread_model=2`.~~ **Struck on
+   2026-10-04: fixed on master** by #1133 (`4047cb4b091`, the module-side render-thread
+   race and the shutdown crash, see item 9) and #1145 (`0e78f528537`). #1145 backports the
+   open upstream fix godotengine/godot#123391: after the render thread is joined, the main
+   `RenderingDevice` is made current on the main thread again, so `finalize()` runs instead
+   of failing its thread guard (`rendering_device.cpp:7191`). The issue is closed. The entry
+   is kept struck rather than deleted so the disposition stays readable. It was added on
+   2026-10-03 by maintainer decision
+   ([record](https://github.com/klausi3D/godotGS/issues/1077#issuecomment-5972710739)) and
+   not ranked against items 1–10.
+
+   **Correction.** This entry previously attributed the error, following the #1133 review's
+   inference, to the GS manager destroying its local devices on the main thread. #1145's cdb
+   trace refuted that: the failing call was the **main** device, freed by
+   `~DisplayServerWindows` from `finalize_display` after the render thread had exited.
+
+   **Evidence:** the [independent review of #1145](https://github.com/klausi3D/godotGS/pull/1145#pullrequestreview-5404840280)
+   re-ran the base and fix binaries on 2026-10-04: windowed starter template,
+   `thread_model=2`, 3 runs each, alternated, CI idle, under the heavy-work lock.
+   - **Base:** the `finalize` error in 3 of 3 runs, `ObjectDB instances leaked` in 3 of 3,
+     exits 0 / 139 / 0.
+   - **Fix:** 0 of 3 and 0 of 3, exit 0 in all three. The only `ERROR` line left is the
+     pre-existing `Can't create an accessibility driver`.
+   - A cdb trace on the fix binary shows the main device's `finalize()` running with no guard
+     error. With `--verbose`, the PR reports zero leaked RIDs.
+
+   The intermittent base exit 139 is covered by the mechanism and the trace, not by three
+   clean runs alone.
+
+   **Not checked:** D3D12, AMD, Intel, Linux, macOS, release templates and exported builds
+   (NVIDIA RTX 3090, Vulkan, Windows, `-O0` dev editor only). No automated lane asserts this
+   yet; that is tracked as #1148. The backport is recorded in `ENGINE_PATCHES.md`, to be
+   dropped once upstream merges an equivalent.
 
 **Admitted by the #1016 widening (2026-09-17).** These are not new defects and were not
 re-triaged; they were v1.0 items that the envelope change brought inside §4.1. They are
