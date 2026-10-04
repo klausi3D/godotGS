@@ -48,8 +48,8 @@ spots**. Each finding has a severity:
   but may **not** silently drop or downgrade a blocker.
 - The risk class that sets the required review layers is **derived from the diff**
   by `scripts/agentic/classify_change.py`, which the required `agentic-pr-gate`
-  check runs against the PR's own changed paths and the **immutable base** copy of
-  `.agentic/policy.json`. An author's self-declared class is **not consumed by CI**:
+  check runs -- as the **immutable base** copy of the script (#1167) -- against the
+  PR's own changed paths and the base copy of `.agentic/policy.json`. An author's self-declared class is **not consumed by CI**:
   the higher-of-the-two cross-check exists in `check_pr_contract.py`, but that
   script only runs against the shipped fixture, because the repository has no
   per-PR contract source (Phase-2 contract-source ADR). Treat a declared class as a

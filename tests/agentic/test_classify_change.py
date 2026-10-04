@@ -125,6 +125,29 @@ class ClassifyChangeTest(unittest.TestCase):
         ordering = POLICY["classification"]["ordering"]
         self.assertEqual(self._cls([".agentic/policy.json"]), ordering[-1])
 
+    def test_a_classifier_change_is_forced_to_the_top_class(self):
+        """#1167: `scripts/agentic/**` is R0, and the classifier is in it.
+
+        A PR editing renderer code and the classifier could be graded by the edited
+        classifier. CI now runs the base copy; listing the classifier as
+        self-referential makes that base copy grade any edit to it at the top
+        class, alone or alongside other paths.
+        """
+        ordering = POLICY["classification"]["ordering"]
+        path = "scripts/agentic/classify_change.py"
+        self.assertIn(path, classify.SELF_REFERENTIAL_PATHS)
+        # Non-vacuity: the shipped rules alone would NOT put it at the top.
+        rank = {cls: i for i, cls in enumerate(ordering)}
+        sibling = self._cls(["scripts/agentic/validate_review.py"])
+        self.assertLess(rank[sibling], rank[ordering[-1]], sibling)
+        self.assertEqual(self._cls([path]), ordering[-1])
+        self.assertEqual(
+            self._cls(["modules/gaussian_splatting/renderer/gpu_sorter.cpp", path]),
+            ordering[-1],
+        )
+        detail = classify.classify_paths([path], POLICY)[1][0]
+        self.assertIn("self-referential", detail["reason"])
+
     def test_a_relaxed_rule_cannot_downgrade_the_pr_that_relaxes_it(self):
         """The "compared against itself" shape, as an executable case.
 
