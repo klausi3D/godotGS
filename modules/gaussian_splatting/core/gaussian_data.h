@@ -291,6 +291,7 @@ class GaussianData : public Resource {
     GDCLASS(GaussianData, Resource);
 
 private:
+    friend class GaussianSplatWorld;
     LocalVector<Gaussian> gaussians;
     std::atomic<uint64_t> content_revision{0};
     uint32_t sh_degree = 0;
@@ -697,6 +698,14 @@ public:
         bool is_2d_mode = false;
     };
 
+private:
+    // Caller holds data_rwlock; the world uses this for a complete bake snapshot.
+    bool _capture_chunk_snapshot_locked(uint32_t p_start, uint32_t p_count,
+            LocalVector<Gaussian> &r_gaussians, LocalVector<Vector3> &r_sh_high_order,
+            uint32_t &r_sh_first_order_count, uint32_t &r_sh_high_order_count,
+            ChunkSnapshotMetadata *r_metadata) const;
+
+public:
     /**
      * @brief Captures a coherent chunk snapshot for async pack jobs.
      *

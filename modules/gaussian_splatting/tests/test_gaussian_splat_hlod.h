@@ -1925,7 +1925,126 @@ public:
 	}
 };
 
+struct HlodBakeEdit {
+	bool change_2d;
+	bool fired = false;
+	explicit HlodBakeEdit(bool p_change_2d) : change_2d(p_change_2d) {
+		GaussianSplatWorld::hlod_bake_test_userdata = this;
+		GaussianSplatWorld::hlod_bake_test_hook = [](void *p_userdata, GaussianSplatWorld *p_world) {
+			HlodBakeEdit *edit = static_cast<HlodBakeEdit *>(p_userdata);
+			edit->fired = true;
+			Ref<GaussianData> data = p_world->get_gaussian_data();
+			if (edit->change_2d) {
+				data->set_2d_mode(true);
+			} else {
+				Gaussian g = data->get_gaussian(0);
+				g.opacity = 0.01f;
+				data->set_gaussian(0, g);
+			}
+		};
+	}
+	~HlodBakeEdit() {
+		GaussianSplatWorld::hlod_bake_test_hook = nullptr;
+		GaussianSplatWorld::hlod_bake_test_userdata = nullptr;
+	}
+};
+
 } // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake rejects payload and 2D edits after its snapshot without losing the edit") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(3000u, 1000u, g);
+	for (bool change_2d : { false, true }) {
+		Ref<GaussianSplatWorld> world = hlod_make_world(g);
+		if (world->bake_hlod() != OK) {
+			FAIL("bake race control");
+			return;
+		}
+		const Ref<GaussianData> original = world->get_gaussian_data();
+		const PackedInt32Array chunks = world->get_chunk_sizes();
+		const Dictionary tree_info = world->get_hlod_info();
+		HlodBakeObserver *observer = memnew(HlodBakeObserver);
+		world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+		{
+			HlodBakeEdit edit(change_2d);
+			CHECK(world->bake_hlod() == ERR_INVALID_DATA);
+			CHECK(edit.fired);
+		}
+		CHECK(world->get_gaussian_data() == original);
+		CHECK(world->get_chunk_sizes() == chunks);
+		CHECK(world->get_hlod_info() == tree_info);
+		CHECK_FALSE(world->is_hlod_payload_current());
+		if (change_2d) {
+			CHECK(world->get_2d_mode());
+		} else {
+			CHECK(world->get_gaussian_data()->get_gaussian(0).opacity == 0.01f);
+		}
+		CHECK_EQ(observer->notifications, 0);
+		world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+		memdelete(observer);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] replacing a file-backed payload invalidates its tree and leaf chunks") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(3000u, 1000u, g);
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	const String old_path = hlod_temp_path("source_replace_old");
+	const String new_path = hlod_temp_path("source_replace_new");
+	const String saved_path = hlod_temp_path("source_replace_saved");
+	Ref<GaussianSplatWorld> original = hlod_make_world(g);
+	if (original->bake_hlod() != OK || saver.save(original, old_path) != OK) {
+		FAIL("original source replacement fixture");
+		return;
+	}
+	for (Gaussian &gaussian : g) {
+		gaussian.opacity = 0.01f;
+	}
+	Ref<GaussianSplatWorld> replacement = hlod_make_world(g);
+	if (replacement->bake_hlod() != OK || saver.save(replacement, new_path) != OK) {
+		FAIL("replacement source fixture");
+		return;
+	}
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> world = loader.load(old_path, old_path, &err);
+	if (err != OK || world.is_null()) {
+		FAIL("load original file-backed source");
+		return;
+	}
+	Ref<GaussianSplatWorld> source_world = loader.load(new_path, new_path, &err);
+	if (err != OK || source_world.is_null()) {
+		FAIL("load replacement file-backed source");
+		return;
+	}
+	CHECK(world->get_gaussian_data().is_null());
+	CHECK(world->has_hlod_tree());
+	world->set_chunk_payload_source(world->get_chunk_payload_source());
+	CHECK(world->has_hlod_tree());
+	world->set_chunk_payload_source(source_world->get_chunk_payload_source());
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK_EQ(world->get_chunk_count(), 0);
+	world->set_static_chunks(source_world->get_static_chunks());
+	if (saver.save(world, saved_path) != OK) {
+		FAIL("save replaced source without an obsolete tree");
+		return;
+	}
+	Ref<GaussianSplatWorld> loaded = loader.load_resident(saved_path, &err);
+	if (err != OK || loaded.is_null() || loaded->get_gaussian_data().is_null()) {
+		FAIL("reload replacement leaf payload");
+		return;
+	}
+	CHECK_FALSE(loaded->has_hlod_tree());
+	CHECK(loaded->get_gaussian_data()->get_gaussian(0).opacity == 0.01f);
+	loaded.unref();
+	world.unref();
+	source_world.unref();
+	DirAccess::remove_absolute(old_path);
+	DirAccess::remove_absolute(new_path);
+	DirAccess::remove_absolute(saved_path);
+}
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a rejected file-backed bake preserves streaming and emits no changes") {
 	using namespace TestGaussianSplatHlod;

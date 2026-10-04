@@ -284,7 +284,7 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 // Peak memory: the source payload is resident while the bake runs (snapshot + bake working set,
 // three full-sized copies plus merged nodes, scratch and allocator overhead), then two
 // full-sized copies while saving. This is copy accounting, not a peak-RSS bound.
-// bake_hlod() frees the source and snapshot as soon as the bake has consumed them.
+// bake_hlod() frees the snapshot after use and retains the source until revision-checked publication.
 static Error _bake_world_copy(const String &p_source_file, const String &p_dest_file, const GSplatWorldHeaderInfo &p_info,
 		bool &r_bake_failed) {
 	r_bake_failed = true;

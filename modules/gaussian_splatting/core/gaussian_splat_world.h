@@ -81,6 +81,11 @@ public:
     // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
     Error bake_hlod();
+#ifdef TESTS_ENABLED
+    using HlodBakeTestHook = void (*)(void *, GaussianSplatWorld *);
+    static HlodBakeTestHook hlod_bake_test_hook;
+    static void *hlod_bake_test_userdata;
+#endif
     bool has_hlod_tree() const { return !hlod_tree.is_empty(); }
     // False when the resident payload was edited in place (GaussianData setters) after the tree
     // was baked or loaded: the interior payload no longer summarizes the leaves.
