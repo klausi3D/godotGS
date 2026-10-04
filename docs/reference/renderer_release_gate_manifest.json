@@ -155,11 +155,10 @@
     "deferred_tags_any": [
       "Importer"
     ],
-    "deferred_count": 3,
+    "deferred_count": 2,
     "new_or_missing_test_policy": "fail-contract-check",
     "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
     "deferred_test_names_any": [
-      "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults",
       "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance"
     ],
     "deferral_model": "Deferred = (RequiresGPU tests tagged with any deferred_tags_any) UNION (RequiresGPU tests named in deferred_test_names_any). #329: [SceneTree] is no longer a deferred TAG -- that corpus runs in the NodeSceneTree/WorldSceneTree/SceneDirectorSceneTree batches; only the individually-broken cases listed above are still deferred."
@@ -172,26 +171,12 @@
       "source_path": "modules/gaussian_splatting/tests/test_gaussian_importer.h",
       "reason": "The [Importer] family needs full ResourceLoader/ResourceSaver setup including type registration for GaussianSplatAsset preview I/O; the harness's offscreen RD bootstrap is deliberately lighter weight and faults inside the resource roundtrip. Deferred by TAG (deferred_tags_any), not by name: no [Importer] GPU case runs here yet.",
       "risk": "low",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "expires_utc": "2026-10-31T00:00:00Z",
       "mitigation": "Excluded by the runner's default --test-case-exclude=*[Importer]* injection.",
       "docs_path": "docs/reference/renderer-release-gates.md",
       "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults",
-      "batch": "TileRenderer",
-      "exclude_pattern": "*Output format coercion keeps deterministic defaults*",
-      "source_path": "modules/gaussian_splatting/tests/test_tile_renderer.cpp",
-      "reason": "REPRODUCED 2026-07-19 on b15c6ddda46 (RTX 3090, Vulkan): the TileRenderer batch returns rc=1 with 6/7 cases and 66/67 assertions, failing at test_tile_renderer.cpp:52 -- CHECK(renderer->get_output_format() == RD::DATA_FORMAT_R8G8B8A8_SRGB) reports 232 (DATA_FORMAT_MAX) instead of 42 (SRGB). This is the PRODUCT bug tracked as #643: initialize() returns OK while create_output_textures() (renderer/tile_render_resources.cpp:474) fails to create an SRGB texture carrying TEXTURE_USAGE_STORAGE_BIT, which no driver allows, leaving the renderer with no output texture. The module already has _resolve_storage_compatible_color_format() (renderer/tile_renderer.cpp:104) for exactly this mapping but never calls it on the creation path. || The assertion is CORRECT and encodes the contract #643 must deliver; it must NOT be relaxed to match current behaviour. PR #646 added the [RequiresGPU] tag that routed this known-failing case into the default GPU harness, which is why the gate has been red. Excluding it restores an honest gate WITHOUT weakening the assertion: the case rejoins the batch automatically the moment this waiver is removed. || Origin: unresolved pre-merge review thread on PR #646 (https://github.com/klausi3D/godotGS/pull/646#discussion_r3608341129), which asked for exactly this and was never dispositioned before the admin merge.",
-      "risk": "low",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/643",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "TileRenderer is not a REQUIRED_BATCH, so no release-gate coverage claim depends on this case. The other 6 cases in the batch (including the sibling shader-compilation case on a real device) still run and still gate. #643 tracks deciding the contract (coerce SRGB->UNORM, or fail initialize()) and then removing this waiver.",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "b15c6ddda46bf6f140b65a444c33fa6025ec7bf0"
     },
     {
       "test_name": "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance",
@@ -499,8 +484,8 @@
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
       "requires_gpu_total": 172,
-      "running_in_a_named_batch": 106,
-      "deferred_with_waiver": 3,
+      "running_in_a_named_batch": 107,
+      "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },
     "by_source_file": {

@@ -238,6 +238,13 @@ enforces a total partition of the `[RequiresGPU]` corpus:
 | deferred | proven broken; has owner, risk, expiry, issue | `deferred_requires_gpu_waivers` |
 | backlog | never executed, never triaged | `unbatched_requires_gpu_backlog` |
 
+A waiver is also only as live as its tracking issue (#1165): every
+`deferred_requires_gpu_waivers` entry must cite an issue in the guard's pinned
+`WAIVER_ISSUES_VERIFIED_OPEN` allowlist (re-verified within
+`WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS`) and carry an unexpired, offset-bearing
+`expires_utc`. A closed tracking issue fails the guard; that is how the #643
+waiver outlived its fix by ten weeks.
+
 `running + deferred + backlog` must equal the corpus exactly, and the recorded
 `coverage_snapshot` must match reality. A test in none of the three buckets
 fails the guard — that is the #329 defect (a test that executes nowhere and is

@@ -25,6 +25,12 @@ The contract enforced here:
   4. The manifest's `deferred_count` equals the real number of deferred tests.
      This is the specific check that would have caught 26 -> 28.
 
+  5. Every waiver is LIVE (#1165): it cites a tracking issue verified OPEN (a
+     pinned allowlist in this file, checked offline) and carries a parseable,
+     offset-bearing `expires_utc` that has not passed. The bijection in (3)
+     cannot see a waiver whose issue was closed by the fix -- that is how the
+     #643 exclusion outlived PR #776 by ten weeks.
+
 Matching uses DOCTEST semantics, not fnmatch: doctest treats only `*` and `?`
 as special and `[tags]` as LITERAL, whereas fnmatch reads `[...]` as a character
 class. Since every name here is bracket-heavy, using fnmatch gives wrong answers
@@ -44,6 +50,7 @@ import json
 import re
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +102,115 @@ GATE_PATH = ROOT / "tests" / "ci" / "check_renderer_release_gates.py"
 # ADR docs/architecture/adr-phase1-guard-hardening.md section 5.2.
 BACKLOG_MAX_ENTRIES = 63
 BACKLOG_FINGERPRINT = "f4998c2e91696c4a0ae11ab4f444f04d6f905f967d477b6684224fe66c09fae7"
+
+
+# ---------------------------------------------------------------------------
+# WAIVER LIVENESS (#1165), checked OFFLINE against a PINNED allowlist.
+#
+# The bijection test proves excludes and waivers match each other; it cannot
+# prove the waiver still has a reason to exist. #643 was CLOSED on 2026-07-25 by
+# PR #776, which fixed the renderer but touched neither the exclude nor this
+# manifest, so the only sRGB regression case stayed excluded for ten weeks while
+# every check here was green. Same shape as #520/#329 in the quarantine manifest.
+#
+# Pinned here rather than read from the API on purpose, mirroring
+# tests/ci/test_quarantine_manifest.py ISSUES_VERIFIED_OPEN: a guard that needs
+# the network fails open or flakes when the network does. The allowlist is
+# fail-closed in the useful direction -- an issue nobody verified OPEN is
+# rejected, so citing a new tracking issue is a deliberate two-file diff.
+#
+# Verified OPEN on the date below with the GitHub issues API
+# (gh issue view <n> --repo klausi3D/godotGS --json number,state):
+#   #910 -- names the [Importer][RequiresGPU] legacy-thumbnail case explicitly
+#           ("6 unbatched [RequiresGPU] singletons ... and importer"); the
+#           Importer waiver was re-pointed here from #329 by #1165.
+#   #917 -- the GPU Memory Streaming Performance budget waiver.
+# Verified CLOSED at the same time, and therefore deliberately NOT listed:
+#   #329 (closed 2026-07-22, still cited by the Importer waiver until #1165),
+#   #643 (closed 2026-07-25 by PR #776; its waiver is retired by #1165).
+WAIVER_ISSUES_VERIFIED_OPEN = frozenset({910, 917})
+WAIVER_ISSUES_VERIFIED_OPEN_UTC = "2026-10-04T00:00:00Z"
+# The allowlist only answers "was this open when a human last looked". Bound how
+# stale that answer may get; same horizon as the quarantine manifest's guard.
+WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS = 180
+WAIVER_ISSUE_URL_RE = re.compile(r"^https://github\.com/klausi3D/godotGS/issues/(\d+)$", re.IGNORECASE)
+
+
+def _parse_utc_strict(raw: Any) -> datetime | None:
+    """ISO-8601 with an explicit offset, or None. A naive timestamp is rejected."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def waiver_liveness_problems(
+    waiver: Any,
+    now: datetime,
+    *,
+    verified_open: frozenset[int] = WAIVER_ISSUES_VERIFIED_OPEN,
+    verified_utc: str = WAIVER_ISSUES_VERIFIED_OPEN_UTC,
+    max_age_days: int = WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS,
+) -> list[str]:
+    """Everything that makes one waiver stale. Empty list == live.
+
+    `now` is injected so both sides of every boundary are testable without the
+    wall clock; the shipped-manifest test passes the real current time.
+    """
+    if not isinstance(waiver, dict):
+        return [f"waiver must be a JSON object, got {waiver!r}"]
+    label = repr(waiver.get("test_name", "?"))
+    problems: list[str] = []
+
+    issue_url = waiver.get("issue_url")
+    match = WAIVER_ISSUE_URL_RE.match(issue_url.strip()) if isinstance(issue_url, str) else None
+    if match is None:
+        problems.append(
+            f"waiver {label}: issue_url {issue_url!r} is not a klausi3D/godotGS issue URL. A "
+            f"waiver must point at a tracking issue in this repository."
+        )
+    else:
+        number = int(match.group(1))
+        if number not in verified_open:
+            problems.append(
+                f"waiver {label}: issue #{number} is not in WAIVER_ISSUES_VERIFIED_OPEN. A waiver "
+                f"whose tracking issue is CLOSED is a silent expiry (#643 outlived its fix by ten "
+                f"weeks). Check 'gh issue view {number} --repo klausi3D/godotGS --json state'. If "
+                f"the issue was closed by a fix, retire the waiver AND its BatchSpec exclude so "
+                f"the case runs. If it is OPEN, add it to the allowlist and refresh "
+                f"WAIVER_ISSUES_VERIFIED_OPEN_UTC in the same change."
+            )
+
+    verified = _parse_utc_strict(verified_utc)
+    if verified is None:
+        problems.append(
+            f"WAIVER_ISSUES_VERIFIED_OPEN_UTC={verified_utc!r} is not an offset-bearing ISO-8601 "
+            f"timestamp, so the allowlist's age cannot be checked. This fails closed."
+        )
+    elif now - verified > timedelta(days=max_age_days):
+        problems.append(
+            f"WAIVER_ISSUES_VERIFIED_OPEN was last verified {verified_utc}, more than "
+            f"{max_age_days} days ago. Re-check every listed issue's state and refresh the date."
+        )
+
+    expires_raw = waiver.get("expires_utc")
+    expires = _parse_utc_strict(expires_raw)
+    if expires is None:
+        problems.append(
+            f"waiver {label}: expires_utc {expires_raw!r} is missing, unparseable, or has no UTC "
+            f"offset. A waiver without a real expiry is permanent."
+        )
+    elif expires <= now:
+        problems.append(
+            f"waiver {label}: EXPIRED on {expires_raw}. Restore GPU coverage or renew the waiver "
+            f"with fresh justification."
+        )
+    return problems
 
 
 def _load(name: str, path: Path):
@@ -412,6 +528,73 @@ class GpuHarnessDeferredContractTests(unittest.TestCase):
             "[SceneTree] was re-added as a blanket deferred TAG. That silently re-defers the "
             "whole corpus #329 landed. Defer individual cases by name instead.",
         )
+
+
+class GpuHarnessWaiverLivenessTests(unittest.TestCase):
+    """#1165: a waiver needs a live tracking issue and an unexpired expiry."""
+
+    NOW = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
+
+    def _waiver(self, **overrides: Any) -> dict[str, Any]:
+        waiver = {
+            "test_name": "[TileRenderer][RequiresGPU] Example",
+            "issue_url": "https://github.com/klausi3D/godotGS/issues/917",
+            "expires_utc": "2026-10-31T00:00:00Z",
+        }
+        waiver.update(overrides)
+        return waiver
+
+    def test_every_shipped_waiver_is_live(self):
+        """The real manifest at the real current time -- this is the guard."""
+        now = datetime.now(timezone.utc)
+        waivers = _manifest().get("deferred_requires_gpu_waivers", [])
+        self.assertTrue(waivers, "no waivers to check; if all were retired, drop this assertion")
+        problems = [p for w in waivers for p in waiver_liveness_problems(w, now)]
+        self.assertEqual(problems, [], "\n".join(problems))
+
+    def test_live_waiver_is_accepted(self):
+        """The legal route still works, or the guard would get bypassed."""
+        self.assertEqual(waiver_liveness_problems(self._waiver(), self.NOW), [])
+
+    def test_waiver_citing_a_closed_issue_is_rejected(self):
+        """The #643 shape: the issue was closed by the fix, the waiver stayed."""
+        problems = waiver_liveness_problems(
+            self._waiver(issue_url="https://github.com/klausi3D/godotGS/issues/643"), self.NOW
+        )
+        self.assertTrue(any("#643" in p and "silent expiry" in p for p in problems), problems)
+
+    def test_known_closed_issues_are_not_allowlisted(self):
+        for number in (329, 643):
+            self.assertNotIn(number, WAIVER_ISSUES_VERIFIED_OPEN)
+
+    def test_missing_or_foreign_issue_url_is_rejected(self):
+        for url in (None, "", "#917", "https://github.com/other/repo/issues/917"):
+            with self.subTest(url=url):
+                self.assertTrue(waiver_liveness_problems(self._waiver(issue_url=url), self.NOW))
+
+    def test_missing_unparseable_or_naive_expiry_is_rejected(self):
+        for raw in (None, "", "soon", "2026-10-31T00:00:00"):
+            with self.subTest(expires_utc=raw):
+                problems = waiver_liveness_problems(self._waiver(expires_utc=raw), self.NOW)
+                self.assertTrue(any("expires_utc" in p for p in problems), problems)
+
+    def test_expiry_boundary(self):
+        at_now = self._waiver(expires_utc="2026-10-04T12:00:00Z")
+        self.assertTrue(any("EXPIRED" in p for p in waiver_liveness_problems(at_now, self.NOW)))
+        later = self._waiver(expires_utc="2026-10-04T12:00:01Z")
+        self.assertEqual(waiver_liveness_problems(later, self.NOW), [])
+
+    def test_stale_allowlist_verification_is_rejected(self):
+        verified = datetime(2026, 10, 4, tzinfo=timezone.utc)
+        just_inside = verified + timedelta(days=WAIVER_ISSUE_VERIFICATION_MAX_AGE_DAYS)
+        too_late = just_inside + timedelta(seconds=1)
+        self.assertEqual(waiver_liveness_problems(self._waiver(expires_utc="2099-01-01T00:00:00Z"), just_inside), [])
+        problems = waiver_liveness_problems(self._waiver(expires_utc="2099-01-01T00:00:00Z"), too_late)
+        self.assertTrue(any("last verified" in p for p in problems), problems)
+
+    def test_unparseable_verification_date_fails_closed(self):
+        problems = waiver_liveness_problems(self._waiver(), self.NOW, verified_utc="recently")
+        self.assertTrue(any("fails closed" in p for p in problems), problems)
 
 
 class GpuHarnessTimeoutReportingTests(unittest.TestCase):
