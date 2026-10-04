@@ -149,6 +149,12 @@ corridor-builder blocker #1075 was fixed by #1080. It discharges the alpha half 
 "Evidence-bundle format and location (§6)". v1.0 still needs the bundle machine-checked
 (§9).
 
+Template archive provenance is not exported-game real-scan appearance evidence.
+The procedure records the executable target of each capture; editor-only captures
+do not discharge template visual coverage. Export-proof scope still requires an
+explicit maintainer decision, and no release-wide visual `ACCEPT` follows while
+that decision or its required captures are missing.
+
 **Binding:** a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
 referenced by hash and never committed.

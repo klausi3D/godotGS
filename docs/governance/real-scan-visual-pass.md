@@ -12,6 +12,10 @@ public alpha and for v1.0 (§6, §9, §10). Tracked as
 > [#1080](https://github.com/klausi3D/godotGS/pull/1080). **C7 (streaming) still
 > requires its corridor capture and load/eviction proofs.** An incomplete pass
 > cannot reach `ACCEPT` and is evidence, not a sign-off.
+> **Export proof scope remains undecided.** Archive provenance alone does not prove
+> real-scan rendering in an exported game. Until the maintainer specifies that coverage
+> and the corresponding captures are complete, editor-only evidence cannot discharge
+> the release-wide visual gate or yield release `ACCEPT`.
 
 ## What the pass is, and what it is not
 
@@ -62,6 +66,14 @@ as not controlled.
    sidecar. Do not look for a template `BUILD-INFO.txt`, because none exists.
 
    A pass run on a local build says nothing about the bytes a user downloads.
+
+   **Archive verification is not execution evidence.** Each capture records its
+   `execution_target`: `editor` or `exported_game`. Running the scenes in the candidate
+   editor covers editor bytes only; downloading and hashing the export template does
+   not cover its rendering. The workflow's exported synthetic-cube smoke does not
+   supply real-scan appearance proof. Required real-scan export configurations, or an
+   explicitly narrower component sign-off, still need maintainer disposition; there
+   is no implicit template visual `PASS` or release-gate waiver.
 
    **The current release workflow publishes before any pass can run.** Every `v*` tag
    maps to a stable, non-prerelease publish (`release_builds.yml:183-188`), and the
@@ -144,13 +156,30 @@ All configurations use Forward+ and a single view (bar §10.1).
 
 Notes on individual rows:
 
-- **C6 and C7 differ by payload, not by node.** `rendering/gaussian_splatting/streaming/route_policy`
+- **C6 and C7 use the same node but require different backends.**
+  `rendering/gaussian_splatting/streaming/route_policy`
   defaults to `1` (streaming) and applies to world submissions only
   (`gaussian_splat_manager.cpp:1005-1008`). A direct `GaussianSplatNode3D` always
-  registers as resident. A world payload streams only if it is an uncompressed
-  `.gsplatworld` (see [streaming](../features/streaming.md#source-residency-model)).
-  Record `route_policy`, and for both rows record `payload_mode` and
-  `payload_streamable` from `GaussianSplatRenderer.get_render_stats()`.
+  registers as resident. Only uncompressed worlds without the resident-payload flag
+  are file-backed streamable payloads; explicit resident-uncompressed and compressed
+  worlds remain resident (see [streaming](../features/streaming.md#source-residency-model)).
+  CPU payload residency alone does not prove which GPU backend was selected.
+  Record numeric `route_policy` from its project setting; record
+  `selected_route_backend`, `payload_mode` and `payload_streamable` from
+  `GaussianSplatRenderer.get_render_stats()` (whose `requested_route_policy` is a
+  string token, not the numeric setting).
+  C6 requires `route_policy = 0` (recorded as its intentional project-setting
+  deviation), `selected_route_backend = "resident"`, `payload_mode = "resident_only"`
+  and `payload_streamable = false` on the judged captures **before and after** the
+  swap. Missing or mismatched values fail C6; recapture rather than award World-route
+  `PASS`. C7 uses `route_policy = 1` and must report
+  `selected_route_backend = "streaming"` and `payload_mode = "streamable_uncompressed"`
+  in addition to its load/eviction proof. Runtime `payload_mode` values describe the
+  active source (`resident_only`, `streamable_uncompressed`, `empty`), not serialization
+  save-mode names.
+  Both C6 and C7 retain the candidate's default World3D `max_splat_count` (currently
+  1,000,000), record the configured value, and separately record the effective runtime
+  budget. Lower-cap diagnostic runs do not replace these required configurations.
 - **C6 has to prove the swap happened.** Payloads A and B must have different hashes,
   and both are recorded. Both are derived from the hashed real-scan assets above, for
   example A from the primary asset and B from the small-scene control. Only C7 is allowed
@@ -348,6 +377,7 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
   "configurations": [
     {
       "id": "C1-auto", "route": "node | world | streaming | multi_node",
+      "execution_target": "editor | exported_game",
       "asset": "A1", "import_route": "automatic", "world_payloads": [],
       "node_quality_preset": "balanced", "max_splat_count": 500000,
       "runtime_budget_splats": 8000000,
@@ -355,6 +385,7 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
       "use_taa": false, "route_policy": null,
       "visible_splats": 0,
       "payload_mode": null, "payload_streamable": null,
+      "selected_route_backend": null,
       "engagement_proof": null,
       "frames": [
         {
@@ -370,13 +401,22 @@ and every `null` has to be explained in `EVIDENCE_README.md`.
 
 Field rules:
 
+- `execution_target` records the executable actually used for every configuration.
+  Editor captures cannot be relabelled as exported-game proof merely because the
+  template archive was verified.
+  If both targets are captured, use distinct configuration ids and capture filenames
+  (for example `C1-auto-editor` and `C1-auto-exported-game`).
 - The fields depend on the route. Leave the other route's fields `null` rather than
   inventing values:
-  - `asset`, `import_route`, `node_quality_preset` and `max_splat_count` are for `node`
+  - `asset`, `import_route` and `node_quality_preset` are for `node`
     configurations. They are `null` for `world` and `streaming`, which consume world
     payloads, and `null` at the top level of `multi_node`, which records them per node
     in `nodes[]`.
-  - `route_policy`, `payload_mode` and `payload_streamable` are for `world` and
+  - `max_splat_count` is required for `node`, `world` and `streaming`: record the
+    actual node setting, not a null value or an inferred runtime budget. C6/C7 keep
+    the candidate's default World3D value, currently 1,000,000. It is null only at
+    the top level of `multi_node`, where each entry in `nodes[]` records its own cap.
+  - `route_policy`, `selected_route_backend`, `payload_mode` and `payload_streamable` are for `world` and
     `streaming` configurations. They are `null` for `node` and `multi_node`.
   - `runtime_budget_splats` and `visible_splats` are required for every route.
   - A `multi_node` configuration lists one entry per node in a `nodes[]` array, each
@@ -385,7 +425,8 @@ Field rules:
   C6 that is **both** A and B, in swap order.
 - `engagement_proof` is required for C3, C4, C6 and C7:
   - for C3 and C4: the noise floor, the control region and the measured difference;
-  - for C6: the before/after frame pair, the shared camera pose and the difference;
+  - for C6: the before/after frame pair, the shared camera pose and the difference,
+    plus the required resident-backend/payload stats for both captures;
   - for C7: the per-frame series of `streaming_chunks_loaded_this_frame`,
     `streaming_chunks_evicted_this_frame` and `streaming_loaded_chunks`.
 - `frames` pairs every judged capture with its pose-matched control.
@@ -406,7 +447,9 @@ It records:
 The proof boundary says that the pass shows **one Windows machine with one NVIDIA GPU**,
 the listed assets and these configurations. It shows nothing about other GPU vendors,
 Linux or macOS, or, for an alpha pass, multi-node scenes, which are outside the alpha
-envelope. It also says that C7's streaming content is synthetic. If C7 ran only as its
+envelope. It explicitly identifies executed editor/exported-game targets; template
+provenance without exported real-scan captures proves no template visual coverage.
+It also says that C7's streaming content is synthetic. If C7 ran only as its
 interim, or the signed bytes were a pre-tag build (see the prerequisites), the proof
 boundary says that too.
 
@@ -419,12 +462,13 @@ boundary says that too.
 - Captures run by: <name> (@<github-handle>)
 - Date: <YYYY-MM-DD>
 - Candidate: <candidate_commit> (pre-tag run <workflow_run_id>; tag <release_tag> added after tagging)
+- Executed targets: <editor; exported_game only if actually captured>
 - Bundle: evidence/visual/<YYYY-MM-DD>-<commit12>/
 
 | Dimension | Verdict | Note |
 | --- | --- | --- |
 | Presence | PASS / FAIL | |
-| Appearance | PASS / FAIL | |
+| Appearance | PASS / FAIL / KNOWN #N | |
 | Depth interleaving | PASS / FAIL | |
 | Temporal | PASS / FAIL / KNOWN #N | |
 | World route | PASS / FAIL | |
@@ -439,6 +483,8 @@ Disposition: ACCEPT | FIX: <dimension and expected result> | SANCTION_BASELINE_U
 The three dispositions follow the wording of the #921 packet. `ACCEPT` requires every
 dimension to be `PASS` or `KNOWN #N`, for a ledgered accepted limitation. Multi-node may
 also be `N/A`, but only in an alpha pass. Any `FAIL` or `BLOCKED` rules `ACCEPT` out.
+The unresolved export-proof scope also rules out release-wide `ACCEPT`; an editor-only
+component verdict is not a template visual pass or release sign-off.
 
 **The signer is the maintainer, and only the maintainer.** The maintainer may also run
 the captures. It is a solo project, and the bundle records who did each. **The signature
