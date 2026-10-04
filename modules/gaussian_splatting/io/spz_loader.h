@@ -29,8 +29,8 @@
  * - Decoded as: position = fixed_value / (1 << fractional_bits)
  *
  * **Scales**: 8-bit log-encoded values (3 per point)
- * - Decoded as: scale = exp((encoded - 128) / 16.0)
- * - Range approximately [1e-5, 2e+4]
+ * - Decoded as: scale = exp(encoded / 16.0 - 10.0)
+ * - Range approximately [4.5e-5, 3.8e+2]
  *
  * **Rotations**: quaternions, normalised into the w >= 0 hemisphere
  * - Version 2: 3 bytes per rotation, (x, y, z) as UNSIGNED bytes with a 127.5
@@ -39,11 +39,14 @@
  * - Version 3: 4 bytes per rotation, smallest-three encoding: a 2-bit index of
  *   the largest component plus three 10-bit (sign + 9-bit magnitude) components
  *
- * **Alphas**: 8-bit unsigned integers
- * - Decoded using inverse sigmoid: alpha = sigmoid((encoded - 128) / 32.0)
+ * **Alphas**: 8-bit unsigned integers holding the activated opacity
+ * - Decoded as: alpha = encoded / 255.0
  *
- * **Colors**: RGB as 8-bit unsigned integers
- * - Direct byte values normalized to [0, 1]
+ * **Colors**: RGB as 8-bit unsigned integers holding the SH DC coefficient
+ * - Packed by the reference as byte = 255 * (0.5 + 0.15 * f_dc)
+ * - Decoded to the renderer's centred DC: sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15,
+ *   tagged GAUSSIAN_DC_ENCODING_LINEAR_RGB (display colour = sh_dc + 0.5), the
+ *   same space PLYLoader produces from f_dc_*
  *
  * **Spherical Harmonics**: Variable coefficients based on SH degree (0-3)
  * - Stored as quantized values when sh_degree > 0

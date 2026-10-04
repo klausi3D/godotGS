@@ -17,6 +17,12 @@ static constexpr uint8_t SH_BITS_DEGREE_0 = 5;
 static constexpr uint8_t SH_BITS_DEGREE_1_2 = 4;
 
 // Conversion constants
+// Colour decode (issue #1056). The reference encoder (nianticlabs/spz,
+// splat-utils.h colorScale = 0.15; load-spz.cc packs toUint8(dc * 0.15 * 255 +
+// 0.5 * 255)) stores the SH DC coefficient f_dc, not a display colour. Its
+// display colour is 0.5 + SH_C0 * f_dc.
+static constexpr float SPZ_COLOR_SCALE = 0.15f;
+static constexpr float SPZ_SH_C0 = 0.28209479177387814f;
 static constexpr float LOG_SCALE_MIN = -10.0f;
 static constexpr float LOG_SCALE_MAX = 6.0f;
 static constexpr uint64_t MAX_SPZ_COMPRESSED_BYTES = 512ull * 1024ull * 1024ull; // 512 MiB
@@ -377,7 +383,7 @@ Error SPZLoader::load_file(const String &p_path) {
         // Opacity (alpha)
         g.opacity = alphas[i];
 
-        // Color (stored in sh_dc for consistency with PLY loader)
+        // Colour: canonical centred DC, sh_dc = SH_C0 * f_dc (see parse_colors).
         g.sh_dc = colors[i];
         g.render_meta = gaussian_set_dc_encoding(g.render_meta, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
 
@@ -628,17 +634,21 @@ Error SPZLoader::parse_alphas(const uint8_t *p_data, uint32_t p_data_size, uint3
 }
 
 Error SPZLoader::parse_colors(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Color> &r_colors) {
-    // Colors: 3 x 8-bit unsigned integers (RGB) per point
-    // SPZ stores linear RGB [0-255] representing the DC contribution directly.
-    // Keep values in 0-1 space and do NOT divide by SH_C0 (that would yield coefficients).
+    // Colors: 3 x 8-bit unsigned integers (RGB) per point.
+    // Each byte is the SH DC coefficient f_dc packed as byte = 255 * (0.5 +
+    // 0.15 * f_dc), so f_dc = (byte / 255 - 0.5) / 0.15. Convert it to the
+    // renderer's canonical centred DC, sh_dc = SH_C0 * f_dc (the same space
+    // PLYLoader produces); the shader adds the +0.5 for the LINEAR_RGB tag that
+    // load_file() sets. Storing byte / 255 here (the pre-#1056 decode) rendered
+    // a mid-grey byte of 128 at about 1.0 and with a 0.15 instead of 0.28 slope.
     const uint64_t needed = uint64_t(header.num_points) * 3ull;
     ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
 
+    const float byte_to_sh_dc = SPZ_SH_C0 / SPZ_COLOR_SCALE;
     for (uint32_t i = 0; i < header.num_points; i++) {
-        // Read as linear RGB [0-1]
-        float r = p_data[r_offset++] / 255.0f;
-        float g = p_data[r_offset++] / 255.0f;
-        float b = p_data[r_offset++] / 255.0f;
+        const float r = (p_data[r_offset++] / 255.0f - 0.5f) * byte_to_sh_dc;
+        const float g = (p_data[r_offset++] / 255.0f - 0.5f) * byte_to_sh_dc;
+        const float b = (p_data[r_offset++] / 255.0f - 0.5f) * byte_to_sh_dc;
 
         r_colors[i] = Color(r, g, b, 1.0f);
     }

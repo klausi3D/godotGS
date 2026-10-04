@@ -65,7 +65,13 @@ public:
     //       format version makes Godot re-run import() automatically. v3 files
     //       decode unchanged. (The colour ADR planned 8->9 for the SPZ DC decode;
     //       that change takes the next free number.)
-    virtual int get_format_version() const override { return 9; }
+    //  v10: SPZ colour bytes are decoded as the reference SH DC coefficient,
+    //       sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15, instead of byte / 255
+    //       (issue #1056; colour ADR adr-splat-colour-encoding.md section 4, which
+    //       planned this as 8 -> 9 before #1154 took 9). The output colours of
+    //       every SPZ import change, so every .res written by v4-v9 rendered about
+    //       +0.5 too bright and must be re-imported.
+    virtual int get_format_version() const override { return 10; }
 
     ResourceImporterSPZ();
 };

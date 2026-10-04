@@ -37,7 +37,13 @@ namespace {
 //       as before and resolves to layout 1; a cache recorded under any other
 //       layout is refused by the world loader, which try_load_cache() treats
 //       as a miss, so the raw PLY is re-parsed.)
-static constexpr int PLY_CACHE_VERSION = 3;
+//   v4: every splat the loader produces is tagged GAUSSIAN_DC_ENCODING_LINEAR_RGB
+//       in Gaussian::render_meta (issue #1056; ADR adr-splat-colour-encoding.md
+//       section 4 "PLY_CACHE_VERSION 3 -> 4"). The cache stores render_meta
+//       verbatim, so a v3 cache would keep serving untagged splats, which the
+//       shader decodes with the legacy sigmoid. A stale v3 cache is rejected and
+//       the raw PLY re-parsed.
+static constexpr int PLY_CACHE_VERSION = 4;
 
 static constexpr int SH_DC_COMPONENTS = 3;
 static constexpr int SH_REST_COMPONENTS = 45;
@@ -1105,9 +1111,11 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
     // -----------------------------------------------------------------
 
     // DC term corresponds to spherical harmonics band l=0.
-    // PLY stores DC as SH coefficients (scaled by SH_C0), centered around 0.
-    // We add 0.5 here to convert to 0-1 color space, matching SPZ format.
-    // This allows shaders to use DC directly without format-specific offsets.
+    // PLY stores the raw DC coefficient f_dc. The canonical in-memory encoding
+    // is sh_dc = SH_C0 * f_dc, centred on 0; the shader adds the +0.5 when it
+    // decodes a LINEAR_RGB-tagged splat (Inria SH2RGB). Nothing is added here.
+    // The tag is set below on every splat so a raw load decodes exactly like an
+    // imported asset (issue #1056; ADR adr-splat-colour-encoding.md section 3).
     Color sh_dc = r_gaussian.sh_dc;
     if (p_dc_present[0]) {
         sh_dc.r = SH_C0 * p_dc_values[0];
@@ -1120,6 +1128,7 @@ int PLYLoader::assemble_sh_coefficients(Gaussian &r_gaussian,
     }
     sh_dc.a = 1.0f;
     r_gaussian.sh_dc = sh_dc;
+    r_gaussian.render_meta = gaussian_set_dc_encoding(r_gaussian.render_meta, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
 
     // PLY stores f_rest_0-44 in channel-major order (all R coeffs, then G, then B).
     // Repack into coefficient-major RGB triplets for the renderer.

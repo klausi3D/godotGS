@@ -9,13 +9,16 @@
 
 namespace TestGaussianSplatting {
 
-// One synthetic splat expressed in ACTIVATED / linear terms (the same space the
-// SPZLoader hands back after decode), so a test can reason about round-tripped
-// values directly.
+// One synthetic splat expressed in the reference encoder's input terms
+// (activated opacity, linear scale, raw SH DC coefficient), so a test can reason
+// about round-tripped values directly.
 struct SyntheticSpzSplat {
     Vector3 position;                  // world position (fixed-point encoded)
     float opacity = 1.0f;              // activated [0,1]; encoded as round(opacity*255)
-    Color color = Color(0.5f, 0.5f, 0.5f, 1.0f); // linear RGB [0,1]; encoded as bytes
+    // Raw SH DC coefficient per channel, the value a 3DGS PLY stores as f_dc_*
+    // (alpha unused). Encoded as the reference does: byte = 255 * (0.5 + 0.15 * f_dc);
+    // 0 is mid-grey.
+    Color f_dc = Color(0.0f, 0.0f, 0.0f, 1.0f);
     Vector3 scale = Vector3(1, 1, 1);  // linear scale (log-encoded to a byte per axis)
     Quaternion rotation;               // identity by default
 };

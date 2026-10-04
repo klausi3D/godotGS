@@ -18,6 +18,7 @@ namespace TestGaussianSplatting {
 // if the loader's decode drifts from the format.
 static constexpr uint32_t SPZ_MAGIC = 0x5053474E; // "NGSP" little-endian
 static constexpr uint32_t SPZ_VERSION_2 = 2;
+static constexpr float SPZ_COLOR_SCALE = 0.15f; // splat-utils.h colorScale
 
 static void _append_u24_le_signed(LocalVector<uint8_t> &r_bytes, int32_t p_value) {
     // 24-bit little-endian; the loader sign-extends bit 23 on read.
@@ -33,10 +34,6 @@ static uint8_t _encode_alpha(float p_opacity) {
     return uint8_t(Math::round(a * 255.0f));
 }
 
-static uint8_t _encode_color_channel(float p_channel) {
-    const float c = CLAMP(p_channel, 0.0f, 1.0f);
-    return uint8_t(Math::round(c * 255.0f));
-}
 
 static uint8_t _encode_scale(float p_scale) {
     // Inverse of SPZLoader::decode_scale: scale = exp(byte/16 - 10)
@@ -83,12 +80,14 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
         payload.push_back(_encode_alpha(p_splats[i].opacity));
     }
 
-    // Colors: 3 bytes (RGB) each.
+    // Colors: 3 bytes (RGB) each. The reference packs the SH DC coefficient as
+    // toUint8(f_dc * (0.15 * 255) + 0.5 * 255) (load-spz.cc, colorScale = 0.15),
+    // not a display colour (#1056).
     for (uint32_t i = 0; i < count; i++) {
-        const Color &c = p_splats[i].color;
-        payload.push_back(_encode_color_channel(c.r));
-        payload.push_back(_encode_color_channel(c.g));
-        payload.push_back(_encode_color_channel(c.b));
+        const Color &dc = p_splats[i].f_dc;
+        payload.push_back(_to_uint8(dc.r * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
+        payload.push_back(_to_uint8(dc.g * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
+        payload.push_back(_to_uint8(dc.b * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
     }
 
     // Scales: 3 log-encoded bytes each.

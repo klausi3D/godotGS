@@ -470,6 +470,26 @@ with the evidence named, before it is opened for review.
 §8's `s` distribution, plus the #1063 view-direction fix). The dead RGB9E5 decoder in
 `gaussian_splat_common_inc.glsl` stayed by maintainer waiver; its deletion is #1064.
 
+**Loader rows ahead of slices 2 and 3 (2026-10-04, #1056, plan item P0-1).** Two producer
+rows of §3.4 land before the rest of their slices, because both fix wrong colours in shipped
+loaders and neither needs the enum, resolver or container work:
+
+- `PLYLoader` tags every splat `LINEAR_RGB` (the value §3.2 renames `SH_C0`), with the
+  `PLY_CACHE_VERSION` 3 → 4 bump from §4. The PLY importer is not bumped, as §4 says.
+- `SPZLoader` stores `SH_C0 · (byte/255 − 0.5) / 0.15`, tagged `LINEAR_RGB`, with the SPZ
+  importer bump. §4 planned 8 → 9; #1154 (v2 rotation decode) took 9 first, so this is
+  9 → 10, following the coordination note on #1056.
+
+Both rows produce exactly what §3.4 prescribes, so nothing written from them needs the §4
+legacy route later: their tag-1 splats hold `SH_C0` data. This also closes the round-7 SPZ
+ordering risk at the source, since SPZ data is no longer `byte / 255` under tag 1.
+Everything else in slices 2 and 3 is still open. In particular the slice-3 editor readers
+(asset preview, gizmo heatmap, colour thumbnail and its fingerprint, rounds 5 and 6) are
+**not** converted: SPZ previews now show the same 0.5-too-dark preview that PLY assets
+already show, until slice 3 converts all three. That is an editor-only display artefact;
+the rendered colour is correct. Evidence item 3 (GPU readback per producer path) and the
+official Niantic sample are still owed by slice 3.
+
 **Review round 3 (2026-09-25, Codex P1 on `9d4184ddac6`): slice order.** As drafted, slice 2
 would store and tag DC in coefficient space while slice 5 converted the CPU consumers only
 after slices 3 and 4. In that window the brush blends a display-space target straight into

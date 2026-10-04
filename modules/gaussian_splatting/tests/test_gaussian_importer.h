@@ -1612,7 +1612,7 @@ TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects tru
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear RGB") {
+TEST_CASE("[GaussianSplatting][Importer] SPZ loader decodes colour bytes to centred DC tagged linear RGB") {
     const String source_path = "user://gaussian_spz_linear_dc.spz";
 
     PackedByteArray payload = _make_spz_v2_single_point_payload(255, 64, 128, 255);
@@ -1636,11 +1636,16 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear 
     REQUIRE_MESSAGE(data.is_valid(), "SPZ loader must produce GaussianData");
     REQUIRE_MESSAGE(data->get_count() == 1, "SPZ loader must load the single-point payload");
 
+    // The bytes are the reference SH DC packing byte = 255 * (0.5 + 0.15 * f_dc),
+    // decoded to the centred sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15 (#1056).
+    // Values computed offline from that formula: 64 -> -0.468314,
+    // 128 -> 0.003688 (mid-grey: dc = 0 packs to 127.5, rounded to 128),
+    // 255 -> SH_C0 * 0.5 / 0.15 = 0.940316. The pre-#1056 decode stored byte / 255.
     const Gaussian g = data->get_gaussian(0);
     CHECK(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    CHECK(Math::is_equal_approx(g.sh_dc.r, 64.0f / 255.0f));
-    CHECK(Math::is_equal_approx(g.sh_dc.g, 128.0f / 255.0f));
-    CHECK(Math::is_equal_approx(g.sh_dc.b, 1.0f));
+    CHECK(Math::abs(g.sh_dc.r - (-0.468314f)) < 1e-4f);
+    CHECK(Math::abs(g.sh_dc.g - 0.003688f) < 1e-4f);
+    CHECK(Math::abs(g.sh_dc.b - 0.940316f) < 1e-4f);
 
     _remove_user_file(source_path);
 }
@@ -1736,13 +1741,11 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ importer persists linear DC encodin
 }
 
 TEST_CASE("[GaussianSplatting][Importer] PLY importer tags new assets as linear DC by default") {
-    // Regression guard for the DC-encoding default flip. The PLY loader itself
-    // does not tag render_meta — that tagging only happens when the asset is
-    // built through ResourceImporterPLY (which writes "dc_encoding": "linear_rgb"
-    // into import metadata) and then deserialized via populate_from_asset
-    // (which reads that metadata at gaussian_data_io.cpp:265-268). So this
-    // test must exercise the full importer round-trip rather than
-    // PLYLoader::load_file directly.
+    // Regression guard for the DC-encoding default flip, through the importer:
+    // ResourceImporterPLY writes "dc_encoding": "linear_rgb" into the import
+    // metadata and populate_from_asset applies it (gaussian_data_io.cpp). Since
+    // #1056 PLYLoader also tags every splat itself, so the raw load path agrees;
+    // that half is pinned in test_ply_importer.h.
     const String source_path = "user://gaussian_ply_default_dc.ply";
     const String save_base_path = "user://gaussian_ply_default_dc_imported";
     Error write_err = _write_minimal_ascii_ply(source_path);
