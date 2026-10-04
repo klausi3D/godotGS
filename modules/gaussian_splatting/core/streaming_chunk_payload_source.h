@@ -96,9 +96,22 @@ protected:
 	uint32_t sh_high_order = 0;
 	AABB bounds;
 	mutable Mutex file_mutex;
-	mutable HashMap<Thread::ID, Ref<FileAccess>> cached_files;
+	// #1179: bounded pool of open handles on file_path, guarded by file_mutex. A capture
+	// checks one handle out exclusively for its duration (PooledFileLease) and returns it,
+	// so the pool never holds more handles than captures ever ran at the same time, however
+	// often the pack threads are restarted. It replaces a cache keyed by Thread::ID whose
+	// entries for exited threads were never evicted, leaking one open handle per restarted
+	// worker. file_pool_epoch changes whenever the pool is taken over (configure(),
+	// ScopedReaderSuspend); a lease from an older epoch drops its handle instead of
+	// returning it.
+	struct PooledFile {
+		Ref<FileAccess> file;
+		bool in_use = false;
+	};
+	mutable LocalVector<PooledFile> file_pool;
+	mutable uint64_t file_pool_epoch = 0;
 	// #714: set while a writer is atomically replacing file_path. Lock-free on
-	// purpose: _get_thread_file() must be able to consult it WITHOUT holding
+	// purpose: _acquire_pooled_file() must be able to consult it WITHOUT holding
 	// file_mutex, and ScopedReaderSuspend must be able to set it without holding
 	// file_mutex either -- an already-active read still needs that mutex to finish
 	// (_record_io_counters takes it while the reader's Ref is alive), so blocking on
@@ -118,7 +131,23 @@ protected:
 	static Mutex &_registry_mutex();
 	static HashMap<StagedFileChunkPayloadSource *, bool> &_live_sources();
 
-	Ref<FileAccess> _get_thread_file() const;
+	// #1179: one pooled handle checked out for one capture; returned on scope exit.
+	class PooledFileLease {
+		const StagedFileChunkPayloadSource *source = nullptr;
+		uint32_t slot = UINT32_MAX;
+		uint64_t epoch = 0;
+
+	public:
+		Ref<FileAccess> file;
+
+		explicit PooledFileLease(const StagedFileChunkPayloadSource *p_source);
+		~PooledFileLease();
+		PooledFileLease(const PooledFileLease &) = delete;
+		PooledFileLease &operator=(const PooledFileLease &) = delete;
+	};
+
+	Ref<FileAccess> _acquire_pooled_file(uint32_t &r_slot, uint64_t &r_epoch) const;
+	void _release_pooled_file(uint32_t p_slot, uint64_t p_epoch) const;
 	bool _read_exact(FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read = nullptr) const;
 	void _record_io_counters(uint64_t p_bytes_requested, uint64_t p_bytes_read) const;
 
@@ -132,7 +161,7 @@ public:
 	// Windows opens FileAccess without FILE_SHARE_DELETE (file_access_windows.cpp:
 	// _SH_DENYNO / _SH_DENYWR / _SH_DENYRW), so an open reader blocks MoveFileExW
 	// replacement AND the backup-swap fallback rename. Merely dropping the cached
-	// handles is not enough: _get_thread_file() would immediately reopen and re-cache
+	// handles is not enough: _acquire_pooled_file() would immediately reopen and re-cache
 	// mid-copy, making reimport intermittent under continuous streaming.
 	//
 	// So this sets each matching source's lock-free `suspend_opens` flag (which stops
@@ -140,7 +169,7 @@ public:
 	// flight to release their own Refs before returning to the caller's rename.
 	//
 	// It deliberately does NOT hold file_mutex while waiting. A read already past
-	// _get_thread_file() still needs that mutex to finish -- _record_io_counters()
+	// _acquire_pooled_file() still needs that mutex to finish -- _record_io_counters()
 	// takes it while the reader's Ref is alive -- so holding it would block the very
 	// reads being drained and make the timeout certain instead of rare.
 	//

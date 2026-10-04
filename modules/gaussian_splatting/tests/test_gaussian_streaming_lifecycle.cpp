@@ -5,6 +5,8 @@
 #include "test_macros.h"
 
 #include "core/error/error_macros.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "servers/rendering_server.h"
 
@@ -2238,4 +2240,89 @@ TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs o
     CHECK(system->get_loaded_chunks() == chunk_count - 1);
 
     system->_test_end_device_free_load_scan();
+}
+
+// ---------------------------------------------------------------------------
+// #1179: StagedFileChunkPayloadSource cached one FileAccess per Thread::ID and never
+// evicted ids of exited threads. The pack workers are stopped and started again on every
+// re-init and whenever pack_worker_threads changes, so every restart left open handles on
+// the world file behind. Handles now come from a pool bounded by concurrent captures.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("[Streaming Pipeline] Restarting the pack threads does not leak payload file handles (#1179)") {
+    const uint32_t splat_count = 128;
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(splat_count);
+    for (uint32_t i = 0; i < splat_count; i++) {
+        Gaussian &g = gaussians[i];
+        g.position = Vector3(float(i) * 0.05f, 0.0f, -2.0f);
+        g.scale = Vector3(0.05f, 0.05f, 0.05f);
+        g.rotation = Quaternion();
+        g.opacity = 1.0f;
+        g.sh_dc = Color(1.0f, 0.85f, 0.7f, 1.0f);
+    }
+    const String path = OS::get_singleton()->get_temp_path().path_join(
+            vformat("godotgs_streaming_1179_%d.gsplatpayload", int64_t(OS::get_singleton()->get_ticks_usec())));
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        if (f.is_null()) {
+            FAIL("could not open the temporary payload file for writing");
+            return;
+        }
+        f->store_buffer(reinterpret_cast<const uint8_t *>(gaussians.ptr()), uint64_t(splat_count) * sizeof(Gaussian));
+    }
+    Ref<StagedFileChunkPayloadSource> source;
+    source.instantiate();
+    source->configure(path, 0, 0, splat_count, 0, 0, 0, AABB());
+
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(1);
+    chunks[0] = GaussianStreamingTypes::StreamingChunk();
+    chunks[0].start_idx = 0;
+    chunks[0].count = splat_count;
+    chunks[0].effective_count = splat_count;
+    chunks[0].is_visible = true;
+    chunks[0].buffer_slot = UINT32_MAX;
+    system->_test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(splat_count), 1);
+    system->set_chunk_payload_source(0, source); // workers now read the chunk from the file
+    auto &uploads = system->_internal_get_upload_pipeline();
+    const uint32_t worker_threads = MAX(1u, uploads.pack_worker_threads);
+
+    // More restarts than the bound, so a handle kept per exited thread would exceed it.
+    const uint32_t restarts = worker_threads + 3;
+    uint32_t rounds_packed = 0;
+    for (uint32_t round = 0; round < restarts; round++) {
+        CAPTURE(round);
+        uploads.start_pack_threads(*system.ptr());
+        if (!uploads.pack_thread_running.load(std::memory_order_acquire)) {
+            break;
+        }
+        system->begin_frame(); // fresh per-frame queue budget
+        // A real pack worker of this generation reads the chunk through the source.
+        if (uploads.queue_chunk_load(*system.ptr(), 0, 0) && _wait_for_prepared_upload(uploads) != nullptr) {
+            rounds_packed++;
+        }
+        // Joins the workers and drops the pending upload, as a tuning change or re-init does.
+        uploads.stop_pack_threads(*system.ptr());
+    }
+    const uint64_t file_opens = source->get_file_open_count();
+    const uint64_t bytes_read = source->get_bytes_read();
+    system->_test_end_device_free_load_scan();
+    system.unref();
+    source.unref();
+    DirAccess::remove_absolute(path);
+
+    if (rounds_packed != restarts) {
+        FAIL("fixture precondition: every restart must pack the chunk on a worker thread (packed ", rounds_packed,
+                " of ", restarts, ")");
+        return;
+    }
+    // Every round really read through the file...
+    CHECK(bytes_read == uint64_t(restarts) * splat_count * sizeof(Gaussian));
+    CHECK(file_opens >= 1);
+    // ...and the open handles stay bounded by what can read at the same time (the workers
+    // plus the main thread's sync pack), not by how many threads ever existed.
+    CHECK(file_opens <= uint64_t(worker_threads) + 1);
 }
