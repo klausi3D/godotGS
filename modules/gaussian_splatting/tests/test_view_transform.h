@@ -615,4 +615,103 @@ TEST_CASE("[GaussianSplatting][ViewTransform] flip_y is the engine's whole-row c
 	}
 }
 
+// #1156: the CPU half of the orthographic tile-binning contract.
+//
+// shaders/tile_binning.glsl classifies the uploaded projection as orthographic
+// when abs(projection_matrix[2][3]) < 0.5 (the same test tile_resolve.glsl uses)
+// and then builds the EWA Jacobian as diag(focal_x, focal_y), focal = P[i][i] *
+// viewport / 2, with no 1/z terms. The shader itself is pinned by the
+// `tile_binning_orthographic_jacobian` contract in shaders/compile_shaders.py;
+// these cases pin what that branch assumes about the matrices the renderer
+// actually uploads (build_render_projection(): flip_y and TAA jitter applied):
+//   1. the [2][3] test separates every engine perspective/frustum matrix from
+//      every engine orthographic one, after flip and jitter;
+//   2. for an orthographic matrix the true screen-space derivative IS
+//      diag(focal_x, focal_y) at every depth -- measured by finite differences
+//      of the full projection -- whereas the perspective Jacobian the shader
+//      used before scaled it by 1/depth;
+//   3. a KEEP_HEIGHT ortho size above the viewport height gives |focal_y| < 1,
+//      inside the perspective focal band's reject range, which is why the
+//      orthographic branch needs its own range check.
+// The rendered footprint itself needs the GPU oracle described in #1156.
+static Vector2 gs_test_screen_px(const Projection &p_projection, const Vector3 &p_view_pos, const Vector2 &p_viewport) {
+	const Vector3 ndc = gs_test_ndc(p_projection, p_view_pos);
+	return Vector2((ndc.x * 0.5f + 0.5f) * p_viewport.x, (ndc.y * 0.5f + 0.5f) * p_viewport.y);
+}
+
+static bool gs_test_tile_binning_is_ortho(const Projection &p_projection) {
+	// Mirrors `abs(params.projection_matrix[2][3]) < 0.5` in tile_binning.glsl.
+	return Math::abs(p_projection.columns[2][3]) < real_t(0.5);
+}
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Orthographic projections reach tile binning with a depth-free Jacobian (#1156)") {
+	const Vector2 viewport(1920.0f, 1080.0f);
+	const Vector2 jitter(0.5f / 1920.0f, -0.25f / 1080.0f);
+
+	SUBCASE("the [2][3] test separates perspective from orthographic after flip and jitter") {
+		Projection perspective;
+		perspective.set_perspective(70.0f, viewport.x / viewport.y, 0.05f, 500.0f);
+		Projection off_axis;
+		off_axis.set_frustum(2.0f, viewport.x / viewport.y, Vector2(0.2f, 0.3f), 0.05f, 500.0f);
+		Projection ortho;
+		ortho.set_orthogonal(20.0f, viewport.x / viewport.y, 0.05f, 500.0f, false);
+		Projection shifted_ortho;
+		shifted_ortho.set_orthogonal(-1.0f, 3.0f, -0.5f, 1.5f, 0.05f, 500.0f);
+
+		for (const bool flip : { false, true }) {
+			for (const Vector2 &j : { Vector2(), jitter }) {
+				CHECK_FALSE(gs_test_tile_binning_is_ortho(GaussianSplatRenderer::build_render_projection(perspective, flip, j)));
+				CHECK_FALSE(gs_test_tile_binning_is_ortho(GaussianSplatRenderer::build_render_projection(off_axis, flip, j)));
+				CHECK(gs_test_tile_binning_is_ortho(GaussianSplatRenderer::build_render_projection(ortho, flip, j)));
+				CHECK(gs_test_tile_binning_is_ortho(GaussianSplatRenderer::build_render_projection(shifted_ortho, flip, j)));
+			}
+		}
+	}
+
+	SUBCASE("the orthographic screen derivative is diag(focal_x, focal_y) at every depth") {
+		Projection ortho;
+		ortho.set_orthogonal(20.0f, viewport.x / viewport.y, 0.05f, 500.0f, false);
+		const Projection uploaded = GaussianSplatRenderer::build_render_projection(ortho, true, jitter);
+		REQUIRE(gs_test_tile_binning_is_ortho(uploaded));
+
+		const double focal_x = double(uploaded.columns[0][0]) * viewport.x * 0.5;
+		const double focal_y = double(uploaded.columns[1][1]) * viewport.y * 0.5;
+		// World units. The orthographic map is affine, so the difference quotient
+		// is exact for any h; a full unit keeps float rounding of ~1000 px screen
+		// coordinates well below the tolerances.
+		const real_t h = 1.0f;
+		for (const real_t depth : { real_t(2.0), real_t(20.0), real_t(200.0) }) {
+			const Vector3 p(1.5f, -2.0f, -depth);
+			const Vector2 s0 = gs_test_screen_px(uploaded, p, viewport);
+			const Vector2 sx = gs_test_screen_px(uploaded, p + Vector3(h, 0.0f, 0.0f), viewport);
+			const Vector2 sy = gs_test_screen_px(uploaded, p + Vector3(0.0f, h, 0.0f), viewport);
+			const Vector2 sz = gs_test_screen_px(uploaded, p + Vector3(0.0f, 0.0f, -h), viewport);
+			// d(screen)/d(view): row 0 = (focal_x, 0, 0), row 1 = (0, focal_y, 0).
+			CHECK((sx.x - s0.x) / h == doctest::Approx(focal_x).epsilon(1e-3));
+			CHECK((sy.y - s0.y) / h == doctest::Approx(focal_y).epsilon(1e-3));
+			CHECK(Math::abs((sy.x - s0.x) / h) < 1e-2);
+			CHECK(Math::abs((sx.y - s0.y) / h) < 1e-2);
+			CHECK(Math::abs((sz.x - s0.x) / h) < 1e-2);
+			CHECK(Math::abs((sz.y - s0.y) / h) < 1e-2);
+			// The same derivative at all three depths is the point: the
+			// pre-#1156 perspective Jacobian scaled this diagonal by 1/depth
+			// (20x per axis, 400x in footprint area, at depth 20).
+		}
+	}
+
+	SUBCASE("an ortho size above the viewport height leaves the perspective focal band") {
+		// Camera3D KEEP_HEIGHT: set_orthogonal(size, aspect, near, far, false)
+		// makes the vertical extent `size`, so focal_y = viewport.y / size.
+		Projection large;
+		large.set_orthogonal(2000.0f, viewport.x / viewport.y, 0.05f, 5000.0f, false);
+		const Projection uploaded = GaussianSplatRenderer::build_render_projection(large, true, Vector2());
+		REQUIRE(gs_test_tile_binning_is_ortho(uploaded));
+		const double focal_y = double(uploaded.columns[1][1]) * viewport.y * 0.5;
+		CHECK(Math::abs(focal_y) == doctest::Approx(viewport.y / 2000.0));
+		// The perspective band rejects |focal| < 1; this valid camera is below it.
+		CHECK(Math::abs(focal_y) < 1.0);
+		CHECK(Math::abs(focal_y) > 0.0);
+	}
+}
+
 } // namespace TestGaussianSplatting

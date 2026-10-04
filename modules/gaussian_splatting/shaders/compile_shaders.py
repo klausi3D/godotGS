@@ -34,6 +34,7 @@ ISSUE_COUNTER_INIT = "#1322"
 ISSUE_DIAGNOSTICS = "#1324"
 ISSUE_RASTER_BOUNDS = "#51"
 ISSUE_SORTER_MATRIX = "#525"
+ISSUE_ORTHO_PROJECTION = "#1156"
 
 SECTION_TAG_RE = re.compile(r"^\s*#\[(compute|vertex|fragment)\]\s*$")
 VERSION_DEFINES_RE = re.compile(r"^\s*#VERSION_DEFINES\s*$")
@@ -1453,6 +1454,36 @@ ABI_CONTRACTS: tuple[ValidationContract, ...] = (
                     r"struct ProjectedGaussian",
                     r"uint data\[9\];",
                     r"uint data\[8\];",
+                ),
+            ),
+        ),
+    ),
+    # #1156: the host uploads Godot's projection verbatim (tile_render_stages.cpp),
+    # orthographic included -- editor top/front/side views, PROJECTION_ORTHOGONAL
+    # cameras, directional-light shadow passes. project_gaussian_2d must classify
+    # it the same way tile_resolve.glsl does and, for orthographic, use the
+    # depth-free Jacobian diag(focal_x, focal_y) instead of the perspective
+    # 1/z one (which shrank every footprint by 1/depth^2), with its own focal
+    # range check instead of the perspective band that rejected every splat once
+    # the ortho size exceeded the viewport height.
+    ValidationContract(
+        key="tile_binning_orthographic_jacobian",
+        issue_id=ISSUE_ORTHO_PROJECTION,
+        description="Tile binning uses the orthographic EWA Jacobian for orthographic projections.",
+        files=(
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_binning.glsl",
+                patterns=(
+                    r"bool gs_is_ortho = abs\(params\.projection_matrix\[2\]\[3\]\) < 0\.5;",
+                    r"if \(gs_is_ortho\) \{[^}]*focal_x_abs >= GS_ORTHO_MIN_FOCAL_PX_PER_UNIT[^}]*focal_length_reject",
+                    r"\} else if \(focal_x_abs < 1\.0 \|\| focal_y_abs < 1\.0",
+                    r"if \(gs_is_ortho\) \{[^}]*J = mat3\(vec3\(focal_x, 0\.0, 0\.0\), vec3\(0\.0, focal_y, 0\.0\), vec3\(0\.0\)\);\s*\} else \{",
+                ),
+            ),
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_resolve.glsl",
+                patterns=(
+                    r"bool gs_is_ortho = abs\(params\.projection_matrix\[2\]\[3\]\) < 0\.5;",
                 ),
             ),
         ),
