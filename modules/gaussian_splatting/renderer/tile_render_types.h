@@ -379,12 +379,18 @@ struct TileDiagnosticsState {
 	// tile at the per-tile raster cap (OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP), dropping its
 	// farthest records. overflow_drop_events counts every channel, this one only the cap.
 	mutable uint32_t raster_tile_cap_drop_events = 0;
-	// #1137: production per-frame drop counters, read by the same always-on readback. They
-	// hold overflow_splats_clamped / overflow_tile_count of the most recently SAMPLED frame
-	// (every channel), and that frame's serial (0 = nothing sampled yet). The readback skips
-	// frames while one is in flight, so not every frame is sampled.
+	// #1137: production per-frame drop counters of the most recently SAMPLED frame, read by
+	// the same always-on readback, and that frame's serial (0 = nothing sampled yet). The
+	// readback skips frames while one is in flight, so not every frame is sampled.
+	//  - sampled_dropped_records = overflow_splats_clamped: overlap records not drawn, from EVERY
+	//    channel (binning per-tile capacity / global budget, raster availability clamp, raster cap).
+	//  - sampled_raster_truncated_tiles = overflow_tile_count: tiles the RASTERIZER truncated,
+	//    counted once per tile: tiles past the per-tile raster cap, and tiles whose whole record
+	//    range lies beyond the overlap budget. Tiles that only lost records in tile binning are
+	//    NOT counted (binning drops are per record, and no per-tile once-flag exists there), so
+	//    this can be 0 while sampled_dropped_records is not.
 	mutable uint32_t sampled_dropped_records = 0;
-	mutable uint32_t sampled_dropped_tiles = 0;
+	mutable uint32_t sampled_raster_truncated_tiles = 0;
 	mutable uint64_t sampled_drop_frame_serial = 0;
 	bool runtime_statistics_enabled = false;
 	Vector<uint32_t> tile_density_snapshot;

@@ -339,8 +339,10 @@ from about 47 m instead of 23 m).
 
 **How you know:** the first time it happens, a renderer logs
 `Per-tile raster cap reached: …` once. `get_overflow_stats()` reports
-`raster_tile_cap_drop_events` (intervals with at least one truncated tile) and
-`sampled_dropped_records` / `sampled_dropped_tiles` for the most recently sampled frame.
+`raster_tile_cap_drop_events` (intervals with at least one truncated tile). For the most
+recently sampled frame it also reports `sampled_dropped_records` (records not drawn, from every
+cause) and `sampled_raster_truncated_tiles` (tiles the rasterizer truncated; tiles that lost
+records earlier, in tile binning, are not counted there).
 
 **Workaround:** set `max_raster_splats_per_tile` to a positive value, up to `65536`. A
 positive value overrides any preset. This costs **frame time, not memory**: one workgroup

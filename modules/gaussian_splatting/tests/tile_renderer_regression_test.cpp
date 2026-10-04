@@ -1843,7 +1843,7 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_fragment
     // dense 100K cloud exhausts it: the later tiles' record ranges then start past the records that
     // exist, and the rasterizer's availability clamp drops those tiles WHOLE. Rendered on the
     // fragment path (ForceOff), whose drop atomics used to run in every fragment of the tile, so
-    // overflow_tile_count -- and the production sampled_dropped_tiles copied from it -- reported up
+    // overflow_tile_count -- and the production sampled_raster_truncated_tiles copied from it -- reported up
     // to 256x the real tile count. A per-tile count can never exceed the number of tiles.
     TestResult result;
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -1901,11 +1901,11 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_fragment
                 if (tile_renderer->get_sampled_drop_frame_serial() != last_serial) {
                     last_serial = tile_renderer->get_sampled_drop_frame_serial();
                     sampled_frames++;
-                    max_tiles = MAX<uint32_t>(max_tiles, tile_renderer->get_sampled_dropped_tiles());
+                    max_tiles = MAX<uint32_t>(max_tiles, tile_renderer->get_sampled_raster_truncated_tiles());
                 }
             }
             free_scene();
-            const String state = vformat("total_tiles=%d sampled_frames=%d max_sampled_dropped_tiles=%d used_compute=%s",
+            const String state = vformat("total_tiles=%d sampled_frames=%d max_sampled_raster_truncated_tiles=%d used_compute=%s",
                     total_tiles, sampled_frames, max_tiles, used_compute ? "yes" : "no");
             if (used_compute) {
                 r.error_message = "ForceOff still rendered on the compute rasterizer; " + state;
@@ -3498,7 +3498,7 @@ TEST_CASE("[GaussianSplatting][TileRenderer][RequiresGPU] A per-tile raster cap 
     CHECK(renderer.get_raster_tile_cap_drop_events() == 1u);
     CHECK(renderer.get_overflow_drop_events() == events_before + 1u);
     CHECK(renderer.get_sampled_dropped_records() == 600u);
-    CHECK(renderer.get_sampled_dropped_tiles() == 1u);
+    CHECK(renderer.get_sampled_raster_truncated_tiles() == 1u);
     CHECK(renderer.get_sampled_drop_frame_serial() == 7u);
 
     // Next frame (frame-start clear, then a binning-only drop): an overflow event, but NOT a

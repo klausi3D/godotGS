@@ -102,7 +102,7 @@ go non-zero and the WARN fires once. Classify with `scripts/agentic/classify_cha
   the rasterizers; the fragment path counts once per tile, from the tile-origin fragment).
   The always-on readback now copies the whole 88-byte snapshot instead of the signal word, in
   the same single async copy, and keeps the sampled frame's `overflow_splats_clamped` /
-  `overflow_tile_count` as production per-frame counters. The raster channel has its own
+  `overflow_tile_count` as production per-frame counters (`sampled_dropped_records`, from every channel, and `sampled_raster_truncated_tiles`, which counts only tiles the rasterizer truncated, since binning drops are per record and carry no per-tile once-flag). The raster channel has its own
   warning (once per renderer) and its own `raster_tile_cap_drop_events` counter;
   `overflow_drop_events` still counts read intervals with a drop on any channel. Layout is
   unchanged.

@@ -208,7 +208,7 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
     std::memcpy(&sample, p_data.ptr(), sizeof(OverflowStatsSnapshot));
     const uint32_t drop_signal = sample.overflow_drop_signal;
     owner.diagnostics.sampled_dropped_records = sample.overflow_splats_clamped;
-    owner.diagnostics.sampled_dropped_tiles = sample.overflow_tile_count;
+    owner.diagnostics.sampled_raster_truncated_tiles = sample.overflow_tile_count;
     owner.diagnostics.sampled_drop_frame_serial = overflow_signal_readback.requested_frame_serial;
     if ((drop_signal & GaussianSplatting::OVERFLOW_DROP_SIGNAL_RASTER_TILE_CAP) != 0u) {
         // #1137: a rasterizer truncated a tile at GS_MAX_RASTER_SPLATS_PER_TILE. Records are
@@ -219,13 +219,13 @@ void TileRenderer::TileRendererDebugStats::on_overflow_signal_readback(const Vec
         if (owner.diagnostics.raster_tile_cap_drop_events == 0u) {
             WARN_PRINT(vformat("[TileRenderer] Per-tile raster cap reached: a %dx%d px tile held more than "
                     "%d overlap records, and the records past the cap (the farthest ones) were not drawn "
-                    "(%d records in %d tiles on the sampled frame). Dense far views show tile-shaped holes. "
+                    "(sampled frame: %d tiles truncated by the rasterizer, %d records dropped in all). Dense far views show tile-shaped holes. "
                     "Raise rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile (0 = the "
                     "gpu_preset's value, maximum 65536) or reduce splat density. Shown once per renderer; "
                     "see raster_tile_cap_drop_events in get_overflow_stats() for the running total.",
                     owner.config_state.tile_size, owner.config_state.tile_size,
                     int(TileRenderer::_get_effective_raster_tile_cap()),
-                    int(sample.overflow_splats_clamped), int(sample.overflow_tile_count)));
+                    int(sample.overflow_tile_count), int(sample.overflow_splats_clamped)));
         }
         owner.diagnostics.raster_tile_cap_drop_events++;
     }

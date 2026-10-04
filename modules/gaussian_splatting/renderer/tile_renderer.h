@@ -236,7 +236,7 @@ public:
     // the production per-frame drop counters of the most recently sampled frame (all channels).
     uint32_t get_raster_tile_cap_drop_events() const { return diagnostics.raster_tile_cap_drop_events; }
     uint32_t get_sampled_dropped_records() const { return diagnostics.sampled_dropped_records; }
-    uint32_t get_sampled_dropped_tiles() const { return diagnostics.sampled_dropped_tiles; }
+    uint32_t get_sampled_raster_truncated_tiles() const { return diagnostics.sampled_raster_truncated_tiles; }
     uint64_t get_sampled_drop_frame_serial() const { return diagnostics.sampled_drop_frame_serial; }
     uint32_t get_raster_tile_cap() const { return _get_effective_raster_tile_cap(); }
 

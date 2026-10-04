@@ -900,12 +900,14 @@ Dictionary RenderDebugStateOrchestrator::get_overflow_stats() const {
 	out["raster_splats_iterated"] = static_cast<int64_t>(overflow.raster_splats_iterated);
 	out["raster_splats_contributed"] = static_cast<int64_t>(overflow.raster_splats_contributed);
 	// #1137: production (always-on) drop telemetry, independent of the debug-gated readback
-	// above. sampled_* are the drop counts (all channels) of the most recently sampled frame;
-	// raster_tile_cap_drop_events counts read-intervals in which the per-tile raster cap
-	// truncated a tile; raster_tile_cap is the cap compiled into the raster shaders.
+	// above, for the most recently sampled frame: sampled_dropped_records counts records dropped
+	// on every channel; sampled_raster_truncated_tiles counts only tiles the rasterizer truncated
+	// (raster cap, or the whole range beyond the overlap budget), not tiles that lost records in
+	// binning (see TileDiagnosticsState). raster_tile_cap_drop_events counts read-intervals in
+	// which the per-tile raster cap truncated a tile; raster_tile_cap is the cap in force.
 	const TileRenderer *tr = tile_renderer->ptr();
 	out["sampled_dropped_records"] = static_cast<int64_t>(tr->get_sampled_dropped_records());
-	out["sampled_dropped_tiles"] = static_cast<int64_t>(tr->get_sampled_dropped_tiles());
+	out["sampled_raster_truncated_tiles"] = static_cast<int64_t>(tr->get_sampled_raster_truncated_tiles());
 	out["sampled_drop_frame_serial"] = static_cast<int64_t>(tr->get_sampled_drop_frame_serial());
 	out["overflow_drop_events"] = static_cast<int64_t>(tr->get_overflow_drop_events());
 	out["raster_tile_cap_drop_events"] = static_cast<int64_t>(tr->get_raster_tile_cap_drop_events());
