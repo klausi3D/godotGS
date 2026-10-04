@@ -1580,6 +1580,95 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a failed bake leaves the world unt
 	DirAccess::remove_absolute(path);
 }
 
+namespace TestGaussianSplatHlod {
+
+class HlodBakeObserver : public Object {
+public:
+	GaussianSplatWorld *world = nullptr;
+	int notifications = 0;
+	bool edit_payload = false;
+	bool saw_complete_bake = false;
+
+	void on_changed() {
+		if (++notifications != 1 || !edit_payload) {
+			return;
+		}
+		saw_complete_bake = world->has_hlod_tree() && world->is_hlod_payload_current() && world->get_chunk_count() > 0;
+		Ref<GaussianData> data = world->get_gaussian_data();
+		if (data.is_valid() && data->get_count() > 0) {
+			Gaussian edited = data->get_gaussian(0);
+			edited.opacity = 0.01f;
+			data->set_gaussian(0, edited);
+		}
+	}
+};
+
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a rejected file-backed bake preserves streaming and emits no changes") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> bad;
+	hlod_make_fixture(3000u, 1000u, bad);
+	bad[10].opacity = NAN;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	const String path = hlod_temp_path("failed_streamable_bake");
+	if (saver.save_with_payload_mode(hlod_make_world(bad), path,
+			ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED) != OK) {
+		FAIL("save streamable failure fixture");
+		return;
+	}
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> world = loader.load(path, path, &err);
+	if (world.is_null() || err != OK || !world->is_streamable_payload()) {
+		FAIL("load a file-backed failure fixture");
+		world.unref();
+		DirAccess::remove_absolute(path);
+		return;
+	}
+	Ref<ChunkPayloadSource> source = world->get_chunk_payload_source();
+	const PackedInt32Array chunks = world->get_chunk_sizes();
+	const Array chunk_bounds = world->get_chunk_aabbs();
+	const AABB bounds = world->get_bounds();
+	HlodBakeObserver *observer = memnew(HlodBakeObserver);
+	world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	CHECK(world->bake_hlod() == ERR_INVALID_DATA);
+	CHECK(world->is_streamable_payload());
+	CHECK_FALSE(world->has_resident_gaussian_data());
+	CHECK(world->get_chunk_payload_source() == source);
+	CHECK(world->get_chunk_sizes() == chunks);
+	CHECK(world->get_chunk_aabbs() == chunk_bounds);
+	CHECK(world->get_bounds() == bounds);
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK_EQ(observer->notifications, 0);
+	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	memdelete(observer);
+	world.unref();
+	source.unref();
+	DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake notifications publish complete state and cannot bless callback edits") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	HlodBakeObserver *observer = memnew(HlodBakeObserver);
+	observer->world = world.ptr();
+	observer->edit_payload = true;
+	world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	CHECK(world->bake_hlod() == OK);
+	CHECK_EQ(observer->notifications, 1);
+	CHECK(observer->saw_complete_bake);
+	CHECK_FALSE(world->is_hlod_payload_current());
+	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	memdelete(observer);
+	ResourceFormatSaverGaussianSplatWorld saver;
+	const String path = hlod_temp_path("callback_stale_bake");
+	CHECK(saver.save(world, path) == ERR_INVALID_DATA);
+	DirAccess::remove_absolute(path);
+}
+
 #ifdef TOOLS_ENABLED
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when the bake fails, and never replaces a good import with a corrupt v2 source") {
 	using namespace TestGaussianSplatHlod;

@@ -77,8 +77,8 @@ public:
 
     Error save_to_file(const String &p_path) const;
 
-    // HLOD (slice S1a). bake_hlod() bakes the tree from the resident payload (materializing a
-    // file-backed one first), reorders the payload into leaf order and replaces the chunks with
+    // HLOD (slice S1a). bake_hlod() bakes the tree from a resident or file-backed payload,
+    // reorders the payload into leaf order and replaces the chunks with
     // the leaves. Opt-in: nothing bakes implicitly at export (ADR §7).
     Error bake_hlod();
     bool has_hlod_tree() const { return !hlod_tree.is_empty(); }

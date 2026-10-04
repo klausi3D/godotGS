@@ -705,7 +705,13 @@ inconsistency. The #420 importance clamp is retired in the same slice.
     in-place import (destination is the source) is copied, not baked; **a failed bake falls
     back to the plain tree-less copy with a warning** (`hlod_skip_reason = "bake_failed"`),
     so a world that imported before the bump still imports. While baking, the importer holds
-    the payload about three times over (source, snapshot, bake working set), then about twice.
+    three full-sized payload copies (source, snapshot, bake working set), plus merged nodes,
+    scratch and allocator overhead, then two full-sized copies while saving. This is copy
+    accounting, not a peak-RSS bound. The actual Windows editor importer at `50254cdace5`
+    used a peak working set of 8.11 GiB on the 8M SH3 scan (2.304 GB source payload,
+    Gaussian and SH sections combined; 3.78 times that payload). A rejected file-backed
+    `bake_hlod()` does not materialize or otherwise publish a replacement world, and a
+    successful bake publishes its complete state before notifying observers.
   - The 2D flag is carried through the bake and the format, not refused: the PLY loader sets
     it for any PLY with normals, which standard 3DGS exports carry, and no shader reads it.
   - A tree records its leaf payload's content revision; the saver refuses a tree whose payload

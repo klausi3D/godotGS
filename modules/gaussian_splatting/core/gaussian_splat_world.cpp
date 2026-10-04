@@ -397,24 +397,27 @@ Error GaussianSplatWorld::bake_hlod() {
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
     // shader reads it (GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D in gs_instance_layout.glsl
     // have no consumer), so refusing it would refuse almost every real scan.
-    if (gaussian_data.is_null()) {
-        const Error err = materialize_resident_gaussian_data();
-        ERR_FAIL_COND_V_MSG(err != OK, err, "GaussianSplatWorld.bake_hlod(): no resident or file-backed payload to bake.");
-    }
-    ERR_FAIL_COND_V_MSG(gaussian_data.is_null() || gaussian_data->get_count() == 0, ERR_UNCONFIGURED,
+    ERR_FAIL_COND_V_MSG(!has_renderable_payload(), ERR_UNCONFIGURED,
+            "GaussianSplatWorld.bake_hlod(): no resident or file-backed payload to bake.");
+    const uint32_t count = get_splat_count();
+    ERR_FAIL_COND_V_MSG(count == 0, ERR_UNCONFIGURED,
             "GaussianSplatWorld.bake_hlod(): the world has no splats.");
 
     gs_hlod::BakeResult result;
     uint32_t sh_first_order = 0;
     uint32_t sh_high_order_count = 0;
-    const bool is_2d = gaussian_data->get_2d_mode();
+    const bool is_2d = get_2d_mode();
     {
         // Scoped so the snapshot is freed as soon as the bake has consumed it (peak memory).
         LocalVector<Gaussian> gaussians;
         LocalVector<Vector3> sh_high_order;
-        ERR_FAIL_COND_V(!gaussian_data->capture_chunk_snapshot(0, gaussian_data->get_count(), gaussians, sh_high_order,
-                                sh_first_order, sh_high_order_count),
-                ERR_CANT_ACQUIRE_RESOURCE);
+        // File-backed input stays file-backed until every fallible bake step succeeds.
+        const bool captured = gaussian_data.is_valid()
+                ? gaussian_data->capture_chunk_snapshot(0, count, gaussians, sh_high_order,
+                          sh_first_order, sh_high_order_count)
+                : chunk_payload_source->capture_chunk_snapshot(0, count, gaussians, sh_high_order,
+                          sh_first_order, sh_high_order_count);
+        ERR_FAIL_COND_V(!captured, ERR_CANT_ACQUIRE_RESOURCE);
         gs_hlod::BakeInput input;
         input.gaussians = gaussians.ptr();
         input.count = gaussians.size();
@@ -445,7 +448,14 @@ Error GaussianSplatWorld::bake_hlod() {
     baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order, sh_high_order_count, is_2d);
     result.leaf_gaussians.reset();
     result.leaf_sh_high_order.reset();
-    _assign_gaussian_data(baked, false);
+    // Publish only after the payload, metadata, tree and chunks agree. Setter notifications
+    // here would expose partial state and could stamp a callback's edit as a current bake.
+    gaussian_data = baked;
+    splat_count_metadata = baked->get_count();
+    sh_degree_metadata = baked->get_sh_degree();
+    sh_first_order_count_metadata = sh_first_order;
+    sh_high_order_count_metadata = sh_high_order_count;
+    is_2d_metadata = is_2d;
     bounds = keep_bounds.has_volume() ? keep_bounds : baked->get_aabb();
     hlod_tree = std::move(result.tree);
     hlod_tree.leaf_payload_revision = baked->get_content_revision();
