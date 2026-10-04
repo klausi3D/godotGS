@@ -498,7 +498,11 @@ PackedByteArray _make_spz_v2_single_point_payload(uint8_t p_alpha, uint8_t p_r, 
     w[13] = 160;
     w[14] = 160;
     w[15] = 160;
-    // Rotation bytes remain zero => identity quaternion after reconstruction.
+    // Rotation (v2): byte 128 is a zero component under the reference
+    // (byte - 127.5) / 127.5 decode, so 128/128/128 is the identity (#1154).
+    w[16] = 128;
+    w[17] = 128;
+    w[18] = 128;
     return payload;
 }
 

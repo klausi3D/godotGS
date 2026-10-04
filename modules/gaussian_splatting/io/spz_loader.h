@@ -32,10 +32,12 @@
  * - Decoded as: scale = exp((encoded - 128) / 16.0)
  * - Range approximately [1e-5, 2e+4]
  *
- * **Rotations**: Smallest-three quaternion encoding
- * - Version 2: 3 bytes per rotation (8 bits per component)
- * - Version 3: 4 bytes per rotation (improved precision)
- * - Uses smallest-three encoding: store 3 smallest components, reconstruct 4th
+ * **Rotations**: quaternions, normalised into the w >= 0 hemisphere
+ * - Version 2: 3 bytes per rotation, (x, y, z) as UNSIGNED bytes with a 127.5
+ *   offset: decoded as c = (byte - 127.5) / 127.5, w = sqrt(max(0, 1 - |xyz|^2))
+ *   (Niantic packQuaternionFirstThree; byte 128 is a zero component)
+ * - Version 3: 4 bytes per rotation, smallest-three encoding: a 2-bit index of
+ *   the largest component plus three 10-bit (sign + 9-bit magnitude) components
  *
  * **Alphas**: 8-bit unsigned integers
  * - Decoded using inverse sigmoid: alpha = sigmoid((encoded - 128) / 32.0)

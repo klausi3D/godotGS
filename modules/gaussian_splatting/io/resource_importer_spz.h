@@ -58,7 +58,14 @@ public:
     //       imported by v4-v7 from such an SPZ holds poisoned splats in its .res;
     //       bumping the format version makes Godot re-run import() automatically
     //       so it fails loudly instead of shipping the NaN to the GPU.
-    virtual int get_format_version() const override { return 8; }
+    //   v9: SPZ v2 rotations are decoded with the reference unsigned 127.5
+    //       offset, (byte - 127.5) / 127.5, instead of int8 / 127 (issue #1154).
+    //       An asset imported by v4-v8 from a v2 file holds wrong orientations
+    //       in its .res (the identity became a 180-degree turn); bumping the
+    //       format version makes Godot re-run import() automatically. v3 files
+    //       decode unchanged. (The colour ADR planned 8->9 for the SPZ DC decode;
+    //       that change takes the next free number.)
+    virtual int get_format_version() const override { return 9; }
 
     ResourceImporterSPZ();
 };

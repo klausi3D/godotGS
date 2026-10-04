@@ -24,10 +24,17 @@ struct SyntheticSpzSplat {
 // SPZLoader::load_file() accepts: a 16-byte uncompressed header followed by the
 // gzip-compressed SoA payload (positions -> alphas -> colors -> scales ->
 // rotations). Mirrors synthetic_ply_writer.{h,cpp} in style. Values are
-// quantized exactly as the loader expects to decode them, so a handful of splats
-// with distinct positions / scales round-trip predictably. Returns true on
-// success.
+// quantized the way the Niantic reference encoder (nianticlabs/spz load-spz.cc)
+// packs them -- NOT as the inverse of SPZLoader -- so a loader decode that
+// disagrees with the format fails the round trip. Returns true on success.
 bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSplat> &p_splats,
+        uint8_t p_fractional_bits = 12);
+
+// Write an SPZ v2 (sh_degree 0) file around a caller-built, UNCOMPRESSED SoA
+// payload of p_count splats (19 bytes each: positions, alphas, colours, scales,
+// rotations). Lets a test pin exact bytes taken from the reference encoding
+// instead of going through write_synthetic_spz's quantizers.
+bool write_spz_v2_payload(const String &p_path, uint32_t p_count, const LocalVector<uint8_t> &p_payload,
         uint8_t p_fractional_bits = 12);
 
 } // namespace TestGaussianSplatting

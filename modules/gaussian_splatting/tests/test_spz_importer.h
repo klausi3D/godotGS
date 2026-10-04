@@ -75,6 +75,141 @@ TEST_CASE("[GaussianSplatting][SPZ] synthetic writer round-trips through SPZLoad
     DirAccess::remove_absolute(path);
 }
 
+// ---------------------------------------------------------------------------
+// SPZ v2 rotation decode (#1154).
+//
+// The reference encoder (nianticlabs/spz load-spz.cc, packQuaternionFirstThree)
+// normalises the quaternion, multiplies it by -127.5 when w < 0 (moving it into
+// the w >= 0 hemisphere) or +127.5 otherwise, adds 127.5 and stores x, y, z as
+// UNSIGNED bytes via toUint8 (round half away from zero, clamp to 0..255). The
+// decode is (byte - 127.5) / 127.5 with w = sqrt(max(0, 1 - |xyz|^2)).
+// ---------------------------------------------------------------------------
+namespace TestGaussianSplattingSPZ {
+
+// A quaternion and its sign-flipped twin are the same rotation, so compare
+// through |dot|. 0.9995 allows the v2 quantisation step (1/127.5 per component;
+// the worst case among the inputs below is 0.99997) and rejects the pre-#1154
+// int8/127 decode by a wide margin (its best case among the inputs is 0.60).
+inline bool _spz_same_rotation(const Quaternion &p_a, const Quaternion &p_b) {
+    return Math::abs(p_a.normalized().dot(p_b.normalized())) >= 0.9995f;
+}
+
+} // namespace TestGaussianSplattingSPZ
+
+TEST_CASE("[GaussianSplatting][SPZ] v2 rotation bytes decode with the reference 127.5 offset (#1154)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    // Bytes pinned from the reference formula, independent of both the loader and
+    // write_synthetic_spz, so this fails if either side drifts from the format.
+    // Each row: source quaternion (x, y, z, w) -> the three bytes the reference
+    // encoder writes for it, e.g. 0.301511 * 127.5 + 127.5 = 165.94 -> 166.
+    struct PinnedRotation {
+        Quaternion source;
+        uint8_t bytes[3];
+    };
+    const PinnedRotation pinned[] = {
+        { Quaternion(0.0f, 0.0f, 0.0f, 1.0f), { 128, 128, 128 } }, // identity: 127.5 rounds to 128
+        { Quaternion(0.3f, -0.5f, 0.1f, 0.8f).normalized(), { 166, 63, 140 } },
+        // w < 0: the encoder negates the quaternion before packing.
+        { Quaternion(-0.6f, 0.2f, 0.4f, -0.66f).normalized(), { 204, 102, 76 } },
+        { Quaternion(0.7071068f, 0.0f, 0.0f, 0.7071068f), { 218, 128, 128 } }, // 90 degrees about X
+        { Quaternion(0.0f, 0.0f, 0.38268343f, 0.92387953f), { 128, 128, 176 } }, // 45 degrees about Z
+    };
+    const uint32_t count = sizeof(pinned) / sizeof(pinned[0]);
+
+    // SoA payload: positions (9 B, zero), alphas (255), colours (128), scales
+    // (160 -> exp(160 / 16 - 10) = 1), rotations (3 B).
+    LocalVector<uint8_t> payload;
+    for (uint32_t i = 0; i < count * 9; i++) {
+        payload.push_back(0);
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(255);
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(128);
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(160);
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(pinned[i].bytes[0]);
+        payload.push_back(pinned[i].bytes[1]);
+        payload.push_back(pinned[i].bytes[2]);
+    }
+    REQUIRE(payload.size() == count * 19);
+
+    const String path = _spz_fixture_path("v2_rotation_pinned");
+    REQUIRE(TestGaussianSplatting::write_spz_v2_payload(path, count, payload));
+
+    SPZLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("SPZLoader must produce GaussianData for a valid v2 file");
+        DirAccess::remove_absolute(path);
+        return;
+    }
+    if (data->get_count() != int(count)) {
+        FAIL(vformat("SPZLoader loaded %d splats, expected %d", data->get_count(), int(count)));
+        DirAccess::remove_absolute(path);
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const Quaternion loaded = data->get_gaussian(int(i)).rotation;
+        CHECK_MESSAGE(_spz_same_rotation(loaded, pinned[i].source),
+                vformat("splat %d: bytes (%d, %d, %d) decoded to %s, expected %s (sign-insensitive)",
+                        int(i), int(pinned[i].bytes[0]), int(pinned[i].bytes[1]), int(pinned[i].bytes[2]), loaded, pinned[i].source));
+    }
+
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ] synthetic writer round-trips non-identity v2 rotations (#1154)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    const Quaternion sources[] = {
+        Quaternion(),
+        Quaternion(Vector3(1, 0, 0), Math::deg_to_rad(90.0f)),
+        Quaternion(Vector3(0, 1, 0), Math::deg_to_rad(-60.0f)),
+        Quaternion(Vector3(0, 0, 1), Math::deg_to_rad(45.0f)),
+        Quaternion(Vector3(1, 2, -3).normalized(), Math::deg_to_rad(130.0f)),
+        Quaternion(-0.6f, 0.2f, 0.4f, -0.66f).normalized(), // w < 0
+    };
+    const uint32_t count = sizeof(sources) / sizeof(sources[0]);
+
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats = _make_spz_splats(count);
+    for (uint32_t i = 0; i < count; i++) {
+        splats[i].rotation = sources[i];
+    }
+
+    const String path = _spz_fixture_path("v2_rotation_roundtrip");
+    REQUIRE(TestGaussianSplatting::write_synthetic_spz(path, splats));
+
+    SPZLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("SPZLoader must produce GaussianData for a valid v2 file");
+        DirAccess::remove_absolute(path);
+        return;
+    }
+    if (data->get_count() != int(count)) {
+        FAIL(vformat("SPZLoader loaded %d splats, expected %d", data->get_count(), int(count)));
+        DirAccess::remove_absolute(path);
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const Quaternion loaded = data->get_gaussian(int(i)).rotation;
+        CHECK_MESSAGE(_spz_same_rotation(loaded, sources[i]),
+                vformat("splat %d: wrote %s, loaded %s (sign-insensitive)", int(i), sources[i], loaded));
+    }
+
+    DirAccess::remove_absolute(path);
+}
+
 TEST_CASE("[GaussianSplatting][SPZ] importer default options are a no-op (count unchanged)") {
 #ifndef TOOLS_ENABLED
     MESSAGE("Skipping - ResourceImporterSPZ requires TOOLS_ENABLED");

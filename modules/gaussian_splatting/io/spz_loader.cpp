@@ -661,36 +661,31 @@ Error SPZLoader::parse_scales(const uint8_t *p_data, uint32_t p_data_size, uint3
 }
 
 Error SPZLoader::parse_rotations_v2(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Quaternion> &r_rotations) {
-    // Version 2: (x, y, z) quaternion components as 8-bit signed integers
-    // w is computed from normalization
-    // SPZ uses RUB, Godot uses RUF - apply Z-flip transformation to quaternion
+    // Version 2: the quaternion's (x, y, z) as three UNSIGNED bytes with a 127.5
+    // offset; w is reconstructed. This is the Niantic reference encoding
+    // (nianticlabs/spz load-spz.cc, packQuaternionFirstThree): the encoder flips
+    // the normalised quaternion into the w >= 0 hemisphere and stores
+    //   byte = toUint8(c * 127.5 + 127.5)
+    // so a zero component is byte 128 (127.5 rounded) and the decode is
+    //   c = (byte - 127.5) / 127.5,  w = sqrt(max(0, 1 - |xyz|^2)).
+    // Reading the bytes as int8 / 127 (the pre-#1154 decode) inverted the sign of
+    // every byte above 127 and turned the identity into a 180-degree rotation.
+    // No coordinate-system conversion is applied here, matching the v3 path.
     const uint64_t needed = uint64_t(header.num_points) * 3ull;
     ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
     for (uint32_t i = 0; i < header.num_points; i++) {
-        int8_t qx = (int8_t)p_data[r_offset++];
-        int8_t qy = (int8_t)p_data[r_offset++];
-        int8_t qz = (int8_t)p_data[r_offset++];
+        const float x = (float(p_data[r_offset++]) - 127.5f) / 127.5f;
+        const float y = (float(p_data[r_offset++]) - 127.5f) / 127.5f;
+        const float z = (float(p_data[r_offset++]) - 127.5f) / 127.5f;
 
-        // Convert from [-127, 127] to [-1, 1]
-        float x = qx / 127.0f;
-        float y = qy / 127.0f;
-        float z = qz / 127.0f;
+        // |xyz| can exceed 1 only through quantisation or a malformed file; w is
+        // then 0 and the normalisation below rescales xyz onto the unit sphere.
+        const float sum_sq = x * x + y * y + z * z;
+        const float w = sqrtf(MAX(0.0f, 1.0f - sum_sq));
 
-        // Compute w (assume positive w)
-        float sum_sq = x * x + y * y + z * z;
-        float w = 1.0f;
-        if (sum_sq < 1.0f) {
-            w = sqrtf(1.0f - sum_sq);
-        } else {
-            // Normalize if sum exceeds 1
-            float scale = 1.0f / sqrtf(sum_sq);
-            x *= scale;
-            y *= scale;
-            z *= scale;
-            w = 0.0f;
-        }
-
-        r_rotations[i] = Quaternion(x, y, z, w);
+        Quaternion q(x, y, z, w);
+        q.normalize();
+        r_rotations[i] = q;
     }
 
     return OK;
