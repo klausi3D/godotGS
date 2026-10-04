@@ -587,24 +587,34 @@ GaussianSplatRenderer::RenderFramePlan GaussianSplatRenderer::build_frame_plan(c
             p_clear_cull_state_on_skip, p_authoritative_route_decision);
 }
 
-Projection GaussianSplatRenderer::build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const {
-	Projection cull_projection = p_projection;
-	if (p_render_data && p_render_data->scene_data && p_render_data->scene_data->flip_y) {
-		// Frustum plane extraction must use the same flip convention as cull/sort paths.
-		cull_projection.columns[1][1] = -cull_projection.columns[1][1];
+Projection GaussianSplatRenderer::apply_flip_y(const Projection &p_projection, bool p_flip_y) {
+	if (!p_flip_y) {
+		return p_projection;
 	}
-	return cull_projection;
+	// The engine's own flip (#1159): RenderSceneDataRD::get_cam_projection()
+	// left-multiplies set_depth_correction(flip_y), which negates the whole
+	// clip-space Y ROW -- columns[j][1] for every j -- not just columns[1][1].
+	// reverse_z/remap_z stay false: the gaussian pipeline carries linear
+	// view-space depth, so only the Y flip of that correction applies here.
+	Projection correction;
+	correction.set_depth_correction(true, false, false);
+	return correction * p_projection;
+}
+
+Projection GaussianSplatRenderer::build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const {
+	// Frustum plane extraction must use the same flip as the render path. A
+	// whole-row flip only swaps the top and bottom planes of the extracted set,
+	// so the cull volume is the camera's real frustum for every projection type.
+	return apply_flip_y(p_projection,
+			p_render_data && p_render_data->scene_data && p_render_data->scene_data->flip_y);
 }
 
 Projection GaussianSplatRenderer::build_render_projection(const Projection &p_projection, bool p_flip_y,
 		const Vector2 &p_taa_jitter) {
-	Projection render_projection = p_projection;
-	if (p_flip_y) {
-		// Same flip convention as build_cull_projection(); the gaussian pipeline
-		// deliberately skips the engine's depth correction because it carries
-		// linear view-space depth.
-		render_projection.columns[1][1] = -render_projection.columns[1][1];
-	}
+	// Same flip as build_cull_projection(); the gaussian pipeline deliberately
+	// skips the engine's reverse-Z/remap depth correction because it carries
+	// linear view-space depth.
+	const Projection render_projection = apply_flip_y(p_projection, p_flip_y);
 	if (p_taa_jitter == Vector2()) {
 		// The overwhelmingly common case (no temporal stage active). Returning
 		// here rather than multiplying by an identity keeps the non-temporal
@@ -2006,13 +2016,10 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     shadow_pass.shadow_framebuffer = p_shadow_framebuffer;
     shadow_pass.flip_y = p_flip_y;
 
-    Projection projection = p_light_projection;
-    Projection render_projection = p_light_projection;
-    bool gs_flip_y = !p_flip_y;
-    if (gs_flip_y) {
-        projection.columns[1][1] = -projection.columns[1][1];
-        render_projection.columns[1][1] = -render_projection.columns[1][1];
-    }
+    // Whole-row flip, the engine's convention (#1159); see apply_flip_y().
+    const bool gs_flip_y = !p_flip_y;
+    const Projection projection = apply_flip_y(p_light_projection, gs_flip_y);
+    const Projection render_projection = projection;
 
     ScopedShadowPassState shadow_state_guard(*this, shadow_pass, shadow_output_compositor);
 

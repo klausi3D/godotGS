@@ -945,6 +945,74 @@ TEST_CASE("[GaussianSplatting] Cull projection contract applies flip_y consisten
 	CHECK(renderer->get_performance_state().metrics.cull_projection_contract_mismatch_count == 1);
 }
 
+// #1159: under flip_y the cull projection must describe the camera's REAL
+// frustum for an off-axis projection. The engine's whole-row flip only swaps the
+// top and bottom planes Projection::get_projection_planes() extracts, so the
+// plane SET is the unflipped one. The pre-#1159 single-entry flip (columns[1][1]
+// only) produced the vertically mirrored frustum for Camera3D
+// PROJECTION_FRUSTUM with frustum_offset.y != 0, so visible splats were culled.
+static bool gs_test_plane_set_contains(const Vector<Plane> &p_planes, const Plane &p_plane) {
+	for (int i = 0; i < p_planes.size(); i++) {
+		if (p_planes[i].is_equal_approx(p_plane)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool gs_test_point_inside_planes(const Vector<Plane> &p_planes, const Vector3 &p_point) {
+	for (int i = 0; i < p_planes.size(); i++) {
+		if (p_planes[i].is_point_over(p_point)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+TEST_CASE("[GaussianSplatting] Cull projection under flip_y keeps the real off-axis frustum (#1159)") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	REQUIRE(renderer.is_valid());
+
+	// Camera3D PROJECTION_FRUSTUM: size 2, aspect 16:9, frustum_offset (0, 0.6),
+	// near 0.5. At the near plane y spans [-0.4, 1.6], so y / -z spans
+	// [-0.8, 3.2]; the mirrored frustum spans [-3.2, 0.8].
+	Projection projection;
+	projection.set_frustum(2.0f, 16.0f / 9.0f, Vector2(0.0f, 0.6f), 0.5f, 100.0f);
+	REQUIRE(projection.columns[2][1] != 0.0f);
+
+	RenderDataRD render_data;
+	RenderSceneDataRD scene_data;
+	render_data.scene_data = &scene_data;
+	scene_data.flip_y = true;
+	const Projection cull_projection = renderer->build_cull_projection(&render_data, projection);
+
+	const Transform3D camera; // identity: view space == world space
+	const Vector<Plane> real_planes = projection.get_projection_planes(camera);
+	const Vector<Plane> cull_planes = cull_projection.get_projection_planes(camera);
+	REQUIRE(real_planes.size() == 6);
+	REQUIRE(cull_planes.size() == 6);
+	for (int i = 0; i < real_planes.size(); i++) {
+		CHECK_MESSAGE(gs_test_plane_set_contains(cull_planes, real_planes[i]),
+				vformat("cull plane set is missing real frustum plane %d", i));
+	}
+
+	// A point in the upper part of the offset frustum (y / -z = 2): inside the
+	// real frustum and the cull frustum. The old single-entry flip mirrors the
+	// frustum about y = 0, which puts this point outside it -- proving the
+	// fixture can see the bug.
+	const Vector3 near_top(0.0f, 2.0f, -1.0f);
+	CHECK(gs_test_point_inside_planes(real_planes, near_top));
+	CHECK(gs_test_point_inside_planes(cull_planes, near_top));
+	Projection old_flip = projection;
+	old_flip.columns[1][1] = -old_flip.columns[1][1];
+	CHECK_FALSE(gs_test_point_inside_planes(old_flip.get_projection_planes(camera), near_top));
+
+	// The contract check accepts the engine-convention matrix and rejects the old one.
+	CHECK(renderer->validate_cull_projection_contract(&render_data, projection, cull_projection, "unit_test_1159"));
+	CHECK(!renderer->validate_cull_projection_contract(&render_data, projection, old_flip, "unit_test_1159_old"));
+}
+
 TEST_CASE("[GaussianSplatting] Instanced readiness gate requires quantization buffer when enabled") {
     GaussianRenderPipeline::InstancePipelineBuffers missing_quantization =
             make_ready_instance_pipeline_buffers(true);

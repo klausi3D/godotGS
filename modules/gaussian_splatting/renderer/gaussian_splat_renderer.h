@@ -379,7 +379,7 @@ public:
         RID render_target;
         Transform3D world_to_camera_transform;
         Projection projection;
-        Projection cull_projection; // Flip/depth-corrected projection for culling (no jitter).
+        Projection cull_projection; // apply_flip_y()-corrected projection for culling (no jitter, no depth remap).
         // GPU projection uploaded to the splat pipeline: flip_y plus the engine's
         // taa_jitter, and deliberately NOT the engine depth correction (the gaussian
         // pipeline carries linear view-space depth). Built by
@@ -1791,6 +1791,35 @@ public:
      * @param p_projection Camera projection matrix.
      */
     void tick_streaming_only(const Transform3D &p_camera_to_world_transform, const Projection &p_projection);
+
+    /**
+     * @brief Applies the engine's clip-space Y flip to a projection (#1159).
+     *
+     * Returns `correction * p_projection` with
+     * `correction.set_depth_correction(p_flip_y, false, false)`: the same
+     * LEFT-multiplied correction `RenderSceneDataRD::get_cam_projection()`
+     * applies to ordinary geometry (`render_scene_data_rd.cpp:40-45`,
+     * `core/math/projection.cpp:787-801`), minus its reverse-Z/remap part,
+     * which the gaussian pipeline must not carry (it uses linear view-space
+     * depth). It negates the whole clip-Y ROW, `columns[j][1]` for every j.
+     *
+     * Until #1159 every GS path negated only `columns[1][1]`. The two agree
+     * exactly when `columns[0][1]`, `columns[2][1]` and `columns[3][1]` are
+     * zero (symmetric perspective, centred orthographic) and diverge otherwise:
+     * an off-axis `Projection::set_frustum()` (Camera3D `PROJECTION_FRUSTUM`
+     * with `frustum_offset.y != 0`, XR eye projections) writes `columns[2][1]`,
+     * a shifted `set_orthogonal()` writes `columns[3][1]`. There the old flip
+     * displaced splats vertically against meshes and mirrored the extracted
+     * top/bottom cull planes. `columns[0][0]` and `columns[1][1]` -- the
+     * entries `shaders/tile_binning.glsl` derives focal_x/focal_y from -- come
+     * out identical under both flips, and for p_flip_y == false (or a symmetric
+     * matrix) the result equals the old matrix exactly.
+     *
+     * Used by the render, cull and shadow projections alike, so the three can
+     * never disagree on the convention again.
+     */
+    static Projection apply_flip_y(const Projection &p_projection, bool p_flip_y);
+
     Projection build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const;
     bool validate_cull_projection_contract(RenderDataRD *p_render_data, const Projection &p_projection,
             const Projection &p_cull_projection, const char *p_context);
@@ -1800,25 +1829,24 @@ public:
      *
      * Two corrections, and deliberately not a third:
      *
-     * - `p_flip_y` negates `columns[1][1]`, matching every other GS path's flip
-     *   convention (see `build_cull_projection()`). NOTE, because the jitter
-     *   comment below must not be read as covering it: this is the module's
-     *   pre-existing single-entry flip, not the engine's. The engine's
-     *   `Projection::set_depth_correction(flip_y)` negates the whole y ROW of
-     *   the product, i.e. `columns[j][1]` for every j. The two coincide exactly
-     *   for a symmetric perspective projection, where `columns[0][1]`,
-     *   `columns[2][1]` and `columns[3][1]` are all zero, and diverge for an
-     *   off-axis frustum (`Projection::set_frustum` writes a non-zero
-     *   `columns[2][1]` when the vertical frustum offset is non-zero). That
-     *   divergence predates #929 and is unchanged by it.
+     * - `p_flip_y` is the engine's whole-row clip-Y flip, applied through
+     *   `apply_flip_y()` exactly as `build_cull_projection()` and the shadow
+     *   pass apply it: `correction * projection` with
+     *   `set_depth_correction(flip_y, false, false)`, negating `columns[j][1]`
+     *   for every j. Until #1159 this negated only `columns[1][1]`, which
+     *   coincides with the engine for a symmetric perspective projection and
+     *   diverged for an off-axis frustum (`Projection::set_frustum` writes a
+     *   non-zero `columns[2][1]` when the vertical frustum offset is non-zero)
+     *   and a shifted orthographic one (`columns[3][1]`).
      * - `p_taa_jitter` is the engine's per-frame temporal jitter, applied as the
      *   same left-multiplied translation `RenderSceneDataRD::get_cam_projection()`
      *   uses (`servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.cpp:40-45`
      *   -> `Projection::add_jitter_offset()`, `core/math/projection.cpp:932-935`).
-     *   The jitter TERM is the engine's exactly, for every projection type: the
-     *   engine adds it to `columns[3][0]`/`[3][1]` of a correction matrix whose
-     *   y entry is diagonal, so the contribution is `+jitter.x * columns[j][3]`
-     *   and `+jitter.y * columns[j][3]` either way, independent of the flip.
+     *   Composition order is `jitter * (flip * projection)`; the engine builds
+     *   one correction holding both (`m[5] = -1` plus the jitter in
+     *   `columns[3][0]`/`[3][1]`), and `jitter * flip` is exactly that matrix,
+     *   so the whole render projection now equals the engine's
+     *   `get_cam_projection()` minus its depth remap, for every projection type.
      *   Ordinary geometry is rendered with that offset, and FSR2 is handed the
      *   same vector and *un-jitters* by it (`thirdparty/amd-fsr2/shaders/
      *   ffx_fsr2_common.h:431-437`). Splats rendered without it are therefore

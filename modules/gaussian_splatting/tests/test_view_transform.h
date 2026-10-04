@@ -343,8 +343,9 @@ TEST_CASE("[GaussianSplatting][ViewTransform] Full pipeline simulation") {
 //      `RenderSceneDataRD::get_cam_projection()` applies
 //      (`render_scene_data_rd.cpp:40-45`). The JITTER TERM is the engine's
 //      exactly, for every projection type -- the last subcase pins that on an
-//      off-axis frustum. The FLIP beside it is the module's own single-entry
-//      one and is NOT the engine's; see build_render_projection()'s docblock.
+//      off-axis frustum. Since #1159 the FLIP beside it is the engine's own
+//      whole-row flip too (GaussianSplatRenderer::apply_flip_y()), so the
+//      off-axis subcase pins the WHOLE matrix to the engine's.
 //      Taking the jitter value verbatim is what
 //      makes the composite depth test compare GS depth against the engine's
 //      scene depth in the SAME subpixel frame; a rescaled or negated jitter
@@ -359,6 +360,9 @@ TEST_CASE("[GaussianSplatting][ViewTransform] Render projection carries the engi
 
 	// The pre-#929 construction, written out rather than referenced, so this case
 	// keeps meaning what it says if build_render_projection() is refactored.
+	// For this SYMMETRIC perspective the old single-entry flip and the engine's
+	// whole-row flip (#1159) are the same matrix, so "bit-identical to the
+	// pre-#929 matrix" still holds after #1159 changed the flip.
 	Projection flipped_only = cam;
 	flipped_only.columns[1][1] = -flipped_only.columns[1][1];
 
@@ -445,43 +449,169 @@ TEST_CASE("[GaussianSplatting][ViewTransform] Render projection carries the engi
 		CHECK(a != b);
 	}
 
-	SUBCASE("the jitter term is unchanged by an off-axis frustum") {
-		// The symmetric perspective above is exactly the case where the module's
+	SUBCASE("an off-axis frustum gets the engine's flip and jitter, whole matrix (#1159)") {
+		// The symmetric perspective above is exactly the case where the old
 		// single-entry flip and the engine's whole-row flip agree, so on its own
-		// it cannot pin down what the jitter does for any other projection type.
+		// it cannot pin down either term for any other projection type.
 		//
-		// This is the case where they DIVERGE: set_frustum() with a vertical
-		// offset writes a non-zero columns[2][1] (core/math/projection.cpp),
-		// which the module's flip leaves positive and the engine's negates. That
-		// divergence predates #929 and this PR does not change it -- it is
-		// recorded in build_render_projection()'s docblock and is not asserted
-		// here, because asserting it would pin a behaviour nobody has decided on.
-		//
-		// What IS asserted, and what the fix actually claims, is that the JITTER
-		// contribution is the engine's own translation regardless of projection
-		// type: it depends only on the w row, which neither flip touches.
+		// set_frustum() with a vertical offset writes a non-zero columns[2][1]
+		// (core/math/projection.cpp), which the pre-#1159 flip left positive and
+		// the engine negates. Until #1159 this subcase declined to assert the
+		// divergence; it now asserts the agreement: the render projection is the
+		// engine's RenderSceneDataRD::get_cam_projection() correction
+		// (render_scene_data_rd.cpp:40-45) -- flip and jitter in ONE matrix --
+		// applied to the camera projection, minus only its depth remap.
 		Projection frustum;
 		frustum.set_frustum(2.0f, 16.0f / 9.0f, Vector2(0.0f, 0.3f), 0.05f, 200.0f);
 		REQUIRE(frustum.columns[2][1] != 0.0f); // the divergent entry really is set
 
-		Projection frustum_flipped = frustum;
-		frustum_flipped.columns[1][1] = -frustum_flipped.columns[1][1];
-
 		const Vector2 jitter(0.5f / 960.0f, -0.25f / 540.0f);
-		const Projection built = GaussianSplatRenderer::build_render_projection(frustum, true, jitter);
+		Projection engine_correction;
+		engine_correction.set_depth_correction(true, false, false);
+		engine_correction.add_jitter_offset(jitter);
+		const Projection expected = engine_correction * frustum;
 
-		// The per-entry delta the jitter introduces is exactly what
-		// add_jitter_offset() contributes through the w row, on every column.
+		const Projection built = GaussianSplatRenderer::build_render_projection(frustum, true, jitter);
 		for (int c = 0; c < 4; c++) {
-			const real_t w_row = frustum_flipped.columns[c][3];
-			CHECK(built.columns[c][0] == doctest::Approx(frustum_flipped.columns[c][0] + jitter.x * w_row));
-			CHECK(built.columns[c][1] == doctest::Approx(frustum_flipped.columns[c][1] + jitter.y * w_row));
-			CHECK(built.columns[c][2] == frustum_flipped.columns[c][2]);
-			CHECK(built.columns[c][3] == frustum_flipped.columns[c][3]);
+			for (int r = 0; r < 4; r++) {
+				CHECK(built.columns[c][r] == doctest::Approx(expected.columns[c][r]));
+			}
 		}
-		// And zero jitter is still bit-identical for this projection type too.
+
+		// Discrimination: the pre-#1159 construction (single-entry flip, then the
+		// same jitter) differs from the engine in exactly the clip-Y entry the
+		// vertical offset writes, by a margin no tolerance above could absorb.
+		Projection old_flip = frustum;
+		old_flip.columns[1][1] = -old_flip.columns[1][1];
+		Projection jitter_only;
+		jitter_only.add_jitter_offset(jitter);
+		const Projection old_built = jitter_only * old_flip;
+		CHECK(Math::abs(old_built.columns[2][1] - expected.columns[2][1]) > real_t(0.5));
+		CHECK(Math::abs(built.columns[2][1] - expected.columns[2][1]) < real_t(1e-6));
+
+		// Zero jitter: exactly the flip correction times the camera projection,
+		// with no jitter multiply on top.
+		Projection flip_correction;
+		flip_correction.set_depth_correction(true, false, false);
 		const Projection unjittered = GaussianSplatRenderer::build_render_projection(frustum, true, Vector2());
-		CHECK(unjittered == frustum_flipped);
+		CHECK(unjittered == flip_correction * frustum);
+
+		// The focal-length entries the tile binning shader reads are the same
+		// under both flips: #1159 does not move the conic or the Jacobian.
+		CHECK(built.columns[0][0] == old_built.columns[0][0]);
+		CHECK(built.columns[1][1] == old_built.columns[1][1]);
+	}
+}
+
+// #1159: flip_y is the engine's whole-row clip-Y correction, not a negation of
+// columns[1][1] alone.
+//
+// The engine renders every mesh with `correction * cam_projection`, where
+// `correction.set_depth_correction(flip_y)` holds m[5] = -1
+// (core/math/projection.cpp:787-801, render_scene_data_rd.cpp:40-45). That
+// negates every entry of the clip-Y output row. GaussianSplatRenderer used to
+// negate only columns[1][1] in the render, cull and shadow projections; the two
+// agree only when columns[0][1], [2][1] and [3][1] are zero. For an off-axis
+// frustum (Camera3D PROJECTION_FRUSTUM with frustum_offset.y != 0, XR eyes) or a
+// shifted orthographic matrix they do not, and splats landed at a different NDC
+// y than meshes while the culler extracted a vertically mirrored frustum.
+//
+// What a failure looks like for each subcase: the asymmetric subcases compare
+// against the engine's own construction AND against the defining property of a
+// Y flip (NDC y negated, x/z/w untouched) at probe points, and each one first
+// proves its fixture can see the bug (the old flip lands >= 0.9 NDC away).
+static Vector3 gs_test_ndc(const Projection &p_projection, const Vector3 &p_view_pos) {
+	const Vector4 clip = p_projection.xform(Vector4(p_view_pos.x, p_view_pos.y, p_view_pos.z, 1.0f));
+	return Vector3(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+}
+
+static Projection gs_test_old_single_entry_flip(const Projection &p_projection) {
+	Projection flipped = p_projection;
+	flipped.columns[1][1] = -flipped.columns[1][1];
+	return flipped;
+}
+
+static Projection gs_test_engine_flip(const Projection &p_projection) {
+	Projection correction;
+	correction.set_depth_correction(true, false, false);
+	return correction * p_projection;
+}
+
+TEST_CASE("[GaussianSplatting][ViewTransform] flip_y is the engine's whole-row correction (#1159)") {
+	SUBCASE("symmetric perspective is unchanged, bit for bit") {
+		Projection cam;
+		cam.set_perspective(75.0f, 16.0f / 9.0f, 0.05f, 200.0f);
+		const Projection flipped = GaussianSplatRenderer::apply_flip_y(cam, true);
+		CHECK(flipped == gs_test_old_single_entry_flip(cam));
+		CHECK(flipped == gs_test_engine_flip(cam));
+		CHECK(GaussianSplatRenderer::apply_flip_y(cam, false) == cam);
+	}
+
+	SUBCASE("off-axis set_frustum matches the engine and not the old single-entry flip") {
+		// The audit's reproduction (record C06): l=-0.5 r=1.0 b=-0.3 t=0.8.
+		Projection frustum;
+		frustum.set_frustum(-0.5f, 1.0f, -0.3f, 0.8f, 0.1f, 100.0f);
+		REQUIRE(frustum.columns[2][1] != 0.0f);
+
+		const Projection flipped = GaussianSplatRenderer::apply_flip_y(frustum, true);
+		CHECK(flipped == gs_test_engine_flip(frustum));
+		CHECK(flipped != gs_test_old_single_entry_flip(frustum));
+		CHECK(flipped.columns[2][1] == -frustum.columns[2][1]);
+		CHECK(GaussianSplatRenderer::apply_flip_y(frustum, false) == frustum);
+
+		const Vector3 probes[3] = {
+			Vector3(0.0f, 0.0f, -1.0f),
+			Vector3(0.2f, 0.15f, -3.0f),
+			Vector3(-0.1f, -0.4f, -40.0f),
+		};
+		for (const Vector3 &probe : probes) {
+			const Vector3 base = gs_test_ndc(frustum, probe);
+			const Vector3 ndc = gs_test_ndc(flipped, probe);
+			CHECK(ndc.x == doctest::Approx(base.x));
+			CHECK(ndc.y == doctest::Approx(-base.y));
+			CHECK(ndc.z == doctest::Approx(base.z));
+		}
+		// The fixture can see the bug: (0,0,-1) is at NDC y = -0.4545 unflipped;
+		// the engine puts it at +0.4545, the old flip left it at -0.4545.
+		const real_t engine_y = gs_test_ndc(flipped, probes[0]).y;
+		const real_t old_y = gs_test_ndc(gs_test_old_single_entry_flip(frustum), probes[0]).y;
+		CHECK(engine_y == doctest::Approx(0.5 / 1.1));
+		CHECK(Math::abs(engine_y - old_y) > real_t(0.9));
+	}
+
+	SUBCASE("shifted orthographic matches the engine and not the old single-entry flip") {
+		Projection ortho;
+		ortho.set_orthogonal(-1.0f, 3.0f, -0.5f, 1.5f, 0.05f, 100.0f);
+		REQUIRE(ortho.columns[3][1] != 0.0f);
+
+		const Projection flipped = GaussianSplatRenderer::apply_flip_y(ortho, true);
+		CHECK(flipped == gs_test_engine_flip(ortho));
+		CHECK(flipped != gs_test_old_single_entry_flip(ortho));
+		CHECK(flipped.columns[3][1] == -ortho.columns[3][1]);
+		CHECK(flipped.is_orthogonal());
+
+		const Vector3 probes[2] = {
+			Vector3(0.0f, 0.0f, -1.0f),
+			Vector3(1.5f, 1.2f, -20.0f),
+		};
+		for (const Vector3 &probe : probes) {
+			const Vector3 base = gs_test_ndc(ortho, probe);
+			const Vector3 ndc = gs_test_ndc(flipped, probe);
+			CHECK(ndc.x == doctest::Approx(base.x));
+			CHECK(ndc.y == doctest::Approx(-base.y));
+			CHECK(ndc.z == doctest::Approx(base.z));
+		}
+		const real_t engine_y = gs_test_ndc(flipped, probes[0]).y;
+		const real_t old_y = gs_test_ndc(gs_test_old_single_entry_flip(ortho), probes[0]).y;
+		CHECK(Math::abs(engine_y - old_y) == doctest::Approx(1.0));
+	}
+
+	SUBCASE("render projection uses the same flip as apply_flip_y") {
+		Projection frustum;
+		frustum.set_frustum(-0.5f, 1.0f, -0.3f, 0.8f, 0.1f, 100.0f);
+		CHECK(GaussianSplatRenderer::build_render_projection(frustum, true, Vector2()) ==
+				GaussianSplatRenderer::apply_flip_y(frustum, true));
+		CHECK(GaussianSplatRenderer::build_render_projection(frustum, false, Vector2()) == frustum);
 	}
 }
 
