@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -120,6 +121,21 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 		if (n.aabb_min.x > n.aabb_max.x || n.aabb_min.y > n.aabb_max.y || n.aabb_min.z > n.aabb_max.z) {
 			return _fail(r_reason, vformat("%s %d has an inverted AABB.", what, i));
 		}
+		double center[3];
+		p_tree.node_cell_center(n, center);
+		const double runtime_max = std::numeric_limits<real_t>::max();
+		for (int a = 0; a < 3; a++) {
+			const double lo = center[a] + double(n.aabb_min[a]);
+			const double hi = center[a] + double(n.aabb_max[a]);
+			if (!Math::is_finite(center[a]) || std::abs(center[a]) > runtime_max ||
+					!Math::is_finite(lo) || !Math::is_finite(hi) || std::abs(lo) > runtime_max || std::abs(hi) > runtime_max) {
+				return _fail(r_reason, vformat("%s %d has coordinates outside the finite runtime range.", what, i));
+			}
+			// node_world_aabb subtracts after narrowing both endpoints to real_t.
+			if (!Math::is_finite(real_t(hi) - real_t(lo))) {
+				return _fail(r_reason, vformat("%s %d has an AABB size outside the finite runtime range.", what, i));
+			}
+		}
 		if (n.radius < 0.0f || n.error_chosen < 0.0f || n.error_rejected < 0.0f || n.geometric_error < 0.0f || n.overlap_footprint < 0.0f) {
 			return _fail(r_reason, vformat("%s %d has a negative radius or error.", what, i));
 		}
@@ -209,7 +225,7 @@ bool _validate_shape(const GaussianSplatHlodTree &p_tree, const LocalVector<Gaus
 
 bool gs_hlod_validate_tree(const GaussianSplatHlodTree &p_tree, String *r_reason) {
 	for (int a = 0; a < 3; a++) {
-		if (!std::isfinite(p_tree.origin[a])) {
+		if (!Math::is_finite(p_tree.origin[a])) {
 			return _fail(r_reason, "HLOD world origin is not finite.");
 		}
 	}

@@ -1633,7 +1633,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 			offsetof(Gaussian, sh_dc), offsetof(Gaussian, sh_1), offsetof(Gaussian, normal), offsetof(Gaussian, brush_axes) };
 		for (int interior = 0; interior < 2; interior++) {
 			for (uint32_t field = 0; field < std::size(fields) + 1u; field++) {
-				CAPTURE(mode, interior, field);
+				CAPTURE(mode);
+				CAPTURE(interior);
+				CAPTURE(field);
 				PackedByteArray bytes = valid;
 				PackedByteArray mutated = raw;
 				const uint64_t first = interior ? g.size() : 0u;
@@ -1680,7 +1682,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 				CHECK(err == ERR_FILE_CORRUPT);
 #ifdef TOOLS_ENABLED
 				CHECK(importer->import(ResourceUID::INVALID_ID, path, import_base, options, nullptr, nullptr, nullptr) == ERR_FILE_CORRUPT);
-				CHECK(hlod_read_file(import_base + ".gsplatworld") == previous);
+				CHECK(bool(hlod_read_file(import_base + ".gsplatworld") == previous));
 #endif
 			}
 		}
@@ -1723,7 +1725,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 		}
 		const char *invalid[] = { "{bad", "null", "[]", "42" };
 		for (const char *json : invalid) {
-			CAPTURE(mode, json);
+			CAPTURE(mode);
+			CAPTURE(json);
 			PackedByteArray bytes = valid;
 			memset(bytes.ptrw() + offset, ' ', size);
 			memcpy(bytes.ptrw() + offset, json, strlen(json));

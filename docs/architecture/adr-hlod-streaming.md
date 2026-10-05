@@ -702,6 +702,13 @@ inconsistency. The #420 importance clamp is retired in the same slice.
     Every present section must fit the file, start after the 184 B header and be disjoint
     from every other section. The compressed Gaussian extent includes its size prefix.
     Disjoint reordered sections remain readable; the writer's section order is not a loader gate.
+  - Before publication, every node's leaf or interior payload is checked for finite render/SH
+    fields and three-sigma containment in its stored AABB and sphere. Streamable files use
+    at most one node of validation scratch, not a resident world copy. The bound comparison
+    allows only node-relative serialization rounding (half a float ULP plus double arithmetic
+    rounding). Reconstructed node centres, AABB endpoints/sizes and payload positions must fit
+    finite runtime coordinates. Flagged metadata must be read completely and parse as a UTF-8
+    JSON dictionary; malformed metadata is an error, not an empty dictionary fallback.
   - Node flags: bits 0–1 the representation kind, bit 2 `split_by_index`, bit 3 `grouped_leaf`,
     bit 4 `origin_centred_root` (§6.1).
   - **Reserved bytes:** the node record's 32 reserved bytes are the stage-2 extension area, so
