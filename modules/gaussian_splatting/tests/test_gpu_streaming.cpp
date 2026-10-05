@@ -1,4 +1,5 @@
 #include "test_macros.h"
+#include "gs_test_pump.h"
 #include "../core/gaussian_streaming.h"
 #include "../renderer/gpu_memory_stream.h"
 #include "../renderer/gaussian_splat_renderer.h"
@@ -1401,12 +1402,15 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale generation upload jobs are dr
     system->unregister_asset(asset_id);
     system->register_asset(asset_id, create_test_gaussian_data(1024));
 
-    for (int i = 0; i < 96; i++) {
+    const auto stale_work_drained = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_pending_pack_jobs() == 0 && system->get_pending_upload_jobs() == 0) {
-            break;
-        }
-        OS::get_singleton()->delay_usec(500);
+        system->end_frame();
+        return system->get_pending_pack_jobs() == 0 && system->get_pending_upload_jobs() == 0;
+    });
+    if (!stale_work_drained.ready()) {
+        FAIL("Stale generation work did not drain ", stale_work_drained.describe());
+        return;
     }
 
     CHECK(system->get_pending_pack_jobs() == 0);
@@ -1422,12 +1426,15 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale generation upload jobs are dr
     system->begin_residency_requests();
     system->request_chunk_residency(asset_id, 0, 0);
     system->finalize_residency_requests();
-    for (int i = 0; i < 96; i++) {
+    const auto fresh_residency = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() > 0) {
-            break;
-        }
-        OS::get_singleton()->delay_usec(500);
+        system->end_frame();
+        return system->get_loaded_chunks() > 0;
+    });
+    if (!fresh_residency.ready()) {
+        FAIL("Fresh residency after stale generation did not complete ", fresh_residency.describe());
+        return;
     }
 
     CHECK(system->get_loaded_chunks() > 0);
@@ -1507,18 +1514,17 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale residency completion remains 
     system->begin_residency_requests();
     system->finalize_residency_requests();
 
-    for (int i = 0; i < 96; i++) {
+    const auto stale_completion = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() > 0 &&
+        system->end_frame();
+        return system->get_loaded_chunks() > 0 &&
                 system->get_pending_pack_jobs() == 0 &&
-                system->get_pending_upload_jobs() == 0) {
-            break;
-        }
-        OS::get_singleton()->delay_usec(500);
-    }
+                system->get_pending_upload_jobs() == 0;
+    });
 
-    if (system->get_loaded_chunks() == 0) {
-        FAIL("Stale request completion did not complete in test environment");
+    if (!stale_completion.ready()) {
+        FAIL("Stale request completion did not complete ", stale_completion.describe());
         return;
     }
 
@@ -1718,11 +1724,15 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Primary explicit residency bypasses
     CHECK(system->request_chunk_residency(0, 0, 0) == OK);
     system->finalize_residency_requests();
 
-    for (int i = 0; i < 8; i++) {
+    const auto explicit_residency = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() > 0) {
-            break;
-        }
+        system->end_frame();
+        return system->get_loaded_chunks() > 0;
+    });
+    if (!explicit_residency.ready()) {
+        FAIL("Explicit residency bypass did not complete ", explicit_residency.describe());
+        return;
     }
 
     Dictionary status = system->get_residency_request_status(0, 0);
@@ -2388,15 +2398,14 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] VRAM accounting includes auxiliary 
     system->request_chunk_residency(asset_id, 0, 0);
     system->finalize_residency_requests();
 
-    for (int i = 0; i < 96; i++) {
+    const auto residency = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() > 0) {
-            break;
-        }
-        OS::get_singleton()->delay_usec(500);
-    }
-    if (system->get_loaded_chunks() == 0) {
-        FAIL("Residency chunk failed to load in current test environment");
+        system->end_frame();
+        return system->get_loaded_chunks() > 0;
+    });
+    if (!residency.ready()) {
+        FAIL("Residency chunk failed to load ", residency.describe());
         return;
     }
 
@@ -2580,14 +2589,14 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Budget eviction prioritizes non-pri
     system->begin_residency_requests();
     system->request_chunk_residency(asset_id, 0, 0);
     system->finalize_residency_requests();
-    for (int i = 0; i < 32; i++) {
+    const auto non_primary_residency = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() > 0) {
-            break;
-        }
-    }
-    if (system->get_loaded_chunks() == 0) {
-        FAIL("Non-primary residency chunk failed to load in current test environment");
+        system->end_frame();
+        return system->get_loaded_chunks() > 0;
+    });
+    if (!non_primary_residency.ready()) {
+        FAIL("Non-primary residency chunk failed to load ", non_primary_residency.describe());
         return;
     }
 
@@ -2951,24 +2960,21 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
 
     uint64_t stable_generation_prev = 0;
     uint64_t stable_generation_curr = 0;
-    for (int i = 0; i < 180; i++) {
+    const auto stable_generation = TestGaussianSplatting::gs_pump_until([&]() {
         const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
         CHECK(rendered);
         if (!rendered) {
-            break;
+            return false;
         }
         if (renderer->has_rendered_content()) {
             stable_generation_prev = stable_generation_curr;
             stable_generation_curr = renderer->get_instance_pipeline_content_generation();
-            if (stable_generation_prev != 0 && stable_generation_prev == stable_generation_curr) {
-                break;
-            }
         }
-        OS::get_singleton()->delay_usec(500);
-    }
+        return stable_generation_prev != 0 && stable_generation_prev == stable_generation_curr;
+    });
 
-    if (stable_generation_prev == 0 || stable_generation_prev != stable_generation_curr) {
-        FAIL("Instance pipeline content generation did not stabilize in test environment");
+    if (!stable_generation.ready()) {
+        FAIL("Instance pipeline content generation did not stabilize ", stable_generation.describe());
         renderer.unref();
         return;
     }
@@ -2979,17 +2985,18 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
     renderer->clear_instance_pipeline_buffers();
 
     uint64_t generation_after_budget_change = generation_before_budget_change;
-    for (int i = 0; i < 90; i++) {
+    const auto changed_generation = TestGaussianSplatting::gs_pump_until([&]() {
         const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
         CHECK(rendered);
         if (!rendered) {
-            break;
+            return false;
         }
         generation_after_budget_change = renderer->get_instance_pipeline_content_generation();
-        if (generation_after_budget_change != generation_before_budget_change) {
-            break;
-        }
-        OS::get_singleton()->delay_usec(500);
+        return generation_after_budget_change != generation_before_budget_change;
+    });
+    if (!changed_generation.ready()) {
+        FAIL("Instance pipeline budget change did not advance content generation ", changed_generation.describe());
+        return;
     }
 
     CHECK(generation_after_budget_change != generation_before_budget_change);
@@ -3283,12 +3290,14 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streame
 
     CHECK_FALSE(renderer->has_rendered_content());
 
-    bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
-    CHECK(rendered);
-
-    if (!renderer->has_rendered_content()) {
-        rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
+    const auto streamed_content = TestGaussianSplatting::gs_pump_until([&]() {
+        const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
         CHECK(rendered);
+        return rendered && renderer->has_rendered_content() && renderer->get_visible_splat_count() == chunk_size;
+    });
+    if (!streamed_content.ready()) {
+        FAIL("The non-zero streaming chunk did not become visible ", streamed_content.describe());
+        return;
     }
 
     CHECK(renderer->has_rendered_content());
@@ -3380,18 +3389,17 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
     };
 
     uint32_t baseline_visible = 0;
-    bool instance_pipeline_ready = false;
-    for (int i = 0; i < 180; i++) {
+    const auto instance_pipeline_ready = TestGaussianSplatting::gs_pump_until([&]() {
         const uint32_t visible = render_sample(1);
         if (renderer->has_instance_pipeline_buffers() && renderer->has_rendered_content() && visible > 0) {
             baseline_visible = visible;
-            instance_pipeline_ready = true;
-            break;
+            return true;
         }
-    }
+        return false;
+    });
 
-    if (!instance_pipeline_ready || baseline_visible == 0) {
-        FAIL("Instance pipeline did not become ready in Stage-B culling regression test");
+    if (!instance_pipeline_ready.ready()) {
+        FAIL("Instance pipeline did not become ready in Stage-B culling regression test ", instance_pipeline_ready.describe());
         harness.teardown();
         return;
     }
