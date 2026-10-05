@@ -1850,7 +1850,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 		for (uint32_t i = 0; i < g.size(); i++) {
 			g[i].position = fixture == 2 ? Vector3(1000000.0f + float(i) * 0.0625f, 0, 0) : Vector3();
 			g[i].scale = fixture == 1 ? Vector3(0.01f, 0.25f, 0.0625f) : Vector3(0.01f, 0.01f, 0.01f);
-			g[i].rotation = fixture == 1 ? Quaternion(0.5f, 0.5f, 0.5f, 0.5f) : Quaternion();
+			g[i].rotation = fixture == 1 ? Quaternion(Vector3(1, 2, 3).normalized(), 0.37f) : Quaternion();
 		}
 		Ref<GaussianSplatWorld> world = hlod_make_world(g);
 		if (world->bake_hlod() != OK) {
@@ -1874,7 +1874,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 			}
 			for (bool resident : { false, true }) {
 				Error err = ERR_BUG;
-				Ref<GaussianSplatWorld> loaded = resident ? loader.load_resident(path, &err) : loader.load(path, "", &err);
+				Ref<GaussianSplatWorld> loaded;
+				if (resident) {
+					loaded = loader.load_resident(path, &err);
+				} else {
+					loaded = loader.load(path, "", &err);
+				}
 				if (loaded.is_null() || err != OK) {
 					FAIL("valid tight producer must load in every payload mode");
 					return;
@@ -1882,7 +1887,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 				Ref<ChunkPayloadSource> source = loaded->get_chunk_payload_source();
 				LocalVector<Gaussian> actual;
 				LocalVector<Vector3> actual_sh;
-				if (source.is_null() || !source->capture_chunk_snapshot(0, g.size(), actual, actual_sh, first_order, high_order)) {
+				bool captured = false;
+				if (loaded->has_resident_gaussian_data()) {
+					captured = loaded->get_gaussian_data()->capture_chunk_snapshot(0, g.size(), actual, actual_sh, first_order, high_order);
+				} else if (source.is_valid()) {
+					captured = source->capture_chunk_snapshot(0, g.size(), actual, actual_sh, first_order, high_order);
+				}
+				if (!captured) {
 					FAIL("loaded tight payload must remain readable");
 					return;
 				}
@@ -1896,6 +1907,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 			DirAccess::remove_absolute(path);
 		}
 	}
+}
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overlapping sections and preserves a prior import") {
 	using namespace TestGaussianSplatHlod;
