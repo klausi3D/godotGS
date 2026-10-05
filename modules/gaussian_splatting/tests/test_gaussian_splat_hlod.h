@@ -2454,6 +2454,72 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake notifications publish complet
 }
 
 #ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 producer rejects non-finite render extensions and preserves valid v1 fallback") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	for (int field = 0; field < 4; field++) {
+		CAPTURE(field);
+		LocalVector<Gaussian> bad;
+		hlod_make_fixture(0u, 1u, bad);
+		switch (field) {
+			case 0: bad[0].normal.x = NAN; break;
+			case 1: bad[0].area = NAN; break;
+			case 2: bad[0].stroke_age = NAN; break;
+			case 3: bad[0].brush_axes.x = NAN; break;
+		}
+		Ref<GaussianSplatWorld> world = hlod_make_world(bad);
+		const Ref<GaussianData> before = world->get_gaussian_data();
+		const int chunks_before = world->get_chunk_count();
+		const AABB bounds_before = world->get_bounds();
+		CHECK(world->bake_hlod() == ERR_INVALID_DATA);
+		CHECK(world->get_gaussian_data() == before);
+		CHECK(world->get_chunk_count() == chunks_before);
+		CHECK(world->get_bounds() == bounds_before);
+		CHECK_FALSE(world->has_hlod_tree());
+		for (int mode = 1; mode <= 3; mode++) {
+			CAPTURE(mode);
+			const String source_path = hlod_temp_path("extension_fallback_source");
+			const String base = hlod_temp_path("extension_fallback_previous");
+			LocalVector<Gaussian> good;
+			hlod_make_fixture(0u, 1u, good);
+			if (saver.save(hlod_make_world(good), source_path) != OK ||
+					importer->import(ResourceUID::INVALID_ID, source_path, base, options, nullptr, nullptr, nullptr) != OK) {
+				FAIL("establish a previous good import");
+				return;
+			}
+			if (saver.save_with_payload_mode(hlod_make_world(bad), source_path,
+						ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("save legal tree-less v1 source");
+				return;
+			}
+			const PackedByteArray source_bytes = hlod_read_file(source_path);
+			Error err = ERR_BUG;
+			if (loader.load(source_path, "", &err).is_null() || err != OK) {
+				FAIL("v1 remains legal input for the existing plain-copy fallback");
+				return;
+			}
+			Variant metadata;
+			CHECK(importer->import(ResourceUID::INVALID_ID, source_path, base, options, nullptr, nullptr, &metadata) == OK);
+			CHECK(String(Dictionary(metadata).get("hlod_skip_reason", "")) == "bake_failed");
+			CHECK(FileAccess::exists(base + ".gsplatworld"));
+			CHECK(bool(hlod_read_file(base + ".gsplatworld") == source_bytes));
+			CHECK(bool(hlod_read_file(source_path) == source_bytes));
+			Ref<GaussianSplatWorld> fallback = loader.load(base + ".gsplatworld", "", &err);
+			CHECK(fallback.is_valid());
+			CHECK(err == OK);
+			if (fallback.is_valid()) {
+				CHECK_FALSE(fallback->has_hlod_tree());
+			}
+			DirAccess::remove_absolute(base + ".gsplatworld");
+			DirAccess::remove_absolute(source_path);
+		}
+	}
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when the bake fails, and never replaces a good import with a corrupt v2 source") {
 	using namespace TestGaussianSplatHlod;
 	ResourceFormatSaverGaussianSplatWorld saver;
