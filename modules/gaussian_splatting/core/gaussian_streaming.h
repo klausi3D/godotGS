@@ -380,6 +380,7 @@ public:
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
     void _test_force_next_chunk_upload_failure() { test_force_next_chunk_upload_failure = true; }
+    void _test_apply_requested_residency_async() { _apply_requested_residency(true); }
 
     // Test-only access to atlas-state internals. Replaced the
     // `#define private public` macro that test_gpu_streaming.cpp used to reach

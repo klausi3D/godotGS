@@ -643,6 +643,10 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] update_streaming publishes phase ti
         const RID asset_chunk_index_before = system->get_asset_chunk_index_buffer();
         const uint64_t generation_before = system->get_atlas_generation();
 
+        // Keep topology fixed, but give this update real metadata to publish.
+        system->_test_mark_chunk_meta_dirty(asset_id, 0);
+        CHECK(system->get_atlas_generation() == generation_before);
+
         system->begin_frame();
         system->update_streaming(camera_transform, projection);
         const uint64_t generation_after_update = system->get_atlas_generation();

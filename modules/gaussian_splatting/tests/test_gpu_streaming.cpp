@@ -214,10 +214,29 @@ bool _prepare_async_chunk_load(GaussianStreamingSystem &p_system, uint32_t p_ass
         FAIL("Async fixture requires a running pack worker");
         return false;
     }
-    const bool queued = uploads.queue_chunk_load(p_system, p_asset_id, 0);
-    CHECK(queued);
-    if (!queued) {
-        FAIL("Async fixture could not queue chunk zero");
+    auto *asset = p_system._test_get_asset_state(p_asset_id);
+    if (!asset) {
+        FAIL("Async fixture has no registered asset");
+        return false;
+    }
+    auto &chunks = p_system._test_get_asset_chunks(*asset);
+    if (chunks.is_empty()) {
+        FAIL("Async fixture has no registered chunk");
+        return false;
+    }
+    const auto *request = asset->requested_chunk_state.getptr(0);
+    if (!request || request->stamp == 0) {
+        FAIL("Async fixture has no explicit residency request");
+        return false;
+    }
+    const uint64_t request_generation = request->stamp;
+    // Run the real request producer without the frame's upload consumer. It
+    // stamps the queued chunk before the stale/cancel mutation can happen.
+    p_system._test_apply_requested_residency_async();
+    CHECK(chunks[0].upload_pending);
+    CHECK(chunks[0].explicit_request_generation == request_generation);
+    if (!chunks[0].upload_pending || chunks[0].explicit_request_generation != request_generation) {
+        FAIL("Async fixture did not queue a producer-stamped explicit request");
         return false;
     }
     // Only drive the real worker here: the next update consumes its completed
