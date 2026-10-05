@@ -964,7 +964,8 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	}
 	Dictionary file_metadata;
 	if ((p_flags & kFlagHasMetadata) != 0u) {
-		if (p_metadata_size == 0u || p_metadata_size > INT32_MAX) {
+		// append_utf8 needs an additional int-sized character slot for the terminator.
+		if (p_metadata_size == 0u || p_metadata_size >= INT32_MAX) {
 			return refuse("metadata cannot be decoded as a JSON dictionary");
 		}
 		PackedByteArray metadata_bytes;

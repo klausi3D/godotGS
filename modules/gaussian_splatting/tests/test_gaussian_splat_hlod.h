@@ -1632,7 +1632,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 		const size_t fields[] = { offsetof(Gaussian, position), offsetof(Gaussian, scale), offsetof(Gaussian, opacity),
 			offsetof(Gaussian, sh_dc), offsetof(Gaussian, sh_1), offsetof(Gaussian, normal), offsetof(Gaussian, brush_axes) };
 		for (int interior = 0; interior < 2; interior++) {
-			for (uint32_t field = 0; field < std::size(fields) + 1u; field++) {
+			for (uint32_t field = 0; field < std::size(fields) + 2u; field++) {
 				CAPTURE(mode);
 				CAPTURE(interior);
 				CAPTURE(field);
@@ -1671,6 +1671,31 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 				}
 				if (field == std::size(fields)) {
 					memcpy(bytes.ptrw() + u64_at(bytes, 64) + first * 12u * sizeof(Vector3), &bad, sizeof(bad));
+				}
+				if (field == std::size(fields) + 1u) {
+					// Keep a structurally valid table, but shrink one sphere below its own
+					// payload support. AABB-only validation must not pass this mutation.
+					GaussianSplatHlodTree table = world->get_hlod_tree();
+					uint32_t node_index = 0u;
+					while (node_index < table.nodes.size() && table.nodes[node_index].payload_first != first) {
+						node_index++;
+					}
+					if (node_index == table.nodes.size()) {
+						FAIL("find referenced payload node");
+						return;
+					}
+					GaussianSplatHlodNode &node = table.nodes[node_index];
+					double half_extent = 0.0;
+					for (int a = 0; a < 3; a++) {
+						half_extent = MAX(half_extent, 0.5 * (double(node.aabb_max[a]) - double(node.aabb_min[a])));
+					}
+					node.radius = std::nextafter(float(half_extent), INFINITY);
+					String reason;
+					if (!gs_hlod_validate_tree(table, &reason)) {
+						FAIL("sphere mutation must retain a valid node table");
+						return;
+					}
+					memcpy(bytes.ptrw() + u64_at(bytes, 136) + uint64_t(node_index) * 128u + 56u, &node.radius, 4);
 				}
 				if (!hlod_write_file(path, bytes)) {
 					FAIL("write mutated payload");
@@ -1794,6 +1819,63 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 	CHECK(err == ERR_FILE_CORRUPT);
 	DirAccess::remove_absolute(path);
 }
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic rotated and far-offset payloads round-trip") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int fixture = 0; fixture < 3; fixture++) {
+		LocalVector<Gaussian> g;
+		hlod_make_fixture(0u, fixture == 2 ? 2u : 1u, g);
+		for (uint32_t i = 0; i < g.size(); i++) {
+			g[i].position = fixture == 2 ? Vector3(1000000.0f + float(i) * 0.0625f, 0, 0) : Vector3();
+			g[i].scale = fixture == 1 ? Vector3(0.01f, 0.25f, 0.0625f) : Vector3(0.01f, 0.01f, 0.01f);
+			g[i].rotation = fixture == 1 ? Quaternion(0.5f, 0.5f, 0.5f, 0.5f) : Quaternion();
+		}
+		Ref<GaussianSplatWorld> world = hlod_make_world(g);
+		if (world->bake_hlod() != OK) {
+			FAIL("bake tight payload producer");
+			return;
+		}
+		LocalVector<Gaussian> expected;
+		LocalVector<Vector3> expected_sh;
+		uint32_t first_order = 0, high_order = 0;
+		if (!world->get_gaussian_data()->capture_chunk_snapshot(0, g.size(), expected, expected_sh, first_order, high_order)) {
+			FAIL("capture producer payload order");
+			return;
+		}
+		for (int mode = 1; mode <= 3; mode++) {
+			CAPTURE(fixture);
+			CAPTURE(mode);
+			const String path = hlod_temp_path("tight_control_review_r2");
+			if (saver.save_with_payload_mode(world, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("save tight producer control");
+				return;
+			}
+			for (bool resident : { false, true }) {
+				Error err = ERR_BUG;
+				Ref<GaussianSplatWorld> loaded = resident ? loader.load_resident(path, &err) : loader.load(path, "", &err);
+				if (loaded.is_null() || err != OK) {
+					FAIL("valid tight producer must load in every payload mode");
+					return;
+				}
+				Ref<ChunkPayloadSource> source = loaded->get_chunk_payload_source();
+				LocalVector<Gaussian> actual;
+				LocalVector<Vector3> actual_sh;
+				if (source.is_null() || !source->capture_chunk_snapshot(0, g.size(), actual, actual_sh, first_order, high_order)) {
+					FAIL("loaded tight payload must remain readable");
+					return;
+				}
+				CHECK(actual.size() == expected.size());
+				for (uint32_t i = 0; i < actual.size(); i++) {
+					CHECK(actual[i].position == expected[i].position);
+					CHECK(actual[i].scale == expected[i].scale);
+					CHECK(actual[i].rotation == expected[i].rotation);
+				}
+			}
+			DirAccess::remove_absolute(path);
+		}
+	}
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overlapping sections and preserves a prior import") {
 	using namespace TestGaussianSplatHlod;
