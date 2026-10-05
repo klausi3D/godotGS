@@ -754,7 +754,7 @@ private:
     // budget) until a contiguous run of p_required_pages exists. Returns whether it fits.
     bool _evict_until_atlas_fit(const ResidencyBudgetController::AdmissionGate &p_admission_gate,
             uint32_t p_required_pages, ResidencyBudgetController::AdmissionFrameBudget &r_frame_budget);
-    EvictionResult _evict_non_primary_lru();
+    EvictionResult _evict_non_primary_lru(bool p_allow_visible_eviction = true);
 
     // Distance-based LOD (Octree-GS) helpers
     void _update_chunk_lod_parameters(const Vector3 &camera_pos);

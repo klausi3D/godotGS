@@ -43,9 +43,9 @@ public:
             uint32_t p_visible_fit_pages = 0);
     // Returns EvictionResult and does NOT internally call record_eviction_result(),
     // matching the contract of evict_least_recently_used() so callers can drive
-    // bookkeeping explicitly. Returns NoEviction when nothing was evicted (either
-    // budget exhausted or no eligible candidates).
-    EvictionResult evict_non_primary_lru(GaussianStreamingSystem &system);
+    // bookkeeping explicitly. Returns SkippedAllVisible when the admission intent
+    // protects all remaining candidates; ordinary budget eviction allows visibility.
+    EvictionResult evict_non_primary_lru(GaussianStreamingSystem &system, bool p_allow_visible_eviction = true);
 
 private:
     static uint64_t make_chunk_key(uint32_t p_asset_id, uint32_t p_chunk_id);

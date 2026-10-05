@@ -3002,13 +3002,17 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
     // _evict_non_primary_lru() returns the actual EvictionResult; propagate it
     // so callers record visible-vs-nonvisible counts correctly (the previous
     // hardcoded EvictedNonVisible under-counted visible evictions).
-    EvictionResult non_primary_result = _evict_non_primary_lru();
+    // Prediction protects visible chunks in every asset, not only the primary fallback.
+    EvictionResult non_primary_result = _evict_non_primary_lru(p_admission_gate.context.allow_visible_eviction);
     if (non_primary_result == EvictionResult::EvictedNonVisible ||
             non_primary_result == EvictionResult::EvictedVisible) {
         return non_primary_result;
     }
 
     EvictionResult result = _evict_least_recently_used(false);
+    if (result == EvictionResult::NoEviction && non_primary_result == EvictionResult::SkippedAllVisible) {
+        result = EvictionResult::SkippedAllVisible;
+    }
     if (result == EvictionResult::SkippedAllVisible &&
             ResidencyBudgetController::should_attempt_visible_evict_fallback(p_admission_gate)) {
         r_visible_fallback_attempted = true;
@@ -4258,8 +4262,8 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_re
     return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages);
 }
 
-GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru() {
-    return eviction_controller.evict_non_primary_lru(*this);
+GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru(bool p_allow_visible_eviction) {
+    return eviction_controller.evict_non_primary_lru(*this, p_allow_visible_eviction);
 }
 
 void GaussianStreamingSystem::begin_frame() {

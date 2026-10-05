@@ -223,7 +223,8 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
     return EvictionResult::NoEviction;
 }
 
-StreamingEvictionController::EvictionResult StreamingEvictionController::evict_non_primary_lru(GaussianStreamingSystem &system) {
+StreamingEvictionController::EvictionResult StreamingEvictionController::evict_non_primary_lru(
+        GaussianStreamingSystem &system, bool p_allow_visible_eviction) {
     // Contract: this returns EvictionResult and does NOT internally call
     // record_eviction_result(). Callers are responsible for recording the
     // result so per-frame eviction-budget bookkeeping stays single-source.
@@ -301,8 +302,10 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_n
         system.scheduler.last_non_primary_eviction_candidate_count = cached_non_primary_lru_candidates.size();
     }
 
+    uint32_t first_skipped_visible = UINT32_MAX;
     while (cached_non_primary_lru_cursor < cached_non_primary_lru_candidates.size()) {
-        const NonPrimaryEvictionCandidate &candidate = cached_non_primary_lru_candidates[cached_non_primary_lru_cursor++];
+        const uint32_t candidate_index = cached_non_primary_lru_cursor++;
+        const NonPrimaryEvictionCandidate &candidate = cached_non_primary_lru_candidates[candidate_index];
         GaussianStreamingSystem::AtlasAssetState *asset = system._get_asset_state(candidate.asset_id);
         if (!asset) {
             continue;
@@ -319,9 +322,19 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_n
         }
 
         const bool was_visible = asset_chunks[candidate.chunk_id].is_visible;
+        if (was_visible && !p_allow_visible_eviction) {
+            first_skipped_visible = MIN(first_skipped_visible, candidate_index);
+            continue;
+        }
         system._unload_chunk(candidate.asset_id, candidate.chunk_id);
         return was_visible ? EvictionResult::EvictedVisible : EvictionResult::EvictedNonVisible;
     }
 
+    if (first_skipped_visible != UINT32_MAX) {
+        // A later needed admission in this frame may take this candidate. Successful
+        // unloads already invalidate the cache; a refused prefetch must not consume it.
+        cached_non_primary_lru_cursor = first_skipped_visible;
+        return EvictionResult::SkippedAllVisible;
+    }
     return EvictionResult::NoEviction;
 }
