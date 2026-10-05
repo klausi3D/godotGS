@@ -558,6 +558,7 @@ void StreamingGlobalAtlasRegistry::mark_chunk_meta_dirty(GaussianStreamingSystem
 void StreamingGlobalAtlasRegistry::sync_to_gpu(GaussianStreamingSystem &system, RenderingDevice *p_rd) {
 	_reset_sync_diagnostics();
 	if (!p_rd) {
+		WARN_PRINT_ONCE("[Streaming DIAG] _sync_global_atlas_state skipped GPU upload because RenderingDevice is null; atlas publication is invalid.");
 		// Invalidate publication, not ownership: the owning device must still be
 		// able to release these buffers or republish them when it becomes available.
 		global_atlas_state = GlobalAtlasState();
