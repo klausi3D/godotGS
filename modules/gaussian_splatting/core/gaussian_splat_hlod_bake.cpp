@@ -25,9 +25,10 @@ inline bool finite_gaussian(const Gaussian &p_g) {
 	const float v[] = { p_g.position.x, p_g.position.y, p_g.position.z, p_g.scale.x, p_g.scale.y, p_g.scale.z,
 		p_g.rotation.x, p_g.rotation.y, p_g.rotation.z, p_g.rotation.w, p_g.opacity, p_g.sh_dc.r, p_g.sh_dc.g,
 		p_g.sh_dc.b, p_g.sh_dc.a, p_g.sh_1[0].x, p_g.sh_1[0].y, p_g.sh_1[0].z, p_g.sh_1[1].x, p_g.sh_1[1].y,
-		p_g.sh_1[1].z, p_g.sh_1[2].x, p_g.sh_1[2].y, p_g.sh_1[2].z };
+		p_g.sh_1[1].z, p_g.sh_1[2].x, p_g.sh_1[2].y, p_g.sh_1[2].z, p_g.area, p_g.normal.x, p_g.normal.y,
+		p_g.normal.z, p_g.stroke_age, p_g.brush_axes.x, p_g.brush_axes.y };
 	for (float f : v) {
-		if (!std::isfinite(f)) {
+		if (!Math::is_finite(f)) {
 			return false;
 		}
 	}
@@ -202,7 +203,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		if (sh_count > 0u) {
 			const Vector3 *sh = p_input.sh_high_order + uint64_t(i) * sh_count;
 			for (uint32_t c = 0; c < sh_count; c++) {
-				if (!std::isfinite(sh[c].x) || !std::isfinite(sh[c].y) || !std::isfinite(sh[c].z)) {
+				if (!Math::is_finite(sh[c].x) || !Math::is_finite(sh[c].y) || !Math::is_finite(sh[c].z)) {
 					return fail(vformat("HLOD bake refuses splat %d: an SH coefficient is not finite.", i));
 				}
 			}
