@@ -1387,7 +1387,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     // The real RD forbids buffer_update during an active compute list. The
     // synchronous stream must propagate that error rather than publish READY.
     const RenderingDevice::ComputeListID compute_list = rd->compute_list_begin();
-    if (compute_list == INVALID_ID) {
+    if (compute_list == RenderingDevice::INVALID_ID) {
         FAIL("GPU-failure fixture could not begin its compute list");
         pipeline->stop_streaming();
         pipeline->shutdown();
