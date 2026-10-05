@@ -4,6 +4,7 @@
 #include "core/object/ref_counted.h"
 #include "core/object/object_id.h"
 #include "core/os/mutex.h"
+#include "core/os/thread.h"
 #include "core/templates/local_vector.h"
 #include "servers/rendering/rendering_device.h"
 #include "../core/gaussian_data.h"
@@ -132,6 +133,7 @@ private:
     uint32_t buffer_size_mb = 256;
     bool use_persistent_mapping = false;
     bool enable_async_upload = true;
+    Thread::ID upload_owner_thread = Thread::UNASSIGNED_ID;
     uint32_t sh_coefficient_limit = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS;
 
     // Performance monitoring
@@ -282,6 +284,7 @@ public:
     uint32_t get_max_gaussians() const { return max_gaussians; }
     void set_async_upload(bool enabled) { enable_async_upload = enabled; }
     bool get_async_upload() const { return enable_async_upload; }
+    Thread::ID get_upload_owner_thread() const { return upload_owner_thread; }
     void set_sh_coefficient_limit(uint32_t limit) {
         sh_coefficient_limit = MIN<uint32_t>(limit, PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
     }
@@ -309,6 +312,13 @@ private:
         bool is_streaming = false;
     } state;
     mutable Mutex state_mutex;
+    Thread::ID upload_owner_thread = Thread::UNASSIGNED_ID;
+    LocalVector<Gaussian> pending_gaussians;
+    LocalVector<Vector3> pending_sh;
+    uint32_t pending_sh_first_order = 0;
+    uint32_t pending_sh_high_order = 0;
+    bool upload_pending = false;
+    Error last_upload_error = OK;
 
     // Prefetching and prediction
     struct PrefetchData {
@@ -341,6 +351,8 @@ public:
     // Streaming control
     void start_streaming();
     void stop_streaming();
+    // Drain the worker's bounded CPU snapshot on the initialization thread.
+    Error process_uploads();
     void update_view(const Transform3D &camera_transform, const Projection &projection);
 
     // LOD management
@@ -360,7 +372,7 @@ public:
     void force_defragment() { if (memory_stream.is_valid()) memory_stream->defragment_if_needed(); }
 
     // Current buffer access
-    RID get_current_buffer() { return memory_stream.is_valid() ? memory_stream->get_current_gpu_buffer() : RID(); }
+    RID get_current_buffer();
 
     // Statistics
     Dictionary get_streaming_stats() const;
