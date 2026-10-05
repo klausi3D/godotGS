@@ -328,6 +328,25 @@ see the note below the list.
 > holds. This is the promotion the status note above anticipated ("flipping the six lanes to
 > `strict` … is cheap for most of them"), done deliberately and one lane at a time.
 
+> **Promotion record: `Streaming Pipeline` -> strict (#1166).** Prepared without a build;
+> the evidence fields below are **NOT_RUN** and are to be filled from a `tests=yes` binary
+> on the self-hosted runner before the change is merged. Counts after the flip (derived from
+> `MODULE_TEST_FILTERS`): 29 lanes, 24 strict; the advisory set is down to
+> `GaussianSplatting [Synthetic]`, `[untagged]`, `[Renderer]`, `TileRenderer` and
+> `GPU Memory Stream` (plus the opt-in `[requires-RD]` catalogue, `REQUIRES_RD_TEST_FILTERS`),
+> which stay advisory until their known failures and zero coverage are laned or quarantined.
+>
+> | Field | Value |
+> | --- | --- |
+> | Lane | `Streaming Pipeline` (`*[Streaming Pipeline]*`, no excludes) |
+> | Why | Holds every #1087 (distance bound) and #1088 (atlas pages, byte budget, evict-until-fit) host test; advisory, a failure printed "advisory lane, continuing" |
+> | Corpus (derived, static) | 82 `[Streaming Pipeline]` cases in `test_gpu_streaming.cpp` (49) and `test_gaussian_streaming_lifecycle.cpp` (33) |
+> | Held in place by | `StreamingPipelineStrictPromotionTests` in `tests/ci/test_check_test_lane_coverage.py` (a `STRICT_COVERAGE_CONTRACTS` entry cannot express it: both source files carry cases that belong to other lanes) |
+> | Lane result on a current binary (`[module-tests][lane-result]`) | **NOT_RUN** |
+> | `skipped_markers` on a current binary | **NOT_RUN** (38 when this ADR was measured) |
+> | Repeated runs / flake check (the #846 bar) | **NOT_RUN** |
+> | Expected CI outcome until resolved | The strict lane FAILS in CI on any skipped marker: `runtime_lane_allowance` has no entry for this lane (allowance 0), and that ratchet refuses a NEW lane entry against the review base. Resolve by giving the skipping cases real coverage (GPU harness, or the #595 `GS_ENV_SKIP` conversion), never by demoting the lane |
+
 ## Consequences
 
 - The first honest, per-lane measurement of which advisory lanes are red becomes available

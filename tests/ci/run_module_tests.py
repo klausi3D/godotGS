@@ -221,7 +221,26 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # measured 11 cases / 2,097,742 assertions, all passing.
     ("TileRenderer", ("*[TileRenderer]*",), ("*][RequiresGPU]*",), False),
     ("GPU Memory Stream", ("*Triple Buffering*",), (), False),
-    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), (), False),
+    # #1166: PROMOTED to strict. This lane holds every #1087 (distance bound) and
+    # #1088 (atlas pages, byte budget, evict-until-fit) host test; as an advisory
+    # lane a failure printed "advisory lane, continuing" and CI stayed green.
+    # Only this lane is promoted here; [Synthetic], [untagged], [Renderer],
+    # TileRenderer and GPU Memory Stream (and the opt-in [requires-RD]
+    # catalogue) stay advisory
+    # until their known failures / zero coverage are laned or quarantined
+    # (docs/architecture/adr-advisory-lane-ledger.md). Held in place by
+    # StreamingPipelineStrictPromotionTests in test_check_test_lane_coverage.py.
+    #
+    # KNOWN CONSEQUENCE, stated rather than discovered: many cases in
+    # test_gpu_streaming.cpp return early with MESSAGE("Skipping - Rendering
+    # device unavailable") under --headless --test. In CI a strict lane fails on
+    # ANY skipped doctest marker beyond its runtime_lane_allowance in
+    # tests/ci/environment_skip_baseline.json, and this lane has none. The skip
+    # count on a current binary is NOT_RUN here (the ledger ADR's last
+    # measurement was 38); see the #1166 promotion record in that ADR. Resolve a
+    # red lane by giving those cases real coverage (GPU harness, or the #595
+    # GS_ENV_SKIP conversion), never by demoting the lane again.
+    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), (), True),
 )
 # Renderer-dependent (requires-RD) doctest lane.  Under Godot's --test mode
 # every test here will skip because no RenderingDevice is available.  This lane

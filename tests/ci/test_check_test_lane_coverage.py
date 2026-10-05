@@ -551,5 +551,61 @@ class GuardPasses(unittest.TestCase):
         self.assertEqual(GUARD.main(), 0)
 
 
+class StreamingPipelineStrictPromotionTests(unittest.TestCase):
+    """#1166: every [Streaming Pipeline] case reaches a STRICT module lane.
+
+    The lane holds every #1087/#1088 host test. It cannot be expressed as a
+    STRICT_COVERAGE_CONTRACTS entry: a contract protects the UNION of its source
+    files and its tag, both keys must be non-empty, and both source files carry
+    cases that legitimately live elsewhere (7 [GPU Memory Stream], 1 [Streaming
+    VRAM] in test_gpu_streaming.cpp; 1 [GaussianSplatting][Streaming] in
+    test_gaussian_streaming_lifecycle.cpp). So the tag half of the property is
+    asserted here directly, with the same derived inputs and the same matcher
+    the guard uses, plus the demotion mutation that must turn it red.
+    """
+
+    TAG = "*[Streaming Pipeline]*"
+    LANE = "Streaming Pipeline"
+
+    def setUp(self):
+        self.runner = GUARD._load_module("_rmt_sp", GUARD.CI_DIR / "run_module_tests.py")
+        linkage = GUARD._load_module("_ctl_sp", GUARD.CI_DIR / "check_test_linkage.py")
+        self.cases, _ = GUARD._collect_corpus(linkage._strip_comments)
+        self.lanes = list(self.runner.MODULE_TEST_FILTERS)
+        self.promoted = sorted(
+            {name for name, _ in self.cases if GUARD._doctest_wildcmp(name, self.TAG)}
+        )
+
+    def _uncovered(self, lanes):
+        strict = [(inc, exc) for _, inc, exc, is_strict in lanes if is_strict]
+        return [
+            name
+            for name in self.promoted
+            if not any(GUARD._lane_matches(name, inc, exc) for inc, exc in strict)
+        ]
+
+    def test_the_corpus_is_not_empty(self):
+        """Non-vacuity. A floor, not an equality: adding a #1088 test must not red this."""
+        self.assertGreaterEqual(len(self.promoted), 50, len(self.promoted))
+        files = {file_name for name, file_name in self.cases if name in set(self.promoted)}
+        self.assertIn("test_gpu_streaming.cpp", files)
+        self.assertIn("test_gaussian_streaming_lifecycle.cpp", files)
+
+    def test_every_streaming_pipeline_case_reaches_a_strict_lane(self):
+        self.assertEqual([], self._uncovered(self.lanes))
+
+    def test_demoting_the_lane_is_red(self):
+        demoted = [
+            (name, inc, exc, False if name == self.LANE else strict)
+            for name, inc, exc, strict in self.lanes
+        ]
+        self.assertTrue(any(name == self.LANE for name, *_ in self.lanes), "lane is gone")
+        self.assertEqual(len(self._uncovered(demoted)), len(self.promoted))
+
+    def test_deleting_the_lane_is_red(self):
+        deleted = [lane for lane in self.lanes if lane[0] != self.LANE]
+        self.assertEqual(len(self._uncovered(deleted)), len(self.promoted))
+
+
 if __name__ == "__main__":
     unittest.main()
