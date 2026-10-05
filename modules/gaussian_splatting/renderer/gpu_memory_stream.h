@@ -318,7 +318,10 @@ private:
     uint32_t pending_sh_first_order = 0;
     uint32_t pending_sh_high_order = 0;
     bool upload_pending = false;
+    bool upload_in_progress = false;
+    uint32_t uploaded_visible_count = 0;
     Error last_upload_error = OK;
+    Error last_capture_error = OK;
 
     // Prefetching and prediction
     struct PrefetchData {

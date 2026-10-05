@@ -40,7 +40,7 @@
 		<method name="process_uploads">
 			<return type="int" enum="Error" />
 			<description>
-				Uploads the latest completed CPU snapshot. Call only on the initialization thread; a different thread returns ERR_UNAVAILABLE without consuming the snapshot. Upload failures are returned and recorded as [code]last_upload_error[/code] in streaming statistics. Pending snapshots count as [code]is_streaming[/code] until drained.
+				Uploads the latest completed CPU snapshot. Call only on the initialization thread; a different thread returns ERR_UNAVAILABLE without consuming the snapshot. Upload failures remain observable as [code]last_upload_error[/code] until a new upload succeeds; snapshot failures are exposed as [code]last_capture_error[/code]. Pending snapshots and in-progress uploads count as [code]is_streaming[/code]. A successfully drained empty range makes [method get_current_buffer] return an invalid RID rather than previous content.
 			</description>
 		</method>
 		<method name="set_lod_level">

@@ -1333,27 +1333,27 @@ void StreamingPipeline::_streaming_thread_func() {
             }
 
             if (memory_stream.is_valid() && gaussian_data.is_valid()) {
-                if (visible_count > 0) {
-                    LocalVector<Gaussian> gaussians_snapshot;
-                    LocalVector<Vector3> sh_snapshot;
-                    uint32_t sh_first_order = 0;
-                    uint32_t sh_high_order = 0;
-                    const bool capture_ok = gaussian_data->capture_chunk_snapshot(visible_start,
-                            visible_count,
-                            gaussians_snapshot,
-                            sh_snapshot,
-                            sh_first_order,
-                            sh_high_order);
-                    if (capture_ok && gaussians_snapshot.size() == visible_count) {
-                        // RenderingDevice is thread-affine, including local devices.
-                        // Keep only the latest snapshot; the owner drains it per frame.
-                        MutexLock lock(state_mutex);
-                        pending_gaussians = std::move(gaussians_snapshot);
-                        pending_sh = std::move(sh_snapshot);
-                        pending_sh_first_order = sh_first_order;
-                        pending_sh_high_order = sh_high_order;
-                        upload_pending = true;
-                    }
+                LocalVector<Gaussian> gaussians_snapshot;
+                LocalVector<Vector3> sh_snapshot;
+                uint32_t sh_first_order = 0;
+                uint32_t sh_high_order = 0;
+                const bool capture_ok = visible_count == 0 || gaussian_data->capture_chunk_snapshot(visible_start,
+                        visible_count, gaussians_snapshot, sh_snapshot, sh_first_order, sh_high_order);
+                MutexLock lock(state_mutex);
+                if (capture_ok && gaussians_snapshot.size() == visible_count) {
+                    // RenderingDevice is thread-affine, including local devices.
+                    // Keep only the latest snapshot; the owner drains it per frame.
+                    pending_gaussians = std::move(gaussians_snapshot);
+                    pending_sh = std::move(sh_snapshot);
+                    pending_sh_first_order = sh_first_order;
+                    pending_sh_high_order = sh_high_order;
+                    upload_pending = true;
+                    last_capture_error = OK;
+                } else {
+                    pending_gaussians.clear();
+                    pending_sh.clear();
+                    upload_pending = false;
+                    last_capture_error = ERR_INVALID_DATA;
                 }
             }
         }
@@ -1405,14 +1405,18 @@ Error StreamingPipeline::process_uploads() {
     uint32_t high_order = 0;
     {
         MutexLock lock(state_mutex);
+        if (last_capture_error != OK) {
+            return last_capture_error;
+        }
         if (!upload_pending) {
-            return OK;
+            return last_upload_error;
         }
         gaussians = std::move(pending_gaussians);
         sh = std::move(pending_sh);
         first_order = pending_sh_first_order;
         high_order = pending_sh_high_order;
         upload_pending = false;
+        upload_in_progress = true;
     }
     const Error error = memory_stream.is_valid()
             ? memory_stream->stream_gaussians_async(gaussians, 0, gaussians.size(),
@@ -1421,6 +1425,10 @@ Error StreamingPipeline::process_uploads() {
     {
         MutexLock lock(state_mutex);
         last_upload_error = error;
+        upload_in_progress = false;
+        if (error == OK) {
+            uploaded_visible_count = gaussians.size();
+        }
     }
     return error;
 }
@@ -1428,6 +1436,12 @@ Error StreamingPipeline::process_uploads() {
 RID StreamingPipeline::get_current_buffer() {
     if (process_uploads() != OK) {
         return RID();
+    }
+    {
+        MutexLock lock(state_mutex);
+        if (uploaded_visible_count == 0) {
+            return RID();
+        }
     }
     return memory_stream.is_valid() ? memory_stream->get_current_gpu_buffer() : RID();
 }
@@ -1460,9 +1474,12 @@ Dictionary StreamingPipeline::get_streaming_stats() const {
         visible_start = state.visible_start;
         visible_count = state.visible_count;
         current_lod = state.current_lod;
-        is_streaming = state.is_streaming || upload_pending;
+        is_streaming = state.is_streaming || upload_pending || upload_in_progress;
         stats["upload_pending"] = upload_pending;
+        stats["upload_in_progress"] = upload_in_progress;
+        stats["pending_splat_count"] = int64_t(pending_gaussians.size());
         stats["last_upload_error"] = int(last_upload_error);
+        stats["last_capture_error"] = int(last_capture_error);
     }
 
     stats["visible_start"] = visible_start;
