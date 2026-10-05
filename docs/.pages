@@ -75,7 +75,6 @@ nav:
           - governance/evidence-integrity.md
           - governance/release-acceptance-bar.md
           - governance/github-settings.md
-          - Action Plan 2026-Q4: governance/action-plan-2026-q4.md
       - Docs Site:
           - development/docs-site.md
           - Media: features/media.md
