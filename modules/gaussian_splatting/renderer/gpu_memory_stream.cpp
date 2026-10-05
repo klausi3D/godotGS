@@ -1419,8 +1419,9 @@ Error StreamingPipeline::process_uploads() {
         upload_in_progress = true;
     }
     const Error error = memory_stream.is_valid()
-            ? memory_stream->stream_gaussians_async(gaussians, 0, gaussians.size(),
-                      sh.is_empty() ? nullptr : sh.ptr(), first_order, high_order)
+            ? (gaussians.is_empty() ? OK
+                                   : memory_stream->stream_gaussians_async(gaussians, 0, gaussians.size(),
+                                             sh.is_empty() ? nullptr : sh.ptr(), first_order, high_order))
             : ERR_UNCONFIGURED;
     {
         MutexLock lock(state_mutex);
