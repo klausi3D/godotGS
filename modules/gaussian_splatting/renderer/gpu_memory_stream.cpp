@@ -1428,6 +1428,9 @@ Error StreamingPipeline::process_uploads() {
         upload_in_progress = false;
         if (error == OK) {
             uploaded_visible_count = gaussians.size();
+            if (last_capture_error != OK) {
+                return last_capture_error;
+            }
         }
     }
     return error;
@@ -1439,7 +1442,7 @@ RID StreamingPipeline::get_current_buffer() {
     }
     {
         MutexLock lock(state_mutex);
-        if (uploaded_visible_count == 0) {
+        if (uploaded_visible_count == 0 || last_capture_error != OK || last_upload_error != OK) {
             return RID();
         }
     }
