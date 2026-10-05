@@ -1461,6 +1461,7 @@ Dictionary StreamingPipeline::get_streaming_stats() const {
         visible_count = state.visible_count;
         current_lod = state.current_lod;
         is_streaming = state.is_streaming || upload_pending;
+        stats["upload_pending"] = upload_pending;
         stats["last_upload_error"] = int(last_upload_error);
     }
 
