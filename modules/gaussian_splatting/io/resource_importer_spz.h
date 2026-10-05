@@ -71,7 +71,10 @@ public:
     //       planned this as 8 -> 9 before #1154 took 9). The output colours of
     //       every SPZ import change, so every .res written by v4-v9 rendered about
     //       +0.5 too bright and must be re-imported.
-    virtual int get_format_version() const override { return 10; }
+    //  v11: a max_splats cap at density_multiplier 1.0 thins by a uniform stride
+    //       instead of keeping a file-order prefix (issue #1155; same change as
+    //       ResourceImporterPLY v12). Only assets imported under such a cap change.
+    virtual int get_format_version() const override { return 11; }
 
     ResourceImporterSPZ();
 };

@@ -521,6 +521,75 @@ TEST_CASE("[GaussianSplatting][SPZ] importer prune_ratio 0.5 drops half and keep
 #endif // TOOLS_ENABLED
 }
 
+// Compiled only with TOOLS_ENABLED (the importer is editor-only): in other builds the case
+// does not exist rather than passing as an environment skip.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][SPZ] importer max_splats at density 1.0 spans the whole file, not a prefix (#1155)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    // Same shape as the PLY case: the second half of the file lies in a
+    // distinct region, so a file-order prefix keeps none of it.
+    const uint32_t kCount = 16;
+    const int kCap = int(kCount / 2);
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats = _make_spz_splats(kCount);
+    for (uint32_t i = 0; i < kCount; i++) {
+        // Region A: x in [0, 8). Region B: x in [1000, 1008). Integers survive
+        // the 12-bit fixed-point position encoding exactly.
+        splats[i].position = Vector3(int(i) < kCap ? float(i) : 1000.0f + float(int(i) - kCap), 0.0f, 0.0f);
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_spz_cap_stride_" + itos(ticks) + ".spz";
+    const String save_base_path = "user://godotgs_spz_cap_stride_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_synthetic_spz(source_path, splats));
+
+    Ref<ResourceImporterSPZ> importer;
+    importer.instantiate();
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), kCap);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "SPZ import with max_splats = half should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterSPZ must write a loadable GaussianSplatAsset");
+        } else {
+            CHECK_EQ(int(asset->get_splat_count()), kCap);
+            const PackedFloat32Array positions = asset->get_positions();
+            int in_a = 0;
+            int in_b = 0;
+            for (int i = 0; i + 2 < positions.size(); i += 3) {
+                if (positions[i] < 500.0f) {
+                    in_a++;
+                } else {
+                    in_b++;
+                }
+            }
+            // Stride 2 keeps one representative per source pair: four from each
+            // half. The pre-#1155 prefix kept 8 / 0.
+            CHECK_MESSAGE(in_a == kCap / 2, vformat("region A kept %d splats, expected %d", in_a, kCap / 2));
+            CHECK_MESSAGE(in_b == kCap / 2, vformat("region B (second half of the file) kept %d splats, expected %d", in_b, kCap / 2));
+
+            const Dictionary md = metadata_variant;
+            const AABB bounds = md.get(StringName("bounds"), AABB());
+            CHECK_MESSAGE(bounds.position.x + bounds.size.x >= 1000.0f,
+                    vformat("asset bounds end at x = %f; region B starts at 1000", bounds.position.x + bounds.size.x));
+        }
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(save_base_path + ".res");
+}
+#endif // TOOLS_ENABLED
+
 // ---------------------------------------------------------------------------
 // Malformed-input corpus (G2, exit criterion; program ledger #458).
 //

@@ -52,7 +52,7 @@ Only the methods below are callable from GDScript. `PLYLoader::get_property_defi
 | Import option | Default | Effect | Implementation reference |
 | --- | --- | --- | --- |
 | `quality/preset` | preset-specific | Chooses the preset baseline: `mobile`, `desktop`, `high`, `ultra`, `development`, or `custom`. | `ResourceImporterPLY::get_import_options` |
-| `quality/max_splats` | preset-specific | Caps the final splat count after import processing (`0` = no cap). | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
+| `quality/max_splats` | preset-specific | Caps the final splat count (`0` = no cap). A capped import keeps an evenly spaced subset of the whole file, the same uniform stride `density_multiplier` uses, not the first splats in the file. | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
 | `quality/density_multiplier` | preset-specific | Reduces density (clamped to `0.1..1.0`) and can merge source ranges. | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
 | `validation/validate_required_properties` | `true` | Fails the import if required properties are missing or the first splats are invalid. Non-finite data is rejected even when this is off. | `ResourceImporterPLY::validate_ply_properties`, `ResourceImporterPLY::import` |
 | `validation/warn_missing_optional` | `true` | Logs optional property presence and omissions. | `ResourceImporterPLY::log_missing_properties` |

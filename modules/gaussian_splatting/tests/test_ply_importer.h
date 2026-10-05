@@ -1884,6 +1884,87 @@ TEST_CASE("[GaussianSplatting][PLY] opacity survives ResourceImporterPLY -> asse
 }
 
 // ---------------------------------------------------------------------------
+// #1155: a max_splats cap at density 1.0 must thin the whole file, not keep a
+// file-order prefix. 3DGS PLYs are not spatially shuffled, so a prefix is a
+// spatial region. The fixture's second half lies in a distinct region; a prefix
+// cut keeps none of it.
+// ---------------------------------------------------------------------------
+// Compiled only with TOOLS_ENABLED (the importer is editor-only): in other builds the case
+// does not exist rather than passing as an environment skip.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][PLY] importer max_splats at density 1.0 spans the whole file, not a prefix (#1155)") {
+    const int kCount = 16;
+    const int kCap = kCount / 2;
+    LocalVector<Gaussian> splats;
+    splats.resize(kCount);
+    for (int i = 0; i < kCount; i++) {
+        Gaussian g;
+        // Region A: x in [0, 8). Region B: x in [1000, 1008).
+        g.position = Vector3(i < kCap ? float(i) : 1000.0f + float(i - kCap), 0.0f, 0.0f);
+        g.scale = Vector3(0.1f, 0.1f, 0.1f);
+        g.rotation = Quaternion();
+        g.sh_dc = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        g.normal = Vector3(0.0f, 0.0f, 1.0f);
+        g.area = 1.0f;
+        g.opacity = 0.9f;
+        splats[i] = g;
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_cap_stride_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_cap_stride_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_gaussian_ply(source_path, splats, false, false));
+
+    Ref<ResourceImporterPLY> importer;
+    importer.instantiate();
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), kCap);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "PLY import with max_splats = half should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterPLY must write a loadable GaussianSplatAsset");
+        } else {
+            CHECK_EQ(int(asset->get_splat_count()), kCap);
+            const PackedFloat32Array positions = asset->get_positions();
+            int in_a = 0;
+            int in_b = 0;
+            for (int i = 0; i + 2 < positions.size(); i += 3) {
+                if (positions[i] < 500.0f) {
+                    in_a++;
+                } else {
+                    in_b++;
+                }
+            }
+            // Stride 2 over 16 source splats keeps one representative per pair,
+            // four from each half. The pre-#1155 prefix kept 8 / 0.
+            CHECK_MESSAGE(in_a == kCap / 2, vformat("region A kept %d splats, expected %d", in_a, kCap / 2));
+            CHECK_MESSAGE(in_b == kCap / 2, vformat("region B (second half of the file) kept %d splats, expected %d", in_b, kCap / 2));
+
+            // The saved bounds describe the kept splats, so they must reach region B.
+            const Dictionary md = metadata_variant;
+            const AABB bounds = md.get(StringName("bounds"), AABB());
+            CHECK_MESSAGE(bounds.position.x + bounds.size.x >= 1000.0f,
+                    vformat("asset bounds end at x = %f; region B starts at 1000", bounds.position.x + bounds.size.x));
+        }
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(source_path.get_basename() + ".gsplatcache");
+    DirAccess::remove_absolute(save_base_path + ".res");
+}
+#endif // TOOLS_ENABLED
+
+// ---------------------------------------------------------------------------
 // GS-PERF-PRUNE slice 2b (issue #456): import-time importance pruning wiring.
 // ---------------------------------------------------------------------------
 
