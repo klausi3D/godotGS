@@ -3,6 +3,7 @@
 #include "../renderer/gaussian_gpu_layout.h"
 
 #include "test_macros.h"
+#include "gs_test_pump.h"
 
 #include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
@@ -66,41 +67,55 @@ TestRenderingDeviceHandle _get_test_rendering_device() {
 
 StreamingUploadPipeline::PendingChunkUpload *_wait_for_prepared_upload(StreamingUploadPipeline &p_uploads) {
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = nullptr;
-    for (int i = 0; i < 500; i++) {
-        {
-            MutexLock lock(p_uploads.pack_mutex);
-            if (p_uploads.upload_queue_read_idx < p_uploads.upload_queue.size()) {
-                prepared_job = p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
-                if (prepared_job && !prepared_job->packed_data.is_empty()) {
-                    break;
-                }
-                prepared_job = nullptr;
+    const auto prepared = TestGaussianSplatting::gs_pump_until([&]() {
+        Thread::yield();
+        MutexLock lock(p_uploads.pack_mutex);
+        if (p_uploads.upload_queue_read_idx < p_uploads.upload_queue.size()) {
+            prepared_job = p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
+            if (prepared_job && !prepared_job->packed_data.is_empty()) {
+                return true;
             }
+            prepared_job = nullptr;
         }
-        OS::get_singleton()->delay_usec(1000);
+        return false;
+    });
+    if (!prepared.ready()) {
+        FAIL("The pack worker did not prepare an upload ", prepared.describe());
+        return nullptr;
     }
     return prepared_job;
 }
 
-void _tamper_first_payload_byte(StreamingUploadPipeline &p_uploads) {
+bool _tamper_first_payload_byte(StreamingUploadPipeline &p_uploads) {
     MutexLock lock(p_uploads.pack_mutex);
+    if (p_uploads.upload_queue_read_idx >= p_uploads.upload_queue.size()) {
+        FAIL("Prepared upload queue is empty before payload mutation");
+        return false;
+    }
     StreamingUploadPipeline::PendingChunkUpload *prepared_job =
             p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
-    REQUIRE(prepared_job != nullptr);
-    REQUIRE(!prepared_job->packed_data.is_empty());
+    if (!prepared_job || prepared_job->packed_data.is_empty()) {
+        FAIL("Prepared upload payload is unavailable before mutation");
+        return false;
+    }
     PackedGaussian *packed_data = prepared_job->packed_data.ptrw();
-    REQUIRE(packed_data != nullptr);
+    if (!packed_data) {
+        FAIL("Prepared upload payload cannot be written");
+        return false;
+    }
     uint8_t *payload_bytes = reinterpret_cast<uint8_t *>(packed_data);
     payload_bytes[0] ^= 0x01;
+    return true;
 }
 
-void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system, uint32_t p_max_frames = 8) {
-    for (uint32_t i = 0; i < p_max_frames; i++) {
+void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system) {
+    const auto retired = TestGaussianSplatting::gs_pump_until([&]() {
         p_system->begin_frame();
         p_system->end_frame();
-        if (p_system->get_pending_upload_retirement_slots() == 0) {
-            return;
-        }
+        return p_system->get_pending_upload_retirement_slots() == 0;
+    });
+    if (!retired.ready()) {
+        FAIL("Upload retirement did not reach its frame barrier ", retired.describe());
     }
 }
 
@@ -257,8 +272,18 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] sync fallback drain counts immediat
 
     const uint32_t asset_id = 3531;
     system->register_asset(asset_id, _create_streaming_phase_order_test_data());
-    REQUIRE(system->request_chunk_residency(asset_id, 0, 0) == OK);
-    REQUIRE(system->_test_enqueue_sync_fallback_chunk_load(asset_id, 0, true));
+    const Error request_error = system->request_chunk_residency(asset_id, 0, 0);
+    CHECK(request_error == OK);
+    if (request_error != OK) {
+        FAIL("The sync-fallback fixture could not request chunk residency");
+        return;
+    }
+    const bool load_queued = system->_test_enqueue_sync_fallback_chunk_load(asset_id, 0, true);
+    CHECK(load_queued);
+    if (!load_queued) {
+        FAIL("The sync-fallback fixture could not queue its chunk load");
+        return;
+    }
 
     uint32_t evictions_left = 0;
     bool eviction_blocked = false;
@@ -415,11 +440,21 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] production upload path skips payloa
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
-    _tamper_first_payload_byte(uploads);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
+    if (!_tamper_first_payload_byte(uploads)) {
+        return;
+    }
 
     uploads.process_upload_queue(system_ref);
     _advance_frames_until_upload_retired(system);
@@ -464,11 +499,21 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] async chunk upload rejects tampered
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
-    _tamper_first_payload_byte(uploads);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
+    if (!_tamper_first_payload_byte(uploads)) {
+        return;
+    }
 
     uploads.process_upload_queue(system_ref);
     _advance_frames_until_upload_retired(system);
@@ -532,10 +577,18 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] enabling checksum validation reject
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
     CHECK_FALSE(prepared_job->payload_checksum_valid);
 
     uploads._test_set_upload_payload_checksum_validation_enabled(true);
@@ -935,20 +988,36 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] async upload dropped fail-closed on
     // Effective 144 B stride at pack time (quantization enabled but mixed-DC), so the async pack
     // path is permitted and stamps packed_stride_bytes = sizeof(PackedGaussian).
     system->_test_set_quantization_state(true, false);
-    REQUIRE(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+    CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+    if (system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian))) {
+        FAIL("The stride-flip fixture did not begin with the packed Gaussian layout");
+        return;
+    }
 
     const uint32_t asset_id = 4243;
     system->register_asset(asset_id, _create_streaming_phase_order_test_data());
 
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
 
     // Flip the effective stride to 80 B BEFORE processing the queue. The in-flight 144 B job now
     // mismatches the atlas grid; writing it would corrupt neighboring 80 B slots.
     system->_test_set_quantization_state(true, true);
-    REQUIRE(system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian)));
+    CHECK(system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian)));
+    if (system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian))) {
+        FAIL("The stride-flip fixture did not change its effective Gaussian layout");
+        return;
+    }
 
     const uint64_t prewrite_before = system->_test_get_stride_flip_dropped_prewrite_uploads();
     const uint64_t retire_before = system->_test_get_stride_flip_dropped_upload_retirements();
