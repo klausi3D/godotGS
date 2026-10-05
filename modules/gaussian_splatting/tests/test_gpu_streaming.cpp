@@ -1677,18 +1677,46 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Null-device atlas sync invalidates 
 
     const uint32_t asset_id = 91;
     system->register_asset(asset_id, create_test_gaussian_data(GaussianStreamingSystem::CHUNK_SIZE));
+    system->_test_sync_global_atlas_state(rd);
     const uint64_t generation_before = system->get_atlas_generation();
     CHECK(generation_before > 0);
     CHECK(system->get_asset_meta_buffer().is_valid());
     CHECK(system->get_chunk_meta_buffer().is_valid());
     CHECK(system->get_asset_chunk_index_buffer().is_valid());
+    const RID asset_meta_before = system->get_asset_meta_buffer();
+    const RID chunk_meta_before = system->get_chunk_meta_buffer();
+    const RID chunk_index_before = system->get_asset_chunk_index_buffer();
+    CHECK(rd->buffer_is_valid(asset_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_index_before));
 
+    // Even a clean atlas must stop publishing while the device is unavailable.
     system->_test_sync_global_atlas_state(nullptr);
 
     CHECK(system->get_atlas_generation() == 0);
     CHECK_FALSE(system->get_asset_meta_buffer().is_valid());
     CHECK_FALSE(system->get_chunk_meta_buffer().is_valid());
     CHECK_FALSE(system->get_asset_chunk_index_buffer().is_valid());
+    CHECK(rd->buffer_is_valid(asset_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_index_before));
+
+    system->_test_sync_global_atlas_state(rd);
+    CHECK(system->get_atlas_generation() > generation_before);
+    const RID asset_meta_restored = system->get_asset_meta_buffer();
+    const RID chunk_meta_restored = system->get_chunk_meta_buffer();
+    const RID chunk_index_restored = system->get_asset_chunk_index_buffer();
+    CHECK(rd->buffer_is_valid(asset_meta_restored));
+    CHECK(rd->buffer_is_valid(chunk_meta_restored));
+    CHECK(rd->buffer_is_valid(chunk_index_restored));
+
+    system.unref();
+    CHECK_FALSE(rd->buffer_is_valid(asset_meta_before));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_meta_before));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_index_before));
+    CHECK_FALSE(rd->buffer_is_valid(asset_meta_restored));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_meta_restored));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_index_restored));
 }
 
 TEST_CASE("[Streaming Pipeline][RequiresGPU] Invalid atlas dirty marks force a rebuild path") {
@@ -1709,16 +1737,45 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Invalid atlas dirty marks force a r
 
     const uint32_t asset_id = 123;
     system->register_asset(asset_id, create_test_gaussian_data(GaussianStreamingSystem::CHUNK_SIZE));
+    system->_test_sync_global_atlas_state(rd);
     const uint64_t generation_before = system->get_atlas_generation();
     CHECK(generation_before > 0);
+    const RID asset_meta_before = system->get_asset_meta_buffer();
+    const RID chunk_meta_before = system->get_chunk_meta_buffer();
+    const RID chunk_index_before = system->get_asset_chunk_index_buffer();
+    CHECK(rd->buffer_is_valid(asset_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_index_before));
 
     system->_test_mark_chunk_meta_dirty(asset_id, GaussianStreamingSystem::CHUNK_SIZE + 3);
+    system->_test_sync_global_atlas_state(nullptr);
+    CHECK(system->get_atlas_generation() == 0);
+    CHECK_FALSE(system->get_asset_meta_buffer().is_valid());
+    CHECK_FALSE(system->get_chunk_meta_buffer().is_valid());
+    CHECK_FALSE(system->get_asset_chunk_index_buffer().is_valid());
+    CHECK(rd->buffer_is_valid(asset_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_meta_before));
+    CHECK(rd->buffer_is_valid(chunk_index_before));
     system->_test_sync_global_atlas_state(rd);
 
     CHECK(system->get_atlas_generation() > generation_before);
     CHECK(system->get_asset_meta_buffer().is_valid());
     CHECK(system->get_chunk_meta_buffer().is_valid());
     CHECK(system->get_asset_chunk_index_buffer().is_valid());
+    const RID asset_meta_restored = system->get_asset_meta_buffer();
+    const RID chunk_meta_restored = system->get_chunk_meta_buffer();
+    const RID chunk_index_restored = system->get_asset_chunk_index_buffer();
+    CHECK(rd->buffer_is_valid(asset_meta_restored));
+    CHECK(rd->buffer_is_valid(chunk_meta_restored));
+    CHECK(rd->buffer_is_valid(chunk_index_restored));
+
+    system.unref();
+    CHECK_FALSE(rd->buffer_is_valid(asset_meta_before));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_meta_before));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_index_before));
+    CHECK_FALSE(rd->buffer_is_valid(asset_meta_restored));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_meta_restored));
+    CHECK_FALSE(rd->buffer_is_valid(chunk_index_restored));
 }
 
 TEST_CASE("[Streaming Pipeline][RequiresGPU] Primary explicit residency requests expose request status") {
