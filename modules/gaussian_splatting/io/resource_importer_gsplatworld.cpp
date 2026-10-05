@@ -386,15 +386,15 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 				p_source_file, validation_err));
 		return validation_err;
 	}
-	if (header_info.version == 2u) {
-		// The header check above stops at the v1 fields; run the loader's full v2 validation (tables,
-		// tree, sections) on the SOURCE before anything replaces a previous good import.
+	{
+		// Validate every source before publishing either the baked output or a plain
+		// fallback. A valid-looking v1 header can still fail the loader's SH checks.
 		ResourceFormatLoaderGaussianSplatWorld source_loader;
 		Error source_err = OK;
 		Ref<Resource> source_world = source_loader.load(p_source_file, "", &source_err);
 		if (source_world.is_null()) {
 			const Error final_err = source_err != OK ? source_err : ERR_FILE_CORRUPT;
-			GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer rejected invalid v2 payload %s (error %d); the previous import is unchanged.",
+			GS_LOG_ERROR_DEFAULT(vformat("GaussianSplatWorld importer rejected invalid payload %s (error %d); the previous import is unchanged.",
 					p_source_file, final_err));
 			return final_err;
 		}

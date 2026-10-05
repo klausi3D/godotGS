@@ -2158,6 +2158,29 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_source, base, options, nullptr, nullptr, nullptr) != OK);
 	CHECK(hlod_read_file(base + ".gsplatworld") == good_import);
 
+	// A v1 header can pass the importer probe yet fail full SH validation.
+	// Neither the fallback nor an in-place import may publish/delete that source.
+	PackedByteArray corrupt_v1 = hlod_read_file(good_source);
+	if (corrupt_v1.size() < 104) {
+		FAIL("producer-generated v1 header required");
+		return;
+	}
+	const uint32_t high_order_without_flag = 1u;
+	memcpy(corrupt_v1.ptrw() + 24, &high_order_without_flag, 4);
+	const String corrupt_v1_source = hlod_temp_path("import_corrupt_v1");
+	if (!hlod_write_file(corrupt_v1_source, corrupt_v1)) {
+		FAIL("write corrupt v1 source");
+		return;
+	}
+	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_v1_source, base, options, nullptr, nullptr, nullptr) != OK);
+	const bool retained_previous_import = hlod_read_file(base + ".gsplatworld") == good_import;
+	CHECK(retained_previous_import);
+	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_v1_source,
+			corrupt_v1_source.get_basename(), options, nullptr, nullptr, nullptr) != OK);
+	const bool retained_source = hlod_read_file(corrupt_v1_source) == corrupt_v1;
+	CHECK(retained_source);
+
+	DirAccess::remove_absolute(corrupt_v1_source);
 	DirAccess::remove_absolute(corrupt_source);
 	DirAccess::remove_absolute(base + ".gsplatworld");
 	DirAccess::remove_absolute(good_source);
