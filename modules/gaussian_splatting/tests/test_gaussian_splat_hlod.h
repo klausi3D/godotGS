@@ -1897,7 +1897,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 					FAIL("loaded tight payload must remain readable");
 					return;
 				}
-				CHECK(actual.size() == expected.size());
+				if (actual.size() != expected.size()) {
+					FAIL("loaded tight payload cardinality differs from the producer");
+					return;
+				}
 				for (uint32_t i = 0; i < actual.size(); i++) {
 					CHECK(actual[i].position == expected[i].position);
 					CHECK(actual[i].scale == expected[i].scale);
