@@ -1008,10 +1008,9 @@ void RenderPipelineStages::stamp_stage_result_contract(StageResult &r_result, co
 
 // Which sort output the raster consumes (#1163). The metrics' sort block is only
 // authoritative when a sort stage in THIS pass produced it (`did_sort`). Entries that
-// run no sort stage -- render_sorted_splats(), the shadow-pass entry -- hand over a
-// default-constructed StageMetrics whose sort block reads sorted_count = 0; preferring
-// it whenever metrics was non-null sent the raster down the zero-splat path although
-// the snapshot carried the real sorted count.
+// replay the color pass without sorting hand over default-constructed StageMetrics;
+// their valid snapshot supplies the count. Shadows cannot reuse that camera snapshot:
+// they need caster evidence produced by the current light-view pass.
 void RenderPipelineStages::resolve_raster_sort_input(const RenderFrameContext &p_context,
 		GaussianSplatRenderer::RasterStageInput &r_input) {
 	if (p_context.metrics && p_context.metrics->sort.did_sort) {
