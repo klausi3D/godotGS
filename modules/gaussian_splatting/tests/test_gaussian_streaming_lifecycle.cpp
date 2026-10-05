@@ -1988,6 +1988,77 @@ int64_t _read_prefetch_visible_eviction_refusals(GaussianStreamingSystem &r_syst
     return int64_t(r_system.get_streaming_analytics().get("prefetch_visible_eviction_refusals", int64_t(-1)));
 }
 
+struct NonPrimaryPrefetchAdmissionFixture {
+    static constexpr uint32_t RESIDENT_ASSET_ID = 117601;
+    GaussianStreamingSystem system;
+
+    ~NonPrimaryPrefetchAdmissionFixture() {
+        system._test_end_device_free_load_scan();
+    }
+
+    bool setup(const Vector3 &p_predicted_pos, bool p_visible, bool p_keep_requested = false) {
+        const uint32_t count = 4u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+        Ref<GaussianData> primary_data = _create_streaming_phase_order_test_data(count);
+        LocalVector<Gaussian> gaussians;
+        gaussians.resize(count);
+        const Vector3 offset = p_predicted_pos - primary_data->get_aabb().get_center();
+        for (uint32_t i = 0; i < count; i++) {
+            gaussians[i] = primary_data->get_gaussians()[i];
+            gaussians[i].position += offset;
+        }
+        primary_data->set_gaussians(gaussians);
+        system._test_begin_device_free_load_scan(primary_data, 1);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &primary = system._test_get_primary_chunks();
+        primary.resize(1);
+        primary[0] = GaussianStreamingTypes::StreamingChunk();
+        primary[0].count = count;
+        primary[0].effective_count = count;
+        primary[0].bounds = primary_data->get_aabb();
+        primary[0].center = primary[0].bounds.get_center();
+        primary[0].is_visible = false;
+        primary[0].buffer_slot = UINT32_MAX;
+
+        system.register_asset(RESIDENT_ASSET_ID, _create_streaming_phase_order_test_data(count));
+        GaussianStreamingTypes::AtlasAssetState *resident = system._test_get_asset_state(RESIDENT_ASSET_ID);
+        if (!resident || system._test_get_asset_chunks(*resident).size() != 1) {
+            FAIL("fixture precondition: one registered non-primary chunk must hold the atlas");
+            return false;
+        }
+        system._test_reset_atlas_allocator(4);
+        system._test_mark_chunk_loaded_for_eviction(RESIDENT_ASSET_ID, 0, p_visible, 0, 1, 3.0f);
+        for (int i = 0; i < 10; i++) {
+            system.begin_frame(); // deterministic lower bound beyond eviction hysteresis
+        }
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(RESIDENT_ASSET_ID, 0, 0) != OK) {
+            FAIL("fixture precondition: the resident must have a genuine explicit request");
+            return false;
+        }
+        system.finalize_residency_requests();
+        if (!bool(system.get_residency_request_status(RESIDENT_ASSET_ID, 0).get("requested", false))) {
+            FAIL("fixture precondition: the resident request must be current");
+            return false;
+        }
+        if (!p_keep_requested) {
+            system.begin_residency_requests();
+            system.finalize_residency_requests();
+        }
+        if (bool(system.get_residency_request_status(RESIDENT_ASSET_ID, 0).get("requested", false)) != p_keep_requested ||
+                system.get_loaded_chunks() != 1 || system._test_atlas_allocator().get_free_page_count() != 0) {
+            FAIL("fixture precondition: full atlas and the intended request lifetime are required");
+            return false;
+        }
+        StreamingVisibilityController &visibility = system._test_get_visibility_controller();
+        visibility.update_camera_tracking(Vector3(), 0.1f);
+        visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+        return true;
+    }
+
+    GaussianStreamingTypes::StreamingChunk &resident_chunk() {
+        return system._test_get_asset_chunks(*system._test_get_asset_state(RESIDENT_ASSET_ID))[0];
+    }
+};
+
 } // namespace
 
 TEST_CASE("[Streaming Pipeline] Predictive prefetch never evicts a visible chunk to make room (#1176)") {
@@ -2061,6 +2132,130 @@ TEST_CASE("[Streaming Pipeline] Predictive prefetch never evicts a visible chunk
 
         system._test_end_device_free_load_scan();
         CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("async prefetch preserves a visible non-primary resident after its request ends; needed admission still works") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        auto &uploads = system._internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 0);
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(fixture.resident_chunk().is_visible);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+
+        // The same-frame needed producer must still find the visible candidate skipped by
+        // prefetch; consuming it from the LRU cache would incorrectly defer real demand.
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(0, 0, 0) != OK) {
+            FAIL("needed control could not request the primary candidate");
+            return;
+        }
+        system.finalize_residency_requests();
+        system._test_apply_requested_residency_async();
+        CHECK(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system._test_get_primary_chunks()[0].explicit_request_generation > 0);
+        CHECK_FALSE(fixture.resident_chunk().is_loaded);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("sync predicted-only admission preserves a visible non-primary resident and the needed-load budget") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        if (system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                    system, predicted, 8, 8, UINT32_MAX) != 1 || !system._test_sync_fallback_queued(0, 0)) {
+            FAIL("fixture precondition: the real prefetch producer must enqueue its sync candidate");
+            return;
+        }
+        uint32_t evictions_left = 4;
+        bool eviction_blocked = false;
+        system._test_drain_sync_fallback_chunk_loads(32, evictions_left, eviction_blocked);
+        CHECK(system._test_get_sync_fallback_attempted_count() == 1);
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(fixture.resident_chunk().is_visible);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].is_loaded);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+        CHECK(evictions_left == 4);
+        CHECK_FALSE(eviction_blocked);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("prefetch may replace a hidden non-primary resident after its request ends") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, false)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        system._internal_get_upload_pipeline()._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 1);
+        CHECK_FALSE(fixture.resident_chunk().is_loaded);
+        CHECK(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 0);
+    }
+
+    SUBCASE("neither predictive nor needed admission evicts a currently requested non-primary resident") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        system._internal_get_upload_pipeline()._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 0);
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID, 0, 0) != OK ||
+                system.request_chunk_residency(0, 0, 0) != OK) {
+            FAIL("needed control could not request both chunks in the same generation");
+            return;
+        }
+        system.finalize_residency_requests();
+        system._test_apply_requested_residency_async();
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(bool(system.get_residency_request_status(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID, 0).get("requested", false)));
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+    }
+
+    SUBCASE("ordinary VRAM-budget pressure still evicts a visible non-primary resident first") {
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 46);
+        system.register_asset(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID,
+                _create_streaming_phase_order_test_data(10u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS));
+        GaussianStreamingTypes::AtlasAssetState *resident =
+                system._test_get_asset_state(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID);
+        if (!resident || system._test_get_asset_chunks(*resident).size() != 1) {
+            FAIL("budget control requires one registered non-primary chunk");
+            return;
+        }
+        system._test_mark_chunk_loaded_for_eviction(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID,
+                0, true, 0, 1, 3.0f);
+        if (system._test_atlas_allocator().get_used_page_count() != 470 ||
+                system._test_atlas_occupancy_target_pages() != 448) {
+            FAIL("budget control requires 470 pages against the unchanged 448-page target");
+            return;
+        }
+        bool blocked = false;
+        CHECK(system._test_evict_for_vram_budget(blocked) == 3);
+        CHECK_FALSE(system._test_get_asset_chunks(*resident)[0].is_loaded);
+        CHECK(system._test_atlas_allocator().get_used_page_count() == 440);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+        CHECK_FALSE(blocked);
     }
 }
 
