@@ -267,6 +267,7 @@ layout(set = 0, binding = 6, std430) buffer DebugCounters {
     uint min_allowed_radius_q8;        // max(MIN_SPLAT_RADIUS, tiny_splat) (max across threads)
     uint min_radius_min_q8_inv;        // inverted min(min_radius) across threads: 0xFFFFFFFF - q8
     uint sh_unknown_encoding_count;    // #1054: splats whose SH encoding id is unsupported (rendered DC-only)
+    uint color_nonfinite_count;        // #1168: splats whose final colour was NaN/Inf (zeroed before packing)
 } debug_counters;
 
 const uint GS_DEBUG_SPLAT_AUDIT_MAX_SAMPLES = 64u;
@@ -1437,6 +1438,13 @@ void main() {
         }
     }
 
+    // #1168: a NaN/Inf colour (degenerate light direction, extreme grade) would survive the
+    // R11G11B10 pack and the raster would accumulate it over the splat's whole footprint;
+    // max()/clamp() with a NaN operand are undefined in GLSL. Zero it and count it.
+    if (!gs_color_is_finite(final_color)) {
+        GS_DEBUG_INCREMENT(color_nonfinite_count);
+        final_color = vec3(0.0);
+    }
     sh_color = max(final_color, vec3(0.0));
 
     // PERF-8 (#679): Redundant safety net — the primary NaN/Inf conic check now lives

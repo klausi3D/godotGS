@@ -117,12 +117,15 @@ struct TileDebugCounterSnapshot {
 	uint32_t min_allowed_radius_q8 = 0;
 	uint32_t min_radius_min_q8_inv = 0;
 	// #1054: splats whose SH encoding id the binning decoder does not support (rendered
-	// DC-only). Must stay the last field, mirroring DebugCounters in shaders/tile_binning.glsl.
+	// DC-only).
 	uint32_t sh_unknown_encoding_count = 0;
+	// #1168: splats whose final colour was NaN/Inf and was zeroed before the payload pack.
+	// Must stay the last field, mirroring DebugCounters in shaders/tile_binning.glsl.
+	uint32_t color_nonfinite_count = 0;
 };
 // Anchors the host/shader mirror check in tests/ci/check_gaussian_layout_sync.py
 // (DebugCounters in shaders/tile_binning.glsl, binding 6).
-static_assert(sizeof(TileDebugCounterSnapshot) == 132, "TileDebugCounterSnapshot must match the DebugCounters SSBO");
+static_assert(sizeof(TileDebugCounterSnapshot) == 136, "TileDebugCounterSnapshot must match the DebugCounters SSBO");
 
 struct TileOverflowStatsSnapshot {
 	uint32_t overflow_tile_count = 0;

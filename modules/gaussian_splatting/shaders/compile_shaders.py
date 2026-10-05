@@ -35,6 +35,7 @@ ISSUE_DIAGNOSTICS = "#1324"
 ISSUE_RASTER_BOUNDS = "#51"
 ISSUE_SORTER_MATRIX = "#525"
 ISSUE_ORTHO_PROJECTION = "#1156"
+ISSUE_COLOR_PACK = "#1168"
 
 SECTION_TAG_RE = re.compile(r"^\s*#\[(compute|vertex|fragment)\]\s*$")
 VERSION_DEFINES_RE = re.compile(r"^\s*#VERSION_DEFINES\s*$")
@@ -1484,6 +1485,43 @@ ABI_CONTRACTS: tuple[ValidationContract, ...] = (
                 path=SHADERS_DIR / "tile_resolve.glsl",
                 patterns=(
                     r"bool gs_is_ortho = abs\(params\.projection_matrix\[2\]\[3\]\) < 0\.5;",
+                ),
+            ),
+        ),
+    ),
+    # #1168: the R11G11B10 payload colour pack used to drop the low fp16 mantissa bits by
+    # truncation (always <= the true value: about -0.9 / -1.9 8-bit LSB mean bias on
+    # R,G / B), and a NaN/Inf splat colour reached the pack unguarded and was accumulated
+    # over the splat's whole footprint. Pin round-to-nearest (saturating at the max finite
+    # half) on every channel and the finite guard plus its debug counter before packing.
+    ValidationContract(
+        key="tile_payload_color_pack_rounding",
+        issue_id=ISSUE_COLOR_PACK,
+        description="Payload colour pack rounds to nearest and binning zeroes and counts non-finite colours before packing.",
+        files=(
+            FilePatternSet(
+                path=SHADERS_DIR / "includes" / "tile_projection_common.glsl",
+                patterns=(
+                    r"uint gs_round_f16_for_shift\(uint h, uint drop_bits\)",
+                    r"return min\(h \+ half_step, 0x7BFFu\);",
+                    r"uint r_f16 = gs_round_f16_for_shift\(rg_packed & 0xFFFFu, 4u\);",
+                    r"uint g_f16 = gs_round_f16_for_shift\(\(rg_packed >> 16u\) & 0xFFFFu, 4u\);",
+                    r"uint b_f16 = gs_round_f16_for_shift\(b_packed & 0xFFFFu, 5u\);",
+                    r"bool gs_color_is_finite\(vec3 color\)",
+                    r"return !\(any\(isnan\(color\)\) \|\| any\(isinf\(color\)\)\);",
+                ),
+            ),
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_binning.glsl",
+                patterns=(
+                    r"^\s*uint color_nonfinite_count;",
+                    r"if \(!gs_color_is_finite\(final_color\)\) \{\s*GS_DEBUG_INCREMENT\(color_nonfinite_count\);\s*final_color = vec3\(0\.0\);\s*\}\s*sh_color = max\(final_color, vec3\(0\.0\)\);",
+                ),
+            ),
+            FilePatternSet(
+                path=MODULE_DIR / "renderer" / "tile_render_types.h",
+                patterns=(
+                    r"uint32_t color_nonfinite_count = 0;",
                 ),
             ),
         ),
