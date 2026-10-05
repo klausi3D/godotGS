@@ -3,6 +3,7 @@
 #include "../core/gaussian_streaming.h"
 #include "../renderer/gpu_memory_stream.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/render_debug_state_orchestrator.h"
 #include "../renderer/resource_owner_mismatch_contract.h"
 #include "../renderer/quantization_config.h"
 #include "../core/gaussian_data.h"
@@ -206,6 +207,33 @@ struct WorldBackedRendererHarness {
 };
 
 namespace {
+
+bool _prepare_async_chunk_load(GaussianStreamingSystem &p_system, uint32_t p_asset_id) {
+    auto &uploads = p_system._internal_get_upload_pipeline();
+    if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
+        FAIL("Async fixture requires a running pack worker");
+        return false;
+    }
+    const bool queued = uploads.queue_chunk_load(p_system, p_asset_id, 0);
+    CHECK(queued);
+    if (!queued) {
+        FAIL("Async fixture could not queue chunk zero");
+        return false;
+    }
+    // Only drive the real worker here: the next update consumes its completed
+    // upload, so the stale/cancel mutation must happen before that update.
+    const auto prepared = TestGaussianSplatting::gs_pump_until([&]() {
+        Thread::yield();
+        return p_system.get_pending_upload_jobs() > 0 &&
+                uploads.pack_jobs_in_flight.load(std::memory_order_acquire) == 0;
+    });
+    if (!prepared.ready()) {
+        FAIL("Async fixture did not prepare its upload ", prepared.describe());
+        return false;
+    }
+    CHECK(p_system.get_pending_upload_jobs() > 0);
+    return true;
+}
 
 bool _run_missing_buffer_abort_cycle(GaussianStreamingSystem &p_system, uint32_t p_asset_id) {
     auto *asset = p_system._test_get_asset_state(p_asset_id);
@@ -1001,7 +1029,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Concurrent LOD and visibility updat
     return;
 #endif
 
-    ScopedFallbackRD rd_scope;
+    ScopedLocalRD rd_scope;
     RenderingDevice *rd = rd_scope.rd;
 
     if (!rd) {
@@ -1211,7 +1239,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     return;
 #endif
 
-    ScopedFallbackRD rd_scope;
+    ScopedLocalRD rd_scope;
     RenderingDevice *rd = rd_scope.rd;
 
     if (!rd) {
@@ -1421,6 +1449,14 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale generation upload jobs are dr
         FAIL("Rendering device unavailable");
         return;
     }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings unavailable");
+        return;
+    }
+    const String async_pack_setting = "rendering/gaussian_splatting/streaming/async_pack_enabled";
+    ScopedProjectSettingRestore async_pack_guard(project_settings, async_pack_setting);
+    project_settings->set_setting(async_pack_setting, true);
 
     Ref<GaussianStreamingSystem> system;
     system.instantiate();
@@ -1435,21 +1471,9 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale generation upload jobs are dr
     projection.set_perspective(60.0f, 1.0f, 0.1f, 2000.0f);
 
     system->begin_residency_requests();
-    system->request_chunk_residency(asset_id, 0, 0);
+    CHECK(system->request_chunk_residency(asset_id, 0, 0) == OK);
     system->finalize_residency_requests();
-    system->update_streaming(camera_transform, projection);
-
-    bool saw_async_queue = false;
-    for (int i = 0; i < 32; i++) {
-        if (system->get_pending_pack_jobs() > 0 || system->get_pending_upload_jobs() > 0) {
-            saw_async_queue = true;
-            break;
-        }
-        system->update_streaming(camera_transform, projection);
-        OS::get_singleton()->delay_usec(1000);
-    }
-    if (!saw_async_queue) {
-        FAIL("Async pack/upload queue not observed in test environment");
+    if (!_prepare_async_chunk_load(*system.ptr(), asset_id)) {
         return;
     }
 
@@ -1553,17 +1577,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale residency completion remains 
     CHECK(system->request_chunk_residency(0, 0, 0) == OK);
     system->finalize_residency_requests();
 
-    bool saw_async_queue = false;
-    for (int i = 0; i < 48; i++) {
-        system->update_streaming(camera_transform, projection);
-        if (system->get_pending_pack_jobs() > 0 || system->get_pending_upload_jobs() > 0) {
-            saw_async_queue = true;
-            break;
-        }
-        OS::get_singleton()->delay_usec(1000);
-    }
-    if (!saw_async_queue) {
-        FAIL("Async pack/upload queue not observed in test environment");
+    if (!_prepare_async_chunk_load(*system.ptr(), 0)) {
         return;
     }
 
@@ -1635,16 +1649,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Cancelled pending chunk uploads do 
     CHECK(system->request_chunk_residency(asset_a, 0, 0) == OK);
     system->finalize_residency_requests();
 
-    bool saw_async_queue = false;
-    for (int i = 0; i < 48; i++) {
-        system->update_streaming(camera_transform, projection);
-        if (system->get_pending_pack_jobs() > 0 || system->get_pending_upload_jobs() > 0) {
-            saw_async_queue = true;
-            break;
-        }
-    }
-    if (!saw_async_queue) {
-        FAIL("Async pack/upload queue not observed in test environment");
+    if (!_prepare_async_chunk_load(*system.ptr(), asset_a)) {
         return;
     }
 
@@ -1908,6 +1913,9 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Hard explicit residency load failur
     CHECK(String(failed_status.get("request_result_name", String())) == "failed");
     CHECK(bool(failed_status.get("request_status_current_generation", false)));
 
+    // The injected failure is one-shot. Keep the fault present for the second
+    // observation, then remove it below to distinguish failure from recovery.
+    system->_test_force_next_chunk_upload_failure();
     system->update_streaming(camera_transform, projection);
     Dictionary settled_status = system->get_residency_request_status(0, 0);
     CHECK_FALSE(bool(settled_status.get("request_pending", true)));
@@ -1917,6 +1925,23 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Hard explicit residency load failur
     CHECK((int64_t)settled_status.get("request_status_generation", 0) ==
             (int64_t)settled_status.get("request_generation_current", -1));
     CHECK(system->get_loaded_chunks() == 0);
+
+    const auto recovered = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
+        system->update_streaming(camera_transform, projection);
+        system->end_frame();
+        const Dictionary status = system->get_residency_request_status(0, 0);
+        return system->get_loaded_chunks() > 0 &&
+                String(status.get("request_state_name", String())) == "satisfied";
+    });
+    if (!recovered.ready()) {
+        FAIL("Removing the hard upload fault did not restore residency ", recovered.describe());
+        return;
+    }
+    CHECK(system->get_loaded_chunks() > 0);
+    const Dictionary recovered_status = system->get_residency_request_status(0, 0);
+    CHECK(String(recovered_status.get("request_state_name", String())) == "satisfied");
+    CHECK(String(recovered_status.get("request_result_name", String())) == "satisfied");
 }
 
 TEST_CASE("[Streaming Pipeline][RequiresGPU] Cancelled pending chunk loads do not count as evictions") {
@@ -2345,7 +2370,6 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             system->set_config_overrides(overrides);
 
             const uint32_t asset_id = 1000u + seed;
-            system->register_asset(asset_id, create_test_gaussian_data(ordered_total));
 
             Vector<GaussianStreamingSystem::ChunkLayoutHint> ordered_hints;
             ordered_hints.resize(4);
@@ -2359,6 +2383,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             }
             std::shuffle(ordered_hints.ptrw(), ordered_hints.ptrw() + ordered_hints.size(), rng);
             system->set_io_chunk_layout_hints(ordered_hints, asset_id);
+            system->register_asset(asset_id, create_test_gaussian_data(ordered_total));
 
             Transform3D camera_transform;
             camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
@@ -2380,7 +2405,6 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             system->set_config_overrides(overrides);
 
             const uint32_t asset_id = 2000u + seed;
-            system->register_asset(asset_id, create_test_gaussian_data(fallback_total));
 
             Vector<GaussianStreamingSystem::ChunkLayoutHint> overlap_hints = _build_partitioned_hints(fallback_total, 128, rng);
             if (overlap_hints.size() <= 1) {
@@ -2390,6 +2414,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             const int mutate_index = int(seed % uint32_t(overlap_hints.size() - 1)) + 1;
             overlap_hints.write[mutate_index].start_idx = overlap_hints[mutate_index - 1].start_idx;
             system->set_io_chunk_layout_hints(overlap_hints, asset_id);
+            system->register_asset(asset_id, create_test_gaussian_data(fallback_total));
 
             Transform3D camera_transform;
             camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
@@ -2412,13 +2437,13 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             system->set_config_overrides(overrides);
 
             const uint32_t asset_id = 3000u + seed;
-            system->register_asset(asset_id, create_test_gaussian_data(fallback_total));
 
             Vector<GaussianStreamingSystem::ChunkLayoutHint> remap_hints = _build_partitioned_hints(fallback_total, 192, rng);
             const int remap_index = int(seed % uint32_t(remap_hints.size()));
             remap_hints.write[remap_index].source_indices_remapped = true;
             remap_hints.write[remap_index].source_index_offset = remap_hints[remap_index].start_idx;
             system->set_io_chunk_layout_hints(remap_hints, asset_id);
+            system->register_asset(asset_id, create_test_gaussian_data(fallback_total));
 
             Transform3D camera_transform;
             camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
@@ -2441,7 +2466,6 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             system->set_config_overrides(overrides);
 
             const uint32_t asset_id = 4000u + seed;
-            system->register_asset(asset_id, create_test_gaussian_data(oversize_total));
 
             std::uniform_int_distribution<uint32_t> first_count_dist(
                     GaussianStreamingSystem::CHUNK_SIZE + 1,
@@ -2463,6 +2487,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases kee
             oversize_hints.write[1].center = Vector3();
             oversize_hints.write[1].radius = 1.0f;
             system->set_io_chunk_layout_hints(oversize_hints, asset_id);
+            system->register_asset(asset_id, create_test_gaussian_data(oversize_total));
 
             Transform3D camera_transform;
             camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
@@ -2714,17 +2739,25 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Budget eviction prioritizes non-pri
     const uint32_t loaded_before = system->get_loaded_chunks();
     CHECK(loaded_before > 0);
 
+    // A current explicit request protects this chunk from budget eviction.
+    // End that request before testing reclamation of non-primary residency.
+    system->begin_residency_requests();
+    system->finalize_residency_requests();
+
     GaussianStreamingSystem::ConfigOverrides constrained_overrides = relaxed_overrides;
     constrained_overrides.vram_budget_config.budget_mb = 1;
     system->set_config_overrides(constrained_overrides);
 
-    bool observed_budget_eviction = false;
-    for (int i = 0; i < 8; i++) {
+    const auto budget_eviction = TestGaussianSplatting::gs_pump_until([&]() {
+        system->begin_frame();
         system->update_streaming(camera_transform, projection);
-        if (system->get_loaded_chunks() < loaded_before) {
-            observed_budget_eviction = true;
-            break;
-        }
+        system->end_frame();
+        return system->get_loaded_chunks() < loaded_before;
+    });
+    const bool observed_budget_eviction = budget_eviction.ready();
+    if (!observed_budget_eviction) {
+        FAIL("Non-primary budget eviction did not complete ", budget_eviction.describe());
+        return;
     }
 
     CHECK(observed_budget_eviction);
@@ -2772,7 +2805,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Tier presets apply streaming caps w
     project_settings->set_setting(upload_frame_setting, 128);
     project_settings->set_setting(upload_slice_setting, 16);
     project_settings->set_setting(upload_bandwidth_setting, 0);
-    project_settings->set_setting(vram_budget_setting, 12288);
+    project_settings->set_setting(vram_budget_setting, int64_t(STREAMING_UNKNOWN_CAPACITY_FALLBACK_VRAM_BUDGET_MB));
     project_settings->set_setting(min_chunks_setting, 4);
     project_settings->set_setting(max_chunks_setting, 128);
 
@@ -2816,6 +2849,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Tier presets apply streaming caps w
 
     project_settings->set_setting(upload_frame_setting, 77);
     project_settings->set_setting(vram_budget_setting, 3333);
+    project_settings->emit_signal("settings_changed");
 
     for (int i = 0; i < 2; i++) {
         system->begin_frame();
@@ -3070,10 +3104,10 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
 
     uint64_t stable_generation_prev = 0;
     uint64_t stable_generation_curr = 0;
+    bool rendered_stable_frame = false;
     const auto stable_generation = TestGaussianSplatting::gs_pump_until([&]() {
-        const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
-        CHECK(rendered);
-        if (!rendered) {
+        rendered_stable_frame = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
+        if (!rendered_stable_frame) {
             return false;
         }
         if (renderer->has_rendered_content()) {
@@ -3088,6 +3122,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
         renderer.unref();
         return;
     }
+    CHECK(rendered_stable_frame);
 
     const uint64_t generation_before_budget_change = stable_generation_curr;
     const int previous_max_splats = renderer->get_max_splats();
@@ -3095,10 +3130,10 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
     renderer->clear_instance_pipeline_buffers();
 
     uint64_t generation_after_budget_change = generation_before_budget_change;
+    bool rendered_changed_frame = false;
     const auto changed_generation = TestGaussianSplatting::gs_pump_until([&]() {
-        const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
-        CHECK(rendered);
-        if (!rendered) {
+        rendered_changed_frame = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
+        if (!rendered_changed_frame) {
             return false;
         }
         generation_after_budget_change = renderer->get_instance_pipeline_content_generation();
@@ -3109,6 +3144,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generat
         return;
     }
 
+    CHECK(rendered_changed_frame);
     CHECK(generation_after_budget_change != generation_before_budget_change);
 
     harness.teardown();
@@ -3145,14 +3181,13 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] LOD debug stats track transitions_t
 
     Ref<GaussianStreamingSystem> system;
     system.instantiate();
-    system->initialize_empty(rd);
+    // LOD transition telemetry is the primary chunk visibility controller's
+    // counter; registered non-primary assets are not that controller's workset.
+    system->initialize_with_device(create_clustered_test_gaussian_data(1024, Vector3(0.0f, 0.0f, 0.0f)), rd);
     if (!system->is_runtime_ready()) {
         FAIL("Streaming runtime not ready");
         return;
     }
-
-    const uint32_t asset_id = 404;
-    system->register_asset(asset_id, create_clustered_test_gaussian_data(1024, Vector3(0.0f, 0.0f, 0.0f)));
 
     Projection projection;
     projection.set_perspective(60.0f, 1.0f, 0.1f, 2000.0f);
@@ -3360,7 +3395,9 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streame
         const bool in_first_chunk = i < chunk_size;
         const float base_x = in_first_chunk ? 0.0f : 1000.0f;
         const uint32_t local_index = in_first_chunk ? i : (i - chunk_size);
-        g.position = Vector3(base_x + float(local_index % 16) * 0.01f, 0.0f, float(local_index / 16) * 0.01f);
+        g.position = Vector3(base_x + float(local_index % 16) * 0.01f,
+                float((local_index / 16) % 16) * 0.01f,
+                -10.0f + float(local_index / 256) * 0.001f);
         g.scale = Vector3(0.1f, 0.1f, 0.1f);
         g.rotation = Quaternion();
         g.opacity = 1.0f;
@@ -3393,16 +3430,17 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streame
     renderer->set_lod_max_distance(0.0f);
     renderer->set_tiny_splat_screen_radius(0.0f);
 
-    Transform3D cam_transform;
-    cam_transform.origin = Vector3(1000.0f, 0.0f, 10.0f); // Position near non-zero chunk center
+    Transform3D camera_to_world;
+    camera_to_world.origin = Vector3(1000.0f, 0.0f, 0.0f);
+    const Transform3D world_to_camera = camera_to_world.affine_inverse();
     Projection projection;
     projection.set_perspective(60.0f, 1.0f, 0.1f, 5000.0f);
 
     CHECK_FALSE(renderer->has_rendered_content());
 
+    bool rendered = false;
     const auto streamed_content = TestGaussianSplatting::gs_pump_until([&]() {
-        const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
-        CHECK(rendered);
+        rendered = renderer->render_for_view(world_to_camera, projection, RID(), Size2i(512, 512));
         return rendered && renderer->has_rendered_content() && renderer->get_visible_splat_count() == chunk_size;
     });
     if (!streamed_content.ready()) {
@@ -3410,6 +3448,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streame
         return;
     }
 
+    CHECK(rendered);
     CHECK(renderer->has_rendered_content());
     CHECK(renderer->get_visible_splat_count() == chunk_size);
 
@@ -3435,6 +3474,18 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
         FAIL("Primary rendering device unavailable");
         return;
     }
+    ProjectSettings *project_settings = ProjectSettings::get_singleton();
+    if (!project_settings) {
+        FAIL("ProjectSettings unavailable");
+        return;
+    }
+    const String route_policy_setting = "rendering/gaussian_splatting/streaming/route_policy";
+    const String instance_pipeline_setting = "rendering/gaussian_splatting/instance_pipeline/enabled";
+    ScopedProjectSettingRestore route_guard(project_settings, route_policy_setting);
+    ScopedProjectSettingRestore instance_pipeline_guard(project_settings, instance_pipeline_setting);
+    project_settings->set_setting(route_policy_setting, int64_t(gs::settings::GS_ROUTE_RESIDENT));
+    project_settings->set_setting(instance_pipeline_setting, true);
+    project_settings->emit_signal("settings_changed");
 
     const uint32_t total_gaussians = 8192;
     LocalVector<Gaussian> gaussians;
@@ -3461,17 +3512,24 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
     Ref<::GaussianData> data;
     data.instantiate();
     data->set_gaussians(gaussians);
-    WorldBackedRendererHarness harness;
-    if (!harness.setup(data, true)) {
-        FAIL("World-backed renderer unavailable");
-        return;
-    }
-    Ref<GaussianSplatRenderer> renderer = harness.renderer;
+    // World submissions intentionally disable per-splat Stage-B filters. The
+    // resident atlas-shaped instance contract exercises the same depth shader
+    // with those filters enabled, without that world-only exemption.
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate(primary_device);
     CHECK(renderer.is_valid());
     if (!renderer.is_valid()) {
-        harness.teardown();
+        FAIL("Stage-B renderer unavailable");
         return;
     }
+    renderer->initialize();
+    const Error set_data_error = renderer->set_gaussian_data(data);
+    CHECK(set_data_error == OK);
+    if (set_data_error != OK) {
+        FAIL("Stage-B renderer could not accept its fixture");
+        return;
+    }
+    renderer->set_max_splats(total_gaussians);
 
     renderer->set_lod_enabled(true);
     renderer->set_lod_bias(1.0f);
@@ -3484,10 +3542,10 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
     Projection projection;
     projection.set_perspective(60.0f, 1.0f, 0.1f, 200.0f);
 
+    bool rendered_sample = false;
     auto render_sample = [&]() {
-        const bool rendered = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
-        CHECK(rendered);
-        return rendered;
+        rendered_sample = renderer->render_for_view(cam_transform, projection, RID(), Size2i(512, 512));
+        return rendered_sample;
     };
 
     uint32_t baseline_visible = 0;
@@ -3505,7 +3563,19 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
 
     if (!instance_pipeline_ready.ready()) {
         FAIL("Instance pipeline did not become ready in Stage-B culling regression test ", instance_pipeline_ready.describe());
-        harness.teardown();
+        return;
+    }
+    const auto &instance_buffers = renderer->get_instance_pipeline_buffers();
+    CHECK(rendered_sample);
+    CHECK_FALSE(instance_buffers.world_submission_active);
+    CHECK(renderer->get_instance_backend_policy() == GaussianRenderPipeline::InstanceBackendPolicy::RESIDENT);
+    CHECK(renderer->is_instance_contract_ready());
+    const String cull_route = renderer->get_render_stats().get("cull_route_uid", String());
+    CHECK(cull_route == String(RenderRouteUID::INSTANCE_CULL_GPU));
+    if (instance_buffers.world_submission_active ||
+            renderer->get_instance_backend_policy() != GaussianRenderPipeline::InstanceBackendPolicy::RESIDENT ||
+            !renderer->is_instance_contract_ready() || cull_route != String(RenderRouteUID::INSTANCE_CULL_GPU)) {
+        FAIL("Stage-B fixture did not select its non-world instance contract");
         return;
     }
 
@@ -3522,6 +3592,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
         FAIL("Frustum culling did not reduce the visible count ", frustum_culled.describe());
         return;
     }
+    CHECK(rendered_sample);
 
     renderer->set_frustum_culling(false);
     const auto frustum_reset = TestGaussianSplatting::gs_pump_until([&]() {
@@ -3544,6 +3615,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
         FAIL("Tiny-splat culling did not reduce the visible count ", tiny_culled.describe());
         return;
     }
+    CHECK(rendered_sample);
 
     renderer->set_tiny_splat_screen_radius(0.0f);
     const auto tiny_reset = TestGaussianSplatting::gs_pump_until([&]() {
@@ -3566,13 +3638,14 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
         FAIL("Distance culling did not leave a reduced non-zero visible count ", distance_culled.describe());
         return;
     }
+    CHECK(rendered_sample);
 
     CHECK(frustum_visible < baseline_visible);
     CHECK(tiny_visible < baseline_visible);
     CHECK(distance_visible < baseline_visible);
     CHECK(distance_visible > 0);
 
-    harness.teardown();
+    renderer.unref();
 }
 
 TEST_CASE("[Streaming Pipeline] Pressure sample total_pending_chunks includes pack_jobs_in_flight") {

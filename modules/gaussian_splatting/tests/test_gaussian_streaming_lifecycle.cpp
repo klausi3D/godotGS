@@ -629,6 +629,9 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] update_streaming publishes phase ti
 
         const uint32_t asset_id = 31415;
         system->register_asset(asset_id, _create_streaming_phase_order_test_data());
+        // Publishing the registered asset replaces initialize_empty's 4-byte
+        // placeholders. Idle RID stability starts after that topology change.
+        system->_test_sync_global_atlas_state(rd);
 
         Transform3D camera_transform;
         camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
