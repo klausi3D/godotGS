@@ -1335,6 +1335,14 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
         return;
     }
 
+    uint64_t stream_frame = 1;
+    stream->begin_frame(stream_frame);
+    auto retire_consumed_frame = [&]() {
+        stream->end_frame();
+        stream->swap_buffers();
+        stream->begin_frame(++stream_frame);
+    };
+
     const uint32_t switches_before_wrong_owner = stream->get_stats().buffer_switches;
     StreamingPipelineWrongOwnerContext wrong_owner;
     wrong_owner.pipeline = pipeline;
@@ -1376,6 +1384,8 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_pending", true)));
     CHECK(_packed_buffer_matches_position_pattern(rd, stream->get_current_gpu_buffer(), pattern_a));
 
+    retire_consumed_frame();
+    data->set_positions(pattern_b);
     pipeline->set_lod_level(1);
     const auto failed_upload_prepared = prepare_snapshot(splat_count);
     if (!failed_upload_prepared.ready()) {
@@ -1428,9 +1438,11 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
         return;
     }
     stream->wait_for_all_uploads();
-    CHECK(int(pipeline->get_streaming_stats().get("last_upload_error", int(ERR_FAILED))) == int(OK));
-    CHECK(_packed_buffer_matches_position_pattern(rd, pipeline->get_current_buffer(), pattern_a));
+    CHECK(int(pipeline->get_streaming_stats().get("last_upload_error", int(ERR_UNCONFIGURED))) == int(OK));
+    CHECK(_packed_buffer_matches_position_pattern(rd, pipeline->get_current_buffer(), pattern_b));
 
+    retire_consumed_frame();
+    data->set_positions(pattern_a);
     pipeline->set_lod_level(3);
     const auto older_positive = prepare_snapshot(splat_count);
     if (!older_positive.ready()) {
@@ -1475,6 +1487,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     }
     stream->wait_for_all_uploads();
     CHECK(_packed_buffer_matches_position_pattern(rd, pipeline->get_current_buffer(), pattern_a));
+    retire_consumed_frame();
 
     SnapshotPositionStressContext ctx;
     ctx.data = data;
@@ -1522,6 +1535,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
         const bool matches_b = _packed_buffer_matches_position_pattern(rd, buffer, pattern_b);
         const bool either_matches = matches_a || matches_b;
         CHECK(either_matches);
+        retire_consumed_frame();
     }
 
     ctx.stop.store(true, std::memory_order_release);
