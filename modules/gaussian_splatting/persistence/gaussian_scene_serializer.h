@@ -58,7 +58,12 @@ struct SceneHeader {
     // GAUSSIAN_SCENE_VERSION is at least this value may open the file and
     // gracefully skip any chunk types they do not recognize.
     uint16_t minimum_reader_version;
-    uint16_t _reserved_v2; // Padding / reserved for future use.
+    // Was `_reserved_v2` (always written 0). Since #1172 it records the
+    // GAUSSIAN_STRUCT_LAYOUT_VERSION the GAUSSIAN_DATA chunk's raw Gaussian
+    // bytes were written with. 0 (older writers, and v1 files, which have no
+    // such field) resolves to GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED. A
+    // reader refuses a file whose resolved layout differs from its own.
+    uint16_t gaussian_layout_version;
 };
 
 // On-disk packed size of SceneHeader (may differ from sizeof(SceneHeader)

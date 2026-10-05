@@ -626,7 +626,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.
 ## 7. Format and version bumps
 
 - **`.gsplatworld` v2** (`kWorldVersion` 1 → 2, `io/gaussian_splat_world_io.cpp:24`; the loader
-  rejects any other version at `:541`):
+  rejects any other version at `:541`). Note (2026-10-05): v2 is now taken by #1172 (layout
+  fingerprint word in the header), so S1a bumps to the next free version and its reader must
+  accept every earlier one; re-read the live constants when implementing:
   - header: flag `kFlagHasHlod` (next free bit after `kFlagResidentPayload`, `:38`); the
     lattice origin `O` (3 x float64, from the world frame); `bake_rule_version`;
   - a **node table**, **128 B per node**: lattice address (edge exponent `e` as int8, signed

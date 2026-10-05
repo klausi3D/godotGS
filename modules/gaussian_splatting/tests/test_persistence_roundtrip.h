@@ -323,7 +323,7 @@ void _write_gsf_header_chunk(Ref<FileAccess> file, uint32_t total_chunks, uint32
     file->store_64(0); // creation_time
     file->store_64(0); // modification_time
     file->store_16(GaussianSplatting::GAUSSIAN_SCENE_MIN_READER_VERSION);
-    file->store_16(0); // _reserved_v2
+    file->store_16(0); // gaussian_layout_version: 0 = not recorded (legacy layout)
 }
 
 Ref<GaussianSplatWorld> create_test_world() {

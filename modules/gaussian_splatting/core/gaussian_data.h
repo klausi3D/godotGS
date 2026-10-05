@@ -34,6 +34,7 @@
 #include "../resources/color_grading_resource.h"
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 namespace GaussianSplatting {
 
@@ -195,6 +196,58 @@ struct Gaussian {
 static_assert(sizeof(Gaussian) % 16 == 0, "Gaussian struct must remain 16-byte aligned");
 static_assert(sizeof(Gaussian) == 144, "Gaussian authoring struct size changed; it is NOT the GPU layout (see PackedGaussian)");
 static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes must stay 8-byte aligned for std430 layout");
+
+// Persisted layout fingerprint (#1172).
+//
+// `.gsplatworld` (and the `.gsplatcache` PLY sidecar, which is a .gsplatworld)
+// and the GSF GAUSSIAN_DATA chunk store this struct as raw bytes. The size
+// assert above cannot see a same-size change -- swapping painterly_meta and
+// render_meta, or repurposing a padding slot as happened when render_meta took
+// part of _padding2 -- and such a change would misdecode every existing file
+// without any check firing. So every writer records
+// GAUSSIAN_STRUCT_LAYOUT_VERSION in its header and every reader rejects a
+// payload recorded under a different layout.
+//
+// The asserts below pin every member's offset and type. If one fails you are
+// changing the persisted layout or the meaning of a field: bump
+// GAUSSIAN_STRUCT_LAYOUT_VERSION, update the asserts, and decide what happens
+// to files written under the old layout (they are rejected by default). Do not
+// edit the asserts without the bump.
+static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION = 1u;
+
+// Files written before the layout word existed (.gsplatworld v1, GSF headers
+// whose layout word is 0) were all written with layout 1. They resolve to that
+// version, so they keep loading today and are rejected as soon as the layout
+// version moves on. Never change this value.
+static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED = 1u;
+
+// Layout a persisted payload is decoded with: the recorded word, or the legacy
+// layout when the writer predates the word (0).
+constexpr uint32_t gaussian_resolve_persisted_layout_version(uint32_t p_recorded) {
+    return p_recorded == 0u ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : p_recorded;
+}
+
+#define GS_PIN_GAUSSIAN_FIELD(m_field, m_type, m_offset) \
+    static_assert(offsetof(Gaussian, m_field) == (m_offset), \
+            "Gaussian::" #m_field " moved: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)"); \
+    static_assert(std::is_same<decltype(Gaussian::m_field), m_type>::value, \
+            "Gaussian::" #m_field " changed type: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)")
+GS_PIN_GAUSSIAN_FIELD(position, Vector3, 0);
+GS_PIN_GAUSSIAN_FIELD(opacity, float, 12);
+GS_PIN_GAUSSIAN_FIELD(scale, Vector3, 16);
+GS_PIN_GAUSSIAN_FIELD(area, float, 28);
+GS_PIN_GAUSSIAN_FIELD(rotation, Quaternion, 32);
+GS_PIN_GAUSSIAN_FIELD(sh_dc, Color, 48);
+GS_PIN_GAUSSIAN_FIELD(sh_1, Vector3[3], 64);
+GS_PIN_GAUSSIAN_FIELD(normal, Vector3, 100);
+GS_PIN_GAUSSIAN_FIELD(stroke_age, float, 112);
+GS_PIN_GAUSSIAN_FIELD(_padding, float, 116);
+GS_PIN_GAUSSIAN_FIELD(brush_axes, Vector2, 120);
+GS_PIN_GAUSSIAN_FIELD(painterly_meta, uint32_t, 128);
+GS_PIN_GAUSSIAN_FIELD(render_meta, uint32_t, 132);
+GS_PIN_GAUSSIAN_FIELD(_padding2, float[2], 136);
+#undef GS_PIN_GAUSSIAN_FIELD
+static_assert(GAUSSIAN_STRUCT_LAYOUT_VERSION != 0u, "0 means 'not recorded' in persisted headers");
 
 /**
  * @brief True when every render-critical field of ONE splat is finite.

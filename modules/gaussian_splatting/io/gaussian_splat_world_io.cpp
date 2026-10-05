@@ -21,7 +21,13 @@
 namespace {
 
 static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
-static constexpr uint32_t kWorldVersion = 1;
+// v1: 104-byte header, no record of the raw Gaussian struct layout. Still read;
+//     its payload resolves to GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED.
+// v2: 112-byte header = v1 header + u32 gaussian_layout_version (must equal
+//     GAUSSIAN_STRUCT_LAYOUT_VERSION, #1172) + u32 reserved (written 0, ignored).
+// KEEP IN SYNC with the header validator in io/resource_importer_gsplatworld.cpp.
+static constexpr uint32_t kWorldVersionV1 = 1;
+static constexpr uint32_t kWorldVersion = 2;
 static constexpr uint32_t kMaxShDegree = 3;
 // Gaussian.sh_1[3] holds at most 3 first-order coefficients on disk, and
 // GaussianData::set_gaussian_payload() clamps p_sh_first_order_count to 3, so
@@ -36,7 +42,8 @@ static constexpr uint32_t kFlagHasChunks = 1u << 2u;
 static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
 static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
-static constexpr uint64_t kHeaderSizeBytes = 104u;
+static constexpr uint64_t kHeaderSizeBytesV1 = 104u;
+static constexpr uint64_t kHeaderSizeBytes = 112u; // Written by this saver (v2).
 
 // Bound on the *decompressed* resident gaussian payload for compressed worlds.
 // The uncompressed path is bounded structurally by `fits_within` (you cannot claim
@@ -382,6 +389,8 @@ static Error _write_world_save_header(const Ref<FileAccess> &p_file,
 	p_file->store_64(p_layout.indices_offset);
 	p_file->store_64(p_layout.metadata_offset);
 	p_file->store_64(p_layout.metadata_size);
+	p_file->store_32(GAUSSIAN_STRUCT_LAYOUT_VERSION); // v2: gaussian_layout_version.
+	p_file->store_32(0u); // v2: reserved.
 	return _ensure_file_write_ok(p_file, "save(header)");
 }
 
@@ -522,7 +531,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint64_t file_len = file->get_length();
-	if (file_len < kHeaderSizeBytes) {
+	if (file_len < kHeaderSizeBytesV1) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
@@ -538,7 +547,14 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != kWorldVersion) {
+	if (version != kWorldVersion && version != kWorldVersionV1) {
+		if (r_error) {
+			*r_error = ERR_FILE_CORRUPT;
+		}
+		return Ref<Resource>();
+	}
+	const uint64_t header_size = (version == kWorldVersionV1) ? kHeaderSizeBytesV1 : kHeaderSizeBytes;
+	if (file_len < header_size) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
@@ -579,7 +595,20 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	const uint64_t metadata_offset = file->get_64();
 	const uint64_t metadata_size = file->get_64();
 
-	if (gaussian_offset >= file_len || gaussian_offset < kHeaderSizeBytes) {
+	// #1172: the gaussian payload is the raw Gaussian struct, so it may only be
+	// decoded with the layout it was written with. v1 recorded none and resolves
+	// to the layout every v1 writer used; v2 must record one explicitly.
+	const uint32_t recorded_layout = (version == kWorldVersionV1) ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : file->get_32();
+	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
+				p_path, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
+		if (r_error) {
+			*r_error = ERR_FILE_UNRECOGNIZED;
+		}
+		return Ref<Resource>();
+	}
+
+	if (gaussian_offset >= file_len || gaussian_offset < header_size) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}

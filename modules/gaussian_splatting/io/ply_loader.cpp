@@ -32,6 +32,11 @@ namespace {
 //       pre-v3 .gsplatcache is rejected and the raw PLY is re-parsed (which now
 //       either loads correctly or fails loudly) — no manual cache deletion
 //       required.
+//   (#1172, no bump: the .gsplatworld container moved to v2, which records
+//       the Gaussian struct layout. A v1-container cache still decodes exactly
+//       as before and resolves to layout 1; a cache recorded under any other
+//       layout is refused by the world loader, which try_load_cache() treats
+//       as a miss, so the raw PLY is re-parsed.)
 static constexpr int PLY_CACHE_VERSION = 3;
 
 static constexpr int SH_DC_COMPONENTS = 3;

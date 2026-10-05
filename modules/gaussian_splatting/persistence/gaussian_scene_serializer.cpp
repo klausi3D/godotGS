@@ -113,7 +113,7 @@ uint32_t _fnv1a(const uint8_t *data, int64_t length) {
 
 // V1 header size (before minimum_reader_version was added).
 static const uint32_t SCENE_HEADER_V1_SIZE = 56;
-// V2 header size (includes minimum_reader_version + _reserved_v2).
+// V2 header size (includes minimum_reader_version + gaussian_layout_version).
 static const uint32_t SCENE_HEADER_V2_SIZE = 60;
 
 PackedByteArray _pack_scene_header(const SceneHeader &header) {
@@ -135,7 +135,7 @@ PackedByteArray _pack_scene_header(const SceneHeader &header) {
     memcpy(w + 48, &header.modification_time, sizeof(uint64_t));  // 48
     // v2 fields
     memcpy(w + 56, &header.minimum_reader_version, sizeof(uint16_t)); // 56
-    memcpy(w + 58, &header._reserved_v2, sizeof(uint16_t));           // 58
+    memcpy(w + 58, &header.gaussian_layout_version, sizeof(uint16_t)); // 58
 
     return bytes;
 }
@@ -159,11 +159,11 @@ SceneHeader _unpack_scene_header(const PackedByteArray &bytes) {
     // A v1 file will have a 56-byte header; default to safe values.
     if (sz >= 60) {
         memcpy(&header.minimum_reader_version, r + 56, sizeof(uint16_t));
-        memcpy(&header._reserved_v2, r + 58, sizeof(uint16_t));
+        memcpy(&header.gaussian_layout_version, r + 58, sizeof(uint16_t));
     } else {
         // V1 files implicitly have minimum_reader_version == 1.
         header.minimum_reader_version = 1;
-        header._reserved_v2 = 0;
+        header.gaussian_layout_version = 0; // Not recorded; see SceneHeader.
     }
 
     return header;
@@ -964,7 +964,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;
     header.minimum_reader_version = GAUSSIAN_SCENE_MIN_READER_VERSION;
-    header._reserved_v2 = 0;
+    static_assert(GAUSSIAN_STRUCT_LAYOUT_VERSION <= UINT16_MAX, "GSF stores the Gaussian layout version in 16 bits");
+    header.gaussian_layout_version = uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION);
     header.flags = 0;
     if (incremental_mode) {
         header.flags |= SCENE_FLAG_INCREMENTAL;
@@ -1257,6 +1258,15 @@ Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &f
                     (int)GAUSSIAN_SCENE_VERSION, (int)scene_header.version));
         }
     }
+
+    // #1172: GAUSSIAN_DATA is the raw Gaussian struct, so it may only be decoded
+    // with the layout it was written with. Checked for every file, including
+    // forward-compatible newer versions, before any chunk is read.
+    const uint32_t recorded_layout = gaussian_resolve_persisted_layout_version(scene_header.gaussian_layout_version);
+    ERR_FAIL_COND_V_MSG(recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION, ERR_FILE_UNRECOGNIZED, vformat(
+            "Gaussian scene file '%s' was written with Gaussian struct layout %d, but this build reads layout %d. "
+            "Re-save the scene from its source with this build.",
+            file_path, (int)recorded_layout, (int)GAUSSIAN_STRUCT_LAYOUT_VERSION));
 
     return _read_scene_body(file, file_path, scene_header, r_staging);
 }
