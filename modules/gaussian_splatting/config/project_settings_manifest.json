@@ -1019,6 +1019,7 @@
     {
       "effective_state": "none",
       "key": "rendering/gaussian_splatting/rendering/sh_bands",
+      "notes": "Band 3 is partial on the GPU (#1158). A degree-3 splat carries 15 non-DC SH coefficients; the 128-byte GPU layout stores 12 (band 3, m = +1..+3 is dropped) and the 80-byte per-chunk quantized layout stores 6 (two band-2 and all seven band-3 coefficients are dropped), so a value of 3 never renders full third-order SH. The packers count the dropped coefficients in SHCompressionMetrics::dropped_coefficient_count and warn once per asset and layout; see docs/performance/gs_quantization_tradeoff.md.",
       "test_coverage": "inventory_only"
     },
     {

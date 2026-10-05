@@ -10,6 +10,8 @@
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
+#include "core/os/mutex.h"
+#include "core/templates/hash_set.h"
 #include "core/variant/variant.h"
 #include <algorithm>
 #include <atomic>
@@ -210,6 +212,7 @@ static void _pack_gaussian_finite(const Gaussian &src,
     }
     metrics.compressed_bytes += sizeof(dst.sh.dc) + sizeof(float) * encoded_total;
     metrics.coefficient_count += encoded_total;
+    metrics.dropped_coefficient_count += gs_sh_layout_dropped_coefficients(first_order_count, higher_order_count, false);
 }
 
 void pack_gaussian(const Gaussian &src,
@@ -276,6 +279,53 @@ static inline Vector3 sanitize_finite_vec3(const Vector3 &v, const Vector3 &fall
 // so the layout is a fixed 6-slot array; unused slots are zeroed (a zero word decodes
 // to vec3(0), contributing nothing, and the per-chunk sh_limit still gates bands).
 static constexpr uint32_t GS_QUANTIZED_SH_ENCODED_SLOTS = 6u;
+
+static_assert(GS_QUANTIZED_SH_ENCODED_SLOTS == sizeof(PackedGaussianQuantized::sh_encoded) / sizeof(uint32_t),
+        "GS_QUANTIZED_SH_ENCODED_SLOTS must match PackedGaussianQuantized::sh_encoded");
+
+uint32_t gs_sh_layout_dropped_coefficients(uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout) {
+    const uint32_t slots = p_quantized_layout ? GS_QUANTIZED_SH_ENCODED_SLOTS : PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS;
+    // 64-bit sum: higher_order_count is caller-supplied and must not wrap past the slot count.
+    const uint64_t available = uint64_t(MIN<uint32_t>(p_first_order_count, 3u)) + uint64_t(p_higher_order_count);
+    return available > slots ? uint32_t(MIN<uint64_t>(available - slots, UINT32_MAX)) : 0u;
+}
+
+bool gs_warn_sh_layout_truncation_once(uint64_t p_asset_key, const String &p_asset_label,
+        uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout) {
+    const uint32_t dropped = gs_sh_layout_dropped_coefficients(p_first_order_count, p_higher_order_count, p_quantized_layout);
+    if (dropped == 0) {
+        return false;
+    }
+    static Mutex warned_mutex;
+    static HashSet<uint64_t> warned_assets[2]; // [0] 128-byte layout, [1] quantized layout
+    {
+        MutexLock lock(warned_mutex);
+        HashSet<uint64_t> &warned = warned_assets[p_quantized_layout ? 1 : 0];
+        if (warned.has(p_asset_key)) {
+            return false;
+        }
+        warned.insert(p_asset_key);
+    }
+    const uint64_t available = uint64_t(MIN<uint32_t>(p_first_order_count, 3u)) + uint64_t(p_higher_order_count);
+    WARN_PRINT(vformat("[GaussianSplatting] Asset '%s': %d of its %d non-DC SH coefficients per splat do not fit the %s GPU layout and are dropped (#1158), "
+                       "so view-dependent colour renders with partial %s even at rendering/sh_bands = 3. "
+                       "See docs/performance/gs_quantization_tradeoff.md.",
+            p_asset_label, dropped, available,
+            p_quantized_layout ? "80-byte quantized" : "128-byte",
+            p_quantized_layout ? "second-order and no third-order SH" : "third-order SH"));
+    return true;
+}
+
+bool gs_warn_sh_layout_truncation_once(const GaussianData &p_data,
+        uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout) {
+    if (gs_sh_layout_dropped_coefficients(p_first_order_count, p_higher_order_count, p_quantized_layout) == 0) {
+        return false; // Skip building the label on the common path.
+    }
+    const uint64_t key = uint64_t(p_data.get_instance_id());
+    const String path = p_data.get_path();
+    const String label = path.is_empty() ? vformat("GaussianData %d", key) : path;
+    return gs_warn_sh_layout_truncation_once(key, label, p_first_order_count, p_higher_order_count, p_quantized_layout);
+}
 
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
@@ -359,6 +409,7 @@ void pack_gaussian_quantized(const Gaussian &src,
     metrics.raw_bytes += sizeof(Gaussian);
     metrics.compressed_bytes += sizeof(PackedGaussianQuantized);
     metrics.coefficient_count += encoded_total;
+    metrics.dropped_coefficient_count += gs_sh_layout_dropped_coefficients(first_order_count, higher_order_count, true);
 }
 
 void pack_gaussians_range_quantized(const LocalVector<Gaussian> &src,
