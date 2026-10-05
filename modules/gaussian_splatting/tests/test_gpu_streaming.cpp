@@ -1319,10 +1319,15 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     pipeline->start_streaming();
     pipeline->update_visible_range(0, splat_count);
 
-    const auto upload_prepared = TestGaussianSplatting::gs_pump_until([&]() {
-        Thread::yield();
-        return bool(pipeline->get_streaming_stats().get("upload_pending", false));
-    });
+    auto prepare_snapshot = [&](uint32_t expected_count) {
+        return TestGaussianSplatting::gs_pump_until([&]() {
+            Thread::yield();
+            const Dictionary stats = pipeline->get_streaming_stats();
+            return bool(stats.get("upload_pending", false)) &&
+                    int64_t(stats.get("pending_splat_count", -1)) == int64_t(expected_count);
+        });
+    };
+    const auto upload_prepared = prepare_snapshot(splat_count);
     if (!upload_prepared.ready()) {
         FAIL("Owner-thread fixture did not prepare its pending upload ", upload_prepared.describe());
         pipeline->stop_streaming();
@@ -1370,6 +1375,106 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     stream->wait_for_all_uploads();
     CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_pending", true)));
     CHECK(_packed_buffer_matches_position_pattern(rd, stream->get_current_gpu_buffer(), pattern_a));
+
+    pipeline->set_lod_level(1);
+    const auto failed_upload_prepared = prepare_snapshot(splat_count);
+    if (!failed_upload_prepared.ready()) {
+        FAIL("GPU-failure fixture did not prepare its upload ", failed_upload_prepared.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    // The real RD forbids buffer_update during an active compute list. The
+    // synchronous stream must propagate that error rather than publish READY.
+    const RenderingDevice::ComputeListID compute_list = rd->compute_list_begin();
+    if (compute_list == INVALID_ID) {
+        FAIL("GPU-failure fixture could not begin its compute list");
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    const bool print_errors_before_upload_failure = CoreGlobals::print_error_enabled;
+    ERR_PRINT_OFF;
+    const Error failed_upload = pipeline->process_uploads();
+    CoreGlobals::print_error_enabled = print_errors_before_upload_failure;
+    rd->compute_list_end();
+    CHECK(failed_upload == ERR_INVALID_PARAMETER);
+    CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_pending", true)));
+    CHECK(int(pipeline->get_streaming_stats().get("last_upload_error", int(OK))) == int(ERR_INVALID_PARAMETER));
+    CHECK(pipeline->process_uploads() == ERR_INVALID_PARAMETER);
+    CHECK_FALSE(pipeline->get_current_buffer().is_valid());
+    CHECK_FALSE(pipeline->get_current_buffer().is_valid());
+
+    auto drain_owner = [&]() {
+        return TestGaussianSplatting::gs_pump_until([&]() {
+            Thread::yield();
+            CHECK(pipeline->process_uploads() == OK);
+            return !bool(pipeline->get_streaming_stats().get("is_streaming", true));
+        });
+    };
+    pipeline->set_lod_level(2);
+    const auto recovery_prepared = prepare_snapshot(splat_count);
+    if (!recovery_prepared.ready()) {
+        FAIL("GPU recovery did not prepare a fresh upload ", recovery_prepared.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    const auto recovery_drained = drain_owner();
+    if (!recovery_drained.ready()) {
+        FAIL("GPU recovery did not finish its upload ", recovery_drained.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    stream->wait_for_all_uploads();
+    CHECK(int(pipeline->get_streaming_stats().get("last_upload_error", int(ERR_FAILED))) == int(OK));
+    CHECK(_packed_buffer_matches_position_pattern(rd, pipeline->get_current_buffer(), pattern_a));
+
+    pipeline->set_lod_level(3);
+    const auto older_positive = prepare_snapshot(splat_count);
+    if (!older_positive.ready()) {
+        FAIL("Zero-range fixture did not prepare its older positive upload ", older_positive.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    pipeline->update_visible_range(0, 0);
+    const auto empty_prepared = prepare_snapshot(0);
+    if (!empty_prepared.ready()) {
+        FAIL("Zero range did not replace the older pending snapshot ", empty_prepared.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    const auto empty_drained = drain_owner();
+    if (!empty_drained.ready()) {
+        FAIL("Zero range did not retire its pending upload ", empty_drained.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_pending", true)));
+    CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_in_progress", true)));
+    CHECK_FALSE(pipeline->get_current_buffer().is_valid());
+
+    pipeline->update_visible_range(0, splat_count);
+    const auto restored_prepared = prepare_snapshot(splat_count);
+    if (!restored_prepared.ready()) {
+        FAIL("Positive range did not prepare after zero range ", restored_prepared.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    const auto restored_drained = drain_owner();
+    if (!restored_drained.ready()) {
+        FAIL("Positive range did not upload after zero range ", restored_drained.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    stream->wait_for_all_uploads();
+    CHECK(_packed_buffer_matches_position_pattern(rd, pipeline->get_current_buffer(), pattern_a));
 
     SnapshotPositionStressContext ctx;
     ctx.data = data;
