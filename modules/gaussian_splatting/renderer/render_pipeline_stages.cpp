@@ -1018,7 +1018,10 @@ void RenderPipelineStages::resolve_raster_sort_input(const RenderFrameContext &p
 		r_input.sorted_splat_count = p_context.metrics->sort.sorted_count;
 		r_input.sort_time_ms = p_context.metrics->sort.sort_time_ms;
 		r_input.sorted_index_domain = p_context.metrics->sort.output_domain;
-	} else if (p_context.snapshot.valid) {
+	} else if (p_context.snapshot.valid &&
+			p_context.pass_kind != GaussianSplatRenderer::RenderPassKind::SHADOW_MAP) {
+		// The snapshot belongs to the color camera. Until a shadow pass produces
+		// its own caster evidence, it must not authorize a shadow-atlas write.
 		r_input.sorted_splat_count = p_context.snapshot.sorted_splats;
 		r_input.sort_time_ms = 0.0f;
 		r_input.sorted_index_domain = p_context.snapshot.sorted_index_domain;

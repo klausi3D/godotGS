@@ -4,6 +4,7 @@
 #include "../renderer/tile_render_resources.h"
 #include "../renderer/tile_prefix_scan_utils.h"
 #include "../renderer/tile_renderer.h"
+#include "../renderer/pipeline_feature_set.h"
 #include "servers/rendering_server.h"
 
 // #641: both cases below need a real local RenderingDevice to create pipelines.
@@ -92,6 +93,19 @@ TEST_CASE("[TileRenderer] Compute raster shared-memory requirement equals expect
 
     CHECK(required_bytes == expected_bytes);
     CHECK(required_bytes == 45076u); // 10-word payload since the fp32 screen centre (#1153)
+}
+
+TEST_CASE("[GaussianSplatting][ViewTransform] compute raster budget covers full layout when packing is requested") {
+    const bool previous = g_pipeline_feature_set.enable_packed_stage_data;
+    g_pipeline_feature_set.enable_packed_stage_data = true;
+    const uint64_t packed_requested = TileRasterizer::get_compute_raster_shared_memory_requirement_bytes();
+    g_pipeline_feature_set.enable_packed_stage_data = false;
+    const uint64_t full_requested = TileRasterizer::get_compute_raster_shared_memory_requirement_bytes();
+    g_pipeline_feature_set.enable_packed_stage_data = previous;
+
+    CHECK(packed_requested == full_requested);
+    CHECK(packed_requested == 45076u);
+    CHECK(packed_requested > 40980u);
 }
 
 // Force-link anchor (#178): a doctest TEST_CASE registers via a file-scope static

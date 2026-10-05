@@ -17,6 +17,9 @@
 #include "../core/gaussian_splat_world.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/ply_loader.h"
+#ifdef TOOLS_ENABLED
+#include "../io/resource_importer_gsplatworld.h"
+#endif
 #include "../persistence/gaussian_scene_serializer.h"
 
 #include "core/io/dir_access.h"
@@ -199,6 +202,40 @@ TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld records the Gaussian struct 
 	}
 	check_same_splats(resident->get_gaussian_data(), data);
 
+	remove_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld refuses unsupported extensions even with a matching layout word") {
+	using namespace TestGaussianLayoutFingerprint;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	const String path = fixture_path("world_unknown_extension", ".gsplatworld");
+	if (saver.save(make_world(make_data()), path) != OK) {
+		FAIL("save producer control");
+		return;
+	}
+	Error err = ERR_BUG;
+	Ref<Resource> control = loader.load(path, "", &err);
+	CHECK(control.is_valid());
+	CHECK_EQ(err, OK);
+	control.unref();
+	const uint32_t flags = read_u32_at(path, 8u);
+	for (uint32_t extension : {1u << 6u, 1u << 31u}) {
+		if (!write_u32_at(path, 8u, flags | extension)) {
+			FAIL("patch unsupported extension flag");
+			return;
+		}
+		check_world_refused_for_layout(path);
+#ifdef TOOLS_ENABLED
+		Ref<ResourceImporterGSplatWorld> importer;
+		importer.instantiate();
+		HashMap<StringName, Variant> options;
+		const String destination = fixture_path("unknown_extension_import", "");
+		CHECK_EQ(importer->import(ResourceUID::INVALID_ID, path, destination, options,
+				nullptr, nullptr, nullptr), ERR_FILE_UNRECOGNIZED);
+		CHECK_FALSE(FileAccess::exists(destination + ".gsplatworld"));
+#endif
+	}
 	remove_fixture(path);
 }
 

@@ -562,6 +562,15 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t flags = file->get_32();
+	const uint32_t supported_flags = kFlagHasMetadata | kFlagIs2D | kFlagHasChunks |
+			kFlagHasHighSh | kFlagCompressed | kFlagResidentPayload;
+	if ((flags & ~supported_flags) != 0u) {
+		// Do not interpret a different format's extension as our layout word.
+		if (r_error) {
+			*r_error = ERR_FILE_UNRECOGNIZED;
+		}
+		return Ref<Resource>();
+	}
 	const uint32_t splat_count = file->get_32();
 	const uint32_t sh_degree = file->get_32();
 	if (sh_degree > kMaxShDegree) {

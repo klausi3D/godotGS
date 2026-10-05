@@ -49,6 +49,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	constexpr uint32_t max_sh_degree = 3u;
 	constexpr uint32_t max_sh_first_order = 3u;
 	constexpr uint32_t flag_has_metadata = 1u << 0u;
+	constexpr uint32_t flag_is_2d = 1u << 1u;
 	constexpr uint32_t flag_has_chunks = 1u << 2u;
 	constexpr uint32_t flag_has_high_sh = 1u << 3u;
 	constexpr uint32_t flag_compressed = 1u << 4u;
@@ -89,6 +90,11 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint32_t flags = file->get_32();
+	const uint32_t supported_flags = flag_has_metadata | flag_is_2d | flag_has_chunks |
+			flag_has_high_sh | flag_compressed | flag_resident_payload;
+	if ((flags & ~supported_flags) != 0u) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
 	const uint32_t splat_count = file->get_32();
 
 	const uint32_t sh_degree = file->get_32();
