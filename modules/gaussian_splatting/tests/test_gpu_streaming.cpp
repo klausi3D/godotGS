@@ -367,6 +367,16 @@ struct SnapshotPositionStressContext {
     Semaphore reader_done;
 };
 
+struct StreamingPipelineWrongOwnerContext {
+    Ref<StreamingPipeline> pipeline;
+    Error result = OK;
+};
+
+void _streaming_pipeline_wrong_owner_upload(void *p_userdata) {
+    auto *context = static_cast<StreamingPipelineWrongOwnerContext *>(p_userdata);
+    context->result = context->pipeline->process_uploads();
+}
+
 bool _snapshot_matches_position_pattern(const LocalVector<Gaussian> &p_snapshot, const PackedVector3Array &p_pattern) {
     if ((int)p_snapshot.size() != p_pattern.size()) {
         return false;
@@ -1309,6 +1319,40 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
     pipeline->start_streaming();
     pipeline->update_visible_range(0, splat_count);
 
+    const auto upload_prepared = TestGaussianSplatting::gs_pump_until([&]() {
+        Thread::yield();
+        return bool(pipeline->get_streaming_stats().get("upload_pending", false));
+    });
+    if (!upload_prepared.ready()) {
+        FAIL("Owner-thread fixture did not prepare its pending upload ", upload_prepared.describe());
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+
+    const uint32_t switches_before_wrong_owner = stream->get_stats().buffer_switches;
+    StreamingPipelineWrongOwnerContext wrong_owner;
+    wrong_owner.pipeline = pipeline;
+    Thread wrong_owner_thread;
+    const bool print_errors_before_wrong_owner = CoreGlobals::print_error_enabled;
+    ERR_PRINT_OFF;
+    const Thread::ID wrong_owner_id = wrong_owner_thread.start(_streaming_pipeline_wrong_owner_upload, &wrong_owner);
+    if (wrong_owner_id != Thread::UNASSIGNED_ID) {
+        wrong_owner_thread.wait_to_finish();
+    }
+    CoreGlobals::print_error_enabled = print_errors_before_wrong_owner;
+    CHECK(wrong_owner_id != Thread::UNASSIGNED_ID);
+    if (wrong_owner_id == Thread::UNASSIGNED_ID) {
+        FAIL("Owner-thread fixture could not start the wrong-owner thread");
+        pipeline->stop_streaming();
+        pipeline->shutdown();
+        return;
+    }
+    CHECK(wrong_owner.result == ERR_UNAVAILABLE);
+    CHECK(bool(pipeline->get_streaming_stats().get("upload_pending", false)));
+    CHECK(bool(pipeline->get_streaming_stats().get("is_streaming", false)));
+    CHECK(stream->get_stats().buffer_switches == switches_before_wrong_owner);
+
     const auto initial_drain = TestGaussianSplatting::gs_pump_until([&]() {
         Thread::yield();
         CHECK(pipeline->process_uploads() == OK);
@@ -1324,6 +1368,8 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
         return;
     }
     stream->wait_for_all_uploads();
+    CHECK_FALSE(bool(pipeline->get_streaming_stats().get("upload_pending", true)));
+    CHECK(_packed_buffer_matches_position_pattern(rd, stream->get_current_gpu_buffer(), pattern_a));
 
     SnapshotPositionStressContext ctx;
     ctx.data = data;
