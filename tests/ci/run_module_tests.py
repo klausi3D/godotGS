@@ -231,16 +231,12 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # (docs/architecture/adr-advisory-lane-ledger.md). Held in place by
     # StreamingPipelineStrictPromotionTests in test_check_test_lane_coverage.py.
     #
-    # KNOWN CONSEQUENCE, stated rather than discovered: many cases in
-    # test_gpu_streaming.cpp return early with MESSAGE("Skipping - Rendering
-    # device unavailable") under --headless --test. In CI a strict lane fails on
-    # ANY skipped doctest marker beyond its runtime_lane_allowance in
-    # tests/ci/environment_skip_baseline.json, and this lane has none. The skip
-    # count on a current binary is NOT_RUN here (the ledger ADR's last
-    # measurement was 38); see the #1166 promotion record in that ADR. Resolve a
-    # red lane by giving those cases real coverage (GPU harness, or the #595
-    # GS_ENV_SKIP conversion), never by demoting the lane again.
-    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), (), True),
+    # #1195: GPU cases now execute in the REQUIRED StreamingPipeline batch
+    # (37/37 cases on source 2a6929071d7, no hollow coverage or RID leaks).
+    # Keep all host regressions strict here; the derived coverage contract above
+    # requires every case to reach strict CPU OR required GPU, including excludes.
+    # No skip allowance is added: an unavailable prerequisite fails its GPU case.
+    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), ("*][RequiresGPU]*",), True),
 )
 # Renderer-dependent (requires-RD) doctest lane.  Under Godot's --test mode
 # every test here will skip because no RenderingDevice is available.  This lane

@@ -158,9 +158,10 @@ BATCHES: tuple[BatchSpec, ...] = (
         ("*[Streaming][RequiresGPU]*",),
         excludes=("*GPU Memory Streaming Performance*",),
     ),
-    # #1195 candidate route for the device-dependent [Streaming Pipeline] corpus.
-    # Promotion requires real execution before excluding these cases from the
-    # strict headless lane; until then, that lane continues to fail closed.
+    # #1195: REQUIRED, coupled with the strict headless lane's GPU exclusion.
+    # 2026-10-05, source 2a6929071d7: 37/37 cases, 5313/5313 assertions,
+    # complete per-case audit, no hollow cases or RID leaks; 13.528s / 60s.
+    # Exact binary and evidence limits: adr-advisory-lane-ledger.md (#1195).
     BatchSpec("StreamingPipeline", ("*[Streaming Pipeline]*[RequiresGPU]*",)),
     # #641: the sync-policy device-contract tests in
     # modules/gaussian_splatting/tests/test_integration.cpp. They need a real
@@ -492,6 +493,7 @@ REQUIRED_BATCHES: frozenset[str] = frozenset({
     "Lifetime",
     "OutputCompositor",
     "RendererSceneTree",
+    "StreamingPipeline",  # #1195: every device-dependent Streaming Pipeline case must execute
     "WorldSceneTree",
     "SceneDirectorSceneTree",
     "GpuSorting",  # #744: gates the #508 [GPUSortPipeline] overflow-sticky case (see BatchSpec note)

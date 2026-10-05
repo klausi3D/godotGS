@@ -328,7 +328,7 @@ see the note below the list.
 > holds. This is the promotion the status note above anticipated ("flipping the six lanes to
 > `strict` … is cheap for most of them"), done deliberately and one lane at a time.
 
-> **Promotion record: `Streaming Pipeline` -> strict (#1166).** Prepared without a build;
+> **Historical promotion record: `Streaming Pipeline` -> strict (#1166).** Prepared without a build;
 > the evidence fields below are **NOT_RUN** and are to be filled from a `tests=yes` binary
 > on the self-hosted runner before the change is merged. Counts after the flip (derived from
 > `MODULE_TEST_FILTERS`): 29 lanes, 24 strict; the advisory set is down to
@@ -349,10 +349,10 @@ see the note below the list.
 
 ### Device-dependent Streaming Pipeline coverage (#1195)
 
-The strict lane includes CPU regressions and device-dependent tests. The latter
-cannot execute through the headless doctest bootstrap. Give them a separate
-`StreamingPipeline` GPU batch using the existing offscreen RenderingDevice;
-the three world-renderer tests additionally use the existing SceneTree listener
+The corpus contains CPU regressions and device-dependent tests. The latter
+cannot execute through the headless doctest bootstrap. They now execute in the
+**REQUIRED** `StreamingPipeline` GPU batch using the existing offscreen RenderingDevice;
+the three renderer tests additionally use the existing SceneTree listener
 and scoped manager device injection. Restore the manager's device slot before
 teardown so the manager cannot destroy the harness-owned device.
 
@@ -361,13 +361,49 @@ in these cases, rather than successful early returns. The CPU-only missing-buffe
 abort regressions remain in the headless lane and likewise fail if their required
 work was not observed. No skip allowance, threshold or guard baseline is raised.
 
-This candidate keeps the entire corpus in the strict headless lane until GPU
-execution proves the new route. Required-batch promotion and excluding GPU cases
-from the headless lane must be coupled, and the coverage contract must require
-every case to reach either a strict host lane or a required GPU batch with its
-exclude patterns applied. An advisory GPU route is insufficient for that change.
-GPU execution, assertion audits and timing headroom are **NOT_RUN** for this
-candidate; #1195 remains open pending that evidence and the coupled promotion.
+Required-batch promotion and the GPU exclusion from the still-strict headless
+lane are coupled. `StreamingPipelineStrictPromotionTests` derives every case and
+requires strict CPU **or REQUIRED GPU** coverage with actual exclude patterns.
+CPU deletion/demotion and GPU deletion/demotion/selector-retag/exclude-all
+mutations must expose uncovered cases. The independent lane-ledger wiring tests
+also require the coverage guard's discrimination tests to appear in launched
+Python argv; deleting their runner wiring cannot silently drop the contract.
+An advisory GPU route does not satisfy this promotion.
+
+The focused policy checks passed 84 Python tests. In-memory mutations of the
+real default contract went RED for CPU demotion/deletion (49 uncovered cases)
+and GPU deletion/demotion/selector-retag/exclude-all (37 uncovered cases).
+Removing the whole coverage-runner tuple and retaining its test-file check
+without launching the test each made the independent wiring check RED; both
+mutations were restored. These are guard-discrimination results, not GPU reruns.
+
+| Field | Measured Evidence / Current Policy |
+| --- | --- |
+| Runtime source | `2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca`, native Windows `tests=yes` binary |
+| Binary SHA-256 | `2b736090a624d4c8dd4f7b6054db6900aa8b4c0a4b8a79cef71abc6fc833cc2b` |
+| Run | 2026-10-05 16:41:58-16:42:37 UTC, `run_gpu_harness.py --batch StreamingPipeline --batch RendererSceneTree`, supervisor exit 0 |
+| Streaming runtime | 37/37 cases, 5313/5313 assertions; 37 started, complete case audit, `zero_assertion_cases=[]`, no hollow cases |
+| Streaming time | 13.528 s / unchanged 60 s budget, about 4.44x headroom |
+| Companion shadow/SceneTree runtime | `RendererSceneTree`: 4/4 cases, 61/61 assertions, complete audit, 25.299 s / unchanged 180 s budget |
+| Lifetime | Both batches report `rid_leak_bytes=0`; captured raw stdout/stderr tails have no driver RID-leak diagnostics |
+| Contention validity | Clean preflight; no competing CI job, sampler errors or unresolved sampler PIDs; postflight exit 0 and `ci_idle_after=true` |
+| Hardware scope | Vulkan, NVIDIA GeForce RTX 3090. One green full run at this exact source; repeated-run flake and other-vendor coverage are **NOT_RUN** |
+| Host lane | Remains strict: `*[Streaming Pipeline]*`, excludes only `*][RequiresGPU]*`; 49 CPU cases derived from the current 86-case corpus |
+| GPU lane | REQUIRED `StreamingPipeline`: `*[Streaming Pipeline]*[RequiresGPU]*`, no excludes; all 37 GPU cases derived from the same corpus |
+| Snapshot | `[RequiresGPU]` corpus remains 209; named-batch coverage 144, deferred 2, unbatched backlog 63; digest unchanged |
+
+The runtime evidence predates this policy-only promotion, not its C++ repairs.
+It is not a claim that a new promotion-head binary or the newly separated CPU
+lane has already been run. The doctest `skipped` totals count non-selected cases,
+not environment self-skips or waived coverage. Synthetic streaming-stall and
+raster-overflow warnings remain visible in the report; this is functional and
+lifetime evidence, not a warning-free or visual-quality acceptance.
+
+The local evidence bundle is `review_1195_2a_streaming_shadow{.json,.log,_report.json}`
+plus `review_1195_2a_streaming_shadow_contention` under
+`C:/Projects/godotgs-handoff-tools`; these generated artifacts are not committed.
+Human review/disposition and subsequent CI remain separate from this measured
+runtime result.
 
 ## Consequences
 

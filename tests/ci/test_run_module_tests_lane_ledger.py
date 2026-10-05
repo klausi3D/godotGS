@@ -4169,6 +4169,7 @@ class GuardScriptWiringTests(unittest.TestCase):
         exist rather than a list of the ones somebody remembered.
         """
         reached = self._scripts_reached_by_wired_runners()
+        launched = self._scripts_launched_by_optional_guards()
         pairs = [
             (script, script.with_name(f"test_{script.name}"))
             for script in sorted(self.GUARD_SCRIPT_DIR.glob("check_*.py"))
@@ -4180,12 +4181,12 @@ class GuardScriptWiringTests(unittest.TestCase):
         missing = sorted(
             sibling.relative_to(ROOT).as_posix()
             for _script, sibling in pairs
-            if sibling.resolve() not in reached
+            if sibling.resolve() not in reached or sibling.resolve() not in launched
         )
         self.assertEqual(
             missing,
             [],
-            "these guards ship discrimination tests that no wired runner executes, "
+            "these guards ship discrimination tests that no wired runner actually launches, "
             "so a guard that has silently stopped being able to fail would not be "
             f"caught: {missing}",
         )
