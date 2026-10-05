@@ -149,7 +149,8 @@ struct WorldBackedRendererHarness {
         teardown();
     }
 
-    bool setup(const Ref<GaussianData> &data, bool include_static_chunk = false) {
+    bool setup(const Ref<GaussianData> &data, bool include_static_chunk = false,
+            const Vector<GaussianSplatRenderer::StaticChunk> &static_chunks = Vector<GaussianSplatRenderer::StaticChunk>()) {
         tree = SceneTree::get_singleton();
         if (tree == nullptr) {
             return false;
@@ -166,7 +167,11 @@ struct WorldBackedRendererHarness {
         scene_root->add_child(world_node);
 
         world_node->set_auto_apply_on_ready(false);
-        world_node->set_world(make_world_resource(data, include_static_chunk));
+        Ref<GaussianSplatWorld> world = make_world_resource(data, include_static_chunk);
+        if (!static_chunks.is_empty()) {
+            world->set_static_chunks(static_chunks);
+        }
+        world_node->set_world(world);
         world_node->apply_world();
         tree->process(0.0);
 
@@ -1128,6 +1133,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Concurrent LOD and visibility updat
 
     const auto worker_drain = TestGaussianSplatting::gs_pump_until([&]() {
         Thread::yield();
+        CHECK(pipeline->process_uploads() == OK);
         Dictionary stats = pipeline->get_streaming_stats();
         return !bool(stats["is_streaming"]);
     });
@@ -1305,6 +1311,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
 
     const auto initial_drain = TestGaussianSplatting::gs_pump_until([&]() {
         Thread::yield();
+        CHECK(pipeline->process_uploads() == OK);
         Dictionary stats = pipeline->get_streaming_stats();
         return !bool(stats["is_streaming"]);
     });
@@ -1342,6 +1349,7 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent unde
 
         const auto mutation_drain = TestGaussianSplatting::gs_pump_until([&]() {
             Thread::yield();
+            CHECK(pipeline->process_uploads() == OK);
             Dictionary stats = pipeline->get_streaming_stats();
             return !bool(stats["is_streaming"]);
         });
@@ -2763,6 +2771,22 @@ TEST_CASE("[Streaming Pipeline][RequiresGPU] Budget eviction prioritizes non-pri
     system->begin_residency_requests();
     system->finalize_residency_requests();
 
+    auto *asset = system->_test_get_asset_state(asset_id);
+    if (!asset) {
+        FAIL("Budget eviction fixture lost its registered asset");
+        return;
+    }
+    auto &asset_chunks = system->_test_get_asset_chunks(*asset);
+    if (asset_chunks.size() != 1 || !asset_chunks[0].is_loaded) {
+        FAIL("Budget eviction fixture requires one resident non-primary chunk");
+        return;
+    }
+    // Non-primary registry chunks default to visible; retiring a request does
+    // not change that metadata. This fixture tests invisible reclamation.
+    asset_chunks[0].is_visible = false;
+    system->_test_mark_chunk_meta_dirty(asset_id, 0);
+    CHECK_FALSE(asset_chunks[0].is_visible);
+
     GaussianStreamingSystem::ConfigOverrides constrained_overrides = relaxed_overrides;
     constrained_overrides.vram_budget_config.budget_mb = 1;
     system->set_config_overrides(constrained_overrides);
@@ -3430,8 +3454,31 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streame
     Ref<::GaussianData> data;
     data.instantiate();
     data->set_gaussians(gaussians);
+    Vector<GaussianSplatRenderer::StaticChunk> static_chunks;
+    for (uint32_t band = 0; band < 2; band++) {
+        const uint32_t first_index = band * chunk_size;
+        AABB bounds(gaussians[first_index].position, Vector3());
+        for (uint32_t i = 1; i < chunk_size; i++) {
+            bounds.expand_to(gaussians[first_index + i].position);
+        }
+        GaussianSplatRenderer::StaticChunk chunk = make_test_static_chunk(chunk_size, bounds);
+        for (uint32_t i = 0; i < chunk_size; i++) {
+            chunk.indices.write[i] = first_index + i;
+        }
+        static_chunks.push_back(chunk);
+    }
+    if (static_chunks.size() != 2) {
+        FAIL("Non-zero chunk fixture requires two static chunks");
+        return;
+    }
+    if (static_chunks[1].indices.is_empty()) {
+        FAIL("Non-zero chunk fixture requires a populated second chunk");
+        return;
+    }
+    CHECK(static_chunks[1].indices[0] == chunk_size);
+    CHECK(static_chunks[0].bounds.get_end().x < static_chunks[1].bounds.position.x);
     WorldBackedRendererHarness harness;
-    if (!harness.setup(data, true)) {
+    if (!harness.setup(data, false, static_chunks)) {
         FAIL("World-backed renderer unavailable");
         return;
     }
@@ -3518,7 +3565,10 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
         const float local_x = float(i % 64) * 0.025f;
         const float local_y = (float((i / 64) % 64) - 32.0f) * 0.03f;
         g.position = Vector3(band_x + local_x, local_y, -10.0f);
-        g.scale = Vector3(0.06f, 0.06f, 0.06f);
+        // At depth 10 and a 512px viewport, the 64px tiny threshold removes
+        // the small splats but retains large splats in both spatial bands.
+        const float radius_scale = (i % 2) == 0 ? 1.0f : 0.06f;
+        g.scale = Vector3(radius_scale, radius_scale, radius_scale);
         g.rotation = Quaternion();
         g.opacity = 1.0f;
         g.sh_dc = Color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -3661,6 +3711,7 @@ TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B a
 
     CHECK(frustum_visible < baseline_visible);
     CHECK(tiny_visible < baseline_visible);
+    CHECK(tiny_visible > 0);
     CHECK(distance_visible < baseline_visible);
     CHECK(distance_visible > 0);
 
