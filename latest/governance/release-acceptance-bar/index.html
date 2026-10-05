@@ -13,7 +13,7 @@
         <link rel="prev" href="../evidence-integrity/">
       
       
-        <link rel="next" href="../github-settings/">
+        <link rel="next" href="../real-scan-visual-pass/">
       
       
         
@@ -2654,6 +2654,8 @@
       
         
       
+        
+      
     
     
     
@@ -2983,10 +2985,77 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#7-api-and-settings-stability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. API and settings stability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-disclosure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Disclosure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Disclosure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-disclosed-not-blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 Disclosed, not blocking
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../real-scan-visual-pass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Real-Scan Visual Pass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -4494,6 +4563,45 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#7-api-and-settings-stability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. API and settings stability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-disclosure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Disclosure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Disclosure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81-disclosed-not-blocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 Disclosed, not blocking
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4694,10 +4802,23 @@ QA pin masked it (#903, #921).</p>
 <p>Required at release, across the supported envelope, plus the exhibition recipe
 and an FSR2 motion-ghosting check. This generalises the condition already bound
 to the #921 fix.</p>
-<p><strong>The alpha's pass now has to cover streaming too</strong> (§10.1). The procedure drafted on</p>
-<h1 id="1012-covers-the-resident-and-world-routes-and-does-not-cover-streaming-a-streaming">1012 covers the resident and world routes and does <strong>not</strong> cover streaming; a streaming<a class="headerlink" href="#1012-covers-the-resident-and-world-routes-and-does-not-cover-streaming-a-streaming" title="Permanent link">¶</a></h1>
-<p>configuration must be added before it is executed, or the pass does not span the envelope
-it claims.</p>
+<p><strong>The alpha's pass now has to cover streaming too</strong> (§10.1). The procedure first drafted
+on #1012 covered only the resident and world routes. Its in-repo version,
+<a href="../real-scan-visual-pass/">Real-Scan Visual Pass</a>, adds a streaming configuration (C7)
+that has to prove it actually streamed and evicted, and it defines the bundle format, the
+location and the signer field described below. Its policy choices were decided on
+2026-09-27 by the coordinator, on the maintainer's delegation: the maintainer signs; the
+bundle lives at <code>evidence/visual/</code>, outside the published docs; both import routes; the
+exhibition recipe is AgX at −1.5 stops. It has <strong>not been executed</strong>, and its streaming
+configuration still requires its corridor capture and load/eviction proofs; the
+corridor-builder blocker #1075 was fixed by #1080. It discharges the alpha half of the §11 item
+"Evidence-bundle format and location (§6)". v1.0 still needs the bundle machine-checked
+(§9).</p>
+<p>Template archive provenance is not exported-game real-scan appearance evidence.
+The procedure records the executable target of each capture; editor-only captures
+do not discharge template visual coverage. Export-proof scope still requires an
+explicit maintainer decision, and no release-wide visual <code>ACCEPT</code> follows while
+that decision or its required captures are missing.</p>
 <p><strong>Binding:</strong> a dated evidence bundle committed in-repo carrying screenshots,
 metrics, the asset's content hash, and a named human signer. The asset itself is
 referenced by hash and never committed.</p>
@@ -5668,7 +5789,7 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 4, 2026 10:58:06 UTC">October 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 5, 2026 11:47:21 UTC">October 5, 2026</span>
   </span>
 
     
@@ -5721,13 +5842,13 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
         
         
           
-          <a href="../github-settings/" class="md-footer__link md-footer__link--next" aria-label="Next: GitHub Repository Settings">
+          <a href="../real-scan-visual-pass/" class="md-footer__link md-footer__link--next" aria-label="Next: Real-Scan Visual Pass">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                GitHub Repository Settings
+                Real-Scan Visual Pass
               </div>
             </div>
             <div class="md-footer__button md-icon">
