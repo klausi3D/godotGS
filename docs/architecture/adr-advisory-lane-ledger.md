@@ -347,6 +347,28 @@ see the note below the list.
 > | Repeated runs / flake check (the #846 bar) | **NOT_RUN** |
 > | Expected CI outcome until resolved | The strict lane FAILS in CI on any skipped marker: `runtime_lane_allowance` has no entry for this lane (allowance 0), and that ratchet refuses a NEW lane entry against the review base. Resolve by giving the skipping cases real coverage (GPU harness, or the #595 `GS_ENV_SKIP` conversion), never by demoting the lane |
 
+### Device-dependent Streaming Pipeline coverage (#1195)
+
+The strict lane includes CPU regressions and device-dependent tests. The latter
+cannot execute through the headless doctest bootstrap. Give them a separate
+`StreamingPipeline` GPU batch using the existing offscreen RenderingDevice;
+the three world-renderer tests additionally use the existing SceneTree listener
+and scoped manager device injection. Restore the manager's device slot before
+teardown so the manager cannot destroy the harness-owned device.
+
+Missing devices, unavailable async work and incomplete readiness are failures
+in these cases, rather than successful early returns. The CPU-only missing-buffer
+abort regressions remain in the headless lane and likewise fail if their required
+work was not observed. No skip allowance, threshold or guard baseline is raised.
+
+This candidate keeps the entire corpus in the strict headless lane until GPU
+execution proves the new route. Required-batch promotion and excluding GPU cases
+from the headless lane must be coupled, and the coverage contract must require
+every case to reach either a strict host lane or a required GPU batch with its
+exclude patterns applied. An advisory GPU route is insufficient for that change.
+GPU execution, assertion audits and timing headroom are **NOT_RUN** for this
+candidate; #1195 remains open pending that evidence and the coupled promotion.
+
 ## Consequences
 
 - The first honest, per-lane measurement of which advisory lanes are red becomes available

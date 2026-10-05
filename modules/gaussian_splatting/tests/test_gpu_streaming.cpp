@@ -104,6 +104,38 @@ Ref<GaussianSplatWorld> make_world_resource(const Ref<GaussianData> &data, bool 
     return world;
 }
 
+class ScopedStreamingManagerDevice {
+    GaussianSplatManager *manager = nullptr;
+    bool owns_manager = false;
+    RenderingDevice *previous_device = nullptr;
+    bool injected = false;
+
+public:
+    explicit ScopedStreamingManagerDevice(RenderingDevice *p_device) {
+        manager = GaussianSplatManager::get_singleton();
+        if (!manager) {
+            manager = memnew(GaussianSplatManager);
+            owns_manager = true;
+        }
+        if (p_device) {
+            previous_device = manager->set_primary_rendering_device_for_testing(p_device);
+            injected = true;
+        }
+    }
+
+    ~ScopedStreamingManagerDevice() {
+        // The harness owns the injected device; restore before manager teardown.
+        if (injected) {
+            manager->set_primary_rendering_device_for_testing(previous_device);
+        }
+        if (owns_manager) {
+            memdelete(manager);
+        }
+    }
+
+    GaussianSplatManager *get() const { return manager; }
+};
+
 struct WorldBackedRendererHarness {
     SceneTree *tree = nullptr;
     Window *root = nullptr;
@@ -861,7 +893,14 @@ TEST_CASE("[GPU Memory Stream] Concurrent Streaming") {
     }
 }
 
-TEST_CASE("[Streaming Pipeline] Basic Operations") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Basic Operations") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
+    if (!rd) {
+        FAIL("RenderingDevice required by the StreamingPipeline GPU batch");
+        return;
+    }
+
     Ref<StreamingPipeline> pipeline;
     pipeline.instantiate();
 
@@ -871,14 +910,6 @@ TEST_CASE("[Streaming Pipeline] Basic Operations") {
     Ref<::GaussianData> data;
     data.instantiate();
     data->resize(10000);
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
-    if (!rd) {
-        RenderingServer *rs = RenderingServer::get_singleton();
-        if (rs) {
-            rd = rs->create_local_rendering_device();
-        }
-    }
 
     if (rd) {
         // Initialize stream
@@ -913,22 +944,17 @@ TEST_CASE("[Streaming Pipeline] Basic Operations") {
     }
 }
 
-TEST_CASE("[Streaming Pipeline] Concurrent LOD and visibility updates remain coherent while worker is active") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Concurrent LOD and visibility updates remain coherent while worker is active") {
 #ifndef THREADS_ENABLED
-    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    FAIL("THREADS_ENABLED is not enabled in this build");
     return;
 #endif
 
-    RenderingDevice *rd = RenderingDevice::get_singleton();
-    if (!rd) {
-        RenderingServer *rs = RenderingServer::get_singleton();
-        if (rs) {
-            rd = rs->create_local_rendering_device();
-        }
-    }
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
 
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1070,7 +1096,7 @@ TEST_CASE("[GPU Memory Stream] Memory Leak Detection") {
 
 TEST_CASE("[Streaming Pipeline] Chunk snapshot stays coherent under concurrent position mutations") {
 #ifndef THREADS_ENABLED
-    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    FAIL("THREADS_ENABLED is not enabled in this build");
     return;
 #endif
 
@@ -1125,22 +1151,17 @@ TEST_CASE("[Streaming Pipeline] Chunk snapshot stays coherent under concurrent p
     CHECK_FALSE(ctx.reader_failed.load(std::memory_order_acquire));
 }
 
-TEST_CASE("[Streaming Pipeline] Worker uploads remain coherent under concurrent position mutations") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Worker uploads remain coherent under concurrent position mutations") {
 #ifndef THREADS_ENABLED
-    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    FAIL("THREADS_ENABLED is not enabled in this build");
     return;
 #endif
 
-    RenderingDevice *rd = RenderingDevice::get_singleton();
-    if (!rd) {
-        RenderingServer *rs = RenderingServer::get_singleton();
-        if (rs) {
-            rd = rs->create_local_rendering_device();
-        }
-    }
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
 
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1254,7 +1275,7 @@ TEST_CASE("[Streaming Pipeline] Worker uploads remain coherent under concurrent 
 
 TEST_CASE("[Streaming Pipeline] Chunk snapshot stays coherent under concurrent SH mutations") {
 #ifndef THREADS_ENABLED
-    MESSAGE("Skipping - THREADS_ENABLED is not enabled in this build");
+    FAIL("THREADS_ENABLED is not enabled in this build");
     return;
 #endif
 
@@ -1338,19 +1359,11 @@ TEST_CASE("[Streaming Pipeline] Chunk snapshot stays coherent under concurrent S
     CHECK_FALSE(ctx.reader_failed.load(std::memory_order_acquire));
 }
 
-TEST_CASE("[Streaming Pipeline] Stale generation upload jobs are dropped") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale generation upload jobs are dropped") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1381,7 +1394,7 @@ TEST_CASE("[Streaming Pipeline] Stale generation upload jobs are dropped") {
         OS::get_singleton()->delay_usec(1000);
     }
     if (!saw_async_queue) {
-        MESSAGE("Skipping - Async pack/upload queue not observed in test environment");
+        FAIL("Async pack/upload queue not observed in test environment");
         return;
     }
 
@@ -1420,19 +1433,11 @@ TEST_CASE("[Streaming Pipeline] Stale generation upload jobs are dropped") {
     CHECK(system->get_loaded_chunks() > 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Residency finalize without requests leaves no pending work") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Residency finalize without requests leaves no pending work") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1450,25 +1455,17 @@ TEST_CASE("[Streaming Pipeline] Residency finalize without requests leaves no pe
     CHECK(String(status.get("request_result_name", String())) == "idle");
 }
 
-TEST_CASE("[Streaming Pipeline] Stale residency completion remains visible in request status") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Stale residency completion remains visible in request status") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -1480,7 +1477,7 @@ TEST_CASE("[Streaming Pipeline] Stale residency completion remains visible in re
     system.instantiate();
     system->initialize_with_device(create_test_gaussian_data(GaussianStreamingSystem::CHUNK_SIZE), rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1503,7 +1500,7 @@ TEST_CASE("[Streaming Pipeline] Stale residency completion remains visible in re
         OS::get_singleton()->delay_usec(1000);
     }
     if (!saw_async_queue) {
-        MESSAGE("Skipping - Async pack/upload queue not observed in test environment");
+        FAIL("Async pack/upload queue not observed in test environment");
         return;
     }
 
@@ -1521,7 +1518,7 @@ TEST_CASE("[Streaming Pipeline] Stale residency completion remains visible in re
     }
 
     if (system->get_loaded_chunks() == 0) {
-        MESSAGE("Skipping - Stale request completion did not complete in test environment");
+        FAIL("Stale request completion did not complete in test environment");
         return;
     }
 
@@ -1534,25 +1531,17 @@ TEST_CASE("[Streaming Pipeline] Stale residency completion remains visible in re
     CHECK((int64_t)status.get("request_status_generation", 0) > 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Cancelled pending chunk uploads do not count as evictions") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Cancelled pending chunk uploads do not count as evictions") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -1564,7 +1553,7 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk uploads do not count as 
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1591,7 +1580,7 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk uploads do not count as 
         }
     }
     if (!saw_async_queue) {
-        MESSAGE("Skipping - Async pack/upload queue not observed in test environment");
+        FAIL("Async pack/upload queue not observed in test environment");
         return;
     }
 
@@ -1606,19 +1595,11 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk uploads do not count as 
     CHECK(evictions_after == evictions_before);
 }
 
-TEST_CASE("[Streaming Pipeline] Null-device atlas sync invalidates stale publication state") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Null-device atlas sync invalidates stale publication state") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1626,7 +1607,7 @@ TEST_CASE("[Streaming Pipeline] Null-device atlas sync invalidates stale publica
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1646,19 +1627,11 @@ TEST_CASE("[Streaming Pipeline] Null-device atlas sync invalidates stale publica
     CHECK_FALSE(system->get_asset_chunk_index_buffer().is_valid());
 }
 
-TEST_CASE("[Streaming Pipeline] Invalid atlas dirty marks force a rebuild path") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Invalid atlas dirty marks force a rebuild path") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1666,7 +1639,7 @@ TEST_CASE("[Streaming Pipeline] Invalid atlas dirty marks force a rebuild path")
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1684,19 +1657,11 @@ TEST_CASE("[Streaming Pipeline] Invalid atlas dirty marks force a rebuild path")
     CHECK(system->get_asset_chunk_index_buffer().is_valid());
 }
 
-TEST_CASE("[Streaming Pipeline] Primary explicit residency requests expose request status") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Primary explicit residency requests expose request status") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1716,25 +1681,17 @@ TEST_CASE("[Streaming Pipeline] Primary explicit residency requests expose reque
     CHECK((int64_t)status.get("lod_mask", 0) != 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Primary explicit residency bypasses sync-fallback visibility gating") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Primary explicit residency bypasses sync-fallback visibility gating") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -1748,7 +1705,7 @@ TEST_CASE("[Streaming Pipeline] Primary explicit residency bypasses sync-fallbac
             create_clustered_test_gaussian_data(GaussianStreamingSystem::CHUNK_SIZE, Vector3(5000.0f, 5000.0f, 5000.0f)),
             rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1774,25 +1731,17 @@ TEST_CASE("[Streaming Pipeline] Primary explicit residency bypasses sync-fallbac
     CHECK(String(status.get("request_result_name", String())) == "satisfied");
 }
 
-TEST_CASE("[Streaming Pipeline] Hard explicit residency load failures surface as failed status") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Hard explicit residency load failures surface as failed status") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -1804,7 +1753,7 @@ TEST_CASE("[Streaming Pipeline] Hard explicit residency load failures surface as
     system.instantiate();
     system->initialize_with_device(create_test_gaussian_data(GaussianStreamingSystem::CHUNK_SIZE), rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1836,19 +1785,11 @@ TEST_CASE("[Streaming Pipeline] Hard explicit residency load failures surface as
     CHECK(system->get_loaded_chunks() == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Cancelled pending chunk loads do not count as evictions") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Cancelled pending chunk loads do not count as evictions") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1856,7 +1797,7 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk loads do not count as ev
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1885,19 +1826,11 @@ TEST_CASE("[Streaming Pipeline] Cancelled pending chunk loads do not count as ev
     CHECK(chunk.buffer_slot == UINT32_MAX);
 }
 
-TEST_CASE("[Streaming Pipeline] Invalid chunk meta dirty marks force a safe atlas rebuild") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Invalid chunk meta dirty marks force a safe atlas rebuild") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -1905,7 +1838,7 @@ TEST_CASE("[Streaming Pipeline] Invalid chunk meta dirty marks force a safe atla
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -1982,19 +1915,17 @@ TEST_CASE("[Streaming Pipeline] Full chunk meta sync planning reports full-updat
 	CHECK(diagnostics.chunk_meta_range_count == 1);
 }
 
-TEST_CASE("[Streaming Pipeline] Dirty atlas publication is invalidated when GPU sync is skipped") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Dirty atlas publication is invalidated when GPU sync is skipped") {
 	RenderingServer *rs = RenderingServer::get_singleton();
 	if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
+        FAIL("Rendering server unavailable");
         return;
     }
 
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2002,7 +1933,7 @@ TEST_CASE("[Streaming Pipeline] Dirty atlas publication is invalidated when GPU 
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -2037,7 +1968,7 @@ TEST_CASE("[Streaming Pipeline] Upload abort clears pending chunk state") {
     system->initialize_empty(nullptr);
 
     if (system->get_frame_buffer().is_valid()) {
-        MESSAGE("Skipping - Streaming buffer is valid, missing-buffer abort path unavailable in this environment");
+        FAIL("Streaming buffer is valid, missing-buffer abort path unavailable in this environment");
         return;
     }
 
@@ -2071,7 +2002,7 @@ TEST_CASE("[Streaming Pipeline] Upload abort clears pending chunk state") {
     }
 
     if (!saw_pending_work) {
-        MESSAGE("Skipping - Async queue activity not observed");
+        FAIL("Async queue activity not observed");
         return;
     }
 
@@ -2093,7 +2024,7 @@ TEST_CASE("[Streaming Pipeline] Repeated upload aborts do not leave pending jobs
     system->initialize_empty(nullptr);
 
     if (system->get_frame_buffer().is_valid()) {
-        MESSAGE("Skipping - Streaming buffer is valid, missing-buffer abort path unavailable in this environment");
+        FAIL("Streaming buffer is valid, missing-buffer abort path unavailable in this environment");
         return;
     }
 
@@ -2138,7 +2069,7 @@ TEST_CASE("[Streaming Pipeline] Repeated upload aborts do not leave pending jobs
     }
 
     if (observed_cycles == 0) {
-        MESSAGE("Skipping - Async queue activity not observed");
+        FAIL("Async queue activity not observed");
         return;
     }
 
@@ -2154,19 +2085,11 @@ TEST_CASE("[Streaming Pipeline] Repeated upload aborts do not leave pending jobs
     }
 }
 
-TEST_CASE("[Streaming Pipeline] Atlas generation bumps on quantization buffer resize") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Atlas generation bumps on quantization buffer resize") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2205,19 +2128,11 @@ TEST_CASE("[Streaming Pipeline] Atlas generation bumps on quantization buffer re
     g_quantization_config = saved_quantization_config;
 }
 
-TEST_CASE("[Streaming Pipeline] Mixed DC encoding disables per-chunk quantization fallback") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Mixed DC encoding disables per-chunk quantization fallback") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2245,19 +2160,11 @@ TEST_CASE("[Streaming Pipeline] Mixed DC encoding disables per-chunk quantizatio
     g_quantization_config = saved_quantization_config;
 }
 
-TEST_CASE("[Streaming Pipeline] IO layout hints clamp chunk size to CHUNK_SIZE") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] IO layout hints clamp chunk size to CHUNK_SIZE") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2292,19 +2199,11 @@ TEST_CASE("[Streaming Pipeline] IO layout hints clamp chunk size to CHUNK_SIZE")
     CHECK(system->get_max_chunk_count_per_asset() >= 2u);
 }
 
-TEST_CASE("[Streaming Pipeline] Randomized IO layout hint cases keep stable fallback reasons and chunk counts") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Randomized IO layout hint cases keep stable fallback reasons and chunk counts") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2456,19 +2355,11 @@ TEST_CASE("[Streaming Pipeline] Randomized IO layout hint cases keep stable fall
     }
 }
 
-TEST_CASE("[Streaming Pipeline] VRAM accounting includes auxiliary atlas overhead") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] VRAM accounting includes auxiliary atlas overhead") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2505,7 +2396,7 @@ TEST_CASE("[Streaming Pipeline] VRAM accounting includes auxiliary atlas overhea
         OS::get_singleton()->delay_usec(500);
     }
     if (system->get_loaded_chunks() == 0) {
-        MESSAGE("Skipping - Residency chunk failed to load in current test environment");
+        FAIL("Residency chunk failed to load in current test environment");
         return;
     }
 
@@ -2529,19 +2420,11 @@ TEST_CASE("[Streaming Pipeline] VRAM accounting includes auxiliary atlas overhea
     CHECK(total_after > uint64_t(persistent_bytes));
 }
 
-TEST_CASE("[Streaming Pipeline] Invalid camera/projection input is rejected safely") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Invalid camera/projection input is rejected safely") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2574,19 +2457,11 @@ TEST_CASE("[Streaming Pipeline] Invalid camera/projection input is rejected safe
     CHECK(invalid_after_projection == invalid_before + 2);
 }
 
-TEST_CASE("[Streaming Pipeline] VRAM debug stats expose reported usage vs capacity semantics") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] VRAM debug stats expose reported usage vs capacity semantics") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2614,19 +2489,11 @@ TEST_CASE("[Streaming Pipeline] VRAM debug stats expose reported usage vs capaci
     }
 }
 
-TEST_CASE("[Streaming Pipeline] Effective max chunks are clamped to runtime buffer capacity") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Effective max chunks are clamped to runtime buffer capacity") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -2647,7 +2514,7 @@ TEST_CASE("[Streaming Pipeline] Effective max chunks are clamped to runtime buff
     const uint32_t runtime_capacity_chunks = static_cast<uint32_t>(
             uint64_t(system->get_buffer_capacity_splats()) / uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS));
     if (runtime_capacity_chunks == 0) {
-        MESSAGE("Skipping - Runtime streaming buffer capacity is zero");
+        FAIL("Runtime streaming buffer capacity is zero");
         return;
     }
 
@@ -2668,25 +2535,17 @@ TEST_CASE("[Streaming Pipeline] Effective max chunks are clamped to runtime buff
     CHECK(effective_max_chunks < high_capacity_overrides.vram_budget_config.max_chunks);
 }
 
-TEST_CASE("[Streaming Pipeline] Budget eviction prioritizes non-primary chunks under regulator pressure") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Budget eviction prioritizes non-primary chunks under regulator pressure") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -2706,7 +2565,7 @@ TEST_CASE("[Streaming Pipeline] Budget eviction prioritizes non-primary chunks u
     system->set_config_overrides(relaxed_overrides);
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -2728,7 +2587,7 @@ TEST_CASE("[Streaming Pipeline] Budget eviction prioritizes non-primary chunks u
         }
     }
     if (system->get_loaded_chunks() == 0) {
-        MESSAGE("Skipping - Non-primary residency chunk failed to load in current test environment");
+        FAIL("Non-primary residency chunk failed to load in current test environment");
         return;
     }
 
@@ -2756,25 +2615,17 @@ TEST_CASE("[Streaming Pipeline] Budget eviction prioritizes non-primary chunks u
     CHECK(int64_t(analytics.get("scheduler_non_primary_scan_chunks", int64_t(0))) > 0);
 }
 
-TEST_CASE("[Streaming Pipeline] Tier presets apply streaming caps while project overrides remain traceable") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] Tier presets apply streaming caps while project overrides remain traceable") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -2810,7 +2661,7 @@ TEST_CASE("[Streaming Pipeline] Tier presets apply streaming caps while project 
     system->initialize_empty(rd);
 
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -3059,19 +2910,15 @@ TEST_CASE("[Streaming Pipeline] Owner mismatch contract encodes remediation path
     CHECK(ResourceOwnerMismatchContract::validate(missing_owner_inputs, missing_owner_decision));
 }
 
-TEST_CASE("[Streaming Pipeline] Instance content generation tracks instance pipeline budget changes") {
+TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance content generation tracks instance pipeline budget changes") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
-        MESSAGE("Skipping - Rendering server unavailable");
+        FAIL("Rendering server unavailable");
         return;
     }
 
-    GaussianSplatManager *manager_owner = nullptr;
-    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
-    if (!manager) {
-        manager_owner = memnew(GaussianSplatManager);
-        manager = manager_owner;
-    }
+    ScopedStreamingManagerDevice manager_scope(RenderingDevice::get_singleton());
+    GaussianSplatManager *manager = manager_scope.get();
     CHECK(manager != nullptr);
     if (manager == nullptr) {
         return;
@@ -3079,10 +2926,7 @@ TEST_CASE("[Streaming Pipeline] Instance content generation tracks instance pipe
 
     RenderingDevice *primary_device = manager->get_primary_rendering_device();
     if (primary_device == nullptr) {
-        MESSAGE("Skipping - Primary rendering device unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("Primary rendering device unavailable");
         return;
     }
 
@@ -3090,19 +2934,13 @@ TEST_CASE("[Streaming Pipeline] Instance content generation tracks instance pipe
     Ref<GaussianData> data = create_test_gaussian_data(total_gaussians);
     WorldBackedRendererHarness harness;
     if (!harness.setup(data, true)) {
-        MESSAGE("Skipping - World-backed renderer unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("World-backed renderer unavailable");
         return;
     }
     Ref<GaussianSplatRenderer> renderer = harness.renderer;
     CHECK(renderer.is_valid());
     if (!renderer.is_valid()) {
         harness.teardown();
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
         return;
     }
 
@@ -3130,11 +2968,8 @@ TEST_CASE("[Streaming Pipeline] Instance content generation tracks instance pipe
     }
 
     if (stable_generation_prev == 0 || stable_generation_prev != stable_generation_curr) {
-        MESSAGE("Skipping - Instance pipeline content generation did not stabilize in test environment");
+        FAIL("Instance pipeline content generation did not stabilize in test environment");
         renderer.unref();
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
         return;
     }
 
@@ -3160,30 +2995,19 @@ TEST_CASE("[Streaming Pipeline] Instance content generation tracks instance pipe
     CHECK(generation_after_budget_change != generation_before_budget_change);
 
     harness.teardown();
-    if (manager_owner) {
-        memdelete(manager_owner);
-    }
 }
 
-TEST_CASE("[Streaming Pipeline] LOD debug stats track transitions_this_frame across camera moves") {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        MESSAGE("Skipping - Rendering server unavailable");
-        return;
-    }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
+TEST_CASE("[Streaming Pipeline][RequiresGPU] LOD debug stats track transitions_this_frame across camera moves") {
+    ScopedFallbackRD rd_scope;
+    RenderingDevice *rd = rd_scope.rd;
     if (!rd) {
-        rd = rs->create_local_rendering_device();
-    }
-    if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
     ProjectSettings *project_settings = ProjectSettings::get_singleton();
     if (!project_settings) {
-        MESSAGE("Skipping - ProjectSettings unavailable");
+        FAIL("ProjectSettings unavailable");
         return;
     }
 
@@ -3206,7 +3030,7 @@ TEST_CASE("[Streaming Pipeline] LOD debug stats track transitions_this_frame acr
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -3387,19 +3211,15 @@ TEST_CASE("[Streaming Pipeline] Non-primary eviction scans resident chunks and p
     CHECK(system->_test_get_non_primary_eviction_candidate_count() == 3);
 }
 
-TEST_CASE("[Streaming Pipeline] Renderer renders streamed non-zero chunk") {
+TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Renderer renders streamed non-zero chunk") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
-        MESSAGE("Skipping - Rendering server unavailable");
+        FAIL("Rendering server unavailable");
         return;
     }
 
-    GaussianSplatManager *manager_owner = nullptr;
-    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
-    if (!manager) {
-        manager_owner = memnew(GaussianSplatManager);
-        manager = manager_owner;
-    }
+    ScopedStreamingManagerDevice manager_scope(RenderingDevice::get_singleton());
+    GaussianSplatManager *manager = manager_scope.get();
     CHECK(manager != nullptr);
     if (manager == nullptr) {
         return;
@@ -3407,10 +3227,7 @@ TEST_CASE("[Streaming Pipeline] Renderer renders streamed non-zero chunk") {
 
     RenderingDevice *primary_device = manager->get_primary_rendering_device();
     if (primary_device == nullptr) {
-        MESSAGE("Skipping - Primary rendering device unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("Primary rendering device unavailable");
         return;
     }
 
@@ -3442,19 +3259,13 @@ TEST_CASE("[Streaming Pipeline] Renderer renders streamed non-zero chunk") {
     data->set_gaussians(gaussians);
     WorldBackedRendererHarness harness;
     if (!harness.setup(data, true)) {
-        MESSAGE("Skipping - World-backed renderer unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("World-backed renderer unavailable");
         return;
     }
     Ref<GaussianSplatRenderer> renderer = harness.renderer;
     CHECK(renderer.is_valid());
     if (!renderer.is_valid()) {
         harness.teardown();
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
         return;
     }
 
@@ -3484,24 +3295,17 @@ TEST_CASE("[Streaming Pipeline] Renderer renders streamed non-zero chunk") {
     CHECK(renderer->get_visible_splat_count() == chunk_size);
 
     harness.teardown();
-    if (manager_owner) {
-        memdelete(manager_owner);
-    }
 }
 
-TEST_CASE("[Streaming Pipeline] Instance depth Stage-B applies frustum/screen/distance culling") {
+TEST_CASE("[Streaming Pipeline][SceneTree][RequiresGPU] Instance depth Stage-B applies frustum/screen/distance culling") {
     RenderingServer *rs = RenderingServer::get_singleton();
     if (rs == nullptr) {
-        MESSAGE("Skipping - Rendering server unavailable");
+        FAIL("Rendering server unavailable");
         return;
     }
 
-    GaussianSplatManager *manager_owner = nullptr;
-    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
-    if (!manager) {
-        manager_owner = memnew(GaussianSplatManager);
-        manager = manager_owner;
-    }
+    ScopedStreamingManagerDevice manager_scope(RenderingDevice::get_singleton());
+    GaussianSplatManager *manager = manager_scope.get();
     CHECK(manager != nullptr);
     if (manager == nullptr) {
         return;
@@ -3509,10 +3313,7 @@ TEST_CASE("[Streaming Pipeline] Instance depth Stage-B applies frustum/screen/di
 
     RenderingDevice *primary_device = manager->get_primary_rendering_device();
     if (primary_device == nullptr) {
-        MESSAGE("Skipping - Primary rendering device unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("Primary rendering device unavailable");
         return;
     }
 
@@ -3543,19 +3344,13 @@ TEST_CASE("[Streaming Pipeline] Instance depth Stage-B applies frustum/screen/di
     data->set_gaussians(gaussians);
     WorldBackedRendererHarness harness;
     if (!harness.setup(data, true)) {
-        MESSAGE("Skipping - World-backed renderer unavailable");
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
+        FAIL("World-backed renderer unavailable");
         return;
     }
     Ref<GaussianSplatRenderer> renderer = harness.renderer;
     CHECK(renderer.is_valid());
     if (!renderer.is_valid()) {
         harness.teardown();
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
         return;
     }
 
@@ -3596,11 +3391,8 @@ TEST_CASE("[Streaming Pipeline] Instance depth Stage-B applies frustum/screen/di
     }
 
     if (!instance_pipeline_ready || baseline_visible == 0) {
-        MESSAGE("Skipping - Instance pipeline did not become ready in Stage-B culling regression test");
+        FAIL("Instance pipeline did not become ready in Stage-B culling regression test");
         harness.teardown();
-        if (manager_owner) {
-            memdelete(manager_owner);
-        }
         return;
     }
 
@@ -3621,9 +3413,6 @@ TEST_CASE("[Streaming Pipeline] Instance depth Stage-B applies frustum/screen/di
     CHECK(distance_visible > 0);
 
     harness.teardown();
-    if (manager_owner) {
-        memdelete(manager_owner);
-    }
 }
 
 TEST_CASE("[Streaming Pipeline] Pressure sample total_pending_chunks includes pack_jobs_in_flight") {

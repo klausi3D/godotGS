@@ -54,17 +54,14 @@ struct TestRenderingDeviceHandle {
 };
 
 TestRenderingDeviceHandle _get_test_rendering_device() {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        return {};
+    if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+        return { rd, false };
     }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
-    if (!rd) {
-        rd = rs->create_local_rendering_device();
+    if (RenderingServer *rs = RenderingServer::get_singleton()) {
+        RenderingDevice *rd = rs->create_local_rendering_device();
         return { rd, rd != nullptr };
     }
-    return { rd, false };
+    return {};
 }
 
 StreamingUploadPipeline::PendingChunkUpload *_wait_for_prepared_upload(StreamingUploadPipeline &p_uploads) {
@@ -242,11 +239,11 @@ TEST_CASE("[Streaming Pipeline] cancel_chunk_jobs preserves pending retirement s
     CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] sync fallback drain counts immediate retirement once") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] sync fallback drain counts immediate retirement once") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -254,7 +251,7 @@ TEST_CASE("[Streaming Pipeline] sync fallback drain counts immediate retirement 
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -390,11 +387,11 @@ TEST_CASE("[Streaming Pipeline] upload payload checksum validation is off by def
     CHECK_FALSE(uploads._test_is_upload_payload_checksum_validation_enabled());
 }
 
-TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum hashing") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] production upload path skips payload checksum hashing") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -402,14 +399,14 @@ TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum ha
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -438,11 +435,11 @@ TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum ha
     CHECK(int64_t(diagnostics.get("integrity_mismatch_count", int64_t(-1))) == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload checksums when validation is enabled") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] async chunk upload rejects tampered payload checksums when validation is enabled") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -450,7 +447,7 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -458,7 +455,7 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     auto &uploads = system->_internal_get_upload_pipeline();
     uploads._test_set_upload_payload_checksum_validation_enabled(true);
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -507,11 +504,11 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     CHECK(String(reset_diagnostics.get("last_integrity_mismatch_message", String())).is_empty());
 }
 
-TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending jobs without baselines") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] enabling checksum validation rejects pending jobs without baselines") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -519,14 +516,14 @@ TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending job
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -560,11 +557,11 @@ TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending job
     CHECK(String(diagnostics.get("last_integrity_mismatch_message", String())).contains("without a checksum baseline"));
 }
 
-TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before atlas sync and keeps atlas generation stable when idle") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] update_streaming publishes phase timings before atlas sync and keeps atlas generation stable when idle") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -573,7 +570,7 @@ TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before 
         system.instantiate();
         system->initialize_empty(rd);
         if (!system->is_runtime_ready()) {
-            MESSAGE("Skipping - Streaming runtime not ready");
+            FAIL("Streaming runtime not ready");
             return;
         }
 
@@ -656,11 +653,11 @@ TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before 
     }
 }
 
-TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after registry cleanup") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] initialize_empty republishes atlas state after registry cleanup") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -668,7 +665,7 @@ TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after r
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -699,11 +696,11 @@ TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after r
     CHECK_FALSE(system->has_asset(asset_id));
 }
 
-TEST_CASE("[Streaming Pipeline] initialize_empty keeps atlas metadata buffers valid with zero chunks") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] initialize_empty keeps atlas metadata buffers valid with zero chunks") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -711,7 +708,7 @@ TEST_CASE("[Streaming Pipeline] initialize_empty keeps atlas metadata buffers va
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -900,7 +897,7 @@ TEST_CASE("[GaussianSplatting][Streaming] Initialize without device emits at mos
     // this line proves the cascade is closed.
 }
 
-TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
     // #766 follow-up: the async pack path always emits the 128 B PackedGaussian layout, and
     // process_upload_queue() sizes/offsets the write by sizeof(PackedGaussian). If the effective
     // atlas stride flips 144->80 (a mixed-DC (un)registration toggling per-chunk quantization
@@ -916,7 +913,7 @@ TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -924,14 +921,14 @@ TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 

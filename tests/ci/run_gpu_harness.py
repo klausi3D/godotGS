@@ -155,9 +155,13 @@ BATCHES: tuple[BatchSpec, ...] = (
     # when the waiver is removed. Do NOT raise the budgets to re-include it.
     BatchSpec(
         "Streaming",
-        ("*Streaming*][RequiresGPU]*",),
+        ("*[Streaming][RequiresGPU]*",),
         excludes=("*GPU Memory Streaming Performance*",),
     ),
+    # #1195 candidate route for the device-dependent [Streaming Pipeline] corpus.
+    # Promotion requires real execution before excluding these cases from the
+    # strict headless lane; until then, that lane continues to fail closed.
+    BatchSpec("StreamingPipeline", ("*[Streaming Pipeline]*[RequiresGPU]*",)),
     # #641: the sync-policy device-contract tests in
     # modules/gaussian_splatting/tests/test_integration.cpp. They need a real
     # local RenderingDevice, which only this harness provides; before #641 they
