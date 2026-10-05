@@ -21,11 +21,13 @@
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/compression.h"
 #include "core/math/math_funcs.h"
 #include "core/os/os.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstring>
 #include <string>
 
@@ -1564,6 +1566,230 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		DirAccess::remove_absolute(path);
 	}
 	DirAccess::remove_absolute(valid_path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects payloads inconsistent with node bounds in every storage mode") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(18000u, 2000u, g);
+	LocalVector<Vector3> sh;
+	sh.resize(g.size() * 12u);
+	for (Vector3 &v : sh) {
+		v = Vector3(0.125f, -0.25f, 0.5f);
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	if (world->bake_hlod() != OK || world->get_hlod_tree().interior_splat_count == 0u) {
+		FAIL("producer must bake both leaf and interior payloads");
+		return;
+	}
+	auto u64_at = [](const PackedByteArray &b, int64_t off) {
+		uint64_t value;
+		memcpy(&value, b.ptr() + off, sizeof(value));
+		return value;
+	};
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int mode = 1; mode <= 3; mode++) {
+		const String path = hlod_temp_path("payload_review_r2");
+		if (saver.save_with_payload_mode(world, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+			FAIL("save producer control");
+			return;
+		}
+		const PackedByteArray valid = hlod_read_file(path);
+		Error err = ERR_BUG;
+		if (loader.load(path, "", &err).is_null() || err != OK) {
+			FAIL("unmodified producer must load");
+			return;
+		}
+		uint32_t flags;
+		memcpy(&flags, valid.ptr() + 8, 4);
+		const bool compressed = (flags & (1u << 4u)) != 0u;
+		const uint64_t offset = u64_at(valid, 56);
+		const uint64_t total = uint64_t(g.size()) + world->get_hlod_tree().interior_splat_count;
+		PackedByteArray raw;
+		raw.resize(total * sizeof(Gaussian));
+		const uint64_t old_blob_size = compressed ? u64_at(valid, offset) : raw.size();
+		if (compressed) {
+			if (Compression::decompress(raw.ptrw(), raw.size(), valid.ptr() + offset + 8u, old_blob_size, Compression::MODE_GZIP) != raw.size()) {
+				FAIL("decompress producer payload for mutation");
+				return;
+			}
+		} else {
+			memcpy(raw.ptrw(), valid.ptr() + offset, raw.size());
+		}
+#ifdef TOOLS_ENABLED
+		Ref<ResourceImporterGSplatWorld> importer;
+		importer.instantiate();
+		HashMap<StringName, Variant> options;
+		const String import_base = hlod_temp_path("payload_previous_r2");
+		if (importer->import(ResourceUID::INVALID_ID, path, import_base, options, nullptr, nullptr, nullptr) != OK) {
+			FAIL("establish previous valid import");
+			return;
+		}
+		const PackedByteArray previous = hlod_read_file(import_base + ".gsplatworld");
+#endif
+		const size_t fields[] = { offsetof(Gaussian, position), offsetof(Gaussian, scale), offsetof(Gaussian, opacity),
+			offsetof(Gaussian, sh_dc), offsetof(Gaussian, sh_1), offsetof(Gaussian, normal), offsetof(Gaussian, brush_axes) };
+		for (int interior = 0; interior < 2; interior++) {
+			for (uint32_t field = 0; field < std::size(fields) + 1u; field++) {
+				CAPTURE(mode, interior, field);
+				PackedByteArray bytes = valid;
+				PackedByteArray mutated = raw;
+				const uint64_t first = interior ? g.size() : 0u;
+				const float bad = field < 2u ? 1e20f : NAN;
+				if (field < std::size(fields)) {
+					memcpy(mutated.ptrw() + first * sizeof(Gaussian) + fields[field], &bad, sizeof(bad));
+				}
+				if (compressed) {
+					PackedByteArray blob;
+					blob.resize(Compression::get_max_compressed_buffer_size(mutated.size(), Compression::MODE_GZIP));
+					const int64_t blob_size = Compression::compress(blob.ptrw(), mutated.ptr(), mutated.size(), Compression::MODE_GZIP);
+					if (blob_size <= 0) {
+						FAIL("recompress mutated payload");
+						return;
+					}
+					const int64_t delta = blob_size - int64_t(old_blob_size);
+					bytes.resize(valid.size() + delta);
+					memcpy(bytes.ptrw(), valid.ptr(), offset);
+					memcpy(bytes.ptrw() + offset, &blob_size, 8);
+					memcpy(bytes.ptrw() + offset + 8u, blob.ptr(), blob_size);
+					const uint64_t suffix = offset + 8u + old_blob_size;
+					memcpy(bytes.ptrw() + suffix + delta, valid.ptr() + suffix, valid.size() - suffix);
+					const int section_offsets[] = { 64, 72, 88, 136, 152, 160 };
+					for (int header_offset : section_offsets) {
+						const uint64_t old_offset = u64_at(valid, header_offset);
+						if (old_offset >= suffix) {
+							const uint64_t new_offset = old_offset + delta;
+							memcpy(bytes.ptrw() + header_offset, &new_offset, 8);
+						}
+					}
+				} else {
+					memcpy(bytes.ptrw() + offset, mutated.ptr(), mutated.size());
+				}
+				if (field == std::size(fields)) {
+					memcpy(bytes.ptrw() + u64_at(bytes, 64) + first * 12u * sizeof(Vector3), &bad, sizeof(bad));
+				}
+				if (!hlod_write_file(path, bytes)) {
+					FAIL("write mutated payload");
+					return;
+				}
+				CHECK_FALSE(loader.load(path, "", &err).is_valid());
+				CHECK(err == ERR_FILE_CORRUPT);
+				CHECK_FALSE(loader.load_resident(path, &err).is_valid());
+				CHECK(err == ERR_FILE_CORRUPT);
+#ifdef TOOLS_ENABLED
+				CHECK(importer->import(ResourceUID::INVALID_ID, path, import_base, options, nullptr, nullptr, nullptr) == ERR_FILE_CORRUPT);
+				CHECK(hlod_read_file(import_base + ".gsplatworld") == previous);
+#endif
+			}
+		}
+#ifdef TOOLS_ENABLED
+		DirAccess::remove_absolute(import_base + ".gsplatworld");
+#endif
+		DirAccess::remove_absolute(path);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects invalid metadata rather than silently discarding it") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(30u, 10u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	Dictionary metadata;
+	metadata["note"] = "valid dictionary control";
+	world->set_metadata(metadata);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake metadata control");
+		return;
+	}
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int mode = 1; mode <= 3; mode++) {
+		const String path = hlod_temp_path("metadata_review_r2");
+		if (saver.save_with_payload_mode(world, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+			FAIL("save metadata control");
+			return;
+		}
+		const PackedByteArray valid = hlod_read_file(path);
+		uint64_t offset, size;
+		memcpy(&offset, valid.ptr() + 88, 8);
+		memcpy(&size, valid.ptr() + 96, 8);
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> control = loader.load(path, "", &err);
+		if (size < 4u || control.is_null() || err != OK || control->get_metadata() != metadata) {
+			FAIL("producer dictionary must round-trip");
+			return;
+		}
+		const char *invalid[] = { "{bad", "null", "[]", "42" };
+		for (const char *json : invalid) {
+			CAPTURE(mode, json);
+			PackedByteArray bytes = valid;
+			memset(bytes.ptrw() + offset, ' ', size);
+			memcpy(bytes.ptrw() + offset, json, strlen(json));
+			if (!hlod_write_file(path, bytes)) {
+				FAIL("write invalid metadata");
+				return;
+			}
+			CHECK_FALSE(loader.load(path, "", &err).is_valid());
+			CHECK(err == ERR_FILE_CORRUPT);
+			CHECK_FALSE(loader.load_resident(path, &err).is_valid());
+			CHECK(err == ERR_FILE_CORRUPT);
+		}
+		DirAccess::remove_absolute(path);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects finite doubles that overflow runtime node coordinates") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(30u, 10u, g);
+	gs_hlod::BakeResult baked;
+	if (!hlod_bake(g, gs_hlod::kMaxNodeSplats, baked)) {
+		FAIL("bake runtime coordinate control");
+		return;
+	}
+	String reason;
+	const double origins[] = { DBL_MAX, double(FLT_MAX) * 2.0, -DBL_MAX };
+	for (double origin : origins) {
+		GaussianSplatHlodTree tree = baked.tree;
+		tree.origin[0] = origin;
+		CHECK_FALSE(gs_hlod_validate_tree(tree, &reason));
+	}
+	GaussianSplatHlodTree tree = baked.tree;
+	tree.origin[0] = 1e6;
+	CHECK(gs_hlod_validate_tree(tree, &reason));
+	// Both endpoints can be finite while the real_t AABB size overflows.
+	tree = baked.tree;
+	tree.nodes[0].aabb_min.x = -FLT_MAX;
+	tree.nodes[0].aabb_max.x = FLT_MAX;
+	tree.nodes[0].radius = FLT_MAX;
+	CHECK_FALSE(gs_hlod_validate_tree(tree, &reason));
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake serialized runtime coordinate control");
+		return;
+	}
+	const String path = hlod_temp_path("coordinates_review_r2");
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	if (saver.save(world, path) != OK) {
+		FAIL("save runtime coordinate control");
+		return;
+	}
+	PackedByteArray bytes = hlod_read_file(path);
+	const double bad = DBL_MAX;
+	memcpy(bytes.ptrw() + 104, &bad, sizeof(bad));
+	if (!hlod_write_file(path, bytes)) {
+		FAIL("write runtime coordinate mutation");
+		return;
+	}
+	Error err = ERR_BUG;
+	CHECK_FALSE(loader.load(path, "", &err).is_valid());
+	CHECK(err == ERR_FILE_CORRUPT);
+	CHECK_FALSE(loader.load_resident(path, &err).is_valid());
+	CHECK(err == ERR_FILE_CORRUPT);
+	DirAccess::remove_absolute(path);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overlapping sections and preserves a prior import") {
