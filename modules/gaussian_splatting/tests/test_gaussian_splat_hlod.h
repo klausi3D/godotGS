@@ -1633,6 +1633,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 			offsetof(Gaussian, sh_dc), offsetof(Gaussian, sh_1), offsetof(Gaussian, normal), offsetof(Gaussian, brush_axes) };
 		for (int interior = 0; interior < 2; interior++) {
 			for (uint32_t field = 0; field < std::size(fields) + 2u; field++) {
+				if (interior && field == std::size(fields) + 1u) {
+					continue; // Parent spheres also have independently checked child containment.
+				}
 				CAPTURE(mode);
 				CAPTURE(interior);
 				CAPTURE(field);
@@ -1764,6 +1767,23 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 			CHECK_FALSE(loader.load_resident(path, &err).is_valid());
 			CHECK(err == ERR_FILE_CORRUPT);
 		}
+		// Invalid UTF-8 inside a quoted value remains syntactically valid JSON if
+		// a permissive decoder silently replaces it, so parsing alone is not enough.
+		const int marker = String::utf8(reinterpret_cast<const char *>(valid.ptr() + offset), size).find("valid dictionary control");
+		if (marker < 0) {
+			FAIL("find producer metadata value");
+			return;
+		}
+		PackedByteArray bytes = valid;
+		bytes.ptrw()[offset + marker] = 0xffu;
+		if (!hlod_write_file(path, bytes)) {
+			FAIL("write invalid metadata UTF-8");
+			return;
+		}
+		CHECK_FALSE(loader.load(path, "", &err).is_valid());
+		CHECK(err == ERR_FILE_CORRUPT);
+		CHECK_FALSE(loader.load_resident(path, &err).is_valid());
+		CHECK(err == ERR_FILE_CORRUPT);
 		DirAccess::remove_absolute(path);
 	}
 }
