@@ -155,24 +155,27 @@ RID TileRenderer::TileRasterizerStage::_resolve_scene_depth_binding(RenderingDev
 	return scene_depth;
 }
 
+bool TileRenderer::TileRasterizerStage::_raster_submission_valid(RenderingDevice *p_device, RID p_buffer_uniform_set, RID p_param_uniform_set) const {
+    if (!p_device || p_device != owner._get_resource_device() ||
+            owner.shader_resources.shader_device != p_device ||
+            owner.shader_resources.shader_device_instance != p_device->get_device_instance_id()) {
+        return false;
+    }
+    return p_buffer_uniform_set.is_valid() && p_param_uniform_set.is_valid() &&
+            p_device->uniform_set_is_valid(p_buffer_uniform_set) && p_device->uniform_set_is_valid(p_param_uniform_set);
+}
+
 TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
         RID p_param_uniform_set, RID p_image_uniform_set, RenderingDevice *p_submission_device) {
     if (!owner.shader_resources.tile_raster_compute_pipeline.is_valid() || owner.grid_state.tiles_x == 0 || owner.grid_state.tiles_y == 0) {
         return RasterDispatchResult::FAILED;
     }
     RenderingDevice *submission_device = p_submission_device;
-    if (!submission_device || submission_device != owner._get_resource_device() ||
-            owner.shader_resources.shader_device != submission_device ||
-            owner.shader_resources.shader_device_instance != submission_device->get_device_instance_id()) {
-        return RasterDispatchResult::FAILED;
-    }
-    if (!p_buffer_uniform_set.is_valid() || !p_param_uniform_set.is_valid() || !p_image_uniform_set.is_valid()) {
+    if (!_raster_submission_valid(submission_device, p_buffer_uniform_set, p_param_uniform_set) || !p_image_uniform_set.is_valid()) {
         return RasterDispatchResult::FAILED;
     }
 
     if (!submission_device->compute_pipeline_is_valid(owner.shader_resources.tile_raster_compute_pipeline) ||
-            !submission_device->uniform_set_is_valid(p_buffer_uniform_set) ||
-            !submission_device->uniform_set_is_valid(p_param_uniform_set) ||
             !submission_device->uniform_set_is_valid(p_image_uniform_set) ||
             !submission_device->texture_is_valid(owner.render_targets.output_texture) ||
             !submission_device->texture_is_valid(owner.render_targets.depth_texture) ||
@@ -231,18 +234,11 @@ TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_t
         return RasterDispatchResult::FAILED;
     }
     RenderingDevice *submission_device = p_submission_device;
-    if (!submission_device || submission_device != owner._get_resource_device() ||
-            owner.shader_resources.shader_device != submission_device ||
-            owner.shader_resources.shader_device_instance != submission_device->get_device_instance_id()) {
-        return RasterDispatchResult::FAILED;
-    }
-    if (!p_buffer_uniform_set.is_valid() || !p_param_uniform_set.is_valid()) {
+    if (!_raster_submission_valid(submission_device, p_buffer_uniform_set, p_param_uniform_set)) {
         return RasterDispatchResult::FAILED;
     }
 
-    if (!submission_device->framebuffer_is_valid(owner.render_targets.tile_framebuffer) ||
-            !submission_device->uniform_set_is_valid(p_buffer_uniform_set) ||
-            !submission_device->uniform_set_is_valid(p_param_uniform_set)) {
+    if (!submission_device->framebuffer_is_valid(owner.render_targets.tile_framebuffer)) {
         return RasterDispatchResult::FAILED;
     }
 
