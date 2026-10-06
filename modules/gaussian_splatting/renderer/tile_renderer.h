@@ -294,6 +294,7 @@ public:
     }
     void _test_fail_next_raster_dispatch(int p_mode = 1) { test_fail_next_raster_dispatch = p_mode; }
     bool _test_raster_failure_pending() const { return test_fail_next_raster_dispatch; }
+    const TilePerformanceMetrics &_test_raster_metrics() const { return perf_metrics; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
 
