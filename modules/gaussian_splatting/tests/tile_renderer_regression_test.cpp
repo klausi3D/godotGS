@@ -2209,6 +2209,30 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // A failed raster stage must reject a new frame after a good output
+        // exists. Validate recovery for fragment and compute policy requests.
+        for (int path = 0; path < 2; ++path) {
+            params.compute_raster_policy = path == 0 ? GaussianSplatting::ComputeRasterPolicy::ForceOff : GaussianSplatting::ComputeRasterPolicy::ForceOn;
+            for (int failure_mode = 1; failure_mode <= 3; ++failure_mode) {
+                params.frame_serial++;
+                tile_renderer->_test_fail_next_raster_dispatch(failure_mode);
+                RID rejected_raster = tile_renderer->render(p_rd, params);
+                if (tile_renderer->_test_raster_failure_pending()) {
+                    r.error_message = "Raster failure premise not reached; an earlier stage rejected the frame.";
+                    return r;
+                }
+                if (rejected_raster.is_valid()) {
+                    r.error_message = "Failed raster dispatch published a stale output as a valid new frame.";
+                    return r;
+                }
+                params.frame_serial++;
+                if (!tile_renderer->render(p_rd, params).is_valid()) {
+                    r.error_message = "Raster publication failed to recover after the injected resource failure.";
+                    return r;
+                }
+            }
+        }
+
         r.passed = true;
         return r;
     }();

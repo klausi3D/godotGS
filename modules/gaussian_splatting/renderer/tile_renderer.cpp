@@ -309,11 +309,12 @@ public:
 		if (!_execute_global_sort_pipeline()) {
 			return RID();
 		}
+		RasterDispatchResult raster_result = RasterDispatchResult::EMPTY;
 		if (_has_dispatch_work()) {
 			if (!_select_and_prepare_raster_path()) {
 				return RID();
 			}
-			_dispatch_rasterization();
+			raster_result = _dispatch_rasterization();
 		} else {
 			// Ensure no-work frames don't report stale raster mode from prior frames.
 			renderer.perf_metrics.last_raster_used_compute = false;
@@ -322,6 +323,12 @@ public:
 			renderer.perf_metrics.last_raster_choice_reason = "No raster work";
 			renderer.perf_metrics.sorted_indices_blend_fallback_active = false;
 			renderer.perf_metrics.sorted_indices_blend_fallback_reason = String();
+		}
+		if (raster_result == RasterDispatchResult::FAILED) {
+			renderer.perf_metrics.last_raster_used_compute = false;
+			renderer.perf_metrics.last_raster_choice_reason = "Frame rejected: raster dispatch failed";
+			ERR_PRINT_ONCE("[TileRenderer] Raster dispatch failed; frame not published");
+			return RID();
 		}
 		const RID output = _finalize_frame();
 		// #586 PR 2: a sorter-failure episode ends only here -- a frame whose translucent
@@ -1257,17 +1264,28 @@ private:
 
 		renderer._log_raster_path_decision({ use_compute_raster, raster_reason });
 		renderer.perf_metrics.last_raster_used_compute = use_compute_raster;
-		if (use_compute_raster) {
-			renderer.perf_metrics.compute_raster_frames++;
-		} else {
-			renderer.perf_metrics.fragment_raster_frames++;
-		}
-
 		return true;
 	}
 
-	void _dispatch_rasterization() {
+	RasterDispatchResult _dispatch_rasterization() {
+		RasterDispatchResult result = RasterDispatchResult::FAILED;
 		uint64_t raster_start = OS::get_singleton()->get_ticks_usec();
+		RID buffer_uniform_set = raster_sets.buffer_uniform_set;
+#ifdef TESTS_ENABLED
+		const int failure_mode = renderer.test_fail_next_raster_dispatch;
+		renderer.test_fail_next_raster_dispatch = 0;
+		const RID saved_compute_pipeline = renderer.shader_resources.tile_raster_compute_pipeline;
+		const RID saved_fragment_shader = renderer.shader_resources.tile_raster_shader;
+		const uint64_t saved_generation = renderer.shader_resources.shader_device_instance;
+		if (failure_mode == 1) {
+			buffer_uniform_set = RID();
+		} else if (failure_mode == 2) {
+			renderer.shader_resources.tile_raster_compute_pipeline = RID();
+			renderer.shader_resources.tile_raster_shader = RID();
+		} else if (failure_mode == 3) {
+			renderer.shader_resources.shader_device_instance++;
+		}
+#endif
 		if (use_compute_raster) {
 #ifdef DEV_ENABLED
 			static uint64_t compute_raster_log_counter = 0;
@@ -1279,17 +1297,30 @@ private:
 						renderer.grid_state.tiles_x, renderer.grid_state.tiles_y, params.splat_count, int(renderer.config_state.output_format)));
 			}
 #endif
-			renderer._dispatch_tile_rasterizer_compute(params.splat_count, raster_sets.buffer_uniform_set, raster_sets.param_uniform_set,
+			result = renderer._dispatch_tile_rasterizer_compute(params.splat_count, buffer_uniform_set, raster_sets.param_uniform_set,
 					raster_sets.image_uniform_set, uniform_device);
 		} else {
 			// Fragment shader path: uses render pipeline with framebuffer attachments.
-			renderer._dispatch_tile_rasterizer(params.splat_count, raster_sets.buffer_uniform_set, raster_sets.param_uniform_set, uniform_device);
+			result = renderer._dispatch_tile_rasterizer(params.splat_count, buffer_uniform_set, raster_sets.param_uniform_set, uniform_device);
 		}
+#ifdef TESTS_ENABLED
+		renderer.shader_resources.tile_raster_compute_pipeline = saved_compute_pipeline;
+		renderer.shader_resources.tile_raster_shader = saved_fragment_shader;
+		renderer.shader_resources.shader_device_instance = saved_generation;
+#endif
 		uint64_t raster_end = OS::get_singleton()->get_ticks_usec();
 		renderer.perf_metrics.rasterization_ms = (raster_end - raster_start) / 1000.0f;
+		if (result == RasterDispatchResult::RECORDED) {
+			if (use_compute_raster) {
+				renderer.perf_metrics.compute_raster_frames++;
+			} else {
+				renderer.perf_metrics.fragment_raster_frames++;
+			}
+		}
 
 		// Note: On main RD, raster→compute synchronization is handled automatically by command ordering.
 		// draw_list_end() ensures fragment work completes before subsequent compute list operations.
+		return result;
 	}
 
 	RID _finalize_frame() {
@@ -3105,13 +3136,13 @@ void TileRenderer::_log_raster_path_decision(const RasterDecision &p_decision) {
     }
 }
 
-uint64_t TileRenderer::_dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+TileRenderer::RasterDispatchResult TileRenderer::_dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
         RID p_image_uniform_set, RenderingDevice *p_submission_device) {
     return raster_stage.dispatch_tile_rasterizer_compute(p_gaussian_count, p_buffer_uniform_set, p_param_uniform_set,
             p_image_uniform_set, p_submission_device);
 }
 
-uint64_t TileRenderer::_dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+TileRenderer::RasterDispatchResult TileRenderer::_dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
         RenderingDevice *p_submission_device) {
     return raster_stage.dispatch_tile_rasterizer(p_gaussian_count, p_buffer_uniform_set, p_param_uniform_set, p_submission_device);
 }

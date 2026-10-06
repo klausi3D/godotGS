@@ -292,6 +292,8 @@ public:
     void _test_on_tile_counts_readback(const Vector<uint8_t> &p_data, int64_t p_request_frame_serial) {
         _on_tile_counts_readback(p_data, p_request_frame_serial);
     }
+    void _test_fail_next_raster_dispatch(int p_mode = 1) { test_fail_next_raster_dispatch = p_mode; }
+    bool _test_raster_failure_pending() const { return test_fail_next_raster_dispatch; }
     static Vector<uint64_t> _test_instance_pipeline_binding_generation_trace(
             const Vector<RenderParams> &p_params_sequence);
 
@@ -317,6 +319,12 @@ protected:
     static void _bind_methods();
 
 private:
+    // Recorded means command recording succeeded, not GPU completion. Empty
+    // denotes the explicit clear-only frame; failed work must not be published.
+    enum class RasterDispatchResult { FAILED, RECORDED, EMPTY };
+#ifdef TESTS_ENABLED
+    int test_fail_next_raster_dispatch = 0;
+#endif
     class RenderFrameExecutor;
 
     // These struct friends are internal data types whose cleanup methods need private
@@ -358,9 +366,9 @@ private:
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);
 	    uint64_t _dispatch_tile_binning_count(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_lighting_uniform_set, RenderingDevice *p_submission_device, bool p_requires_sync);
-	    uint64_t _dispatch_tile_rasterizer(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+	    RasterDispatchResult _dispatch_tile_rasterizer(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RenderingDevice *p_submission_device);
-	    uint64_t _dispatch_tile_rasterizer_compute(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+	    RasterDispatchResult _dispatch_tile_rasterizer_compute(uint32_t gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
 	            RID p_image_uniform_set, RenderingDevice *p_submission_device);
     void _dispatch_tile_resolve(const Vector2i &p_viewport, int p_tile_size, bool p_output_is_premultiplied,
             const RenderParams &p_params);
