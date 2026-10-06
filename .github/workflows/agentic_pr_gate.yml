@@ -58,7 +58,9 @@ jobs:
         run: python tests/ci/test_validate_automation.py -v
 
       - name: Test fail-closed PR GPU evidence verdict
-        run: python tests/ci/test_pr_gpu_evidence.py -v
+        run: |
+          python tests/ci/test_pr_gpu_evidence.py -v
+          python tests/ci/test_pr_gpu_evidence_wiring.py -v
 
       - name: Validate all GitHub Actions workflows
         env:

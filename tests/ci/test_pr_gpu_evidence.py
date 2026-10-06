@@ -7,12 +7,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("pr_evidence", ROOT / "tests/ci/check_pr_gpu_evidence.py")
@@ -82,72 +82,6 @@ class EvidenceVerdictTests(unittest.TestCase):
             receipt["sha256"][name] = "invalid"
             with self.subTest(hash=name), self.assertRaises(ValueError):
                 checker.verdict("R2", self.jobs, receipt, self.expected)
-
-
-class WorkflowWiringTests(unittest.TestCase):
-    def setUp(self):
-        self.text = (ROOT / ".github/workflows/gaussian_production_gates.yml").read_text(encoding="utf-8")
-        self.workflow = yaml.safe_load(self.text)
-
-    def test_all_prs_and_merge_queue_can_report(self):
-        events = self.workflow.get("on", self.workflow.get(True))
-        for event in ("pull_request", "merge_group"):
-            self.assertIn(event, events)
-            for exclusion in ("branches", "branches-ignore", "paths", "paths-ignore"):
-                self.assertNotIn(exclusion, events[event])
-        gate = self.workflow["jobs"]["canonical-gpu-receipt"]
-        self.assertEqual(gate["runs-on"], "ubuntu-latest")
-        self.assertIn("always()", gate["if"])
-        self.assertEqual(set(gate["needs"]), {"pr-evidence-policy", "guards", "module-validation"})
-
-    def test_producer_follows_postflight_and_binds_step_outcomes(self):
-        steps = self.workflow["jobs"]["module-validation"]["steps"]
-        by_id = {step["id"]: step for step in steps if "id" in step}
-        self.assertTrue(set(checker.REQUIRED_STEPS) <= by_id.keys())
-        producer = next(step for step in steps if "--write-receipt" in step.get("run", ""))
-        self.assertGreater(steps.index(producer), steps.index(by_id["postflight"]))
-        self.assertIn("success()", producer["if"])
-        for name in checker.REQUIRED_STEPS:
-            self.assertEqual(producer["env"]["GS_STEP_" + name.upper()], "${{ steps." + name + ".outcome }}")
-        upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4"
-                      and step["with"]["name"].startswith("pr-gpu-evidence-"))
-        self.assertEqual(upload["with"]["if-no-files-found"], "error")
-
-    def test_consumer_uses_current_run_artifact_and_dependency_outcomes(self):
-        steps = self.workflow["jobs"]["canonical-gpu-receipt"]["steps"]
-        download = next(step for step in steps if step.get("uses") == "actions/download-artifact@v4")
-        self.assertEqual(download["with"]["name"], "pr-gpu-evidence-${{ github.run_attempt }}")
-        self.assertNotIn("run-id", download["with"])
-        consumer = next(step for step in steps if "--verify" in step.get("run", ""))
-        self.assertEqual(consumer["env"]["GS_JOB_MODULE"], "${{ needs.module-validation.result }}")
-        self.assertEqual(consumer["env"]["GS_JOB_GUARDS"], "${{ needs.guards.result }}")
-        self.assertNotIn("if", consumer)
-
-    def test_test_is_wired_into_required_agentic_gate(self):
-        workflow = (ROOT / ".github/workflows/agentic_pr_gate.yml").read_text(encoding="utf-8")
-        self.assertIn("python tests/ci/test_pr_gpu_evidence.py", workflow)
-
-    def test_exempt_prs_do_not_queue_self_hosted_work(self):
-        guards = self.workflow["jobs"]["guards"]
-        self.assertEqual(guards["needs"], "pr-evidence-policy")
-        condition = guards["if"]
-        for risk in ("R2", "R3"):
-            self.assertIn("needs.pr-evidence-policy.outputs.risk_class == '" + risk + "'", condition)
-        self.assertIn("needs.pr-evidence-policy.result == 'success'", condition)
-
-    def test_required_verdict_checks_out_only_the_trusted_base(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        events = workflow.get("on", workflow.get(True))
-        self.assertIn("pull_request_target", events)
-        self.assertIn("merge_group", events)
-        self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read", "statuses": "write"})
-        job = workflow["jobs"]["trusted-gpu-controller"]
-        self.assertEqual(job["runs-on"], "ubuntu-latest")
-        checkout = next(step for step in job["steps"] if step.get("uses") == "actions/checkout@v4")
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}")
-        self.assertFalse(checkout["with"]["persist-credentials"])
-        commands = [step["run"] for step in job["steps"] if "run" in step]
-        self.assertEqual(commands, ["python scripts/agentic/watch_pr_gpu_evidence.py"])
 
 
 class RealProducerTests(unittest.TestCase):
@@ -228,6 +162,81 @@ class TrustedConsumerTests(unittest.TestCase):
                 with patch.dict(os.environ, env), patch.object(watcher, "api") as publish, patch.object(watcher, "main", side_effect=ValueError("absent evidence")):
                     self.assertEqual(watcher.controller(), 1)
                     self.assertEqual(publish.call_args_list[-1].kwargs["payload"]["state"], "failure")
+
+    def exercise_controller(self, runs, *, source_id=None, partial=False, stale=False):
+        base, head, checkout = "c" * 40, "b" * 40, "a" * 40
+        pull = dict(number=1, base={"sha": base}, head={"sha": head, "repo": {"full_name": "owner/repo"}},
+                    changed_files=1, merge_commit_sha=checkout, updated_at="2026-10-06T12:00:00Z")
+        event = {"pull_request": pull}
+        if source_id is not None:
+            event["source_run_id"] = source_id
+        states, selected = [], []
+        current = copy.deepcopy(pull)
+        if stale:
+            current["base"]["sha"] = "e" * 40
+        steps = [dict(name=name, conclusion="success", started_at="start", completed_at="end")
+                 for name in watcher.JOB_STEPS.values()]
+        if partial:
+            steps.pop()
+        def metadata(endpoint, **kwargs):
+            if "payload" in kwargs:
+                states.append(kwargs["payload"]["state"])
+                return {}
+            if endpoint.endswith("/pulls/1"):
+                return current
+            receipt = dict(schema_version=1, base_sha=base, head_sha=head, checkout_sha=checkout,
+                           run_id=str(selected[-1]["id"]), run_attempt=str(selected[-1]["run_attempt"]),
+                           steps={name: "success" for name in checker.REQUIRED_STEPS},
+                           sha256={name: "d" * 64 for name in checker.REQUIRED_HASHES})
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w") as archive:
+                archive.writestr("pr-gpu-evidence.json", json.dumps(receipt))
+            return output.getvalue()
+        sequence = iter(runs)
+        def listing(endpoint, key=None):
+            if endpoint.endswith("/files"):
+                return [{"filename": "modules/gaussian_splatting/renderer/probe.cpp"}]
+            if "workflows/" in endpoint:
+                batch = next(sequence)
+                selected.extend(batch)
+                return batch
+            if endpoint.endswith("/jobs"):
+                return [dict(name=watcher.GUARD_JOB, conclusion="success"),
+                        dict(name=watcher.MODULE_JOB, conclusion="success", steps=steps)]
+            return [dict(name="pr-gpu-evidence-" + str(selected[-1]["run_attempt"]),
+                         expired=False, id=456, size_in_bytes=1000)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "event.json"
+            path.write_text(json.dumps(event))
+            env = dict(GITHUB_EVENT_PATH=str(path), GITHUB_REPOSITORY="owner/repo", GITHUB_RUN_ID="123")
+            with patch.dict(os.environ, env), patch.object(sys, "argv", ["watcher"]), \
+                 patch.object(watcher.checker, "git", return_value=base), \
+                 patch.object(watcher, "classify_paths", return_value="R2"), \
+                 patch.object(watcher, "api", side_effect=metadata), \
+                 patch.object(watcher, "pages", side_effect=listing), patch.object(watcher.time, "sleep"):
+                result = watcher.controller()
+        return result, states
+
+    @staticmethod
+    def source_run(run_id=9, attempt=1, conclusion="success", created="2026-10-06T12:00:01Z"):
+        return dict(id=run_id, run_attempt=attempt, status="completed", conclusion=conclusion,
+                    html_url="https://example.invalid/run", created_at=created)
+
+    def test_old_failed_run_waits_for_newly_registered_execution(self):
+        old = self.source_run(8, conclusion="failure", created="2026-10-06T11:00:00Z")
+        new = self.source_run()
+        self.assertEqual(self.exercise_controller([[old], [old, new]]), (0, ["pending", "success"]))
+
+    def test_success_is_reset_by_failed_or_partial_rerun_and_recovers(self):
+        self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9), (0, ["pending", "success"]))
+        self.assertEqual(self.exercise_controller([[self.source_run(attempt=2, conclusion="failure")]], source_id=9),
+                         (1, ["pending", "failure"]))
+        self.assertEqual(self.exercise_controller([[self.source_run(attempt=2)]], source_id=9, partial=True),
+                         (1, ["pending", "failure"]))
+        self.assertEqual(self.exercise_controller([[self.source_run(attempt=3)]], source_id=9), (0, ["pending", "success"]))
+
+    def test_changed_base_rejects_stale_event_before_exemption(self):
+        self.assertEqual(self.exercise_controller([], stale=True), (1, ["pending", "failure"]))
 
     def test_actual_job_step_failures_cannot_be_hidden_in_receipt(self):
         steps = [dict(name=name, conclusion="success", started_at="start", completed_at="end")

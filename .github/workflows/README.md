@@ -591,6 +591,9 @@ R0/R1 results explicitly say that GPU evidence is not required, not that it pass
 **Activation remains pending:** `agentic-pr-gate` remains the only required
 context until a maintainer merges this workflow, observes the new context report,
 and adds `gpu-evidence-gate` to protection without removing existing checks.
+Strict up-to-date protection or an enforced merge queue is required for activation.
+Producer in-progress/completed lifecycle events reset and revalidate the status,
+including reruns; PR base edits trigger reclassification.
 The verdict does not certify Linux, competitive performance, all visual modes,
 or the human release acceptance. Partial reruns that do not execute all required
 jobs in the current attempt are rejected; use a full rerun. The required context

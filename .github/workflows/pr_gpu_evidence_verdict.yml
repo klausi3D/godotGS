@@ -6,7 +6,10 @@ name: Trusted PR GPU Evidence Verdict
 # The sole write permission publishes the verdict on the proposed commit SHA.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_run:
+    workflows: [Gaussian Production Gates]
+    types: [in_progress, completed]
   merge_group:
     types: [checks_requested]
 
@@ -14,9 +17,10 @@ permissions:
   contents: read
   actions: read
   statuses: write
+  pull-requests: read
 
 concurrency:
-  group: trusted-gpu-verdict-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  group: trusted-gpu-verdict-${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.workflow_run.head_sha }}
   cancel-in-progress: true
 
 jobs:
@@ -25,16 +29,70 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 185
     steps:
+      - name: Resolve trusted event metadata
+        id: event
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let event = context.payload;
+            const {owner, repo} = context.repo;
+            const source = event.workflow_run;
+            if (source && !['pull_request', 'merge_group'].includes(source.event)) {
+              core.setOutput('relevant', 'false');
+              return;
+            }
+            const sha = event.pull_request?.head.sha || event.merge_group?.head_sha || source?.head_sha;
+            if (!/^[0-9a-f]{40}$/.test(sha || '')) throw new Error('Missing proposed SHA');
+            const status = state => github.rest.repos.createCommitStatus({owner, repo, sha, state,
+              context: 'gpu-evidence-gate', description: 'Trusted GPU evidence lifecycle revalidation',
+              target_url: `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`});
+            await status('pending');
+            try {
+            if (context.eventName === 'workflow_run') {
+              const run = event.workflow_run;
+              if (!['pull_request', 'merge_group'].includes(run.event)) {
+                core.setOutput('relevant', 'false');
+                return;
+              }
+              const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({owner, repo, commit_sha: run.head_sha});
+              const pulls = response.data.filter(p => p.state === 'open' && p.head.sha === run.head_sha);
+              if (run.event === 'pull_request') {
+                if (pulls.length !== 1) throw new Error('Cannot unambiguously resolve source PR');
+                const current = await github.rest.pulls.get({owner, repo, pull_number: pulls[0].number});
+                event = {pull_request: current.data, source_run_id: run.id};
+              } else {
+                const match = /^gh-readonly-queue\/(.+)\/pr-/.exec(run.head_branch);
+                if (!match) throw new Error('Unknown merge queue base');
+                const base = await github.rest.repos.getBranch({owner, repo, branch: match[1]});
+                event = {merge_group: {base_sha: base.data.commit.sha, head_sha: run.head_sha}, source_run_id: run.id};
+              }
+            }
+            const base = event.pull_request?.base.sha || event.merge_group?.base_sha;
+            if (!/^[0-9a-f]{40}$/.test(base || '')) throw new Error('Missing trusted base');
+            const path = process.env.RUNNER_TEMP + '/gpu-evidence-event.json';
+            fs.writeFileSync(path, JSON.stringify(event));
+            core.setOutput('path', path);
+            core.setOutput('base', base);
+            core.setOutput('relevant', 'true');
+            } catch (error) {
+              await status('failure');
+              throw error;
+            }
       - name: Checkout trusted immutable base only
+        if: steps.event.outputs.relevant == 'true' 
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          ref: ${{ steps.event.outputs.base }}
           persist-credentials: false
       - name: Set up Python
+        if: steps.event.outputs.relevant == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Verify exact-head evidence without executing PR code
+        if: steps.event.outputs.relevant == 'true'
         env:
+          GITHUB_EVENT_PATH: ${{ steps.event.outputs.path }}
           GH_TOKEN: ${{ github.token }}
         run: python scripts/agentic/watch_pr_gpu_evidence.py

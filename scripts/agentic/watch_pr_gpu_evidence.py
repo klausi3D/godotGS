@@ -135,11 +135,22 @@ def main() -> int:
         else:
             checkout_sha = head
         runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
+        # Lifecycle events identify the exact source run. PR events must not
+        # accept a previous same-head execution while a new run is registering.
+        source_id = event.get("source_run_id")
+        if source_id:
+            runs = [run for run in runs if run["id"] == source_id]
+        elif pull and pull.get("updated_at"):
+            runs = [run for run in runs if run.get("created_at", "") >= pull["updated_at"]]
         if runs:
             run = max(runs, key=lambda value: value["id"])
             if run["status"] == "completed":
                 if run["conclusion"] != "success":
-                    raise ValueError(f"Canonical workflow did not pass: {run['html_url']}")
+                    if source_id:
+                        raise ValueError(f"Canonical workflow did not pass: {run['html_url']}")
+                    # A newly registered run or lifecycle trigger can replace it.
+                    time.sleep(20)
+                    continue
                 attempt = run["run_attempt"]
                 jobs = pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs")
                 outcomes = verify_jobs(jobs)

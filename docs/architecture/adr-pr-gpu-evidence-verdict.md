@@ -54,8 +54,8 @@ The workflow bootstrap and changes to its trusted implementation require human
 and CODEOWNER review. Adding the status context is not equivalent to installing a
 GitHub ruleset with an immutable organization-required workflow. This repository
 uses status-based protection; the plan does not claim adversarial protection
-against maintainers rewriting the bootstrap. Strict up-to-date protection is
-recommended so advancing master cannot retain evidence for a stale base. Partial
+against maintainers rewriting the bootstrap. Strict up-to-date protection or an enforced merge queue is an
+activation prerequisite so advancing master cannot retain evidence for a stale base. Partial
 reruns must rerun the complete canonical jobs; a receipt from an older attempt is
 not accepted as current execution.
 
@@ -65,3 +65,13 @@ job alone is deliberately not the required context. `statuses: write` is the onl
 write permission; repository content remains read-only. Failed or missing evidence
 publishes a failure. Bootstrap/API failures leave a missing or pending context,
 which does not satisfy required protection. No fork code is checked out or run.
+
+Producer `workflow_run` in-progress and completed events reset and revalidate the
+proposed-head status, including reruns. PR base edits also reset the verdict.
+The metadata bootstrap publishes pending before resolving the current trusted base;
+resolution failures publish failure. The consumer selects the lifecycle event's
+exact run and its current attempt, so a prior successful attempt cannot satisfy a
+failed or partial rerun. Other source events (push, scheduled, manual) are ignored.
+The portable verdict tests run without third-party packages in the SCons-only
+Windows environment. Separate YAML wiring tests run in the required hosted agentic
+lane with its existing pinned automation dependency.

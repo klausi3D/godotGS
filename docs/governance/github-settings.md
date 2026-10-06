@@ -155,3 +155,11 @@ checks alongside `agentic-pr-gate`. Do not activate a context that cannot yet
 report. The verdict requires actual same-run R2/R3 GPU execution; skipped,
 contention-invalid or missing evidence cannot be waived with the runner label.
 This section describes pending activation, not a claim that protection changed.
+
+### v1 GPU evidence activation prerequisite
+
+After merging the trusted evidence controller and observing its status, require
+`gpu-evidence-gate` alongside `agentic-pr-gate`. Enable strict up-to-date protection
+or an enforced merge queue in the same activation. Without this prerequisite,
+advancing the review base can retain a successful status from a completed older
+base. This is pending maintainer activation; it is not the live state above.

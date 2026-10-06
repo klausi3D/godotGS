@@ -120,6 +120,7 @@
           "tests/ci/run_module_tests.py",
           "tests/ci/check_renderer_release_gates.py",
           "tests/ci/check_pr_gpu_evidence.py",
+          "tests/ci/test_pr_gpu_evidence*.py",
           "scripts/agentic/watch_pr_gpu_evidence.py",
           "tests/ci/check_gs_pre_upscale_hook.py",
           "tests/ci/check_doc_snippets.py",
