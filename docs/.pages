@@ -111,6 +111,7 @@ nav:
               - Import Input Hardening: architecture/adr-import-input-hardening.md
               - Overflow Drop Telemetry: architecture/adr-overflow-drop-telemetry.md
               - Gate Evaluates the PR Diff: architecture/adr-gate-evaluates-pr-diff.md
+              - Trusted PR GPU Evidence Verdict: architecture/adr-pr-gpu-evidence-verdict.md
               - Phase-1 Guard Hardening: architecture/adr-phase1-guard-hardening.md
               - Single Route per Frame: architecture/adr-single-route-per-frame-node-coexistence.md
               - Test Quarantine Manifest: architecture/adr-test-quarantine-manifest.md
