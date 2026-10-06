@@ -637,17 +637,19 @@ Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
     {
         RWLockRead lock(data_rwlock);
         const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
-        if (expected_high != uint64_t(sh_high_order_coefficients.size())) {
+        // resize() and coefficient setters may retain allocation slack. Only
+        // the active extent belongs to the immutable payload.
+        if (expected_high > uint64_t(sh_high_order_coefficients.size())) {
             return ERR_INVALID_DATA;
         }
         if (!gs_resize_or_fail(captured.payload, gaussians.size(), "GaussianData::capture_save_snapshot geometry") ||
-                !gs_resize_or_fail(captured.high_order, sh_high_order_coefficients.size(), "GaussianData::capture_save_snapshot SH")) {
+                !gs_resize_or_fail(captured.high_order, expected_high, "GaussianData::capture_save_snapshot SH")) {
             return ERR_OUT_OF_MEMORY;
         }
         for (uint32_t i = 0; i < gaussians.size(); ++i) {
             captured.payload.write[i] = gaussians[i];
         }
-        for (uint32_t i = 0; i < sh_high_order_coefficients.size(); ++i) {
+        for (uint64_t i = 0; i < expected_high; ++i) {
             captured.high_order.write[i] = sh_high_order_coefficients[i];
         }
         captured.degree = sh_degree;

@@ -3575,6 +3575,49 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     CHECK(snapshot.get_aabb() == AABB(Vector3(1, -1, -3), Vector3(12, 18, 24)));
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot follows resize semantics and preserves output on SH allocation failure") {
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> geometry;
+    LocalVector<Vector3> high;
+    geometry.resize(2);
+    high.resize(24);
+    high[0] = Vector3(1, 2, 3);
+    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    GaussianData::SaveSnapshot snapshot;
+    for (int count : {1, 0, 2}) {
+        data->resize(count);
+        const Error captured = data->capture_save_snapshot(snapshot);
+        CHECK(captured == OK);
+        if (captured != OK) {
+            continue;
+        }
+        CHECK(snapshot.get_gaussians().size() == count);
+        // Structural resize currently clears the SH layout in its final
+        // invalidation step; the snapshot must represent that public behavior.
+        CHECK(snapshot.get_sh_high_order().is_empty());
+        CHECK(snapshot.get_sh_high_order_count() == 0);
+    }
+    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    const Error restored = data->capture_save_snapshot(snapshot);
+    CHECK(restored == OK);
+    if (restored != OK) {
+        return;
+    }
+    const uint64_t revision = snapshot.get_content_revision();
+    gs_vector_alloc_force_failure_at("GaussianData::capture_save_snapshot SH");
+    ERR_PRINT_OFF;
+    const Error rejected = data->capture_save_snapshot(snapshot);
+    ERR_PRINT_ON;
+    const bool injection_fired = !gs_vector_alloc_forced_failure_is_armed();
+    gs_vector_alloc_clear_forced_failure();
+    CHECK(injection_fired);
+    CHECK(rejected == ERR_OUT_OF_MEMORY);
+    CHECK(snapshot.get_content_revision() == revision);
+    CHECK(snapshot.get_gaussians().size() == 2);
+    CHECK(snapshot.get_sh_high_order().size() == 24);
+}
+
 TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot allocation failure preserves the existing file") {
     const String path = _make_persistence_fixture_path("full_snapshot_oom");
     if (!_ensure_persistence_fixture_dir(path)) {
@@ -3647,8 +3690,16 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
         FAIL("Could not start the snapshot replacement worker");
         return;
     }
-    while (ctx.writes.load(std::memory_order_acquire) < 2) {
+    const uint64_t startup_deadline = OS::get_singleton()->get_ticks_usec() + 10000000;
+    while (ctx.writes.load(std::memory_order_acquire) < 2 && OS::get_singleton()->get_ticks_usec() < startup_deadline) {
         OS::get_singleton()->delay_usec(100);
+    }
+    if (ctx.writes.load(std::memory_order_acquire) < 2) {
+        ctx.stop.store(true, std::memory_order_release);
+        worker.wait_to_finish();
+        FAIL("Snapshot replacement worker did not establish the concurrency premise within 10 seconds");
+        _remove_persistence_fixture(path);
+        return;
     }
     const uint32_t writes_before = ctx.writes.load(std::memory_order_acquire);
     GaussianSplatting::GaussianSceneSerializer serializer;
@@ -3681,6 +3732,20 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
             coherent = coherent && snapshot.get_gaussians()[i].position == position;
         }
         CHECK(coherent);
+        // Read the stored header directly: loading recomputes bounds and would
+        // hide a mixed-generation header produced by a second live bounds read.
+        Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
+        CHECK(stored.is_valid());
+        if (stored.is_valid()) {
+            stored->seek(GaussianSplatting::GSF_CHUNK_HEADER_SIZE + 16);
+            const float extent = first ? 3.0f : 6.0f;
+            for (int axis = 0; axis < 3; ++axis) {
+                CHECK(stored->get_float() == float(position[axis] - extent));
+            }
+            for (int axis = 0; axis < 3; ++axis) {
+                CHECK(stored->get_float() == float(position[axis] + extent));
+            }
+        }
     }
     ctx.stop.store(true, std::memory_order_release);
     worker.wait_to_finish();
