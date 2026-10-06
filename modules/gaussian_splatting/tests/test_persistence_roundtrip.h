@@ -3575,7 +3575,9 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     if (snapshot_high.size() != 24) {
         return;
     }
-    CHECK(snapshot_geometry[0].position == Vector3(7, 8, 9));
+    for (int64_t i = 0; i < snapshot_geometry.size(); ++i) {
+        CHECK(snapshot_geometry[i].position == Vector3(7, 8, 9));
+    }
     for (int64_t i = 0; i < snapshot_high.size(); ++i) {
         CHECK(snapshot_high[i] == Vector3(float(i), 0.25f, -0.5f));
     }
@@ -3680,6 +3682,50 @@ void full_snapshot_replace_worker(void *p_userdata) {
         ctx->writes.fetch_add(1, std::memory_order_release);
     }
 }
+void full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &serializer, GaussianData *data, const String &path) {
+    const Error save = serializer.save_scene(path, data);
+    CHECK(save == OK);
+    if (save != OK) {
+        return;
+    }
+    CHECK(serializer.validate_file(path) == OK);
+    Ref<GaussianData> loaded;
+    loaded.instantiate();
+    const Error load = serializer.load_scene(path, loaded.ptr());
+    CHECK(load == OK);
+    if (load != OK) {
+        return;
+    }
+    GaussianData::SaveSnapshot snapshot;
+    const Error capture = loaded->capture_save_snapshot(snapshot);
+    CHECK(capture == OK);
+    CHECK(!snapshot.get_gaussians().is_empty());
+    if (capture != OK || snapshot.get_gaussians().is_empty()) {
+        return;
+    }
+    const bool first = snapshot.get_gaussians().size() == 4096;
+    CHECK((first || snapshot.get_gaussians().size() == 3072));
+    const Vector3 position = first ? Vector3(11, 12, 13) : Vector3(-21, -22, -23);
+    bool coherent = true;
+    for (int64_t i = 0; i < snapshot.get_gaussians().size(); ++i) {
+        coherent = coherent && snapshot.get_gaussians()[i].position == position;
+    }
+    CHECK(coherent);
+    // Read the stored header directly: loading recomputes bounds and would
+    // hide a mixed-generation header produced by a second live bounds read.
+    Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
+    CHECK(stored.is_valid());
+    if (stored.is_valid()) {
+        stored->seek(GaussianSplatting::GSF_CHUNK_HEADER_SIZE + 16);
+        const float extent = first ? 3.0f : 6.0f;
+        for (int axis = 0; axis < 3; ++axis) {
+            CHECK(stored->get_float() == float(position[axis] - extent));
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+            CHECK(stored->get_float() == float(position[axis] + extent));
+        }
+    }
+}
 }
 TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during concurrent structural replacement") {
     const String path = _make_persistence_fixture_path("full_snapshot_race");
@@ -3711,48 +3757,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
     const uint32_t writes_before = ctx.writes.load(std::memory_order_acquire);
     GaussianSplatting::GaussianSceneSerializer serializer;
     for (int attempt = 0; attempt < 20; ++attempt) {
-        const Error save = serializer.save_scene(path, data.ptr());
-        CHECK(save == OK);
-        if (save != OK) {
-            continue;
-        }
-        CHECK(serializer.validate_file(path) == OK);
-        Ref<GaussianData> loaded;
-        loaded.instantiate();
-        const Error load = serializer.load_scene(path, loaded.ptr());
-        CHECK(load == OK);
-        if (load != OK) {
-            continue;
-        }
-        GaussianData::SaveSnapshot snapshot;
-        const Error capture = loaded->capture_save_snapshot(snapshot);
-        CHECK(capture == OK);
-        CHECK(!snapshot.get_gaussians().is_empty());
-        if (capture != OK || snapshot.get_gaussians().is_empty()) {
-            continue;
-        }
-        const bool first = snapshot.get_gaussians().size() == 4096;
-        CHECK((first || snapshot.get_gaussians().size() == 3072));
-        const Vector3 position = first ? Vector3(11, 12, 13) : Vector3(-21, -22, -23);
-        bool coherent = true;
-        for (int64_t i = 0; i < snapshot.get_gaussians().size(); ++i) {
-            coherent = coherent && snapshot.get_gaussians()[i].position == position;
-        }
-        CHECK(coherent);
-        // Read the stored header directly: loading recomputes bounds and would
-        // hide a mixed-generation header produced by a second live bounds read.
-        Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
-        CHECK(stored.is_valid());
-        if (stored.is_valid()) {
-            stored->seek(GaussianSplatting::GSF_CHUNK_HEADER_SIZE + 16);
-            const float extent = first ? 3.0f : 6.0f;
-            for (int axis = 0; axis < 3; ++axis) {
-                CHECK(stored->get_float() == float(position[axis] - extent));
-            }
-            for (int axis = 0; axis < 3; ++axis) {
-                CHECK(stored->get_float() == float(position[axis] + extent));
-            }
-        }
+        full_snapshot_check_roundtrip(serializer, data.ptr(), path);
     }
     ctx.stop.store(true, std::memory_order_release);
     worker.wait_to_finish();
