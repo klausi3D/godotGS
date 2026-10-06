@@ -571,3 +571,22 @@ Disabled workflows are stored in `../archived-workflows/`.
 - `gaussian_pipeline_validation.yml.disabled`
 - `test_gaussian_splatting.yml.disabled`
 - `test_phase4.yml.disabled`
+
+## PR GPU evidence verdict (v1 implementation)
+
+Gaussian Production Gates now reports `gpu-evidence-gate` on every pull request
+and merge-group event, without a branch or path filter. It applies the classifier
+and policy from the immutable base. R2/R3 changes require successful guard and
+Windows module-validation jobs plus a same-run receipt produced after build,
+pipeline, module, headless/streaming runtime and GPU-contention postflight steps
+actually succeed. The receipt binds checkout/head/base SHAs, run ID/attempt and
+binary/report hashes. A skipped fork lane or unavailable GPU is not a passing
+measurement; fork changes need a maintainer-owned same-repo validation branch.
+R0/R1 results explicitly say that GPU evidence is not required, not that it passed.
+
+**Activation remains pending:** `agentic-pr-gate` remains the only required
+context until a maintainer merges this workflow, observes the new context report,
+and adds `gpu-evidence-gate` to protection without removing existing checks.
+The verdict does not certify Linux, competitive performance, all visual modes,
+or the human release acceptance. See the
+[design record](../../docs/architecture/adr-pr-gpu-evidence-verdict.md).

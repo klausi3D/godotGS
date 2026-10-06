@@ -3,25 +3,6 @@ name: Gaussian Production Gates
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
-    branches: [master]
-    paths:
-      - "core/**"
-      - "drivers/**"
-      - "editor/**"
-      - "main/**"
-      - "modules/**"
-      - "platform/**"
-      - "scene/**"
-      - "servers/**"
-      - "thirdparty/**"
-      - "*.py"
-      - "SConstruct"
-      - "tests/**"
-      - ".github/workflows/gaussian_production_gates.yml"
-      - ".github/workflows/README.md"
-      - "docs/reference/renderer-release-gates.md"
-      - "docs/reference/renderer_release_gate_manifest.json"
-      - "docs/development/known-public-alpha-limitations.md"
   push:
     branches: [master, develop]
     paths:
@@ -86,6 +67,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  pr-evidence-policy:
+    name: Immutable PR Evidence Policy
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      risk_class: ${{ steps.classify.outputs.risk_class }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Classify against immutable base
+        id: classify
+        env:
+          GS_PR_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: python tests/ci/check_pr_gpu_evidence.py --classify-base "$GS_PR_BASE_SHA"
+
   guards:
     name: Guards (Render Path + Static Safety)
     # Never run self-hosted Windows on untrusted fork PR code. Same-repo
@@ -332,6 +336,7 @@ jobs:
           "$venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Godot editor with tests
+        id: build
         shell: pwsh
         run: |
           python -m SCons platform=windows target=editor dev_build=yes tests=yes gs_native_arch=no cache_path=C:/godotgs-scons-cache cache_limit=50 -j12
@@ -360,6 +365,7 @@ jobs:
           "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Run Gaussian pipeline smoke tests
+        id: pipeline
         env:
           # run_baseline_qa.py can reach tests/ci/run_module_tests.py (its
           # `module` category), which fails closed on a base-bearing event
@@ -375,6 +381,7 @@ jobs:
           python tests/ci/run_baseline_qa.py --category pipeline --godot "${{ steps.godot_bin.outputs.path }}"
 
       - name: Run module tests
+        id: module
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
           # Same review base as the guard step above: this is a FULL run, so it
@@ -396,6 +403,7 @@ jobs:
       # destroyed. Preserving both per-profile reports is a precondition of the
       # completion-marker soak counting at all.
       - name: Run runtime validation harness (headless structural gate)
+        id: headless
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
@@ -409,6 +417,7 @@ jobs:
             --report-path tests/runtime/runtime_validation_report_headless_ci.json
 
       - name: Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)
+        id: streaming
         env:
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
@@ -484,10 +493,71 @@ jobs:
       # exactly the result whose attribution this decides. Exits 75 (not 1) when
       # the run is void, so it cannot be read as a test failure.
       - name: Postflight - GPU contention verdict (#875)
+        id: postflight
         if: always()
         shell: pwsh
         run: python tests/ci/runner_gpu_contention.py postflight
 
+
+      - name: Bind canonical GPU evidence to reviewed commit
+        if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        env:
+          GS_EVIDENCE_CHECKOUT_SHA: ${{ github.sha }}
+          GS_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          GS_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GS_EVIDENCE_RUN_ID: ${{ github.run_id }}
+          GS_EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GS_STEP_BUILD: ${{ steps.build.outcome }}
+          GS_STEP_PIPELINE: ${{ steps.pipeline.outcome }}
+          GS_STEP_MODULE: ${{ steps.module.outcome }}
+          GS_STEP_HEADLESS: ${{ steps.headless.outcome }}
+          GS_STEP_STREAMING: ${{ steps.streaming.outcome }}
+          GS_STEP_POSTFLIGHT: ${{ steps.postflight.outcome }}
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
+        shell: pwsh
+        run: python tests/ci/check_pr_gpu_evidence.py --write-receipt artifacts/pr-gpu-evidence.json --binary "$env:GODOT_BINARY"
+
+      - name: Upload canonical PR GPU receipt
+        if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-gpu-evidence-${{ github.run_attempt }}
+          path: repo/artifacts/pr-gpu-evidence.json
+          if-no-files-found: error
+
+  gpu-evidence-gate:
+    name: gpu-evidence-gate
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [pr-evidence-policy, guards, module-validation]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download exact-run GPU receipt
+        if: ${{ needs.module-validation.result == 'success' && (needs.pr-evidence-policy.outputs.risk_class == 'R2' || needs.pr-evidence-policy.outputs.risk_class == 'R3') }}
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-gpu-evidence-${{ github.run_attempt }}
+          path: pr-evidence
+      - name: Verify required evidence actually ran
+        env:
+          GS_EVIDENCE_RISK_CLASS: ${{ needs.pr-evidence-policy.outputs.risk_class }}
+          GS_JOB_POLICY: ${{ needs.pr-evidence-policy.result }}
+          GS_JOB_GUARDS: ${{ needs.guards.result }}
+          GS_JOB_MODULE: ${{ needs.module-validation.result }}
+          GS_EVIDENCE_CHECKOUT_SHA: ${{ github.sha }}
+          GS_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          GS_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GS_EVIDENCE_RUN_ID: ${{ github.run_id }}
+          GS_EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python tests/ci/check_pr_gpu_evidence.py --verify --receipt pr-evidence/pr-gpu-evidence.json
 
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
