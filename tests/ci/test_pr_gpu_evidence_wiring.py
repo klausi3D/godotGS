@@ -15,6 +15,8 @@ class WorkflowWiringTests(unittest.TestCase):
         events = self.workflow.get("on", self.workflow.get(True))
         for event in ("pull_request", "merge_group"):
             self.assertIn(event, events)
+            if event == "pull_request":
+                self.assertIn("edited", events[event]["types"])
             for exclusion in ("branches", "branches-ignore", "paths", "paths-ignore"):
                 self.assertNotIn(exclusion, events[event])
         gate = self.workflow["jobs"]["canonical-gpu-receipt"]

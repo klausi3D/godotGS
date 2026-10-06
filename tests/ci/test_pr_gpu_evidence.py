@@ -193,13 +193,15 @@ class TrustedConsumerTests(unittest.TestCase):
                 archive.writestr("pr-gpu-evidence.json", json.dumps(receipt))
             return output.getvalue()
         sequence = iter(runs)
+        last_batch = []
         def listing(endpoint, key=None):
+            nonlocal last_batch
             if endpoint.endswith("/files"):
                 return [{"filename": "modules/gaussian_splatting/renderer/probe.cpp"}]
             if "workflows/" in endpoint:
-                batch = next(sequence)
-                selected.extend(batch)
-                return batch
+                last_batch = next(sequence, last_batch)
+                selected.extend(sorted(last_batch, key=lambda run: run["id"]))
+                return last_batch
             if endpoint.endswith("/jobs"):
                 return [dict(name=watcher.GUARD_JOB, conclusion="success"),
                         dict(name=watcher.MODULE_JOB, conclusion="success", steps=steps)]
@@ -234,6 +236,14 @@ class TrustedConsumerTests(unittest.TestCase):
         self.assertEqual(self.exercise_controller([[self.source_run(attempt=2)]], source_id=9, partial=True),
                          (1, ["pending", "failure"]))
         self.assertEqual(self.exercise_controller([[self.source_run(attempt=3)]], source_id=9), (0, ["pending", "success"]))
+
+    def test_delayed_old_success_cannot_override_newer_failed_run(self):
+        old, new = self.source_run(9), self.source_run(10, conclusion="failure")
+        self.assertEqual(self.exercise_controller([[old, new]], source_id=9), (1, ["pending", "failure"]))
+
+    def test_new_rerun_during_receipt_read_invalidates_old_success(self):
+        old, new = self.source_run(), self.source_run(attempt=2, conclusion="failure")
+        self.assertEqual(self.exercise_controller([[old], [new]], source_id=9), (1, ["pending", "failure"]))
 
     def test_changed_base_rejects_stale_event_before_exemption(self):
         self.assertEqual(self.exercise_controller([], stale=True), (1, ["pending", "failure"]))

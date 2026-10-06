@@ -582,6 +582,17 @@ def parse_event_paths(workflow_text: str) -> Dict[str, List[str]]:
     return result
 
 
+def event_has_no_ref_or_path_filters(workflow_text: str, event: str) -> bool:
+    """Accept unrestricted event blocks, never missing or excluded triggers."""
+    on = re.search(r"(?ms)^on:\s*\n(.*?)(?=^\S|\Z)", workflow_text)
+    if not on:
+        return False
+    block = re.search(r"(?ms)^  " + re.escape(event) + r":\s*\n(.*?)(?=^  [^ ]|\Z)", on.group(1))
+    if not block:
+        return False
+    return not re.search(r"(?m)^    (?:branches|branches-ignore|paths|paths-ignore):", block.group(1))
+
+
 def _normalise(token: str) -> str:
     token = token.strip().strip("\"'")
     token = token.replace("\\", "/")
@@ -1211,6 +1222,8 @@ class WholeProjectInputDispositionTests(unittest.TestCase):
         )
 
         for event in FILTERED_EVENTS:
+            if event_has_no_ref_or_path_filters(text, event):
+                continue  # All changed paths trigger this unrestricted event.
             self.assertIn(event, filters, f"{state.compensating_workflow} has no {event} paths:")
             uncovered = [
                 path for path in state.untriggered if not path_is_covered(filters[event], path)
@@ -1223,6 +1236,15 @@ class WholeProjectInputDispositionTests(unittest.TestCase):
                 f"{uncovered[:3]}), so a change to one of them would be validated by no lane "
                 "that loads this project. Either cover them or re-state the accepted risk.",
             )
+
+    def test_unfiltered_compensating_trigger_requires_a_real_unrestricted_event(self) -> None:
+        text = "on:\n  pull_request:\n    types: [opened, synchronize]\n  push:\n    paths:\n      - tests/**\njobs:\n"
+        self.assertTrue(event_has_no_ref_or_path_filters(text, "pull_request"))
+        self.assertFalse(event_has_no_ref_or_path_filters(text, "push"))
+        self.assertFalse(event_has_no_ref_or_path_filters(text, "merge_group"))
+        for key in ("branches", "branches-ignore", "paths", "paths-ignore"):
+            narrowed = text.replace("    types:", "    " + key + ": [limited]\n    types:")
+            self.assertFalse(event_has_no_ref_or_path_filters(narrowed, "pull_request"))
 
     def test_a_scheduled_run_bounds_how_long_an_untriggered_change_goes_unexecuted(self) -> None:
         # The other half of the bound: whatever a push skips, the nightly runs.

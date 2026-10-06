@@ -2,7 +2,7 @@ name: Gaussian Production Gates
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, edited, labeled, unlabeled]
   push:
     branches: [master, develop]
     paths:

@@ -135,12 +135,10 @@ def main() -> int:
         else:
             checkout_sha = head
         runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
-        # Lifecycle events identify the exact source run. PR events must not
+        # Lifecycle events always revalidate the newest execution. PR events must not
         # accept a previous same-head execution while a new run is registering.
         source_id = event.get("source_run_id")
-        if source_id:
-            runs = [run for run in runs if run["id"] == source_id]
-        elif pull and pull.get("updated_at"):
+        if not source_id and pull and pull.get("updated_at"):
             runs = [run for run in runs if run.get("created_at", "") >= pull["updated_at"]]
         if runs:
             run = max(runs, key=lambda value: value["id"])
@@ -161,7 +159,20 @@ def main() -> int:
                 receipt = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
                 expected = dict(base_sha=base, head_sha=head, checkout_sha=checkout_sha,
                                 run_id=str(run["id"]), run_attempt=str(attempt))
-                print(checker.verdict(risk, outcomes, receipt, expected))
+                verdict = checker.verdict(risk, outcomes, receipt, expected)
+                # Artifact/API reads can overlap a new run or rerun. A delayed
+                # lifecycle event must never republish a superseded success.
+                latest_runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
+                if not latest_runs:
+                    raise ValueError("Canonical run disappeared during validation")
+                latest = max(latest_runs, key=lambda value: value["id"])
+                if (latest["id"], latest["run_attempt"], latest["status"], latest["conclusion"]) != (run["id"], attempt, "completed", "success"):
+                    continue
+                if pull:
+                    current = api(f"repos/{repo}/pulls/{number}")
+                    if current["head"]["sha"] != head or current["base"]["sha"] != base or current["merge_commit_sha"] != checkout_sha:
+                        raise ValueError("PR changed while verifying receipt")
+                print(verdict)
                 print(run["html_url"])
                 return 0
         time.sleep(20)

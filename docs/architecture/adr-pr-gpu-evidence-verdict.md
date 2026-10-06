@@ -69,9 +69,13 @@ which does not satisfy required protection. No fork code is checked out or run.
 Producer `workflow_run` in-progress and completed events reset and revalidate the
 proposed-head status, including reruns. PR base edits also reset the verdict.
 The metadata bootstrap publishes pending before resolving the current trusted base;
-resolution failures publish failure. The consumer selects the lifecycle event's
-exact run and its current attempt, so a prior successful attempt cannot satisfy a
+resolution failures publish failure. The consumer selects the
+newest same-head run and its current attempt, so a prior successful attempt cannot satisfy a
 failed or partial rerun. Other source events (push, scheduled, manual) are ignored.
 The portable verdict tests run without third-party packages in the SCons-only
 Windows environment. Separate YAML wiring tests run in the required hosted agentic
 lane with its existing pinned automation dependency.
+
+All PR edits trigger both producer and controller, including title/body edits.
+The consumer rechecks the newest run/attempt and PR bindings after receipt reads;
+a delayed lifecycle event cannot restore a superseded successful execution.
