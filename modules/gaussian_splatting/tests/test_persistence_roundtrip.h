@@ -3565,13 +3565,20 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     CHECK(snapshot.get_sh_first_order_count() == 3);
     CHECK(snapshot.get_sh_high_order_count() == 12);
     CHECK(snapshot.get_2d_mode());
-    CHECK(snapshot.get_gaussians().size() == 2);
-    CHECK(snapshot.get_sh_high_order().size() == 24);
-    if (snapshot.get_gaussians().size() != 2 || snapshot.get_sh_high_order().size() != 24) {
+    const auto &snapshot_geometry = snapshot.get_gaussians();
+    const auto &snapshot_high = snapshot.get_sh_high_order();
+    CHECK(snapshot_geometry.size() == 2);
+    if (snapshot_geometry.size() != 2) {
         return;
     }
-    CHECK(snapshot.get_gaussians()[0].position == Vector3(7, 8, 9));
-    CHECK(snapshot.get_sh_high_order()[23] == Vector3(23, 0.25f, -0.5f));
+    CHECK(snapshot_high.size() == 24);
+    if (snapshot_high.size() != 24) {
+        return;
+    }
+    CHECK(snapshot_geometry[0].position == Vector3(7, 8, 9));
+    for (int64_t i = 0; i < snapshot_high.size(); ++i) {
+        CHECK(snapshot_high[i] == Vector3(float(i), 0.25f, -0.5f));
+    }
     CHECK(snapshot.get_aabb() == AABB(Vector3(1, -1, -3), Vector3(12, 18, 24)));
 }
 
