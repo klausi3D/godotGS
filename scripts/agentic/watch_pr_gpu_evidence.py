@@ -85,12 +85,7 @@ def read_receipt(data: bytes) -> dict:
         return json.loads(archive.read(entries[0]))
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--timeout-seconds", type=int, default=10800)
-    args = parser.parse_args()
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-    repo = os.environ["GITHUB_REPOSITORY"]
+def event_bindings(event: dict) -> tuple:
     pull = event.get("pull_request")
     group = event.get("merge_group")
     if pull:
@@ -104,6 +99,10 @@ def main() -> int:
         source_event = "merge_group"
     else:
         raise ValueError("Unsupported evidence event")
+    return pull, base, head, number, source_event
+
+
+def changed_paths(repo: str, pull: dict | None, base: str, head: str, number: int | None) -> list[str]:
     if checker.git("rev-parse", "HEAD") != base:
         raise ValueError("Trusted consumer must run from the immutable base checkout")
     if pull:
@@ -119,7 +118,45 @@ def main() -> int:
         subprocess.run(["git", "fetch", "--no-tags", "origin", head], cwd=ROOT,
                        check=True, capture_output=True, timeout=60)
         paths = checker.git("diff", "--name-only", "--no-renames", base, head).splitlines()
-    risk = classify_paths(paths)
+    return paths
+
+
+def run_verdict(repo: str, risk: str, run: dict, expected: dict) -> str:
+    attempt = run["run_attempt"]
+    jobs = pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs")
+    outcomes = verify_jobs(jobs)
+    artifacts = pages(f"repos/{repo}/actions/runs/{run['id']}/artifacts", "artifacts")
+    matching = [item for item in artifacts if item["name"] == f"pr-gpu-evidence-{attempt}" and not item["expired"]]
+    if len(matching) != 1 or matching[0]["size_in_bytes"] > 131072:
+        raise ValueError("Exact-run receipt artifact is absent or ambiguous")
+    receipt = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
+    return checker.verdict(risk, outcomes, receipt, expected)
+
+
+def success_is_current(repo: str, source_event: str, run: dict, expected: dict, number: int | None) -> bool:
+    # Artifact/API reads can overlap a new run or rerun. A delayed lifecycle
+    # event must never republish a superseded success.
+    latest_runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={expected['head_sha']}", "workflow_runs")
+    if not latest_runs:
+        raise ValueError("Canonical run disappeared during validation")
+    latest = max(latest_runs, key=lambda value: value["id"])
+    if (latest["id"], latest["run_attempt"], latest["status"], latest["conclusion"]) != (run["id"], run["run_attempt"], "completed", "success"):
+        return False
+    if number is not None:
+        current = api(f"repos/{repo}/pulls/{number}")
+        if current["head"]["sha"] != expected["head_sha"] or current["base"]["sha"] != expected["base_sha"] or current["merge_commit_sha"] != expected["checkout_sha"]:
+            raise ValueError("PR changed while verifying receipt")
+    return True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--timeout-seconds", type=int, default=10800)
+    args = parser.parse_args()
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+    repo = os.environ["GITHUB_REPOSITORY"]
+    pull, base, head, number, source_event = event_bindings(event)
+    risk = classify_paths(changed_paths(repo, pull, base, head, number))
     if risk in ("R0", "R1"):
         print(f"Base policy: {risk}; GPU evidence not required (not a GPU pass).")
         return 0
@@ -150,28 +187,11 @@ def main() -> int:
                     time.sleep(20)
                     continue
                 attempt = run["run_attempt"]
-                jobs = pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs")
-                outcomes = verify_jobs(jobs)
-                artifacts = pages(f"repos/{repo}/actions/runs/{run['id']}/artifacts", "artifacts")
-                matching = [item for item in artifacts if item["name"] == f"pr-gpu-evidence-{attempt}" and not item["expired"]]
-                if len(matching) != 1 or matching[0]["size_in_bytes"] > 131072:
-                    raise ValueError("Exact-run receipt artifact is absent or ambiguous")
-                receipt = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
                 expected = dict(base_sha=base, head_sha=head, checkout_sha=checkout_sha,
                                 run_id=str(run["id"]), run_attempt=str(attempt))
-                verdict = checker.verdict(risk, outcomes, receipt, expected)
-                # Artifact/API reads can overlap a new run or rerun. A delayed
-                # lifecycle event must never republish a superseded success.
-                latest_runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
-                if not latest_runs:
-                    raise ValueError("Canonical run disappeared during validation")
-                latest = max(latest_runs, key=lambda value: value["id"])
-                if (latest["id"], latest["run_attempt"], latest["status"], latest["conclusion"]) != (run["id"], attempt, "completed", "success"):
+                verdict = run_verdict(repo, risk, run, expected)
+                if not success_is_current(repo, source_event, run, expected, number):
                     continue
-                if pull:
-                    current = api(f"repos/{repo}/pulls/{number}")
-                    if current["head"]["sha"] != head or current["base"]["sha"] != base or current["merge_commit_sha"] != checkout_sha:
-                        raise ValueError("PR changed while verifying receipt")
                 print(verdict)
                 print(run["html_url"])
                 return 0
