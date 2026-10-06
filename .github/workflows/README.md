@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains 7 active workflow files.
+This directory contains 8 active workflow files.
 
 GitHub's Actions tab can also show historical workflow names from past runs, disabled files, or workflow files that are no longer present in this directory. This README tracks the workflow files currently checked into `.github/workflows/`.
 
@@ -14,6 +14,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. Whenever a Windows editor zip ships, the Windows export template zip ships with it: `release_candidate_gate` attests it and `publish_release` re-verifies it with `--require` (#994). The Windows editor is optimized (no `dev_build`) on every channel. The Linux nightly editor stays `dev_build=yes`. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
+| Trusted PR GPU Evidence Verdict | `pr_gpu_evidence_verdict.yml` | Base-only hosted consumer of exact-head canonical GPU receipts; R0/R1 exempt explicitly, R2/R3 fail closed. | Read-only `pull_request_target` and merge-group workflow; never executes proposed code. Pending required-context activation. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
@@ -574,9 +575,12 @@ Disabled workflows are stored in `../archived-workflows/`.
 
 ## PR GPU evidence verdict (v1 implementation)
 
-Gaussian Production Gates now reports `gpu-evidence-gate` on every pull request
-and merge-group event, without a branch or path filter. It applies the classifier
-and policy from the immutable base. R2/R3 changes require successful guard and
+The Trusted PR GPU Evidence Verdict workflow reports `gpu-evidence-gate` on
+every `pull_request_target` and merge-group event. It checks out only the immutable
+base and executes no PR/fork code. Classification and verification both use that
+trusted implementation. GitHub API reads inspect the proposed diff and
+the actual canonical job/step results. Gaussian Production Gates separately
+reports `Canonical GPU Receipt Validation` without a PR branch/path filter. R2/R3 changes require successful guard and
 Windows module-validation jobs plus a same-run receipt produced after build,
 pipeline, module, headless/streaming runtime and GPU-contention postflight steps
 actually succeed. The receipt binds checkout/head/base SHAs, run ID/attempt and
@@ -588,5 +592,14 @@ R0/R1 results explicitly say that GPU evidence is not required, not that it pass
 context until a maintainer merges this workflow, observes the new context report,
 and adds `gpu-evidence-gate` to protection without removing existing checks.
 The verdict does not certify Linux, competitive performance, all visual modes,
-or the human release acceptance. See the
+or the human release acceptance. Partial reruns that do not execute all required
+jobs in the current attempt are rejected; use a full rerun. The required context
+and its bootstrap workflow remain protected by human/CODEOWNER review. See the
 [design record](../../docs/architecture/adr-pr-gpu-evidence-verdict.md).
+
+The controller publishes `gpu-evidence-gate` as a commit status on the proposed
+head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
+job alone is deliberately not the required context. `statuses: write` is the only
+write permission; repository content remains read-only. Failed or missing evidence
+publishes a failure. Bootstrap/API failures leave a missing or pending context,
+which does not satisfy required protection. No fork code is checked out or run.

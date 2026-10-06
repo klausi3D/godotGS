@@ -92,6 +92,7 @@ jobs:
 
   guards:
     name: Guards (Render Path + Static Safety)
+    needs: pr-evidence-policy
     # Never run self-hosted Windows on untrusted fork PR code. Same-repo
     # branches (maintainer PRs) still trigger the gate; fork PRs are skipped.
     # Mirrors the guard already used in baseline_qa.yml / release_builds.yml and
@@ -99,7 +100,7 @@ jobs:
     # runner token from arbitrary code in `tests/ci/*.py`, `SConstruct`,
     # `methods.py`, or any `SCsub` checked out from a fork. (merge_group is
     # maintainer-gated — see the README runner trust boundary.)
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) }}
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || (needs.pr-evidence-policy.result == 'success' && (needs.pr-evidence-policy.outputs.risk_class == 'R2' || needs.pr-evidence-policy.outputs.risk_class == 'R3'))) }}
     runs-on: [self-hosted, Windows, X64, godotgs]
     timeout-minutes: 10
     defaults:
@@ -525,8 +526,8 @@ jobs:
           path: repo/artifacts/pr-gpu-evidence.json
           if-no-files-found: error
 
-  gpu-evidence-gate:
-    name: gpu-evidence-gate
+  canonical-gpu-receipt:
+    name: Canonical GPU Receipt Validation
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

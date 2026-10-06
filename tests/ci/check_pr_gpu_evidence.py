@@ -119,10 +119,13 @@ def main() -> int:
     modes.add_argument("--classify-base")
     modes.add_argument("--write-receipt", type=Path)
     modes.add_argument("--verify", action="store_true")
+    modes.add_argument("--self-test", action="store_true")
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--receipt", type=Path)
     args = parser.parse_args()
     try:
+        if args.self_test:
+            return subprocess.run([sys.executable, str(ROOT / "tests/ci/test_pr_gpu_evidence.py")], check=False).returncode
         if args.classify_base:
             risk = classify(args.classify_base)
             output = os.environ.get("GITHUB_OUTPUT")
