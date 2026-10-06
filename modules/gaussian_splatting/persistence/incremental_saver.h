@@ -84,8 +84,9 @@ struct ChangeEntry {
 // as one would not deserialise into an object being mutated elsewhere. Only ONE
 // load_and_apply_changes() may run per saver at a time. create_baseline() additionally fails
 // closed (via content_revision) if it detects the data changed under it, so a stray edit is not
-// silently dropped; a structural replace racing the serializer's raw-storage read is a separate,
-// pre-existing serializer concern tracked in its own issue.
+// silently dropped; the serializer captures one coherent owned payload under data_rwlock, so structural
+// replacement cannot invalidate the full-save bytes. The revision check remains necessary
+// before clearing tracked deltas created after that capture.
 class GaussianIncrementalSaver : public Resource {
     GDCLASS(GaussianIncrementalSaver, Resource);
 

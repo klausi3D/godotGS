@@ -691,6 +691,33 @@ public:
      */
     static void _debug_check_raw_storage_access(const char *p_method);
 
+    // Owned, read-only payload used by full save. It never aliases mutable
+    // GaussianData storage; every field is captured under data_rwlock.
+    class SaveSnapshot {
+        friend class GaussianData;
+        Vector<Gaussian> payload;
+        Vector<Vector3> high_order;
+        uint32_t degree = 0;
+        uint32_t first_order_count = 0;
+        uint32_t high_order_count = 0;
+        bool mode_2d = false;
+        uint64_t revision = 0;
+        AABB bounds;
+
+    public:
+        const Vector<Gaussian> &get_gaussians() const { return payload; }
+        const Vector<Vector3> &get_sh_high_order() const { return high_order; }
+        uint32_t get_sh_degree() const { return degree; }
+        uint32_t get_sh_first_order_count() const { return first_order_count; }
+        uint32_t get_sh_high_order_count() const { return high_order_count; }
+        bool get_2d_mode() const { return mode_2d; }
+        uint64_t get_content_revision() const { return revision; }
+        const AABB &get_aabb() const { return bounds; }
+    };
+
+    // On failure, the previous caller-owned snapshot remains unchanged.
+    Error capture_save_snapshot(SaveSnapshot &r_snapshot) const;
+
     /**
      * @brief Captures a coherent chunk snapshot for async pack jobs.
      *
