@@ -1872,7 +1872,7 @@ def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
 
 
 def _run_pr_gpu_evidence_guard() -> tuple[bool, list[str]]:
-    """Exercise check_pr_gpu_evidence.py and its actual required CI wiring."""
+    """Exercise the portable GPU evidence verdict tests."""
     checker = PR_GPU_EVIDENCE_CHECK_SCRIPT
     tests = PR_GPU_EVIDENCE_TEST_SCRIPT
     if not checker.is_file() or not tests.is_file():
@@ -1883,7 +1883,7 @@ def _run_pr_gpu_evidence_guard() -> tuple[bool, list[str]]:
     code, out, err = _run_command([sys.executable, str(tests)])
     if code != 0:
         return False, [line for line in (out + err).splitlines() if line.strip()]
-    return True, ["PR GPU evidence verdict and workflow wiring tests passed."]
+    return True, ["Portable PR GPU evidence verdict tests passed; YAML wiring is tested by the required hosted agentic lane."]
 
 
 def _run_release_publication_gating_guard() -> tuple[bool, list[str]]:
