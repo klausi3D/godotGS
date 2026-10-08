@@ -1623,7 +1623,7 @@ TEST_CASE("[Streaming Pipeline] Visible-use refresh ignores unavailable and dist
     auto &chunks = system._test_get_primary_chunks();
     const uint64_t old_distance_generation = chunks[2].last_used_frame;
     const uint64_t old_nonresident_generation = chunks[3].last_used_frame;
-    chunks[2].near_distance = 1000000;
+    chunks[2].distance = 1000000;
     chunks[3].gpu_resident = false;
     LocalVector<uint32_t> visible_indices;
     visible_indices.push_back(0);
