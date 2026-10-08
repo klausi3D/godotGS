@@ -8,75 +8,51 @@ hide:
 
 # Start Here
 
-Reach a first visible splat quickly and decide whether godotGS is the right evaluation target for your project.
+**For:** Godot users who want to put Gaussian splat captures in a Godot scene.
 
-Alpha today. Every nightly on GitHub Releases has the Linux editor; the Windows editor is attached only to nightlies whose Windows build lane passed. macOS still means building from source.
+**At the end of this section:** you have a godotGS editor, a splat on screen in the sample project, and a route to importing your own capture.
 
-Visual captures for the user journey are still pending, so the linked workflow pages stay text-first until real editor screenshots are available.
+godotGS is a fork of Godot 4.5 with Gaussian splatting built in, so it runs as its own editor, not as a plugin for stock Godot. It is alpha software: nightly editors are published for Windows and Linux, macOS means building from source, and the [known limitations](../development/known-public-alpha-limitations.md) list what this alpha ships with.
 
 </div>
 
 <div class="gs-section-shell" markdown>
 
-## Most Common Tasks
+## The Path
 
 <div class="grid cards" markdown>
 
-- __Download a nightly editor__
+- __1. Get an editor__
 
     ---
 
-    Get a Linux tarball or, from a nightly whose Windows lane passed, a Windows zip from GitHub Releases. macOS users still need a source build.
+    Download a nightly editor for Windows or Linux, and learn which build is fast and which is not.
 
-    [Open downloads](downloads.md)
+    [Open Downloads](downloads.md)
 
-- __Your first splat__
-
-    ---
-
-    Open the sample project with a nightly or self-built editor, press Play, and see a splat in the viewport.
-
-    [Open your first splat](quick-start.md)
-
-- __Install the toolchain__
+- __2. Your first splat__
 
     ---
 
-    Build the fork locally when you need a custom editor or are on macOS.
+    Open the sample project, press Play, and see a splat in the viewport.
 
-    [Open installation](installation.md)
+    [Open Your First Splat](quick-start.md)
 
-- __Check platform fit__
-
-    ---
-
-    Review the current support envelope before committing time to a deeper evaluation.
-
-    [Open compatibility matrix](../reference/compatibility-matrix.md)
-
-- __Import a real asset__
+- __3. Import your own capture__
 
     ---
 
-    Walk the maintained `.ply` and `.spz` import route once the sample path works.
+    Bring a `.ply` or `.spz` capture into your project and render it.
 
-    [Open import workflow](../workflows/importing.md)
+    [Open the Import Workflow](../workflows/importing.md)
 
-- __Continue with the guides__
-
-    ---
-
-    Move into concepts, presets, lighting and the feature guides after the first splat is visible.
-
-    [Open the guides](../user/index.md)
-
-- __Unblock common failures__
+- __4. Keep going__
 
     ---
 
-    Check the known fixes when the first build or first run does not behave as expected.
+    Concepts, quality presets, lighting and the feature guides.
 
-    [Open recurring issues](../troubleshooting/recurring-issues.md)
+    [Open the Guides](../user/index.md)
 
 </div>
 
@@ -84,7 +60,17 @@ Visual captures for the user journey are still pending, so the linked workflow p
 
 <div class="gs-section-shell gs-section-shell--compact" markdown>
 
-## Related References
+## Building From Source
+
+On macOS, or if you want representative speed on Linux or a custom build, build the editor yourself: [Build Your Own Editor](installation.md) lists the prerequisites, and [Build from Source](../BUILDING.md) has the commands.
+
+## When Something Goes Wrong
+
+- [Troubleshooting](../troubleshooting/index.md): nothing renders, black splats, the wrong editor, exports without splats.
+- [FAQ](../user/manual/faq.md): short answers to common questions.
+- [Compatibility Matrix](../reference/compatibility-matrix.md): what is tested on which platform.
+
+## Reference
 
 - [Migration Guide](../migration/index.md)
 - [Project Settings Reference](../reference/project-settings.md)

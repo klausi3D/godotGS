@@ -5,12 +5,12 @@ GodotGS is a Godot 4.5 fork with an in-tree Gaussian Splatting module for import
 
 ## Download
 
-Nightly editor builds are published as prereleases on GitHub. Pick the latest:
+godotGS runs as its own editor, not as a plugin for stock Godot. Nightly editors are published as prereleases on GitHub:
 
-- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)** - pick the most recent `nightly-YYYYMMDD` entry at the top. The release workflow guarantees the Linux editor tarball when publishing succeeds. The Windows editor zip and the Windows export template zip are included when the self-hosted Windows build lane and its export smoke test succeed for that run.
-- macOS users currently need to [build from source](docs/BUILDING.md)
+- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)**: pick the most recent `nightly-YYYYMMDD` entry at the top. Every nightly has the Linux editor. The Windows editor and the Windows export template are attached only when that night's Windows build passed, so on Windows pick the newest nightly that lists `godotgs-windows-x86_64-<tag>.zip`.
+- macOS: [build from source](docs/BUILDING.md).
 
-No named stable (`v*`) release is published yet, so nightly is the only public install path today. See [Release Channels](docs/development/release-channels.md) for the full publishing model.
+[Downloads](docs/getting-started/downloads.md) explains each archive and how to run and verify it. No stable (`v*`) release is published yet, so nightlies are the only published binaries. See [Release Channels](docs/development/release-channels.md) for the publishing model.
 
 > [!WARNING]
 > **The nightly Linux editor is an unoptimized `-O0` build.** It is compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude. The `.dev` segment in its filename is that flag. The nightly Windows editor is optimized (`optimize=speed_trace`, no `.dev` segment). Use the Linux nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
@@ -20,7 +20,7 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 | Area | State |
 | --- | --- |
 | Maturity | Alpha |
-| Public binaries | Linux nightly editor (`dev_build=yes` / `-O0`, not performance-representative). When the Windows lane succeeds: an optimized Windows nightly editor and the Windows export template. |
+| Public binaries | Linux nightly editor (unoptimized, see the warning above). When that night's Windows build passed: an optimized Windows nightly editor and the Windows export template. |
 | macOS | Source build first |
 | Stable release | Not yet published |
 | API stability | **No promise.** Any registered class, method, property, setting or on-disk format may change or be removed in any release — see [API Stability](docs/development/api-stability.md) |
@@ -30,15 +30,19 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 
 ## Who This Is For
 
+- Godot users who want captured Gaussian splat scenes in their projects
 - Technical artists and graphics engineers evaluating Gaussian Splatting inside a Godot 4.5 fork
 - Contributors who need an in-tree module plus engine-patch context, not a standalone plugin
 - Reviewers who want to separate the upstream Godot tree from the godotGS-specific delta quickly
 
-## Fastest Way In
+## Get Started
 
-1. [Your First Splat](docs/getting-started/quick-start.md) if you want the shortest honest path from an editor to a visible splat in the sample project.
-2. [Compatibility Matrix](docs/reference/compatibility-matrix.md) if you need platform evidence before trying it.
-3. [Build from Source](docs/BUILDING.md) if you are on macOS or you want a custom editor binary.
+1. [Downloads](docs/getting-started/downloads.md): get a nightly editor for Windows or Linux, or [build from source](docs/BUILDING.md) on macOS or for a custom editor binary.
+2. [Your First Splat](docs/getting-started/quick-start.md): open the sample project and see a splat.
+3. [Import Workflow](docs/workflows/importing.md): bring in your own `.ply` or `.spz` capture.
+4. [Guides](docs/user/index.md): concepts, quality presets, lighting and features.
+
+Something not working? See [Troubleshooting](docs/troubleshooting/index.md). Need platform evidence before you try it? See the [Compatibility Matrix](docs/reference/compatibility-matrix.md).
 
 ## Current Public Evidence
 

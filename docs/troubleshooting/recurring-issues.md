@@ -1,90 +1,71 @@
 # Recurring Issues
 
-This page is the canonical reference for recurring build and runtime symptoms and the checks that narrow them down. It is generic by design and names no specific defect.
+**For:** anyone whose godotGS editor or game does not do what [Your First Splat](../getting-started/quick-start.md) says it should.
 
-!!! note "Check the known defects first"
-    The specific defects the public alpha ships with are listed on [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md). Each entry describes the symptom and gives a workaround where one exists. Most entries link a tracking issue; the platform and packaging entries do not. If your symptom matches an entry, that known limitation may be the cause. Check the conditions the entry describes against your setup before you debug your own project. Several entries are code-reading findings that nobody has reproduced, and each of those says so.
+**At the end:** you have found your symptom, its likely cause and a fix, or you know what to put in a bug report.
 
-Real troubleshooting screenshots are still pending, so this page stays text-first and uses a reference diagram only at the end.
+Some problems are known defects of the alpha rather than something in your setup. [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md) lists them, each with its symptom and a workaround where one exists. If your symptom matches an entry there, check the conditions it describes against your project before you debug further.
 
-## 1) Sorting Regressions and Mis-Ordering
+## The Stock Godot Editor Opened Instead of godotGS
 
-### Symptoms
-- transparent splats render in the wrong order
-- sudden flicker when camera moves
-- intermittent switch to CPU sorting path
+**Symptoms:** the editor reports unknown or missing types such as `GaussianSplatWorld3D` or `GaussianSplatNode3D`; `.ply` and `.spz` source files are not imported as splat assets; the Create New Node dialog has no `GaussianSplatNode3D`.
 
-### Checks
-- run baseline sorting lane:
-  - `python3 tests/ci/run_baseline_qa.py --category sorting`
-- run runtime validation:
-  - `python3 tests/runtime/run_runtime_validation.py --godot-binary <module-built-binary> --profile headless-ci`
+**Cause:** the editor you started is not built from this fork. godotGS keeps Godot's name and version number, so the two are easy to confuse. A shortcut, a file association or a `godot` on your `PATH` can still point at a stock install.
 
-### Typical Fixes
-- verify shader and host sort contracts are synchronized
-- verify requested sort mode is supported by the active device
-- rebuild and rerun with a module-enabled binary (`modules/gaussian_splatting`)
+**Fix:** start the editor you downloaded from [Downloads](../getting-started/downloads.md) or built yourself, by its full path. To check, search for `GaussianSplatNode3D` in the Create New Node dialog: only a godotGS editor has it.
 
-## 2) Tile Overflow / Underfill / Edge Artifacts
+## Nothing Renders
 
-### Symptoms
-- missing splats near screen edges
-- dense areas showing abrupt holes or popping
-- visible tile boundaries
+Work through these in order:
 
-### Checks
-- run pipeline lane:
-  - `python3 tests/ci/run_baseline_qa.py --category pipeline`
-- inspect `tests/output/` artifacts and runtime stats for tile capacity pressure
+1. **Wrong editor or template.** A stock Godot editor or export template runs the scene without splats. See [the section above](#the-stock-godot-editor-opened-instead-of-godotgs) and [Exported Game Renders No Splats](#exported-game-renders-no-splats).
+2. **Compatibility renderer.** Splats are drawn with Vulkan compute through Godot's `RenderingDevice`, which the Compatibility (OpenGL) renderer does not have. Set **Project Settings → Rendering → Renderer → Rendering Method** to `forward_plus`, the renderer godotGS is tested with, and restart the editor.
+3. **A world node and a splat node in one scene.** With a `GaussianSplatWorld3D` and a `GaussianSplatNode3D` in the same scene, one of them renders nothing. This is a known limitation; see [GaussianSplatWorld3D](../development/known-public-alpha-limitations.md#gaussiansplatworld3d) for the workaround.
+4. **No splat asset assigned.** A `GaussianSplatNode3D` draws only after a splat asset is assigned in Inspector › Asset › Splat Asset. Check that the import succeeded; [Import Workflow](../workflows/importing.md) lists the common import failures.
+5. **Silent fallback to OpenGL.** godotGS needs Vulkan 1.1 or newer. When Vulkan cannot start, Godot falls back to the Compatibility renderer on its own (`rendering/rendering_device/fallback_to_opengl3` is on by default), and splats then do not render, as in item 2. At startup the editor prints a line naming its renderer: `Vulkan … - Forward+ - Using Device …` is correct, `OpenGL API … - Compatibility - …` means the fallback happened. Update your graphics driver.
 
-### Typical Fixes
-- reduce visible splat pressure (quality preset / max splat count)
-- verify tile/raster shader variants match current host parameters
-- rerun after a clean rebuild if shader-generated headers changed
+## Black or Dark Splats
 
-## 3) Shader Contract / Compile Failures
+- **No light, and indirect light switched off.** The project setting `rendering/gaussian_splatting/lighting/indirect_sh_scale` scales each splat's captured color. Its default is `1.0`. At `0.0` the captured color is multiplied by zero, and only lights in the scene add color, so a scene without a light renders black splats. The sample project sets it to `0.0` and adds a `DirectionalLight3D`; if you delete that light, the splats go black. Set the value back to `1.0`, or add a light.
+- **Black rectangles in far views.** Dense content seen from far away can show black, tile-shaped holes. This is a known limitation with a project-setting workaround; see [Far views of dense content can show 16 px black tiles](../development/known-public-alpha-limitations.md#rendering).
+- **Splats darken themselves under a shadow-casting light (older nightlies only).** On nightlies up to `nightly-20261003`, a splat node with `rendering/cast_shadow` on, lit by a `DirectionalLight3D` with shadows, rendered dark, and the starter template rendered its splats almost black. Nightlies from `nightly-20261004` fix this: download a newer one. Splats still cast no shadow of their own; see [Splats cast no shadows](../development/known-public-alpha-limitations.md#rendering).
 
-### Symptoms
-- shader compile failures at startup
-- compute pipeline creation failures
-- runtime starts but splats do not render
+## Exported Game Renders No Splats
 
-### Checks
-- run shader contract validation:
-  - `python3 modules/gaussian_splatting/shaders/compile_shaders.py --contracts-only`
-- run module guards:
-  - `python3 tests/ci/run_module_tests.py --guard-only`
+**Cause:** the export used a stock Godot export template. The export still succeeds, with no error and no warning, but the game has no splat renderer.
 
-### Typical Fixes
-- install/update shader toolchain required by the validator
-- ensure host-side buffer layouts and shader structs are in sync
-- rebuild the editor after shader/interface changes
+**Fix:** set `custom_template/release` in your export preset to a godotGS export template. Windows templates come with nightlies whose Windows build passed ([Downloads](../getting-started/downloads.md)); for Linux, build one yourself. [Export Templates](../development/export-templates.md) has the steps and a one-line check that tells you which template an export used.
 
-## 4) Module Build Path Mismatch
+## Slow on the Linux Nightly
 
-### Symptoms
-- module classes missing at runtime
-- link errors around module symbols
-- tests failing because stock Godot binary was used
+The Linux nightly editor is an unoptimized build, so it runs far slower than godotGS really does. That is expected: [Downloads](../getting-started/downloads.md#linux-nightly-speed) explains it and how to get an optimized editor. The Windows nightly editor is optimized.
 
-### Checks
-- confirm the binary was built from this fork root and comes from `bin/`
-- confirm test runner points at module-built binary (`--godot` / `--godot-binary`)
+On any build, a lower [quality preset](../user/manual/performance-presets.md) is the first thing to try when a scene is slow.
 
-### Typical Fixes
-- rebuild with the canonical [Build / Test / CI Command Reference](../reference/build-test-ci.md)
-- rerun with explicit binary path:
-  - `python3 tests/ci/run_baseline_qa.py --godot <path-to-module-built-editor>`
+## Crash or Error When the Game Exits
+
+On nightlies up to `nightly-20261004`, a project that renders on a separate render thread (the starter template does, through `rendering/driver/threads/thread_model=2`) could end with an error or crash when you closed the game. Nightlies from `nightly-20261005` fix this: download a newer one.
+
+One crash is still open: polling `GaussianSplatNode3D.get_statistics()` from a script every frame can crash the engine. See [get_statistics() can crash](../development/known-public-alpha-limitations.md#scripting-api) for the workaround.
+
+## Windows Warns About the Download
+
+No godotGS binary is code-signed, so Windows SmartScreen may warn about the editor and about games exported with the godotGS template. Check each download against its `.sha256` file as shown in [Verify the Download](../getting-started/downloads.md#verify-the-download).
+
+## No Nightly Works on Your Machine
+
+Build an editor from this fork yourself: [Build Your Own Editor](../getting-started/installation.md) lists the prerequisites. macOS has no nightly at all.
 
 ## Getting Help
 
-- include exact command, platform, GPU, and driver version
-- attach failing log excerpts and produced JSON artifacts
-- include whether the binary came from this fork's `bin/` output or a stock Godot build
+Open an issue on [GitHub](https://github.com/klausi3D/godotGS/issues) and include:
 
-## Troubleshooting Flow Reference
+- what you did, step by step, and the exact command if you used one;
+- your platform, GPU and driver version;
+- the nightly tag (from `BUILD-INFO.txt`) or the commit you built from;
+- the relevant part of the editor's Output panel or console log;
+- whether the editor came from a godotGS nightly, your own build of this fork, or possibly a stock Godot install.
 
-<figure markdown="1">
-![Diagram of the troubleshooting flow from symptom to validation lane, artifacts, and targeted fix](../assets/images/troubleshooting-diagnostics-flow.svg){ .gs-diagram }
-<figcaption>Recurring issues should route into the matching validation lane first so logs, JSON outputs, and capture artifacts point at the real failing layer before any fix attempt.</figcaption>
-</figure>
+## For Contributors
+
+The contributor runbook that used to be on this page (sorting, tile overflow, shader contract and build-path failures, and which test runner narrows each one down) is now in the [Testing Setup Guide](../testing/setup-guide.md#narrowing-a-renderer-symptom).

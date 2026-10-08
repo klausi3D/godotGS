@@ -21,10 +21,10 @@
         <span class="dollar">$</span><span>git clone https://github.com/klausi3D/godotGS.git</span>
       </div>
       <div class="gsm-cta">
-        <a href="https://github.com/klausi3D/godotGS/releases" class="gsm-btn gsm-btn-primary">Download nightly
+        <a href="{{ 'getting-started/downloads/' | url }}" class="gsm-btn gsm-btn-primary">Download nightly
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
-        <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Read the docs</a>
+        <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Your first splat</a>
       </div>
     </div>
 
@@ -138,7 +138,7 @@
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
         <h3>Evidence-first</h3>
-        <p>GPU regression tests, runtime validation and reproducible benchmark lanes. We publish the harness and a dated benchmark snapshot, including the slow numbers.</p>
+        <p>GPU regression tests, runtime validation and reproducible benchmarks. We publish the harness and a dated benchmark snapshot, including the slow numbers.</p>
         <div class="meta">benchmark harness · visual baselines</div>
       </div>
     </div>
@@ -150,7 +150,7 @@
       <span class="gsm-eyebrow">Measured, not promised</span>
       <div class="gsm-stats">
         <div class="gsm-stat"><div class="n">12.3<span class="u"> fps</span></div><div class="l">Average frame rate · stress reference</div></div>
-        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time · same lane</div></div>
+        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time · same test</div></div>
         <div class="gsm-stat"><div class="n">RTX 3090</div><div class="l">Ryzen 7 5800X · captured 2026-07-19</div></div>
         <div class="gsm-stat"><div class="n">MIT</div><div class="l">License · fully open</div></div>
       </div>
@@ -162,12 +162,12 @@
   <section class="gsm-feat gsm-wrap">
     <div class="gsm-qs">
       <div class="gsm-sec-head">
-        <span class="gsm-eyebrow">Build from source</span>
-        <h2>Your first splat, in three steps.</h2>
-        <p>From a clone of the repository, build the editor on Linux, Windows, or macOS, then open the sample project in the editor and press Play to see a small synthetic sample (1,024 splats). macOS needs a MoltenVK-capable Vulkan SDK.</p>
+        <span class="gsm-eyebrow">Or build from source</span>
+        <h2>Prefer to build the editor yourself?</h2>
+        <p>The quickest route is a nightly editor on Windows or Linux, and Your First Splat walks through it. Build the editor yourself on macOS, for full speed on Linux, or for a custom build: from a clone of the repository, build on Linux, Windows, or macOS, open the sample project in the editor and press Play to see a small synthetic sample (1,024 splats). macOS needs a MoltenVK-capable Vulkan SDK.</p>
         <div class="gsm-cta" style="margin-top:26px;">
           <a href="{{ 'BUILDING/' | url }}" class="gsm-btn gsm-btn-primary">Full build guide</a>
-          <a href="{{ 'reference/compatibility-matrix/' | url }}" class="gsm-btn gsm-btn-ghost">Compatibility matrix</a>
+          <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Your first splat</a>
         </div>
       </div>
       <div class="gsm-term">
@@ -178,7 +178,7 @@
 <span class="c"># 2 — open the sample project in the editor</span><br>
 ./bin/godot.linuxbsd.editor.x86_64 -e \<br>
 &nbsp;&nbsp;--path tests/examples/godot/test_project<br><br>
-<span class="c"># 3 — press Play (F5) to run the public evaluator scene</span>
+<span class="c"># 3 — press Play (F5) to run the sample scene</span>
         </div>
       </div>
     </div>
@@ -191,7 +191,7 @@
       <h2>Put captured reality in your game.</h2>
       <p>Open-source, MIT-licensed, and built in the open. Grab a nightly or build from source today.</p>
       <div class="gsm-cta">
-        <a href="https://github.com/klausi3D/godotGS/releases" class="gsm-btn gsm-btn-primary">Download nightly</a>
+        <a href="{{ 'getting-started/downloads/' | url }}" class="gsm-btn gsm-btn-primary">Download nightly</a>
         <a href="https://github.com/klausi3D/godotGS" class="gsm-btn gsm-btn-ghost">Star on GitHub</a>
       </div>
     </div>

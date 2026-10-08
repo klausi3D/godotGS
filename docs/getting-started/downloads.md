@@ -1,26 +1,37 @@
 # Downloads
 
-Public binaries for godotGS are published as nightly prereleases on GitHub. There is no stable `v*` release yet — see [Release Channels](../development/release-channels.md) for the full publishing model.
+**For:** anyone who wants a godotGS editor without compiling one.
+
+**At the end:** you have a godotGS editor running on Windows or Linux, and you know whether it is the right build for what you want to do.
+
+A stock Godot editor cannot render splats. You need an editor built from this fork, and there are two ways to get one:
+
+| Route | Use it when | Where |
+| --- | --- | --- |
+| **Nightly editor** | You are on Windows or Linux and want to try godotGS today. | This page |
+| **Build from source** | You are on macOS, you want representative speed on Linux, or you need a custom build. | [Build from Source](../BUILDING.md) |
+
+There is no stable `v*` release yet: nightlies are the only published binaries. [Release Channels](../development/release-channels.md) explains the publishing model.
 
 ## Latest Nightly
 
-[**Open the Releases page**](https://github.com/klausi3D/godotGS/releases) and pick the most recent `nightly-YYYYMMDD` entry at the top. (There is no stable `v*` release yet, so GitHub's "latest release" shortcut does not resolve to a nightly; always use the list.)
+[**Open the Releases page**](https://github.com/klausi3D/godotGS/releases) and pick the most recent `nightly-YYYYMMDD` entry at the top. Because there is no stable release yet, GitHub's "latest release" shortcut does not lead to a nightly, so always use the list.
 
-Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when the Windows build and its export smoke test succeed** for that run; when the Windows lane fails, the nightly is published Linux-only. Several consecutive nightlies can be Linux-only, so on Windows pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`, which is not necessarily the newest entry.
+Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when that night's Windows build and its export smoke test succeed**. Otherwise the nightly is Linux-only, and several in a row can be. On Windows, pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`; it is not always the newest entry.
 
 <div id="gs-latest-nightlies" data-repo="klausi3D/godotGS" hidden></div>
 
 | Asset | Platform | Contents |
 | --- | --- | --- |
-| `godotgs-linux-x86_64-<tag>.tar.xz` | Linux x86_64 | Editor binary (`dev_build=yes`, `-O0`) |
-| `godotgs-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows lane passed) | **Editor**, optimized: GUI editor (`.exe`) + console wrapper (`.console.exe`) |
-| `godotgs-export-template-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows lane passed) | **Export template** for shipping a game: `windows_release_x86_64.exe` + `windows_release_x86_64.console.exe`. Not an editor. See [Export Templates](../development/export-templates.md). |
-| `*.sha256` | per archive | SHA-256 checksum sidecar for each archive attached to that nightly |
+| `godotgs-linux-x86_64-<tag>.tar.xz` | Linux x86_64 | **Editor**, unoptimized (see [Linux nightly speed](#linux-nightly-speed)) |
+| `godotgs-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows build passed) | **Editor**, optimized: GUI editor (`.exe`) + console wrapper (`.console.exe`) |
+| `godotgs-export-template-windows-x86_64-<tag>.zip` | Windows x86_64 (only when the Windows build passed) | **Export template** for shipping a game: `windows_release_x86_64.exe` + `windows_release_x86_64.console.exe`. Not an editor. See [Export Templates](../development/export-templates.md). |
+| `*.sha256` | per archive | SHA-256 checksum for each archive in that nightly |
 | `BUILD-INFO.txt` | shared | Channel, commit hash, binary names, generation timestamp |
 
-macOS is not yet covered by a published binary — [Build from Source](../BUILDING.md).
+macOS has no published binary: use [Build from Source](../BUILDING.md).
 
-## Build Flavor and Performance
+## Linux Nightly Speed
 
 !!! warning "The Linux nightly is an unoptimized `-O0` build"
     The published Linux nightly editor is compiled with `dev_build=yes`, which means
@@ -49,12 +60,16 @@ chmod +x godot.linuxbsd.editor.dev.x86_64
 
 Unzip and pick the variant that fits how you want to run the editor:
 
-- `godot.windows.editor.x86_64.exe` — GUI editor with no console window. Use this for the normal editor experience.
-- `godot.windows.editor.x86_64.console.exe` — same editor with a console window attached for stdout/stderr. Use this when debugging or when a script needs to capture editor output.
+- `godot.windows.editor.x86_64.exe`: the GUI editor with no console window. Use this for normal work.
+- `godot.windows.editor.x86_64.console.exe`: the same editor with a console window for stdout/stderr. Use this when debugging or when a script needs the editor's output.
 
-Both binaries ship in the same zip; you can keep just one or both side-by-side.
+Both ship in the same zip; keep one or both.
 
-To export a game, also download `godotgs-export-template-windows-x86_64-<tag>.zip`. Unzip it and set `custom_template/release` in your export preset to the absolute path of `windows_release_x86_64.exe`. Keep the `.console.exe` next to it. Without that setting the export silently uses a stock template that renders no splats. See [Export Templates](../development/export-templates.md).
+No godotGS binary is code-signed, so Windows SmartScreen may warn that the app is unrecognized. Check the download against its `.sha256` file (below) before you run it.
+
+### Exporting a game
+
+To export a game on Windows, also download `godotgs-export-template-windows-x86_64-<tag>.zip`. Unzip it and set `custom_template/release` in your export preset to the absolute path of `windows_release_x86_64.exe`. Keep the `.console.exe` next to it. Without that setting the export silently uses a stock template that renders no splats. No Linux export template is published; build one from source. See [Export Templates](../development/export-templates.md).
 
 ## Verify the Download
 
@@ -73,15 +88,19 @@ Get-FileHash -Algorithm SHA256 .\godotgs-windows-x86_64-<tag>.zip
 
 ## Stability Expectations
 
-Nightlies are prereleases by design — they may break at any time. They are intended for evaluation, prototypes, and contributor work, not production. See the [stability column in Release Channels](../development/release-channels.md#channels) for the per-channel guarantees.
+Nightlies are prereleases: any one of them may break. They are for evaluation, prototypes and contributor work, not production. See the [stability column in Release Channels](../development/release-channels.md#channels) for what each channel promises.
 
-The Linux nightly is also not performance-representative; anything you measure on it is an artifact of the build flavor rather than of godotGS. See [Build Flavor and Performance](#build-flavor-and-performance).
-
-## Building From Source
+## When to Build From Source Instead
 
 Use [Build from Source](../BUILDING.md) when:
 
 - you are on macOS,
-- you are on Linux and want representative performance rather than the `-O0` Linux nightly (see [Build Flavors](../BUILDING.md#build-flavors)),
-- you need a custom build flavor (release-stripped, different optimizer settings, debug symbols, etc.),
+- you are on Linux and want representative performance (see [Linux nightly speed](#linux-nightly-speed)),
+- you need a custom build flavor (release-stripped, different optimizer settings, debug symbols),
 - or you want to reproduce a specific commit's binary.
+
+[Build Your Own Editor](installation.md) lists the prerequisites.
+
+## Next Step
+
+You have an editor. Continue with [Your First Splat](quick-start.md) to open the sample project and see a splat.
