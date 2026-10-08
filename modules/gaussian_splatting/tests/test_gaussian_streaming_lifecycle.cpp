@@ -1560,6 +1560,61 @@ void _setup_fragmented_atlas(GaussianStreamingSystem &r_system, const bool (&p_v
 
 } // namespace
 
+TEST_CASE("[Streaming Pipeline] Equal-frame visible eviction ignores traversal order") {
+    for (bool reverse : { false, true }) {
+        GaussianStreamingSystem system;
+        const bool visible[4] = { true, true, true, true };
+        _setup_fragmented_atlas(system, visible);
+        auto &chunks = system._test_get_primary_chunks();
+        auto &visibility = system._test_get_visibility_controller();
+        for (uint32_t i = 0; i < 4; i++) {
+            chunks[i].distance = float(i + 1) * 10;
+            visibility.visible_chunk_indices.push_back(reverse ? 3 - i : i);
+        }
+        system._test_build_visible_chunk_list();
+        const uint64_t frame_generation = chunks[0].last_used_frame;
+        for (uint32_t i = 0; i < 4; i++) {
+            CHECK_EQ(chunks[i].last_used_frame, frame_generation);
+        }
+        // Touching the list again in one frame cannot make any chunk newer.
+        system._test_build_visible_chunk_list();
+        CHECK_EQ(chunks[0].last_used_frame, frame_generation);
+        CHECK_EQ(system._test_evict_least_recently_used(true), StreamingEvictionController::EvictionResult::EvictedVisible);
+        CHECK_FALSE(chunks[3].is_loaded);
+        CHECK(chunks[0].is_loaded);
+        CHECK(chunks[1].is_loaded);
+        CHECK(chunks[2].is_loaded);
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] Usage advances once per frame and pending uploads stay protected") {
+    GaussianStreamingSystem system;
+    const bool visible[4] = { true, true, true, true };
+    _setup_fragmented_atlas(system, visible);
+    auto &chunks = system._test_get_primary_chunks();
+    auto &visibility = system._test_get_visibility_controller();
+    for (uint32_t i = 0; i < 4; i++) {
+        visibility.visible_chunk_indices.push_back(i);
+        chunks[i].distance = float(i + 1) * 10;
+    }
+    system._test_build_visible_chunk_list();
+    const uint64_t previous_generation = chunks[0].last_used_frame;
+    system.begin_frame();
+    system._test_build_visible_chunk_list();
+    CHECK(chunks[0].last_used_frame > previous_generation);
+    for (uint32_t i = 0; i < 4; i++) {
+        CHECK_EQ(chunks[i].last_used_frame, chunks[0].last_used_frame);
+    }
+    // Cache the eligible candidates, then start a pending upload. Revalidation
+    // must protect it even after the per-frame candidate list was built.
+    CHECK_EQ(system._test_evict_least_recently_used(false), StreamingEvictionController::EvictionResult::SkippedAllVisible);
+    chunks[3].upload_pending = true;
+    CHECK_EQ(system._test_evict_least_recently_used(true), StreamingEvictionController::EvictionResult::EvictedVisible);
+    CHECK(chunks[3].is_loaded);
+    CHECK_FALSE(chunks[2].is_loaded);
+    chunks[3].upload_pending = false;
+}
+
 TEST_CASE("[Streaming Pipeline] Admission evicts until the incoming chunk's page run fits (#1088)") {
     GaussianStreamingSystem system;
     _setup_fragmented_atlas(system);

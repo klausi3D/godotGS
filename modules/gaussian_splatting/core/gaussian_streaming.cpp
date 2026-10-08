@@ -3336,7 +3336,7 @@ void GaussianStreamingSystem::_build_visible_chunk_list() {
         needed_chunks++;
         if (chunk.is_loaded && chunk.gpu_resident) {
             frame.visible_chunks.push_back(chunk_idx);
-            eviction_controller.touch_chunk_use(chunk.last_used_frame);
+            eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
         } else if (!chunk.is_loaded && !chunk.upload_pending) {
             needed_unserved_chunks++;
         }
@@ -4102,7 +4102,7 @@ void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uin
     chunk.upload_pending = false;
     chunk.upload_lifecycle_state = GaussianStreamingTypes::STREAMING_UPLOAD_STATE_GPU_RETIRED;
     chunk.last_loaded_frame = total_frame_count;
-    eviction_controller.touch_chunk_use(chunk.last_used_frame);
+    eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
     budget.loaded_chunks_count++;
     // #1088: account the chunk's whole page run (the bytes it actually holds and that
     // evicting it frees), not just its payload.
