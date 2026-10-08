@@ -764,8 +764,8 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     // Corroboration for the decompression bound: the scene header independently
     // declared how many splats this file holds, and it was read (and checksum
     // verified) before this chunk. That fixes the exact number of decompressed
-    // bytes this chunk is entitled to, so the chunk's own declared size can no
-    // longer authorise an allocation by itself (#603a).
+    // bytes a legacy chunk is entitled to. V3 bounds the largest SH0-4 payload
+    // independently; its metadata and exact extent are checked after decode.
 
     PackedByteArray payload;
     const Error decode_err = _decode_chunk_payload(buffer, header, corroborated_max_size, "GAUSSIAN_DATA", payload);

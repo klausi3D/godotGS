@@ -388,8 +388,8 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip serialization") {
 
     // Dedicated LOCAL fixture (NOT the shared create_test_world() helper, which
     // other test cases depend on): give every splat DISTINCT, non-default values
-    // for EVERY field the raw-record GAUSSIAN_DATA chunk persists. That chunk is a
-    // whole-struct memcpy of each `Gaussian` (see _write_gaussian_data_chunk), so
+    // for EVERY authored field the GAUSSIAN_DATA chunk persists. V3 uses
+    // explicit serialization of each authored Gaussian field, so
     // position, opacity, scale, area, rotation, sh_dc (incl. alpha), normal,
     // stroke_age, brush_axes, painterly_meta and render_meta all round-trip. A
     // serializer/format migration that drops, zeroes, or defaults any of them
@@ -552,7 +552,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip preserves first-order
 }
 
 TEST_CASE("[GaussianSplatting][Persistence] GSF preserves high-order SH and 2D-mode flag") {
-    const String path = _make_persistence_fixture_path("test_sh_high_order_and_2d_loss");
+    const String path = _make_persistence_fixture_path("test_sh_high_order_and_2d_preserved");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
     if (!fixture_dir_ready) {
@@ -611,9 +611,9 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF preserves high-order SH and 2D-m
                 CHECK(snapshot.get_sh_high_order()[i] == high_order[i]);
             }
         }
-        // First-order SH still survives because it is embedded in the Gaussian struct bytes.
+        // The explicit first-order authoring count survives without value inference.
         CHECK_MESSAGE(loaded_data->get_sh_first_order_count() == 1,
-                "First-order SH metadata should be recovered from the persisted Gaussian bytes");
+                "First-order SH metadata should retain its explicit authoring layout");
     }
 
     _remove_persistence_fixture(path);
@@ -3668,10 +3668,19 @@ void full_snapshot_replace_worker(void *p_userdata) {
         second[i].position = Vector3(-21, -22, -23);
         second[i].scale = Vector3(2, 2, 2);
     }
+    LocalVector<Vector3> first_sh, second_sh;
+    first_sh.resize(first.size() * 21);
+    second_sh.resize(second.size() * 5);
+    for (uint32_t i = 0; i < first_sh.size(); ++i) {
+        first_sh[i] = Vector3(1, 2, 3);
+    }
+    for (uint32_t i = 0; i < second_sh.size(); ++i) {
+        second_sh[i] = Vector3(-1, -2, -3);
+    }
     while (!ctx->stop.load(std::memory_order_acquire)) {
-        ctx->data->set_gaussians(first);
+        ctx->data->set_gaussian_payload(first, first_sh, 3, 21, true, true);
         ctx->writes.fetch_add(1, std::memory_order_release);
-        ctx->data->set_gaussians(second);
+        ctx->data->set_gaussian_payload(second, second_sh, 3, 5, false, false);
         ctx->writes.fetch_add(1, std::memory_order_release);
     }
 }
@@ -3704,6 +3713,18 @@ void full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
         coherent = coherent && snapshot.get_gaussians()[i].position == position;
     }
     CHECK(coherent);
+    CHECK(snapshot.get_sh_first_order_count() == 3);
+    CHECK(snapshot.get_sh_degree() == (first ? 4 : 2));
+    CHECK(snapshot.get_sh_high_order_count() == (first ? 21 : 5));
+    CHECK(snapshot.get_2d_mode() == first);
+    CHECK(snapshot.get_antialiased() == first);
+    CHECK(snapshot.get_sh_high_order().size() == snapshot.get_gaussians().size() * (first ? 21 : 5));
+    const Vector3 coefficient = first ? Vector3(1, 2, 3) : Vector3(-1, -2, -3);
+    bool sh_coherent = true;
+    for (int64_t i = 0; i < snapshot.get_sh_high_order().size(); ++i) {
+        sh_coherent = sh_coherent && snapshot.get_sh_high_order()[i] == coefficient;
+    }
+    CHECK(sh_coherent);
     // Read the stored header directly: loading recomputes bounds and would
     // hide a mixed-generation header produced by a second live bounds read.
     Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
