@@ -2,31 +2,76 @@
 
 ## Purpose
 
-Keep documentation accurate, concise, and verifiable against code.
+Keep documentation accurate, short and written for the person who reads the page.
+These rules apply to every new or changed paragraph. Existing pages are brought in
+line page by page.
 
-## Usage
+## Page Audiences
+
+A page's audience is the tab it sits under in `docs/.pages`. The audience decides
+how the page names things in the code.
+
+| Tab | Reader | How to name things |
+| --- | --- | --- |
+| Get Started, Guides | People using the editor | UI labels, written as a path: Inspector › Quality › Preset. Project setting paths such as `rendering/gaussian_splatting/quality/tier_preset`. Node and resource names as the editor shows them, such as `GaussianSplatNode3D`. Link to the Reference page for methods. No C++ symbols, no source paths, no "Implementation reference" columns. |
+| Reference, Performance | People looking up exact behaviour | Stable symbols: a bound method or property, a signal, a project setting path, `Class::method` for C++. No line numbers. |
+| Contributing | Contributors and reviewers | As Reference, plus source file paths. No line numbers. |
+| Reports (`docs/reports/`, `docs/archive/`), PR descriptions, issue comments | Reviewers checking one change | `file:line` pinned to a commit SHA, such as `modules/gaussian_splatting/register_types.cpp:93` at `dbc0f49aa8b`. |
+
+Line numbers change on unrelated edits, so a `file:line` on a published page goes
+stale without anyone touching the page.
+
+Every claim is checked against the code at your base commit, whatever the page
+cites. A UI label is checked against the property it shows (`ADD_GROUP` and
+`ADD_PROPERTY` in the class's `_bind_methods()`), a symbol with
+`rg -n "<symbol>" modules/gaussian_splatting`.
+
+## Rules
+
+1. **Name things for the page's audience.** Follow the table above.
+2. **No process history on Get Started and Guides pages.** Leave out
+   maintainer-decision dates, `§` references, commit SHAs, how a guard or gate
+   works, and "an earlier revision said…". Say what is true now. History belongs in
+   ADRs, reports and PR descriptions.
+3. **Link an issue only when the reader can act on it**, for example to follow a
+   known limitation until it is fixed. Do not cite issues as the source of a
+   statement.
+4. **Show a limitation on the page where it bites.** One or two sentences, then a
+   link to its section in
+   [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md),
+   which holds the full write-up.
+5. **One name per concept.** Use the term from the
+   [glossary](../user/manual/concepts.md#glossary) and none of the names it lists
+   under "Not". A new concept gets a glossary entry in the same PR.
+6. **Procedures are numbered steps**, not table rows. One action per step. Add the
+   expected result when the reader needs to check it.
+7. **Link text says where the link goes**: "see
+   [Release Channels](../development/release-channels.md)", not "here", "this page"
+   or a bare URL.
+8. **Diagram alt text gives the steps in order**, such as "Copy the `.ply` into the
+   project, Godot imports it, assign the splat asset to a `GaussianSplatNode3D`".
+   "Diagram of the import flow" is not alt text. A caption does not replace it. A
+   Mermaid chart or a video gets the same steps as text next to it.
+9. **State a limit once, in plain words.** No self-labels such as "honest",
+   "candid" or "to be clear", and no repeated caveats.
+10. **Keep internal vocabulary on Contributing pages and in reports.** On other
+    pages, name the thing itself: "the Windows build", not "the Windows lane".
+
+| Term | Meaning |
+| --- | --- |
+| lane | One CI job or test group that runs and reports on its own: a platform build in `.github/workflows/release_builds.yml`, or a doctest group in `MODULE_TEST_FILTERS` in `tests/ci/run_module_tests.py`. Per-splat storage in `GaussianData` is a field, not a lane. |
+| strict / advisory | Whether a failing lane fails the run (strict) or is only reported (advisory). |
+| guard | A static check script under `tests/ci/` (`check_*.py`). |
+| gate | A required check that blocks a merge or a release, such as `agentic-pr-gate` or the renderer release gate. |
+
+## Before You Publish
 
 | Step | Action | Reference |
 | --- | --- | --- |
 | Scope review | Read all Markdown files in the target docs area before editing. | `docs/index.md` |
-| Implementation verification | Verify behavior claims against `modules/gaussian_splatting/` before publishing. | `initialize_gaussian_splatting_module()` in `modules/gaussian_splatting/register_types.cpp` |
-| Style application | Prefer direct task-based writing and compact tables for inventories. | `docs/style/documentation-style-guide.md` |
-| Evidence capture | Cite stable symbols in published pages; put `file:line` evidence in reports and PR descriptions. See [Citing code](#citing-code). | This page |
-| Link validation | Run repository link checks after docs edits. | `scripts/docs/check_links.py` |
+| Link validation | Run the link checker on the changed area. | `scripts/docs/check_links.py` |
+| Snippet and API check | Run the snippet checker (see below). | `tests/ci/check_doc_snippets.py` |
 | Generated pages | Regenerate generated pages and commit the result; the `docs-build` CI job fails when a committed generated page is stale. | `docs/development/docs-site.md` |
-
-## Citing code
-
-Line numbers change on unrelated edits, so a `file:line` in a page that stays
-published goes stale without anyone touching the page.
-
-| Where | Cite | Examples |
-| --- | --- | --- |
-| User-facing and reference pages (all of `docs/` except `docs/reports/`, `docs/archive/` and `docs/agent_memory/`) | Stable symbols: `Class::method`, a bound property or signal name, a project setting path, or a file path when no symbol fits. No line numbers. | `GaussianSplatNode3D::_bind_methods()`, `rendering/gaussian_splatting/lod/enabled`, `modules/gaussian_splatting/config.py` |
-| Reports, investigations, audits (`docs/reports/`, `docs/archive/`), PR descriptions, issue comments | `file:line` pinned to a commit SHA, so the reader can open the exact line that was read. | `modules/gaussian_splatting/register_types.cpp:93` at `dbc0f49aa8b` |
-
-A symbol citation is still an implementation claim: verify it exists at your base
-commit (`rg -n "<symbol>" modules/gaussian_splatting`) before you publish it.
 
 ## API
 
@@ -73,7 +118,7 @@ python3 scripts/docs/check_links.py docs/style
 | --- | --- | --- |
 | Documented class/singleton does not exist | Registration changed. | Re-audit `register_types.cpp` before publishing. |
 | Documented method is missing at runtime | Binding removed or renamed. | Re-check `_bind_methods()` and property bindings. |
-| `check_doc_snippets.py` reports `MEMBER_CPP_ONLY` | The member is declared in C++ but not bound. | Use a bound alternative, or cite it as `Class::member` in prose. |
+| `check_doc_snippets.py` reports `MEMBER_CPP_ONLY` | The member is declared in C++ but not bound. | Use a bound alternative. On a Reference or Contributing page you may cite it as `Class::member` in prose; on a Get Started or Guides page, describe the behaviour and link to Reference. |
 | Heading anchor link fails | Anchor text does not match checker slug normalization. | Rename heading or update anchor target. |
 | Relative link is reported missing | Path resolved from wrong source directory. | Recompute path relative to the current document and rerun checker. |
 | `docs-build` reports stale generated docs | A generator input (settings, shader comments, GDScript doc comments, compatibility YAML, benchmark data) changed without regenerating. | Run `python3 scripts/build_documentation.py --all --no-engine-patch` and commit the files the `docs-build` log lists as stale. |
