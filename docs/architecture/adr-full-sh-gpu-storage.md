@@ -28,3 +28,8 @@ Extend host/shader layout verification without removing field, offset, size or s
 ## Rollback
 
 Revert this ABI change as one unit, including shader mirrors and cache version. Keep imported/persisted SH4 intact. The v1 candidate must not be released with the old capacity or without the subsequent SH4 evaluation and antialias tasks.
+
+## Allocation and aligned-upload qualification
+
+The 176-byte stride no longer divides the 256-byte transfer alignment. Scratch storage must use ceiling division and zero the entire submitted padding range. Compute record, combined and aligned byte sizes with checked 64-bit arithmetic before narrowing to RenderingDevice's 32-bit buffer API. Reject unsupported capacities before allocation; do not wrap or silently clamp the logical record capacity. Native boundary checks must exercise these calculations without allocating large buffers, and actual small-upload readback remains GPU evidence.
+
