@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `186` documented functions, `15` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `186` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -780,7 +780,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>sh_config</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>Spherical Harmonics configuration: x=sh_bands (0-3), y=amortization_divisor, z=amortization_phase, w=force_full_update sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order (full)</td>
+      <td>Spherical Harmonics configuration: x=sh_bands (0-4), y=amortization_divisor, z=amortization_phase, w=force_full_update sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order, 4=4th order (full)</td>
     </tr>
     <tr>
       <td><pre><code>sh_decode_config</code></pre></td>

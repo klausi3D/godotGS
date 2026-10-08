@@ -142,6 +142,10 @@ void main() {
     }
 
     uint atlas_index = chunk.atlas_base + splat_index_in_chunk;
+    if (atlas_index < chunk.atlas_base || !gs_splat_ref_can_encode(atlas_index)) {
+        atomicAdd(counters.overflowed_splats, 1u);
+        return;
+    }
     GS_GAUSSIAN_STRUCT gaussian = atlas_gaussian_buffer.gaussians[atlas_index];
 
 #if defined(USE_QUANTIZED_GAUSSIANS)
@@ -229,7 +233,7 @@ void main() {
     }
 
     splat_ref_buffer.splat_refs[write_index].instance_id = visible_chunk.instance_id;
-    splat_ref_buffer.splat_refs[write_index].atlas_index = atlas_index;
+    splat_ref_buffer.splat_refs[write_index].atlas_index = gs_pack_splat_ref_atlas_index(atlas_index, chunk.sh_limit);
     // Favor atlas index for tie-break to improve cache locality when depths are similar.
     uint tie_break = atlas_index;
     sort_key_buffer.keys[write_index] = gs_pack_sort_key64(depth, tie_break);

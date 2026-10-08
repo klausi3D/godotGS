@@ -1,3 +1,4 @@
+#include "../renderer/sh_config.h"
 #include "gaussian_streaming.h"
 #include "../io/streaming_chunk_bake.h"
 #include "gs_project_settings.h"
@@ -2473,6 +2474,9 @@ void GaussianStreamingSystem::set_chunk_radius_multiplier(float p_multiplier) {
 }
 
 void GaussianStreamingSystem::update_streaming(const Transform3D &camera_transform, const Projection &projection, float frame_delta_seconds) {
+    // Synchronize effective renderer quality before every production update,
+    // including early-return paths and all registered asset instances.
+    set_global_sh_band_level(int(g_sh_config.sh_bands));
     // PR #352: short-circuit when initialize() previously failed. Without this
     // guard, every frame re-entered the full pipeline below, the runtime
     // capacity check below re-emitted the same ERR, and headless runs without

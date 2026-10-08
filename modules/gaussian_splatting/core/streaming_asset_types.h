@@ -81,7 +81,7 @@ struct StreamingChunk {
     uint32_t current_lod_level = 0;
     uint32_t target_lod_level = 0;
 
-    int sh_band_level = 3;
+    int sh_band_level = 4;
     int splat_skip_factor = 1;
     float opacity_multiplier = 1.0f;
     uint32_t effective_count = 0;

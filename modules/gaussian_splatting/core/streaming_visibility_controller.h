@@ -169,7 +169,7 @@ private:
     float prefetch_lookahead_distance = 10.0f;
     LODBlendConfig lod_blend_config;
     float current_lod_blend_factor = 1.0f;
-    int global_sh_band_level = 3;
+    int global_sh_band_level = 4;
     uint32_t lod_transitions_this_frame = 0;
     uint32_t prev_visible_count = 0;
     bool visibility_flags_initialized = false;
@@ -180,6 +180,7 @@ private:
     bool lod_parameter_state_initialized = false;
     uint32_t lod_parameter_state_chunk_count = 0;
     bool lod_parameter_last_enabled = false;
+    int lod_parameter_last_global_sh_band_level = -1;
     int lod_parameter_last_num_levels = 0;
     float lod_parameter_last_max_distance = 0.0f;
     float lod_parameter_last_base_threshold = 0.0f;

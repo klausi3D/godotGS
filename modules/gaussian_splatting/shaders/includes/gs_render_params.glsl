@@ -41,8 +41,8 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
     // y=depth_visualization, z=projection_z_mismatch, w=white_albedo_lighting_isolation
     vec4 debug_overlay_flags;
     // Spherical Harmonics configuration:
-    // x=sh_bands (0-3), y=amortization_divisor, z=amortization_phase, w=force_full_update
-    // sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order (full)
+    // x=sh_bands (0-4), y=amortization_divisor, z=amortization_phase, w=force_full_update
+    // sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order, 4=4th order (full)
     vec4 sh_config;
     // SH decode configuration (reserved for legacy/debug; runtime decode now comes from per-gaussian metadata).
     vec4 sh_decode_config;
@@ -125,7 +125,7 @@ layout(set = 1, binding = 0, std140) uniform RenderParams {
 
 // Helper to get current SH band level from params
 uint gs_get_sh_band_level() {
-    return uint(clamp(params.sh_config.x, 0.0, 3.0));
+    return uint(clamp(params.sh_config.x, 0.0, 4.0));
 }
 
 // Return the SH amortization divisor from render params.

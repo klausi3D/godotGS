@@ -251,6 +251,7 @@ private:
     float _get_lod_reduction_ratio_pct() const;
     int _get_lod_level_0_chunk_count() const;
     int _get_lod_sh_band_3_chunk_count() const;
+    int _get_lod_sh_band_4_chunk_count() const;
 
     // Compression Analytics Monitors (Phase 5)
     float _get_sh_compression_raw_mb() const;

@@ -735,7 +735,7 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 				chunk_meta.asset_id = asset.dense_asset_id;
 				chunk_meta.lod_level = 0;
 				chunk_meta.flags = asset_meta.flags;
-				chunk_meta.sh_limit = CLAMP(asset.data->get_sh_degree(), 0u, 3u);
+				chunk_meta.sh_limit = CLAMP(asset.data->get_sh_degree(), 0u, 4u);
 				chunk_meta_cpu.push_back(chunk_meta);
 
 				AssetChunkIndexGPU chunk_index_gpu = {};

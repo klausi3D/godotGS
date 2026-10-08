@@ -446,7 +446,7 @@ void StreamingGlobalAtlasRegistry::update_chunk_meta_entry(GaussianStreamingSyst
 	const uint32_t effective_splat_count = has_run
 			? MIN(MIN(chunk.effective_count, chunk.count), run.page_count * GaussianStreamingSystem::ATLAS_PAGE_SPLATS)
 			: 0u;
-	const uint32_t sh_band_limit = uint32_t(CLAMP(chunk.sh_band_level, 0, 3));
+	const uint32_t sh_band_limit = uint32_t(CLAMP(chunk.sh_band_level, 0, 4));
 	if (resident) {
 		// #1088: buffer_slot is the first page of the chunk's run.
 		meta.atlas_base = run.first_page * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;

@@ -123,5 +123,25 @@ class QuantizedStorageWiringTests(unittest.TestCase):
             self.assertIn(guard.FlatField("_tail_padding", "uint", 2), fields)
 
 
+class SHSelectionWiringTests(unittest.TestCase):
+    def test_current_chunk_limit_reaches_both_binning_record_paths(self) -> None:
+        module = ROOT / "modules" / "gaussian_splatting"
+        stage_b = (module / "compute/depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (module / "shaders/tile_binning.glsl").read_text(encoding="utf-8")
+        self.assertRegex(stage_b, r"\.atlas_index\s*=\s*gs_pack_splat_ref_atlas_index\(atlas_index,\s*chunk\.sh_limit\)")
+        start = binning.index("SplatRefGPU splat_ref =")
+        end = binning.index("#if defined(USE_QUANTIZED_GAUSSIANS)", start)
+        common = binning[start:end]
+        self.assertRegex(common, r"gaussian_idx\s*=\s*gs_splat_ref_atlas_index\(splat_ref\.atlas_index\)")
+        self.assertRegex(common, r"chunk_sh_limit\s*=\s*gs_splat_ref_sh_limit\(splat_ref\.atlas_index\)")
+        self.assertRegex(binning, r"sh_band_level\s*=\s*min\(sh_band_level,\s*chunk_sh_limit\)")
+
+    def test_effective_quality_is_synchronized_at_production_streaming_entry(self) -> None:
+        source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")
+        start = source.index("void GaussianStreamingSystem::update_streaming(")
+        prefix = source[start:source.index("\n    if (", start)]
+        self.assertRegex(prefix, r"set_global_sh_band_level\(int\(g_sh_config\.sh_bands\)\)")
+
+
 if __name__ == "__main__":
     unittest.main()

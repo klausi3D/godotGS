@@ -231,7 +231,7 @@ static_assert(offsetof(VisibleChunkRefGPU, chunk_id) == 4, "VisibleChunkRefGPU.c
 // Visible splat list emitted by Stage B.
 struct SplatRefGPU {
     uint32_t instance_id;
-    uint32_t atlas_index;
+    uint32_t atlas_index; // Encoded physical index + SH limit; use splat_ref_encoding.h.
 };
 
 static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU must be 8 bytes");
@@ -364,7 +364,7 @@ struct alignas(16) TileRenderParamsGPU {
     float jacobian_diag_flags[4];
     float debug_overlay_flags[4];
     // Spherical Harmonics configuration:
-    // x=sh_bands (0-3), y=amortization_divisor, z=amortization_phase, w=force_full_update
+    // x=sh_bands (0-4), y=amortization_divisor, z=amortization_phase, w=force_full_update
     // sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order (full)
     float sh_config[4];
     // SH decode configuration is reserved; runtime decode now comes from per-gaussian metadata.

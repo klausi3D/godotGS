@@ -15,6 +15,9 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/quantization_config.h"
+#include "../renderer/sh_config.h"
+#include "../renderer/splat_ref_encoding.h"
+#include "../lod/lod_config.h"
 
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
@@ -121,6 +124,58 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Production SH metadata bounds compact
         CHECK(first + high <= c.encoded);
         CHECK(first + high <= 24u);
     }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH4 config and relative LOD quality remain observable") {
+    SHConfig config;
+    CHECK(config.sh_bands == SH_BAND_4);
+    CHECK(config.validate());
+    const int counts[] = { 1, 4, 9, 16, 25 };
+    for (int degree = 0; degree <= 4; degree++) {
+        config.sh_bands = SHBandLevel(degree);
+        CHECK(config.validate());
+        CHECK(SHConfig::get_coefficient_count(config.sh_bands) == counts[degree]);
+        CHECK(SHConfig::get_float_count(config.sh_bands) == 3*counts[degree]);
+    }
+    config.reset_to_defaults();
+    CHECK(config.sh_bands == SH_BAND_4);
+    LODConfig lod;
+    lod.sh_reduction_enabled = true;
+    for (int maximum = 0; maximum <= 4; maximum++) {
+        for (int level = 0; level < 8; level++) {
+            CHECK(lod.get_sh_band_for_lod(level, maximum) == MAX(0, maximum - level));
+        }
+    }
+    lod.sh_reduction_enabled = false;
+    CHECK(lod.get_sh_band_for_lod(7, 4) == 4);
+    CHECK(lod.get_sh_band_for_lod(7, 3) == 3);
+    CHECK(lod.get_sh_band_for_lod(7) == 3); // Existing standalone caller contract.
+    ChunkLODMetadata chunks[2];
+    chunks[0].sh_band_level = 4;
+    chunks[1].sh_band_level = 3;
+    LODDebugStats stats;
+    stats.update_from_chunks(chunks, 2);
+    CHECK(stats.sh_band_counts[4] == 1);
+    CHECK(stats.sh_band_counts[3] == 1);
+    CHECK(stats.to_string().contains("SH4:1"));
+    stats.reset();
+    CHECK(stats.sh_band_counts[4] == 0);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Visible reference carries bounded per-chunk SH quality") {
+    using namespace gs_splat_ref;
+    static_assert(uint64_t(UINT32_MAX)/sizeof(PackedGaussianQuantized) <= GS_SPLAT_REF_ATLAS_INDEX_MASK, "RD record bound exceeds reference index capacity");
+    const uint32_t indices[] = { 0u, 1u, 1234567u, GS_SPLAT_REF_ATLAS_INDEX_MASK };
+    for (uint32_t index : indices) {
+        CHECK(gs_splat_ref_can_encode(index));
+        for (uint32_t degree = 0; degree <= 7; degree++) {
+            uint32_t encoded = gs_pack_splat_ref_atlas_index(index, degree);
+            CHECK(gs_splat_ref_atlas_index(encoded) == index);
+            CHECK(gs_splat_ref_sh_limit(encoded) == MIN(degree, 4u));
+        }
+    }
+    CHECK_FALSE(gs_splat_ref_can_encode(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u));
+    CHECK(gs_pack_splat_ref_atlas_index(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u, 4u) == UINT32_MAX);
 }
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).

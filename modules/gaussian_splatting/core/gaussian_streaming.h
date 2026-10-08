@@ -321,7 +321,7 @@ public:
 
     // SH band level and visibility change tracking
     int get_global_sh_band_level() const { return visibility.global_sh_band_level; }
-    void set_global_sh_band_level(int p_level) { visibility.global_sh_band_level = CLAMP(p_level, 0, 3); }
+    void set_global_sh_band_level(int p_level) { visibility.global_sh_band_level = CLAMP(p_level, 0, 4); }
     float get_visible_count_change_ratio() const;
 
     // Streaming change tracking
@@ -741,7 +741,7 @@ private:
     void _load_lod_config_from_project_settings();
     void _collect_lod_debug_stats(const FrameData &frame,
             uint32_t (&lod_level_counts)[8],
-            uint32_t (&sh_band_counts)[4],
+            uint32_t (&sh_band_counts)[5],
             uint32_t &total_original_splats,
             uint32_t &total_effective_splats,
             float &min_distance,

@@ -715,20 +715,19 @@ void main() {
         return;
     }
     SplatRefGPU splat_ref = splat_ref_buffer.splat_refs[splat_ref_idx];
-    uint gaussian_idx = splat_ref.atlas_index;
+    uint gaussian_idx = gs_splat_ref_atlas_index(splat_ref.atlas_index);
     if (gaussian_idx >= params.total_gaussians) {
         GS_DEBUG_INCREMENT(index_mismatch_count);
         return;
     }
     InstanceDataGPU instance = instance_buffer.instances[splat_ref.instance_id];
-    uint chunk_sh_limit = 3u;
+    uint chunk_sh_limit = gs_splat_ref_sh_limit(splat_ref.atlas_index);
 
 #if defined(USE_QUANTIZED_GAUSSIANS)
     GaussianQuantized src = atlas_gaussian_buffer.gaussians[gaussian_idx];
     uint quant_id = extract_chunk_id(src.position_chunk);
     ChunkQuantization quant = quantization_buffer.chunks[quant_id];
     ChunkMetaGPU chunk_meta = chunk_meta_buffer.chunk_meta[quant_id];
-    chunk_sh_limit = min(chunk_meta.sh_limit, 3u);
     vec3 local_position = dequantize_position(extract_quantized_position(src.position_chunk), quant);
     vec3 local_scale = LOAD_SCALE_QUANTIZED(src, quant);
     vec4 local_rotation = extract_rotation(src.rotation_lo, src.rotation_hi);

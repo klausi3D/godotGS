@@ -125,7 +125,7 @@ struct LODConfig {
      * @param lod_level The LOD level
      * @return SH band level (0-3)
      */
-    int get_sh_band_for_lod(int lod_level) const;
+    int get_sh_band_for_lod(int lod_level, int max_band = 3) const;
 
     /**
      * @brief Get opacity multiplier for a given distance.
@@ -185,7 +185,7 @@ struct LODDebugStats {
     float splat_reduction_ratio = 0.0f;
 
     // SH band distribution
-    uint32_t sh_band_counts[4] = {};    // Chunks per SH band (SH0-SH3)
+    uint32_t sh_band_counts[5] = {};    // Chunks per SH band (SH0-SH4)
 
     // Distance statistics
     float min_distance = 0.0f;
