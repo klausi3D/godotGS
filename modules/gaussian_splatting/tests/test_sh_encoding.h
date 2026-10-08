@@ -21,8 +21,86 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering_server.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
+
+// Compile the exact production polynomial source into the native test.
+// The independent reference below uses a recurrence, not those polynomials.
+namespace GSProductionSHBasis {
+using uint = uint32_t;
+#define vec3 Vector3
+#define GS_SH_OUT
+#include "../shaders/includes/gs_sh_basis.glsl"
+#undef GS_SH_OUT
+#undef vec3
+}
+
+namespace GSReferenceSHBasis {
+static double real_sh(int l, int m, const Vector3 &dir) {
+    const int order = m < 0 ? -m : m;
+    const double z = dir.z;
+    double pmm = 1.0;
+    for (int k = 1; k <= order; k++) {
+        pmm *= -(2*k - 1)*std::sqrt(std::max(0.0, 1.0 - z*z));
+    }
+    double plm = pmm;
+    if (l > order) {
+        double previous = pmm;
+        plm = (2*order + 1)*z*pmm;
+        for (int degree = order + 2; degree <= l; degree++) {
+            double next = ((2*degree - 1)*z*plm - (degree + order - 1)*previous)/(degree - order);
+            previous = plm;
+            plm = next;
+        }
+    }
+    double ratio = 1.0;
+    for (int k = l - order + 1; k <= l + order; k++) ratio /= k;
+    double result = std::sqrt((2*l + 1)*ratio/(4.0*Math_PI))*plm;
+    if (m != 0) {
+        const double phi = std::atan2(double(dir.y), double(dir.x));
+        result *= std::sqrt(2.0)*(m < 0 ? std::sin(order*phi) : std::cos(order*phi));
+    }
+    return result;
+}
+}
+
+TEST_CASE("[SHEncoding] Production SH0-4 basis agrees with independent Legendre recurrence") {
+    for (int sample = 0; sample < 130; sample++) {
+        Vector3 dir;
+        if (sample < 2) {
+            dir = Vector3(0, 0, sample == 0 ? 1 : -1);
+        } else {
+            const double z = 1.0 - 2.0*(double(sample - 2) + 0.5)/128.0;
+            const double phi = double(sample - 2)*2.39996322972865332;
+            const double radius = std::sqrt(1.0 - z*z);
+            dir = Vector3(radius*std::cos(phi), radius*std::sin(phi), z);
+        }
+        for (uint32_t band = 0; band <= 5; band++) {
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, band, basis);
+            for (int l = 0; l <= 4; l++) {
+                for (int m = -l; m <= l; m++) {
+                    const int index = l*l + l + m;
+                    const double expected = uint32_t(l) <= band ? GSReferenceSHBasis::real_sh(l, m, dir) : 0.0;
+                    CAPTURE(sample, band, l, m);
+                    CHECK(std::abs(double(basis[index]) - expected) < 2e-6);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("[SHEncoding] SH3 sign and normalized m2 regression") {
+    const Vector3 dir = Vector3(1, 2, 3).normalized();
+    float basis[25];
+    GSProductionSHBasis::gs_compute_real_sh_basis(dir, 3, basis);
+    CHECK(basis[11] < 0.0f);
+    CHECK(basis[13] < 0.0f);
+    CHECK(std::abs(double(basis[14]) - GSReferenceSHBasis::real_sh(3, 2, dir)) < 2e-6);
+    for (int i = 16; i < 25; i++) CHECK(basis[i] == 0.0f);
+}
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).
 // SH coefficients are signed. Both GPU packers now store each coefficient triplet as three
