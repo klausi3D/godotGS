@@ -1617,6 +1617,28 @@ TEST_CASE("[Streaming Pipeline] Usage advances once per frame and pending upload
     chunks[3].upload_pending = false;
 }
 
+TEST_CASE("[Streaming Pipeline] Visible-use refresh ignores unavailable and distance-excluded chunks") {
+    GaussianStreamingSystem system;
+    _setup_fragmented_atlas(system);
+    auto &chunks = system._test_get_primary_chunks();
+    const uint64_t old_distance_generation = chunks[2].last_used_frame;
+    const uint64_t old_nonresident_generation = chunks[3].last_used_frame;
+    chunks[2].near_distance = 1000000;
+    chunks[3].gpu_resident = false;
+    LocalVector<uint32_t> visible_indices;
+    visible_indices.push_back(0);
+    visible_indices.push_back(2);
+    visible_indices.push_back(3);
+    visible_indices.push_back(UINT32_MAX);
+    system._test_set_visible_chunk_indices(visible_indices);
+    system._test_refresh_visible_chunk_usage();
+    CHECK(chunks[0].last_used_frame > 4);
+    CHECK_EQ(chunks[2].last_used_frame, old_distance_generation);
+    CHECK_EQ(chunks[3].last_used_frame, old_nonresident_generation);
+    CHECK_EQ(chunks[1].last_used_frame, 3);
+    chunks[3].gpu_resident = true;
+}
+
 TEST_CASE("[Streaming Pipeline] Admission evicts until the incoming chunk's page run fits (#1088)") {
     GaussianStreamingSystem system;
     _setup_fragmented_atlas(system);
