@@ -4031,3 +4031,43 @@ TEST_CASE("[Streaming Pipeline] Needed-set progress: throttled loading is progre
     CHECK(StreamingQueuePressureController::advance_needed_set_progress(state, completes) == 1);
     CHECK(state.stall_seconds == 0.0f);
 }
+
+TEST_CASE("[Streaming Pipeline] Global SH4 changes refresh cached LOD parameters") {
+    for (bool lod_enabled : { false, true }) {
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        GaussianStreamingSystem::ConfigOverrides overrides;
+        overrides.override_lod_config = true;
+        overrides.lod_config.enabled = lod_enabled;
+        overrides.lod_config.sh_reduction_enabled = false;
+        system->set_config_overrides(overrides);
+        auto &chunks = system->_test_get_primary_chunks();
+        chunks.resize(2);
+        for (auto &chunk : chunks) {
+            chunk.count = 1;
+            chunk.distance = 0;
+            chunk.is_visible = true;
+        }
+        auto &visibility = system->_test_get_visibility_controller();
+        system->set_global_sh_band_level(3);
+        visibility.update_chunk_lod_parameters(*system.ptr(), Vector3());
+        CHECK(chunks[0].sh_band_level == 3);
+        CHECK(chunks[1].sh_band_level == 3);
+        visibility.update_chunk_lod_parameters(*system.ptr(), Vector3());
+        system->set_global_sh_band_level(4);
+        visibility.update_chunk_lod_parameters(*system.ptr(), Vector3());
+        CHECK(chunks[0].sh_band_level == 4);
+        CHECK(chunks[1].sh_band_level == 4);
+        system->set_global_sh_band_level(1);
+        visibility.update_chunk_lod_parameters(*system.ptr(), Vector3());
+        CHECK(chunks[0].sh_band_level == 1);
+        CHECK(chunks[1].sh_band_level == 1);
+        system->set_global_sh_band_level(99);
+        CHECK(system->get_global_sh_band_level() == 4);
+        system->set_global_sh_band_level(-1);
+        CHECK(system->get_global_sh_band_level() == 0);
+        const Dictionary stats = system->get_lod_debug_stats();
+        const Array distribution = stats.get("sh_band_distribution", Array());
+        CHECK(distribution.size() == 5);
+    }
+}

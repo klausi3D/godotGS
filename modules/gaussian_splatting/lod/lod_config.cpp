@@ -208,13 +208,14 @@ int LODConfig::get_splat_skip_factor(int lod_level) const {
     return 1 << CLAMP(lod_level, 0, 7);
 }
 
-int LODConfig::get_sh_band_for_lod(int lod_level) const {
+int LODConfig::get_sh_band_for_lod(int lod_level, int max_band) const {
+    const int maximum = CLAMP(max_band, 0, 4);
     if (!sh_reduction_enabled) {
-        return 3;  // Full SH3 quality
+        return maximum; // Preserve configured quality.
     }
 
-    // Map LOD level to SH band: LOD 0 -> SH3, LOD 1 -> SH2, LOD 2 -> SH1, LOD 3+ -> SH0
-    return CLAMP(3 - lod_level, 0, 3);
+    // Reduce one degree per LOD from the configured maximum.
+    return maximum - CLAMP(lod_level, 0, maximum);
 }
 
 float LODConfig::get_opacity_multiplier(float distance) const {
@@ -285,7 +286,7 @@ void LODDebugStats::reset() {
     for (int i = 0; i < 8; i++) {
         lod_level_counts[i] = 0;
     }
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         sh_band_counts[i] = 0;
     }
     total_chunks = 0;
@@ -315,7 +316,7 @@ void LODDebugStats::update_from_chunks(const ChunkLODMetadata* chunks, uint32_t 
         }
 
         // SH band distribution
-        if (chunk.sh_band_level >= 0 && chunk.sh_band_level < 4) {
+        if (chunk.sh_band_level >= 0 && chunk.sh_band_level < 5) {
             sh_band_counts[chunk.sh_band_level]++;
         }
 
@@ -349,7 +350,7 @@ String LODDebugStats::to_string() const {
     result += "\n";
 
     result += "[SH Bands] ";
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         if (sh_band_counts[i] > 0) {
             result += vformat("SH%d:%d ", i, sh_band_counts[i]);
         }

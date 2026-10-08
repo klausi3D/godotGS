@@ -25,7 +25,7 @@ void SHConfig::load_from_project_settings() {
     sh_bands_source_label = "code default";
     if (band_value < 0) {
         // Sentinel: user never set this. Check tier.
-        band_value = static_cast<int>(SH_BAND_3); // Code default.
+        band_value = static_cast<int>(SH_BAND_4); // Code default.
         const String tier_preset = ps->get_setting("rendering/gaussian_splatting/quality/tier_preset", "custom");
         QualityTierConfig tier_config;
         if (get_quality_tier_config(tier_preset, tier_config) && tier_config.sh_bands >= 0) {
@@ -58,9 +58,9 @@ void SHConfig::save_to_project_settings() const {
 }
 
 void SHConfig::reset_to_defaults() {
-    sh_bands = SH_BAND_3;
+    sh_bands = SH_BAND_4;
 
-    GS_LOG_STREAMING_INFO(String("[SH Config] Reset to default configuration (SH3)"));
+    GS_LOG_STREAMING_INFO(String("[SH Config] Reset to default configuration (SH4)"));
 }
 
 bool SHConfig::validate() const {
@@ -73,11 +73,13 @@ int SHConfig::get_coefficient_count(SHBandLevel level) {
     // SH1: 4 coefficients (1 DC + 3 first-order)
     // SH2: 9 coefficients (1 DC + 3 first + 5 second)
     // SH3: 16 coefficients (1 DC + 3 first + 5 second + 7 third)
+    // SH4: 25 coefficients (SH3 + 9 fourth-order)
     switch (level) {
         case SH_BAND_0: return 1;
         case SH_BAND_1: return 4;
         case SH_BAND_2: return 9;
         case SH_BAND_3: return 16;
+        case SH_BAND_4: return 25;
         default: return 16;
     }
 }
@@ -93,12 +95,13 @@ const char* SHConfig::get_band_name(SHBandLevel level) {
         case SH_BAND_1: return "SH1 (1st order)";
         case SH_BAND_2: return "SH2 (2nd order)";
         case SH_BAND_3: return "SH3 (3rd order)";
+        case SH_BAND_4: return "SH4 (4th order)";
         default: return "Unknown";
     }
 }
 
 float SHConfig::get_memory_multiplier(SHBandLevel level) {
-    // Memory multiplier relative to full SH3
+    // Legacy API: logical coefficient ratio relative to SH3, not allocated VRAM.
     // SH3 = 48 floats, SH0 = 3 floats
     float sh3_floats = static_cast<float>(get_float_count(SH_BAND_3));
     float level_floats = static_cast<float>(get_float_count(level));
@@ -109,7 +112,7 @@ void SHConfig::print_config_summary() const {
     GS_LOG_STREAMING_INFO(String("[SH Config] ========== Configuration Summary =========="));
     GS_LOG_STREAMING_INFO(vformat("[SH Config] SH Band Level: %s (%d coefficients, %d floats per splat)",
             get_band_name(sh_bands), get_coefficient_count(sh_bands), get_float_count(sh_bands)));
-    GS_LOG_STREAMING_INFO(vformat("[SH Config] Memory Usage: %.1f%% of full SH3",
+    GS_LOG_STREAMING_INFO(vformat("[SH Config] Logical coefficient count: %.1f%% of SH3 (fixed GPU record allocation)",
             get_memory_multiplier(sh_bands) * 100.0f));
     GS_LOG_STREAMING_INFO(String("[SH Config] ================================================"));
 }
@@ -133,8 +136,8 @@ void initialize_sh_config() {
     }
 
     // SH bands setting with enum hint.
-    // Default is -1 (sentinel): "use tier recommendation or code-default SH3".
-    // Values 0-3 mean the user explicitly chose a band level.
+    // Default is -1 (sentinel): "use tier recommendation or code-default SH4".
+    // Values 0-4 mean the user explicitly chose a band level.
     if (!ps->has_setting(SHConfig::BANDS_PATH)) {
         ps->set_setting(SHConfig::BANDS_PATH, -1); // GS_CI_ALLOW_RENDER_PATH_SETTING_MUTATION
     }
@@ -143,7 +146,7 @@ void initialize_sh_config() {
         Variant::INT,
         SHConfig::BANDS_PATH,
         PROPERTY_HINT_ENUM,
-        "Auto (Tier Default):-1,SH0 (DC Only):0,SH1 (1st Order):1,SH2 (2nd Order):2,SH3 (3rd Order):3"
+        "Auto (Tier Default):-1,SH0 (DC Only):0,SH1 (1st Order):1,SH2 (2nd Order):2,SH3 (3rd Order):3,SH4 (4th Order):4"
     ));
 
     // Load current settings

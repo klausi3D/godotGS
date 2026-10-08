@@ -50,7 +50,7 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 	const LODConfig &lod_config = _get_lod_config();
 
 	uint32_t lod_level_counts[8] = {};
-	uint32_t sh_band_counts[4] = {};
+	uint32_t sh_band_counts[5] = {};
 	uint32_t total_original_splats = 0;
 	uint32_t total_effective_splats = 0;
 	float min_distance = FLT_MAX;
@@ -105,7 +105,7 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 
 	// SH band distribution as array
 	Array sh_dist;
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 5; i++) {
 		sh_dist.push_back(sh_band_counts[i]);
 	}
 	stats["sh_band_distribution"] = sh_dist;
@@ -139,7 +139,7 @@ Dictionary GaussianStreamingSystem::get_lod_debug_stats() const {
 
 void GaussianStreamingSystem::_collect_lod_debug_stats(const FrameData &frame,
 		uint32_t (&lod_level_counts)[8],
-		uint32_t (&sh_band_counts)[4],
+		uint32_t (&sh_band_counts)[5],
 		uint32_t &total_original_splats,
 		uint32_t &total_effective_splats,
 		float &min_distance,
@@ -162,7 +162,7 @@ void GaussianStreamingSystem::_collect_lod_debug_stats(const FrameData &frame,
 			lod_level_counts[chunk.current_lod_level]++;
 		}
 
-		if (chunk.sh_band_level >= 0 && chunk.sh_band_level < 4) {
+		if (chunk.sh_band_level >= 0 && chunk.sh_band_level < 5) {
 			sh_band_counts[chunk.sh_band_level]++;
 		}
 

@@ -29,6 +29,7 @@ nav:
       - reference/index.md
       - Project Settings:
           - reference/project-settings.md
+          - Spherical Harmonics Quality: reference/sh-quality.md
           - Settings Migration: reference/gaussian-project-settings-migration.md
       - reference/compatibility-matrix.md
       - reference/color-grading.md

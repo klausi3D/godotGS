@@ -7,15 +7,16 @@
 
 /**
  * @file sh_config.h
- * @brief Spherical Harmonics configuration for memory/quality tradeoff.
+ * @brief Spherical Harmonics configuration for shading work/quality tradeoff.
  *
- * Provides runtime configuration of SH band count to balance memory usage
+ * Provides runtime configuration of SH band count to balance shading work
  * against view-dependent color quality:
  *
- * - SH0 (DC only):   Base color, 3 values per splat (~4x memory reduction)
+ * - SH0 (DC only):   Base color, 3 logical values per splat
  * - SH1 (1st order): + basic view dependence, 12 values total
  * - SH2 (2nd order): + enhanced view dependence, 27 values total
- * - SH3 (3rd order): Full quality, 48 values total (default)
+ * - SH3 (3rd order): 48 values total
+ * - SH4 (4th order): Full available quality, 75 values total (default)
  */
 
 // Project settings paths
@@ -30,8 +31,9 @@ enum SHBandLevel {
     SH_BAND_0 = 0,  ///< DC only (base color, 1 coefficient = 3 values)
     SH_BAND_1 = 1,  ///< DC + 1st order (4 coefficients = 12 values)
     SH_BAND_2 = 2,  ///< DC + 2nd order (9 coefficients = 27 values)
-    SH_BAND_3 = 3,  ///< DC + 3rd order (16 coefficients = 48 values) - default
-    SH_BAND_MAX = SH_BAND_3
+    SH_BAND_3 = 3,  ///< DC + 3rd order (16 coefficients = 48 values)
+    SH_BAND_4 = 4,  ///< DC + 4th order (25 coefficients = 75 values)
+    SH_BAND_MAX = SH_BAND_4
 };
 
 /**
@@ -39,8 +41,8 @@ enum SHBandLevel {
  * @brief Runtime configuration for Spherical Harmonics rendering.
  */
 struct SHConfig {
-    // Current SH band level (0-3)
-    SHBandLevel sh_bands = SH_BAND_3;
+    // Current SH band level (0-4)
+    SHBandLevel sh_bands = SH_BAND_4;
 
     // Project settings integration
     void load_from_project_settings();
