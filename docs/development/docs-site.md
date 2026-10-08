@@ -230,8 +230,12 @@ The published MkDocs config enables instant navigation, top tabs, sticky tabs, s
 `docs/Doxyfile` writes C++ API HTML for `modules/gaussian_splatting` (excluding
 `tests/`) to `docs/api/cpp`. Its paths are relative to the directory doxygen runs
 in, which is the repository root when `scripts/build_documentation.py` runs it. The
-output is gitignored, generated in both CI jobs, copied into the staged docs and
-shipped with each docs version. The Doxygen warning log goes to
+output is gitignored, generated in both CI jobs and copied into the staged docs.
+Only the `latest` docs version publishes it (about 3,800 files and 45-55 MB). When
+the deploy job publishes a `v*` tag version,
+`scripts/docs/redirect_cpp_api_to_latest.py` replaces the staged `api/cpp` tree
+with one page at `api/cpp/html/index.html` that redirects to the same path under
+`latest`, so the C++ API link in `api/index.md` still resolves there. The Doxygen warning log goes to
 `doxygen-warnings.log` in the repository root (gitignored), outside the published
 tree. When `doxygen` is not
 installed locally, `build_documentation.py` skips this step.
