@@ -350,12 +350,12 @@ TEST_CASE("[GaussianSplatting][SPZ][ReferenceAdapter] official producers preserv
         s.scale = Vector3(0.1f, 0.3f, 0.7f);
         s.rotation = Quaternion(Vector3(1, 2, 3).normalized(), 0.7f);
         for (uint32_t term = 0; term < 24; term++) {
-            s.sh[term] = Vector3(-0.375f, 0.25f, 0.125f);
+            s.sh[term] = Vector3(float(int(term % 7) - 3) * 0.125f, float(int(term % 5) - 2) * 0.125f, float(int(term % 3) - 1) * 0.125f);
         }
     }
     for (uint32_t version = 2; version <= 4; version++) {
-        for (uint8_t degree = 0; degree <= (version == 2 ? 3 : 4); degree++) {
-            for (int coordinates : { -1, 1, 8 }) {
+        for (uint8_t degree = 0; degree <= 4; degree++) {
+            for (int coordinates : { -1, 1, 8, 14 }) {
                 for (bool antialiased : { false, true }) {
                     const String path = _spz_fixture_path("official_reference");
                     if (!TestGaussianSplatting::write_synthetic_spz(path, splats, 12, version, degree, antialiased, coordinates)) {
@@ -395,7 +395,11 @@ TEST_CASE("[GaussianSplatting][SPZ][ReferenceAdapter] official producers preserv
                             CHECK(Math::abs(g.sh_dc[axis] + 0.5f - splats[i].color[axis]) < 0.004f);
                         }
                         for (uint32_t term = 0; term < data->get_sh_first_order_count(); term++) {
-                            CHECK(g.sh_1[term].is_equal_approx(splats[i].sh[term]));
+                            const uint32_t reference_index = (i * ((degree + 1) * (degree + 1) - 1) + term) * 3;
+                            CHECK(g.sh_1[term].is_equal_approx(Vector3(reference.sh[reference_index], reference.sh[reference_index + 1], reference.sh[reference_index + 2])));
+                            if (coordinates <= 8) {
+                                CHECK(g.sh_1[term].is_equal_approx(splats[i].sh[term]));
+                            }
                         }
                         const Vector3 *high = data->get_sh_high_order_coefficients_ptr();
                         if (data->get_sh_high_order_count() > 0 && !high) {
@@ -404,7 +408,9 @@ TEST_CASE("[GaussianSplatting][SPZ][ReferenceAdapter] official producers preserv
                         }
                         for (uint32_t term = 0; term < data->get_sh_high_order_count(); term++) {
                             const Vector3 coefficient = high[i * data->get_sh_high_order_count() + term];
-                            CHECK(coefficient.is_equal_approx(splats[i].sh[term + 3]));
+                            if (coordinates <= 8) {
+                                CHECK(coefficient.is_equal_approx(splats[i].sh[term + 3]));
+                            }
                             const uint32_t reference_index = (i * ((degree + 1) * (degree + 1) - 1) + term + 3) * 3;
                             CHECK(coefficient.is_equal_approx(Vector3(reference.sh[reference_index], reference.sh[reference_index + 1], reference.sh[reference_index + 2])));
                         }
@@ -611,5 +617,57 @@ TEST_CASE("[GaussianSplatting][SPZ][ReferenceAdapter] legitimate repetitive prod
     SPZLoader loader;
     CHECK_EQ(loader.load_file(path), OK);
     CHECK_EQ(loader.get_splat_count(), int(splats.size()));
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ][ReferenceAdapter] constructed legacy v1 Half positions remain readable") {
+    using namespace TestGaussianSplattingSPZ;
+    const String path = _spz_fixture_path("constructed_v1");
+    auto splats = _make_spz_splats(1);
+    splats[0].position = Vector3(1.25f, -0.75f, 2.5f);
+    if (!TestGaussianSplatting::write_synthetic_spz(path, splats, 12, 2)) {
+        FAIL("Official v2 producer failed");
+        return;
+    }
+    const PackedByteArray gzip = FileAccess::get_file_as_bytes(path);
+    PackedByteArray decoded;
+    decoded.resize(35);
+    if (Compression::decompress(decoded.ptrw(), decoded.size(), gzip.ptr(), gzip.size(), Compression::MODE_GZIP) != 35) {
+        FAIL("Could not expand producer attributes");
+        return;
+    }
+    // A constructed v1 envelope, explicitly not captured historical producer
+    // output. The current Niantic writer no longer emits Half positions.
+    PackedByteArray v1;
+    v1.resize(32);
+    memcpy(v1.ptrw(), decoded.ptr(), 16);
+    encode_uint32(1, v1.ptrw() + 4);
+    for (int axis = 0; axis < 3; axis++) {
+        encode_uint16(Math::make_half_float(splats[0].position[axis]), v1.ptrw() + 16 + axis * 2);
+    }
+    memcpy(v1.ptrw() + 22, decoded.ptr() + 25, 10);
+    PackedByteArray compressed;
+    compressed.resize(Compression::get_max_compressed_buffer_size(v1.size(), Compression::MODE_GZIP));
+    const int size = Compression::compress(compressed.ptrw(), v1.ptr(), v1.size(), Compression::MODE_GZIP);
+    if (size <= 0) {
+        FAIL("Could not compress constructed v1 envelope");
+        return;
+    }
+    Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
+    if (file.is_null()) {
+        FAIL("Cannot write v1 fixture");
+        return;
+    }
+    file->store_buffer(compressed.ptr(), size);
+    file.unref();
+    SPZLoader loader;
+    const Error result = loader.load_file(path);
+    CHECK_EQ(result, OK);
+    if (result == OK && loader.get_splat_count() == 1) {
+        CHECK(loader.get_gaussian_data()->get_gaussian(0).position.is_equal_approx(splats[0].position));
+        CHECK_EQ(loader.get_header().version, 1);
+    } else {
+        FAIL("Constructed v1 payload did not load exactly one Gaussian");
+    }
     DirAccess::remove_absolute(path);
 }
