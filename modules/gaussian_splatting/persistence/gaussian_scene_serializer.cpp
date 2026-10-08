@@ -751,7 +751,7 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     const uint64_t corroborated_max_size = p_version >= 3
             ? ScenePayload::PREFIX_SIZE + uint64_t(p_declared_splat_count) * (ScenePayload::RECORD_SIZE + ScenePayload::MAX_HIGH_ORDER * 12)
             : uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * sizeof(Gaussian);
-    ERR_FAIL_COND_V(uint64_t(header.size) > get_load_allocation_budget_bytes(), ERR_OUT_OF_MEMORY);
+    ERR_FAIL_COND_V(uint64_t(header.size) > get_load_allocation_budget_bytes(), ERR_FILE_CORRUPT);
     ERR_FAIL_COND_V(uint64_t(header.size) > corroborated_max_size + sizeof(uint32_t), ERR_FILE_CORRUPT);
     LocalVector<Gaussian> &r_gaussians = r_staging.gaussians;
     PackedByteArray buffer = file->get_buffer(header.size);
@@ -774,7 +774,7 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     }
 
     if (p_version >= 3) {
-        return ScenePayload::decode(payload, p_declared_splat_count, r_staging.gaussians, r_staging.high_order,
+        return ScenePayload::decode(payload, p_declared_splat_count, get_load_allocation_budget_bytes(), r_staging.gaussians, r_staging.high_order,
                 r_staging.first_order_count, r_staging.high_order_count, r_staging.mode_2d, r_staging.antialiased);
     }
 

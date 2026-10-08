@@ -24,15 +24,15 @@ inline uint32_t degree_for_layout(uint32_t p_first, uint32_t p_high) {
 // Explicit float32 wire fields. Gaussian's ABI padding is deliberately excluded.
 inline void encode_record(const Gaussian &g, uint8_t *r_bytes) {
     const float fields[] = {
-        g.position.x, g.position.y, g.position.z, g.opacity,
-        g.scale.x, g.scale.y, g.scale.z, g.area,
-        g.rotation.x, g.rotation.y, g.rotation.z, g.rotation.w,
-        g.sh_dc.r, g.sh_dc.g, g.sh_dc.b, g.sh_dc.a,
-        g.sh_1[0].x, g.sh_1[0].y, g.sh_1[0].z,
-        g.sh_1[1].x, g.sh_1[1].y, g.sh_1[1].z,
-        g.sh_1[2].x, g.sh_1[2].y, g.sh_1[2].z,
-        g.normal.x, g.normal.y, g.normal.z, g.stroke_age,
-        g.brush_axes.x, g.brush_axes.y,
+        float(g.position.x), float(g.position.y), float(g.position.z), g.opacity,
+        float(g.scale.x), float(g.scale.y), float(g.scale.z), g.area,
+        float(g.rotation.x), float(g.rotation.y), float(g.rotation.z), float(g.rotation.w),
+        float(g.sh_dc.r), float(g.sh_dc.g), float(g.sh_dc.b), float(g.sh_dc.a),
+        float(g.sh_1[0].x), float(g.sh_1[0].y), float(g.sh_1[0].z),
+        float(g.sh_1[1].x), float(g.sh_1[1].y), float(g.sh_1[1].z),
+        float(g.sh_1[2].x), float(g.sh_1[2].y), float(g.sh_1[2].z),
+        float(g.normal.x), float(g.normal.y), float(g.normal.z), g.stroke_age,
+        float(g.brush_axes.x), float(g.brush_axes.y),
     };
     static_assert(sizeof(fields) == 124, "GSF v3 float field layout");
     for (uint32_t i = 0; i < 31; i++) {
@@ -103,7 +103,7 @@ inline Error encode(const ::GaussianData::SaveSnapshot &p_snapshot, PackedByteAr
 }
 
 // All metadata and the exact byte extent are validated before staging allocation.
-inline Error decode(const PackedByteArray &p_payload, uint32_t p_declared_count,
+inline Error decode(const PackedByteArray &p_payload, uint32_t p_declared_count, uint64_t p_memory_budget,
         LocalVector<Gaussian> &r_gaussians, LocalVector<Vector3> &r_high_order,
         uint32_t &r_first, uint32_t &r_high, bool &r_mode_2d, bool &r_antialiased) {
     ERR_FAIL_COND_V(p_payload.size() < PREFIX_SIZE, ERR_FILE_CORRUPT);
@@ -119,6 +119,10 @@ inline Error decode(const PackedByteArray &p_payload, uint32_t p_declared_count,
     const uint64_t high_elements = uint64_t(count) * high;
     const uint64_t expected_size = PREFIX_SIZE + uint64_t(count) * RECORD_SIZE + high_elements * 12;
     ERR_FAIL_COND_V(expected_size != uint64_t(p_payload.size()), ERR_FILE_CORRUPT);
+    // Canonical float32 records are smaller than the in-memory Gaussian ABI.
+    // Bound staging independently so the decode buffer plus staging remain <= 2B.
+    const uint64_t staging_bytes = uint64_t(count) * sizeof(Gaussian) + high_elements * sizeof(Vector3);
+    ERR_FAIL_COND_V(staging_bytes > p_memory_budget, ERR_FILE_CORRUPT);
     r_gaussians.resize(count);
     r_high_order.resize(high_elements);
     uint64_t offset = PREFIX_SIZE;

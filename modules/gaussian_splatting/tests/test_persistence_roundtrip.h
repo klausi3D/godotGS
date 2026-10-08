@@ -3772,6 +3772,11 @@ Ref<GaussianData> gsf_v3_make_payload(uint32_t p_degree, uint32_t p_flags, bool 
         g.rotation = Quaternion(0, 0, 0, 1);
         g.opacity = 0.375f + float(i) * 0.125f;
         g.sh_dc = Color(-0.25f, 0.5f, 0.75f, 1);
+        g.area = 0.25f + float(i) / 8;
+        g.normal = Vector3(0, 1, 0);
+        g.stroke_age = float(i) / 4;
+        g.brush_axes = Vector2(0.5f, 0.75f);
+        g.painterly_meta = 0x12340000u + i;
         g.render_meta = i; // Both existing DC encodings are preserved verbatim.
         for (uint32_t j = 0; j < first; j++) {
             g.sh_1[j] = Vector3(float(i + j) / 8, -float(j) / 16, 0.25f);
@@ -3813,6 +3818,11 @@ void gsf_v3_check_payload(const GaussianData *p_expected, const GaussianData *p_
         CHECK(a.opacity == e.opacity);
         CHECK(a.sh_dc == e.sh_dc);
         CHECK(a.render_meta == e.render_meta);
+        CHECK(a.area == e.area);
+        CHECK(a.normal == e.normal);
+        CHECK(a.stroke_age == e.stroke_age);
+        CHECK(a.brush_axes == e.brush_axes);
+        CHECK(a.painterly_meta == e.painterly_meta);
         for (uint32_t j = 0; j < 3; j++) {
             CHECK(a.sh_1[j] == e.sh_1[j]);
         }
@@ -4088,5 +4098,35 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects ambiguous chunks and 
         CHECK(target->get_content_revision() == revision);
         gsf_v3_check_payload(expected.ptr(), target.ptr());
     }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 bounds in-memory staging separately from canonical wire size") {
+    const String path = _make_persistence_fixture_path("gsf_v3_staging_budget");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source;
+    source.instantiate();
+    source->resize(100);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_compression_type(GaussianSplatting::CompressionType::NONE);
+    if (serializer.save_scene(path, source.ptr()) != OK) {
+        FAIL("Valid seed save failed");
+        return;
+    }
+    // The complete 13232-byte wire payload fits; the 14400-byte staging ABI does not.
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(13300);
+    Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+    const uint64_t revision = target->get_content_revision();
+    const Error validated = serializer.validate_file(path);
+    const Error loaded = serializer.load_scene(path, target.ptr());
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(0);
+    CHECK(validated == ERR_FILE_CORRUPT);
+    CHECK(loaded == ERR_FILE_CORRUPT);
+    CHECK(target->get_content_revision() == revision);
+    Ref<GaussianData> expected = gsf_v3_make_payload(4, 3);
+    gsf_v3_check_payload(expected.ptr(), target.ptr());
     _remove_persistence_fixture(path);
 }
