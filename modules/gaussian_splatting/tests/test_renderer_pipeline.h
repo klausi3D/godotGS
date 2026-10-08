@@ -788,7 +788,7 @@ TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
 
     CHECK(offsetof(PackedGaussian, rotation) == size_t(32));
     CHECK(offsetof(PackedGaussian, sh) == size_t(48));
-    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(124));
+    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(172));
 
     CHECK(offsetof(TileRenderParamsGPU, viewport_size) == size_t(256));
     CHECK(offsetof(TileRenderParamsGPU, camera_position) == size_t(320));
