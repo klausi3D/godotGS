@@ -104,3 +104,18 @@ in a density merge; cross-asset merge admission is a separate focused contract.
 Revert the focused adapter commits before adoption. Keep the GSF v3 reader for
 already saved files. Old SPZ import caches require reimport when changing decoder
 contracts; no silent reconstruction from incompatible cache data.
+
+## Qualification findings: pinned decoder integration patches
+
+The pinned public legacy gzip reader uses a non-positionable memory stream while
+its extension parser requires tell/seek. Real producer coordinate extensions are
+therefore ignored on that route. Add bounded memory-stream positioning; retain
+coordinate and higher-SH assertions on both the reference API and Godot adapter.
+
+A fixed compressed-size ratio is not a valid upper bound for repetitive Gaussian
+streams. Qualify a 100,000-point real producer file before changing this guard.
+Replace that heuristic with exact bounded TOC/stream extents and an absolute
+1-GiB expanded packed-payload cap before library allocation. Preserve the
+adapter's stricter point, input and machine working-memory limits. Validate frame
+content size when supplied and reject inconsistent stream extents; do not raise
+an acceptance threshold to conceal malformed input or allocator failures.
