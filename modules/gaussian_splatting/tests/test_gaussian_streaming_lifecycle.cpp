@@ -1840,6 +1840,19 @@ void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_reside
 } // namespace
 
 TEST_CASE("[Streaming Pipeline] The VRAM regulator lets the budget-sized atlas fill to its occupancy target (#1088)") {
+    SUBCASE("fixture isolates and restores an enabled global quantization setting") {
+        const bool saved_quantization = g_quantization_config.per_chunk_quantization;
+        g_quantization_config.per_chunk_quantization = true;
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 44);
+        const bool quantization_restored = g_quantization_config.per_chunk_quantization;
+        g_quantization_config.per_chunk_quantization = saved_quantization;
+        CHECK(quantization_restored);
+        CHECK_EQ(system._test_atlas_gaussian_stride_bytes(), uint64_t(sizeof(PackedGaussian)));
+        bool blocked = false;
+        CHECK_EQ(system._test_evict_for_vram_budget(blocked), 0u);
+        CHECK_EQ(system.get_loaded_chunks(), 44u);
+    }
     SUBCASE("86% full: admission stays open and nothing is evicted ahead of demand") {
         GaussianStreamingSystem system;
         _setup_regulated_atlas(system, 44); // 440 of 512 pages
