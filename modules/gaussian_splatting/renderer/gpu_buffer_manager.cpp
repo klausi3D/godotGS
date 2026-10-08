@@ -1,4 +1,5 @@
 #include "gpu_buffer_manager.h"
+#include "gpu_record_sizes.h"
 
 #include "core/os/os.h"
 #include "servers/rendering/rendering_device.h"
@@ -225,9 +226,14 @@ Error GPUBufferManager::create_buffers() {
     }
 
     // Calculate buffer sizes
-    uint32_t gaussian_buffer_size = sizeof(PackedGaussian) * max_gaussians;
-    uint32_t sort_key_buffer_size = sizeof(SortKey) * max_gaussians;
-    uint32_t indices_buffer_size = sizeof(uint32_t) * max_gaussians;
+    uint32_t gaussian_buffer_size = 0;
+    uint32_t sort_key_buffer_size = 0;
+    uint32_t indices_buffer_size = 0;
+    ERR_FAIL_COND_V_MSG((allocate_gaussian_buffer &&
+                    !gs_gpu_record_buffer_size(max_gaussians, sizeof(PackedGaussian), 1, gaussian_buffer_size)) ||
+            !gs_gpu_record_buffer_size(max_gaussians, sizeof(SortKey), 1, sort_key_buffer_size) ||
+            !gs_gpu_record_buffer_size(max_gaussians, sizeof(uint32_t), 1, indices_buffer_size),
+            ERR_INVALID_PARAMETER, "Gaussian buffer capacity exceeds addressable GPU buffer bytes");
     uint32_t uniform_buffer_size = 256; // For view matrix and other uniforms
 
     for (uint32_t i = 0; i < BUFFER_COUNT; i++) {

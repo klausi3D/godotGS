@@ -459,6 +459,42 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Band-1 SH renders the ref
 	g_quantization_config = saved_quantization;
 }
 
+#include "../renderer/gpu_record_sizes.h"
+
+TEST_CASE("[GaussianSplatting][SHEncoding] GPU byte sizing rejects overflow and covers every aligned upload byte") {
+	for (uint32_t count : { 0u, 1u, 2u, 3u, 15u, 16u, 17u, 255u, 256u, 257u }) {
+		uint32_t bytes = 0;
+		const bool valid = gs_gpu_record_buffer_size(count, sizeof(PackedGaussian), 256, bytes);
+		CHECK(valid);
+		if (!valid) {
+			continue;
+		}
+		CHECK_EQ(bytes % 256, 0u);
+		CHECK(uint64_t(bytes) >= uint64_t(count) * sizeof(PackedGaussian));
+		CHECK(uint64_t(bytes) < uint64_t(count) * sizeof(PackedGaussian) + 256);
+		const uint32_t scratch_count = gs_gpu_upload_scratch_count(bytes, sizeof(PackedGaussian));
+		CHECK(uint64_t(scratch_count) * sizeof(PackedGaussian) >= bytes);
+		if (scratch_count > 0) {
+			CHECK(uint64_t(scratch_count - 1) * sizeof(PackedGaussian) < bytes);
+		}
+	}
+	for (uint32_t stride : { uint32_t(sizeof(PackedGaussian)), uint32_t(sizeof(PackedGaussian) + sizeof(uint32_t)) }) {
+		const uint32_t max_aligned = UINT32_MAX & ~255u;
+		const uint32_t largest_count = max_aligned / stride;
+		uint32_t bytes = 0;
+		CHECK(gs_gpu_record_buffer_size(largest_count, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(largest_count + 1, stride, 256, bytes));
+		CHECK_EQ(bytes, 0u);
+		CHECK_FALSE(gs_gpu_record_buffer_size(25000000, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(UINT32_MAX, stride, 256, bytes));
+	}
+	uint32_t bytes = 123;
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 0, 256, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 0, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 3, bytes));
+	CHECK_EQ(bytes, 0u);
+}
+
 TEST_CASE("[GaussianSplatting][SHEncoding] Both GPU layouts preserve every SH0–4 term and zero unused storage") {
 	Vector3 expected[24];
 	for (uint32_t i = 0; i < 24; i++) {
