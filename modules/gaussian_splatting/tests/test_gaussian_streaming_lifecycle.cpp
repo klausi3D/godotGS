@@ -1799,14 +1799,16 @@ TEST_CASE("[Streaming Pipeline] Atlas accounting follows the allocated run, not 
 
 namespace {
 
-// A 512-page atlas (64 MiB at 128 B) under a 64 MiB budget with the default 85% warning threshold,
+// A 512-page atlas under its actual byte budget with the default 85% warning threshold,
 // 10-page chunks, and a 64-chunk cap. Before #1088's regulator alignment the regulator compared
 // payload to the budget: it stopped admitting at 85% and evicted ahead of demand at 76.5%.
 void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_resident_chunks) {
     GaussianStreamingSystem::ConfigOverrides overrides;
     overrides.override_vram_budget = true;
     overrides.vram_budget_config.auto_regulate_enabled = false;
-    overrides.vram_budget_config.budget_mb = 64;
+    const uint64_t atlas_bytes = 512u * uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) *
+            r_system._test_atlas_gaussian_stride_bytes();
+    overrides.vram_budget_config.budget_mb = uint32_t(atlas_bytes / (1024u * 1024u));
     overrides.vram_budget_config.min_chunks = 1;
     overrides.vram_budget_config.max_chunks = 64;
     r_system.set_config_overrides(overrides);
