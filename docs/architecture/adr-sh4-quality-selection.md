@@ -35,3 +35,21 @@ No renderer performance or superiority claim follows from structural tests.
 
 Revert selection/config/telemetry together; retain complete imported/stored SH.
 Document that the reverted renderer explicitly reduces degree-four assets.
+
+## Selection transport addendum (before implementation)
+
+The normal record has no chunk identifier. StageB already knows the chunk when
+emitting each visible reference; carry its current SH degree in the top three
+bits of the reference atlas-index word. The low29 bits remain the physical index.
+Checked RD record-byte limits permit fewer than2^29 normal/quantized records.
+StageB rejects indices outside that encoding range before reading/emitting;
+binning decodes the physical index and degree for both record permutations.
+Sort/gather moves the reference as opaque words and keeps physical-index tie keys.
+The eight-byte reference ABI and its allocation size remain unchanged. Host test
+fixtures use the shared scalar codec with limit4. This is a GPU-only internal
+semantic change: no file/cache payload or public scene API uses this reference.
+
+Synchronize the effective global SH config at the central production streaming
+update entry, including early-return paths. This reaches every active system.
+ProjectSettings changes still follow the existing config reload lifecycle; this
+change does not introduce a new live-setting subscription.
