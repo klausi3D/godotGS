@@ -69,6 +69,48 @@ class ClassifyChangeTest(unittest.TestCase):
         self.assertEqual(self._cls(["README.md"]), "R0")
         self.assertEqual(self._cls(["CONTRIBUTING.md"]), "R0")
 
+    # Docs-site build / publish tooling. These decide what the public site builds
+    # and publishes, so they are R1, not R0; the required docs-build check catches a
+    # broken build, so they are not R3 either.
+    DOCS_SITE_TOOLING_R1 = (
+        "mkdocs.yml",
+        "overrides/home.html",
+        "overrides/partials/nested/footer.html",
+        "scripts/stage_public_docs.py",
+        "scripts/build_documentation.py",
+        "scripts/build_docs_site.py",
+        "scripts/check_docs_media_budget.py",
+        "scripts/docs/check_doxygen_output.py",
+        "scripts/docs/release_acceptance.py",
+        "docs/requirements.txt",
+        "docs/requirements-site.txt",
+        "docs/requirements-lock.txt",
+        "docs/assets/javascripts/latest-nightlies.js",
+    )
+
+    def test_docs_site_tooling_is_r1(self):
+        for path in self.DOCS_SITE_TOOLING_R1:
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R1")
+
+    def test_docs_site_tooling_rule_does_not_reach_neighbouring_paths(self):
+        # The rule names exact files, so neighbours keep their own class: other
+        # scripts fail closed to R3, the link checker run by the required agentic
+        # gate stays R3, and ordinary docs pages and assets stay R0.
+        for path, expected in (
+            ("scripts/docs/check_links.py", "R3"),
+            ("scripts/docs/some_new_docs_check.py", "R3"),
+            ("scripts/generate_shader_docs.py", "R3"),
+            ("scripts/stage_public_docs.py.bak", "R3"),
+            ("overrides.yml", "R3"),
+            ("site/overrides/home.html", "R3"),
+            ("docs/mkdocs.yml", "R0"),
+            ("docs/assets/images/logo.png", "R0"),
+            ("docs/getting-started/downloads.md", "R0"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), expected)
+
     def test_unknown_sensitive_path_fails_closed_to_r3(self):
         self.assertEqual(self._cls(["some/unmapped/path.bin"]), "R3")
 

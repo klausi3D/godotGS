@@ -150,6 +150,22 @@
         ]
       },
       {
+        "class": "R1",
+        "reason": "Docs-site build / publish tooling",
+        "path_globs": [
+          "mkdocs.yml",
+          "overrides/**",
+          "scripts/stage_public_docs.py",
+          "scripts/build_documentation.py",
+          "scripts/build_docs_site.py",
+          "scripts/check_docs_media_budget.py",
+          "scripts/docs/check_doxygen_output.py",
+          "scripts/docs/release_acceptance.py",
+          "docs/requirements*.txt",
+          "docs/assets/javascripts/**"
+        ]
+      },
+      {
         "class": "R0",
         "reason": "Docs / agentic governance",
         "path_globs": [

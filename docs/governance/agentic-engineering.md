@@ -102,8 +102,16 @@ from the changed paths:
   matches, and the PR takes the highest class among its paths.
 - **Any path that matches no rule is R3** (`classification.default_unclassified`).
   This covers every unlisted path, not only sensitive ones: for example
-  `scripts/docs/*.py`, other `scripts/*.py` outside `scripts/agentic/`,
+  `scripts/docs/check_links.py`, any other `scripts/**/*.py` outside
+  `scripts/agentic/` and the docs-site tooling below,
   `.gitignore` and `LICENSE.txt` all classify as R3.
+- **Docs-site build and publish tooling is R1**, not R0: `mkdocs.yml`,
+  `overrides/**`, `scripts/stage_public_docs.py`, `scripts/build_documentation.py`,
+  `scripts/build_docs_site.py`, `scripts/check_docs_media_budget.py`,
+  `scripts/docs/check_doxygen_output.py`, `scripts/docs/release_acceptance.py`,
+  `docs/requirements*.txt` and `docs/assets/javascripts/**`. They decide what the
+  public site builds and publishes; the required `docs-build` check catches a
+  broken build.
 - **A diff that touches `.agentic/policy.json` is forced to the top class**, R3
   (`SELF_REFERENTIAL_PATHS` in the classifier), although the rules list
   `.agentic/**` as R0. The rest of `.agentic/` stays R0.
