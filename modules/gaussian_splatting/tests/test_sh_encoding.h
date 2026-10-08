@@ -58,7 +58,7 @@ static double real_sh(int l, int m, const Vector3 &dir) {
     }
     double ratio = 1.0;
     for (int k = l - order + 1; k <= l + order; k++) ratio /= k;
-    double result = std::sqrt((2*l + 1)*ratio/(4.0*Math_PI))*plm;
+    double result = std::sqrt((2*l + 1)*ratio/(4.0*std::acos(-1.0)))*plm;
     if (m != 0) {
         const double phi = std::atan2(double(dir.y), double(dir.x));
         result *= std::sqrt(2.0)*(m < 0 ? std::sin(order*phi) : std::cos(order*phi));
@@ -196,6 +196,40 @@ inline void check_round_trip(const Vector3 *p_expected, const uint32_t *p_words,
 }
 
 } // namespace TestSHEncoding
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Packed partial SH prefixes retain higher-term colours") {
+    const Vector3 dir = Vector3(1, -2, 3).normalized();
+    const Vector3 first_terms[3] = { Vector3(0.2, -0.1, 0.3), Vector3(-0.4, 0.2, 0.1), Vector3(0.1, 0.3, -0.2) };
+    const Vector3 high_terms[5] = { Vector3(-0.2, 0.3, 0.1), Vector3(0.4, -0.1, 0.2), Vector3(0.1, 0.2, -0.3), Vector3(-0.1, -0.4, 0.2), Vector3(0.3, 0.1, -0.2) };
+    const Gaussian g = TestSHEncoding::make_sh_gaussian(first_terms[0], first_terms[1], first_terms[2]);
+    for (uint32_t stored_first = 0; stored_first <= 3; stored_first++) {
+        PackedGaussian packed = {};
+        SHCompressionMetrics metrics;
+        pack_gaussian(g, packed, metrics, high_terms, stored_first, 5);
+        for (uint32_t visible_words = 0; visible_words <= stored_first + 5; visible_words++) {
+            const uint32_t first = GSProductionSHBasis::gs_sh_first_count(stored_first, visible_words);
+            const uint32_t high = GSProductionSHBasis::gs_sh_high_count(5, stored_first, visible_words);
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, 2, basis);
+            Vector3 decoded, expected;
+            double error_bound = 1e-5;
+            for (uint32_t i = 0; i < first; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[i], packed.sh.dc[3])*basis[1+i];
+                expected += first_terms[i]*GSReferenceSHBasis::real_sh(1, int(i)-1, dir);
+                error_bound += std::abs(double(basis[1+i]))*packed.sh.dc[3]/511.0;
+            }
+            for (uint32_t i = 0; i < high; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[first+i], packed.sh.dc[3])*basis[4+i];
+                expected += high_terms[i]*GSReferenceSHBasis::real_sh(2, int(i)-2, dir);
+                error_bound += std::abs(double(basis[4+i]))*packed.sh.dc[3]/511.0;
+            }
+            CAPTURE(stored_first, visible_words);
+            CHECK(std::abs(double(decoded.x - expected.x)) <= error_bound);
+            CHECK(std::abs(double(decoded.y - expected.y)) <= error_bound);
+            CHECK(std::abs(double(decoded.z - expected.z)) <= error_bound);
+        }
+    }
+}
 
 TEST_CASE("[GaussianSplatting][SHEncoding] Negative band-1 SH survives the unquantized packer (#1054 reproduction)") {
 	// The audit probe's splat: before the fix sh_1[0] decoded as (0, 0.2, 0).
