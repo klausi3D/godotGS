@@ -57,11 +57,11 @@ static_assert(offsetof(AssetMetaGPU, lod_ranges) == 48, "AssetMetaGPU.lod_ranges
 static_assert(sizeof(ChunkMetaGPU) == 64, "ChunkMetaGPU size contract changed");
 static_assert(offsetof(ChunkMetaGPU, sh_limit) == 44, "ChunkMetaGPU.sh_limit offset contract changed");
 static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU size contract changed");
-static_assert(sizeof(PackedGaussian) == 128, "PackedGaussian size contract changed");
+static_assert(sizeof(PackedGaussian) == 176, "PackedGaussian size contract changed");
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset contract changed");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset contract changed");
-static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_metadata offset contract changed");
-static_assert(sizeof(PackedGaussianQuantized) == 80, "PackedGaussianQuantized size contract changed");
+static_assert(offsetof(PackedGaussian, sh_metadata) == 172, "PackedGaussian.sh_metadata offset contract changed");
+static_assert(sizeof(PackedGaussianQuantized) == 160, "PackedGaussianQuantized size contract changed");
 static_assert(sizeof(TileRenderParamsGPU) == 944, "TileRenderParamsGPU size contract changed");
 static_assert(offsetof(TileRenderParamsGPU, viewport_size) == 256, "TileRenderParamsGPU.viewport_size offset contract changed");
 static_assert(offsetof(TileRenderParamsGPU, camera_position) == 320, "TileRenderParamsGPU.camera_position offset contract changed");
@@ -781,14 +781,14 @@ TEST_CASE("[GaussianSplatting] GPU layout contract invariants remain stable") {
     CHECK(sizeof(AssetMetaGPU) == size_t(112));
     CHECK(sizeof(ChunkMetaGPU) == size_t(64));
     CHECK(sizeof(SplatRefGPU) == size_t(8));
-    CHECK(sizeof(PackedGaussian) == size_t(128));
-    CHECK(sizeof(PackedGaussianQuantized) == size_t(80));
+    CHECK(sizeof(PackedGaussian) == size_t(176));
+    CHECK(sizeof(PackedGaussianQuantized) == size_t(160));
     CHECK(sizeof(TileRenderParamsGPU) == size_t(944));
     CHECK(offsetof(TileRenderParamsGPU, effector_opacity_configs) == size_t(832));
 
     CHECK(offsetof(PackedGaussian, rotation) == size_t(32));
     CHECK(offsetof(PackedGaussian, sh) == size_t(48));
-    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(124));
+    CHECK(offsetof(PackedGaussian, sh_metadata) == size_t(172));
 
     CHECK(offsetof(TileRenderParamsGPU, viewport_size) == size_t(256));
     CHECK(offsetof(TileRenderParamsGPU, camera_position) == size_t(320));
