@@ -4,7 +4,7 @@ Status: proposed for v1; R3 public rendering semantics, human disposition requir
 
 ## Decision
 
-Expose SH4 in project settings and carry degree limits0–4 through resident chunk
+Expose SH4 in project settings and carry degree limits 0–4 through resident chunk
 metadata, streaming selection and shader render parameters. Default code quality
 becomes SH4 so newly imported degree-four assets are not silently reduced. Existing
 explicit settings and named quality tiers retain their recommendations; the
@@ -15,17 +15,17 @@ Streaming SH reduction is relative to the configured global maximum: at LOD0 use
 that maximum, then decrease one degree per LOD when reduction is enabled. Disabling
 reduction preserves the maximum. Changing the global maximum invalidates cached
 LOD parameter state, even with geometric LOD disabled. Existing standalone
-LODConfig calls retain their default maximum3 for source compatibility; renderer
+LODConfig calls retain their default maximum 3 for source compatibility; renderer
 calls supply the actual configured maximum. Existing splat/VRAM thresholds remain.
 
-SH distribution telemetry gains a fifth entry, preserving existing indices0–3,
+SH distribution telemetry gains a fifth entry, preserving existing indices 0–3,
 and a degree-four monitor. Report coefficient counts as logical work, not actual
-VRAM savings: record allocation is fixed176/160 bytes regardless of selected degree.
+VRAM savings: record allocation is fixed 176/160 bytes regardless of selected degree.
 No format change, antialias compensation, HLOD or performance optimization here.
 
 ## Validation and release evidence
 
-Native tests cover degree4 config/counts, old explicit degrees, LOD reductions,
+Native tests cover degree 4 config/counts, old explicit degrees, LOD reductions,
 runtime maximum changes with LOD enabled/disabled and five-entry distributions.
 Require meaningful clamp/cache mutations, shader matrix compilation, two
 independent reviews, uncontended GPU and real-scan comparisons before merge.
@@ -40,8 +40,8 @@ Document that the reverted renderer explicitly reduces degree-four assets.
 
 The normal record has no chunk identifier. StageB already knows the chunk when
 emitting each visible reference; carry its current SH degree in the top three
-bits of the reference atlas-index word. The low29 bits remain the physical index.
-Checked RD record-byte limits permit fewer than2^29 normal/quantized records.
+bits of the reference atlas-index word. The low 29 bits remain the physical index.
+Checked RD record-byte limits permit fewer than 2^29 normal/quantized records.
 StageB rejects indices outside that encoding range before reading/emitting;
 binning decodes the physical index and degree for both record permutations.
 Sort/gather moves the reference as opaque words and keeps physical-index tie keys.
