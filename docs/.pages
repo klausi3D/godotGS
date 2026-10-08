@@ -107,6 +107,7 @@ nav:
               - Decompose the Streaming System: architecture/adr-decompose-streaming-system.md
               - Splat Colour Encoding: architecture/adr-splat-colour-encoding.md
               - Complete v1 Splat Data Contract: architecture/adr-v1-splat-data-contract.md
+              - SPZ v4 Reference Adapter: architecture/adr-spz-v4-reference-adapter.md
               - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md
               - Import Importance Pruning: architecture/adr-import-importance-pruning.md
               - Import Input Hardening: architecture/adr-import-input-hardening.md
