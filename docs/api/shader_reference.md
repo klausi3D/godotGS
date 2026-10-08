@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `186` documented functions, `13` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `186` documented functions, `15` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -898,6 +898,28 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
+## gs_sh_basis.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_sh_basis.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_sh_first_count(uint first, uint encoded)</code></pre></td>
+      <td>Compact packing places higher terms immediately after the stored first prefix.</td>
+    </tr>
+  </tbody>
+</table>
+
+
 ## gs_sh_binning.glsl
 
 `modules/gaussian_splatting/shaders/includes/gs_sh_binning.glsl`
@@ -937,16 +959,12 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>True when the splat carries SH words in a format this decoder does not understand. evaluate_sh_with_bands() then falls back to DC only; callers count it (debug counter sh_unknown_encoding_count) so the fallback is observable rather than silent.</td>
     </tr>
     <tr>
-      <td><pre><code>compute_sh_basis(vec3 dir, uint max_band, out float basis[16])</code></pre></td>
-      <td>SH sign convention (ISSUE-038): Condon-Shortley phase included. This evaluation uses the real spherical harmonics basis with the Condon-Shortley (CS) phase factor.  Matches ply_loader.cpp import convention and gaussian_splat_common_inc.glsl.  See those files for full documentation. Compute SH basis functions up to the specified band level basis[0] = DC (l=0) basis[1-3] = 1st order (l=1) basis[4-8] = 2nd order (l=2) basis[9-15] = 3rd order (l=3)</td>
-    </tr>
-    <tr>
       <td><pre><code>compute_sh_basis_1st_order(vec3 dir, out float basis[4])</code></pre></td>
       <td>Legacy 1st order basis for backwards compatibility</td>
     </tr>
     <tr>
       <td><pre><code>evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level)</code></pre></td>
-      <td>Evaluate SH color with configurable band level sh_band_level: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order</td>
+      <td>Evaluate SH color with configurable band level sh_band_level: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order, 4=4th order</td>
     </tr>
     <tr>
       <td><pre><code>evaluate_sh_1st_order(Gaussian g, vec3 view_dir)</code></pre></td>

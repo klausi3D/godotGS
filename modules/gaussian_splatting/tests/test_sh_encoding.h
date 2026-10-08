@@ -21,8 +21,107 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering_server.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
+
+// Compile the exact production polynomial source into the native test.
+// The independent reference below uses a recurrence, not those polynomials.
+namespace GSProductionSHBasis {
+using uint = uint32_t;
+using std::min;
+#define vec3 Vector3
+#define GS_SH_OUT
+#include "../shaders/includes/gs_sh_basis.glsl"
+#undef GS_SH_OUT
+#undef vec3
+}
+
+namespace GSReferenceSHBasis {
+static double real_sh(int l, int m, const Vector3 &dir) {
+    const int order = m < 0 ? -m : m;
+    const double z = dir.z;
+    double pmm = 1.0;
+    for (int k = 1; k <= order; k++) {
+        pmm *= -(2*k - 1)*std::sqrt(std::max(0.0, 1.0 - z*z));
+    }
+    double plm = pmm;
+    if (l > order) {
+        double previous = pmm;
+        plm = (2*order + 1)*z*pmm;
+        for (int degree = order + 2; degree <= l; degree++) {
+            double next = ((2*degree - 1)*z*plm - (degree + order - 1)*previous)/(degree - order);
+            previous = plm;
+            plm = next;
+        }
+    }
+    double ratio = 1.0;
+    for (int k = l - order + 1; k <= l + order; k++) ratio /= k;
+    double result = std::sqrt((2*l + 1)*ratio/(4.0*std::acos(-1.0)))*plm;
+    if (m != 0) {
+        const double phi = std::atan2(double(dir.y), double(dir.x));
+        result *= std::sqrt(2.0)*(m < 0 ? std::sin(order*phi) : std::cos(order*phi));
+    }
+    return result;
+}
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH0-4 basis agrees with independent Legendre recurrence") {
+    for (int sample = 0; sample < 130; sample++) {
+        Vector3 dir;
+        if (sample < 2) {
+            dir = Vector3(0, 0, sample == 0 ? 1 : -1);
+        } else {
+            const double z = 1.0 - 2.0*(double(sample - 2) + 0.5)/128.0;
+            const double phi = double(sample - 2)*2.39996322972865332;
+            const double radius = std::sqrt(1.0 - z*z);
+            dir = Vector3(radius*std::cos(phi), radius*std::sin(phi), z);
+        }
+        for (uint32_t band = 0; band <= 5; band++) {
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, band, basis);
+            for (int l = 0; l <= 4; l++) {
+                for (int m = -l; m <= l; m++) {
+                    const int index = l*l + l + m;
+                    const double expected = uint32_t(l) <= band ? GSReferenceSHBasis::real_sh(l, m, dir) : 0.0;
+                    CAPTURE(sample);
+                    CAPTURE(band);
+                    CAPTURE(l);
+                    CAPTURE(m);
+                    CHECK(std::abs(double(basis[index]) - expected) < 2e-6);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH3 sign and normalized m2 regression") {
+    const Vector3 dir = Vector3(1, 2, 3).normalized();
+    float basis[25];
+    GSProductionSHBasis::gs_compute_real_sh_basis(dir, 3, basis);
+    CHECK(basis[11] < 0.0f);
+    CHECK(basis[13] < 0.0f);
+    CHECK(std::abs(double(basis[14]) - GSReferenceSHBasis::real_sh(3, 2, dir)) < 2e-6);
+    for (int i = 16; i < 25; i++) CHECK(basis[i] == 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH metadata bounds compact prefixes") {
+    struct Counts { uint32_t first, high, encoded, expected_first, expected_high; };
+    const Counts cases[] = {
+        { 3, 21, 24, 3, 21 }, { 1, 5, 6, 1, 5 }, { 0, 5, 5, 0, 5 },
+        { 2, 12, 14, 2, 12 }, { 3, 21, 0, 0, 0 }, { 3, 21, 2, 2, 0 },
+        { 255, 255, 24, 3, 21 }, { 0, 255, 24, 0, 21 }, { 1, 255, 24, 1, 21 }
+    };
+    for (const Counts &c : cases) {
+        const uint32_t first = GSProductionSHBasis::gs_sh_first_count(c.first, c.encoded);
+        const uint32_t high = GSProductionSHBasis::gs_sh_high_count(c.high, c.first, c.encoded);
+        CHECK(first == c.expected_first);
+        CHECK(high == c.expected_high);
+        CHECK(first + high <= c.encoded);
+        CHECK(first + high <= 24u);
+    }
+}
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).
 // SH coefficients are signed. Both GPU packers now store each coefficient triplet as three
@@ -100,6 +199,41 @@ inline void check_round_trip(const Vector3 *p_expected, const uint32_t *p_words,
 }
 
 } // namespace TestSHEncoding
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Packed partial SH prefixes retain higher-term colours") {
+    const Vector3 dir = Vector3(1, -2, 3).normalized();
+    const Vector3 first_terms[3] = { Vector3(0.2, -0.1, 0.3), Vector3(-0.4, 0.2, 0.1), Vector3(0.1, 0.3, -0.2) };
+    const Vector3 high_terms[5] = { Vector3(-0.2, 0.3, 0.1), Vector3(0.4, -0.1, 0.2), Vector3(0.1, 0.2, -0.3), Vector3(-0.1, -0.4, 0.2), Vector3(0.3, 0.1, -0.2) };
+    const Gaussian g = TestSHEncoding::make_sh_gaussian(first_terms[0], first_terms[1], first_terms[2]);
+    for (uint32_t stored_first = 0; stored_first <= 3; stored_first++) {
+        PackedGaussian packed = {};
+        SHCompressionMetrics metrics;
+        pack_gaussian(g, packed, metrics, high_terms, stored_first, 5);
+        for (uint32_t visible_words = 0; visible_words <= stored_first + 5; visible_words++) {
+            const uint32_t first = GSProductionSHBasis::gs_sh_first_count(stored_first, visible_words);
+            const uint32_t high = GSProductionSHBasis::gs_sh_high_count(5, stored_first, visible_words);
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, 2, basis);
+            Vector3 decoded, expected;
+            double error_bound = 1e-5;
+            for (uint32_t i = 0; i < first; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[i], packed.sh.dc[3])*basis[1+i];
+                expected += first_terms[i]*GSReferenceSHBasis::real_sh(1, int(i)-1, dir);
+                error_bound += std::abs(double(basis[1+i]))*packed.sh.dc[3]/511.0;
+            }
+            for (uint32_t i = 0; i < high; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[first+i], packed.sh.dc[3])*basis[4+i];
+                expected += high_terms[i]*GSReferenceSHBasis::real_sh(2, int(i)-2, dir);
+                error_bound += std::abs(double(basis[4+i]))*packed.sh.dc[3]/511.0;
+            }
+            CAPTURE(stored_first);
+            CAPTURE(visible_words);
+            CHECK(std::abs(double(decoded.x - expected.x)) <= error_bound);
+            CHECK(std::abs(double(decoded.y - expected.y)) <= error_bound);
+            CHECK(std::abs(double(decoded.z - expected.z)) <= error_bound);
+        }
+    }
+}
 
 TEST_CASE("[GaussianSplatting][SHEncoding] Negative band-1 SH survives the unquantized packer (#1054 reproduction)") {
 	// The audit probe's splat: before the fix sh_1[0] decoded as (0, 0.2, 0).
