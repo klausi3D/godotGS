@@ -96,5 +96,32 @@ class IndirectDispatchAbiWiringTests(unittest.TestCase):
         )
 
 
+class QuantizedStorageWiringTests(unittest.TestCase):
+    def test_main_builds_the_quantized_contract_from_host_storage(self) -> None:
+        with mock.patch.object(guard, "_build_quantized_expected_layout", wraps=guard._build_quantized_expected_layout) as build:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(guard.main(), 0)
+        build.assert_called_once()
+
+    def test_main_compares_the_actual_quantized_shader_storage(self) -> None:
+        real = guard._compare_layouts
+        compared = []
+
+        def recording(expected, actual, source_path, source_struct_name, expected_label, failures):
+            if source_struct_name == "GaussianQuantized":
+                compared.append((expected.size, actual.size, tuple(actual.fields)))
+            return real(expected, actual, source_path, source_struct_name, expected_label, failures)
+
+        with mock.patch.object(guard, "_compare_layouts", recording):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(guard.main(), 0)
+        self.assertGreater(len(compared), 0, "the quantized storage contract must be compared with a real shader")
+        for expected_size, actual_size, fields in compared:
+            self.assertEqual(expected_size, 160)
+            self.assertEqual(actual_size, 160)
+            self.assertIn(guard.FlatField("sh_encoded", "uint", 24), fields)
+            self.assertIn(guard.FlatField("_tail_padding", "uint", 2), fields)
+
+
 if __name__ == "__main__":
     unittest.main()
