@@ -16,6 +16,7 @@
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/quantization_config.h"
 #include "../renderer/sh_config.h"
+#include "../renderer/splat_ref_encoding.h"
 #include "../lod/lod_config.h"
 
 #include "core/math/projection.h"
@@ -159,6 +160,22 @@ TEST_CASE("[GaussianSplatting][SHEncoding] SH4 config and relative LOD quality r
     CHECK(stats.to_string().contains("SH4:1"));
     stats.reset();
     CHECK(stats.sh_band_counts[4] == 0);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Visible reference carries bounded per-chunk SH quality") {
+    using namespace gs_splat_ref;
+    static_assert(uint64_t(UINT32_MAX)/sizeof(PackedGaussianQuantized) <= GS_SPLAT_REF_ATLAS_INDEX_MASK, "RD record bound exceeds reference index capacity");
+    const uint32_t indices[] = { 0u, 1u, 1234567u, GS_SPLAT_REF_ATLAS_INDEX_MASK };
+    for (uint32_t index : indices) {
+        CHECK(gs_splat_ref_can_encode(index));
+        for (uint32_t degree = 0; degree <= 7; degree++) {
+            uint32_t encoded = gs_pack_splat_ref_atlas_index(index, degree);
+            CHECK(gs_splat_ref_atlas_index(encoded) == index);
+            CHECK(gs_splat_ref_sh_limit(encoded) == MIN(degree, 4u));
+        }
+    }
+    CHECK_FALSE(gs_splat_ref_can_encode(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u));
+    CHECK(gs_pack_splat_ref_atlas_index(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u, 4u) == UINT32_MAX);
 }
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).

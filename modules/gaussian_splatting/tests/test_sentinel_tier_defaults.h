@@ -1,3 +1,4 @@
+#include "../core/gaussian_streaming.h"
 /**
  * @file test_sentinel_tier_defaults.h
  * @brief Regression tests for sentinel-based quality tier defaults.
@@ -74,7 +75,7 @@ TEST_CASE("[GaussianSplatting][Config] SH bands: sentinel + no tier -> code defa
 	SHConfig config;
 	config.load_from_project_settings();
 
-	CHECK(config.sh_bands == SH_BAND_3);
+	CHECK(config.sh_bands == SH_BAND_4);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,4 +285,30 @@ TEST_CASE("[GaussianSplatting][Config] quantization: legacy bool false coerced t
 	config.load_from_project_settings();
 
 	CHECK(config.per_chunk_quantization == false);
+}
+
+TEST_CASE("[GaussianSplatting][Config] Explicit SH0-4 settings preserve precedence and production streaming quality") {
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!ps) { FAIL("ProjectSettings unavailable"); return; }
+    ProjectSettingGuard bands(ps, SHConfig::BANDS_PATH);
+    ProjectSettingGuard tier(ps, "rendering/gaussian_splatting/quality/tier_preset");
+    const SHConfig saved = g_sh_config;
+    struct RestoreSH { SHConfig value; ~RestoreSH() { g_sh_config = value; } } restore{saved};
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "steam_deck");
+    for (int degree = 0; degree <= 4; degree++) {
+        ps->set_setting(SHConfig::BANDS_PATH, degree);
+        g_sh_config.load_from_project_settings();
+        CHECK(int(g_sh_config.sh_bands) == degree);
+        CHECK(g_sh_config.sh_bands_source == "project_override");
+        system->update_streaming(Transform3D(), Projection());
+        CHECK(system->get_global_sh_band_level() == degree);
+    }
+    ps->set_setting(SHConfig::BANDS_PATH, -1);
+    g_sh_config.load_from_project_settings();
+    CHECK(g_sh_config.sh_bands == SH_BAND_1);
+    CHECK(g_sh_config.sh_bands_source == "tier_preset");
+    system->update_streaming(Transform3D(), Projection());
+    CHECK(system->get_global_sh_band_level() == 1);
 }

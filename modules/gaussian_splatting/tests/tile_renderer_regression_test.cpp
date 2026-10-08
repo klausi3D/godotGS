@@ -1,3 +1,4 @@
+#include "../renderer/splat_ref_encoding.h"
 #include "core/config/project_settings.h"
 #include "core/error/error_macros.h"
 #include "core/math/vector2i.h"
@@ -129,7 +130,7 @@ static InstancePipelineTestInputs create_instance_pipeline_test_inputs(Rendering
         SplatRefGPU *refs = reinterpret_cast<SplatRefGPU *>(splat_ref_data.ptrw());
         for (uint32_t i = 0; i < p_splat_count; i++) {
             refs[i].instance_id = 0u;
-            refs[i].atlas_index = i;
+            refs[i].atlas_index = gs_splat_ref::gs_pack_splat_ref_atlas_index(i, 4u);
         }
     }
     inputs.splat_ref_buffer = p_rd->storage_buffer_create(splat_ref_data.size(), splat_ref_data);
