@@ -19,19 +19,23 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 ## Required Checks
 
 `agentic-pr-gate` (the job name in `agentic_pr_gate.yml`, shown in the PR checks UI
-as `Agentic PR Gate / agentic-pr-gate`) **is** a required status check on `master`,
-and it is the **only** one. Live protection, read back with
-`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-08-14:
-`contexts: ["agentic-pr-gate"]`, `strict: false`, `enforce_admins: true`,
+as `Agentic PR Gate / agentic-pr-gate`) and `docs-build` (the job name in
+`docs_pages.yml`, shown as `Docs Pages (Versioned) / docs-build`) are the two
+required status checks on `master`. Live protection, read back with
+`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-10-08:
+`contexts: ["agentic-pr-gate", "docs-build"]`, `strict: false`, `enforce_admins: true`,
 `required_conversation_resolution: true`, `required_approving_review_count: 0`, force
 pushes and branch deletion blocked, no rulesets. See
 `docs/governance/github-settings.md` for the full table. An earlier revision of this
 section described the check as merely *intended* for branch protection; it was
-already live (`GS-AUDIT-DOC-003`).
+already live (`GS-AUDIT-DOC-003`). `docs-build` is the second required context
+(first observed 2026-10-08) and was built for it: no path filter on `pull_request` and no
+job-level `if:`, so it always reports a terminal status.
 
-Because `enforce_admins` is `true` and this is the only required context, a broken
-edit to `agentic_pr_gate.yml` blocks every merge in the repository, including its own
-fix. Every other lane — GPU, runtime, visual, release — is advisory at the merge
+Because `enforce_admins` is `true` and both contexts are required, a broken edit to
+`agentic_pr_gate.yml` blocks every merge in the repository, including its own fix,
+and a red `docs-build` blocks a merge exactly as a red `agentic-pr-gate` does, admins
+included. Every other lane — GPU, runtime, visual, release — is advisory at the merge
 boundary.
 
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
@@ -116,8 +120,8 @@ the checker grows a real GitHub Actions behavior parser.
 
 External checks are not automatically renderer release blockers. `qlty check`
 is currently documented in the manifest as a deferred, non-blocking external
-signal because `master` branch protection does **not** require it — the single
-required context is `agentic-pr-gate` (live state observed 2026-08-14, see
+signal because `master` branch protection does **not** require it — the required
+contexts are `agentic-pr-gate` and `docs-build` (live state observed 2026-10-08, see
 [Required Checks](#required-checks) above) — and the repo does not track a qlty
 configuration/log contract. If branch protection later requires qlty, update the
 manifest before treating a qlty result as part of public-alpha signoff.

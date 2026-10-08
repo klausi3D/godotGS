@@ -146,8 +146,8 @@ Wiring a contract source is the Phase-2 contract-source ADR; the limit is record
 ## What is enforced and what is process
 
 Live branch protection for `master`, read with
-`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-10-01: one
-required check (`agentic-pr-gate`), `enforce_admins: true`, conversation resolution
+`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-10-08: two
+required checks (`agentic-pr-gate`, `docs-build`), `enforce_admins: true`, conversation resolution
 required, `required_approving_review_count: 0`, `require_code_owner_reviews: false`,
 no rulesets. [GitHub settings](github-settings.md) has the full table. That API,
 not this page, is the source of truth.
@@ -161,6 +161,10 @@ not this page, is the source of truth.
   control plane is consistent, and the AGENTS.md files and the
   `docs/governance/` pages it lists exist), the `tests/agentic` suite, the
   documentation link check, and `run_module_tests.py --guard-only`.
+- The `docs-build` check passes (`docs_pages.yml`). It regenerates the docs
+  artifacts and fails when a committed generator output is stale, link-checks the
+  docs including generated output, stages the public tree, checks the media budget
+  and runs `mkdocs build --strict`. Its release-acceptance step is report-only.
 - The risk class is derived from the PR's own diff against the base policy, and
   the derivation fails closed (above). The class is published, not acted on.
 
