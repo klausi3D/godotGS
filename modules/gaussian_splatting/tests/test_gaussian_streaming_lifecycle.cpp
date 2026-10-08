@@ -1566,12 +1566,13 @@ TEST_CASE("[Streaming Pipeline] Equal-frame visible eviction ignores traversal o
         const bool visible[4] = { true, true, true, true };
         _setup_fragmented_atlas(system, visible);
         auto &chunks = system._test_get_primary_chunks();
-        auto &visibility = system._test_get_visibility_controller();
+        LocalVector<uint32_t> visible_indices;
         for (uint32_t i = 0; i < 4; i++) {
             chunks[i].distance = float(i + 1) * 10;
-            visibility.visible_chunk_indices.push_back(reverse ? 3 - i : i);
+            visible_indices.push_back(reverse ? 3 - i : i);
         }
-        system._test_build_visible_chunk_list();
+        system._test_set_visible_chunk_indices(visible_indices);
+        system._test_refresh_visible_chunk_usage();
         const uint64_t frame_generation = chunks[0].last_used_frame;
         for (uint32_t i = 0; i < 4; i++) {
             CHECK_EQ(chunks[i].last_used_frame, frame_generation);
@@ -1592,15 +1593,16 @@ TEST_CASE("[Streaming Pipeline] Usage advances once per frame and pending upload
     const bool visible[4] = { true, true, true, true };
     _setup_fragmented_atlas(system, visible);
     auto &chunks = system._test_get_primary_chunks();
-    auto &visibility = system._test_get_visibility_controller();
+    LocalVector<uint32_t> visible_indices;
     for (uint32_t i = 0; i < 4; i++) {
-        visibility.visible_chunk_indices.push_back(i);
+        visible_indices.push_back(i);
         chunks[i].distance = float(i + 1) * 10;
     }
+    system._test_set_visible_chunk_indices(visible_indices);
     system._test_build_visible_chunk_list();
     const uint64_t previous_generation = chunks[0].last_used_frame;
     system.begin_frame();
-    system._test_build_visible_chunk_list();
+    system._test_refresh_visible_chunk_usage();
     CHECK(chunks[0].last_used_frame > previous_generation);
     for (uint32_t i = 0; i < 4; i++) {
         CHECK_EQ(chunks[i].last_used_frame, chunks[0].last_used_frame);

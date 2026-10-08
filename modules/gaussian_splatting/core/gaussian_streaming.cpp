@@ -2603,6 +2603,9 @@ void GaussianStreamingSystem::_run_streaming_frame_pipeline(const Transform3D &c
     uint32_t evictions_left = 0;
     bool eviction_blocked = false;
     phase_start_usec = os ? os->get_ticks_usec() : 0;
+    // Admit against current visibility, including zero-visible recovery.
+    // All resident candidates receive one frame generation before eviction.
+    _refresh_visible_chunk_usage();
     _evict_for_vram_budget(evictions_left, eviction_blocked);
     uint32_t pack_queue_depth = 0;
     uint32_t upload_queue_depth = 0;
@@ -3304,6 +3307,19 @@ float GaussianStreamingSystem::_get_needed_set_load_threshold() const {
             ? budget.vram_regulator->get_lod_distance_multiplier()
             : 1.0f;
     return STREAMING_LOAD_DISTANCE_BASE / lod_mult;
+}
+
+void GaussianStreamingSystem::_refresh_visible_chunk_usage() {
+    const float load_threshold = _get_needed_set_load_threshold();
+    for (uint32_t chunk_idx : visibility.visible_chunk_indices) {
+        if (chunk_idx >= chunks.size()) {
+            continue;
+        }
+        StreamingChunk &chunk = chunks[chunk_idx];
+        if (chunk.is_loaded && chunk.gpu_resident && _is_chunk_within_load_distance(chunk, load_threshold)) {
+            eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
+        }
+    }
 }
 
 void GaussianStreamingSystem::_build_visible_chunk_list() {
