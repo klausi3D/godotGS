@@ -64,7 +64,7 @@ struct Gaussian {
     vec4 rotation; // Quaternion
 
     vec4 sh_dc;
-    uint sh_encoded[12];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
+    uint sh_encoded[24];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
 
     vec3 normal;
 
@@ -736,17 +736,11 @@ void main() {
     Gaussian g;
     g.opacity = src.opacity;
     g.sh_dc = src.sh_dc;
-    g.sh_metadata = gs_build_quantized_sh_metadata(6u, (chunk_meta.flags & GS_ASSET_FLAG_DC_LINEAR_RGB) != 0u);
-    for (int i = 0; i < 12; ++i) {
-        g.sh_encoded[i] = 0u;
+    g.sh_metadata = gs_build_quantized_sh_metadata(24u, (chunk_meta.flags & GS_ASSET_FLAG_DC_LINEAR_RGB) != 0u);
+    for (int i = 0; i < 24; ++i) {
+        g.sh_encoded[i] = src.sh_encoded[i];
     }
-    g.sh_encoded[0] = src.sh_encoded_01.x;
-    g.sh_encoded[1] = src.sh_encoded_01.y;
-    g.sh_encoded[2] = src.sh_encoded_23.x;
-    g.sh_encoded[3] = src.sh_encoded_23.y;
-    g.sh_encoded[4] = src.sh_encoded_45.x;
-    g.sh_encoded[5] = src.sh_encoded_45.y;
-    // Normal + stroke_age ARE carried in the 80-byte quantized payload
+    // Normal + stroke_age ARE carried in the 160-byte quantized payload
     // (pack_gaussian_quantized writes normal_xy / normal_z_stroke), so decode
     // them here. Zeroing g.normal used to force the thinnest-axis fallback below
     // (see normal_mode handling), which produced flat/incorrect lighting on
@@ -754,7 +748,7 @@ void main() {
     g.normal = LOAD_NORMAL_QUANTIZED(src);
     // stroke_age / brush_axes / painterly_meta / area are no longer carried by
     // Gaussian: nothing in any shader ever read them, and three of the four were
-    // only ever assigned zero here. The 80-byte payload still encodes stroke_age
+    // only ever assigned zero here. The 160-byte payload still encodes stroke_age
     // alongside the normal (normal_z_stroke) -- it simply has no consumer, so it
     // is left undecoded rather than written into a field nobody reads. The
     // painterly path seeds its stylization from splat position, as before.
