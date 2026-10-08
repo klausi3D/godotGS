@@ -1,6 +1,7 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_streaming.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/quantization_config.h"
 
 #include "test_macros.h"
 
