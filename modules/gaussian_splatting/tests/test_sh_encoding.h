@@ -85,7 +85,10 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Production SH0-4 basis agrees with in
                 for (int m = -l; m <= l; m++) {
                     const int index = l*l + l + m;
                     const double expected = uint32_t(l) <= band ? GSReferenceSHBasis::real_sh(l, m, dir) : 0.0;
-                    CAPTURE(sample, band, l, m);
+                    CAPTURE(sample);
+                    CAPTURE(band);
+                    CAPTURE(l);
+                    CAPTURE(m);
                     CHECK(std::abs(double(basis[index]) - expected) < 2e-6);
                 }
             }
@@ -223,7 +226,8 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Packed partial SH prefixes retain hig
                 expected += high_terms[i]*GSReferenceSHBasis::real_sh(2, int(i)-2, dir);
                 error_bound += std::abs(double(basis[4+i]))*packed.sh.dc[3]/511.0;
             }
-            CAPTURE(stored_first, visible_words);
+            CAPTURE(stored_first);
+            CAPTURE(visible_words);
             CHECK(std::abs(double(decoded.x - expected.x)) <= error_bound);
             CHECK(std::abs(double(decoded.y - expected.y)) <= error_bound);
             CHECK(std::abs(double(decoded.z - expected.z)) <= error_bound);
