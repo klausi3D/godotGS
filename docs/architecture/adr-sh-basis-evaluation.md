@@ -15,7 +15,8 @@ Use one pure polynomial GLSL include for the 25 real normalized basis functions
 ordered by degree, then m=-l..l, with the Condon-Shortley phase. Unit directions
 are a caller precondition. Compute only requested degrees and zero the remaining
 terms. The active binning evaluator consumes it and caps packed accesses by the
-encoded word count and physical capacity. The full degree-four math is available
+encoded word count and physical capacity. Higher terms begin after the stored
+first-order prefix, matching compact partial layouts emitted by the packer. The full degree-four math is available
 without changing the current SH3 default or public quality/LOD selection in this
 focused change; enabling SH4 throughout selection is the next dependent task.
 
