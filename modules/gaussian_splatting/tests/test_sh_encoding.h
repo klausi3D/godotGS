@@ -30,6 +30,7 @@
 // The independent reference below uses a recurrence, not those polynomials.
 namespace GSProductionSHBasis {
 using uint = uint32_t;
+using std::min;
 #define vec3 Vector3
 #define GS_SH_OUT
 #include "../shaders/includes/gs_sh_basis.glsl"
@@ -66,7 +67,7 @@ static double real_sh(int l, int m, const Vector3 &dir) {
 }
 }
 
-TEST_CASE("[SHEncoding] Production SH0-4 basis agrees with independent Legendre recurrence") {
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH0-4 basis agrees with independent Legendre recurrence") {
     for (int sample = 0; sample < 130; sample++) {
         Vector3 dir;
         if (sample < 2) {
@@ -92,7 +93,7 @@ TEST_CASE("[SHEncoding] Production SH0-4 basis agrees with independent Legendre 
     }
 }
 
-TEST_CASE("[SHEncoding] SH3 sign and normalized m2 regression") {
+TEST_CASE("[GaussianSplatting][SHEncoding] SH3 sign and normalized m2 regression") {
     const Vector3 dir = Vector3(1, 2, 3).normalized();
     float basis[25];
     GSProductionSHBasis::gs_compute_real_sh_basis(dir, 3, basis);
@@ -100,6 +101,23 @@ TEST_CASE("[SHEncoding] SH3 sign and normalized m2 regression") {
     CHECK(basis[13] < 0.0f);
     CHECK(std::abs(double(basis[14]) - GSReferenceSHBasis::real_sh(3, 2, dir)) < 2e-6);
     for (int i = 16; i < 25; i++) CHECK(basis[i] == 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH metadata bounds compact prefixes") {
+    struct Counts { uint32_t first, high, encoded, expected_first, expected_high; };
+    const Counts cases[] = {
+        { 3, 21, 24, 3, 21 }, { 1, 5, 6, 1, 5 }, { 0, 5, 5, 0, 5 },
+        { 2, 12, 14, 2, 12 }, { 3, 21, 0, 0, 0 }, { 3, 21, 2, 2, 0 },
+        { 255, 255, 24, 3, 21 }, { 0, 255, 24, 0, 21 }, { 1, 255, 24, 1, 21 }
+    };
+    for (const Counts &c : cases) {
+        const uint32_t first = GSProductionSHBasis::gs_sh_first_count(c.first, c.encoded);
+        const uint32_t high = GSProductionSHBasis::gs_sh_high_count(c.high, c.first, c.encoded);
+        CHECK(first == c.expected_first);
+        CHECK(high == c.expected_high);
+        CHECK(first + high <= c.encoded);
+        CHECK(first + high <= 24u);
+    }
 }
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).

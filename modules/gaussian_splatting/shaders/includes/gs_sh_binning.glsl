@@ -98,10 +98,8 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
     float splat_scale = g.sh_dc.w;
 
     uint encoded_count = min(gaussian_get_encoded_count(g.sh_metadata), 24u);
-    uint first_count = min(gaussian_get_first_order_count(g.sh_metadata), min(encoded_count, 3u));
-    // Higher-order storage always starts at physical word 3. A truncated
-    // first-order prefix cannot shift higher terms into different basis slots.
-    uint high_count = min(gaussian_get_high_order_count(g.sh_metadata), encoded_count > 3u ? encoded_count - 3u : 0u);
+    uint first_count = gs_sh_first_count(gaussian_get_first_order_count(g.sh_metadata), encoded_count);
+    uint high_count = gs_sh_high_count(gaussian_get_high_order_count(g.sh_metadata), gaussian_get_first_order_count(g.sh_metadata), encoded_count);
 
     // Early exit if no coefficients available
     if (first_count == 0u && high_count == 0u) {
@@ -123,7 +121,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
 
     // Add higher-order SH terms (if available and band >= 2)
     if (sh_band_level >= 2u && high_count > 0u) {
-        // Higher order coefficients start after first-order (index 3)
+        // Higher order coefficients follow the compact stored first-order prefix
         // They map to basis indices 4+ (2nd order) and 9+ (3rd order)
         uint max_high = min(high_count, 21u); // l=2/3/4: 5 + 7 + 9 terms
 
@@ -132,7 +130,7 @@ vec3 evaluate_sh_with_bands(Gaussian g, vec3 view_dir, uint sh_band_level) {
         max_high = min(max_high, coeff_limit);
 
         for (uint i = 0u; i < max_high; i++) {
-            vec3 coeff = decode_sh_snorm10(g.sh_encoded[3u + i], splat_scale);
+            vec3 coeff = decode_sh_snorm10(g.sh_encoded[first_count + i], splat_scale);
             color += coeff * basis[4u + i];  // Higher order starts at basis index 4
         }
     }

@@ -8,6 +8,15 @@
 const float SH_C0 = 0.28209479177387814;
 const float SH_C1 = 0.4886025119029199;
 
+// Compact packing places higher terms immediately after the stored first prefix.
+uint gs_sh_first_count(uint first, uint encoded) {
+    return min(first, min(encoded, 3u));
+}
+uint gs_sh_high_count(uint high, uint first, uint encoded) {
+    uint offset = gs_sh_first_count(first, encoded);
+    return min(high, min(encoded - offset, 21u));
+}
+
 void gs_compute_real_sh_basis(vec3 dir, uint max_band, GS_SH_OUT float basis[25]) {
     for (int i = 0; i < 25; i++) basis[i] = 0.0;
     float x = dir.x, y = dir.y, z = dir.z;
