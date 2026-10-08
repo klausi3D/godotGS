@@ -30,6 +30,8 @@ elseif(APPLE)
 endif()
 
 # Godot-specific definitions
+add_definitions(-DSPZ_BUILD_EXTENSIONS)
+add_definitions(-DSPZ_NO_PARALLEL_CODEC)
 add_definitions(-DGAUSSIAN_SPLATTING_ENABLED)
 add_definitions(-DTOOLS_ENABLED)  # Enable editor features
 add_definitions(-DDEBUG_ENABLED)  # Enable debug features
@@ -72,11 +74,16 @@ include_directories(
     ${GODOT_SOURCE_DIR}/servers/rendering/renderer_rd/storage_rd
     ${GODOT_SOURCE_DIR}/servers/rendering_server
     ${GODOT_SOURCE_DIR}/thirdparty
+    ${GODOT_SOURCE_DIR}/thirdparty/zlib
+    ${GODOT_SOURCE_DIR}/thirdparty/zstd
 )
 
 # =============================================================================
 # Source file organization by component
 # =============================================================================
+
+# Pinned external decoder (IDE metadata; SCons remains canonical).
+file(GLOB SPZ_REFERENCE_SOURCES "thirdparty/spz/*.cc" "thirdparty/spz/*.h")
 
 # Core Components
 file(GLOB CORE_SOURCES
@@ -201,6 +208,7 @@ file(GLOB DOC_FILES
 
 # Main module library (for IntelliSense and navigation)
 add_library(gaussian_splatting_core STATIC
+    ${SPZ_REFERENCE_SOURCES}
     ${CORE_SOURCES}
     ${REGISTRATION_SOURCES}
 )

@@ -1761,6 +1761,9 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
     if (asset_metadata.has(StringName("gaussian_2d_mode"))) {
         staged->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
     }
+    if (asset_metadata.has(StringName("gaussian_antialiased"))) {
+        staged->set_antialiased((bool)asset_metadata[StringName("gaussian_antialiased")]);
+    }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(asset_metadata);
     for (int i = 0; i < staged->get_count(); i++) {
         Gaussian g = staged->get_gaussian(i);
@@ -2199,6 +2202,7 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     import_metadata[StringName("has_stroke_age")] = stroke_ages.size() == splat_count;
     import_metadata[StringName("opacity_encoding")] = StringName("logit");
     import_metadata[StringName("gaussian_2d_mode")] = p_gaussian_data->get_2d_mode();
+    import_metadata[StringName("gaussian_antialiased")] = p_gaussian_data->get_antialiased();
     if (bounds_initialized) {
         import_metadata[StringName("bounds")] = AABB(min_pos, max_pos - min_pos);
         import_metadata[StringName("bounds_dirty")] = false;
