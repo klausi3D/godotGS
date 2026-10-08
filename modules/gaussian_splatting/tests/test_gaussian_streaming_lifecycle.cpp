@@ -1812,7 +1812,12 @@ void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_reside
     overrides.vram_budget_config.min_chunks = 1;
     overrides.vram_budget_config.max_chunks = 64;
     r_system.set_config_overrides(overrides);
+    const bool saved_quantization = g_quantization_config.per_chunk_quantization;
+    g_quantization_config.per_chunk_quantization = false;
     r_system.initialize_empty(nullptr); // no device: creates the regulator, buffer stays absent
+    g_quantization_config.per_chunk_quantization = saved_quantization;
+    CHECK_EQ(uint64_t(overrides.vram_budget_config.budget_mb) * 1024u * 1024u,
+            512u * uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) * r_system._test_atlas_gaussian_stride_bytes());
     LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
     chunks.resize(60);
     const uint32_t count = 10u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
