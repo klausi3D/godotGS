@@ -14,10 +14,10 @@ namespace GaussianSplatting {
 
 // Binary format constants
 static const uint32_t GAUSSIAN_SCENE_MAGIC = 0x47534346; // "GSCF" - Gaussian Scene File
-static const uint16_t GAUSSIAN_SCENE_VERSION = 2;
+static const uint16_t GAUSSIAN_SCENE_VERSION = 3;
 // Minimum reader version that can open files written by this version.
-// A v1 reader can still open v2 files by skipping unknown chunks.
-static const uint16_t GAUSSIAN_SCENE_MIN_READER_VERSION = 1;
+// V3 replaces the Gaussian payload and requires the complete v3 decoder.
+static const uint16_t GAUSSIAN_SCENE_MIN_READER_VERSION = 3;
 
 // Chunk types for extensible binary format
 enum class ChunkType : uint32_t {
@@ -123,6 +123,11 @@ private:
     // load_scene().
     struct LoadStaging {
         LocalVector<Gaussian> gaussians;
+        LocalVector<Vector3> high_order;
+        uint32_t first_order_count = 0;
+        uint32_t high_order_count = 0;
+        bool mode_2d = false;
+        bool antialiased = false;
         bool has_gaussian_chunk = false;
         Dictionary animation_dict;
         bool has_animation_chunk = false;
@@ -161,7 +166,7 @@ private:
     // load_scene() (which commits) and validate_file() (which discards).
     // p_declared_splat_count comes from the already-verified scene header and
     // caps how many decompressed bytes this chunk may claim (#603a).
-    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, uint32_t p_declared_splat_count, LocalVector<Gaussian>& r_gaussians) const;
+    Error _read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, uint32_t p_declared_splat_count, uint16_t p_version, LoadStaging &r_staging) const;
     Error _read_animation_data_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_animation_dict) const;
     Error _read_metadata_chunk(Ref<FileAccess> file, const ChunkHeader& header, Dictionary& r_metadata) const;
     Error _read_asset_refs_chunk(Ref<FileAccess> file, const ChunkHeader& header, LocalVector<AssetReference>& r_refs) const;

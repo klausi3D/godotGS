@@ -6,7 +6,7 @@
 	<description>
 		A [Resource] that serializes Gaussian splat scenes to, and loads them from, the on-disk [code].gsf[/code] format (magic/version-checked, optionally per-chunk checksummed). Writes go through the module's atomic-save helper.
 		[method load_scene] is transactional: the whole file is parsed and structurally validated (declared chunk count plus a terminating end-of-file chunk) before anything is committed to the target, so a truncated or incomplete file is rejected instead of loading partially. [method validate_file] runs that same parser in a non-mutating mode, so a file that validates will also load.
-		[b]Known limitation (issue #600):[/b] the format persists only the per-splat data (which embeds the first-order spherical-harmonic band). It does [b]not[/b] persist the high-order SH sidecar or the 2D (surfel) mode flag; both reset to their defaults on load. [method save_scene] emits a runtime warning when a save would drop either of them. Lossless persistence is deferred to a future format revision.
+		GSF v3 preserves explicit SH layouts through degree 4, all higher-order coefficients, per-splat DC encoding, 2D mode and antialiased training metadata. Its canonical float32 records do not depend on C++ structure padding. Readers continue to accept v1/v2 files, whose omitted metadata uses classic defaults. V3 files require reader version 3; older readers must reject them. Incremental baselines use the same complete schema; structural SH or asset-semantic changes require a new full baseline.
 	</description>
 	<tutorials>
 	</tutorials>
