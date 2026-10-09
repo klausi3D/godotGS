@@ -15,7 +15,9 @@ name: Docs Pages (Versioned)
 # - `deploy` (pushes to master/main and v* tags, dispatch): regenerates, builds
 #   and publishes with mike. It is deliberately independent of `docs-build`: if
 #   a merge left a committed generator output stale, the site should still
-#   publish the regenerated output rather than stop updating.
+#   publish the regenerated output rather than stop updating. The Doxygen C++
+#   API ships with `latest` only; a `v*` tag version gets a redirect page to
+#   latest's copy instead (scripts/docs/redirect_cpp_api_to_latest.py).
 
 on:
   pull_request:
@@ -208,6 +210,15 @@ jobs:
             --output .site/public-docs \
             --repo-url "https://github.com/${GITHUB_REPOSITORY}" \
             --ref "${GITHUB_SHA}"
+          # The Doxygen C++ API (~3,800 files, ~50 MB, no stability promise) is
+          # published with `latest` only. A tagged version gets one redirect page
+          # at api/cpp/html/index.html to latest's copy instead, so its docs link
+          # still resolves. Same tag test as the mike step below.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            python scripts/docs/redirect_cpp_api_to_latest.py \
+              --stage .site/public-docs \
+              --version latest
+          fi
           python scripts/check_docs_media_budget.py \
             --root .site/public-docs \
             --max-file-mb 25 \

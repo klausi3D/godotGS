@@ -32,9 +32,9 @@ fixed them.
 | --- | --- | --- |
 | Splats trail by about 1.5 px under TAA in motion | [#1025](https://github.com/klausi3D/godotGS/issues/1025) | Accepted |
 | The bottom of the frame can go empty when overlap records run out | [#54](https://github.com/klausi3D/godotGS/issues/54) | Accepted |
-| Far views of dense content can show 16 px black tiles | [#1137](https://github.com/klausi3D/godotGS/issues/1137) | Active |
+| Far views of dense content can show 16 px black tiles | [#1137](https://github.com/klausi3D/godotGS/issues/1137) (closed) | Active |
+| Splats cast no shadows | [#1095](https://github.com/klausi3D/godotGS/issues/1095) | Active |
 | Transparent viewports are opaque under TAA or FSR2 | [#989](https://github.com/klausi3D/godotGS/issues/989) | Engine limitation |
-| Shadow-casting splats darken themselves; the starter template renders dark | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | Active |
 | Painterly's GPU path has one nightly, non-gating test | [#997](https://github.com/klausi3D/godotGS/issues/997) (closed) | Mitigated |
 | Painterly ignores sphere effectors and per-splat depth clipping | [#1079](https://github.com/klausi3D/godotGS/issues/1079) | Active |
 | The painterly composite's `blend_strength` is a no-op | [#1001](https://github.com/klausi3D/godotGS/issues/1001) | Active |
@@ -76,8 +76,8 @@ section after it lists only fixed defects.
 > 2026-09-25 (it is now listed under [Rendering](#rendering)); #833 when it was struck from
 > §11 (item 9) on 2026-09-30, fixed by #1027, #1031 and #1032; and #851, which is
 > `priority:P2`, when it closed on 2026-10-01, fixed by #1078 (§11 item 8); and #1077, which
-> carried none of those labels either, when it closed on 2026-10-04, fixed by #1133 and
-> #1145 (§11 item 11). The streaming
+> carried none of those labels either, when it closed on 2026-10-04, fixed by #1133
+> and #1145 (§11 item 11). The streaming
 > items §11 still lists (#320, #786, #883) are `priority:P1` and visible to the gate; its
 > 50M-asset lane item has no issue at all. Read "it is in the blocker set" as "a human has to hold the
 > release for it", not as a guarantee the tooling enforces. Labelling them is tracked as
@@ -318,7 +318,9 @@ the log.
 [#1138](https://github.com/klausi3D/godotGS/pull/1138)) until hierarchical LOD
 ([#1136](https://github.com/klausi3D/godotGS/issues/1136)) lands. It is not yet a
 ledger-accepted limitation: there is no acceptance-bar §8.1 row and no
-`public_alpha_issue_ledger` entry, so a release candidate cannot cite it.
+`public_alpha_issue_ledger` entry, so a release candidate cannot cite it. #1137 itself closed
+on 2026-10-04 when #1138 merged. #1138 made the drops visible (see "How you know" below) and
+kept the default limit, so the black tiles this entry describes are still there.
 
 The rasterizer draws at most a fixed number of overlap records per 16 px tile. Records are
 sorted near to far, so in a tile with more records than that, **the farthest ones are not
@@ -351,7 +353,9 @@ walks all records of its tile, so the densest tile sets the length of the raster
 (lamp at 19 m, weg-gartenanlage at 14 m). Near views are unaffected either way. The measurements and images are on
 [#1138](https://github.com/klausi3D/godotGS/pull/1138).
 
-### Splats cast no shadows ([#1089](https://github.com/klausi3D/godotGS/issues/1089), [#1095](https://github.com/klausi3D/godotGS/issues/1095))
+### Splats cast no shadows ([#1095](https://github.com/klausi3D/godotGS/issues/1095))
+
+**Status: Active.** The dedicated splat shadow caster is #1095 slices 2–5, not yet merged.
 
 A `GaussianSplatNode3D` casts no shadow, from any light type (directional, spot, omni),
 onto meshes, onto other splats or onto itself. `rendering/cast_shadow` has no visible
@@ -363,7 +367,9 @@ then copied whatever depth image the splat rasterizer still held, which was the 
 camera's, into every shadow-map region it was given. That produced shadows that were wrong
 everywhere: they followed the camera instead of the light, every directional cascade held
 the same footprint, a hidden node kept casting, and the starter template rendered its cloud
-almost black. Since #1095 slice 1 the pass is fail-closed: it writes nothing unless it
+almost black ([#1089](https://github.com/klausi3D/godotGS/issues/1089), now fixed; see
+[Recently resolved](#recently-resolved)). Since #1095 slice 1
+([#1113](https://github.com/klausi3D/godotGS/pull/1113)) the pass is fail-closed: it writes nothing unless it
 rasterized splats from the light's view into a target of the shadow region's size, and
 today it never does. A dedicated depth-only splat caster is designed in #1095 and lands in
 slices: directional first, then spot, then omni.
@@ -371,9 +377,9 @@ slices: directional first, then spot, then omni.
 **Workaround:** for a shadow in the shape of a splat object, add a mesh proxy with
 `cast_shadow = Shadows Only` (for example a `SphereMesh` or a low-poly hull of the scan).
 
-**Evidence:** the starter template, 1280×720, Vulkan Forward+, RTX 3090, dev builds of the
-#1095 slice 1 branch and its base `eff00db450c`. Mean splat luma at the shipped camera went
-from 0.31 to 0.88, equal to the same frame with the light's shadows off (0.88); the
+**Evidence:** the starter template, 1280×720, Vulkan Forward+, RTX 3090, dev builds of
+the #1095 slice 1 branch (merged as #1113) and its base `eff00db450c`. Mean splat luma at
+the shipped camera went from 0.31 to 0.88, equal to the same frame with the light's shadows off (0.88); the
 splat-caused floor shadow went from 23,248 px to 0, a hidden node's from 26,566 px to 0, and
 the directional shadow atlas no longer changes when the node's shadow casting is toggled
 (33,507 px to 0). A mesh occluder still darkens the splats (0.88 to 0.85). The GPU case
@@ -399,40 +405,6 @@ cannot be fixed from this module.
 > splats do **not** ghost under FSR2 (see #1025). **Changing this channel changes FSR2's
 > temporal behaviour silently**, with no test that would notice. Measure FSR2 ghosting
 > before and after any #989 fix.
-
-### Shadow-casting splats darken themselves, and the starter template renders dark ([#1089](https://github.com/klausi3D/godotGS/issues/1089))
-
-**Status: Active — not accepted, pending a maintainer decision.** Nobody has accepted this
-as a public-alpha limitation, and it is not in the acceptance bar's §11 list either. Whether
-it blocks the alpha is undecided. It is disclosed here because it is live on master and the
-default template shows it.
-
-When a `GaussianSplatNode3D` has `rendering/cast_shadow` on (it is off by default) and a
-`DirectionalLight3D` has shadows on, the splats do not cast a real shadow. The splat shadow
-pass, `GaussianSplatRenderer::render_shadow_depth_map`, runs `render_sorted_splats` for the
-light view. That call gives the raster stage a fresh `StageMetrics`, and
-`RasterCompositeStage::execute` reads the sorted-splat count from those metrics in preference
-to the frame snapshot, so the shadow raster sees zero splats and draws nothing. The shadow
-pass then blits whatever depth texture the rasterizer holds into the shadow atlas, with no
-check that this pass rendered it. That texture is the **main camera's** splat depth, so
-every cascade receives a stretched copy of the camera view.
-
-What you see: splats shadow themselves and go dark, a detached dark shape can appear on the
-ground, and the effect changes as the camera moves, because it follows the camera rather
-than the light. A node that is hidden can keep casting the last frame's shadow.
-
-The shipped starter template (`templates/gaussian_splat_template`, `scenes/main.tscn`) hits
-this out of the box. Its `GaussianSplatNode3D` sets `rendering/cast_shadow = true` and its
-`DirectionalLight3D` sets `shadow_enabled = true`. Measured on #1089 (RTX 3090, 1280×720),
-before #1093: from the camera position the template settles on, the white splat cloud
-rendered at a mean luma of 0.06–0.10 instead of about 0.8. #1093 then made the template's
-`[rendering]` settings take effect, including its default environment, whose ambient light
-lifts the cloud. Measured on #1093 in the same framing, the cloud is at **0.31**, against
-**0.88** with the light's shadows off. It is still dark.
-
-**Workaround:** turn off `rendering/cast_shadow` on the splat node, or shadows on the light.
-Either restores full brightness. Splats then cast no shadow, which is also what they
-effectively do today.
 
 ### Painterly's GPU path is covered by one nightly test that does not gate anything ([#997](https://github.com/klausi3D/godotGS/issues/997))
 
@@ -852,4 +824,5 @@ re-checked in code at the commit named in its row's **Checked at** column.
 | [#833](https://github.com/klausi3D/godotGS/issues/833) | Named in the note above as a §11 alpha blocker: the starter template's performance overlay never updates. | [#1027](https://github.com/klausi3D/godotGS/pull/1027), [#1031](https://github.com/klausi3D/godotGS/pull/1031), [#1032](https://github.com/klausi3D/godotGS/pull/1032) | merged 2026-09-20; issue closed 2026-09-27 | Issue closed. Struck from the bar's §11 list (item 9) on 2026-09-30. | `eff00db450c` |
 | [#851](https://github.com/klausi3D/godotGS/issues/851) | Painterly ignores scene lighting: it assigns none of the lighting, shadow or light-cluster fields and leaves `direct_lighting_mode` at `0`, so lights, shadows and the `lighting/*` project settings have no effect on a painterly frame. Named as a §11 alpha blocker. | [#1078](https://github.com/klausi3D/godotGS/pull/1078) | 2026-10-01 | `PainterlyRenderer::populate_painterly_gbuffer` calls `apply_lighting_to_render_params`, the writer the baseline uses, which sets `direct_lighting_mode = 1`. Issue closed 2026-10-01. No PR-gating guard covers the lighting writer yet ([#1079](https://github.com/klausi3D/godotGS/issues/1079), item 3). | `eff00db450c` |
 | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | The starter template exits abnormally at shutdown under its `thread_model=2` (`RenderingDevice::free` off the render thread; exit 127/139 or `0xC0000409`). After #1133 fixed that crash, one `RenderingDevice::finalize ... can only be called from the render thread` error remained at every quit, with exit 0. Named as a §11 alpha blocker (item 11) from 2026-10-03. | [#1133](https://github.com/klausi3D/godotGS/pull/1133), [#1145](https://github.com/klausi3D/godotGS/pull/1145) | 2026-10-02 and 2026-10-04 | Issue closed. #1145 backports upstream godotengine/godot#123391, which hands the main `RenderingDevice` back to the main thread after the render thread exits, so `finalize()` runs. [Independent re-run](https://github.com/klausi3D/godotGS/pull/1145#pullrequestreview-5404840280): base 3 of 3 runs with the error, exits 0/139/0; fix 0 of 3, exit 0 in all three, no `ObjectDB` leak. NVIDIA / Vulkan / Windows only. No automated lane asserts it yet (#1148). | `0e78f528537` |
-| [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Every `GaussianSplatNode3D` re-queries the viewport's render target and texture every frame, which under `thread_model=2` forces two render-thread syncs per frame: the starter template ran at 43 FPS with 768 splats and 24 FPS with a 252k-splat scan. The workaround was `thread_model=1`. | [#1094](https://github.com/klausi3D/godotGS/pull/1094) | 2026-10-01 | The node re-queries only when the viewport or its size changes. Measured on #1094 (optimized build, RTX 3090, 1280×720, vsync 60 Hz, `thread_model=2`): the template went from 44.1–46.8 to 59.1–59.8 FPS with no sync warnings. **The issue is still open**: the 252k-splat scan went from 24.3–25.4 to 29.3–31.9 FPS, still below vsync, and was not measured under `thread_model=1`, so whether `thread_model=2` still costs it anything is unknown. | `eff00db450c` |
+| [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Every `GaussianSplatNode3D` re-queries the viewport's render target and texture every frame, which under `thread_model=2` forces two render-thread syncs per frame: the starter template ran at 43 FPS with 768 splats and 24 FPS with a 252k-splat scan. The workaround was `thread_model=1`. | [#1094](https://github.com/klausi3D/godotGS/pull/1094) | 2026-10-01 | The node re-queries only when the viewport or its size changes. Measured on #1094 (optimized build, RTX 3090, 1280×720, vsync 60 Hz, `thread_model=2`): the template went from 44.1–46.8 to 59.1–59.8 FPS with no sync warnings. Issue closed 2026-10-04. The 252k-splat scan went from 24.3–25.4 to 29.3–31.9 FPS, still below vsync; the closing comment puts that remaining cost outside this sync defect. The scan was not measured under `thread_model=1`, so whether `thread_model=2` still costs it anything is unknown. | `eff00db450c` |
+| [#1089](https://github.com/klausi3D/godotGS/issues/1089) | With `rendering/cast_shadow` on and a shadowed `DirectionalLight3D`, the splat shadow pass rasterizes nothing and blits the main camera's splat depth into every cascade: the splats shadow themselves and go dark, a camera-following dark shape appears on the ground, and a hidden node keeps casting. The starter template ships that configuration and rendered its cloud at a mean luma of 0.31 against 0.88 with the light's shadows off. | [#1113](https://github.com/klausi3D/godotGS/pull/1113) (#1095 slice 1, commit `7a9b170fe6f`) | 2026-10-03 | Issue closed 2026-10-03. `GaussianSplatRenderer::render_shadow_depth_map` blits only a depth image its own pass rasterized (`rastered_splat_count > 0`, not a cached reuse or painterly output, the rasterizer's current depth target at the atlas-rect size); otherwise it returns `SHADOW_SKIP_NO_CASTER_RASTERED` and writes nothing. [Closing comment](https://github.com/klausi3D/godotGS/issues/1089#issuecomment-5972398702): on the template, splat luma 0.31 → 0.88 (equal to shadows off), false floor-shadow pixels 23,248 → 0, mesh shadows unchanged, and a two-omni-light check showed no cross-light depth copy. Splats now cast no shadows at all; that is the Rendering entry "Splats cast no shadows" (#1095). | `ab74e332aa8` |
