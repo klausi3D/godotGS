@@ -54,12 +54,28 @@ transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0,
 fov = 60.0
 near = 0.05
 
+; Opt-in lighting demo, hidden by default (#1221). A captured splat's colour
+; already contains the light of the captured scene, and the engine adds every
+; visible light on top of it, so a visible DirectionalLight3D re-lights the
+; capture: on an 8M-splat scan it brightened the image by 40-58 % and cut
+; PSNR against a reference 3DGS render from 25-30 dB to about 16 dB. Make it
+; visible to see the engine's per-splat lighting. Keep the node rather than
+; deleting it: the editor keeps its preview sun off only while the scene
+; contains a DirectionalLight3D, hidden or not. Delete this node and the editor
+; viewport gets the preview sun instead.
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+visible = false
 transform = Transform3D(0.872, -0.359, 0.332, 0, 0.679, 0.734, -0.489, -0.641, 0.592, 0, 6, 0)
 light_energy = 2.0
 shadow_enabled = true
 
+; Opt-in reference mesh for the lighting demo, hidden by default (#1221). An
+; opaque mesh hides every splat behind it: this box covers 20 x 20 m with its
+; top at y = -0.125, which cuts off the bottom of the generated sample sphere and
+; any scan content below that height. Move or resize it before showing it with
+; your own asset.
 [node name="Ground" type="MeshInstance3D" parent="."]
+visible = false
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
 mesh = SubResource("BoxMesh_1")
 material_override = SubResource("StandardMaterial3D_1")
