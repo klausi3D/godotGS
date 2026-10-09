@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
-  <title id="title">Public evaluator path</title>
-  <desc id="desc">Diagram showing the shortest public evaluator path: get a module-built editor, open the sample project, press Play, and render a visible splat.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="title desc">
+  <title id="title">Your First Splat: the path</title>
+  <desc id="desc">Four steps: get an editor built from this fork, get the sample project, open it in the editor, and press Play to see splats in the sample scene.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0c1628" />
@@ -10,45 +10,51 @@
       <stop offset="0%" stop-color="#13223a" />
       <stop offset="100%" stop-color="#173055" />
     </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#54a9ff" />
-      <stop offset="100%" stop-color="#2ed9c3" />
-    </linearGradient>
-    <marker id="arrow" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
-      <polygon points="0,0 14,7 0,14" fill="#7ec7ff" />
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <polygon points="0,0 10,5 0,10" fill="#7ec7ff" />
     </marker>
   </defs>
-  <rect x="24" y="24" width="1152" height="592" rx="32" fill="url(#bg)" />
-  <text x="72" y="94" fill="#f3f8ff" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">Public Evaluator: Fastest Evaluation Path</text>
-  <text x="72" y="132" fill="#a9c2df" font-family="Segoe UI, Arial, sans-serif" font-size="20">This is the shortest path that proves the module is wired correctly and rendering the public evaluator scene.</text>
+  <rect x="24" y="24" width="1152" height="552" rx="32" fill="url(#bg)" />
+  <text x="72" y="94" fill="#f3f8ff" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">Your First Splat</text>
+  <text x="72" y="132" fill="#a9c2df" font-family="Segoe UI, Arial, sans-serif" font-size="20">Four steps from an editor built from this fork to splats on screen.</text>
 
   <g font-family="Segoe UI, Arial, sans-serif">
-    <rect x="72" y="220" width="232" height="180" rx="24" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
-    <text x="102" y="272" fill="#f3f8ff" font-size="26" font-weight="700">1. Module-built editor</text>
-    <text x="102" y="306" fill="#a9c2df" font-size="18">Point `GODOT_BINARY` at the</text>
-    <text x="102" y="332" fill="#a9c2df" font-size="18">editor built from this fork.</text>
+    <rect x="72" y="188" width="228" height="200" rx="22" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
+    <text x="96" y="226" fill="#7ec7ff" font-size="14" font-weight="700" letter-spacing="1.5">STEP 1</text>
+    <text x="96" y="260" fill="#f3f8ff" font-size="22" font-weight="700">Get an editor</text>
+    <text x="96" y="296" fill="#a9c2df" font-size="17">Nightly for Windows</text>
+    <text x="96" y="322" fill="#a9c2df" font-size="17">or Linux, or build</text>
+    <text x="96" y="348" fill="#a9c2df" font-size="17">one from this fork.</text>
 
-    <rect x="356" y="220" width="232" height="180" rx="24" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
-    <text x="386" y="272" fill="#f3f8ff" font-size="26" font-weight="700">2. Open the project</text>
-    <text x="386" y="306" fill="#a9c2df" font-size="18">Launch the test project in the</text>
-    <text x="386" y="332" fill="#a9c2df" font-size="18">module-enabled editor.</text>
+    <rect x="348" y="188" width="228" height="200" rx="22" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
+    <text x="372" y="226" fill="#7ec7ff" font-size="14" font-weight="700" letter-spacing="1.5">STEP 2</text>
+    <text x="372" y="260" fill="#f3f8ff" font-size="22" font-weight="700">Get the sample</text>
+    <text x="372" y="296" fill="#a9c2df" font-size="17">Shallow-clone the</text>
+    <text x="372" y="322" fill="#a9c2df" font-size="17">repository: the</text>
+    <text x="372" y="348" fill="#a9c2df" font-size="17">sample project is in it.</text>
 
-    <rect x="640" y="220" width="232" height="180" rx="24" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
-    <text x="670" y="272" fill="#f3f8ff" font-size="26" font-weight="700">3. Press Play</text>
-    <text x="670" y="306" fill="#a9c2df" font-size="18">The project opens the public</text>
-    <text x="670" y="332" fill="#a9c2df" font-size="18">evaluator scene by default.</text>
+    <rect x="624" y="188" width="228" height="200" rx="22" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
+    <text x="648" y="226" fill="#7ec7ff" font-size="14" font-weight="700" letter-spacing="1.5">STEP 3</text>
+    <text x="648" y="260" fill="#f3f8ff" font-size="22" font-weight="700">Open it</text>
+    <text x="648" y="296" fill="#a9c2df" font-size="17">Open the sample</text>
+    <text x="648" y="322" fill="#a9c2df" font-size="17">project in your</text>
+    <text x="648" y="348" fill="#a9c2df" font-size="17">editor (-e --path).</text>
 
-    <rect x="924" y="220" width="232" height="180" rx="24" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
-    <text x="954" y="272" fill="#f3f8ff" font-size="26" font-weight="700">4. Confirm output</text>
-    <text x="954" y="306" fill="#a9c2df" font-size="18">See a visible splat in the</text>
-    <text x="954" y="332" fill="#a9c2df" font-size="18">public evaluator viewport.</text>
+    <rect x="900" y="188" width="228" height="200" rx="22" fill="url(#panel)" stroke="#2b4c73" stroke-width="2" />
+    <text x="924" y="226" fill="#7ec7ff" font-size="14" font-weight="700" letter-spacing="1.5">STEP 4</text>
+    <text x="924" y="260" fill="#f3f8ff" font-size="22" font-weight="700">Press Play</text>
+    <text x="924" y="296" fill="#a9c2df" font-size="17">The sample scene</text>
+    <text x="924" y="322" fill="#a9c2df" font-size="17">shows a 1,024-splat</text>
+    <text x="924" y="348" fill="#a9c2df" font-size="17">synthetic sample.</text>
   </g>
 
-  <line x1="304" y1="308" x2="356" y2="308" stroke="url(#accent)" stroke-width="6" marker-end="url(#arrow)" />
-  <line x1="588" y1="308" x2="640" y2="308" stroke="url(#accent)" stroke-width="6" marker-end="url(#arrow)" />
-  <line x1="872" y1="308" x2="924" y2="308" stroke="url(#accent)" stroke-width="6" marker-end="url(#arrow)" />
+  <g stroke="#7ec7ff" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)">
+    <line x1="308" y1="288" x2="338" y2="288" />
+    <line x1="584" y1="288" x2="614" y2="288" />
+    <line x1="860" y1="288" x2="890" y2="288" />
+  </g>
 
-  <rect x="72" y="456" width="540" height="96" rx="24" fill="#101d32" stroke="#2b4c73" stroke-width="2" />
-  <text x="102" y="494" fill="#7ec7ff" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">VISIBLE PROOF</text>
-  <text x="102" y="526" fill="#a9c2df" font-family="Segoe UI, Arial, sans-serif" font-size="18">A correct first run ends with a visible splat in the viewport, not just a successful launch.</text>
+  <rect x="72" y="428" width="1056" height="100" rx="22" fill="#101d32" stroke="#2b4c73" stroke-width="2" />
+  <text x="102" y="468" fill="#7ec7ff" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="1.5">VISIBLE PROOF</text>
+  <text x="102" y="502" fill="#a9c2df" font-family="Segoe UI, Arial, sans-serif" font-size="18">A correct first run ends with splats in the viewport, not just a successful launch.</text>
 </svg>

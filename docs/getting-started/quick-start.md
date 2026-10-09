@@ -4,7 +4,7 @@
 
 **At the end:** you have the sample project open in a godotGS editor, a splat on screen, and you know where to go to bring in your own capture.
 
-It takes four steps: get an editor, get the sample project, open it, press Play. Screenshots for this page are not available yet, so it is text-first, with a diagram of the flow at the end.
+It takes four steps: get an editor, get the sample project, open it, press Play. A diagram of the flow is at the end of the page.
 
 ## 1. Get an Editor
 
@@ -72,6 +72,11 @@ If nothing appears, or the splats are black, go to [Troubleshooting](../troubles
 
 Copy a `.ply` or `.spz` source file into your project's folder. The editor imports it as a splat asset (`GaussianSplatAsset`). Drag that splat asset into the 3D viewport and the editor creates a `GaussianSplatNode3D` that draws it. The [Import Workflow](../workflows/importing.md) covers the supported formats and what to do when an import fails.
 
+<figure markdown="1">
+![The godotGS editor. Left, the Scene dock lists the scene's nodes with GaussianSplatNode3D selected, and the FileSystem dock shows the imported garden .ply file. Centre, the 3D viewport shows a captured garden: a round wooden table with a vase in front of a brick house and trees. Right, the Inspector shows the node's Asset, Quality and Transform sections.](../assets/images/screenshots/editor-overview-garden.webp){ .gs-shot width="1280" height="720" loading="lazy" }
+<figcaption markdown="span">A real capture in the editor, after import: the Mip-NeRF 360 "garden" scene (5.8M splats) drawn by a selected `GaussianSplatNode3D`, in a project made from the repository's project template. This is not the step 4 sample. Scan: Barron et al., [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), trained with gsplat by the godotGS project. Editor: godotGS built from [PR #1226](https://github.com/klausi3D/godotGS/pull/1226), RTX 3090. Not the default settings: black background, scene light off, tile cap 65,536, Custom quality (shown in the Inspector). See [Image credits](../reference/index.md#image-credits).</figcaption>
+</figure>
+
 ## Where to Go Next
 
 - [Guides](../user/index.md): concepts, quality presets, lighting and the feature guides.
@@ -82,6 +87,6 @@ Copy a `.ply` or `.spz` source file into your project's folder. The editor impor
 ## Flow Reference
 
 <figure markdown="1">
-![First-splat path: get an editor built from this fork, open the sample project with it, press Play, and see splats in the sample scene](../assets/images/first-run-editor-path.svg){ .gs-diagram }
-<figcaption>The first-splat path is a short proof loop: point at your editor, open the sample project, and confirm a visible splat in the sample scene.</figcaption>
+![Your First Splat in four steps: get an editor built from this fork, get the sample project, open it in the editor, and press Play to see splats in the sample scene](../assets/images/first-run-editor-path.svg){ .gs-diagram }
+<figcaption>Your First Splat is a short proof loop: get an editor and the sample project, open the project, and confirm visible splats in the sample scene.</figcaption>
 </figure>

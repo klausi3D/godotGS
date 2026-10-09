@@ -22,6 +22,18 @@ Use `ColorGradingResource` on `GaussianSplatNode3D` for real-time grading and op
 
 Baking works only on a node whose splats come from `set_splat_data()`. A node that renders a `splat_asset` (the normal import path) cannot bake: `bake_color_grading()`, `bake_color_grading_snapshot()` and `restore_color_grading()` return `ERR_UNAVAILABLE` and change nothing, and the inspector does not show the Bake section for it ([#1105](https://github.com/klausi3D/godotGS/issues/1105)). You lose nothing by it: real-time grading (steps 1-3) already applies to that node, per instance, so keep `enabled = true`. The asset may be shared by other nodes and is never rewritten. Separately, a bake does not yet reproduce the live look exactly ([#1124](https://github.com/klausi3D/godotGS/issues/1124)).
 
+## What It Looks Like
+
+<figure markdown="1">
+![A captured garden with a round wooden table and a vase, split down the middle. The left half, labelled Grading off, has the scan's own muted colours. The right half, labelled Grading on, is brighter, warmer and more saturated.](../assets/images/screenshots/grading-garden-split.webp){ .gs-shot width="1280" height="720" loading="lazy" }
+<figcaption markdown="span">Left: no grading. Right: a `ColorGradingResource` with exposure 0.25, contrast 1.15, saturation 1.35 and temperature 15 (tint and hue shift 0). The halves are two runtime frames from the same camera, joined in the middle. Scan: Mip-NeRF 360 "garden" (Barron et al., [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), trained with gsplat by the godotGS project; godotGS built from [PR #1226](https://github.com/klausi3D/godotGS/pull/1226), RTX 3090. Not the default settings: black background, scene lighting off, tile cap 65,536, Custom quality. See [Image credits](../reference/index.md#image-credits).</figcaption>
+</figure>
+
+<figure markdown="1">
+![The Inspector editing a ColorGradingResource: Enabled on, Exposure 0.25, Contrast 1.15, Saturation 1.35, Temperature 15, Tint 0.](../assets/images/screenshots/editor-color-grading-inspector.webp){ .gs-shot .gs-shot--natural width="265" height="285" loading="lazy" }
+<figcaption markdown="span">The same values in the Inspector. The crop stops above the Hue Shift row, whose degree unit currently shows as garbled characters ([#1214](https://github.com/klausi3D/godotGS/issues/1214)).</figcaption>
+</figure>
+
 ## API
 
 | Item | Type | Behavior | Implementation reference |
