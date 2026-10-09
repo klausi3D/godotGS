@@ -41,7 +41,6 @@ debug/show_tile_grid = false
 debug/show_density_heatmap = false
 debug/show_performance_hud = false
 debug/show_timing_gizmo = false
-debug/debug_draw_mode = 2
 debug/runtime_preview = false
 debug/show_residency_hud = false
 

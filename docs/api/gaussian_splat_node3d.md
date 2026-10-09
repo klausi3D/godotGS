@@ -342,7 +342,7 @@ A `GaussianSplatNode3D` is always resident (it never streams; see [Streaming](..
       <td><code>debug/debug_draw_mode</code></td>
       <td><code>int (DebugDrawMode)</code></td>
       <td><code>set_debug_draw_mode</code>, <code>get_debug_draw_mode</code></td>
-      <td>Swaps renderer preview mode unless runtime preview override is enabled.</td>
+      <td>Default <code>DEBUG_DRAW_OFF</code>. Swaps renderer preview mode unless runtime preview override is enabled. The editor gizmo draws the Wireframe, Points or Heatmap preview only while the node is selected (<code>GaussianSplatGizmoPlugin::should_draw_splat_preview</code>).</td>
       <td><code>GaussianSplatNodeDebugHelper::set_debug_draw_mode</code></td>
     </tr>
     <tr>

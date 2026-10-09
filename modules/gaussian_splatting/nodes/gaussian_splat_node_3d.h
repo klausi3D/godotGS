@@ -281,10 +281,13 @@ private:
     bool show_lod_spheres = true;
     bool show_timing_gizmo = false;
     float debug_overlay_opacity = 0.3f;
-    DebugDrawMode debug_draw_mode = DEBUG_DRAW_POINTS;
+    // #1220: Off by default. Points drew up to 1000 AABB-scaled crosses over the
+    // splats of every node in the editor. Saved scenes store only non-default
+    // values, so a scene that relied on the old Points default now opens with Off.
+    DebugDrawMode debug_draw_mode = DEBUG_DRAW_OFF;
     bool runtime_preview_enabled = false;
     bool show_residency_hud = false;
-    int runtime_preview_restore_mode = DEBUG_DRAW_POINTS;
+    int runtime_preview_restore_mode = DEBUG_DRAW_OFF;
     CanvasLayer *debug_hud_layer = nullptr;
     GaussianSplatDebugHUD *debug_hud_control = nullptr;
 

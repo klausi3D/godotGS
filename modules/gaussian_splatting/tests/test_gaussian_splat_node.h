@@ -21,6 +21,7 @@
 #ifdef TOOLS_ENABLED
 #include "../editor/gaussian_editor_services.h"
 #include "../editor/gaussian_inspector_plugins.h"
+#include "../editor/gaussian_splat_gizmo_plugin.h"
 #endif
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
@@ -1072,6 +1073,25 @@ TEST_CASE("[GaussianSplatting][Node] Debug overlay toggles have correct defaults
     CHECK(node->is_showing_residency_hud());
 
     memdelete(node);
+}
+
+TEST_CASE("[GaussianSplatting][Node] Debug draw mode defaults to Off (#1220)") {
+    // The old Points default drew up to 1000 crosses over the splats of every
+    // node in the editor. Scene files store only values that differ from the
+    // ClassDB default, so check that default as well as a fresh node's value.
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    if (node == nullptr) {
+        FAIL("memnew(GaussianSplatNode3D) returned null");
+        return;
+    }
+    CHECK_EQ(node->get_debug_draw_mode(), GaussianSplatNode3D::DEBUG_DRAW_OFF);
+    memdelete(node);
+
+    bool valid = false;
+    const Variant saved_default = ClassDB::class_get_default_property_value(
+            StringName("GaussianSplatNode3D"), StringName("debug/debug_draw_mode"), &valid);
+    CHECK(valid);
+    CHECK_EQ(int(saved_default), int(GaussianSplatNode3D::DEBUG_DRAW_OFF));
 }
 
 TEST_CASE("[GaussianSplatting][Node] Legacy non-functional properties are not exposed but still deserialize") {
@@ -5912,6 +5932,106 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses a debug/ property on
 	memdelete(node);
 }
 
+#endif // TOOLS_ENABLED
+
+#ifdef TOOLS_ENABLED
+namespace {
+
+// Counts redraw()'s calls into the splat preview, so the case below asserts what
+// redraw() does rather than what its gate helper returns.
+class GS1220PreviewCountingGizmoPlugin : public GaussianSplatGizmoPlugin {
+public:
+    int preview_draws = 0;
+    void draw_splat_preview(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node) override {
+        preview_draws++;
+        GaussianSplatGizmoPlugin::draw_splat_preview(p_gizmo, p_node);
+    }
+};
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Gizmo draws the splat preview only while the node is selected (#1220)") {
+    // Splats are composited at the end of the frame, so preview lines always sit on
+    // top of them. Unselected nodes drew them too: 4.32 % of an editor frame on an
+    // 8M-splat scan with nothing selected.
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    if (node == nullptr) {
+        FAIL("memnew(GaussianSplatNode3D) returned null");
+        return;
+    }
+    node->set_splat_asset(make_single_splat_asset());
+    node->set_preview_enabled(true);
+
+    Ref<GS1220PreviewCountingGizmoPlugin> plugin;
+    plugin.instantiate();
+    Ref<EditorNode3DGizmo> gizmo;
+    gizmo.instantiate();
+    gizmo->set_node_3d(node);
+
+    const GaussianSplatNode3D::DebugDrawMode preview_modes[] = {
+        GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME,
+        GaussianSplatNode3D::DEBUG_DRAW_POINTS,
+        GaussianSplatNode3D::DEBUG_DRAW_HEATMAP,
+    };
+    for (const GaussianSplatNode3D::DebugDrawMode mode : preview_modes) {
+        node->set_debug_draw_mode(mode);
+
+        gizmo->set_selected(false);
+        plugin->preview_draws = 0;
+        plugin->redraw(gizmo.ptr());
+        CHECK_MESSAGE(plugin->preview_draws == 0, "mode ", int(mode), ": an unselected node drew the preview");
+
+        gizmo->set_selected(true);
+        plugin->preview_draws = 0;
+        plugin->redraw(gizmo.ptr());
+        CHECK_MESSAGE(plugin->preview_draws == 1, "mode ", int(mode), ": a selected node did not draw the preview");
+    }
+
+    // Selected, but the preview is Off or disabled: nothing to draw.
+    node->set_debug_draw_mode(GaussianSplatNode3D::DEBUG_DRAW_OFF);
+    plugin->preview_draws = 0;
+    plugin->redraw(gizmo.ptr());
+    CHECK_EQ(plugin->preview_draws, 0);
+
+    node->set_debug_draw_mode(GaussianSplatNode3D::DEBUG_DRAW_POINTS);
+    node->set_preview_enabled(false);
+    plugin->preview_draws = 0;
+    plugin->redraw(gizmo.ptr());
+    CHECK_EQ(plugin->preview_draws, 0);
+
+    gizmo.unref();
+    plugin.unref();
+    memdelete(node);
+}
+
+TEST_CASE("[GaussianSplatting][Editor] Preview cross size ignores floaters (#1220)") {
+    // 990 points on a 2 m grid plus 10 floaters 5 km away: the AABB is ~5000 m long,
+    // which made every cross arm ~50 m. The percentile box is the 2 m core.
+    Vector<Vector3> points;
+    for (int i = 0; i < 990; i++) {
+        const float x = float(i % 10) / 9.0f * 2.0f - 1.0f;
+        const float y = float((i / 10) % 10) / 9.0f * 2.0f - 1.0f;
+        const float z = float(i / 100) / 9.0f * 2.0f - 1.0f;
+        points.push_back(Vector3(x, y, z));
+    }
+    for (int i = 0; i < 10; i++) {
+        points.push_back(Vector3(5000.0f + float(i), 0.0f, 0.0f));
+    }
+    const float with_floaters = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(points);
+    CHECK_MESSAGE(with_floaters < 0.05f, "half-arm ", with_floaters, " m follows the floaters");
+    CHECK(with_floaters >= 0.01f);
+
+    // The size still follows the content: the same grid scaled to 200 m.
+    Vector<Vector3> large;
+    for (int i = 0; i < 990; i++) {
+        large.push_back(points[i] * 100.0f);
+    }
+    const float scaled = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(large);
+    CHECK_MESSAGE(scaled > 1.5f, "half-arm ", scaled, " m did not scale with a 200 m cloud");
+    CHECK_MESSAGE(scaled < 2.5f, "half-arm ", scaled, " m exceeds 1 % of a 200 m cloud");
+
+    CHECK(Math::is_equal_approx(GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(Vector<Vector3>()), 0.01f));
+}
 #endif // TOOLS_ENABLED
 
 // ── #806 review: the setup-failure exit must not strand a node in the tree ──────
