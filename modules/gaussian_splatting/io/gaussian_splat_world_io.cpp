@@ -793,6 +793,80 @@ static bool _validate_hlod_payload(const GaussianSplatHlodTree &p_tree, const Ga
 	return true;
 }
 
+// The header world AABB becomes the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
+// so it must enclose the validated root: the root's world-space bounds contain every child
+// (gs_hlod_validate_tree) and every payload's three-sigma support (_validate_hlod_payload).
+// Evaluated in double, the way the tree validator evaluates containment.
+static void _hlod_root_world_extent(const GaussianSplatHlodTree &p_tree, double r_lo[3], double r_hi[3]) {
+	const GaussianSplatHlodNode &root = p_tree.nodes[0];
+	double center[3];
+	p_tree.node_cell_center(root, center);
+	for (int a = 0; a < 3; a++) {
+		r_lo[a] = center[a] + double(root.aabb_min[a]);
+		r_hi[a] = center[a] + double(root.aabb_max[a]);
+	}
+}
+
+static bool _hlod_bounds_enclose_root(const GaussianSplatHlodTree &p_tree, const Vector3 &p_position, const Vector3 &p_size) {
+	double lo[3];
+	double hi[3];
+	_hlod_root_world_extent(p_tree, lo, hi);
+	for (int a = 0; a < 3; a++) {
+		const double begin = double(p_position[a]);
+		const double end = begin + double(p_size[a]);
+		if (!Math::is_finite(p_position[a]) || !Math::is_finite(p_size[a]) || p_size[a] < real_t(0) || !Math::is_finite(end) ||
+				begin > lo[a] || end < hi[a]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// Writer side: the world's bounds (when finite and non-empty) united with the root, rounded
+// outward to real_t so _hlod_bounds_enclose_root() holds exactly for the stored values.
+static bool _hlod_header_bounds(const GaussianSplatHlodTree &p_tree, const AABB &p_world_bounds, AABB &r_bounds) {
+	double lo[3];
+	double hi[3];
+	_hlod_root_world_extent(p_tree, lo, hi);
+	bool use_world = p_world_bounds.has_surface();
+	for (int a = 0; a < 3 && use_world; a++) {
+		const double end = double(p_world_bounds.position[a]) + double(p_world_bounds.size[a]);
+		use_world = Math::is_finite(p_world_bounds.position[a]) && Math::is_finite(p_world_bounds.size[a]) &&
+				p_world_bounds.size[a] >= real_t(0) && Math::is_finite(end);
+	}
+	for (int pass = 0; pass < 2; pass++) {
+		// Pass 1 drops a world AABB whose union with the root does not fit runtime coordinates.
+		const bool unite = use_world && pass == 0;
+		bool ok = true;
+		for (int a = 0; a < 3 && ok; a++) {
+			double want_lo = lo[a];
+			double want_hi = hi[a];
+			if (unite) {
+				want_lo = MIN(want_lo, double(p_world_bounds.position[a]));
+				want_hi = MAX(want_hi, double(p_world_bounds.position[a]) + double(p_world_bounds.size[a]));
+			}
+			real_t begin = real_t(want_lo);
+			if (double(begin) > want_lo) {
+				begin = std::nextafter(begin, real_t(-INFINITY));
+			}
+			real_t extent = real_t(want_hi - double(begin));
+			for (int step = 0; step < 4 && Math::is_finite(extent) && double(begin) + double(extent) < want_hi; step++) {
+				extent = std::nextafter(extent, real_t(INFINITY));
+			}
+			r_bounds.position[a] = begin;
+			r_bounds.size[a] = extent;
+			ok = Math::is_finite(begin) && Math::is_finite(extent);
+		}
+		if (ok && _hlod_bounds_enclose_root(p_tree, r_bounds.position, r_bounds.size)) {
+			return true;
+		}
+		if (!unite) {
+			break;
+		}
+	}
+	return false;
+}
+
 static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
@@ -961,6 +1035,10 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	String reason;
 	if (!gs_hlod_validate_tree(tree, &reason)) {
 		return refuse(reason);
+	}
+	// A finite but too-small or disjoint header AABB would let engine frustum culling hide valid splats.
+	if (!_hlod_bounds_enclose_root(tree, p_bounds_pos, p_bounds_size)) {
+		return refuse("header world bounds are invalid or do not enclose the HLOD root");
 	}
 	Dictionary file_metadata;
 	if ((p_flags & kFlagHasMetadata) != 0u) {
@@ -1227,6 +1305,9 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		cursor += uint64_t(ext.instance_count) * gs_hlod::kInstanceRecordBytes;
 	}
 	const uint64_t metadata_offset = metadata_bytes.is_empty() ? 0u : cursor;
+	AABB header_bounds;
+	ERR_FAIL_COND_V_MSG(!_hlod_header_bounds(tree, p_world->get_bounds(), header_bounds), ERR_INVALID_DATA,
+			vformat("Refusing to save %s: the HLOD root bounds do not fit runtime coordinates.", p_path));
 
 	return gs_atomic_file_write(p_path, [&](const Ref<FileAccess> &file) -> Error {
 		file->store_32(kWorldMagic);
@@ -1236,8 +1317,8 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		file->store_32(snapshot_metadata.sh_degree);
 		file->store_32(sh_first);
 		file->store_32(sh_count_per);
-		_write_vec3(file, p_world->get_bounds().position);
-		_write_vec3(file, p_world->get_bounds().size);
+		_write_vec3(file, header_bounds.position);
+		_write_vec3(file, header_bounds.size);
 		file->store_32(0u); // chunk_count: v2 writes no chunk index lists
 		file->store_64(gaussian_offset);
 		file->store_64(sh_offset);

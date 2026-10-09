@@ -709,6 +709,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.
     rounding). Reconstructed node centres, AABB endpoints/sizes and payload positions must fit
     finite runtime coordinates. Flagged metadata must be read completely and parse as a UTF-8
     JSON dictionary; malformed metadata is an error, not an empty dictionary fallback.
+  - The header world AABB becomes the engine instance AABB through `GaussianSplatWorld3D`, so it
+    must enclose the root node's world-space AABB. The writer unites the world's bounds with the
+    root, rounded outward to float32. The loader refuses non-finite, negative or non-enclosing bounds.
   - Node flags: bits 0–1 the representation kind, bit 2 `split_by_index`, bit 3 `grouped_leaf`,
     bit 4 `origin_centred_root` (§6.1).
   - **Reserved bytes:** the node record's 32 reserved bytes are the stage-2 extension area, so

@@ -26,7 +26,9 @@ public:
 	// manual `rm -rf .godot/imported/` required.
 	// 3: v1 sources are baked into a v2 (HLOD) imported copy (ADR adr-hlod-streaming.md §7), so
 	// every existing world re-imports once and gains a tree.
-	int get_format_version() const override { return 3; }
+	// 4: the v2 header world bounds must enclose the HLOD root (the loader refuses other bounds), so
+	// v2 copies baked at version 3 with the source's tighter bounds re-import.
+	int get_format_version() const override { return 4; }
 	virtual int get_preset_count() const override;
 	virtual String get_preset_name(int p_idx) const override;
 	virtual void get_import_options(const String &p_path, List<ImportOption> *r_options, int p_preset) const override;

@@ -18,12 +18,19 @@
 #include "../core/gaussian_splat_world.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/resource_importer_gsplatworld.h"
+#include "../nodes/gaussian_splat_world_3d.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/compression.h"
+#include "core/math/geometry_3d.h"
 #include "core/math/math_funcs.h"
+#include "core/math/projection.h"
 #include "core/os/os.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
+#include "scene/resources/3d/world_3d.h"
+#include "servers/rendering_server.h"
 
 #include <algorithm>
 #include <cmath>
@@ -159,6 +166,37 @@ inline void hlod_cell_region(const GaussianSplatHlodTree &p_tree, const Gaussian
 	for (int a = 0; a < 3; a++) {
 		r_lo[a] = c[a] - half;
 		r_hi[a] = c[a] + half;
+	}
+}
+
+// World-space extent of the root node, in double (the tree validator's containment frame).
+inline void hlod_root_extent(const GaussianSplatHlodTree &p_tree, double r_lo[3], double r_hi[3]) {
+	double c[3];
+	p_tree.node_cell_center(p_tree.nodes[0], c);
+	for (int a = 0; a < 3; a++) {
+		r_lo[a] = c[a] + double(p_tree.nodes[0].aabb_min[a]);
+		r_hi[a] = c[a] + double(p_tree.nodes[0].aabb_max[a]);
+	}
+}
+
+inline bool hlod_aabb_encloses(const AABB &p_bounds, const double p_lo[3], const double p_hi[3]) {
+	for (int a = 0; a < 3; a++) {
+		const double begin = double(p_bounds.position[a]);
+		if (!(p_bounds.size[a] >= 0.0f) || begin > p_lo[a] || begin + double(p_bounds.size[a]) < p_hi[a]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// Long splats rotated so their long (local y) axis lies along world x: three sigma reaches
+// x = +-6 m while GaussianData::get_aabb(), which ignores rotation, spans only x = +-0.03 m.
+inline void hlod_make_needle_fixture(LocalVector<Gaussian> &r_out) {
+	hlod_make_fixture(0u, 2u, r_out);
+	for (uint32_t i = 0; i < r_out.size(); i++) {
+		r_out[i].position = Vector3(0.0f, 0.25f * float(i), 0.0f);
+		r_out[i].scale = Vector3(0.01f, 2.0f, 0.01f);
+		r_out[i].rotation = Quaternion(Vector3(0.0f, 0.0f, 1.0f), Math::PI * 0.5f);
 	}
 }
 
@@ -1264,7 +1302,27 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 			return;
 		}
 		CHECK(loaded->get_metadata()["note"] == Variant("hlod round trip"));
-		CHECK(loaded->get_bounds() == world->get_bounds());
+		{
+			// The header keeps the user's bounds, widened just enough to enclose the validated root.
+			// These user bounds start at x = 984 m, inside the splats' three-sigma support.
+			double lo[3], hi[3];
+			hlod_root_extent(tree, lo, hi);
+			const AABB user = world->get_bounds();
+			const AABB got = loaded->get_bounds();
+			CHECK_FALSE(hlod_aabb_encloses(user, lo, hi));
+			CHECK(hlod_aabb_encloses(got, lo, hi));
+			for (int a = 0; a < 3; a++) {
+				CAPTURE(a);
+				const double want_lo = MIN(lo[a], double(user.position[a]));
+				const double want_hi = MAX(hi[a], double(user.position[a]) + double(user.size[a]));
+				const double begin = double(got.position[a]);
+				const double end = begin + double(got.size[a]);
+				CHECK(begin <= want_lo);
+				CHECK(end >= want_hi);
+				CHECK(begin >= want_lo - 4.0 * FLT_EPSILON * MAX(1.0, std::abs(want_lo)));
+				CHECK(end <= want_hi + 4.0 * FLT_EPSILON * MAX(1.0, std::abs(want_hi)));
+			}
+		}
 		const GaussianSplatHlodTree &t2 = loaded->get_hlod_tree();
 		if ((t2.nodes.size()) != (tree.nodes.size())) {
 			FAIL("t2.nodes.size() == tree.nodes.size()");
@@ -1563,6 +1621,136 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		Error load_err = OK;
 		CHECK_FALSE(loader.load_resident(path, &load_err).is_valid());
 		CHECK(load_err == ERR_FILE_CORRUPT);
+		DirAccess::remove_absolute(path);
+	}
+	DirAccess::remove_absolute(valid_path);
+}
+
+// The v2 header AABB becomes the world's bounds and, through GaussianSplatWorld3D, the engine's
+// instance AABB. A finite header that is smaller than or disjoint from the validated root would
+// let frustum culling hide valid splats, so the saver widens it and the loader refuses it.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r3 header world bounds must enclose the validated root") {
+	using namespace TestGaussianSplatHlod;
+	auto encloses_aabb = [](const AABB &p_outer, const AABB &p_inner) {
+		double lo[3], hi[3];
+		for (int a = 0; a < 3; a++) {
+			lo[a] = double(p_inner.position[a]);
+			hi[a] = lo[a] + double(p_inner.size[a]);
+		}
+		return hlod_aabb_encloses(p_outer, lo, hi);
+	};
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	LocalVector<Gaussian> g;
+	hlod_make_needle_fixture(g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake the needle producer");
+		return;
+	}
+	double lo[3], hi[3];
+	hlod_root_extent(world->get_hlod_tree(), lo, hi);
+	// Control: on this valid content the world's default bounds (GaussianData::get_aabb()) miss
+	// the rotated three-sigma support, so writing them verbatim reproduces the defect.
+	CHECK_FALSE(hlod_aabb_encloses(world->get_bounds(), lo, hi));
+	CHECK(hi[0] - lo[0] > 10.0);
+
+	// Producer: every payload mode writes header bounds that enclose the root and the world's bounds.
+	for (int mode = 1; mode <= 3; mode++) {
+		const String path = hlod_temp_path("bounds_producer_r3");
+		if (saver.save_with_payload_mode(world, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+			FAIL("save the needle producer");
+			return;
+		}
+		for (bool resident : { false, true }) {
+			CAPTURE(mode);
+			CAPTURE(resident);
+			Error err = ERR_BUG;
+			Ref<GaussianSplatWorld> loaded;
+			if (resident) {
+				loaded = loader.load_resident(path, &err);
+			} else {
+				loaded = loader.load(path, "", &err);
+			}
+			if (loaded.is_null() || err != OK) {
+				FAIL("the valid needle producer must load");
+				DirAccess::remove_absolute(path);
+				return;
+			}
+			CHECK(hlod_aabb_encloses(loaded->get_bounds(), lo, hi));
+			CHECK(encloses_aabb(loaded->get_bounds(), world->get_bounds()));
+		}
+		DirAccess::remove_absolute(path);
+	}
+
+	// Malformed: only the header bounds change; the node table and payload stay valid.
+	const String valid_path = hlod_temp_path("bounds_valid_r3");
+	if (saver.save(world, valid_path) != OK) {
+		FAIL("save the needle mutation base");
+		return;
+	}
+	const PackedByteArray valid = hlod_read_file(valid_path);
+	if (valid.size() < 184) {
+		FAIL("the needle mutation base is shorter than the v2 header");
+		return;
+	}
+	float pos[3], size[3];
+	memcpy(pos, valid.ptr() + 28, sizeof(pos));
+	memcpy(size, valid.ptr() + 40, sizeof(size));
+	// The writer rounds the root's low x edge outward by at most one float step.
+	CHECK(double(pos[0]) <= lo[0]);
+	CHECK(double(std::nextafter(pos[0], INFINITY)) > lo[0]);
+	struct BoundsCase {
+		const char *name;
+		int offset; // 28 + 4 * axis for position, 40 + 4 * axis for size
+		float value;
+		bool loads;
+	};
+	const BoundsCase cases[] = {
+		{ "control: header widened beyond the root", 28, pos[0] - 100.0f, true },
+		{ "NaN position", 28, NAN, false },
+		{ "infinite position", 32, -INFINITY, false },
+		{ "infinite size", 40, INFINITY, false },
+		{ "negative size", 48, -1.0f, false },
+		{ "zero size on the root's long axis", 40, 0.0f, false },
+		{ "half the root's extent", 40, size[0] * 0.5f, false },
+		{ "finite but disjoint from the root", 28, pos[0] + 1000.0f, false },
+		// x is the axis where the header edge is the root's own edge (the world bounds are inside it).
+		{ "low edge one float ULP inside the root", 28, std::nextafter(pos[0], INFINITY), false },
+	};
+#ifdef TOOLS_ENABLED
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	const String import_base = hlod_temp_path("bounds_import_r3");
+#endif
+	int index = 0;
+	for (const BoundsCase &c : cases) {
+		CAPTURE(c.name);
+		PackedByteArray bytes = valid;
+		memcpy(bytes.ptrw() + c.offset, &c.value, sizeof(float));
+		if (c.offset == 28 && c.loads) {
+			const float widened = size[0] + 200.0f;
+			memcpy(bytes.ptrw() + 40, &widened, sizeof(float));
+		}
+		const String path = hlod_temp_path(vformat("bounds_r3_%d", index++));
+		if (!hlod_write_file(path, bytes)) {
+			FAIL("write the header-bounds mutation");
+			return;
+		}
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> streamed = loader.load(path, "", &err);
+		CHECK(streamed.is_valid() == c.loads);
+		CHECK(err == (c.loads ? OK : ERR_FILE_CORRUPT));
+		streamed.unref();
+		Ref<GaussianSplatWorld> resident = loader.load_resident(path, &err);
+		CHECK(resident.is_valid() == c.loads);
+		CHECK(err == (c.loads ? OK : ERR_FILE_CORRUPT));
+		resident.unref();
+#ifdef TOOLS_ENABLED
+		CHECK((importer->import(ResourceUID::INVALID_ID, path, import_base, options, nullptr, nullptr, nullptr) == OK) == c.loads);
+		DirAccess::remove_absolute(import_base + ".gsplatworld");
+#endif
 		DirAccess::remove_absolute(path);
 	}
 	DirAccess::remove_absolute(valid_path);
@@ -2702,3 +2890,72 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 	DirAccess::remove_absolute(source_path);
 }
 #endif // TOOLS_ENABLED
+
+// Real engine frustum culling (RendererSceneCull through RenderingServer::instances_cull_convex)
+// on a loaded v2 world. The camera sees only needle support that GaussianData::get_aabb(), the
+// bounds a verbatim header would carry, misses; GaussianSplatWorld3D turns the header bounds into
+// the instance AABB, so the world is found only if the header encloses the validated root.
+TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] HLOD v2 header bounds keep valid splats inside the engine frustum") {
+	using namespace TestGaussianSplatHlod;
+	RenderingServer *rs = RenderingServer::get_singleton();
+	SceneTree *scene_tree = SceneTree::get_singleton();
+	Window *root = scene_tree != nullptr ? scene_tree->get_root() : nullptr;
+	if (rs == nullptr || root == nullptr) {
+		FAIL("RenderingServer and the SceneTree root window are required");
+		return;
+	}
+	LocalVector<Gaussian> g;
+	hlod_make_needle_fixture(g);
+	Ref<GaussianSplatWorld> source = hlod_make_world(g);
+	if (source->bake_hlod() != OK) {
+		FAIL("bake the needle producer");
+		return;
+	}
+	const String path = hlod_temp_path("frustum_r3");
+	ResourceFormatSaverGaussianSplatWorld saver;
+	if (saver.save_resident_uncompressed(source, path) != OK) {
+		FAIL("save the needle producer");
+		return;
+	}
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> loaded = loader.load(path, "", &err);
+	DirAccess::remove_absolute(path); // resident payload: the loaded world keeps no file handle
+	if (loaded.is_null() || err != OK || !loaded->has_resident_gaussian_data()) {
+		FAIL("the resident needle producer must load");
+		return;
+	}
+
+	Projection projection;
+	projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	const Transform3D near_view(Basis(), Vector3(4.0f, 0.0f, 5.0f)); // sees x in [0.5, 7.5] m at z = 0
+	const Transform3D far_view(Basis(), Vector3(50.0f, 0.0f, 5.0f));
+	const Vector<Plane> near_planes = projection.get_projection_planes(near_view);
+	const Vector<Plane> far_planes = projection.get_projection_planes(far_view);
+	{
+		// Control: a header that copied the world's default bounds would be culled from this view.
+		const Vector<Vector3> points = Geometry3D::compute_convex_mesh_points(near_planes.ptr(), near_planes.size());
+		CHECK_FALSE(source->get_bounds().intersects_convex_shape(near_planes.ptr(), near_planes.size(), points.ptr(), points.size()));
+	}
+
+	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
+	node->set_auto_apply_on_ready(false);
+	node->set_world(loaded);
+	root->add_child(node);
+	scene_tree->process(0.0);
+	node->apply_world();
+	Ref<World3D> world_3d = node->get_world_3d();
+	if (world_3d.is_null()) {
+		FAIL("the world node must be inside a World3D");
+	} else {
+		const RID scenario = world_3d->get_scenario();
+		const ObjectID id = node->get_instance_id();
+		CHECK(rs->instances_cull_convex(near_planes, scenario).has(id));
+		// A view 50 m away must not find it, so the hit above comes from culling, not from an
+		// instance that is never culled.
+		CHECK_FALSE(rs->instances_cull_convex(far_planes, scenario).has(id));
+	}
+	root->remove_child(node);
+	memdelete(node);
+	scene_tree->process(0.0);
+}
