@@ -105,13 +105,28 @@ from the changed paths:
   `scripts/docs/check_links.py`, any other `scripts/**/*.py` outside
   `scripts/agentic/` and the docs-site tooling below,
   `.gitignore` and `LICENSE.txt` all classify as R3.
-- **Docs-site build and publish tooling is R1**, not R0: `mkdocs.yml`,
-  `overrides/**`, `scripts/stage_public_docs.py`, `scripts/build_documentation.py`,
-  `scripts/build_docs_site.py`, `scripts/check_docs_media_budget.py`,
-  `scripts/docs/check_doxygen_output.py`, `scripts/docs/release_acceptance.py`,
-  `docs/requirements*.txt` and `docs/assets/javascripts/**`. They decide what the
-  public site builds and publishes; the required `docs-build` check catches a
-  broken build.
+- **Docs-site build and publish tooling is R1** (maintainer decision,
+  [#1212](https://github.com/klausi3D/godotGS/issues/1212)). It
+  is not R0, because it decides what the public site builds and publishes. It is
+  not R3, because a required check covers each entry, or the entry cannot change
+  what is published:
+    - `docs-build`, a required check on `master` since 2026-10-08, builds with
+      `mkdocs.yml` and `overrides/**` and runs `scripts/build_documentation.py`
+      (which runs `scripts/docs/check_doxygen_output.py`) and
+      `scripts/stage_public_docs.py`. It fails on a broken generator run, stage or
+      strict MkDocs build.
+    - `tests/agentic/test_stage_public_docs.py` pins the public-scope exclusions of
+      `scripts/stage_public_docs.py`. `tests/agentic/test_cpp_api_redirect.py` pins
+      `scripts/docs/redirect_cpp_api_to_latest.py`, which only a `v*` tag deploy
+      runs. Both tests run in the required `agentic-pr-gate`.
+    - No workflow runs `scripts/build_docs_site.py`, a local wrapper.
+      `scripts/docs/release_acceptance.py` is report-only in `docs-build`, and
+      `deploy` does not run it. Neither can change what is published.
+    - `docs/requirements*.txt` (the hash-locked docs toolchain that both jobs
+      install) and `docs/assets/javascripts/**` (script that runs in readers'
+      browsers) are raised from R0 (`docs/**`).
+    - `scripts/check_docs_media_budget.py` stays R3. `deploy` runs it right before
+      publishing, and no test checks the budget script itself.
 - **A diff that touches `.agentic/policy.json` is forced to the top class**, R3
   (`SELF_REFERENTIAL_PATHS` in the classifier), although the rules list
   `.agentic/**` as R0. The rest of `.agentic/` stays R0.

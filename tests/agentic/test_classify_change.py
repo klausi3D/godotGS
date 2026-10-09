@@ -70,8 +70,9 @@ class ClassifyChangeTest(unittest.TestCase):
         self.assertEqual(self._cls(["CONTRIBUTING.md"]), "R0")
 
     # Docs-site build / publish tooling. These decide what the public site builds
-    # and publishes, so they are R1, not R0; the required docs-build check catches a
-    # broken build, so they are not R3 either.
+    # and publishes, so they are R1, not R0. Each is covered by a required check
+    # (docs-build, or a tests/agentic test in agentic-pr-gate) or cannot change what
+    # is published, so they are not R3 either (docs/governance/agentic-engineering.md).
     DOCS_SITE_TOOLING_R1 = (
         "mkdocs.yml",
         "overrides/home.html",
@@ -79,9 +80,9 @@ class ClassifyChangeTest(unittest.TestCase):
         "scripts/stage_public_docs.py",
         "scripts/build_documentation.py",
         "scripts/build_docs_site.py",
-        "scripts/check_docs_media_budget.py",
         "scripts/docs/check_doxygen_output.py",
         "scripts/docs/release_acceptance.py",
+        "scripts/docs/redirect_cpp_api_to_latest.py",
         "docs/requirements.txt",
         "docs/requirements-site.txt",
         "docs/requirements-lock.txt",
@@ -96,9 +97,11 @@ class ClassifyChangeTest(unittest.TestCase):
     def test_docs_site_tooling_rule_does_not_reach_neighbouring_paths(self):
         # The rule names exact files, so neighbours keep their own class: other
         # scripts fail closed to R3, the link checker run by the required agentic
-        # gate stays R3, and ordinary docs pages and assets stay R0.
+        # gate stays R3, the media budget (run by deploy, no test of its own) stays
+        # R3, and ordinary docs pages and assets stay R0.
         for path, expected in (
             ("scripts/docs/check_links.py", "R3"),
+            ("scripts/check_docs_media_budget.py", "R3"),
             ("scripts/docs/some_new_docs_check.py", "R3"),
             ("scripts/generate_shader_docs.py", "R3"),
             ("scripts/stage_public_docs.py.bak", "R3"),
