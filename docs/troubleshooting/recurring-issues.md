@@ -34,7 +34,7 @@ Work through these in order:
 
 **Cause:** the export used a stock Godot export template. The export still succeeds, with no error and no warning, but the game has no splat renderer.
 
-**Fix:** set `custom_template/release` in your export preset to a godotGS export template. Windows templates come with nightlies whose Windows build passed ([Downloads](../getting-started/downloads.md)); for Linux, build one yourself. [Export Templates](../development/export-templates.md) has the steps and a one-line check that tells you which template an export used.
+**Fix:** set `custom_template/release` in your export preset to a godotGS export template, and clear **Export With Debug** in the export file dialog; it is on by default. A debug export, like the editor's one-click remote-debug run, reads `custom_template/debug` instead, and no godotGS debug template is published yet, so it never gets a godotGS template. Windows templates come with nightlies whose Windows build passed ([Downloads](../getting-started/downloads.md)); for Linux, build one yourself. [Export Templates](../development/export-templates.md) has the steps and a one-line check that tells you which template an export used.
 
 ## Slow on the Linux Nightly
 

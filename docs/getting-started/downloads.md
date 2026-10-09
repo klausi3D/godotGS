@@ -17,7 +17,7 @@ There is no stable `v*` release yet: nightlies are the only published binaries. 
 
 [**Open the Releases page**](https://github.com/klausi3D/godotGS/releases) and pick the most recent `nightly-YYYYMMDD` entry at the top. Because there is no stable release yet, GitHub's "latest release" shortcut does not lead to a nightly, so always use the list.
 
-Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when that night's Windows build and its export smoke test succeed**. Otherwise the nightly is Linux-only, and several in a row can be. On Windows, pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`; it is not always the newest entry.
+Every nightly contains the Linux editor, `BUILD-INFO.txt`, and checksum files. The Windows editor and the Windows export template are attached **only when that night's Windows build succeeds**. If the Windows build fails, the nightly is Linux-only, and several in a row can be. If the Windows build succeeds but the export template build or its export smoke test fails, no nightly is published that night at all. On Windows, pick the most recent nightly whose asset list includes `godotgs-windows-x86_64-<tag>.zip`; it is not always the newest entry.
 
 <div id="gs-latest-nightlies" data-repo="klausi3D/godotGS" hidden></div>
 
@@ -69,7 +69,7 @@ No godotGS binary is code-signed, so Windows SmartScreen may warn that the app i
 
 ### Exporting a game
 
-To export a game on Windows, also download `godotgs-export-template-windows-x86_64-<tag>.zip`. Unzip it and set `custom_template/release` in your export preset to the absolute path of `windows_release_x86_64.exe`. Keep the `.console.exe` next to it. Without that setting the export silently uses a stock template that renders no splats. No Linux export template is published; build one from source. See [Export Templates](../development/export-templates.md).
+To export a game on Windows, also download `godotgs-export-template-windows-x86_64-<tag>.zip`. Unzip it and set `custom_template/release` in your export preset to the absolute path of `windows_release_x86_64.exe`. Keep the `.console.exe` next to it. Without that setting the export silently uses a stock template that renders no splats. Then clear **Export With Debug** in the export file dialog; it is on by default. A debug export, like the editor's one-click remote-debug run, reads `custom_template/debug` instead, and no godotGS debug template is published yet. No Linux export template is published; build one from source. See [Export Templates](../development/export-templates.md).
 
 ## Verify the Download
 

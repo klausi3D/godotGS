@@ -20,7 +20,7 @@ Windows and Linux get nightly editors. macOS builds from source but nothing test
 
 ## Can I export and ship a game?
 
-Yes, with a godotGS export template set as `custom_template/release` in your export preset. Without it the export succeeds but renders no splats. Windows templates come with the nightlies; Linux templates you build yourself. Nothing is code-signed. See [Export Templates](../../development/export-templates.md).
+Yes, with a godotGS export template set as `custom_template/release` in your export preset, exported with **Export With Debug** cleared in the export file dialog. Debug exports are not covered yet: no godotGS debug template is published. Without the template the export succeeds but renders no splats. Windows templates come with the nightlies; Linux templates you build yourself. Nothing is code-signed. See [Export Templates](../../development/export-templates.md).
 
 ## How fast is it?
 
