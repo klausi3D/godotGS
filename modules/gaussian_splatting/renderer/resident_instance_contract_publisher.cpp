@@ -391,6 +391,10 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 		bootstrap_instance.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY |
 				GS_INSTANCE_FLAG_SCALE_IDENTITY |
 				GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+		// No node states the training mode here: use the project default (#1173).
+		if (gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton())) {
+			bootstrap_instance.ids[1] |= GS_INSTANCE_FLAG_ANTIALIASED;
+		}
 		instances.push_back(bootstrap_instance);
 		instance_submission_asset_ids.push_back(uint64_t(kPrimaryResidentAssetId));
 	}

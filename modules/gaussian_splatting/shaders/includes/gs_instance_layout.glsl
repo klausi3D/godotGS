@@ -29,6 +29,9 @@ const uint GS_INSTANCE_FLAG_IS_2D = 1u << 0u;
 const uint GS_INSTANCE_FLAG_ROTATION_IDENTITY = 1u << 1u;
 const uint GS_INSTANCE_FLAG_SCALE_IDENTITY = 1u << 2u;
 const uint GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3u;
+// Mip-Splatting opacity compensation for assets trained with antialiasing (#1173).
+// Mirrors GS_INSTANCE_FLAG_ANTIALIASED in renderer/gaussian_gpu_layout.h.
+const uint GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4u;
 
 // Asset/chunk metadata flags.
 const uint GS_ASSET_FLAG_IS_2D = 1u << 0u;

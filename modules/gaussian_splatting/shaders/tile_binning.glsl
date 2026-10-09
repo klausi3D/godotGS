@@ -454,12 +454,15 @@ uint gs_build_quantized_sh_metadata(uint encoded_total, bool dc_linear_rgb) {
 
 // Project a Gaussian into screen space and derive its 2D covariance.
 //
-// `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3).
-// The additive low-pass term inflates the projected splat; without rescaling
-// alpha by sqrt(det(Σ_raw) / det(Σ_filtered)) the dilation becomes pure fattening,
-// producing a uniform soft halo (matched the symptom on commit adc75e5ca8).
+// `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3),
+// sqrt(det(Σ_raw) / det(Σ_filtered)). It is correct only for assets trained with
+// antialiasing (`antialiased` = GS_INSTANCE_FLAG_ANTIALIASED; gsplat
+// `rasterize_mode="antialiased"`). Classic 3DGS (Inria forward.cu, gsplat
+// `classic`, aras-p) adds the low-pass with NO compensation, and its optimizer
+// trained the opacities against that dilated footprint; rescaling them removes
+// coverage the model relies on (#1173). Classic is therefore alpha_rescale = 1.
 // Defaults to 1.0 on early-return paths so non-rendering splats are unaffected.
-vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius, out float alpha_rescale) {
+vec3 project_gaussian_2d(Gaussian g, bool antialiased, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius, out float alpha_rescale) {
     raw_min_radius = 0.0;  // Default: will be set after valid cov2d computation
     alpha_rescale = 1.0;   // Default: passes through unchanged on rejection paths
     linear_depth = 1.0;
@@ -677,9 +680,9 @@ vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out fl
         raw_min_radius = sqrt(lambda_min_raw);
     }
 
-    // Low-pass filter (added to cov2d diagonal). The same Mip-Splatting low-pass
-    // SuperSplat / Inria use, but ALWAYS paired with the α-rescale companion below
-    // so the dilation does not become pure fattening.
+    // Low-pass filter (added to cov2d diagonal): the screen-space dilation every
+    // reference adds (Inria/gsplat/aras-p: 0.3 px²). The α-rescale companion below
+    // applies only to antialiased-trained assets.
     float low_pass_filter = clamp(params.low_pass_filter, 0.05, 2.0);
     cov2d[0][0] += low_pass_filter;
     cov2d[1][1] += low_pass_filter;
@@ -687,13 +690,11 @@ vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out fl
     float det = cov2d[0][0] * cov2d[1][1] - cov2d[0][1] * cov2d[0][1];
     det = max(det, low_pass_filter * low_pass_filter);
 
-    // Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3).
-    // Without this, the additive low-pass over-fattens thin splats: at λ_min=0.01
-    // and low_pass=0.05 the screen-space radius grows ~3× (0.10 px → 0.32 px),
-    // producing a uniform fuzzy halo on edges and surfaces. The rescale shrinks
-    // per-splat alpha by the screen-space-area ratio so total visual energy is
-    // preserved through the dilation.
-    alpha_rescale = sqrt(clamp(det_raw / det, 0.0, 1.0));
+    // Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3; gsplat
+    // `antialiased` compensation). It shrinks per-splat alpha by the
+    // screen-space-area ratio so the dilation preserves energy -- which is what an
+    // antialiased-trained model expects, and NOT what a classic-trained one does.
+    alpha_rescale = antialiased ? sqrt(clamp(det_raw / det, 0.0, 1.0)) : 1.0;
 
     float inv_det = 1.0 / det;
     return vec3(cov2d[1][1] * inv_det, -cov2d[0][1] * inv_det, cov2d[0][0] * inv_det);
@@ -816,7 +817,8 @@ void main() {
     float linear_depth;
     float raw_min_radius_proj;  // Pre-low-pass-filter minor radius for subpixel culling (#797)
     float alpha_rescale_proj;   // Mip-Splatting α-rescale companion to the cov2d low-pass.
-    vec3 conic = project_gaussian_2d(g, screen_pos, cov2d, linear_depth, raw_min_radius_proj, alpha_rescale_proj);
+    bool antialiased_asset = (instance_flags & GS_INSTANCE_FLAG_ANTIALIASED) != 0u;
+    vec3 conic = project_gaussian_2d(g, antialiased_asset, screen_pos, cov2d, linear_depth, raw_min_radius_proj, alpha_rescale_proj);
     if (conic == vec3(0.0)) {
         // Counter already incremented in project_gaussian_2d
         return;
@@ -1206,9 +1208,8 @@ void main() {
 
     // Use the fade computed earlier for opacity; we already skipped if nearly invisible.
     // alpha_rescale_proj is the Mip-Splatting companion to the low-pass cov2d dilation
-    // applied inside project_gaussian_2d; without it, dilated splats render with the
-    // SAME alpha over a LARGER footprint (pure fattening). The rescale preserves total
-    // visual energy through the dilation so output matches the Inria/SuperSplat reference.
+    // applied inside project_gaussian_2d. It is 1.0 for classic-trained assets, which
+    // the references render with the dilated footprint at full opacity (#1173).
     float base_opacity = clamp(deformation.opacity * instance.params.x * params.opacity_multiplier *
             size_fade * aspect_fade * lens_fade * alpha_rescale_proj, 0.0, 0.99);
 

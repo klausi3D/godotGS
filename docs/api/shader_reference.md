@@ -1568,8 +1568,8 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
       <td>Pack quantized spherical-harmonic metadata for the renderer.</td>
     </tr>
     <tr>
-      <td><pre><code>project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius, out float alpha_rescale)</code></pre></td>
-      <td>Project a Gaussian into screen space and derive its 2D covariance. `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3). The additive low-pass term inflates the projected splat; without rescaling alpha by sqrt(det(Σ_raw) / det(Σ_filtered)) the dilation becomes pure fattening, producing a uniform soft halo (matched the symptom on commit adc75e5ca8). Defaults to 1.0 on early-return paths so non-rendering splats are unaffected.</td>
+      <td><pre><code>project_gaussian_2d(Gaussian g, bool antialiased, out vec2 screen_pos, out mat2 cov2d, out float linear_depth, out float raw_min_radius, out float alpha_rescale)</code></pre></td>
+      <td>Project a Gaussian into screen space and derive its 2D covariance. `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3), sqrt(det(Σ_raw) / det(Σ_filtered)). It is correct only for assets trained with antialiasing (`antialiased` = GS_INSTANCE_FLAG_ANTIALIASED; gsplat `rasterize_mode="antialiased"`). Classic 3DGS (Inria forward.cu, gsplat `classic`, aras-p) adds the low-pass with NO compensation, and its optimizer trained the opacities against that dilated footprint; rescaling them removes coverage the model relies on (#1173). Classic is therefore alpha_rescale = 1. Defaults to 1.0 on early-return paths so non-rendering splats are unaffected.</td>
     </tr>
     <tr>
       <td><pre><code>main()</code></pre></td>

@@ -103,6 +103,13 @@ static constexpr uint32_t GS_INSTANCE_FLAG_IS_2D = 1u << 0;
 static constexpr uint32_t GS_INSTANCE_FLAG_ROTATION_IDENTITY = 1u << 1;
 static constexpr uint32_t GS_INSTANCE_FLAG_SCALE_IDENTITY = 1u << 2;
 static constexpr uint32_t GS_INSTANCE_FLAG_TRANSLATION_ZERO = 1u << 3;
+// Set when the instance's asset was trained with antialiasing (Mip-Splatting,
+// gsplat `antialiased`): binning then rescales opacity by sqrt(det(cov2d_raw) /
+// det(cov2d_filtered)). Clear = classic 3DGS (Inria, gsplat `classic`), which
+// adds the low-pass with no compensation (#1173). Resolved on the host:
+// GaussianSplatNode3D::_get_instance_flags() and the nodeless instances use
+// gs::settings::get_antialiased_compensation_default().
+static constexpr uint32_t GS_INSTANCE_FLAG_ANTIALIASED = 1u << 4;
 
 // Instance wind override modes (InstanceDataGPU.params.w).
 static constexpr uint32_t GS_INSTANCE_WIND_MODE_INHERIT = 0u;

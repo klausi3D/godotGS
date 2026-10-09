@@ -1004,6 +1004,14 @@
       "test_coverage": "partial"
     },
     {
+      "effective_state": "GS_INSTANCE_FLAG_ANTIALIASED in InstanceDataGPU.ids[1], consumed by tile_binning.glsl project_gaussian_2d (Mip-Splatting alpha rescale on/off)",
+      "key": "rendering/gaussian_splatting/rasterization/antialiasing_compensation",
+      "notes": "Project default for the Mip-Splatting opacity compensation (#1173). Resolved per instance on the host: GaussianSplatNode3D.antialiasing_compensation (Auto/Off/On) wins, then the asset's import metadata spz_antialiased, then this key; nodeless world-submission and bootstrap instances use this key. Default false = classic 3DGS (Inria, gsplat classic). Restart-required (GLOBAL_DEF_RST): nodes resolve it when they register or change params.",
+      "owner": "GaussianSplatNode3D / GaussianSplatSceneDirector instance flags",
+      "reload_semantics": "startup",
+      "test_coverage": "partial"
+    },
+    {
       "effective_state": "PainterlyRenderer/TileRenderStages.low_pass_filter",
       "key": "rendering/gaussian_splatting/rasterization/low_pass_filter",
       "test_coverage": "inventory_only"
