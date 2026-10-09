@@ -560,6 +560,79 @@ CASE_ASSERT_AUDIT_RE = re.compile(
     r"\[GS-GPU\]\[CASE-ASSERT-AUDIT\] started=(\d+) zero_assert=(\d+)"
 )
 
+# #906/#907: telling an EXPLICIT environment skip apart from a silent early return.
+#
+# Both finish with zero assertions and both are scored PASSED by doctest, so the
+# listener's `[GS-GPU][NO-ASSERTS]` line is printed for each. The only thing that
+# separates them is what the case said before it returned. The repo's skip
+# convention is a doctest MESSAGE carrying the `GS_ENV_SKIP:` token (or, for the
+# not-yet-converted legacy sites, prose that BEGINS with "Skipping"/"Skipped");
+# see modules/gaussian_splatting/tests/test_macros.h:GS_ENV_SKIP and the shape
+# contract in tests/ci/check_environment_skip_marker.py.
+#
+# This pattern is the SAME detector run_module_tests.py uses for its headless
+# lanes (DOCTEST_SKIP_MARKER_RE there). It is restated rather than imported so the
+# supervisor stays a standalone script on the CI runner; tests/ci/
+# test_gpu_harness_deferred_contract.py fails if the two ever differ, so the shape
+# contract still changes in one place.
+_ANSI_ESCAPE = r"(?:\x1b\[[0-9;]*[A-Za-z])*"
+DOCTEST_SKIP_MARKER_RE = re.compile(
+    rf"MESSAGE{_ANSI_ESCAPE}:[ \t]*{_ANSI_ESCAPE}[ \t]*"
+    rf"(?:{re.escape('GS_ENV_SKIP:')}|(?i:Skipp?(?:ing|ed))\b)"
+)
+# Attributing a skip MESSAGE to its case. doctest's ConsoleReporter writes one
+# output block per case that logs anything (ConsoleReporter::logTestStart,
+# thirdparty/doctest/doctest.h): a separator line of '=', the case's file(line),
+# `TEST CASE:  <name>`, then that case's messages, up to the next separator. A
+# case's skip MESSAGE is therefore inside the block that carries its own name.
+#
+# The block is found BY NAME, not by its position relative to the listener's
+# `[GS-GPU][NO-ASSERTS]` line. On the real binary the two are not interleaved:
+# the listener's lines go out through Godot's print_line and doctest's report
+# arrives after all of them (captured in tests/ci/fixtures/
+# gpu_harness_zero_assert_sample.txt, from the dev binary at this change's base).
+#
+# Fail-closed direction: a case whose block is missing (never logged, or trimmed
+# off the front of the stdout ring buffer) gets no skip credit and is counted as
+# vacuous.
+TEST_CASE_HEADER_RE = re.compile(
+    rf"^{_ANSI_ESCAPE}TEST CASE:[ \t]*{_ANSI_ESCAPE}(?P<name>[^\r\n]*?)[ \t]*\r?$",
+    re.MULTILINE,
+)
+# What ends a case's block: doctest's next separator, or its run summary.
+DOCTEST_BLOCK_END_RE = re.compile(
+    rf"^{_ANSI_ESCAPE}(?:={{20,}}|\[doctest\] )", re.MULTILINE
+)
+
+
+def _skip_marked_cases(stdout: str) -> set[str]:
+    """Names of cases whose own doctest output block carries a skip marker."""
+    marked: set[str] = set()
+    for header in TEST_CASE_HEADER_RE.finditer(stdout):
+        end = DOCTEST_BLOCK_END_RE.search(stdout, header.end())
+        block = stdout[header.end():end.start() if end else len(stdout)]
+        if DOCTEST_SKIP_MARKER_RE.search(block):
+            marked.add(header.group("name"))
+    return marked
+
+
+# #906/#907: zero-assertion cases in ADVISORY batches that are tolerated anyway.
+#
+# Shrink-only, issue-linked allowlist of "Batch/case name" -> tracking issue URL.
+# Every entry is a case that is in a lane TODAY and finishes with zero assertions
+# and no explicit skip. The gate below fails on any OTHER such case, so a new
+# vacuous case cannot join a lane unnoticed. tests/ci/
+# test_gpu_harness_deferred_contract.py pins the set against an immutable baseline
+# (VACUOUS_CASE_ALLOWLIST_BASELINE there): entries may be removed, never added.
+#
+# It is EMPTY. A full run of every batch on a dev binary built at ab74e332aa8
+# (RTX 3090, Vulkan) found 106 cases, one with zero assertions, and that one
+# skips explicitly ("Integration": the main-device sync-policy case, #641). Keep
+# it empty: a case that becomes vacuous should be fixed to assert, or leave the
+# batch.
+VACUOUS_CASE_ALLOWLIST: dict[str, str] = {}
+
+
 # Matches the per-scenario lifetime line emitted by the lifetime-proof fixture
 # (modules/gaussian_splatting/tests/test_renderer_lifetime_proof.h):
 #   `[GS-LIFETIME] {"scenario":"renderer_instance","passed":true,...}`
@@ -639,6 +712,10 @@ class BatchResult:
     # last. Without this field the gate reads that as "the audit ran and found
     # nothing hollow" (Codex PR #696).
     zero_assert_reported: int = 0
+    # #906/#907: the subset of `zero_assertion_cases` that printed an explicit
+    # environment skip (DOCTEST_SKIP_MARKER_RE) inside their own output block.
+    # Everything else in `zero_assertion_cases` returned SILENTLY.
+    env_skipped_cases: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -669,6 +746,7 @@ class BatchResult:
             "case_assert_audit_ok": self.case_assert_audit_ok,
             "cases_started": self.cases_started,
             "zero_assert_reported": self.zero_assert_reported,
+            "env_skipped_cases": list(self.env_skipped_cases),
         }
 
 
@@ -712,9 +790,15 @@ def _parse_summary(stdout: str, result: BatchResult) -> None:
     # #695: scrape the per-case assertion audit. `zero_assertion_cases` names
     # every case that ran but verified nothing; the AUDIT marker proves the
     # listener was present and looked at all of them. Both are recorded here;
-    # main() escalates them for REQUIRED batches only.
+    # main() escalates them for every batch that matched cases (#695 for
+    # required batches; #906/#907 for advisory ones, where an explicit skip is
+    # told apart from a silent return).
+    skip_marked = _skip_marked_cases(stdout)
     for nm in NO_ASSERTS_RE.finditer(stdout):
-        result.zero_assertion_cases.append(nm.group(1).strip())
+        case = nm.group(1).strip()
+        result.zero_assertion_cases.append(case)
+        if case in skip_marked:
+            result.env_skipped_cases.append(case)
     # The marker carries COUNTS, not just presence. Record `zero_assert=M`
     # verbatim; main() reconciles it against the number of NO-ASSERTS lines we
     # actually scraped. Treating the marker as proof the audit ran while
@@ -1145,8 +1229,10 @@ def main() -> int:
             # non-zero on every run and means nothing about runtime skipping
             # (that is the #695 defect this replaces).
             #
-            # Scoped to REQUIRED_BATCHES for the same reason as the batch-level
-            # rule: advisory batches are allowed to be catalogued-but-hollow.
+            # This strict form (ANY hollow case fails, even an explicit skip) is
+            # scoped to REQUIRED_BATCHES. Advisory batches get the narrower
+            # #906/#907 rule after this loop: a silent zero-assertion case fails
+            # there too, an explicitly skipped one is reported.
             if r.name in selected_required and r.zero_assertion_cases:
                 for case in r.zero_assertion_cases:
                     hollow_required_cases.append(f"{r.name}/{case}")
@@ -1240,6 +1326,113 @@ def main() -> int:
                         "or its harness wiring (Codex PR #419 Finding 2).",
                         flush=True,
                     )
+    # #906/#907: the same per-case audit for ADVISORY batches.
+    #
+    # Advisory means "this batch's failures do not yet block a release", not "this
+    # batch may report coverage it does not have". A case that ran in an advisory
+    # batch, evaluated zero assertions and printed no skip marker returned
+    # silently past its checks, and doctest still counts it PASSED. A green
+    # advisory batch built from such cases tests nothing while looking like
+    # coverage. #1119 measured the stranded GPU cases waiting to be laned under
+    # --gs-gpu-test: the 7 RenderDeviceManager and 2 GPUBufferManager cases
+    # (#907) return silently with 0 assertions; 36 of the 38
+    # test_renderer_pipeline.h cases (#906) print "Skipping test - Rendering
+    # server unavailable" and return. So:
+    #
+    #   * a zero-assertion case with NO explicit skip FAILS the run, named, unless
+    #     it is in the shrink-only, issue-linked VACUOUS_CASE_ALLOWLIST;
+    #   * a zero-assertion case that printed an explicit environment skip
+    #     (GS_ENV_SKIP: / legacy "Skipping ...") is reported, not failed: it said
+    #     what it could not do, which is the repo's skip convention. (Adding a
+    #     new skip site to escape this rule is itself caught: the static skip
+    #     inventory in tests/ci/check_environment_skip_marker.py is shrink-only.) REQUIRED
+    #     batches stay stricter -- the rule above fails ANY hollow case there,
+    #     skip or not, and is untouched;
+    #   * an advisory batch that matched cases but evaluated 0 assertions IN
+    #     TOTAL fails, as a required one already does (#692). Every case in it
+    #     skipped or returned, so the batch is evidence of nothing even when each
+    #     skip is explicit. That is the shape #906 would produce if laned as is;
+    #   * the audit marker must be present, and its count must reconcile, for an
+    #     advisory batch that matched cases, for the same fail-closed reason as
+    #     for required batches: without it an empty case list means "nobody
+    #     looked", not "nothing vacuous".
+    #
+    # A batch that matched 0 cases keeps its documented advisory leniency: there
+    # is no case in it to be vacuous.
+    zero_assertion_advisory_batches: list[str] = []
+    vacuous_advisory_cases: list[str] = []
+    allowlisted_vacuous_cases: list[str] = []
+    env_skipped_advisory_cases: list[str] = []
+    for r in results:
+        if r.name in REQUIRED_BATCHES or r.test_cases_total <= 0:
+            continue
+        if r.assertions_total <= 0:
+            zero_assertion_advisory_batches.append(r.name)
+            print(
+                f"[run_gpu_harness] FATAL: advisory batch '{r.name}' ran "
+                f"{r.test_cases_total} test case(s) but evaluated 0 assertions "
+                f"(filters={list(r.filters)}). Every case skipped or returned early, "
+                "so the batch verified nothing. Make its cases assert, or remove the "
+                "batch until they can (#906/#907).",
+                flush=True,
+            )
+        if r.summary_parse_ok and not r.case_assert_audit_ok:
+            case_audit_missing_batches.append(r.name)
+            print(
+                f"[run_gpu_harness] FATAL: advisory batch '{r.name}' ran "
+                f"{r.test_cases_total} case(s) and printed a doctest summary but emitted "
+                "no [GS-GPU][CASE-ASSERT-AUDIT] marker, so this report cannot show "
+                "whether its cases verified anything. Rebuild the harness binary from a "
+                "tree that contains the listener in "
+                "modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp (#906/#907).",
+                flush=True,
+            )
+        if r.case_assert_audit_ok and r.zero_assert_reported != len(r.zero_assertion_cases):
+            case_audit_mismatch_batches.append(
+                f"{r.name}: zero_assert={r.zero_assert_reported} "
+                f"named={len(r.zero_assertion_cases)}"
+            )
+            print(
+                f"[run_gpu_harness] FATAL: advisory batch '{r.name}' audit marker reports "
+                f"zero_assert={r.zero_assert_reported} but {len(r.zero_assertion_cases)} "
+                "[GS-GPU][NO-ASSERTS] line(s) were captured. The per-case names were "
+                f"trimmed off the {BUFFER_BYTES_MAX // 1024} KiB stdout ring buffer or are "
+                "malformed, so this report CANNOT show which cases verified nothing "
+                "(#906/#907, Codex PR #696).",
+                flush=True,
+            )
+        skipped = set(r.env_skipped_cases)
+        for case in r.zero_assertion_cases:
+            key = f"{r.name}/{case}"
+            if case in skipped:
+                env_skipped_advisory_cases.append(key)
+                print(
+                    f"[run_gpu_harness] NOTE: advisory batch '{r.name}' case '{case}' "
+                    "evaluated 0 assertions and printed an explicit environment skip. "
+                    "Counted as a skip, not as coverage.",
+                    flush=True,
+                )
+            elif key in VACUOUS_CASE_ALLOWLIST:
+                allowlisted_vacuous_cases.append(key)
+                print(
+                    f"[run_gpu_harness] WARNING: advisory batch '{r.name}' case '{case}' "
+                    "evaluated 0 assertions with no skip marker; tolerated by "
+                    f"VACUOUS_CASE_ALLOWLIST ({VACUOUS_CASE_ALLOWLIST[key]}). It is not "
+                    "coverage.",
+                    flush=True,
+                )
+            else:
+                vacuous_advisory_cases.append(key)
+                print(
+                    f"[run_gpu_harness] FATAL: advisory batch '{r.name}' case '{case}' "
+                    "ran, evaluated 0 assertions and printed no explicit skip "
+                    "(GS_ENV_SKIP: / 'Skipping ...'). It returned silently past its "
+                    "checks and doctest counted it PASSED, so it is vacuous. Make it "
+                    "assert, or take it out of the batch. Do NOT "
+                    "silence this by relaxing the audit (#906/#907).",
+                    flush=True,
+                )
+
     # Per-batch RID-leak totals scraped from the listener's stdout marker.
     # The listener's threshold was raised to 4 MiB in #335 (above the ~2.25 MiB
     # of allocator-pool overhead observed on the hazard test on NVIDIA/Vulkan/
@@ -1345,6 +1538,8 @@ def main() -> int:
         or bool(hollow_required_cases)
         or bool(case_audit_missing_batches)
         or bool(case_audit_mismatch_batches)
+        or bool(vacuous_advisory_cases)
+        or bool(zero_assertion_advisory_batches)
     )
     # Preserve the worst batch's exit code as the supervisor exit when a batch
     # itself failed (the module header promises "returns max(batch_rc)"). The
@@ -1377,6 +1572,11 @@ def main() -> int:
         "hollow_required_cases": hollow_required_cases,
         "case_audit_missing_batches": case_audit_missing_batches,
         "case_audit_mismatch_batches": case_audit_mismatch_batches,
+        # #906/#907: advisory-batch cases that asserted nothing, split by why.
+        "zero_assertion_advisory_batches": zero_assertion_advisory_batches,
+        "vacuous_advisory_cases": vacuous_advisory_cases,
+        "allowlisted_vacuous_cases": allowlisted_vacuous_cases,
+        "env_skipped_advisory_cases": env_skipped_advisory_cases,
         "summary_parse_failures": summary_parse_failures,
         "required_lifetime_failures": required_lifetime_failures,
         "timed_out_batches": timed_out_batches,
@@ -1459,6 +1659,16 @@ def main() -> int:
         extra_suffix_parts.append(f"case_audit_missing={case_audit_missing_batches}")
     if case_audit_mismatch_batches:
         extra_suffix_parts.append(f"case_audit_mismatch={case_audit_mismatch_batches}")
+    if zero_assertion_advisory_batches:
+        extra_suffix_parts.append(
+            f"zero_assertion_advisory={zero_assertion_advisory_batches}"
+        )
+    if vacuous_advisory_cases:
+        extra_suffix_parts.append(f"vacuous_advisory_cases={vacuous_advisory_cases}")
+    if allowlisted_vacuous_cases:
+        extra_suffix_parts.append(f"allowlisted_vacuous_cases={allowlisted_vacuous_cases}")
+    if env_skipped_advisory_cases:
+        extra_suffix_parts.append(f"env_skipped_advisory_cases={env_skipped_advisory_cases}")
     extra_suffix =(" " + " ".join(extra_suffix_parts)) if extra_suffix_parts else ""
     print(
         f"[run_gpu_harness] DONE max_rc={max_rc} cases={totals['test_cases_passed']}/{totals['test_cases_total']} "

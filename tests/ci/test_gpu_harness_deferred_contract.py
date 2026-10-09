@@ -535,11 +535,14 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
     early-returned on a null RenderingServer. doctest scores an early return as a
     pass, so the gate treated "verified nothing" as evidence.
 
-    This is scoped to REQUIRED_BATCHES on purpose. "0 tests matched" is documented
-    success for advisory batches (catalogued-but-not-yet-running batches are the
-    point of that leniency), and these tests pin BOTH halves of that asymmetry so
-    a later refactor cannot quietly extend the strict rule to advisory batches or
-    quietly drop it from required ones.
+    The batch-level rule is scoped to REQUIRED_BATCHES on purpose: "0 tests
+    matched" is documented success for advisory batches (catalogued-but-not-yet-
+    running batches are the point of that leniency). The PER-CASE audit is not
+    scoped that way any more (#906/#907): an advisory batch that matched cases
+    fails on a case that asserted nothing and printed no explicit skip, while an
+    explicitly skipped case is reported, not failed. Required batches stay
+    stricter (any hollow case fails, skip or not). These tests pin all three
+    halves so a refactor cannot quietly drop one.
 
     Drives `main()` with `_run_batch` stubbed, so it is deterministic, needs no
     GPU and no subprocess -- it runs in the headless guard lane.
@@ -554,11 +557,15 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
         zero_assertion_cases: list[str] | None = None,
         case_assert_audit_ok: bool = True,
         zero_assert_reported: int | None = None,
+        env_skipped_cases: list[str] | None = None,
+        allowlist: dict[str, str] | None = None,
     ):
         import contextlib
         import io
 
         harness = _load("gs_harness_zero_assert", HARNESS_PATH)
+        if allowlist is not None:
+            harness.VACUOUS_CASE_ALLOWLIST = dict(allowlist)
         report_path = tmpdir / "report.json"
 
         def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
@@ -592,6 +599,7 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 if zero_assert_reported is None
                 else zero_assert_reported
             )
+            r.env_skipped_cases = list(env_skipped_cases or [])
             return r
 
         harness._run_batch = _fake_run_batch
@@ -745,11 +753,40 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
         self.assertEqual(report["case_audit_missing_batches"], [batch_name])
         self.assertIn("CASE-ASSERT-AUDIT", stdout)
 
-    def test_advisory_batch_with_hollow_case_still_passes(self):
-        """Scope check, mirroring the batch-level asymmetry above.
+    def test_advisory_batch_with_silent_hollow_case_fails_and_is_named(self):
+        """#906/#907: a silent zero-assertion case fails an ADVISORY batch too.
 
-        Without this the two rejections could pass vacuously via a rule that
-        simply always fires.
+        Before #906/#907 this exact run (2 cases, 3 assertions, one case that
+        asserted nothing and printed no skip) passed, which is how a batch of
+        such cases would have gone green while testing nothing.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=3,
+                zero_assertion_cases=["some advisory case"],
+            )
+
+        self.assertNotEqual(rc, 0, "A silent hollow case must fail an advisory batch.")
+        self.assertEqual(
+            report["vacuous_advisory_cases"], [f"{batch_name}/some advisory case"]
+        )
+        self.assertIn("some advisory case", stdout)
+        # Disjoint from the required-only reasons.
+        self.assertEqual(report["hollow_required_cases"], [])
+        self.assertEqual(report["env_skipped_advisory_cases"], [])
+
+    def test_advisory_batch_with_explicitly_skipped_case_passes_and_is_reported(self):
+        """Discrimination: an explicit environment skip is not vacuous.
+
+        Same shape as the failing case above, except the case printed the repo's
+        skip marker. It must pass (the case said what it could not do), and it
+        must be REPORTED as a skip so nobody reads it as coverage.
         """
         import tempfile
 
@@ -760,13 +797,118 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 batch_name,
                 cases=2,
                 asserts=3,
-                zero_assertion_cases=["some advisory case"],
-                case_assert_audit_ok=False,
+                zero_assertion_cases=["skipping case"],
+                env_skipped_cases=["skipping case"],
             )
 
-        self.assertEqual(rc, 0, "Advisory batches keep their documented leniency.")
-        self.assertEqual(report["hollow_required_cases"], [])
-        self.assertEqual(report["case_audit_missing_batches"], [])
+        self.assertEqual(rc, 0, "An explicitly skipped case is not vacuous.")
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertEqual(
+            report["env_skipped_advisory_cases"], [f"{batch_name}/skipping case"]
+        )
+
+    def test_advisory_batch_of_only_skips_fails(self):
+        """Every case skipped explicitly: the batch still verified nothing.
+
+        This is what laning #906 as is would produce. Each skip is honest, but a
+        green batch built only from skips is the "absence of a signal" the gate
+        exists to refuse.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=0,
+                zero_assertion_cases=["skip a", "skip b"],
+                env_skipped_cases=["skip a", "skip b"],
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["zero_assertion_advisory_batches"], [batch_name])
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertIn("0 assertions", stdout)
+
+    def test_required_batch_still_fails_an_explicitly_skipped_case(self):
+        """The advisory skip credit must not leak into REQUIRED batches (#695)."""
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=4,
+                asserts=17,
+                zero_assertion_cases=["skipping case"],
+                env_skipped_cases=["skipping case"],
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["hollow_required_cases"], [f"{batch_name}/skipping case"])
+        self.assertEqual(report["env_skipped_advisory_cases"], [])
+
+    def test_advisory_batch_without_case_audit_marker_fails(self):
+        """Fail closed for advisory batches too: no marker means nobody looked."""
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td), batch_name, cases=2, asserts=3, case_assert_audit_ok=False
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["case_audit_missing_batches"], [batch_name])
+        self.assertIn("CASE-ASSERT-AUDIT", stdout)
+
+    def test_allowlisted_vacuous_case_passes_but_is_reported(self):
+        """The allowlist mechanism works, and tolerating is not hiding."""
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        key = f"{batch_name}/known vacuous case"
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=3,
+                zero_assertion_cases=["known vacuous case"],
+                allowlist={key: "https://github.com/klausi3D/godotGS/issues/907"},
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertEqual(report["allowlisted_vacuous_cases"], [key])
+
+    def test_vacuous_case_allowlist_is_shrink_only(self):
+        """Ratchet: the allowlist may only lose entries, never gain them.
+
+        The baseline is pinned HERE, not read from the harness, so a PR cannot
+        add a vacuous case to a lane and its allowlist entry in the same commit
+        and go green (the #329 lesson recorded at the top of this file). It is
+        empty: the real run at this change's base found no vacuous laned case.
+        Adding an entry means editing this baseline too, which review must
+        reject unless the PR proves the case cannot be made to assert yet.
+        """
+        VACUOUS_CASE_ALLOWLIST_BASELINE: frozenset[str] = frozenset()
+        harness = _load("gs_harness_vacuous_allowlist", HARNESS_PATH)
+        added = set(harness.VACUOUS_CASE_ALLOWLIST) - VACUOUS_CASE_ALLOWLIST_BASELINE
+        self.assertEqual(
+            added, set(),
+            "VACUOUS_CASE_ALLOWLIST gained entries not in the pinned baseline. A "
+            "laned case that asserts nothing must be fixed or leave its batch.",
+        )
+        for key, url in harness.VACUOUS_CASE_ALLOWLIST.items():
+            self.assertRegex(
+                url, r"^https://github\.com/klausi3D/godotGS/issues/\d+$",
+                f"allowlist entry {key!r} must link its tracking issue",
+            )
+            self.assertIn("/", key, f"allowlist key {key!r} must be 'Batch/case'")
 
     def test_clean_required_batch_with_audit_passes(self):
         """Discrimination: audit ran, nothing hollow, four-digit skip count -> pass."""
@@ -861,8 +1003,12 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             [f"{batch_name}: zero_assert=1 named=2"],
         )
 
-    def test_advisory_batch_with_audit_count_mismatch_still_passes(self) -> None:
-        """Scope check: the rule is REQUIRED-only, like its two siblings."""
+    def test_advisory_batch_with_audit_count_mismatch_fails(self) -> None:
+        """#906/#907: the reconciliation applies to advisory batches that ran cases.
+
+        A trimmed NO-ASSERTS line in an advisory batch would otherwise hide a
+        vacuous case from the per-case rule above.
+        """
         import tempfile
 
         batch_name = self._an_advisory_batch()
@@ -877,8 +1023,139 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 zero_assert_reported=2,
             )
 
-        self.assertEqual(rc, 0, "Advisory batches keep their documented leniency.")
-        self.assertEqual(report["case_audit_mismatch_batches"], [])
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(
+            report["case_audit_mismatch_batches"],
+            [f"{batch_name}: zero_assert=2 named=0"],
+        )
+
+
+class GpuHarnessSkipAttributionTests(unittest.TestCase):
+    """#906/#907: `_parse_summary` tells an explicit skip from a silent return.
+
+    The input is CAPTURED from the producer, not written by hand:
+    tests/ci/fixtures/gpu_harness_zero_assert_sample.txt is the verbatim stdout of
+    `godot.windows.editor.dev.x86_64.console.exe --gs-gpu-test` (dev build at
+    ab74e332aa8, RTX 3090, Vulkan) for three cases:
+
+      * `RenderDeviceManager blocks untracked free path` -- returns SILENTLY with
+        0 assertions (#907);
+      * `Instance buffer upload uses the published renderer-side remap` -- 0
+        assertions after `MESSAGE("Skipping test - Rendering server unavailable")`
+        (#906, legacy prefix form);
+      * `Memory validator reset clears all tracked state` -- 5 assertions.
+
+    It also records the property that broke the first design: the listener's
+    NO-ASSERTS lines come out BEFORE doctest's per-case blocks, so a skip cannot
+    be attributed by position. git stores the fixture with LF; the tests also feed
+    the CRLF form the Windows runner actually pipes.
+    """
+
+    FIXTURE = ROOT / "tests" / "ci" / "fixtures" / "gpu_harness_zero_assert_sample.txt"
+    SILENT = "[GaussianSplatting][RequiresGPU] RenderDeviceManager blocks untracked free path"
+    SKIPPED = (
+        "[GaussianSplatting][RequiresGPU] Instance buffer upload uses the published "
+        "renderer-side remap"
+    )
+
+    def _parse(self, text: str):
+        harness = _load("gs_harness_skip_attribution", HARNESS_PATH)
+        r = harness.BatchResult(name="probe", filters=())
+        harness._parse_summary(text, r)
+        return r
+
+    def _fixture_forms(self) -> list[str]:
+        lf = self.FIXTURE.read_text(encoding="utf-8").replace("\r\n", "\n")
+        return [lf, lf.replace("\n", "\r\n")]
+
+    def test_fixture_has_the_shape_it_claims(self):
+        text = self._fixture_forms()[0]
+        self.assertIn("[GS-GPU][CASE-ASSERT-AUDIT] started=3 zero_assert=2", text)
+        self.assertLess(
+            text.index("[GS-GPU][NO-ASSERTS]"), text.index("TEST CASE:"),
+            "the producer prints the listener lines before doctest's blocks",
+        )
+
+    def test_explicit_skip_is_credited_and_silent_return_is_not(self):
+        for text in self._fixture_forms():
+            r = self._parse(text)
+            self.assertTrue(r.summary_parse_ok)
+            self.assertEqual(r.zero_assertion_cases, [self.SILENT, self.SKIPPED])
+            self.assertEqual(r.env_skipped_cases, [self.SKIPPED])
+            self.assertEqual(r.zero_assert_reported, 2)
+
+    def test_skip_credit_needs_the_cases_own_block(self):
+        """Fail closed: drop the skipped case's block and it is vacuous again."""
+        text = self._fixture_forms()[0]
+        start = text.index("TEST CASE:")
+        end = text.index("[doctest] test cases:")
+        r = self._parse(text[:start] + text[end:])
+        self.assertEqual(r.env_skipped_cases, [])
+        self.assertEqual(r.zero_assertion_cases, [self.SILENT, self.SKIPPED])
+
+    def test_skip_in_another_cases_block_is_not_credited(self):
+        """A marker is attributed by the block's own name, not by proximity."""
+        text = self._fixture_forms()[0].replace(
+            "TEST CASE:  " + self.SKIPPED, "TEST CASE:  some other case"
+        )
+        r = self._parse(text)
+        self.assertEqual(r.env_skipped_cases, [])
+
+    def test_canonical_token_counts_as_a_skip(self):
+        text = self._fixture_forms()[0].replace(
+            "MESSAGE: Skipping test - Rendering server unavailable",
+            "MESSAGE: GS_ENV_SKIP: RenderingDevice unavailable",
+        )
+        r = self._parse(text)
+        self.assertEqual(r.env_skipped_cases, [self.SKIPPED])
+
+    def test_skip_detector_is_the_headless_lanes_detector(self):
+        """One shape contract: the harness pattern must equal run_module_tests'."""
+        harness = _load("gs_harness_skip_re", HARNESS_PATH)
+        lanes = _load("gs_run_module_tests_skip_re", ROOT / "tests" / "ci" / "run_module_tests.py")
+        self.assertEqual(
+            harness.DOCTEST_SKIP_MARKER_RE.pattern, lanes.DOCTEST_SKIP_MARKER_RE.pattern
+        )
+        self.assertEqual(
+            harness.DOCTEST_SKIP_MARKER_RE.flags, lanes.DOCTEST_SKIP_MARKER_RE.flags
+        )
+
+    def test_fixture_drives_the_gate_end_to_end(self):
+        """Parsed fixture through main(): the silent case fails an advisory batch."""
+        import contextlib
+        import io
+        import tempfile
+
+        harness = _load("gs_harness_skip_e2e", HARNESS_PATH)
+        advisory = sorted(
+            s.name for s in harness.BATCHES if s.name not in harness.REQUIRED_BATCHES
+        )[0]
+        text = self._fixture_forms()[1]
+
+        def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
+            r = harness.BatchResult(name=name, filters=filters, excludes=excludes)
+            r.rc = 0
+            harness._parse_summary(text, r)
+            return r
+
+        harness._run_batch = _fake_run_batch
+        with tempfile.TemporaryDirectory() as td:
+            report_path = Path(td) / "report.json"
+            old_argv = sys.argv
+            sys.argv = [
+                "run_gpu_harness.py", "--godot", str(HARNESS_PATH),
+                "--batch", advisory, "--report", str(report_path),
+            ]
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = harness.main()
+            finally:
+                sys.argv = old_argv
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["vacuous_advisory_cases"], [f"{advisory}/{self.SILENT}"])
+        self.assertEqual(report["env_skipped_advisory_cases"], [f"{advisory}/{self.SKIPPED}"])
 
 
 class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
