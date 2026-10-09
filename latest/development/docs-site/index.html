@@ -4981,8 +4981,12 @@ does not write that front matter; keep it when you regenerate the pack.</p>
 <p><code>docs/Doxyfile</code> writes C++ API HTML for <code>modules/gaussian_splatting</code> (excluding
 <code>tests/</code>) to <code>docs/api/cpp</code>. Its paths are relative to the directory doxygen runs
 in, which is the repository root when <code>scripts/build_documentation.py</code> runs it. The
-output is gitignored, generated in both CI jobs, copied into the staged docs and
-shipped with each docs version. The Doxygen warning log goes to
+output is gitignored, generated in both CI jobs and copied into the staged docs.
+Only the <code>latest</code> docs version publishes it (about 3,800 files and 45-55 MB). When
+the deploy job publishes a <code>v*</code> tag version,
+<code>scripts/docs/redirect_cpp_api_to_latest.py</code> replaces the staged <code>api/cpp</code> tree
+with one page at <code>api/cpp/html/index.html</code> that redirects to the same path under
+<code>latest</code>, so the C++ API link in <code>api/index.md</code> still resolves there. The Doxygen warning log goes to
 <code>doxygen-warnings.log</code> in the repository root (gitignored), outside the published
 tree. When <code>doxygen</code> is not
 installed locally, <code>build_documentation.py</code> skips this step.</p>
@@ -5006,7 +5010,7 @@ installed locally, <code>build_documentation.py</code> skips this step.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2026 20:58:51 UTC">October 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2026 21:01:58 UTC">October 9, 2026</span>
   </span>
 
     
