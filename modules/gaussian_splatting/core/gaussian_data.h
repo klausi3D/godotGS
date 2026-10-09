@@ -1036,9 +1036,11 @@ public:
      * @brief Restores the original colors before any color grading was baked.
      *
      * This reverts all Gaussian SH DC coefficients to their state before the first
-     * bake_color_grading() call. Does nothing if no baking has been applied.
+     * bake_color_grading() call. Does nothing (OK) if no baking has been applied.
+     * @return OK, or ERR_INVALID_DATA when the splat count changed since the bake
+     *         (the backup no longer matches); nothing is restored in that case.
      */
-    void restore_original_colors();
+    Error restore_original_colors();
 
     /** @brief Returns true if color grading has been baked into the data. */
     bool is_color_grading_baked() const { return bake_info.is_baked; }

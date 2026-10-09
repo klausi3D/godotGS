@@ -21,7 +21,7 @@ This directory contains a self-contained Godot project configured for the GodotG
     `assets/template_splats.ply`. Painterly rendering is **off** by default, in
     both the scene and `scripts/main_scene.gd`; set `enable_demo_painterly` on
     the scene root to try it.
-  - Canvas-based performance overlay — see [Performance overlay](#performance-overlay).
+  - The engine's performance overlay, `GaussianSplatPerformanceOverlay` — see [Performance overlay](#performance-overlay).
 - **Input map** tuned for navigation (WASD, Space, C, Shift, RMB orbit, MMB pan, mouse wheel zoom).
 
 ## Scene hierarchy
@@ -33,8 +33,9 @@ GaussianTemplate (Node3D, `scripts/main_scene.gd`)
 │   └── Camera3D
 ├── DirectionalLight3D
 ├── Ground (MeshInstance3D)
-└── CanvasLayer
-    └── PerformanceOverlay (PackedScene)
+├── CanvasLayer
+│   └── ControlsHint (Label)
+└── PerformanceOverlay (GaussianSplatPerformanceOverlay)
 ```
 
 ## GaussianSplatNode3D inspector defaults
@@ -78,16 +79,17 @@ These values mirror the guidance in the Gaussian Splatting inspector documentati
 2. Open the Godot project manager and import `project.godot` from this folder.
 3. Press **F5** to run the template scene. The camera frames the splat cloud on
    load and the performance overlay begins updating at 4 Hz.
-4. Use the navigation controls listed in the overlay footer to orbit and inspect
+4. Use the navigation controls listed at the bottom of the window to orbit and inspect
    the splats. **F3** hides the overlay — it is a large panel and it covers the
    middle of the viewport at the default 1280×720.
 5. Duplicate `scenes/main.tscn` to bootstrap new levels or swap `default_splat_asset` in `scripts/main_scene.gd` to point at your own imported `.ply` or `.spz` asset.
 
 ## Performance overlay
 
-`scripts/ui/performance_overlay.gd` reads `GaussianSplatNode3D.get_statistics()`
-and the module's registered custom performance monitors, and refreshes every
-0.25 s. One rule governs every row:
+The overlay is `GaussianSplatPerformanceOverlay`, a class registered by the
+engine module (#1084), so any project can add it as a node. It finds the splat
+node (or `GaussianSplatWorld3D`) in its viewport's world and the viewport's
+camera by itself, and it refreshes every 0.25 s. One rule governs every row:
 
 > **A displayed number is a measurement of the thing its label names, or it is
 > not displayed.**
@@ -96,29 +98,24 @@ In practice:
 
 - A quantity this build cannot measure renders as `n/a`, never as `0`. A `0` in
   this panel always means "measured, and it was zero".
+- **Frame pacing is measured on the wall clock.** FPS is drawn frames divided
+  by wall time over the named window, never `1 / delta` of one frame (`delta`
+  is scaled by `Engine.time_scale`). The frame interval is labelled as a
+  wall-clock interval, because it includes GPU and vsync waits and is not CPU
+  time.
 - Each GPU pass time is shown only while the renderer's validity flag for that
-  pass is set (`gpu_frame_valid`, `gpu_prefix_valid`, …). **That flag is sticky,
-  and the panel says so.** Per-pass GPU timestamps resolve only intermittently,
-  so the renderer deliberately keeps the last resolved value and its flag,
-  expiring both after 120 resolves (~2 s) — see `tile_renderer.cpp:2867-2873`
-  and `:2908-2927`. A green pass row is therefore the most recent *resolved*
-  value, not necessarily this frame's, and the **Timing age** row beneath the
-  pass total prints how many frames behind it is. What the gate does buy is
-  real: before the first resolve, and after the 120-resolve expiry, the rows
-  read `n/a` instead of a plausible stale number or a zero.
-- The six resolved GPU passes — overlap count, prefix scan, overlap emit,
-  overlap sort, rasterize, resolve — sum to the pass total, and the panel says
-  so. If the identity ever fails, the difference is printed.
-- Host-side wall-clock timings (TileRenderer setup, cull stage, sort dispatch)
-  are kept in their own block, because they are measured with
-  `OS::get_ticks_usec()` around a call and are not GPU timestamps.
-- Culling on a single resident scene happens per *chunk*, not per splat. The
-  panel names the cull domain rather than implying per-splat visibility.
-- The LOD, streaming and SH-compression blocks check
-  `gaussian_splatting/streaming_monitor_ready` and print
-  `no streaming system attached — all rows n/a` when there is none, instead of
-  a screen of zeros and plausible-looking defaults.
+  pass is set. **That flag is sticky, and the panel says so**: the **Timing
+  age** row prints how many frames behind the pass times are.
+- The six resolved GPU passes sum to the pass total, and any disagreement is
+  printed.
+- Rows that come from the process-global custom monitors are shown only when
+  those monitors describe the same renderer as the panel; otherwise they read
+  `n/a` with the reason.
+- The LOD, streaming and SH-compression blocks print
+  `no streaming system attached — all rows n/a` when there is none.
 
-**F8** cycles the debug compute-raster policy; **F3** hides the panel.
+**F3** hides the panel (the `hide_key` property changes the key). The raster
+policy is shown read-only; set it on the renderer
+(`debug/compute_raster_policy`).
 
 For more details on Gaussian splatting workflows, review the documentation in `docs/getting-started/` and `docs/artist_pipeline.md`.

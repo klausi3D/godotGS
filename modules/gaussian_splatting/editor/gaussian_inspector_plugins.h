@@ -106,7 +106,7 @@ class GaussianSplatNodeInspectorPlugin : public EditorInspectorPlugin {
     void _on_density_heatmap_toggled(bool p_pressed, ObjectID p_node_id);
     void _on_performance_hud_toggled(bool p_pressed, ObjectID p_node_id);
     void _on_lod_spheres_toggled(bool p_pressed, ObjectID p_node_id);
-    void _on_performance_overlay_toggled(bool p_pressed, ObjectID p_node_id);
+    void _on_timing_gizmo_toggled(bool p_pressed, ObjectID p_node_id);
     void _on_debug_draw_mode_selected(int p_index, ObjectID p_node_id, OptionButton *p_source);
     void _on_runtime_preview_toggled(bool p_pressed, ObjectID p_node_id, OptionButton *p_preview_mode);
     void _on_residency_hud_toggled(bool p_pressed, ObjectID p_node_id);

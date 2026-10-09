@@ -1,13 +1,12 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://fps_camera_controller.gd" id="fps_script"]
 [ext_resource type="Script" path="res://scenes/static_50_no_spin.gd" id="test_script"]
-[ext_resource type="PackedScene" path="res://scenes/ui/performance_overlay.tscn" id="perf_overlay"]
 
 [node name="Static50NoSpin" type="Node3D"]
 script = ExtResource("test_script")
 
-[node name="PerformanceOverlay" parent="." instance=ExtResource("perf_overlay")]
+[node name="PerformanceOverlay" type="GaussianSplatPerformanceOverlay" parent="."]
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 112.5, 50, 200)

@@ -11,16 +11,13 @@
 #include "../logger/gs_debug_trace.h"
 #include <cstdint>
 
-void GaussianAtlasAllocator::reset(uint32_t p_slot_count) {
-	capacity = p_slot_count;
-	free_slots.clear();
-	slot_map.clear();
-	if (capacity == 0) {
-		return;
-	}
-	free_slots.reserve(capacity);
-	for (int32_t i = static_cast<int32_t>(capacity) - 1; i >= 0; i--) {
-		free_slots.push_back(static_cast<uint32_t>(i));
+void GaussianAtlasAllocator::reset(uint32_t p_page_count) {
+	capacity = p_page_count;
+	free_page_count = p_page_count;
+	free_runs.clear();
+	run_map.clear();
+	if (capacity > 0) {
+		free_runs.push_back(PageRun{ 0u, capacity });
 	}
 }
 
@@ -29,49 +26,142 @@ bool GaussianAtlasAllocator::resize_preserve(uint32_t p_new_capacity) {
 		return false;
 	}
 	const uint32_t old_capacity = capacity;
-	free_slots.reserve(free_slots.size() + (p_new_capacity - old_capacity));
-	for (int32_t i = static_cast<int32_t>(p_new_capacity) - 1; i >= static_cast<int32_t>(old_capacity); i--) {
-		free_slots.push_back(static_cast<uint32_t>(i));
-	}
 	capacity = p_new_capacity;
+	_insert_free_run(old_capacity, p_new_capacity - old_capacity);
 	return true;
 }
 
-bool GaussianAtlasAllocator::allocate_slot(uint64_t p_chunk_key, uint32_t &r_slot) {
-	if (const uint32_t *slot = slot_map.getptr(p_chunk_key)) {
-		r_slot = *slot;
-		return true;
-	}
-	if (free_slots.is_empty()) {
+bool GaussianAtlasAllocator::can_allocate(uint32_t p_page_count) const {
+	if (p_page_count == 0) {
 		return false;
 	}
-	r_slot = free_slots[free_slots.size() - 1];
-	free_slots.resize(free_slots.size() - 1);
-	slot_map[p_chunk_key] = r_slot;
+	for (const PageRun &run : free_runs) {
+		if (run.page_count >= p_page_count) {
+			return true;
+		}
+	}
+	return false;
+}
+
+uint32_t GaussianAtlasAllocator::get_largest_free_run() const {
+	uint32_t largest = 0;
+	for (const PageRun &run : free_runs) {
+		largest = MAX(largest, run.page_count);
+	}
+	return largest;
+}
+
+bool GaussianAtlasAllocator::allocate_slot(uint64_t p_chunk_key, uint32_t p_page_count, uint32_t &r_slot) {
+	if (const PageRun *existing = run_map.getptr(p_chunk_key)) {
+		if (existing->page_count != p_page_count) {
+			return false;
+		}
+		r_slot = existing->first_page;
+		return true;
+	}
+	if (p_page_count == 0) {
+		return false;
+	}
+	// Best fit: the smallest free run that holds the request; the lowest address wins a tie
+	// because free_runs is sorted by first_page and only a strictly smaller run replaces it.
+	uint32_t best = UINT32_MAX;
+	for (uint32_t i = 0; i < free_runs.size(); i++) {
+		const uint32_t len = free_runs[i].page_count;
+		if (len >= p_page_count && (best == UINT32_MAX || len < free_runs[best].page_count)) {
+			best = i;
+			if (len == p_page_count) {
+				break;
+			}
+		}
+	}
+	if (best == UINT32_MAX) {
+		return false;
+	}
+	PageRun &hole = free_runs[best];
+	const PageRun run{ hole.first_page, p_page_count };
+	if (hole.page_count == p_page_count) {
+		free_runs.remove_at(best);
+	} else {
+		hole.first_page += p_page_count;
+		hole.page_count -= p_page_count;
+	}
+	free_page_count -= p_page_count;
+	run_map[p_chunk_key] = run;
+	r_slot = run.first_page;
 	return true;
+}
+
+void GaussianAtlasAllocator::_insert_free_run(uint32_t p_first_page, uint32_t p_page_count) {
+	if (p_page_count == 0) {
+		return;
+	}
+	free_page_count += p_page_count;
+	// Find the first free run that starts after the inserted one.
+	uint32_t idx = 0;
+	while (idx < free_runs.size() && free_runs[idx].first_page < p_first_page) {
+		idx++;
+	}
+	const bool merge_prev = idx > 0 &&
+			free_runs[idx - 1].first_page + free_runs[idx - 1].page_count == p_first_page;
+	const bool merge_next = idx < free_runs.size() &&
+			p_first_page + p_page_count == free_runs[idx].first_page;
+	if (merge_prev && merge_next) {
+		free_runs[idx - 1].page_count += p_page_count + free_runs[idx].page_count;
+		free_runs.remove_at(idx);
+	} else if (merge_prev) {
+		free_runs[idx - 1].page_count += p_page_count;
+	} else if (merge_next) {
+		free_runs[idx].first_page = p_first_page;
+		free_runs[idx].page_count += p_page_count;
+	} else {
+		free_runs.insert(idx, PageRun{ p_first_page, p_page_count });
+	}
 }
 
 void GaussianAtlasAllocator::release_slot(uint64_t p_chunk_key) {
-	const uint32_t *slot = slot_map.getptr(p_chunk_key);
-	if (!slot) {
+	const PageRun *run = run_map.getptr(p_chunk_key);
+	if (!run) {
 		return;
 	}
-	free_slots.push_back(*slot);
-	slot_map.erase(p_chunk_key);
+	const PageRun released = *run;
+	run_map.erase(p_chunk_key);
+	_insert_free_run(released.first_page, released.page_count);
 }
 
 bool GaussianAtlasAllocator::get_slot(uint64_t p_chunk_key, uint32_t &r_slot) const {
-	if (const uint32_t *slot = slot_map.getptr(p_chunk_key)) {
-		r_slot = *slot;
+	if (const PageRun *run = run_map.getptr(p_chunk_key)) {
+		r_slot = run->first_page;
 		return true;
 	}
 	return false;
 }
 
+bool GaussianAtlasAllocator::get_run(uint64_t p_chunk_key, PageRun &r_run) const {
+	if (const PageRun *run = run_map.getptr(p_chunk_key)) {
+		r_run = *run;
+		return true;
+	}
+	return false;
+}
+
+uint32_t GaussianAtlasAllocator::get_coalesced_run_if_released(const PageRun &p_run) const {
+	uint32_t first = p_run.first_page;
+	uint32_t end = p_run.first_page + p_run.page_count;
+	for (const PageRun &free_run : free_runs) {
+		if (free_run.first_page + free_run.page_count == p_run.first_page) {
+			first = free_run.first_page;
+		} else if (free_run.first_page == end) {
+			end = free_run.first_page + free_run.page_count;
+		}
+	}
+	return end - first;
+}
+
 void GaussianAtlasAllocator::clear() {
 	capacity = 0;
-	free_slots.clear();
-	slot_map.clear();
+	free_page_count = 0;
+	free_runs.clear();
+	run_map.clear();
 }
 
 void GaussianStreamingSystem::_apply_requested_residency(bool can_async_pack) {

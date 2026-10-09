@@ -91,7 +91,8 @@ layout(set = 0, binding = 3, std430) buffer OverflowStatisticsBuffer {
     uint raster_reject_lod_opacity;   // base_opacity * lod_blend <= GS_RASTER_ALPHA_THRESHOLD
     uint raster_reject_blend_alpha;   // blend_alpha <= 0 after remaining-alpha multiply
     uint overflow_drop_signal;        // C4b (G4): trailing drop flag; layout-parity with the
-                                      // 88-byte host mirror + tile_binning.glsl. Not written here.
+                                      // 88-byte host mirror + tile_binning.glsl. Written here
+                                      // only by the per-tile raster cap (#1137).
 } overflow_stats;
 
 layout(set = 0, binding = 4, std430) readonly buffer ProjectionBuffer {
@@ -144,22 +145,36 @@ void main() {
     // Use GPU's current-frame element_count, capped to the actual sorted_values buffer capacity.
     uint record_count = gs_get_clamped_overlap_record_count();
 
+    // #1137: every fragment of a tile runs this, but the drop counters are per tile (the compute
+    // path counts once per workgroup). Only the tile's origin fragment counts, so a 16x16 tile
+    // is not counted 256 times. The origin pixel of every tile lies inside the viewport.
+    const bool tile_counter_fragment = all(equal(ivec2(frag_coord - vec2(0.5)), tile_coord * TILE_SIZE));
+
     // Clamp to available records first.
     if (range_start >= record_count) {
-        if (total_splat_count > 0u) {
+        if (total_splat_count > 0u && tile_counter_fragment) {
             atomicAdd(overflow_stats.overflow_tile_count, 1u);
         }
         total_splat_count = 0u;
     } else {
         uint available_records = record_count - range_start;
         if (total_splat_count > available_records) {
-            atomicAdd(overflow_stats.overflow_splats_clamped, total_splat_count - available_records);
+            if (tile_counter_fragment) {
+                atomicAdd(overflow_stats.overflow_splats_clamped, total_splat_count - available_records);
+            }
             total_splat_count = available_records;
         }
     }
 
     uint splat_count = total_splat_count;
 #ifdef GS_MAX_RASTER_SPLATS_PER_TILE
+    // #1137: count the truncation and raise the C4b drop signal, like the compute path
+    // (once per tile, see tile_counter_fragment above).
+    if (splat_count > uint(GS_MAX_RASTER_SPLATS_PER_TILE) && tile_counter_fragment) {
+        atomicAdd(overflow_stats.overflow_tile_count, 1u);
+        atomicAdd(overflow_stats.overflow_splats_clamped, splat_count - uint(GS_MAX_RASTER_SPLATS_PER_TILE));
+        atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_RASTER_TILE_CAP);
+    }
     splat_count = min(splat_count, uint(GS_MAX_RASTER_SPLATS_PER_TILE));
 #endif
 

@@ -692,7 +692,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile</code></pre></td>
-      <td><pre><code>65536</code></pre></td>
+      <td><pre><code>0</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/renderer/gpu_sorting_config.cpp</code></pre></td>
     </tr>
     <tr>

@@ -85,7 +85,7 @@ const PROJECT_SETTING_KEYS := [
 signal benchmark_scene_finished(result: Dictionary)
 
 @onready var camera: Camera3D = $Camera3D
-@onready var performance_overlay: Control = $PerformanceOverlay
+@onready var performance_overlay: GaussianSplatPerformanceOverlay = $PerformanceOverlay
 @onready var results_panel: CanvasLayer = $BenchmarkResultsPanel
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var streaming_world: Node3D = $StreamingWorld

@@ -89,6 +89,8 @@ struct SchedulerState {
     uint32_t last_sync_fallback_enqueued_count = 0;
     uint32_t last_sync_fallback_drained_count = 0;
     uint32_t last_sync_fallback_dropped_count = 0;
+    // #1087: sync-fallback entries the drain tried to admit/load this frame (passed relevance).
+    uint32_t last_sync_fallback_attempted_count = 0;
     uint32_t last_sync_fallback_stalled_count = 0;
     // #1086 needed-set accounting, written by _build_visible_chunk_list. "Needed" =
     // visible and inside the load distance; "resident" = GPU-resident and renderable
@@ -143,6 +145,9 @@ struct DiagnosticsState {
     uint32_t vram_cap_hit_frames = 0;
     uint64_t visible_evict_fallback_attempts = 0;
     uint64_t visible_evict_fallback_successes = 0;
+    // #1088: evictions beyond the first that admission needed before a contiguous page run
+    // existed for the chunk (fragmentation or a victim smaller than the incoming chunk).
+    uint64_t atlas_fit_extra_evictions = 0;
 
     uint32_t last_total_chunks = 0;
     uint32_t last_visible_chunks = 0;

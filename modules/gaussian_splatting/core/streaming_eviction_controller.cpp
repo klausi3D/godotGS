@@ -122,7 +122,7 @@ void StreamingEvictionController::record_total_eviction() {
 }
 
 StreamingEvictionController::EvictionResult StreamingEvictionController::evict_least_recently_used(
-        GaussianStreamingSystem &system, bool p_allow_visible_eviction) {
+        GaussianStreamingSystem &system, bool p_allow_visible_eviction, uint32_t p_visible_fit_pages) {
     ensure_resident_tracking(system);
 
     if (cached_eviction_frame != system.total_frame_count) {
@@ -182,6 +182,14 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
         const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
         if (!chunk.is_loaded) {
             continue;
+        }
+        if (p_visible_fit_pages > 0) {
+            GaussianAtlasAllocator::PageRun run;
+            if (!system.atlas_allocator.get_run(
+                        system._make_chunk_key(GaussianStreamingSystem::PRIMARY_ASSET_ID, i), run) ||
+                    system.atlas_allocator.get_coalesced_run_if_released(run) < p_visible_fit_pages) {
+                continue; // evicting it would pop it on screen without making room
+            }
         }
         const uint64_t used_frame = chunk.last_used_frame;
         const float dist = chunk.distance;

@@ -545,16 +545,10 @@ void DebugOverlaySystem::rebuild_renderer_performance_hud_lines(const DebugOverl
 				debug_state.hud_lines.push_back(vformat("Data Error: %s", performance_state.metrics.data_source_error));
 			}
 		}
-		float sort_time_ms = debug_state_view.last_sort_time_ms;
-		float render_time_ms = debug_state_view.last_render_time_ms;
-        if (debug_state_view.last_stage_metrics_valid) {
-            sort_time_ms = debug_state_view.last_stage_metrics.sort.sort_time_ms;
-            render_time_ms = debug_state_view.last_stage_metrics.raster.render_time_ms;
-        }
-        debug_state.hud_lines.push_back(vformat("Sort Time: %.2f ms", sort_time_ms));
-        debug_state.hud_lines.push_back(vformat("Render Time: %.2f ms", render_time_ms));
-        debug_state.hud_lines.push_back(vformat("Tile Assign: %.2f ms", debug_state_view.last_tile_assignment_ms));
-        debug_state.hud_lines.push_back(vformat("Tile Raster: %.2f ms", debug_state_view.last_tile_rasterization_ms));
+        // #1084 (D3): this HUD is the internal "Route & residency HUD". Frame,
+        // stage and GPU-pass TIMINGS are not emitted here: they printed with no
+        // validity gate (0.00 for "nothing measured") and duplicated the one
+        // performance overlay, GaussianSplatPerformanceOverlay, which gates them.
         if (subsystem_state.rasterizer.is_valid()) {
             RasterStats raster_stats = subsystem_state.rasterizer->get_render_stats();
             debug_state.hud_lines.push_back(vformat("Raster Path: %s (compute=%s, fragment=%s)",
@@ -577,20 +571,20 @@ void DebugOverlaySystem::rebuild_renderer_performance_hud_lines(const DebugOverl
         }
         if (debug_state_view.last_stage_metrics_valid) {
             const auto &stage_metrics = debug_state_view.last_stage_metrics;
-            debug_state.hud_lines.push_back(vformat("Cull: %.2f ms (cand %d -> vis %d)",
-                    stage_metrics.cull.cull_time_ms, stage_metrics.cull.candidate_count, stage_metrics.cull.visible_count));
+            debug_state.hud_lines.push_back(vformat("Cull: cand %d -> vis %d",
+                    stage_metrics.cull.candidate_count, stage_metrics.cull.visible_count));
             if (stage_metrics.sort.did_sort) {
-                debug_state.hud_lines.push_back(vformat("Sort: %.2f ms (in %d -> %d)",
-                        stage_metrics.sort.sort_time_ms, stage_metrics.sort.input_count, stage_metrics.sort.sorted_count));
+                debug_state.hud_lines.push_back(vformat("Sort: in %d -> %d",
+                        stage_metrics.sort.input_count, stage_metrics.sort.sorted_count));
             } else {
                 debug_state.hud_lines.push_back(vformat("Sort: skipped (in %d)", stage_metrics.sort.input_count));
             }
             const char *raster_label = stage_metrics.raster.reused_cached_render
                     ? "cached"
                     : (stage_metrics.raster.painterly_active ? "painterly" : "baseline");
-            debug_state.hud_lines.push_back(vformat("Raster: %.2f ms (%s)", stage_metrics.raster.render_time_ms, raster_label));
+            debug_state.hud_lines.push_back(vformat("Raster: %s", raster_label));
             if (stage_metrics.composite_executed) {
-                debug_state.hud_lines.push_back(vformat("Composite: %.2f ms", stage_metrics.composite_time_ms));
+                debug_state.hud_lines.push_back(String("Composite: executed"));
             } else {
                 debug_state.hud_lines.push_back(String("Composite: skipped"));
             }
@@ -624,17 +618,6 @@ void DebugOverlaySystem::rebuild_renderer_performance_hud_lines(const DebugOverl
                 debug_state.hud_lines.push_back(vformat("IO Error (%s): %s", failed_label, failed_io->validation_error));
             }
         }
-        float fps = (performance_state.metrics.avg_frame_to_frame_ms > 0.001f)
-                ? (1000.0f / performance_state.metrics.avg_frame_to_frame_ms)
-                : 0.0f;
-        debug_state.hud_lines.push_back(
-                vformat("Frame Time: %.2f ms (%.1f FPS)", performance_state.metrics.avg_frame_to_frame_ms, fps));
-        debug_state.hud_lines.push_back(vformat("GPU Utilization: %.1f%%", performance_state.metrics.gpu_utilization));
-        debug_state.hud_lines.push_back(vformat("GPU Frame Time: %.2f ms", performance_state.metrics.gpu_frame_time_ms));
-        debug_state.hud_lines.push_back(vformat("GPU Binning: %.2f ms", performance_state.metrics.gpu_tile_binning_time_ms));
-        debug_state.hud_lines.push_back(vformat("GPU Prefix: %.2f ms", performance_state.metrics.gpu_tile_prefix_time_ms));
-        debug_state.hud_lines.push_back(vformat("GPU Resolve: %.2f ms", performance_state.metrics.gpu_tile_resolve_time_ms));
-        debug_state.hud_lines.push_back(vformat("GPU Raster: %.2f ms", performance_state.metrics.gpu_tile_raster_time_ms));
         debug_state.hud_lines.push_back(vformat("GPU Memory: %.2f MB", performance_state.metrics.gpu_memory_usage_mb));
 
         const Dictionary binning = get_binning_debug_counters();

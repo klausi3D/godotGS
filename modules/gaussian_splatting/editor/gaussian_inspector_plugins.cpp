@@ -201,8 +201,13 @@ void GaussianRendererInspectorPlugin::parse_begin(Object *p_object) {
     Label *stats_label = memnew(Label);
     String stats_text = TTR("Performance:") + "\n";
     stats_text += vformat(TTR("Visible: %d/%d splats"), (int64_t)stats["visible_splats"], (int64_t)stats["total_splats"]) + "\n";
-    stats_text += vformat(TTR("Sort: %s ms"), String::num(stats["sort_time_ms"], 1)) + " | ";
-    stats_text += vformat(TTR("Render: %s ms"), String::num(stats["render_time_ms"], 1));
+    // #1084: an absent or not-yet-measured time is n/a, never "0.0 ms".
+    auto ms_or_na = [&stats](const char *p_key) -> String {
+        const double ms = stats.has(p_key) ? double(stats[p_key]) : 0.0;
+        return ms > 0.0 ? String::num(ms, 1) + " ms" : String("n/a");
+    };
+    stats_text += vformat(TTR("Sort: %s"), ms_or_na("sort_time_ms")) + " | ";
+    stats_text += vformat(TTR("Render: %s"), ms_or_na("render_time_ms"));
     stats_label->set_text(stats_text);
     add_custom_control(stats_label);
 }
@@ -351,15 +356,15 @@ void GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled(bool p_presse
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled(bool p_pressed, ObjectID p_node_id) {
-    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Performance HUD"), "debug/show_performance_hud", p_pressed, true);
+    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Route & Residency HUD"), "debug/show_performance_hud", p_pressed, true);
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled(bool p_pressed, ObjectID p_node_id) {
     _commit_node_property_change(p_node_id, TTR("Toggle Gaussian LOD Spheres"), "debug/show_lod_spheres", p_pressed, true);
 }
 
-void GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled(bool p_pressed, ObjectID p_node_id) {
-    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Performance Overlay"), "debug/show_performance_overlay", p_pressed, true);
+void GaussianSplatNodeInspectorPlugin::_on_timing_gizmo_toggled(bool p_pressed, ObjectID p_node_id) {
+    _commit_node_property_change(p_node_id, TTR("Toggle Gaussian Timing Gizmo"), "debug/show_timing_gizmo", p_pressed, true);
 }
 
 void GaussianSplatNodeInspectorPlugin::_on_debug_draw_mode_selected(int p_index, ObjectID p_node_id, OptionButton *p_source) {
@@ -500,8 +505,23 @@ void GaussianSplatNodeInspectorPlugin::_on_restore_color_grading_pressed(ObjectI
         return;
     }
 
-    Ref<ColorGradingResource> grading_snapshot = clone_color_grading_resource(node->get_color_grading());
-    node->restore_color_grading();
+    // #1128 review: the undo must re-bake the grade that was BAKED. The node's own resource
+    // is disabled by the bake (and, for bake_color_grading(), is the baked object itself), so
+    // a clone of it would re-bake a disabled, no-op grade while still marking the data baked.
+    Ref<ColorGradingResource> grading_snapshot = node->get_baked_color_grading();
+    if (grading_snapshot.is_null()) {
+        ERR_PRINT("Cannot restore color grading: the baked grade is unknown");
+        return;
+    }
+    // #1128 review: record the action only for a restore that happened. A failed
+    // restore (ERR_INVALID_DATA after the data was replaced) changed nothing, and its
+    // undo would bake the replacement payload.
+    const Error err = node->restore_color_grading();
+    if (err != OK) {
+        ERR_PRINT("Failed to restore color grading");
+        node->notify_property_list_changed();
+        return;
+    }
     EditorUndoRedoManager *undo_redo = EditorUndoRedoManager::get_singleton();
     if (undo_redo) {
         undo_redo->create_action(TTR("Restore Gaussian Color Grading"), UndoRedo::MERGE_DISABLE, node);
@@ -629,7 +649,7 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
             node->is_showing_density_heatmap(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_density_heatmap_toggled).bind(node->get_instance_id()));
 
-    _add_debug_toggle(overlay_row, TTR("HUD"), "debug/show_performance_hud",
+    _add_debug_toggle(overlay_row, TTR("Route HUD"), "debug/show_performance_hud",
             node->is_showing_performance_hud(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_hud_toggled).bind(node->get_instance_id()));
 
@@ -649,9 +669,9 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
             node->is_showing_lod_spheres(),
             callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_lod_spheres_toggled).bind(node->get_instance_id()));
 
-    _add_debug_toggle(lod_row, TTR("Performance Overlay"), "debug/show_performance_overlay",
-            node->is_showing_performance_overlay(),
-            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_performance_overlay_toggled).bind(node->get_instance_id()));
+    _add_debug_toggle(lod_row, TTR("Timing Gizmo"), "debug/show_timing_gizmo",
+            node->is_showing_timing_gizmo(),
+            callable_mp(this, &GaussianSplatNodeInspectorPlugin::_on_timing_gizmo_toggled).bind(node->get_instance_id()));
 
     root->add_child(lod_row);
 
@@ -839,11 +859,14 @@ void GaussianSplatNodeInspectorPlugin::parse_begin(Object *p_object) {
         }
     }
 
-    // Color Grading section: only shown when the node has valid GaussianData.
+    // Color Grading bake section: only shown when the node holds its OWN bakeable data
+    // (set_splat_data()). #1105: this used to read the shared renderer's GaussianData,
+    // which is not the node's and was null on the instance-pipeline path, so the section
+    // was hidden even for a set_splat_data() node that CAN bake (measured on an RTX 3090:
+    // the old gate offered Bake to neither node in the #1105 GPU case). Baking is
+    // unsupported on splat_asset nodes; live grading applies there.
     {
-        Ref<GaussianSplatRenderer> cg_renderer = node->get_renderer();
-        Ref<::GaussianData> cg_data = cg_renderer.is_valid() ? cg_renderer->get_gaussian_data() : Ref<::GaussianData>();
-        const bool cg_has_valid_data = cg_data.is_valid() && cg_data->get_count() > 0;
+        const bool cg_has_valid_data = node->can_bake_color_grading();
 
         if (cg_has_valid_data) {
             HSeparator *color_grading_separator = memnew(HSeparator);

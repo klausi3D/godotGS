@@ -83,6 +83,36 @@ deliberately **not** a GDScript parser or a Godot scene loader:
    four are red under the rules above, and the ``%s`` form was live in three
    benchmark scripts in this tree at the time.
 
+7. ``second-performance-overlay`` -- #1084: GodotGS ships exactly ONE
+   performance overlay, the engine class ``GaussianSplatPerformanceOverlay``
+   (``modules/gaussian_splatting/nodes/gaussian_splat_performance_overlay.*``).
+   The two GDScript overlays it replaced were copies of each other under one
+   ``class_name`` and drifted apart. Four property rules, none a list of names
+   of files that exist today:
+
+   * a GDScript ``class_name`` containing ``PerformanceOverlay`` /
+     ``PerfOverlay`` (any case);
+   * a shipped ``.gd`` / ``.tscn`` whose file name contains
+     ``performance_overlay`` / ``perf_overlay``, or a scene ``ext_resource``
+     whose path does;
+   * a shipped ``.gd`` that both reads the frame rate
+     (``get_frames_per_second(`` / ``TIME_FPS``) and writes UI text
+     (``.text =``, ``set_text(``, ``append_text(``, ``add_text(``) -- a
+     frame-rate readout drawn by script is an overlay whatever it is called;
+   * module C++ (outside ``modules/gaussian_splatting/tests/``) other than the
+     overlay's own two files that reads ``get_frames_per_second(``,
+     ``get_frames_drawn(`` or ``TIME_FPS``.
+
+   Limit: a script that shows a frame rate it computed itself from ``delta``,
+   without naming one of those accessors, is not seen. That is also the defect
+   the #1084 measurement spec forbids; the overlay is the one place the frame
+   rate is measured.
+8. ``cpp-overlay-unregistered-monitor`` -- detector 5's closure, applied to the
+   one C++ file that reads custom monitors by id: every
+   ``"gaussian_splatting/<name>"`` literal in
+   ``gaussian_splat_performance_overlay.cpp`` must be registered, and every id
+   must be a complete literal. The file is asserted to exist.
+
 It does not check semantics, it does not resolve `ext_resource` paths, and it
 does not prove a project starts. A project that passes this guard can still
 fail to run; the runtime proof is a launched scene, not this script.
@@ -187,6 +217,27 @@ MONITOR_ACCESSOR_RE = re.compile(r"\b(get_custom_monitor|has_custom_monitor)\s*\
 # `str()` -- is a run-time-built id.
 MONITOR_ARG_LITERAL_RE = re.compile(r'^\s*"[^"]*"\s*$')
 MONITOR_ARG_IDENTIFIER_RE = re.compile(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*$")
+
+# Detector 7 (#1084): the one performance overlay, and what a second one looks like.
+OVERLAY_CLASS_NAME_RE = re.compile(
+    r"^\s*class_name\s+(?P<name>\w*(?:performanceoverlay|perfoverlay)\w*)", re.IGNORECASE)
+OVERLAY_FILE_STEM_RE = re.compile(r"(performance_overlay|perf_overlay)", re.IGNORECASE)
+OVERLAY_EXT_RESOURCE_RE = re.compile(
+    r'^\[ext_resource\b[^\n]*\bpath="[^"]*(?:performance_overlay|perf_overlay)[^"]*"', re.IGNORECASE)
+FRAME_RATE_READ_RE = re.compile(r"\bget_frames_per_second\s*\(|\bTIME_FPS\b")
+# `text` written as a property: `label.text = ...`, `self.text = ...`, and the
+# bare `text = ...` of a script that extends Label. Not `context =` / `mytext =`.
+UI_TEXT_WRITE_RE = re.compile(r"(?<![A-Za-z0-9_])text\s*\+?=(?!=)|\b(?:set_text|append_text|add_text)\s*\(")
+MODULE_ROOT = ("modules", "gaussian_splatting")
+MODULE_TESTS_PREFIX = "modules/gaussian_splatting/tests/"
+CPP_SUFFIXES = (".cpp", ".h")
+CPP_FRAME_READ_RE = re.compile(r"\bget_frames_per_second\s*\(|\bget_frames_drawn\s*\(|\bTIME_FPS\b")
+# The overlay itself: the only module C++ allowed to read the frame counters,
+# and the one C++ file whose monitor-id literals detector 8 checks. Asserted to
+# exist -- a rename must fail the guard, not empty it.
+OVERLAY_CPP = ("modules", "gaussian_splatting", "nodes", "gaussian_splat_performance_overlay.cpp")
+OVERLAY_H = ("modules", "gaussian_splatting", "nodes", "gaussian_splat_performance_overlay.h")
+CPP_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 
 NODE_HEADER_RE = re.compile(r"^\[node\s+(?P<body>.*)\]\s*$")
 HEADER_KEY_RE = re.compile(r'(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=')
@@ -476,6 +527,100 @@ def scan_scene(rel_path: str, source: str) -> list[Finding]:
     return findings
 
 
+OVERLAY_ADVICE = ("GodotGS ships one performance overlay, the engine class "
+                  "GaussianSplatPerformanceOverlay (#1084); add that node instead.")
+
+
+def scan_second_overlay_gdscript(rel_path: str, source: str) -> list[Finding]:
+    """Detector 7, GDScript half: a script-drawn performance overlay."""
+    findings: list[Finding] = []
+    if OVERLAY_FILE_STEM_RE.search(Path(rel_path).name):
+        findings.append(Finding("second-performance-overlay", rel_path, 1,
+                                "the file name names a performance overlay. " + OVERLAY_ADVICE))
+    reads_frame_rate = 0
+    writes_text = 0
+    for lineno, line in enumerate(strip_gdscript_strings_and_comments(source), start=1):
+        match = OVERLAY_CLASS_NAME_RE.match(line)
+        if match:
+            findings.append(Finding("second-performance-overlay", rel_path, lineno,
+                                    "`class_name %s` declares a performance overlay. %s"
+                                    % (match.group("name"), OVERLAY_ADVICE)))
+        if not reads_frame_rate and FRAME_RATE_READ_RE.search(line):
+            reads_frame_rate = lineno
+        if not writes_text and UI_TEXT_WRITE_RE.search(line):
+            writes_text = lineno
+    if reads_frame_rate and writes_text:
+        findings.append(Finding("second-performance-overlay", rel_path, reads_frame_rate,
+                                "reads the frame rate here and writes UI text at line %d: a "
+                                "script-drawn frame-rate readout is a second overlay. %s"
+                                % (writes_text, OVERLAY_ADVICE)))
+    return findings
+
+
+def scan_second_overlay_scene(rel_path: str, source: str) -> list[Finding]:
+    """Detector 7, scene half: a scene that is, or instances, a script overlay."""
+    findings: list[Finding] = []
+    if OVERLAY_FILE_STEM_RE.search(Path(rel_path).name):
+        findings.append(Finding("second-performance-overlay", rel_path, 1,
+                                "the scene file name names a performance overlay. " + OVERLAY_ADVICE))
+    for lineno, raw in enumerate(source.splitlines(), start=1):
+        if OVERLAY_EXT_RESOURCE_RE.match(raw.strip()):
+            findings.append(Finding("second-performance-overlay", rel_path, lineno,
+                                    "this ext_resource loads a performance-overlay script or "
+                                    "scene. " + OVERLAY_ADVICE))
+    return findings
+
+
+def mask_cpp_comments(source: str) -> str:
+    """Blank `//` and `/* */` comments, keeping newlines so line numbers hold."""
+    return CPP_COMMENT_RE.sub(
+        lambda m: "".join("\n" if ch == "\n" else " " for ch in m.group(0)), source)
+
+
+def scan_module_cpp_frame_reads(root: Path) -> tuple[list[Finding], int]:
+    """Detector 7, C++ half: module code outside the overlay reading frame counters."""
+    findings: list[Finding] = []
+    allowed = {"/".join(OVERLAY_CPP), "/".join(OVERLAY_H)}
+    scanned = 0
+    for dirpath, dirnames, filenames in os.walk(root.joinpath(*MODULE_ROOT)):
+        dirnames[:] = [d for d in dirnames if d not in SKIPPED_DIR_NAMES]
+        for name in sorted(filenames):
+            if not name.endswith(CPP_SUFFIXES):
+                continue
+            path = Path(dirpath) / name
+            rel = path.relative_to(root).as_posix()
+            if rel.startswith(MODULE_TESTS_PREFIX) or rel in allowed:
+                continue
+            scanned += 1
+            text = mask_cpp_comments(path.read_text(encoding="utf-8", errors="replace"))
+            for lineno, line in enumerate(text.split("\n"), start=1):
+                if CPP_FRAME_READ_RE.search(line):
+                    findings.append(Finding(
+                        "second-performance-overlay", rel, lineno,
+                        "module code reads the engine frame counters; frame pacing is "
+                        "measured in one place, GaussianSplatPerformanceOverlay (#1084)."))
+    return findings, scanned
+
+
+def scan_overlay_cpp_monitor_ids(root: Path, registered: set[str]) -> tuple[list[Finding], str | None]:
+    """Detector 8: detector 5's closure over the overlay's C++ monitor reads."""
+    path = root.joinpath(*OVERLAY_CPP)
+    rel = "/".join(OVERLAY_CPP)
+    if not path.is_file():
+        return [], ("%s not found -- the one performance overlay is gone or renamed, "
+                    "and its monitor ids can no longer be checked" % rel)
+    text = mask_cpp_comments(path.read_text(encoding="utf-8"))
+    if not MONITOR_LITERAL_RE.search(text):
+        return [], ("%s contains no `gaussian_splatting/` monitor literal at all; the "
+                    "derivation can no longer see its reads" % rel)
+    findings = []
+    for f in scan_gdscript_monitor_ids(rel, text, registered):
+        detector = ("cpp-overlay-unregistered-monitor"
+                    if f.detector == "gdscript-unregistered-monitor" else f.detector)
+        findings.append(Finding(detector, f.path, f.line, f.message))
+    return findings, None
+
+
 def iter_candidate_files(root: Path) -> list[Path]:
     wanted = GDSCRIPT_SUFFIXES + SCENE_SUFFIXES
     excluded = tuple((root / prefix).resolve() for prefix in EXCLUDED_PREFIXES)
@@ -531,8 +676,18 @@ def run(root: Path) -> tuple[int, list[str]]:
         if path.suffix in GDSCRIPT_SUFFIXES:
             findings.extend(scan_gdscript(rel, source))
             findings.extend(scan_gdscript_monitor_ids(rel, source, registered))
+            findings.extend(scan_second_overlay_gdscript(rel, source))
         else:
             findings.extend(scan_scene(rel, source))
+            findings.extend(scan_second_overlay_scene(rel, source))
+
+    cpp_findings, cpp_scanned = scan_module_cpp_frame_reads(root)
+    findings.extend(cpp_findings)
+    overlay_findings, overlay_error = scan_overlay_cpp_monitor_ids(root, registered)
+    if overlay_error:
+        messages.append("guard failed: " + overlay_error)
+        return 2, messages
+    findings.extend(overlay_findings)
 
     if findings:
         messages.append(
@@ -543,8 +698,9 @@ def run(root: Path) -> tuple[int, list[str]]:
 
     messages.append(
         "[shipped-project-scripts] clean: %d GDScript + %d scene file(s) "
-        "scanned, 6 detectors, %d registered monitor ids derived from %s()."
-        % (gd_count, scene_count, len(registered), MONITOR_REGISTRY_FUNCTION))
+        "scanned, %d module C++ file(s) checked for a second overlay, 8 "
+        "detectors, %d registered monitor ids derived from %s()."
+        % (gd_count, scene_count, cpp_scanned, len(registered), MONITOR_REGISTRY_FUNCTION))
     return 0, messages
 
 

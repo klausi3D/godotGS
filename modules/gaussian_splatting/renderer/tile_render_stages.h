@@ -16,12 +16,13 @@
         void on_debug_counters_readback(const Vector<uint8_t> &p_data);
         void on_overflow_stats_readback(const Vector<uint8_t> &p_data);
         void on_splat_audit_readback(const Vector<uint8_t> &p_data);
-        // C4b (G4): always-on production readback of just the resident overflow_drop_signal
-        // scalar (a small async GPU->CPU read; never a sync stall). poll_overflow_drop_signal
-        // schedules it every frame the binning EMIT pass ran; on a non-zero flag,
-        // on_overflow_signal_readback raises a one-shot WARN + bumps
-        // owner.diagnostics.overflow_drop_events. Independent of the debug-gated overflow
-        // readback above so it stays live in a pure production frame.
+        // C4b (G4): always-on production readback of the resident OverflowStats snapshot (a
+        // small async GPU->CPU read; never a sync stall), followed by a reset of the signal word
+        // (read-and-reset). poll_overflow_drop_signal schedules it at the end of every rendered
+        // frame; on a non-zero signal, on_overflow_signal_readback warns per channel and bumps
+        // owner.diagnostics.overflow_drop_events (and raster_tile_cap_drop_events, #1137).
+        // Independent of the debug-gated overflow readback above so it stays live in a pure
+        // production frame.
         void poll_overflow_drop_signal(RenderingDevice *p_device, uint64_t p_frame_serial);
         void on_overflow_signal_readback(const Vector<uint8_t> &p_data);
         void _log_readback_state_if_needed(uint64_t p_frame_serial, bool p_log_enabled) const;
@@ -62,15 +63,9 @@
         // C4b (G4): dedicated pending-state for the always-on overflow_drop_signal readback,
         // kept separate from overflow_stats_readback so production telemetry never contends
         // with the debug-gated full-overflow-buffer readback.
+        // poll_overflow_drop_signal resets the signal word right after its copy (read-and-reset),
+        // so each set bit is counted by exactly one readback (PR #508 over-count fix, #1137 review).
         mutable AsyncReadbackState overflow_signal_readback;
-        // C4b (G4): set true once a readback has COUNTED a sticky drop; the next FRAME-START
-        // clear_counters (which runs before that frame's EMIT writer) full-clears the buffer to
-        // re-arm the signal and consumes this flag. Re-arming before EMIT (not at end-of-frame)
-        // is what lets the re-arm frame's own drop still be captured. While set, it ALSO gates
-        // poll_overflow_drop_signal from enqueuing another readback of the same still-sticky (1)
-        // flag before the re-arm, which would otherwise count the original drop twice (PR #508
-        // review, Channel A over-count fix).
-        mutable bool overflow_signal_needs_clear = false;
     };
 
     struct TileRenderParamsBuilder {

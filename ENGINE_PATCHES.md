@@ -69,6 +69,9 @@ forward-clustered single-view path composites pre-upscale instead (see
 ### `servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp` (+253 / −~5)
 ~200+ lines of Gaussian shadow rendering infrastructure: shadow atlas helpers,
 directional/omni/spot shadow dispatch structs. This is the largest single change.
+Since #1095 slice 1 (refs #1089) the dispatch is fail-closed: `_gaussian_shadow_submit`
+reports whether any renderer wrote splat depth, and the omni-cube finalize re-copies the
+shared cubemap into a light's atlas rect only when a splat was written for that light.
 
 Additionally (GPU-001 Option B fix, refs #921): the "Gaussian Splats
 Pre-Upscale" block inside `_render_scene` runs the splat render+composite into
@@ -117,6 +120,17 @@ Initialize the gaussian_storage global.
 
 ### `servers/rendering/rendering_server_default.cpp` (+9 / −~3)
 Wires `gaussian_storage` into global initialization path.
+
+Also (GS #1077): `RenderingServerDefault::finish()` calls
+`RenderingDevice::get_singleton()->make_current()` after the render thread has
+stopped. This backports upstream godotengine/godot#123391 (for
+godotengine/godot#119000). Under `thread_model=2`, `_assign_mt_ids()` makes the
+main device current on the render thread. Without the hand-back,
+`DisplayServer` deletes the device on the main thread, and
+`RenderingDevice::finalize()` fails its render-thread guard and never runs. The
+error is printed on every windowed exit, and the never-destroyed VkDevice can
+fault in the driver after exit. Drop this patch when upstream merges an
+equivalent.
 
 ### `servers/rendering/renderer_viewport.cpp` (+4)
 Commented-out debug logging (no functional change, could be removed).
