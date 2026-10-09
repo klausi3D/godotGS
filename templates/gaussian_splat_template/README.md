@@ -54,7 +54,7 @@ The template applies the recommended inspector values programmatically and in th
   ([#1221](https://github.com/klausi3D/godotGS/issues/1221)).
 - **Painterly**: **disabled** by default; the stroke parameters are prefilled (edge threshold `0.25`, stroke opacity `0.85`, stroke width `1.1`, color variation `0.12`, temporal blend `0.35`, seed `1337`) so that enabling it needs one toggle.
 - **Rendering**: update when visible, cast shadows (no effect while the demo light is hidden), frustum and occlusion culling on, opacity `1.0`.
-- **Debug**: inspector preview and LOD spheres enabled, other overlays off by default, debug draw mode `Points`.
+- **Debug**: inspector preview and LOD spheres enabled, other overlays off by default, debug draw mode `Off`.
 
 These values mirror the guidance in the Gaussian Splatting inspector documentation and can be tweaked safely to suit your project.
 
