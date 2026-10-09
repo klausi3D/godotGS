@@ -6032,6 +6032,42 @@ TEST_CASE("[GaussianSplatting][Editor] Preview cross size ignores floaters (#122
 
     CHECK(Math::is_equal_approx(GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(Vector<Vector3>()), 0.01f));
 }
+
+TEST_CASE("[GaussianSplatting][Editor] Preview cross size trims exactly 5 % of floaters per side (#1226 review)") {
+    // Boundary of the 5th-95th percentile: 50 of 1000 samples are floaters on one
+    // side. Every one of them must be trimmed; keeping the first or last floater
+    // makes the box ~5000 m long and every cross arm ~50 m.
+    const auto grid_point = [](int i) {
+        const float x = float(i % 10) / 9.0f * 2.0f - 1.0f;
+        const float y = float((i / 10) % 10) / 9.0f * 2.0f - 1.0f;
+        const float z = float(i / 100) / 9.0f * 2.0f - 1.0f;
+        return Vector3(x, y, z);
+    };
+    const float floater_sides[] = { 5000.0f, -5000.0f };
+    for (const float side : floater_sides) {
+        Vector<Vector3> points;
+        for (int i = 0; i < 950; i++) {
+            points.push_back(grid_point(i));
+        }
+        for (int i = 0; i < 50; i++) {
+            points.push_back(Vector3(side + float(i), 0.0f, 0.0f));
+        }
+        const float half = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(points);
+        CHECK_MESSAGE(half < 0.05f, "floaters at ", side, " m: half-arm ", half, " m kept a floater");
+    }
+
+    // 50 floaters on each side of 900 inliers: both ends trimmed at once.
+    Vector<Vector3> both;
+    for (int i = 0; i < 900; i++) {
+        both.push_back(grid_point(i));
+    }
+    for (int i = 0; i < 50; i++) {
+        both.push_back(Vector3(5000.0f + float(i), 0.0f, 0.0f));
+        both.push_back(Vector3(-5000.0f - float(i), 0.0f, 0.0f));
+    }
+    const float half_both = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(both);
+    CHECK_MESSAGE(half_both < 0.05f, "floaters on both sides: half-arm ", half_both, " m kept a floater");
+}
 #endif // TOOLS_ENABLED
 
 // ── #806 review: the setup-failure exit must not strand a node in the tree ──────

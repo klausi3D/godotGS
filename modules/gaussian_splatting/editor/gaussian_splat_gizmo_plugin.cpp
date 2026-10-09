@@ -152,8 +152,11 @@ float GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(const Vector<V
 
     // Per-axis 5th-95th percentile. The raw AABB includes floaters: on an 8M-splat
     // outdoor scan it was 5256 m long, which made every arm 52.6 m (#1220).
-    const int lo = int(Math::floor(0.05 * (count - 1)));
-    const int hi = int(Math::ceil(0.95 * (count - 1)));
+    // Drop floor(5 %) of the samples at each end, so exactly 5 % of floaters on
+    // one side are all excluded (ceil(0.95 * (count - 1)) kept the first one).
+    const int trim = count / 20;
+    const int lo = trim;
+    const int hi = count - 1 - trim;
     float longest = 0.0f;
     Vector<float> axis_values;
     if (!gs_resize_or_fail(axis_values, count, "GaussianSplatGizmoPlugin::compute_preview_cross_half_extent")) {
