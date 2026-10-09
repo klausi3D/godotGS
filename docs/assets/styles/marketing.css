@@ -3,10 +3,9 @@
    The bespoke home landing (overrides/home.html). Ported from the design
    system's ui_kits/site/site.css, scoped under .gs-marketing so none of these
    generic class names leak into documentation pages. Uses the --gs-* tokens
-   from brand.css (adapts to light/dark). The editor product shot and the
-   terminal stay dark in both themes, like a real screenshot: brand.css applies
-   its dark token set to .gsm-editor and .gsm-term, so everything inside them
-   resolves the same --gs-* names to dark values.
+   from brand.css (adapts to light/dark). The terminal stays dark in both
+   themes: brand.css applies its dark token set to .gsm-term, so everything
+   inside it resolves the same --gs-* names to dark values.
    ========================================================================== */
 
 .gs-landing-main {
@@ -21,9 +20,8 @@
   line-height: 1.5;
 }
 /* Short names used by inline styles in overrides/home.html. Declared on the
-   dark islands too, so they resolve against the islands' own (dark) tokens. */
+   dark island too, so they resolve against its own (dark) tokens. */
 .gs-marketing,
-.gs-marketing .gsm-editor,
 .gs-marketing .gsm-term {
   --muted: var(--gs-muted);
   --faint: var(--gs-faint);
@@ -77,57 +75,25 @@
 .gs-marketing .gsm-cmd .dollar { color: var(--gs-faint); }
 .gs-marketing .gsm-cta { display: flex; gap: 12px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
 
-/* ---- EDITOR PRODUCT SHOT (always dark) ---- */
-.gs-marketing .gsm-stage { position: relative; margin-top: 56px; padding-bottom: 72px; }
+/* ---- HERO SCREENSHOT (a real render; width/height attributes reserve the box) ---- */
+.gs-marketing .gsm-stage { position: relative; margin: 56px 0 0; padding: 0 28px 72px; }
 .gs-marketing .gsm-glow {
   position: absolute; left: 50%; top: 20px; transform: translateX(-50%);
   width: 900px; max-width: 96%; height: 420px;
   background: radial-gradient(ellipse at center, rgba(84, 169, 236, 0.18), transparent 68%);
   filter: blur(20px); pointer-events: none;
 }
-.gs-marketing .gsm-editor {
-  position: relative; max-width: 1120px; margin: 0 auto; border: 1px solid var(--gs-line);
-  border-radius: 14px; overflow: hidden; background: var(--gs-chrome);
-  box-shadow: var(--gs-shadow-lg);
-  color: var(--gs-text);
-  text-align: left;
+.gs-marketing .gsm-shot img {
+  position: relative; display: block; width: 100%; max-width: 1120px; height: auto;
+  margin: 0 auto; border: 1px solid var(--gs-line); border-radius: 14px;
+  background: #000; box-shadow: var(--gs-shadow-lg);
 }
-.gs-marketing .gsm-titlebar { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 14px; background: var(--gs-bg); border-bottom: 1px solid var(--gs-line); font-size: 12.5px; color: var(--gs-muted); }
-.gs-marketing .gsm-tabs { display: flex; gap: 2px; margin-left: 6px; }
-.gs-marketing .gsm-tab { padding: 5px 12px; border-radius: 6px 6px 0 0; font-size: 12px; color: var(--gs-muted); }
-.gs-marketing .gsm-tab.on { background: var(--gs-panel); color: var(--gs-text); }
-.gs-marketing .gsm-transport { margin-left: auto; display: flex; gap: 6px; align-items: center; color: var(--gs-faint); }
-.gs-marketing .gsm-rd { margin-left: 14px; font-family: var(--gs-font-code); font-size: 11px; color: var(--gs-faint); border: 1px solid var(--gs-line); border-radius: 5px; padding: 3px 8px; }
-.gs-marketing .gsm-ebody { display: grid; grid-template-columns: 190px 1fr 214px; height: 452px; }
-.gs-marketing .gsm-dock { background: var(--gs-panel); font-size: 12px; overflow: hidden; }
-.gs-marketing .gsm-dock.left { border-right: 1px solid var(--gs-line); }
-.gs-marketing .gsm-dock.right { border-left: 1px solid var(--gs-line); }
-.gs-marketing .gsm-dock-h { font-family: var(--gs-font-code); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gs-faint); padding: 10px 12px 7px; }
-.gs-marketing .gsm-tree { padding: 0 6px; }
-.gs-marketing .gsm-node { display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 6px; color: var(--gs-muted); white-space: nowrap; }
-.gs-marketing .gsm-node .ic { color: var(--gs-faint); }
-.gs-marketing .gsm-node.sel { background: color-mix(in srgb, var(--gs-accent) 16%, transparent); color: var(--gs-text); }
-.gs-marketing .gsm-node.sel .ic { color: var(--gs-accent); }
-.gs-marketing .gsm-node.ind { margin-left: 16px; }
-.gs-marketing .gsm-node.ind2 { margin-left: 32px; }
-.gs-marketing .gsm-viewport { position: relative; background: radial-gradient(120% 120% at 60% 30%, var(--gs-bg-alt) 0%, var(--gs-viewport) 70%); }
-.gs-marketing .gsm-vp-toolbar { position: absolute; top: 10px; left: 10px; display: flex; gap: 5px; z-index: 3; }
-.gs-marketing .gsm-vp-tool { width: 28px; height: 28px; border-radius: 7px; background: color-mix(in srgb, var(--gs-surface) 80%, transparent); border: 1px solid var(--gs-line); display: flex; align-items: center; justify-content: center; color: var(--gs-muted); }
-.gs-marketing .gsm-vp-tool.on { color: var(--gs-accent); border-color: var(--gs-accent-line); }
-.gs-marketing .gsm-vp-stats { position: absolute; top: 12px; right: 12px; z-index: 3; font-family: var(--gs-font-code); font-size: 11px; color: var(--gs-muted); text-align: right; line-height: 1.7; background: color-mix(in srgb, var(--gs-viewport) 50%, transparent); padding: 6px 9px; border-radius: 7px; border: 1px solid var(--gs-line-2); }
-.gs-marketing .gsm-vp-stats b { color: var(--gs-success); }
-.gs-marketing .gsm-gizmo { position: absolute; bottom: 14px; left: 14px; z-index: 3; }
-.gs-marketing .gsm-prop { padding: 7px 12px; border-bottom: 1px solid var(--gs-line-2); }
-.gs-marketing .gsm-prop .k { color: var(--gs-faint); font-size: 10.5px; font-family: var(--gs-font-code); letter-spacing: 0.03em; }
-.gs-marketing .gsm-prop .v { color: var(--gs-text); font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; margin-top: 3px; }
-.gs-marketing .gsm-prop .v .num { font-family: var(--gs-font-code); color: var(--gs-accent); }
-.gs-marketing .gsm-slider { height: 4px; border-radius: 2px; background: var(--gs-line); margin-top: 7px; position: relative; }
-.gs-marketing .gsm-slider::after { content: ""; position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; background: var(--gs-accent); }
-.gs-marketing .gsm-slider.sw62::after { width: 62%; }
-.gs-marketing .gsm-slider.sw40::after { width: 40%; }
-.gs-marketing .gsm-slider.sw78::after { width: 78%; }
-.gs-marketing .gsm-statusbar { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 14px; background: var(--gs-bg); border-top: 1px solid var(--gs-line); font-family: var(--gs-font-code); font-size: 11px; color: var(--gs-faint); }
-.gs-marketing .gsm-statusbar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gs-success); }
+.gs-marketing .gsm-shot figcaption {
+  position: relative; max-width: 86ch; margin: 16px auto 0;
+  color: var(--gs-faint); font-size: 13px; line-height: 1.6;
+}
+.gs-marketing .gsm-shot figcaption a { color: var(--gs-muted); text-decoration: underline; text-underline-offset: 2px; }
+.gs-marketing .gsm-shot figcaption a:hover { color: var(--gs-text); }
 
 /* ---- TRUST STRIP ---- */
 .gs-marketing .gsm-trust { border-top: 1px solid var(--gs-line); border-bottom: 1px solid var(--gs-line); background: var(--gs-bg-alt); }
@@ -184,9 +150,6 @@
 
 /* ---- RESPONSIVE ---- */
 @media screen and (max-width: 900px) {
-  .gs-marketing .gsm-ebody { grid-template-columns: 1fr; height: auto; }
-  .gs-marketing .gsm-dock { display: none; }
-  .gs-marketing .gsm-viewport { height: 320px; }
   .gs-marketing .gsm-frow { grid-template-columns: 1fr; }
   .gs-marketing .gsm-qs { grid-template-columns: 1fr; gap: 28px; }
   .gs-marketing .gsm-feat { padding: 64px 24px; }
@@ -199,5 +162,4 @@
   /* The command wraps (left-aligned, like a shell line) rather than scrolling:
      a clipped URL gives no sign that more of it is hidden. */
   .gs-marketing .gsm-cmd { font-size: 12px; max-width: 100%; align-items: baseline; text-align: left; overflow-wrap: anywhere; }
-  .gs-marketing .gsm-rd { display: none; }
 }
