@@ -60,8 +60,8 @@ cites. A UI label is checked against the property it shows (`ADD_GROUP` and
 | Term | Meaning |
 | --- | --- |
 | lane | One CI job or test group that runs and reports on its own: a platform build in `.github/workflows/release_builds.yml`, or a doctest group in `MODULE_TEST_FILTERS` in `tests/ci/run_module_tests.py`. Per-splat storage in `GaussianData` is a field, not a lane. |
-| strict / advisory | Whether a failing lane fails the run (strict) or is only reported (advisory). |
-| guard | A static check script under `tests/ci/` (`check_*.py`). |
+| strict / advisory | Whether a lane's ordinary failure (a nonzero exit or a crash) fails the run (strict) or is only reported (advisory). A harness anomaly, such as exit 0 with no doctest summary, fails the run for either kind; see [Build, test and CI](../reference/build-test-ci.md). |
+| guard | An automated check of a repository invariant, such as a file format, a settings manifest or a layout mirror, that fails CI when the invariant breaks. Most are `check_*.py` scripts under `tests/ci/`; `tests/ci/run_module_tests.py --guard-only` runs the full set, including checks built into the runner and one that needs a Godot binary. |
 | gate | A required check that blocks a merge or a release, such as `agentic-pr-gate` or the renderer release gate. |
 
 ## Before You Publish
