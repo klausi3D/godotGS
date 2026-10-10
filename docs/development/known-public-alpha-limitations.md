@@ -41,7 +41,7 @@ fixed them.
 | `get_statistics()` can crash when polled every frame | [#1030](https://github.com/klausi3D/godotGS/issues/1030) | Active |
 | A world and a `GaussianSplatNode3D` in one scene: one of them renders nothing | [#788](https://github.com/klausi3D/godotGS/issues/788) | Active |
 | A world payload change costs a full resubmit | [#1008](https://github.com/klausi3D/godotGS/issues/1008) | Active |
-| An emptied world does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Active |
+| Editing a world's metadata in place does not reach the renderer | [#1002](https://github.com/klausi3D/godotGS/issues/1002) | Mitigated |
 | World bounds are never re-derived once set | [#1003](https://github.com/klausi3D/godotGS/issues/1003) | Active |
 | `strict_identity_transform` is bypassed on resubmit | [#1006](https://github.com/klausi3D/godotGS/issues/1006) | Active |
 | Applying a world writes `world_path` into your resource | [#1007](https://github.com/klausi3D/godotGS/issues/1007) | Active |
@@ -630,20 +630,17 @@ them as a baseline.
 
 **Workaround:** change world content at load boundaries, not during gameplay.
 
-### An emptied world does not reach the renderer ([#1002](https://github.com/klausi3D/godotGS/issues/1002))
+### Editing a world's metadata in place does not reach the renderer ([#1002](https://github.com/klausi3D/godotGS/issues/1002))
 
-**Status: Active.**
+**Status: Mitigated.** `GaussianSplatWorld::clear()` now emits `changed`, so an emptied
+world reaches the renderer. See [Recently resolved](#recently-resolved).
 
-`GaussianSplatWorld::clear()` is the one payload mutator that emits no `changed` signal.
-Every other one does. The director holds its own copy of the payload rather than the
-resource, so with no signal nothing re-registers and the previous content stays on screen.
-`clear()` is script-bound and has no in-tree C++ callers, so this is reachable only from
-user code.
+`get_metadata()` returns the resource's `Dictionary` by reference, so mutating it from
+script changes the resource without emitting `changed`. The director holds its own copy of
+the submission rather than the resource, so nothing re-registers and the director keeps the
+previous metadata.
 
-A second, related path: `get_metadata()` returns the resource's `Dictionary` by reference,
-so mutating it from script changes the resource without emitting `changed` either.
-
-**Workaround:** assign an empty `GaussianData` instead of calling `clear()`.
+**Workaround:** build a new `Dictionary` and assign it with `set_metadata()`.
 
 ### Bounds are never re-derived after they are once set ([#1003](https://github.com/klausi3D/godotGS/issues/1003))
 
@@ -826,3 +823,4 @@ re-checked in code at the commit named in its row's **Checked at** column.
 | [#1077](https://github.com/klausi3D/godotGS/issues/1077) | The starter template exits abnormally at shutdown under its `thread_model=2` (`RenderingDevice::free` off the render thread; exit 127/139 or `0xC0000409`). After #1133 fixed that crash, one `RenderingDevice::finalize ... can only be called from the render thread` error remained at every quit, with exit 0. Named as a §11 alpha blocker (item 11) from 2026-10-03. | [#1133](https://github.com/klausi3D/godotGS/pull/1133), [#1145](https://github.com/klausi3D/godotGS/pull/1145) | 2026-10-02 and 2026-10-04 | Issue closed. #1145 backports upstream godotengine/godot#123391, which hands the main `RenderingDevice` back to the main thread after the render thread exits, so `finalize()` runs. [Independent re-run](https://github.com/klausi3D/godotGS/pull/1145#pullrequestreview-5404840280): base 3 of 3 runs with the error, exits 0/139/0; fix 0 of 3, exit 0 in all three, no `ObjectDB` leak. NVIDIA / Vulkan / Windows only. No automated lane asserts it yet (#1148). | `0e78f528537` |
 | [#1092](https://github.com/klausi3D/godotGS/issues/1092) | Every `GaussianSplatNode3D` re-queries the viewport's render target and texture every frame, which under `thread_model=2` forces two render-thread syncs per frame: the starter template ran at 43 FPS with 768 splats and 24 FPS with a 252k-splat scan. The workaround was `thread_model=1`. | [#1094](https://github.com/klausi3D/godotGS/pull/1094) | 2026-10-01 | The node re-queries only when the viewport or its size changes. Measured on #1094 (optimized build, RTX 3090, 1280×720, vsync 60 Hz, `thread_model=2`): the template went from 44.1–46.8 to 59.1–59.8 FPS with no sync warnings. Issue closed 2026-10-04. The 252k-splat scan went from 24.3–25.4 to 29.3–31.9 FPS, still below vsync; the closing comment puts that remaining cost outside this sync defect. The scan was not measured under `thread_model=1`, so whether `thread_model=2` still costs it anything is unknown. | `eff00db450c` |
 | [#1089](https://github.com/klausi3D/godotGS/issues/1089) | With `rendering/cast_shadow` on and a shadowed `DirectionalLight3D`, the splat shadow pass rasterizes nothing and blits the main camera's splat depth into every cascade: the splats shadow themselves and go dark, a camera-following dark shape appears on the ground, and a hidden node keeps casting. The starter template ships that configuration and rendered its cloud at a mean luma of 0.31 against 0.88 with the light's shadows off. | [#1113](https://github.com/klausi3D/godotGS/pull/1113) (#1095 slice 1, commit `7a9b170fe6f`) | 2026-10-03 | Issue closed 2026-10-03. `GaussianSplatRenderer::render_shadow_depth_map` blits only a depth image its own pass rasterized (`rastered_splat_count > 0`, not a cached reuse or painterly output, the rasterizer's current depth target at the atlas-rect size); otherwise it returns `SHADOW_SKIP_NO_CASTER_RASTERED` and writes nothing. [Closing comment](https://github.com/klausi3D/godotGS/issues/1089#issuecomment-5972398702): on the template, splat luma 0.31 → 0.88 (equal to shadows off), false floor-shadow pixels 23,248 → 0, mesh shadows unchanged, and a two-omni-light check showed no cross-light depth copy. Splats now cast no shadows at all; that is the Rendering entry "Splats cast no shadows" (#1095). | `ab74e332aa8` |
+| [#1002](https://github.com/klausi3D/godotGS/issues/1002) | An emptied world does not reach the renderer: `GaussianSplatWorld::clear()` emits no `changed`, so the director keeps the old payload and the old content stays on screen. Workaround: assign an empty `GaussianData` instead. | [#1197](https://github.com/klausi3D/godotGS/pull/1197) | on merge of #1197 | `GaussianSplatWorld::clear()` emits `changed` once, after its full reset. The world node resubmits the empty world, and `GaussianSplatRenderer::apply_world_submission_contract` drops a zero-splat payload. A `[Node][SceneTree]` test asserts that after `clear()` the director's record holds no payload. The renderer step is checked in code only, with no GPU run. The metadata path is still open; it is the Mitigated entry under GaussianSplatWorld3D. | `d365a082576` |
