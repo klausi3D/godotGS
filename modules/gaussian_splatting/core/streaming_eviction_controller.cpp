@@ -136,7 +136,7 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
                 continue;
             }
             const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-            if (!chunk.is_loaded || chunk.upload_pending) {
+            if (!chunk.is_loaded) {
                 continue;
             }
             if (eviction_hysteresis_frames > 0 &&
@@ -165,7 +165,7 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
 
     for (uint32_t i : cached_nonvisible_chunks) {
         const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-        if (!chunk.is_loaded || chunk.upload_pending) {
+        if (!chunk.is_loaded) {
             continue;
         }
         const uint64_t used_frame = chunk.last_used_frame;
@@ -180,7 +180,7 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_l
 
     for (uint32_t i : cached_visible_chunks) {
         const GaussianStreamingSystem::StreamingChunk &chunk = system.chunks[i];
-        if (!chunk.is_loaded || chunk.upload_pending) {
+        if (!chunk.is_loaded) {
             continue;
         }
         if (p_visible_fit_pages > 0) {
@@ -252,7 +252,7 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_n
                 continue;
             }
             const GaussianStreamingSystem::StreamingChunk &chunk = asset_chunks[chunk_id];
-            if (!chunk.is_loaded || chunk.upload_pending) {
+            if (!chunk.is_loaded) {
                 continue;
             }
             // Match the hysteresis filter primary LRU enforces. Without it,
@@ -311,7 +311,7 @@ StreamingEvictionController::EvictionResult StreamingEvictionController::evict_n
         if (candidate.chunk_id >= asset_chunks.size()) {
             continue;
         }
-        if (!asset_chunks[candidate.chunk_id].is_loaded || asset_chunks[candidate.chunk_id].upload_pending) {
+        if (!asset_chunks[candidate.chunk_id].is_loaded) {
             continue;
         }
         if (system._is_requested_chunk_in_current_generation(*asset, candidate.chunk_id)) {

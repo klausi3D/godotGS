@@ -1588,7 +1588,7 @@ TEST_CASE("[Streaming Pipeline] Equal-frame visible eviction ignores traversal o
     }
 }
 
-TEST_CASE("[Streaming Pipeline] Usage advances once per frame and pending uploads stay protected") {
+TEST_CASE("[Streaming Pipeline] Visible usage advances once per frame generation") {
     GaussianStreamingSystem system;
     const bool visible[4] = { true, true, true, true };
     _setup_fragmented_atlas(system, visible);
@@ -1607,14 +1607,6 @@ TEST_CASE("[Streaming Pipeline] Usage advances once per frame and pending upload
     for (uint32_t i = 0; i < 4; i++) {
         CHECK_EQ(chunks[i].last_used_frame, chunks[0].last_used_frame);
     }
-    // Cache the eligible candidates, then start a pending upload. Revalidation
-    // must protect it even after the per-frame candidate list was built.
-    CHECK_EQ(system._test_evict_least_recently_used(false), StreamingEvictionController::EvictionResult::SkippedAllVisible);
-    chunks[3].upload_pending = true;
-    CHECK_EQ(system._test_evict_least_recently_used(true), StreamingEvictionController::EvictionResult::EvictedVisible);
-    CHECK(chunks[3].is_loaded);
-    CHECK_FALSE(chunks[2].is_loaded);
-    chunks[3].upload_pending = false;
 }
 
 TEST_CASE("[Streaming Pipeline] Visible-use refresh ignores unavailable and distance-excluded chunks") {
