@@ -221,7 +221,7 @@ large-scene evidence.
 `streaming-gpu-ci` is the only GPU-backed streaming gate: it fails the `module-validation` job of
 `.github/workflows/gaussian_production_gates.yml` (self-hosted Windows GPU runner) when it fails. It
 is **not** a required status check — branch protection on `master` requires only `agentic-pr-gate`
-(see [Build / Test / CI reference](../reference/build-test-ci.md#ci-source-of-truth)) — so a red run
+and `docs-build` (see [Build / Test / CI reference](../reference/build-test-ci.md#ci-source-of-truth)) — so a red run
 does not by itself block a merge. The benchmark proof surfaces below are evidence-only and should
 not be treated as a second streaming gate.
 

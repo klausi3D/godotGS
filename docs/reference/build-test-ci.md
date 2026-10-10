@@ -242,10 +242,11 @@ The GDScript bindings it drives (`test_dispatch_call_on_render_thread_blocking_*
 
 Fork-PR safety gate: the `gpu-tests` and `gpu-harness` jobs in `baseline_qa.yml` both guard on `github.event.pull_request.head.repo.full_name == github.repository`, so untrusted fork-PR code never executes on the self-hosted Windows GPU runner. Same-repo branch PRs and the merge queue still exercise the visual gate.
 
-Required status checks on `master`: exactly one, the GitHub-hosted
-`agentic-pr-gate` job in `.github/workflows/agentic_pr_gate.yml`. Live protection
-read back with `gh api repos/klausi3D/godotGS/branches/master/protection` on
-2026-10-01 (same values as the 2026-08-14 read-back): `contexts: ["agentic-pr-gate"]`, `strict: false`,
+Required status checks on `master`: two, both GitHub-hosted. They are the
+`agentic-pr-gate` job in `.github/workflows/agentic_pr_gate.yml` and the
+`docs-build` job in `.github/workflows/docs_pages.yml` (required as of 2026-10-08).
+Live protection read back with `gh api repos/klausi3D/godotGS/branches/master/protection`
+on 2026-10-08: `contexts: ["agentic-pr-gate", "docs-build"]`, `strict: false`,
 `enforce_admins: true`, `required_conversation_resolution: true`,
 `required_approving_review_count: 0`, force pushes and branch deletion blocked, no
 rulesets. Every other lane in this document — GPU, runtime, visual, release — is
@@ -255,8 +256,8 @@ of this section said `master` had no required status checks at all; that was sta
 in the dangerous direction.
 
 External advisory checks: `qlty check` is not part of the local renderer
-release gate, because branch protection does **not** require it (the single
-required context is `agentic-pr-gate`, above) and the repo has no tracked qlty
+release gate, because branch protection does **not** require it (the
+required contexts are `agentic-pr-gate` and `docs-build`, above) and the repo has no tracked qlty
 configuration. Treat qlty as a non-blocking signal unless branch protection or
 `docs/reference/renderer_release_gate_manifest.json` is changed to require it.
 

@@ -9,7 +9,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Workflow | File | Purpose | Notes |
 | --- | --- | --- | --- |
 | Baseline QA Automation | `baseline_qa.yml` | Runs baseline QA, the blocking QA-scene visual gate, the golden-image GPU harness, and optional compiled-module QA. | Builds the Linux editor once and reuses that artifact for push-only compiled QA. The `gpu-tests` job runs the `qa` scene category on the real display with `--qa-require-capture --require-qa-baseline` (#522) — headless cannot create a RenderingDevice, so the scenes would capture nothing and the category would degrade to a skip. That step is compare-only and never rewrites its own baseline. |
-| Docs Pages (Versioned) | `docs_pages.yml` | Checks the docs on every PR (`docs-build`) and builds and deploys MkDocs docs with mike versioning to `gh-pages` (`deploy`). | `docs-build` runs on every `pull_request` (no path filter), `merge_group`, push and dispatch on `ubuntu-latest` with `contents: read`, never deploys, and has no job-level `if:`. It regenerates the docs artifacts, fails if a committed generator output is stale (`git diff --exit-code`), stages, checks the media budget and runs `mkdocs build --strict`; `scripts/docs/release_acceptance.py` runs report-only (`continue-on-error`). `docs-build` is **not** a required check; requiring it is a branch-protection decision. `deploy` (`contents: write`) runs only on push/dispatch: it publishes `latest` from `master/main` and versioned docs from `v*` tags, and does not depend on `docs-build`. Only `latest` publishes the Doxygen C++ API; for a `v*` tag, `scripts/docs/redirect_cpp_api_to_latest.py` replaces the staged `api/cpp` tree with a redirect page to latest's copy before the build. |
+| Docs Pages (Versioned) | `docs_pages.yml` | Checks the docs on every PR (`docs-build`) and builds and deploys MkDocs docs with mike versioning to `gh-pages` (`deploy`). | `docs-build` runs on every `pull_request` (no path filter), `merge_group`, push and dispatch on `ubuntu-latest` with `contents: read`, never deploys, and has no job-level `if:`. It regenerates the docs artifacts, fails if a committed generator output is stale (`git diff --exit-code`), stages, checks the media budget and runs `mkdocs build --strict`; `scripts/docs/release_acceptance.py` runs report-only (`continue-on-error`). `docs-build` **is** a required status check on `master` (see [Required Checks](#required-checks)). `deploy` (`contents: write`) runs only on push/dispatch: it publishes `latest` from `master/main` and versioned docs from `v*` tags, and does not depend on `docs-build`. Only `latest` publishes the Doxygen C++ API; for a `v*` tag, `scripts/docs/redirect_cpp_api_to_latest.py` replaces the staged `api/cpp` tree with a redirect page to latest's copy before the build. |
 | Gaussian Production Gates | `gaussian_production_gates.yml` | Enforces guard checks, pipeline smoke, runtime validation, the blocking streaming gate, and optional non-blocking benchmark evidence surfaces. | Owns the single Windows build for validation workflows. `streaming-gpu-ci` is the canonical blocking GPU-backed streaming runtime gate; `openworld-proof-dev` and `openworld-proof-weekly` are evidence-only benchmark surfaces. |
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. Whenever a Windows editor zip ships, the Windows export template zip ships with it: `release_candidate_gate` attests it and `publish_release` re-verifies it with `--require` (#994). The Windows editor is optimized (no `dev_build`) on every channel. The Linux nightly editor stays `dev_build=yes`. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
@@ -19,19 +19,23 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 ## Required Checks
 
 `agentic-pr-gate` (the job name in `agentic_pr_gate.yml`, shown in the PR checks UI
-as `Agentic PR Gate / agentic-pr-gate`) **is** a required status check on `master`,
-and it is the **only** one. Live protection, read back with
-`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-08-14:
-`contexts: ["agentic-pr-gate"]`, `strict: false`, `enforce_admins: true`,
+as `Agentic PR Gate / agentic-pr-gate`) and `docs-build` (the job name in
+`docs_pages.yml`, shown as `Docs Pages (Versioned) / docs-build`) are the two
+required status checks on `master`. Live protection, read back with
+`gh api repos/klausi3D/godotGS/branches/master/protection` on 2026-10-08:
+`contexts: ["agentic-pr-gate", "docs-build"]`, `strict: false`, `enforce_admins: true`,
 `required_conversation_resolution: true`, `required_approving_review_count: 0`, force
 pushes and branch deletion blocked, no rulesets. See
 `docs/governance/github-settings.md` for the full table. An earlier revision of this
 section described the check as merely *intended* for branch protection; it was
-already live (`GS-AUDIT-DOC-003`).
+already live (`GS-AUDIT-DOC-003`). `docs-build` is the second required context
+(first observed 2026-10-08) and was built for it: no path filter on `pull_request` and no
+job-level `if:`, so it always reports a terminal status.
 
-Because `enforce_admins` is `true` and this is the only required context, a broken
-edit to `agentic_pr_gate.yml` blocks every merge in the repository, including its own
-fix. Every other lane — GPU, runtime, visual, release — is advisory at the merge
+Because `enforce_admins` is `true` and both contexts are required, a broken edit to
+`agentic_pr_gate.yml` blocks every merge in the repository, including its own fix,
+and a red `docs-build` blocks a merge exactly as a red `agentic-pr-gate` does, admins
+included. Every other lane — GPU, runtime, visual, release — is advisory at the merge
 boundary.
 
 It runs only on GitHub-hosted runners, so external fork PRs always receive a status
@@ -116,8 +120,8 @@ the checker grows a real GitHub Actions behavior parser.
 
 External checks are not automatically renderer release blockers. `qlty check`
 is currently documented in the manifest as a deferred, non-blocking external
-signal because `master` branch protection does **not** require it — the single
-required context is `agentic-pr-gate` (live state observed 2026-08-14, see
+signal because `master` branch protection does **not** require it — the required
+contexts are `agentic-pr-gate` and `docs-build` (live state observed 2026-10-08, see
 [Required Checks](#required-checks) above) — and the repo does not track a qlty
 configuration/log contract. If branch protection later requires qlty, update the
 manifest before treating a qlty result as part of public-alpha signoff.

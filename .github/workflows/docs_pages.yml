@@ -8,8 +8,9 @@ name: Docs Pages (Versioned)
 #   `mkdocs build --strict`. It never deploys, runs with a read-only token and
 #   has NO job-level `if:` and no path filter, so it always reports a terminal
 #   status (a job skipped by `if:` reports success, which would make it useless
-#   as a required check). Making it a required status check is a branch-
-#   protection setting for the maintainer; this workflow does not do that.
+#   as a required check). It IS a required status check on master, next to
+#   `agentic-pr-gate` (branch protection, observed 2026-10-08), so do not rename the
+#   job or add a path filter or job-level `if:` to it.
 #
 # - `deploy` (pushes to master/main and v* tags, dispatch): regenerates, builds
 #   and publishes with mike. It is deliberately independent of `docs-build`: if

@@ -90,9 +90,9 @@
         "title": "Audit P0: repair opaque qlty check failures blocking renderer PRs",
         "status": "deferred",
         "goal": "Do not let opaque external qlty status block the local renderer release gate when GitHub branch protection does not require it.",
-        "rationale": "As of 2026-10-01, master branch protection requires exactly one status check, agentic-pr-gate, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
+        "rationale": "As of 2026-10-08, master branch protection requires two status checks, agentic-pr-gate and docs-build, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
         "evidence_required": [
-          "GitHub branch protection for master does not require qlty check (its only required status check is agentic-pr-gate)",
+          "GitHub branch protection for master does not require qlty check (its only required status checks are agentic-pr-gate and docs-build)",
           "qlty check is documented as a non-blocking external signal in docs/reference/renderer-release-gates.md and .github/workflows/README.md",
           "candidate issue validation can resolve #369 through this deferred manifest classification"
         ]
@@ -129,8 +129,8 @@
     ]
   },
   "external_status_check_policy": {
-    "source": "GitHub branch protection for master checked on 2026-10-01 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": ["agentic-pr-gate"],
+    "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
+    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -139,7 +139,7 @@
         "classification": "deferred",
         "reason": "The qlty check is not required by master branch protection and has no repo-owned configuration/log contract in this tree.",
         "decision_evidence": [
-          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\"] on 2026-10-01 (required_status_checks=null on 2026-05-21)",
+          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\",\"docs-build\"] on 2026-10-08 (contexts=[\"agentic-pr-gate\"] on 2026-10-01; required_status_checks=null on 2026-05-21)",
           "repo search found no tracked qlty.toml, .qlty, .codeclimate.yml, or .codefactor.yml policy file"
         ],
         "local_gate_behavior": "Do not fail tests/ci/check_renderer_release_gates.py solely because qlty check is failing, pending, absent, or inaccessible."

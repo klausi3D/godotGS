@@ -33,8 +33,9 @@ Validators live in `scripts/agentic/` (Python 3.11, standard library only):
 
 These are exercised by tests under `tests/agentic/` and by the always-on
 `Agentic PR Gate` (`.github/workflows/agentic_pr_gate.yml`). Its
-`agentic-pr-gate` job is the one status check that `master` branch protection
-requires. On every PR it runs:
+`agentic-pr-gate` job is one of the two status checks that `master` branch
+protection requires (the other is `docs-build`; see
+`docs/governance/github-settings.md`). On every PR it runs:
 
 - `validate_repo_contract.py --strict-hierarchy`;
 - the `tests/agentic` suite;
