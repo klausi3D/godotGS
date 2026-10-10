@@ -66,6 +66,8 @@ RENDER_PARAM_FAMILY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_render_param_f
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
+PR_GPU_EVIDENCE_CHECK_SCRIPT = ROOT / "tests" / "ci" / "check_pr_gpu_evidence.py"
+PR_GPU_EVIDENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_pr_gpu_evidence.py"
 RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
 HISTORY_ARTIFACT_AUDIT_SCRIPT = ROOT / "scripts" / "repo" / "history_artifact_audit.py"
@@ -1867,6 +1869,21 @@ def _run_release_builds_path_filter_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["Release builds path filter guard passed."]
+
+
+def _run_pr_gpu_evidence_guard() -> tuple[bool, list[str]]:
+    """Exercise the portable GPU evidence verdict tests."""
+    checker = PR_GPU_EVIDENCE_CHECK_SCRIPT
+    tests = PR_GPU_EVIDENCE_TEST_SCRIPT
+    if not checker.is_file() or not tests.is_file():
+        return False, ["Missing PR GPU evidence checker or negative-control tests."]
+    code, out, err = _run_command([sys.executable, str(checker), "--self-test"])
+    if code != 0:
+        return False, [line for line in (out + err).splitlines() if line.strip()]
+    code, out, err = _run_command([sys.executable, str(tests)])
+    if code != 0:
+        return False, [line for line in (out + err).splitlines() if line.strip()]
+    return True, ["Portable PR GPU evidence verdict tests passed; YAML wiring is tested by the required hosted agentic lane."]
 
 
 def _run_release_publication_gating_guard() -> tuple[bool, list[str]]:
@@ -3780,6 +3797,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_release_publication_gating_guard,
             "Release publication gating guard failed.",
             "Release publication gating guard passed.",
+        ),
+        (
+            True,
+            _run_pr_gpu_evidence_guard,
+            "PR GPU evidence guard failed.",
+            "PR GPU evidence guard passed.",
         ),
         (
             True,
