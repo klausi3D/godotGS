@@ -1501,6 +1501,7 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 	}
 
 	const double total_load_ms = _elapsed_msec(total_start_usec);
+	bool antialiased_flag_changed = false;
 	// Preserve the authoritative GaussianData loaded from disk and stamp the
 	// runtime-load metadata under the same lock so a concurrent prefetch
 	// worker cannot observe a partial metadata write paired with the cached
@@ -1518,11 +1519,19 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 		// migration, reload, drag/drop), as ResourceImporterSPZ does, so
 		// GaussianSplatNode3D's Auto antialiasing compensation sees it. Any other
 		// format records no training mode: drop a stale flag from an earlier load.
+		const Variant previous_flag = import_metadata.get(StringName("spz_antialiased"), Variant());
 		if (file_label == "SPZ" && source_stats.has(String("antialiased"))) {
 			import_metadata[StringName("spz_antialiased")] = (bool)source_stats[String("antialiased")];
 		} else {
 			import_metadata.erase(StringName("spz_antialiased"));
 		}
+		antialiased_flag_changed = import_metadata.get(StringName("spz_antialiased"), Variant()) != previous_flag;
+	}
+	// populate_from_gaussian_data() already emitted `changed` before the flag was
+	// recorded; consumers (GaussianSplatNode3D Auto mode re-registers its instance
+	// flags on `changed`) must see the final value, so notify again when it moved.
+	if (antialiased_flag_changed) {
+		emit_changed();
 	}
 
 	GS_LOG_STREAMING_INFO(vformat(

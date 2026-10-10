@@ -1674,6 +1674,63 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ raw load records the antialiased tr
     }
 }
 
+// Records the asset's spz_antialiased flag at every `changed` emission.
+struct GSAntialiasedChangeProbe : public Object {
+    Ref<GaussianSplatAsset> asset;
+    int count = 0;
+    int last_flag = -1; // -1 = key absent
+    void on_changed() {
+        count++;
+        const Dictionary metadata = asset->get_import_metadata();
+        last_flag = metadata.has(StringName("spz_antialiased")) ? int((bool)metadata[StringName("spz_antialiased")]) : -1;
+    }
+};
+
+// #1173 (Codex P2 on #1230): reloading an existing asset through load_from_file must
+// notify `changed` AFTER the training flag is recorded, or a GaussianSplatNode3D in
+// Auto mode re-registers its instance with the stale flag.
+TEST_CASE("[GaussianSplatting][Importer] SPZ raw reload notifies changed after the antialiased flag is recorded") {
+    PackedByteArray payload = _make_spz_v2_single_point_payload(255, 64, 128, 255);
+    PackedByteArray compressed_payload = _gzip_compress(payload);
+    if (compressed_payload.is_empty()) {
+        FAIL("Failed to gzip-compress SPZ fixture");
+        return;
+    }
+    String paths[2];
+    for (int flagged = 0; flagged < 2; flagged++) {
+        paths[flagged] = vformat("user://gaussian_spz_aa_notify_%d.spz", flagged);
+        PackedByteArray file_data = _make_spz_header(SPZLoader::SPZ_VERSION_2, 1, 0, 12,
+                flagged ? SPZLoader::SPZ_FLAG_ANTIALIASED : 0);
+        const int header_size = file_data.size();
+        file_data.resize(header_size + compressed_payload.size());
+        memcpy(file_data.ptrw() + header_size, compressed_payload.ptr(), compressed_payload.size());
+        if (_write_binary_file(paths[flagged], file_data) != OK) {
+            FAIL("Failed to write SPZ fixture");
+            return;
+        }
+    }
+
+    Ref<GaussianSplatAsset> asset;
+    asset.instantiate();
+    CHECK(asset->load_from_file(paths[0]) == OK);
+    GSAntialiasedChangeProbe *probe = memnew(GSAntialiasedChangeProbe);
+    probe->asset = asset;
+    asset->connect("changed", callable_mp(probe, &GSAntialiasedChangeProbe::on_changed));
+
+    CHECK(asset->load_from_file(paths[1]) == OK);
+    CHECK_MESSAGE(probe->count > 0, "reload must emit changed");
+    CHECK_MESSAGE(probe->last_flag == 1, "the last changed notification must carry the new flag (classic -> antialiased)");
+
+    CHECK(asset->load_from_file(paths[0]) == OK);
+    CHECK_MESSAGE(probe->last_flag == 0, "the last changed notification must carry the new flag (antialiased -> classic)");
+
+    asset->disconnect("changed", callable_mp(probe, &GSAntialiasedChangeProbe::on_changed));
+    probe->asset.unref();
+    memdelete(probe);
+    _remove_user_file(paths[0]);
+    _remove_user_file(paths[1]);
+}
+
 TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects out-of-range fractional_bits") {
     // A2 regression: fractional_bits is used as `1 << fractional_bits` in
     // fixed_to_float(); >= 31 is shift UB and > 24 is nonsensical for the 24-bit
