@@ -5,11 +5,17 @@
 #include "../persistence/gaussian_scene_payload.h"
 #include "../persistence/gaussian_scene_serializer.h"
 #include "../persistence/incremental_saver.h"
+#include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/streaming_chunk_payload_source.h"
+#include "../io/resource_importer_spz.h"
+#include "../io/spz_loader.h"
+#include "synthetic_spz_writer.h"
 
 #include "core/io/file_access.h"
 #include "core/io/dir_access.h"
+#include "core/io/resource_loader.h"
+#include "core/io/resource_uid.h"
 #include "core/os/os.h"
 #include "../core/gs_vector_alloc.h"
 #include "core/os/thread.h"
@@ -4151,3 +4157,170 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF v3 bounds in-memory staging sepa
     gsf_v3_check_payload(expected.ptr(), target.ptr());
     _remove_persistence_fixture(path);
 }
+
+TEST_CASE("[GaussianSplatting][Persistence] File size estimate reads extents without changing the v3 arithmetic") {
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint32_t degree = 0; degree <= 4; degree++) {
+        for (bool empty : { false, true }) {
+            Ref<GaussianData> data = gsf_v3_make_payload(degree, 3, empty);
+            GaussianData::SaveSnapshot snapshot;
+            if (data->capture_save_snapshot(snapshot) != OK) {
+                FAIL("Payload snapshot must be capturable");
+                continue;
+            }
+            uint32_t splats = 0;
+            uint32_t high = 0;
+            CHECK(data->capture_save_layout(splats, high) == OK);
+            CHECK(splats == uint32_t(snapshot.get_gaussians().size()));
+            CHECK(uint64_t(splats) * high == uint64_t(snapshot.get_sh_high_order().size()));
+            const uint64_t expected = GaussianSplatting::SCENE_HEADER_PACKED_SIZE + sizeof(GaussianSplatting::ChunkHeader)
+                    + GaussianSplatting::GSF_CHUNK_HEADER_SIZE + GaussianSplatting::ScenePayload::PREFIX_SIZE
+                    + uint64_t(snapshot.get_gaussians().size()) * GaussianSplatting::ScenePayload::RECORD_SIZE
+                    + uint64_t(snapshot.get_sh_high_order().size()) * 12;
+            CHECK(serializer.get_file_size_estimate(data.ptr(), nullptr) == expected);
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Antialiased import metadata resolves canonical key, SPZ fallback and rejects non-bool values") {
+    Dictionary metadata;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("spz_antialiased")] = true;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("gaussian_antialiased")] = false;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("gaussian_antialiased")] = true;
+    metadata[StringName("spz_antialiased")] = false;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    // A malformed canonical value is ignored, never coerced; the fallback still applies.
+    metadata[StringName("gaussian_antialiased")] = String("false");
+    metadata[StringName("spz_antialiased")] = true;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    Dictionary malformed;
+    malformed[StringName("gaussian_antialiased")] = 1;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(malformed));
+    malformed.clear();
+    malformed[StringName("spz_antialiased")] = String("yes");
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(malformed));
+}
+
+namespace {
+LocalVector<TestGaussianSplatting::SyntheticSpzSplat> spz_aa_make_splats() {
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats;
+    splats.resize(4);
+    for (uint32_t i = 0; i < splats.size(); i++) {
+        splats[i].position = Vector3(float(i), 0.5f * float(i), -float(i));
+        splats[i].opacity = 0.75f;
+        splats[i].scale = Vector3(0.1f, 0.2f, 0.3f);
+    }
+    return splats;
+}
+
+// The official producer writes header flag 0x1 (antialiased training) itself.
+bool spz_aa_write(const String &p_path, bool p_antialiased) {
+    return TestGaussianSplatting::write_synthetic_spz(p_path, spz_aa_make_splats(), 12, 4, 0, p_antialiased);
+}
+
+void spz_aa_check_gsf_roundtrip(const Ref<GaussianData> &p_source, bool p_antialiased, const String &p_prefix) {
+    const String path = _make_persistence_fixture_path(p_prefix);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    if (!_ensure_persistence_fixture_dir(path) || serializer.save_scene(path, p_source.ptr()) != OK) {
+        FAIL("GSF v3 save failed");
+        return;
+    }
+    // Seed the target with the opposite flag so a dropped bit cannot pass.
+    Ref<GaussianData> target = gsf_v3_make_payload(0, p_antialiased ? 0 : 2);
+    CHECK(serializer.load_scene(path, target.ptr()) == OK);
+    CHECK(target->get_antialiased() == p_antialiased);
+    _remove_persistence_fixture(path);
+}
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Persistence] SPZ antialiased header flag reaches GaussianData on raw load routes and survives GSF v3") {
+    for (bool antialiased : { false, true }) {
+        const String path = _make_persistence_fixture_path(antialiased ? "spz_aa_on" : "spz_aa_off", ".spz");
+        if (!_ensure_persistence_fixture_dir(path) || !spz_aa_write(path, antialiased)) {
+            FAIL("SPZ fixture unavailable");
+            continue;
+        }
+        Ref<GaussianData> raw;
+        raw.instantiate();
+        CHECK(raw->load_from_file(path) == OK);
+        CHECK(raw->get_antialiased() == antialiased);
+
+        Ref<GaussianSplatAsset> asset;
+        asset.instantiate();
+        if (asset->load_from_file(path) != OK) {
+            FAIL("Raw SPZ asset load failed");
+            _remove_persistence_fixture(path);
+            continue;
+        }
+        Ref<GaussianData> cached = asset->get_gaussian_data();
+        CHECK(cached.is_valid());
+        if (cached.is_valid()) {
+            CHECK(cached->get_antialiased() == antialiased);
+        }
+        const Variant recorded = asset->get_import_metadata().get(StringName("gaussian_antialiased"), Variant());
+        CHECK(recorded.get_type() == Variant::BOOL);
+        CHECK(bool(recorded) == antialiased);
+
+        Ref<GaussianData> materialized;
+        CHECK(asset->populate_gaussian_data(materialized));
+        CHECK(materialized.is_valid());
+        if (materialized.is_valid()) {
+            CHECK(materialized->get_antialiased() == antialiased);
+        }
+        Ref<GaussianData> populated;
+        populated.instantiate();
+        CHECK(populated->populate_from_asset(asset) == OK);
+        CHECK(populated->get_antialiased() == antialiased);
+        spz_aa_check_gsf_roundtrip(populated, antialiased, "spz_aa_raw_gsf");
+        _remove_persistence_fixture(path);
+    }
+}
+
+// ResourceImporterSPZ exists only in tools builds.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][Persistence] Imported SPZ antialiased metadata reaches GaussianData and survives GSF v3") {
+    for (bool antialiased : { false, true }) {
+        const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+        const String stem = "user://godotgs_spz_aa_import_" + itos(ticks) + (antialiased ? "_on" : "_off");
+        const String source_path = stem + ".spz";
+        const String save_base_path = stem + "_asset";
+        if (!spz_aa_write(source_path, antialiased)) {
+            FAIL("SPZ fixture unavailable");
+            continue;
+        }
+        Ref<ResourceImporterSPZ> importer;
+        importer.instantiate();
+        HashMap<StringName, Variant> options;
+        options.insert(StringName("quality/preset"), String("ultra"));
+        options.insert(StringName("quality/max_splats"), 0);
+        options.insert(StringName("quality/density_multiplier"), 1.0);
+        options.insert(StringName("processing/sort_by_opacity"), false);
+        options.insert(StringName("preview/generate_thumbnail"), false);
+        const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+                nullptr, nullptr, nullptr);
+        CHECK(import_err == OK);
+        Ref<GaussianSplatAsset> asset;
+        if (import_err == OK) {
+            asset = ResourceLoader::load(save_base_path + String(".res"), "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+        }
+        CHECK(asset.is_valid());
+        if (asset.is_valid()) {
+            Ref<GaussianData> materialized = asset->get_gaussian_data();
+            CHECK(materialized.is_valid());
+            if (materialized.is_valid()) {
+                CHECK(materialized->get_antialiased() == antialiased);
+            }
+            Ref<GaussianData> populated;
+            populated.instantiate();
+            CHECK(populated->populate_from_asset(asset) == OK);
+            CHECK(populated->get_antialiased() == antialiased);
+            spz_aa_check_gsf_roundtrip(populated, antialiased, "spz_aa_import_gsf");
+        }
+        DirAccess::remove_absolute(source_path);
+        DirAccess::remove_absolute(save_base_path + ".res");
+    }
+}
+#endif // TOOLS_ENABLED

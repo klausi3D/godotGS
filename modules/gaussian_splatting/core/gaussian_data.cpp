@@ -684,6 +684,17 @@ Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
     return OK;
 }
 
+Error GaussianData::capture_save_layout(uint32_t &r_splat_count, uint32_t &r_sh_high_order_count) const {
+    RWLockRead lock(data_rwlock);
+    const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
+    if (expected_high > uint64_t(sh_high_order_coefficients.size())) {
+        return ERR_INVALID_DATA;
+    }
+    r_splat_count = gaussians.size();
+    r_sh_high_order_count = sh_high_order_count;
+    return OK;
+}
+
 bool GaussianData::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
         LocalVector<Gaussian> &r_gaussians,
         LocalVector<Vector3> &r_sh_high_order,

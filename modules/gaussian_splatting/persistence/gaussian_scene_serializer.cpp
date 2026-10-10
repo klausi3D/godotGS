@@ -1540,12 +1540,14 @@ Dictionary GaussianSceneSerializer::get_file_info(const String &file_path) const
 uint64_t GaussianSceneSerializer::get_file_size_estimate(const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation) const {
     ERR_FAIL_NULL_V(gaussian_data, 0);
     uint64_t size = SCENE_HEADER_PACKED_SIZE + sizeof(ChunkHeader);
-    ::GaussianData::SaveSnapshot snapshot;
-    if (gaussian_data->capture_save_snapshot(snapshot) != OK) {
+    // Extents only: an estimate must not copy the payload a full save captures.
+    uint32_t splat_count = 0;
+    uint32_t high_order_count = 0;
+    if (gaussian_data->capture_save_layout(splat_count, high_order_count) != OK) {
         return 0;
     }
-    size += GSF_CHUNK_HEADER_SIZE + ScenePayload::PREFIX_SIZE + uint64_t(snapshot.get_gaussians().size()) * ScenePayload::RECORD_SIZE
-            + uint64_t(snapshot.get_sh_high_order().size()) * 12;
+    size += GSF_CHUNK_HEADER_SIZE + ScenePayload::PREFIX_SIZE + uint64_t(splat_count) * ScenePayload::RECORD_SIZE
+            + uint64_t(splat_count) * uint64_t(high_order_count) * 12;
     if (animation && animation->get_clip_count() > 0) {
         size += sizeof(ChunkHeader) + 4096; // Rough estimate for animation payloads.
     }
