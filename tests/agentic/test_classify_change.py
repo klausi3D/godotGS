@@ -71,9 +71,10 @@ class ClassifyChangeTest(unittest.TestCase):
 
     # Docs-site build / publish tooling. These decide what the public site builds
     # and publishes, so they are R1, not R0. Each is checked by something it does
-    # not control (the MkDocs build in docs-build, or a tests/agentic test in
-    # agentic-pr-gate) or cannot change what is published, so they are not R3
-    # either (docs/governance/agentic-engineering.md).
+    # not control (the MkDocs build in docs-build, a tests/agentic test in
+    # agentic-pr-gate, or the overrides inline-script guard in the guard-only
+    # lane) or cannot change what is published, so they are not R3 either
+    # (docs/governance/agentic-engineering.md).
     DOCS_SITE_TOOLING_R1 = (
         "mkdocs.yml",
         "overrides/home.html",
@@ -81,16 +82,37 @@ class ClassifyChangeTest(unittest.TestCase):
         "scripts/stage_public_docs.py",
         "scripts/build_docs_site.py",
         "scripts/docs/release_acceptance.py",
-        "scripts/docs/redirect_cpp_api_to_latest.py",
         "docs/requirements.txt",
         "docs/requirements-site.txt",
-        "docs/assets/javascripts/latest-nightlies.js",
     )
 
     def test_docs_site_tooling_is_r1(self):
         for path in self.DOCS_SITE_TOOLING_R1:
             with self.subTest(path=path):
                 self.assertEqual(self._cls([path]), "R1")
+
+    def test_executed_docs_site_code_is_r3(self):
+        # The tag deploy runs the C++ API redirect script with a write token, and
+        # mkdocs.yml loads docs/assets/javascripts/** into readers' browsers. No
+        # check executes or inspects that code for side effects, so it is R3 by an
+        # explicit rule, not only by the fail-closed default: a broader R0 or R1
+        # glob (docs/** is R0) must not lower it (#1212, PR #1207).
+        for path in (
+            "scripts/docs/redirect_cpp_api_to_latest.py",
+            "docs/assets/javascripts/latest-nightlies.js",
+            "docs/assets/javascripts/home-splat.js",
+            "docs/assets/javascripts/nested/new.js",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R3")
+        self.assertEqual(
+            self._cls(["overrides/home.html", "docs/assets/javascripts/home-splat.js"]),
+            "R3",
+        )
+
+    def test_overrides_script_guard_is_r3_machinery(self):
+        # overrides/** is R1 only because this guard keeps script out of it.
+        self.assertEqual(self._cls(["tests/ci/check_overrides_no_inline_script.py"]), "R3")
 
     def test_docs_dependency_lock_is_r3(self):
         # docs-build and deploy install docs/requirements-lock.txt, deploy with a
