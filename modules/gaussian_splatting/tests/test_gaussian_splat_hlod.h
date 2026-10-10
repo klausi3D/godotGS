@@ -2813,7 +2813,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 
 	Ref<ResourceImporterGSplatWorld> importer;
 	importer.instantiate();
-	CHECK_EQ(importer->get_format_version(), 3);
+	CHECK_EQ(importer->get_format_version(), 4);
 	const String save_base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_" + itos(OS::get_singleton()->get_ticks_usec()));
 	HashMap<StringName, Variant> options;
 	Variant metadata;
