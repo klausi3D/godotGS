@@ -586,10 +586,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-point-at-your-editor-and-open-the-project" class="md-nav__link">
+  <a href="#3-open-the-project-in-your-editor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Point at Your Editor and Open the Project
+        3. Open the Project in Your Editor
       
     </span>
   </a>
@@ -608,10 +608,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#next-import-your-own-capture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Next: Import Your Own Capture
       
     </span>
   </a>
@@ -619,10 +619,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#if-it-fails" class="md-nav__link">
+  <a href="#where-to-go-next" class="md-nav__link">
     <span class="md-ellipsis">
       
-        If It Fails
+        Where to Go Next
       
     </span>
   </a>
@@ -663,7 +663,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -4422,10 +4422,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-point-at-your-editor-and-open-the-project" class="md-nav__link">
+  <a href="#3-open-the-project-in-your-editor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Point at Your Editor and Open the Project
+        3. Open the Project in Your Editor
       
     </span>
   </a>
@@ -4444,10 +4444,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#next-import-your-own-capture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Next: Import Your Own Capture
       
     </span>
   </a>
@@ -4455,10 +4455,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#if-it-fails" class="md-nav__link">
+  <a href="#where-to-go-next" class="md-nav__link">
     <span class="md-ellipsis">
       
-        If It Fails
+        Where to Go Next
       
     </span>
   </a>
@@ -4503,25 +4503,24 @@
 
 
 <h1 id="your-first-splat">Your First Splat<a class="headerlink" href="#your-first-splat" title="Permanent link">¶</a></h1>
-<p>The shortest honest path to a visible result: get an editor built from this fork, open the sample project, press Play and see a splat in the viewport.</p>
-<p>This page covers the nightly editors and editors you built yourself. On macOS there is no published binary, so start with <a href="../../BUILDING/">Build from Source</a> and come back to step 2.</p>
-<p>Real editor screenshots for this flow are still pending, so this page stays text-first and keeps the diagram as a technical reference at the end.</p>
+<p><strong>For:</strong> Godot users trying godotGS for the first time.</p>
+<p><strong>At the end:</strong> you have the sample project open in a godotGS editor, a splat on screen, and you know where to go to bring in your own capture.</p>
+<p>It takes four steps: get an editor, get the sample project, open it, press Play. A diagram of the flow is at the end of the page.</p>
 <h2 id="1-get-an-editor">1. Get an Editor<a class="headerlink" href="#1-get-an-editor" title="Permanent link">¶</a></h2>
-<p>A stock Godot editor does not work: you need an editor built from this fork. The nightly editors are published on GitHub Releases; the <a href="../downloads/">Downloads</a> page links them and explains how to unpack, run and verify each archive.</p>
-<p>Before you download, read <a href="../downloads/#build-flavor-and-performance">Build Flavor and Performance</a>: the Linux nightly is not a performance build. This page shows that godotGS works, not how fast it is; the <a href="../../performance/">Performance Dashboard</a> shows what an optimized build measures.</p>
+<p>A stock Godot editor does not work: you need an editor built from this fork.</p>
 <ul>
-<li><strong>Linux:</strong> download <code>godotgs-linux-x86_64-&lt;tag&gt;.tar.xz</code> from the most recent <code>nightly-YYYYMMDD</code> release. Every nightly has it.</li>
-<li><strong>Windows:</strong> download <code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code> from the most recent nightly that lists it. The Windows zip is attached only when that night's Windows build lane passed, so the newest nightly may be Linux-only. The zip contains both the GUI editor and the console wrapper; pick whichever fits your workflow. Do not take <code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code> by mistake: that is the export template for shipping a game, not the editor.</li>
-<li><strong>macOS:</strong> no published binary. Build one with <a href="../../BUILDING/">Build from Source</a>.</li>
-<li><strong>Already built one?</strong> Any editor built from this fork works; see <a href="../installation/">Installation</a> for prerequisites and build paths.</li>
+<li><strong>Windows or Linux:</strong> download a nightly editor from <a href="../downloads/">Downloads</a>. On Windows, take <code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code>, not the export template zip.</li>
+<li><strong>macOS:</strong> there is no published binary. Build one with <a href="../../BUILDING/">Build from Source</a>, then come back to step 2.</li>
+<li><strong>Already built one?</strong> Any editor built from this fork works. <a href="../installation/">Build Your Own Editor</a> lists the prerequisites.</li>
 </ul>
+<p>This page shows that godotGS works, not how fast it is. The Linux nightly is not built for speed; the <a href="../../performance/">Performance Dashboard</a> shows what an optimized build measures.</p>
 <h2 id="2-get-the-sample-project">2. Get the Sample Project<a class="headerlink" href="#2-get-the-sample-project" title="Permanent link">¶</a></h2>
-<p>The sample project lives in this repository, not in the nightly archive. A shallow clone is enough and is far quicker than the full engine history:</p>
+<p>The sample project lives in this repository, not in the nightly archive. A shallow clone is enough and much quicker than the full engine history:</p>
 <div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>--depth<span class="w"> </span><span class="m">1</span><span class="w"> </span>https://github.com/klausi3D/godotGS.git
 <span class="nb">cd</span><span class="w"> </span>godotGS
 </code></pre></div>
 <p>Run the commands in the next steps from the root of that clone.</p>
-<h2 id="3-point-at-your-editor-and-open-the-project">3. Point at Your Editor and Open the Project<a class="headerlink" href="#3-point-at-your-editor-and-open-the-project" title="Permanent link">¶</a></h2>
+<h2 id="3-open-the-project-in-your-editor">3. Open the Project in Your Editor<a class="headerlink" href="#3-open-the-project-in-your-editor" title="Permanent link">¶</a></h2>
 <p>Set <code>GODOT_BINARY</code> to the absolute path of your editor, then open the sample project:</p>
 <div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">GODOT_BINARY</span><span class="o">=</span>/absolute/path/to/godot.linuxbsd.editor.dev.x86_64
 <span class="nv">$GODOT_BINARY</span><span class="w"> </span>-e<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project
@@ -4529,34 +4528,39 @@
 <div class="highlight"><pre><span></span><code><span class="nv">$env:GODOT_BINARY</span><span class="p">=</span><span class="s2">"C:\absolute\path\to\godot.windows.editor.x86_64.exe"</span>
 <span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="n">-e</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span>
 </code></pre></div>
-<p>You should see the sample project open in the editor. The <code>-e</code> flag matters: without it, <code>--path</code> runs the project's main scene directly instead of opening the editor.</p>
+<p>The sample project opens in the editor. Keep the <code>-e</code> flag: without it, <code>--path</code> runs the project's main scene directly instead of opening the editor.</p>
+<p>You can also start the editor normally and import <code>tests/examples/godot/test_project</code> from the Project Manager.</p>
 <p>Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.</p>
 <div class="highlight"><pre><span></span><code><span class="nv">$GODOT_BINARY</span><span class="w"> </span>--headless<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project<span class="w"> </span>--quit
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-headless</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span> <span class="p">-</span><span class="n">-quit</span>
 </code></pre></div>
 <h2 id="4-press-play">4. Press Play<a class="headerlink" href="#4-press-play" title="Permanent link">¶</a></h2>
-<p>Press Play. The sample project's main scene is <code>res://scenes/public_evaluator.tscn</code>. It shows a small synthetic sample (a 1,024-splat test fixture), not a real capture.</p>
+<p>Press Play (F5). The project's main scene, <code>res://scenes/public_evaluator.tscn</code>, shows a small synthetic sample: a 1,024-splat test fixture, not a real capture.</p>
 <p>You should see:</p>
 <ul>
-<li>a visible splat in the viewport</li>
-<li>the sample scene loaded, with the project still open and interactive</li>
+<li>splats in the viewport, lit by the scene's directional light;</li>
+<li>a performance overlay with frame rate and timings (F3 hides it).</li>
 </ul>
-<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">¶</a></h2>
+<p>The camera is a fly camera: the mouse looks around, <code>W</code> <code>A</code> <code>S</code> <code>D</code> move, <code>E</code> or <code>Space</code> goes up, <code>Q</code> goes down, and <code>Shift</code> moves faster. <code>Esc</code> quits.</p>
+<p>If nothing appears, or the splats are black, go to <a href="../../troubleshooting/">Troubleshooting</a>.</p>
+<h2 id="next-import-your-own-capture">Next: Import Your Own Capture<a class="headerlink" href="#next-import-your-own-capture" title="Permanent link">¶</a></h2>
+<p>Copy a <code>.ply</code> or <code>.spz</code> source file into your project's folder. The editor imports it as a splat asset (<code>GaussianSplatAsset</code>). Drag that splat asset into the 3D viewport and the editor creates a <code>GaussianSplatNode3D</code> that draws it. The <a href="../../workflows/importing/">Import Workflow</a> covers the supported formats and what to do when an import fails.</p>
+<figure>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/screenshots/editor-overview-garden.webp" data-desc-position="bottom"><img alt="The godotGS editor. Left, the Scene dock lists the scene's nodes with GaussianSplatNode3D selected, and the FileSystem dock shows the imported garden .ply file. Centre, the 3D viewport shows a captured garden: a round wooden table with a vase in front of a brick house and trees. Right, the Inspector shows the node's Asset, Quality and Transform sections." class="gs-shot" height="720" loading="lazy" src="../../assets/images/screenshots/editor-overview-garden.webp" width="1280"></a></p>
+<figcaption>A real capture in the editor, after import: the Mip-NeRF 360 "garden" scene (5.8M splats) drawn by a selected <code>GaussianSplatNode3D</code>, in a project made from the repository's project template. This is not the step 4 sample. Scan: Barron et al., <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, trained with gsplat by the godotGS project. Editor: godotGS built from <a href="https://github.com/klausi3D/godotGS/pull/1226">PR #1226</a>, RTX 3090. Not the default settings: black background, scene light off, tile cap 65,536, Custom quality (shown in the Inspector). See <a href="../../reference/#image-credits">Image credits</a>.</figcaption>
+</figure>
+<h2 id="where-to-go-next">Where to Go Next<a class="headerlink" href="#where-to-go-next" title="Permanent link">¶</a></h2>
 <ul>
-<li>Bring in your own capture with the <a href="../../workflows/importing/">import workflow</a>.</li>
-<li>Continue with the <a href="../../user/">Guides</a> for concepts, presets, lighting and the feature guides.</li>
-</ul>
-<h2 id="if-it-fails">If It Fails<a class="headerlink" href="#if-it-fails" title="Permanent link">¶</a></h2>
-<ul>
-<li>Check <a href="../../troubleshooting/recurring-issues/">Recurring Issues</a>.</li>
-<li>Re-check the prerequisites in <a href="../installation/">Installation</a>.</li>
-<li>On macOS, or if no nightly works on your machine, build an editor from this fork with <a href="../../BUILDING/">Build from Source</a> before retrying.</li>
+<li><a href="../../user/">Guides</a>: concepts, quality presets, lighting and the feature guides.</li>
+<li><a href="../../development/known-public-alpha-limitations/">Known Public Alpha Limitations</a>: what this alpha ships with, and the workarounds.</li>
+<li><a href="../../development/export-templates/">Export Templates</a>: before you export a game.</li>
+<li><a href="../../reference/compatibility-matrix/">Compatibility Matrix</a>: what is tested on which platform.</li>
 </ul>
 <h2 id="flow-reference">Flow Reference<a class="headerlink" href="#flow-reference" title="Permanent link">¶</a></h2>
 <figure>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/first-run-editor-path.svg" data-desc-position="bottom"><img alt="Diagram of the first-splat path from a fork-built editor to a visible sample splat" class="gs-diagram" src="../../assets/images/first-run-editor-path.svg"></a></p>
-<figcaption>The first-splat path is a short proof loop: point at your editor, open the sample project, and confirm a visible splat in the sample scene.</figcaption>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/first-run-editor-path.svg" data-desc-position="bottom"><img alt="Your First Splat in four steps: get an editor built from this fork, get the sample project, open it in the editor, and press Play to see splats in the sample scene" class="gs-diagram" src="../../assets/images/first-run-editor-path.svg"></a></p>
+<figcaption>Your First Splat is a short proof loop: get an editor and the sample project, open the project, and confirm visible splats in the sample scene.</figcaption>
 </figure>
 
 
@@ -4578,7 +4582,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:12 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:21 UTC">October 10, 2026</span>
   </span>
 
     
@@ -4631,13 +4635,13 @@
         
         
           
-          <a href="../installation/" class="md-footer__link md-footer__link--next" aria-label="Next: Installation">
+          <a href="../installation/" class="md-footer__link md-footer__link--next" aria-label="Next: Build Your Own Editor">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Installation
+                Build Your Own Editor
               </div>
             </div>
             <div class="md-footer__button md-icon">

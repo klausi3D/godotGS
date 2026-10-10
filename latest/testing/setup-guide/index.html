@@ -534,7 +534,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -2667,6 +2667,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#narrowing-a-renderer-symptom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Narrowing a renderer symptom
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -4466,6 +4483,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#narrowing-a-renderer-symptom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Narrowing a renderer symptom
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -4555,7 +4589,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Build a test-enabled Godot binary</td>
 <td><code>scons platform=&lt;platform&gt; target=editor dev_build=yes tests=yes -j&lt;jobs&gt;</code></td>
-<td><a href="https://github.com/klausi3D/godotGS/blob/10d33e605de29a2cfa89c1ef04367a9131f1850c/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/10d33e605de29a2cfa89c1ef04367a9131f1850c/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
+<td><a href="https://github.com/klausi3D/godotGS/blob/15a1233689e18fcdc0a0a2e744a747b4501bdb91/README.md">Repository README</a>, <a href="https://github.com/klausi3D/godotGS/blob/15a1233689e18fcdc0a0a2e744a747b4501bdb91/BUILDING.md">root build notes</a>, <code>modules/gaussian_splatting/SCsub</code> (the <code>if env.get("tests", False)</code> block)</td>
 </tr>
 <tr>
 <td>Set default Godot binary for Python runners</td>
@@ -4600,7 +4634,7 @@ Run any runner with <code>--help</code> for its current option list.</p>
 <tr>
 <td>Refresh QA baseline snapshot from current run</td>
 <td><code>python3 tests/ci/run_baseline_qa.py --category qa --qa-require-capture --update-qa-baseline</code></td>
-<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/10d33e605de29a2cfa89c1ef04367a9131f1850c/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
+<td><code>BaselineQARunner.compare_qa_baseline()</code>, <code>validate_baseline_candidate()</code>. A baseline change is a contract change and needs its own justification and review (<a href="https://github.com/klausi3D/godotGS/blob/15a1233689e18fcdc0a0a2e744a747b4501bdb91/tests/AGENTS.md">tests/AGENTS.md</a>).</td>
 </tr>
 <tr>
 <td>Run renderer/static guards without Godot tests</td>
@@ -4877,6 +4911,44 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
 </tr>
 </tbody>
 </table>
+<h3 id="narrowing-a-renderer-symptom">Narrowing a renderer symptom<a class="headerlink" href="#narrowing-a-renderer-symptom" title="Permanent link">¶</a></h3>
+<p>Route a recurring renderer or build symptom into the matching validation lane first, so logs, JSON outputs and capture artifacts point at the failing layer before any fix attempt. User-facing symptoms and fixes are on <a href="../../troubleshooting/recurring-issues/">Recurring Issues</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Checks</th>
+<th>Typical fixes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Sorting regressions and mis-ordering:</strong> transparent splats render in the wrong order; sudden flicker when the camera moves; intermittent switch to the CPU sorting path</td>
+<td><code>python3 tests/ci/run_baseline_qa.py --category sorting</code>; <code>python3 tests/runtime/run_runtime_validation.py --godot-binary &lt;module-built-binary&gt; --profile headless-ci</code></td>
+<td>Verify shader and host sort contracts are synchronized; verify the requested sort mode is supported by the active device; rebuild and rerun with a module-enabled binary (<code>modules/gaussian_splatting</code>)</td>
+</tr>
+<tr>
+<td><strong>Tile overflow, underfill or edge artifacts:</strong> missing splats near screen edges; dense areas showing abrupt holes or popping; visible tile boundaries</td>
+<td><code>python3 tests/ci/run_baseline_qa.py --category pipeline</code>; inspect <code>tests/output/</code> artifacts and runtime stats for tile capacity pressure</td>
+<td>Reduce visible splat pressure (quality preset, max splat count); verify tile/raster shader variants match current host parameters; rerun after a clean rebuild if shader-generated headers changed</td>
+</tr>
+<tr>
+<td><strong>Shader contract or compile failures:</strong> shader compile failures at startup; compute pipeline creation failures; runtime starts but splats do not render</td>
+<td><code>python3 modules/gaussian_splatting/shaders/compile_shaders.py --contracts-only</code>; <code>python3 tests/ci/run_module_tests.py --guard-only</code></td>
+<td>Install or update the shader toolchain the validator requires; keep host-side buffer layouts and shader structs in sync; rebuild the editor after shader or interface changes</td>
+</tr>
+<tr>
+<td><strong>Module build path mismatch:</strong> module classes missing at runtime; link errors around module symbols; tests failing because a stock Godot binary was used</td>
+<td>Confirm the binary was built from this fork's root and comes from <code>bin/</code>; confirm the test runner points at the module-built binary (<code>--godot</code> / <code>--godot-binary</code>)</td>
+<td>Rebuild per the <a href="../../reference/build-test-ci/">Build / Test / CI Command Reference</a>; rerun with an explicit binary path: <code>python3 tests/ci/run_baseline_qa.py --godot &lt;path-to-module-built-editor&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>When you report one of these, include the exact command, platform, GPU and driver version, the failing log excerpts and the JSON artifacts produced, and whether the binary came from this fork's <code>bin/</code> output or a stock Godot build.</p>
+<figure>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/troubleshooting-diagnostics-flow.svg" data-desc-position="bottom"><img alt="Diagram of the troubleshooting flow from symptom to validation lane, artifacts, and targeted fix" class="gs-diagram" src="../../assets/images/troubleshooting-diagnostics-flow.svg"></a></p>
+<figcaption>Recurring issues should route into the matching validation lane first so logs, JSON outputs, and capture artifacts point at the real failing layer before any fix attempt.</figcaption>
+</figure>
 
 
 
@@ -4897,7 +4969,7 @@ python3<span class="w"> </span>tests/ci/run_gpu_harness.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:16 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:24 UTC">October 10, 2026</span>
   </span>
 
     

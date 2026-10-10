@@ -547,10 +547,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-flavor-and-performance" class="md-nav__link">
+  <a href="#linux-nightly-speed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build Flavor and Performance
+        Linux Nightly Speed
       
     </span>
   </a>
@@ -591,6 +591,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#exporting-a-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exporting a game
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -619,10 +630,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#building-from-source" class="md-nav__link">
+  <a href="#when-to-build-from-source-instead" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Building From Source
+        When to Build From Source Instead
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Step
       
     </span>
   </a>
@@ -680,7 +702,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -4428,10 +4450,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#build-flavor-and-performance" class="md-nav__link">
+  <a href="#linux-nightly-speed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Build Flavor and Performance
+        Linux Nightly Speed
       
     </span>
   </a>
@@ -4472,6 +4494,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#exporting-a-game" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exporting a game
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -4500,10 +4533,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#building-from-source" class="md-nav__link">
+  <a href="#when-to-build-from-source-instead" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Building From Source
+        When to Build From Source Instead
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Next Step
       
     </span>
   </a>
@@ -4537,10 +4581,34 @@
 
 
 <h1 id="downloads">Downloads<a class="headerlink" href="#downloads" title="Permanent link">¶</a></h1>
-<p>Public binaries for godotGS are published as nightly prereleases on GitHub. There is no stable <code>v*</code> release yet — see <a href="../../development/release-channels/">Release Channels</a> for the full publishing model.</p>
+<p><strong>For:</strong> anyone who wants a godotGS editor without compiling one.</p>
+<p><strong>At the end:</strong> you have a godotGS editor running on Windows or Linux, and you know whether it is the right build for what you want to do.</p>
+<p>A stock Godot editor cannot render splats. You need an editor built from this fork, and there are two ways to get one:</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>Use it when</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Nightly editor</strong></td>
+<td>You are on Windows or Linux and want to try godotGS today.</td>
+<td>This page</td>
+</tr>
+<tr>
+<td><strong>Build from source</strong></td>
+<td>You are on macOS, you want representative speed on Linux, or you need a custom build.</td>
+<td><a href="../../BUILDING/">Build from Source</a></td>
+</tr>
+</tbody>
+</table>
+<p>There is no stable <code>v*</code> release yet: nightlies are the only published binaries. <a href="../../development/release-channels/">Release Channels</a> explains the publishing model.</p>
 <h2 id="latest-nightly">Latest Nightly<a class="headerlink" href="#latest-nightly" title="Permanent link">¶</a></h2>
-<p><a href="https://github.com/klausi3D/godotGS/releases"><strong>Open the Releases page</strong></a> and pick the most recent <code>nightly-YYYYMMDD</code> entry at the top. (There is no stable <code>v*</code> release yet, so GitHub's "latest release" shortcut does not resolve to a nightly; always use the list.)</p>
-<p>Every nightly contains the Linux editor, <code>BUILD-INFO.txt</code>, and checksum files. The Windows editor and the Windows export template are attached <strong>only when the Windows build and its export smoke test succeed</strong> for that run; when the Windows lane fails, the nightly is published Linux-only. Several consecutive nightlies can be Linux-only, so on Windows pick the most recent nightly whose asset list includes <code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code>, which is not necessarily the newest entry.</p>
+<p><a href="https://github.com/klausi3D/godotGS/releases"><strong>Open the Releases page</strong></a> and pick the most recent <code>nightly-YYYYMMDD</code> entry at the top. Because there is no stable release yet, GitHub's "latest release" shortcut does not lead to a nightly, so always use the list.</p>
+<p>Every nightly contains the Linux editor, <code>BUILD-INFO.txt</code>, and checksum files. The Windows editor and the Windows export template are attached <strong>only when that night's Windows build succeeds</strong>. If the Windows build fails, the nightly is Linux-only, and several in a row can be. If the Windows build succeeds but the export template build or its export smoke test fails, no nightly is published that night at all. On Windows, pick the most recent nightly whose asset list includes <code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code>; it is not always the newest entry.</p>
 <div id="gs-latest-nightlies" data-repo="klausi3D/godotGS" hidden=""></div>
 
 <table>
@@ -4555,22 +4623,22 @@
 <tr>
 <td><code>godotgs-linux-x86_64-&lt;tag&gt;.tar.xz</code></td>
 <td>Linux x86_64</td>
-<td>Editor binary (<code>dev_build=yes</code>, <code>-O0</code>)</td>
+<td><strong>Editor</strong>, unoptimized (see <a href="#linux-nightly-speed">Linux nightly speed</a>)</td>
 </tr>
 <tr>
 <td><code>godotgs-windows-x86_64-&lt;tag&gt;.zip</code></td>
-<td>Windows x86_64 (only when the Windows lane passed)</td>
+<td>Windows x86_64 (only when the Windows build passed)</td>
 <td><strong>Editor</strong>, optimized: GUI editor (<code>.exe</code>) + console wrapper (<code>.console.exe</code>)</td>
 </tr>
 <tr>
 <td><code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code></td>
-<td>Windows x86_64 (only when the Windows lane passed)</td>
+<td>Windows x86_64 (only when the Windows build passed)</td>
 <td><strong>Export template</strong> for shipping a game: <code>windows_release_x86_64.exe</code> + <code>windows_release_x86_64.console.exe</code>. Not an editor. See <a href="../../development/export-templates/">Export Templates</a>.</td>
 </tr>
 <tr>
 <td><code>*.sha256</code></td>
 <td>per archive</td>
-<td>SHA-256 checksum sidecar for each archive attached to that nightly</td>
+<td>SHA-256 checksum for each archive in that nightly</td>
 </tr>
 <tr>
 <td><code>BUILD-INFO.txt</code></td>
@@ -4579,8 +4647,8 @@
 </tr>
 </tbody>
 </table>
-<p>macOS is not yet covered by a published binary — <a href="../../BUILDING/">Build from Source</a>.</p>
-<h2 id="build-flavor-and-performance">Build Flavor and Performance<a class="headerlink" href="#build-flavor-and-performance" title="Permanent link">¶</a></h2>
+<p>macOS has no published binary: use <a href="../../BUILDING/">Build from Source</a>.</p>
+<h2 id="linux-nightly-speed">Linux Nightly Speed<a class="headerlink" href="#linux-nightly-speed" title="Permanent link">¶</a></h2>
 <div class="admonition warning">
 <p class="admonition-title">The Linux nightly is an unoptimized <code>-O0</code> build</p>
 <p>The published Linux nightly editor is compiled with <code>dev_build=yes</code>, which means
@@ -4604,11 +4672,13 @@ chmod<span class="w"> </span>+x<span class="w"> </span>godot.linuxbsd.editor.dev
 <h3 id="windows">Windows<a class="headerlink" href="#windows" title="Permanent link">¶</a></h3>
 <p>Unzip and pick the variant that fits how you want to run the editor:</p>
 <ul>
-<li><code>godot.windows.editor.x86_64.exe</code> — GUI editor with no console window. Use this for the normal editor experience.</li>
-<li><code>godot.windows.editor.x86_64.console.exe</code> — same editor with a console window attached for stdout/stderr. Use this when debugging or when a script needs to capture editor output.</li>
+<li><code>godot.windows.editor.x86_64.exe</code>: the GUI editor with no console window. Use this for normal work.</li>
+<li><code>godot.windows.editor.x86_64.console.exe</code>: the same editor with a console window for stdout/stderr. Use this when debugging or when a script needs the editor's output.</li>
 </ul>
-<p>Both binaries ship in the same zip; you can keep just one or both side-by-side.</p>
-<p>To export a game, also download <code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code>. Unzip it and set <code>custom_template/release</code> in your export preset to the absolute path of <code>windows_release_x86_64.exe</code>. Keep the <code>.console.exe</code> next to it. Without that setting the export silently uses a stock template that renders no splats. See <a href="../../development/export-templates/">Export Templates</a>.</p>
+<p>Both ship in the same zip; keep one or both.</p>
+<p>No godotGS binary is code-signed, so Windows SmartScreen may warn that the app is unrecognized. Check the download against its <code>.sha256</code> file (below) before you run it.</p>
+<h3 id="exporting-a-game">Exporting a game<a class="headerlink" href="#exporting-a-game" title="Permanent link">¶</a></h3>
+<p>To export a game on Windows, also download <code>godotgs-export-template-windows-x86_64-&lt;tag&gt;.zip</code>. Unzip it and set <code>custom_template/release</code> in your export preset to the absolute path of <code>windows_release_x86_64.exe</code>. Keep the <code>.console.exe</code> next to it. Without that setting the export silently uses a stock template that renders no splats. Then clear <strong>Export With Debug</strong> in the export file dialog; it is on by default. A debug export, like the editor's one-click remote-debug run, reads <code>custom_template/debug</code> instead, and no godotGS debug template is published yet. No Linux export template is published; build one from source. See <a href="../../development/export-templates/">Export Templates</a>.</p>
 <h2 id="verify-the-download">Verify the Download<a class="headerlink" href="#verify-the-download" title="Permanent link">¶</a></h2>
 <p>Match the published checksum against your local file:</p>
 <div class="highlight"><pre><span></span><code><span class="c1"># Linux / WSL / git-bash</span>
@@ -4619,16 +4689,18 @@ sha256sum<span class="w"> </span>godotgs-windows-x86_64-&lt;tag&gt;.zip
 <span class="nb">Get-FileHash</span> <span class="n">-Algorithm</span> <span class="n">SHA256</span> <span class="p">.\</span><span class="n">godotgs-windows-x86_64</span><span class="p">-&lt;</span><span class="n">tag</span><span class="p">&gt;.</span><span class="n">zip</span>
 </code></pre></div>
 <h2 id="stability-expectations">Stability Expectations<a class="headerlink" href="#stability-expectations" title="Permanent link">¶</a></h2>
-<p>Nightlies are prereleases by design — they may break at any time. They are intended for evaluation, prototypes, and contributor work, not production. See the <a href="../../development/release-channels/#channels">stability column in Release Channels</a> for the per-channel guarantees.</p>
-<p>The Linux nightly is also not performance-representative; anything you measure on it is an artifact of the build flavor rather than of godotGS. See <a href="#build-flavor-and-performance">Build Flavor and Performance</a>.</p>
-<h2 id="building-from-source">Building From Source<a class="headerlink" href="#building-from-source" title="Permanent link">¶</a></h2>
+<p>Nightlies are prereleases: any one of them may break. They are for evaluation, prototypes and contributor work, not production. See the <a href="../../development/release-channels/#channels">stability column in Release Channels</a> for what each channel promises.</p>
+<h2 id="when-to-build-from-source-instead">When to Build From Source Instead<a class="headerlink" href="#when-to-build-from-source-instead" title="Permanent link">¶</a></h2>
 <p>Use <a href="../../BUILDING/">Build from Source</a> when:</p>
 <ul>
 <li>you are on macOS,</li>
-<li>you are on Linux and want representative performance rather than the <code>-O0</code> Linux nightly (see <a href="../../BUILDING/#build-flavors">Build Flavors</a>),</li>
-<li>you need a custom build flavor (release-stripped, different optimizer settings, debug symbols, etc.),</li>
+<li>you are on Linux and want representative performance (see <a href="#linux-nightly-speed">Linux nightly speed</a>),</li>
+<li>you need a custom build flavor (release-stripped, different optimizer settings, debug symbols),</li>
 <li>or you want to reproduce a specific commit's binary.</li>
 </ul>
+<p><a href="../installation/">Build Your Own Editor</a> lists the prerequisites.</p>
+<h2 id="next-step">Next Step<a class="headerlink" href="#next-step" title="Permanent link">¶</a></h2>
+<p>You have an editor. Continue with <a href="../quick-start/">Your First Splat</a> to open the sample project and see a splat.</p>
 
 
 
@@ -4649,7 +4721,7 @@ sha256sum<span class="w"> </span>godotgs-windows-x86_64-&lt;tag&gt;.zip
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:11 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:20 UTC">October 10, 2026</span>
   </span>
 
     

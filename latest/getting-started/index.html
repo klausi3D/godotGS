@@ -539,7 +539,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -4278,10 +4278,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#most-common-tasks" class="md-nav__link">
+  <a href="#the-path" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Most Common Tasks
+        The Path
       
     </span>
   </a>
@@ -4289,10 +4289,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#related-references" class="md-nav__link">
+  <a href="#building-from-source" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Related References
+        Building From Source
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-goes-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When Something Goes Wrong
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
       
     </span>
   </a>
@@ -4331,61 +4353,51 @@
 
 <div class="gs-landing-header">
 <h1 id="start-here">Start Here<a class="headerlink" href="#start-here" title="Permanent link">¶</a></h1>
-<p>Reach a first visible splat quickly and decide whether godotGS is the right evaluation target for your project.</p>
-<p>Alpha today. Every nightly on GitHub Releases has the Linux editor; the Windows editor is attached only to nightlies whose Windows build lane passed. macOS still means building from source.</p>
-<p>Visual captures for the user journey are still pending, so the linked workflow pages stay text-first until real editor screenshots are available.</p>
+<p><strong>For:</strong> Godot users who want to put Gaussian splat captures in a Godot scene.</p>
+<p><strong>At the end of this section:</strong> you have a godotGS editor, a splat on screen in the sample project, and a route to importing your own capture.</p>
+<p>godotGS is a fork of Godot 4.5 with Gaussian splatting built in, so it runs as its own editor, not as a plugin for stock Godot. It is alpha software: nightly editors are published for Windows and Linux, macOS means building from source, and the <a href="../development/known-public-alpha-limitations/">known limitations</a> list what this alpha ships with.</p>
 </div>
 <div class="gs-section-shell">
-<h2 id="most-common-tasks">Most Common Tasks<a class="headerlink" href="#most-common-tasks" title="Permanent link">¶</a></h2>
+<h2 id="the-path">The Path<a class="headerlink" href="#the-path" title="Permanent link">¶</a></h2>
 <div class="grid cards">
 <ul>
 <li>
-<p><strong>Download a nightly editor</strong></p>
+<p><strong>1. Get an editor</strong></p>
 <hr>
-<p>Get a Linux tarball or, from a nightly whose Windows lane passed, a Windows zip from GitHub Releases. macOS users still need a source build.</p>
-<p><a href="downloads/">Open downloads</a></p>
+<p>Download a nightly editor for Windows or Linux, and learn which build is fast and which is not.</p>
+<p><a href="downloads/">Open Downloads</a></p>
 </li>
 <li>
-<p><strong>Your first splat</strong></p>
+<p><strong>2. Your first splat</strong></p>
 <hr>
-<p>Open the sample project with a nightly or self-built editor, press Play, and see a splat in the viewport.</p>
-<p><a href="quick-start/">Open your first splat</a></p>
+<p>Open the sample project, press Play, and see a splat in the viewport.</p>
+<p><a href="quick-start/">Open Your First Splat</a></p>
 </li>
 <li>
-<p><strong>Install the toolchain</strong></p>
+<p><strong>3. Import your own capture</strong></p>
 <hr>
-<p>Build the fork locally when you need a custom editor or are on macOS.</p>
-<p><a href="installation/">Open installation</a></p>
+<p>Bring a <code>.ply</code> or <code>.spz</code> capture into your project and render it.</p>
+<p><a href="../workflows/importing/">Open the Import Workflow</a></p>
 </li>
 <li>
-<p><strong>Check platform fit</strong></p>
+<p><strong>4. Keep going</strong></p>
 <hr>
-<p>Review the current support envelope before committing time to a deeper evaluation.</p>
-<p><a href="../reference/compatibility-matrix/">Open compatibility matrix</a></p>
-</li>
-<li>
-<p><strong>Import a real asset</strong></p>
-<hr>
-<p>Walk the maintained <code>.ply</code> and <code>.spz</code> import route once the sample path works.</p>
-<p><a href="../workflows/importing/">Open import workflow</a></p>
-</li>
-<li>
-<p><strong>Continue with the guides</strong></p>
-<hr>
-<p>Move into concepts, presets, lighting and the feature guides after the first splat is visible.</p>
-<p><a href="../user/">Open the guides</a></p>
-</li>
-<li>
-<p><strong>Unblock common failures</strong></p>
-<hr>
-<p>Check the known fixes when the first build or first run does not behave as expected.</p>
-<p><a href="../troubleshooting/recurring-issues/">Open recurring issues</a></p>
+<p>Concepts, quality presets, lighting and the feature guides.</p>
+<p><a href="../user/">Open the Guides</a></p>
 </li>
 </ul>
 </div>
 </div>
 <div class="gs-section-shell gs-section-shell--compact">
-<h2 id="related-references">Related References<a class="headerlink" href="#related-references" title="Permanent link">¶</a></h2>
+<h2 id="building-from-source">Building From Source<a class="headerlink" href="#building-from-source" title="Permanent link">¶</a></h2>
+<p>On macOS, or if you want representative speed on Linux or a custom build, build the editor yourself: <a href="installation/">Build Your Own Editor</a> lists the prerequisites, and <a href="../BUILDING/">Build from Source</a> has the commands.</p>
+<h2 id="when-something-goes-wrong">When Something Goes Wrong<a class="headerlink" href="#when-something-goes-wrong" title="Permanent link">¶</a></h2>
+<ul>
+<li><a href="../troubleshooting/">Troubleshooting</a>: nothing renders, black splats, the wrong editor, exports without splats.</li>
+<li><a href="../user/manual/faq/">FAQ</a>: short answers to common questions.</li>
+<li><a href="../reference/compatibility-matrix/">Compatibility Matrix</a>: what is tested on which platform.</li>
+</ul>
+<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">¶</a></h2>
 <ul>
 <li><a href="../migration/">Migration Guide</a></li>
 <li><a href="../reference/project-settings/">Project Settings Reference</a></li>
@@ -4412,7 +4424,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:11 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:20 UTC">October 10, 2026</span>
   </span>
 
     

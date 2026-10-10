@@ -24,7 +24,7 @@
     
     
       
-        <title>Installation - Godot Gaussian Splatting Docs</title>
+        <title>Build Your Own Editor - Godot Gaussian Splatting Docs</title>
       
     
     
@@ -87,7 +87,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation" class="md-skip">
+        <a href="#build-your-own-editor" class="md-skip">
           Skip to content
         </a>
       
@@ -126,7 +126,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation
+              Build Your Own Editor
             
           </span>
         </div>
@@ -548,7 +548,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -566,7 +566,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -603,10 +603,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choose-a-path" class="md-nav__link">
+  <a href="#build-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choose a Path
+        Build It
       
     </span>
   </a>
@@ -614,10 +614,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify-the-editor" class="md-nav__link">
+  <a href="#next-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify the Editor
+        Next Step
       
     </span>
   </a>
@@ -4367,10 +4367,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choose-a-path" class="md-nav__link">
+  <a href="#build-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choose a Path
+        Build It
       
     </span>
   </a>
@@ -4378,10 +4378,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#verify-the-editor" class="md-nav__link">
+  <a href="#next-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify the Editor
+        Next Step
       
     </span>
   </a>
@@ -4414,8 +4414,10 @@
   
 
 
-<h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">¶</a></h1>
-<p>Use this page when you need prerequisites, toolchain setup, or an editor built from this fork before <a href="../quick-start/">Your First Splat</a>.</p>
+<h1 id="build-your-own-editor">Build Your Own Editor<a class="headerlink" href="#build-your-own-editor" title="Permanent link">¶</a></h1>
+<p><strong>For:</strong> macOS users, Linux users who want representative speed, and anyone who needs a custom editor build.</p>
+<p><strong>At the end:</strong> you know what to install before you build, and where the build commands are.</p>
+<p>On Windows or Linux and just want to try godotGS? A <a href="../downloads/">nightly editor</a> is quicker.</p>
 <h2 id="what-you-need">What You Need<a class="headerlink" href="#what-you-need" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -4447,34 +4449,10 @@
 </tr>
 </tbody>
 </table>
-<h2 id="choose-a-path">Choose a Path<a class="headerlink" href="#choose-a-path" title="Permanent link">¶</a></h2>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>When to use it</th>
-<th>Next step</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Reuse a public or local editor</td>
-<td>You already have a nightly editor download or a binary you built locally. See <a href="../downloads/">Downloads</a> for the public nightly binaries.</td>
-<td><a href="../quick-start/">Your First Splat</a></td>
-</tr>
-<tr>
-<td>Build an editor locally</td>
-<td>You need a fresh binary from this checkout, or you are on macOS and need a source build.</td>
-<td><a href="../../BUILDING/">Build from Source</a></td>
-</tr>
-<tr>
-<td>Build an editor for validation</td>
-<td>You plan to run guard, QA, or runtime validation commands.</td>
-<td><a href="../../reference/build-test-ci/">Build / Test / CI Command Reference</a></td>
-</tr>
-</tbody>
-</table>
-<h2 id="verify-the-editor">Verify the Editor<a class="headerlink" href="#verify-the-editor" title="Permanent link">¶</a></h2>
+<h2 id="build-it">Build It<a class="headerlink" href="#build-it" title="Permanent link">¶</a></h2>
+<p><a href="../../BUILDING/">Build from Source</a> has the commands for Linux, Windows and macOS. Read its <a href="../../BUILDING/#build-flavors">Build Flavors</a> section first: the default commands there make a development build, which is slow; use the optimized flavor to evaluate godotGS.</p>
+<p>Contributors who will run the guard, QA or runtime validation suites should also read the <a href="../../reference/build-test-ci/">Build / Test / CI Command Reference</a>.</p>
+<h2 id="next-step">Next Step<a class="headerlink" href="#next-step" title="Permanent link">¶</a></h2>
 <p>Once you have an editor from this fork, <a href="../quick-start/">Your First Splat</a> opens the sample project with it, including an optional headless check that the editor loads the project and quits cleanly.</p>
 
 
@@ -4496,7 +4474,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:11 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:21 UTC">October 10, 2026</span>
   </span>
 
     

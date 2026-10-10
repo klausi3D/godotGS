@@ -536,7 +536,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -4304,6 +4304,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#image-credits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Image Credits
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4394,6 +4405,26 @@
 <li><a href="../troubleshooting/recurring-issues/">Recurring issues</a></li>
 </ul>
 </div>
+<div class="gs-section-shell gs-section-shell--compact">
+<h2 id="image-credits">Image Credits<a class="headerlink" href="#image-credits" title="Permanent link">¶</a></h2>
+<p>The screenshots on the homepage and in the guides show real captured scenes rendered by godotGS. The scans are third-party work, used under their licences:</p>
+<ul>
+<li><strong>Mip-NeRF 360 "bicycle" and "garden"</strong> by Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan and Peter Hedman ("Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields", CVPR 2022), licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The godotGS project trained the splats from the published photos with gsplat 1.4.0 (<code>simple_trainer</code>, default settings, 30,000 steps, quarter-resolution images): 6,076,956 splats for "bicycle" and 5,824,664 for "garden".<ul>
+<li>"bicycle" is on the homepage and in <a href="../user/manual/runtime-behavior/">Runtime Behavior</a>.</li>
+<li>"garden" is in <a href="../getting-started/quick-start/">Your First Splat</a>, <a href="../workflows/importing/">Import Workflow</a>, <a href="../features/color-grading-quick-start/">Color Grading Quick Start</a> and <a href="../features/artist_pipeline/">Artist Pipeline</a>.</li>
+</ul>
+</li>
+<li><strong><a href="https://superspl.at/scene/0ff2e6dc">Knock Community Hall</a></strong> by scbenoit, licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. We converted the published SOG file to PLY with PlayCanvas <code>splat-transform</code>: 1,935,275 splats. SOG is lossy, so this is not the original training output. It is in <a href="../workflows/GSPLATWORLD_BAKE/">World Bake</a>.</li>
+</ul>
+<p>The images are our adaptations of these works: we trained or converted the splats, rendered them, and cropped or resized the frames.</p>
+<p>How the images were made:</p>
+<ul>
+<li><strong>Build:</strong> an optimized godotGS editor (<code>optimize=speed_trace</code>) built from <a href="https://github.com/klausi3D/godotGS/pull/1226">PR #1226</a> before it merged, based on <code>master</code> at <code>ab74e332</code>. The PR's head, <code>762fbe1282e</code>, differs from the built commit only in a template README. The editor's version label reads 4.5.rc.</li>
+<li><strong>Hardware:</strong> NVIDIA RTX 3090, Vulkan Forward+, Windows 11.</li>
+<li><strong>Project:</strong> made from the repository's project template, <code>templates/gaussian_splat_template</code>, with the scene's directional light and ground hidden.</li>
+<li><strong>Settings that differ from the defaults:</strong> a black background with fog off; <code>rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile</code> 65,536 (default 0, auto); <code>rendering/gaussian_splatting/lighting/direct_light_scale</code> and <code>rendering/gaussian_splatting/lighting/shadow_strength</code> 0; <code>rendering/gaussian_splatting/lod/min_screen_size_pixels</code> 0; and on the splat node, Quality preset Custom with LOD bias 0.1, maximum render distance 100,000 m and maximum splat count 100,000,000. Imports used the default <code>ultra</code> preset, which keeps every splat.</li>
+</ul>
+</div>
 
 
 
@@ -4414,7 +4445,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:14 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:22 UTC">October 10, 2026</span>
   </span>
 
     

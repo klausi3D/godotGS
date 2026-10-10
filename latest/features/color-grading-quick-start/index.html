@@ -534,7 +534,7 @@
   <span class="md-ellipsis">
     
   
-    Installation
+    Build Your Own Editor
   
 
     
@@ -1124,6 +1124,17 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-looks-like" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What It Looks Like
+      
+    </span>
+  </a>
   
 </li>
       
@@ -4439,6 +4450,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#what-it-looks-like" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What It Looks Like
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#api" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4587,6 +4609,15 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
 </table>
 <h3 id="baking-limitation">Baking limitation<a class="headerlink" href="#baking-limitation" title="Permanent link">¶</a></h3>
 <p>Baking works only on a node whose splats come from <code>set_splat_data()</code>. A node that renders a <code>splat_asset</code> (the normal import path) cannot bake: <code>bake_color_grading()</code>, <code>bake_color_grading_snapshot()</code> and <code>restore_color_grading()</code> return <code>ERR_UNAVAILABLE</code> and change nothing, and the inspector does not show the Bake section for it (<a href="https://github.com/klausi3D/godotGS/issues/1105">#1105</a>). You lose nothing by it: real-time grading (steps 1-3) already applies to that node, per instance, so keep <code>enabled = true</code>. The asset may be shared by other nodes and is never rewritten. Separately, a bake does not yet reproduce the live look exactly (<a href="https://github.com/klausi3D/godotGS/issues/1124">#1124</a>).</p>
+<h2 id="what-it-looks-like">What It Looks Like<a class="headerlink" href="#what-it-looks-like" title="Permanent link">¶</a></h2>
+<figure>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/screenshots/grading-garden-split.webp" data-desc-position="bottom"><img alt="A captured garden with a round wooden table and a vase, split down the middle. The left half, labelled Grading off, has the scan's own muted colours. The right half, labelled Grading on, is brighter, warmer and more saturated." class="gs-shot" height="720" loading="lazy" src="../../assets/images/screenshots/grading-garden-split.webp" width="1280"></a></p>
+<figcaption>Left: no grading. Right: a <code>ColorGradingResource</code> with exposure 0.25, contrast 1.15, saturation 1.35 and temperature 15 (tint and hue shift 0). The halves are two runtime frames from the same camera, joined in the middle. Scan: Mip-NeRF 360 "garden" (Barron et al., <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), trained with gsplat by the godotGS project; godotGS built from <a href="https://github.com/klausi3D/godotGS/pull/1226">PR #1226</a>, RTX 3090. Not the default settings: black background, scene lighting off, tile cap 65,536, Custom quality. See <a href="../../reference/#image-credits">Image credits</a>.</figcaption>
+</figure>
+<figure>
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/screenshots/editor-color-grading-inspector.webp" data-desc-position="bottom"><img alt="The Inspector editing a ColorGradingResource: Enabled on, Exposure 0.25, Contrast 1.15, Saturation 1.35, Temperature 15, Tint 0." class="gs-shot gs-shot--natural" height="285" loading="lazy" src="../../assets/images/screenshots/editor-color-grading-inspector.webp" width="265"></a></p>
+<figcaption>The same values in the Inspector. The crop stops above the Hue Shift row, whose degree unit currently shows as garbled characters (<a href="https://github.com/klausi3D/godotGS/issues/1214">#1214</a>).</figcaption>
+</figure>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -4810,7 +4841,7 @@ For exact fields and API lookup, use <a href="../../reference/color-grading/">Co
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:58:11 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 13:44:20 UTC">October 10, 2026</span>
   </span>
 
     
