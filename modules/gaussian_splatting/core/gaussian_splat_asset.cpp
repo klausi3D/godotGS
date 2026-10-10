@@ -1514,6 +1514,15 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 		import_metadata[StringName("runtime_load_source")] = source_stage;
 		import_metadata[StringName("runtime_load_cache_hit")] = cache_hit;
 		import_metadata[StringName("runtime_load_source_path")] = p_path;
+		// #1173: record the SPZ training mode on this raw-load route too (legacy-path
+		// migration, reload, drag/drop), as ResourceImporterSPZ does, so
+		// GaussianSplatNode3D's Auto antialiasing compensation sees it. Any other
+		// format records no training mode: drop a stale flag from an earlier load.
+		if (file_label == "SPZ" && source_stats.has(String("antialiased"))) {
+			import_metadata[StringName("spz_antialiased")] = (bool)source_stats[String("antialiased")];
+		} else {
+			import_metadata.erase(StringName("spz_antialiased"));
+		}
 	}
 
 	GS_LOG_STREAMING_INFO(vformat(
