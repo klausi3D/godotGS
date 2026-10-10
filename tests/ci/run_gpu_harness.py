@@ -622,8 +622,10 @@ def _skip_marked_cases(stdout: str) -> set[str]:
 # Every entry is a case that is in a lane TODAY and finishes with zero assertions
 # and no explicit skip. The gate below fails on any OTHER such case, so a new
 # vacuous case cannot join a lane unnoticed. tests/ci/
-# test_gpu_harness_deferred_contract.py pins the set against an immutable baseline
-# (VACUOUS_CASE_ALLOWLIST_BASELINE there): entries may be removed, never added.
+# test_gpu_harness_deferred_contract.py compares the set against its own value at the
+# immutable review base (merge-base, read with git; fails closed without one):
+# entries may be removed, never added. Keep it a plain dict literal: that test reads
+# the base copy statically and fails on anything it cannot evaluate.
 #
 # It is EMPTY. A full run of every batch on a dev binary built at ab74e332aa8
 # (RTX 3090, Vulkan) found 106 cases, one with zero assertions, and that one

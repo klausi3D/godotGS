@@ -38,10 +38,12 @@ Run standalone:
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -105,6 +107,104 @@ def _load(name: str, path: Path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# The review-base resolver shared by every shrink-only ratchet in tests/ci
+# (check_unchecked_resize.py imports it for the same reason). There is one review
+# base per diff; a private copy would answer differently the first time either
+# was edited.
+BASE_RESOLVER_PATH = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
+VACUOUS_ALLOWLIST_NAME = "VACUOUS_CASE_ALLOWLIST"
+
+
+def _allowlist_keys_from_source(source: str) -> tuple[frozenset[str] | None, list[str]]:
+    """Keys of the module-level VACUOUS_CASE_ALLOWLIST literal in harness source.
+
+    No assignment at all -> the empty set: the allowlist did not exist there, so
+    nothing was tolerated, which is the strictest possible baseline. A value that
+    is not a plain dict literal, or more than one assignment, cannot be read
+    statically and FAILS rather than being guessed at.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return None, [f"harness source at the review base does not parse: {exc}"]
+    values: list[ast.expr] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if VACUOUS_ALLOWLIST_NAME in names:
+                values.append(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == VACUOUS_ALLOWLIST_NAME and node.value is not None:
+                values.append(node.value)
+    if not values:
+        return frozenset(), []
+    if len(values) > 1:
+        return None, [
+            f"{VACUOUS_ALLOWLIST_NAME} is assigned {len(values)} times at the review base; "
+            "cannot tell which value was in force."
+        ]
+    try:
+        value = ast.literal_eval(values[0])
+    except (ValueError, TypeError, SyntaxError) as exc:
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} at the review base is not a literal: {exc}"]
+    if not isinstance(value, dict):
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} at the review base is not a dict literal."]
+    return frozenset(str(key) for key in value), []
+
+
+def _allowlist_keys_at_review_base(
+    *, root: Path = ROOT, resolve=None
+) -> tuple[frozenset[str] | None, list[str]]:
+    """The allowlist keys as they stand at the immutable review base, or a failure.
+
+    tests/AGENTS.md: a ratchet compares against a reference OUTSIDE the change,
+    never HEAD and never a constant the same change can edit, and fails closed
+    when that reference cannot be resolved. A path that is absent from the base
+    tree is the empty set (strictest); git being unable to answer is a failure,
+    never "absent" -- `ls-tree` separates the two before `show` is attempted.
+
+    `root` and `resolve` exist only so a test can point the reader at a
+    throwaway repository; production calls pass neither.
+    """
+    try:
+        if resolve is None:
+            resolve = _load("_gs_review_base_resolver_vacuous", BASE_RESOLVER_PATH).resolve_base_sha
+        base_sha, failures = resolve()
+    except Exception as exc:  # noqa: BLE001 -- any failure here must fail closed
+        return None, [f"cannot load the shared review-base resolver {BASE_RESOLVER_PATH}: {exc}"]
+    if failures:
+        return None, list(failures)
+    if not base_sha:
+        return None, ["the shared review-base resolver returned no base and no reason."]
+
+    rel = HARNESS_PATH.relative_to(ROOT).as_posix()
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
+
+    try:
+        listing = git("ls-tree", "--name-only", base_sha, "--", rel)
+        if listing.returncode != 0:
+            return None, [
+                f"git could not read the tree at review base {base_sha[:12]} "
+                f"(exit {listing.returncode}): {listing.stderr.strip() or 'no stderr'}"
+            ]
+        if not listing.stdout.strip():
+            return frozenset(), []
+        shown = git("show", f"{base_sha}:{rel}")
+    except (OSError, ValueError) as exc:
+        return None, [f"git is unavailable, so the review base cannot be read: {exc}"]
+    if shown.returncode != 0:
+        return None, [
+            f"'{rel}' is in the tree at review base {base_sha[:12]} but could not be read "
+            f"(exit {shown.returncode}): {shown.stderr.strip() or 'no stderr'}"
+        ]
+    return _allowlist_keys_from_source(shown.stdout)
 
 
 def doctest_match(pattern: str, name: str) -> bool:
@@ -888,20 +988,28 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
     def test_vacuous_case_allowlist_is_shrink_only(self):
         """Ratchet: the allowlist may only lose entries, never gain them.
 
-        The baseline is pinned HERE, not read from the harness, so a PR cannot
-        add a vacuous case to a lane and its allowlist entry in the same commit
-        and go green (the #329 lesson recorded at the top of this file). It is
-        empty: the real run at this change's base found no vacuous laned case.
-        Adding an entry means editing this baseline too, which review must
-        reject unless the PR proves the case cannot be made to assert yet.
+        The baseline is the allowlist AS IT STANDS AT THE IMMUTABLE REVIEW BASE
+        (merge-base with GS_CI_BASE_REF / GITHUB_BASE_REF / ..., else
+        origin/master), read with git -- not a constant in this file. A constant
+        here is not a ratchet: the same PR could add a vacuous case, its
+        allowlist entry, and the matching baseline key, and go green (Codex on
+        #1218; tests/AGENTS.md "a ratchet compares against an immutable
+        reference outside the change"). If the base cannot be resolved this
+        FAILS; it never falls back to HEAD.
         """
-        VACUOUS_CASE_ALLOWLIST_BASELINE: frozenset[str] = frozenset()
+        base_keys, failures = _allowlist_keys_at_review_base()
+        self.assertEqual(
+            failures, [],
+            "cannot read VACUOUS_CASE_ALLOWLIST at the review base, so the "
+            "shrink-only ratchet has nothing immutable to compare against",
+        )
+        assert base_keys is not None
         harness = _load("gs_harness_vacuous_allowlist", HARNESS_PATH)
-        added = set(harness.VACUOUS_CASE_ALLOWLIST) - VACUOUS_CASE_ALLOWLIST_BASELINE
+        added = set(harness.VACUOUS_CASE_ALLOWLIST) - base_keys
         self.assertEqual(
             added, set(),
-            "VACUOUS_CASE_ALLOWLIST gained entries not in the pinned baseline. A "
-            "laned case that asserts nothing must be fixed or leave its batch.",
+            "VACUOUS_CASE_ALLOWLIST gained entries that are not in it at the review "
+            "base. A laned case that asserts nothing must be fixed or leave its batch.",
         )
         for key, url in harness.VACUOUS_CASE_ALLOWLIST.items():
             self.assertRegex(
@@ -909,6 +1017,90 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 f"allowlist entry {key!r} must link its tracking issue",
             )
             self.assertIn("/", key, f"allowlist key {key!r} must be 'Batch/case'")
+
+    def test_allowlist_base_reader_parses_only_what_it_can_prove(self):
+        """The base-side parser: absent = empty (strictest), unreadable = failure."""
+        keys, failures = _allowlist_keys_from_source(
+            'X = 1\nVACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u", "C/d": "v"}\n'
+        )
+        self.assertEqual((keys, failures), (frozenset({"A/b", "C/d"}), []))
+        self.assertEqual(_allowlist_keys_from_source("X = 1\n"), (frozenset(), []))
+        self.assertEqual(_allowlist_keys_from_source("VACUOUS_CASE_ALLOWLIST = {}\n"), (frozenset(), []))
+        for unreadable in (
+            "VACUOUS_CASE_ALLOWLIST = dict(a=1)\n",
+            "VACUOUS_CASE_ALLOWLIST = []\n",
+            "VACUOUS_CASE_ALLOWLIST = {}\nVACUOUS_CASE_ALLOWLIST = {'A/b': 'u'}\n",
+            "def (:\n",
+        ):
+            keys, failures = _allowlist_keys_from_source(unreadable)
+            self.assertIsNone(keys, unreadable)
+            self.assertTrue(failures, unreadable)
+
+    def test_allowlist_base_reader_fails_closed_on_an_unresolvable_base(self):
+        """An explicitly named base that does not resolve is a failure, never HEAD.
+
+        The real shared resolver, given the ref as its explicit argument: that is
+        authoritative there, so CI's own base variables cannot rescue it.
+        """
+        resolver = _load("_gs_review_base_resolver_failclosed", BASE_RESOLVER_PATH)
+        keys, failures = _allowlist_keys_at_review_base(
+            resolve=lambda: resolver.resolve_base_sha("gs/no-such-base-ref-1218")
+        )
+        self.assertIsNone(keys)
+        self.assertTrue(failures)
+
+    def test_allowlist_base_reader_reads_the_base_not_the_worktree(self):
+        """Discrimination: the reader returns the base's keys even when the worktree differs.
+
+        Throwaway repository: the base commit allowlists one case, the working
+        tree has emptied it, and a second base without the file at all must give
+        the strictest baseline (the empty set), not a failure.
+        """
+        import tempfile
+
+        rel = HARNESS_PATH.relative_to(ROOT).as_posix()
+
+        def git(cwd: Path, *args: str) -> str:
+            done = subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                 "-c", "commit.gpgsign=false", *args],
+                cwd=cwd, capture_output=True, text=True,
+            )
+            if done.returncode != 0:
+                self.fail(f"git {' '.join(args)} failed: {done.stderr}")
+            return done.stdout.strip()
+
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            git(repo, "init", "-q")
+            (repo / "README").write_text("x\n", encoding="utf-8")
+            git(repo, "add", "README")
+            git(repo, "commit", "-q", "-m", "no harness")
+            without_harness = git(repo, "rev-parse", "HEAD")
+
+            harness = repo / rel
+            harness.parent.mkdir(parents=True)
+            harness.write_text(
+                'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"B/at base": "u"}\n', encoding="utf-8"
+            )
+            git(repo, "add", rel)
+            git(repo, "commit", "-q", "-m", "base")
+            base = git(repo, "rev-parse", "HEAD")
+            harness.write_text("VACUOUS_CASE_ALLOWLIST: dict[str, str] = {}\n", encoding="utf-8")
+
+            keys, failures = _allowlist_keys_at_review_base(root=repo, resolve=lambda: (base, []))
+            self.assertEqual((keys, failures), (frozenset({"B/at base"}), []))
+
+            keys, failures = _allowlist_keys_at_review_base(
+                root=repo, resolve=lambda: (without_harness, [])
+            )
+            self.assertEqual((keys, failures), (frozenset(), []))
+
+            keys, failures = _allowlist_keys_at_review_base(
+                root=repo, resolve=lambda: ("0" * 40, [])
+            )
+            self.assertIsNone(keys, "an unreadable base must fail, not read as absent")
+            self.assertTrue(failures)
 
     def test_clean_required_batch_with_audit_passes(self):
         """Discrimination: audit ran, nothing hollow, four-digit skip count -> pass."""
