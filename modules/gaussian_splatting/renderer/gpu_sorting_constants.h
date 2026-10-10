@@ -161,16 +161,11 @@ inline bool sort_path_allocation_fits_device_size(uint64_t p_max_elements, uint3
 // (one uint bitmask word per 32 workgroup lanes). radix_bits and workgroup_size
 // are each validated INDEPENDENTLY, but the constraint is on their PRODUCT: e.g.
 // (radix_bits=8, workgroup_size=512) needs 256*(2+16)*4 = 18432 bytes, which
-// exceeds the shared-memory budget of common Intel/AMD parts. When the scatter
-// pipeline cannot be built the renderer falls through to compositing translucent
-// splats UNSORTED — mathematically wrong output. See #634 / #586.
-//
-// This helper is the SINGLE SOURCE OF TRUTH for that derived quantity:
-//   * RadixSort::is_supported() (gpu_sorter.cpp) probes the ACTUAL device limit
-//     against this value, and
-//   * GPUSortingConfig::get_validation_errors() flags any pair whose requirement
-//     exceeds VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES at configuration time.
-// Neither re-derives the formula by hand.
+// exceeds the shared-memory budget of devices at the Vulkan floor. The runtime
+// sizing helper reduces the workgroup preference until this footprint fits.
+// GPUSortingConfig::get_portability_warnings() reports the nonportable preference
+// at configuration time; RadixSort's probe and initialization check the actual
+// device limits with this same formula.
 
 // Sentinel returned for a radix width the scatter kernel cannot build. Same
 // fail-closed rationale as SORT_PATH_SIZE_UNSUPPORTED: it is UINT32_MAX so every
@@ -181,17 +176,15 @@ static constexpr uint32_t RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED = UINT32_MAX;
 
 // Vulkan 1.1 guarantees maxComputeSharedMemorySize >= 16384 bytes (16 KB) on every
 // conformant device (docs/PLATFORM_COMPATIBILITY.md requires Vulkan 1.1+); common
-// Intel/AMD parts sit exactly at this floor. A (radix_bits, workgroup_size) pair
-// whose scatter footprint exceeds this PORTABLE minimum is guaranteed to fail
-// RadixSort::is_supported() on some supported hardware, so it can be rejected at
-// CONFIG time — before any device exists — instead of surfacing as silently
-// unsorted output many frames later.
+// Intel/AMD parts sit exactly at this floor. A larger configured footprint is
+// valid but nonportable: the config-load warning names it, and RadixSort reduces
+// its workgroup preference on devices that cannot run the configured size.
 static constexpr uint32_t VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES = 16384u;
 
 // Bytes of compute shared memory the RadixSort scatter kernel requires for a given
 // (radix_bits, workgroup_size). TOTAL: an unsupported radix_bits returns
 // RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED instead of shifting by it. A zero
-// workgroup_size is coerced to DEFAULT_WORKGROUP_SIZE (matching the runtime probe
+// workgroup_size is coerced to DEFAULT_RADIX_WORKGROUP_SIZE (matching the runtime probe
 // and sort_path_max_buffer_bytes) so the result is defined for any input.
 inline uint32_t radix_scatter_shared_memory_bytes(uint32_t p_radix_bits, uint32_t p_workgroup_size) {
 	if (!is_supported_radix_bits(p_radix_bits)) {

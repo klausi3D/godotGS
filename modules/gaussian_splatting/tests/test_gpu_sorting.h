@@ -995,11 +995,32 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation pre
 	uint64_t invocations = 256;
 	uint64_t shared_memory = 16384;
 	SUBCASE("The default fits a 256-invocation device") {}
+	SUBCASE("The unlowered default fits the actual device") {
+		size_x = UINT64_MAX; invocations = UINT64_MAX; shared_memory = UINT64_MAX;
+	}
+	SUBCASE("An explicit smaller preference is preserved") { g_gpu_sorting_config.workgroup_size = 128; }
 	SUBCASE("The X dimension independently limits to 256") { size_x = 256; invocations = 1024; }
 	SUBCASE("A 384-invocation ceiling rounds down to 256") { invocations = 384; }
 	SUBCASE("8-bit radix fits 16 KB by lowering 512 to 256") {
 		invocations = 1024;
 		g_gpu_sorting_config.radix_bits = 8;
+	}
+	// Keep the artificial ceilings strict on this device, while accepting a
+	// genuinely smaller GPU's legal 64/128-lane path too.
+	const uint64_t thread_limit = MIN(MIN(size_x, invocations),
+			MIN(rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X),
+				rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS)));
+	const uint64_t shared_limit = MIN(shared_memory,
+			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE));
+	uint32_t expected_workgroup_size = g_gpu_sorting_config.workgroup_size;
+	while (expected_workgroup_size >= 64 && (expected_workgroup_size > thread_limit ||
+			GPUSortingConstants::radix_scatter_shared_memory_bytes(g_gpu_sorting_config.radix_bits,
+				expected_workgroup_size) > shared_limit)) {
+		expected_workgroup_size >>= 1;
+	}
+	if (expected_workgroup_size < 64) {
+		FAIL("device-adaptation oracle requires a device capable of 64-lane radix sorting");
+		return;
 	}
 	RadixSort::ScopedDeviceLimitsForTesting limits(size_x, invocations, shared_memory);
 	CHECK(RadixSort::is_supported(rd));
@@ -1019,7 +1040,7 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation pre
 	direct->set_key_config(key_config);
 	const Error init_error = direct->initialize(rd, count);
 	CHECK(init_error == OK);
-	CHECK(direct->get_effective_workgroup_size_for_testing() == 256u);
+	CHECK(direct->get_effective_workgroup_size_for_testing() == expected_workgroup_size);
 	if (sorter.is_valid()) {
 		CHECK(sorter->supports_indirect());
 		Ref<RadixSort> radix = sorter;
@@ -1027,7 +1048,7 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation pre
 			FAIL("the indirect64 factory must select RadixSort");
 			return;
 		}
-		CHECK(radix->get_effective_workgroup_size_for_testing() == 256u);
+		CHECK(radix->get_effective_workgroup_size_for_testing() == expected_workgroup_size);
 	}
 	if (init_error != OK) {
 		return;
