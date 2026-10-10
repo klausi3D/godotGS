@@ -4293,11 +4293,9 @@ TEST_CASE("[GaussianSplatting][Persistence] SPZ antialiased header flag reaches 
     }
 }
 
+// ResourceImporterSPZ exists only in tools builds.
+#ifdef TOOLS_ENABLED
 TEST_CASE("[GaussianSplatting][Persistence] Imported SPZ antialiased metadata reaches GaussianData and survives GSF v3") {
-#ifndef TOOLS_ENABLED
-    MESSAGE("Skipping - ResourceImporterSPZ requires TOOLS_ENABLED");
-    return;
-#else
     for (bool antialiased : { false, true }) {
         const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
         const String stem = "user://godotgs_spz_aa_import_" + itos(ticks) + (antialiased ? "_on" : "_off");
@@ -4338,5 +4336,5 @@ TEST_CASE("[GaussianSplatting][Persistence] Imported SPZ antialiased metadata re
         DirAccess::remove_absolute(source_path);
         DirAccess::remove_absolute(save_base_path + ".res");
     }
-#endif // TOOLS_ENABLED
 }
+#endif // TOOLS_ENABLED
