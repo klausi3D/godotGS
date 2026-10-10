@@ -163,10 +163,13 @@ class TrustedConsumerTests(unittest.TestCase):
                     self.assertEqual(watcher.controller(), 1)
                     self.assertEqual(publish.call_args_list[-1].kwargs["payload"]["state"], "failure")
 
-    def exercise_controller(self, runs, *, source_id=None, partial=False, stale=False):
+    def exercise_controller(self, runs, *, source_id=None, partial=False, stale=False,
+                            files=("modules/gaussian_splatting/renderer/probe.cpp",), shared=(),
+                            risk="R2"):
         base, head, checkout = "c" * 40, "b" * 40, "a" * 40
         pull = dict(number=1, base={"sha": base}, head={"sha": head, "repo": {"full_name": "owner/repo"}},
-                    changed_files=1, merge_commit_sha=checkout, updated_at="2026-10-06T12:00:00Z")
+                    changed_files=len(files), merge_commit_sha=checkout, updated_at="2026-10-06T12:00:00Z")
+        associated = [dict(number=1, state="open", head={"sha": head})] + list(shared)
         event = {"pull_request": pull}
         if source_id is not None:
             event["source_run_id"] = source_id
@@ -197,7 +200,9 @@ class TrustedConsumerTests(unittest.TestCase):
         def listing(endpoint, key=None):
             nonlocal last_batch
             if endpoint.endswith("/files"):
-                return [{"filename": "modules/gaussian_splatting/renderer/probe.cpp"}]
+                return [{"filename": name} for name in files]
+            if endpoint.endswith(f"/commits/{head}/pulls"):
+                return associated
             if "workflows/" in endpoint:
                 last_batch = next(sequence, last_batch)
                 selected.extend(sorted(last_batch, key=lambda run: run["id"]))
@@ -213,7 +218,7 @@ class TrustedConsumerTests(unittest.TestCase):
             env = dict(GITHUB_EVENT_PATH=str(path), GITHUB_REPOSITORY="owner/repo", GITHUB_RUN_ID="123")
             with patch.dict(os.environ, env), patch.object(sys, "argv", ["watcher"]), \
                  patch.object(watcher.checker, "git", return_value=base), \
-                 patch.object(watcher, "classify_paths", return_value="R2"), \
+                 patch.object(watcher, "classify_paths", return_value=risk), \
                  patch.object(watcher, "api", side_effect=metadata), \
                  patch.object(watcher, "pages", side_effect=listing), patch.object(watcher.time, "sleep"):
                 result = watcher.controller()
@@ -247,6 +252,39 @@ class TrustedConsumerTests(unittest.TestCase):
 
     def test_changed_base_rejects_stale_event_before_exemption(self):
         self.assertEqual(self.exercise_controller([], stale=True), (1, ["pending", "failure"]))
+
+    def test_pr_changing_the_evidence_producer_cannot_certify_itself(self):
+        # Same labels and a valid receipt, but the proposed tree defines what ran.
+        for path in watcher.PRODUCER_DEFINITIONS:
+            with self.subTest(path=path):
+                files = ("modules/gaussian_splatting/renderer/probe.cpp", path)
+                self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9, files=files),
+                                 (1, ["pending", "failure"]))
+
+    def test_head_shared_with_another_open_pr_fails_closed(self):
+        head = "b" * 40
+        other = dict(number=2, state="open", head={"sha": head})
+        for risk in ("R0", "R2"):
+            with self.subTest(risk=risk):
+                self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9, shared=[other], risk=risk),
+                                 (1, ["pending", "failure"]))
+        # A closed PR, or an open PR whose head has moved on, is not a sharer.
+        unrelated = [dict(other, state="closed"), dict(other, head={"sha": "f" * 40})]
+        self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9, shared=unrelated),
+                         (0, ["pending", "success"]))
+
+    def test_head_shared_while_waiting_rejects_success(self):
+        # A second PR can adopt the head during the (up to 3 h) wait.
+        calls = []
+        original = watcher.require_unshared_head
+        def late_sharer(repo, number, sha):
+            calls.append(sha)
+            if len(calls) > 1:
+                raise ValueError("Head SHA is shared with other open PRs #2")
+            return original(repo, number, sha)
+        with patch.object(watcher, "require_unshared_head", side_effect=late_sharer):
+            self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9), (1, ["pending", "failure"]))
+        self.assertEqual(len(calls), 2)
 
     def test_actual_job_step_failures_cannot_be_hidden_in_receipt(self):
         steps = [dict(name=name, conclusion="success", started_at="start", completed_at="end")

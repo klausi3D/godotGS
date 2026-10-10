@@ -27,6 +27,15 @@ JOB_STEPS = {
 }
 MODULE_JOB = "Module Build + Runtime Harness (Windows Self-Hosted)"
 GUARD_JOB = "Guards (Render Path + Static Safety)"
+# The producer runs the PROPOSED tree, so its step labels and receipt prove
+# nothing if the PR rewrote what runs under them. These files define the
+# commands behind JOB_STEPS, the receipt and the contention verdict; a PR that
+# changes any of them cannot self-certify and needs maintainer disposition.
+PRODUCER_DEFINITIONS = (
+    ".github/workflows/gaussian_production_gates.yml",
+    "tests/ci/check_pr_gpu_evidence.py",
+    "tests/ci/runner_gpu_contention.py",
+)
 
 
 def api(endpoint: str, *, raw: bool = False, payload: dict | None = None):
@@ -121,6 +130,25 @@ def changed_paths(repo: str, pull: dict | None, base: str, head: str, number: in
     return paths
 
 
+def require_trusted_producer(paths: list[str]) -> None:
+    changed = sorted(set(paths) & set(PRODUCER_DEFINITIONS))
+    if changed:
+        raise ValueError("PR changes the evidence producer (" + ", ".join(changed)
+                         + "); its own run cannot certify itself. Maintainer disposition required")
+
+
+def require_unshared_head(repo: str, number: int, head: str) -> None:
+    # The status context is keyed by SHA alone, so a verdict for one PR's base
+    # would also land on every other open PR with the same head.
+    pulls = pages(f"repos/{repo}/commits/{head}/pulls")
+    others = sorted(item["number"] for item in pulls
+                    if item.get("state") == "open" and item.get("head", {}).get("sha") == head
+                    and item.get("number") != number)
+    if others:
+        raise ValueError("Head SHA is shared with other open PRs " + ", ".join(f"#{n}" for n in others)
+                         + "; a SHA-keyed status cannot carry a base-specific verdict")
+
+
 def run_verdict(repo: str, risk: str, run: dict, expected: dict) -> str:
     attempt = run["run_attempt"]
     jobs = pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs")
@@ -146,6 +174,7 @@ def success_is_current(repo: str, source_event: str, run: dict, expected: dict, 
         current = api(f"repos/{repo}/pulls/{number}")
         if current["head"]["sha"] != expected["head_sha"] or current["base"]["sha"] != expected["base_sha"] or current["merge_commit_sha"] != expected["checkout_sha"]:
             raise ValueError("PR changed while verifying receipt")
+        require_unshared_head(repo, number, expected["head_sha"])
     return True
 
 
@@ -156,12 +185,16 @@ def main() -> int:
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repo = os.environ["GITHUB_REPOSITORY"]
     pull, base, head, number, source_event = event_bindings(event)
-    risk = classify_paths(changed_paths(repo, pull, base, head, number))
+    paths = changed_paths(repo, pull, base, head, number)
+    if pull:
+        require_unshared_head(repo, number, head)
+    risk = classify_paths(paths)
     if risk in ("R0", "R1"):
         print(f"Base policy: {risk}; GPU evidence not required (not a GPU pass).")
         return 0
     if pull and pull["head"]["repo"]["full_name"] != repo:
         raise ValueError("R2/R3 fork requires a maintainer-owned validation branch; no fork code executed")
+    require_trusted_producer(paths)
     deadline = time.monotonic() + args.timeout_seconds
     while time.monotonic() < deadline:
         if pull:

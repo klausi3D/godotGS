@@ -258,9 +258,14 @@ and were wrong:
 Adding a label to this list is the point at which a human asserts it is absent
 from the self-hosted runner inventory. Do not add one to make a check pass.
 
-`pull_request_target` is not used by any workflow, so fork PRs never get a privileged
-checkout. A fork PR's GPU/Windows validation happens only after a maintainer reviews
-the change and moves it onto a same-repo branch.
+`pull_request_target` is used by exactly one workflow, `pr_gpu_evidence_verdict.yml`,
+and only in a restricted form: a GitHub-hosted job checks out the immutable PR
+**base**, never the head or merge tree, with `persist-credentials: false`; it executes
+no PR or fork code and only reads GitHub metadata and artifacts. Its sole write scope
+is `statuses: write`, used to publish `gpu-evidence-gate` on the proposed head. See
+[PR GPU evidence verdict](#pr-gpu-evidence-verdict-v1-implementation). No workflow
+gives fork PRs a privileged checkout. A fork PR's GPU/Windows validation happens only
+after a maintainer reviews the change and moves it onto a same-repo branch.
 
 **Merge queue (`merge_group`).** These workflows also trigger on `merge_group`, where
 the self-hosted jobs run. Only users with write access can add a PR to the merge
@@ -588,8 +593,18 @@ binary/report hashes. A skipped fork lane or unavailable GPU is not a passing
 measurement; fork changes need a maintainer-owned same-repo validation branch.
 R0/R1 results explicitly say that GPU evidence is not required, not that it passed.
 
-**Activation remains pending:** `agentic-pr-gate` remains the only required
-context until a maintainer merges this workflow, observes the new context report,
+The producer runs the proposed tree, so step labels and a well-formed receipt only
+mean something while the definitions behind them are the trusted ones. An R2/R3 PR
+that changes `gaussian_production_gates.yml`, `tests/ci/check_pr_gpu_evidence.py`
+or `tests/ci/runner_gpu_contention.py` fails the verdict: its own run cannot certify
+itself, so it needs maintainer disposition. The test harnesses those steps invoke
+are still the PR's own code; that is the subject under test, covered by review.
+Because a commit status is keyed by SHA alone, the verdict also fails while the head
+SHA is the head of another open PR. Otherwise the verdict for one base would also
+show on a PR against a different base.
+
+**Activation remains pending:** the existing required contexts (`agentic-pr-gate`,
+`docs-build`) remain the only required contexts until a maintainer merges this workflow, observes the new context report,
 and adds `gpu-evidence-gate` to protection without removing existing checks.
 Strict up-to-date protection or an enforced merge queue is required for activation.
 Producer in-progress/completed lifecycle events reset and revalidate the status,

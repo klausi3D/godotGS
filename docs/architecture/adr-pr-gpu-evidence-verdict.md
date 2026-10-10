@@ -24,6 +24,19 @@ and the actual GitHub job/step execution. The source workflow also performs an
 additional same-run receipt check, but that PR-controlled consumer is not the
 required trusted verdict.
 
+The producer runs the proposed tree, so the trusted verdict only accepts evidence
+whose producer definitions are unchanged from the base. These definitions are the
+production-gates workflow, the receipt writer and the GPU-contention verdict script.
+A PR that changes any of them fails the verdict and needs maintainer disposition,
+because a run cannot certify itself. The test harnesses the steps invoke stay PR
+code by design, since they are the subject under test and are covered by review.
+
+The commit status is keyed by SHA alone. The verdict therefore also fails while the
+proposed head SHA is the head of another open PR, both before an R0/R1 exemption and
+again before publishing success. A verdict bound to one base can then never appear on a
+PR against another base. The SHA-keyed concurrency group is kept so pull-request and
+lifecycle events for one head still supersede each other.
+
 R0/R1 changes report promptly that GPU evidence is not required; the hosted
 consumer does not wait for a GPU runner, and PR hardware jobs are skipped. R2/R3 fork
 changes fail the hosted verdict without running fork code on a self-hosted
