@@ -154,7 +154,7 @@
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 174,
     "sha256": "f6a856bbe8597e5396aa0f278e5ff9aa50e7f075fdbb331e22d06d2453bf1795",
-    "sha256_last_changed_by": "#539: add the Radix device adaptation preserves indirect64 sorting regression in the required GpuSorting batch. Recomputed source/name digest and coverage partition: 173 -> 174 cases; 107 -> 108 running; 3 deferred and 63 unbatched unchanged. Decision: docs/architecture/adr-radix-device-adaptation-inventory.md. Previous digest: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6.",
+    "sha256_last_changed_by": "#539: add the Radix device adaptation preserves indirect64 sorting regression in the required GpuSorting batch. Recomputed source/name digest and coverage partition: 173 -> 174 cases; 107 -> 108 running; 3 deferred and 63 unbatched unchanged. Decision: docs/reference/renderer-release-gates.md#proposed-decision-radix-device-adaptation-and-coverage-inventory-2026-10-10. Previous digest: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6.",
     "deferred_tags_any": [
       "Importer"
     ],
