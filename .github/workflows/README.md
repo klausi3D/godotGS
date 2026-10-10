@@ -595,8 +595,9 @@ R0/R1 results explicitly say that GPU evidence is not required, not that it pass
 
 The producer runs the proposed tree, so step labels and a well-formed receipt only
 mean something while the definitions behind them are the trusted ones. An R2/R3 PR
-that changes `gaussian_production_gates.yml`, `tests/ci/check_pr_gpu_evidence.py`
-or `tests/ci/runner_gpu_contention.py` fails the verdict: its own run cannot certify
+that changes `gaussian_production_gates.yml`, `tests/ci/check_pr_gpu_evidence.py`,
+`tests/ci/runner_gpu_contention.py` or `tests/ci/preflight_runner_gpu_environment.py`
+fails the verdict: its own run cannot certify
 itself, so it needs maintainer disposition. The test harnesses those steps invoke
 are still the PR's own code; that is the subject under test, covered by review.
 Because a commit status is keyed by SHA alone, the verdict also fails while the head
@@ -608,7 +609,9 @@ show on a PR against a different base.
 and adds `gpu-evidence-gate` to protection without removing existing checks.
 Strict up-to-date protection or an enforced merge queue is required for activation.
 Producer in-progress/completed lifecycle events reset and revalidate the status,
-including reruns; PR base edits trigger reclassification.
+including reruns; PR base edits trigger reclassification. Merge-queue lifecycle
+events keep the group's immutable base (the `gh-readonly-queue` ref's SHA suffix),
+not the target branch's current tip.
 The verdict does not certify Linux, competitive performance, all visual modes,
 or the human release acceptance. Partial reruns that do not execute all required
 jobs in the current attempt are rejected; use a full rerun. The required context

@@ -62,10 +62,14 @@ jobs:
                 const current = await github.rest.pulls.get({owner, repo, pull_number: pulls[0].number});
                 event = {pull_request: current.data, source_run_id: run.id};
               } else {
-                const match = /^gh-readonly-queue\/(.+)\/pr-/.exec(run.head_branch);
+                // The queue ref's SHA suffix is the group's immutable base_sha, the
+                // one the producer receipt binds. The target branch tip can have
+                // moved since the group was created, so never re-read it.
+                const match = /^gh-readonly-queue\/.+\/pr-\d+-([0-9a-f]{40})$/.exec(run.head_branch || '');
                 if (!match) throw new Error('Unknown merge queue base');
-                const base = await github.rest.repos.getBranch({owner, repo, branch: match[1]});
-                event = {merge_group: {base_sha: base.data.commit.sha, head_sha: run.head_sha}, source_run_id: run.id};
+                const compared = await github.rest.repos.compareCommits({owner, repo, base: match[1], head: run.head_sha});
+                if (compared.data.merge_base_commit?.sha !== match[1]) throw new Error('Merge queue base is not an ancestor of the group head');
+                event = {merge_group: {base_sha: match[1], head_sha: run.head_sha}, source_run_id: run.id};
               }
             }
             const base = event.pull_request?.base.sha || event.merge_group?.base_sha;

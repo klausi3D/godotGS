@@ -29,11 +29,15 @@ MODULE_JOB = "Module Build + Runtime Harness (Windows Self-Hosted)"
 GUARD_JOB = "Guards (Render Path + Static Safety)"
 # The producer runs the PROPOSED tree, so its step labels and receipt prove
 # nothing if the PR rewrote what runs under them. These files define the
-# commands behind JOB_STEPS, the receipt and the contention verdict; a PR that
-# changes any of them cannot self-certify and needs maintainer disposition.
+# commands behind JOB_STEPS, the receipt, the contention verdict and the GPU
+# environment preflight; a PR that changes any of them cannot self-certify and
+# needs maintainer disposition. test_pr_gpu_evidence_wiring.py derives the
+# scripts the producer's preflight/postflight/receipt steps run and fails if one
+# is missing here.
 PRODUCER_DEFINITIONS = (
     ".github/workflows/gaussian_production_gates.yml",
     "tests/ci/check_pr_gpu_evidence.py",
+    "tests/ci/preflight_runner_gpu_environment.py",
     "tests/ci/runner_gpu_contention.py",
 )
 

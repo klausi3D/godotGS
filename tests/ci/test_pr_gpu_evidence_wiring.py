@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Hosted-only YAML wiring tests; uses the pinned automation dependency."""
+import json
+import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 import yaml
-from test_pr_gpu_evidence import checker
+from test_pr_gpu_evidence import checker, watcher
 ROOT = Path(__file__).resolve().parents[2]
 
 class WorkflowWiringTests(unittest.TestCase):
@@ -36,6 +42,17 @@ class WorkflowWiringTests(unittest.TestCase):
         upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4"
                       and step["with"]["name"].startswith("pr-gpu-evidence-"))
         self.assertEqual(upload["with"]["if-no-files-found"], "error")
+
+    def test_every_producer_preflight_and_receipt_script_is_pinned(self):
+        # Derived from the real job, so a new preflight script cannot slip past
+        # the trusted consumer's self-certification check.
+        steps = self.workflow["jobs"]["module-validation"]["steps"]
+        producer = [step for step in steps if step.get("name", "").startswith(("Preflight", "Postflight"))
+                    or "--write-receipt" in step.get("run", "")]
+        scripts = {script for step in producer for script in re.findall(r"python\s+(\S+\.py)", step.get("run", ""))}
+        self.assertTrue({"tests/ci/preflight_runner_gpu_environment.py", "tests/ci/runner_gpu_contention.py",
+                         "tests/ci/check_pr_gpu_evidence.py"} <= scripts)
+        self.assertLessEqual(scripts, set(watcher.PRODUCER_DEFINITIONS))
 
     def test_consumer_uses_current_run_artifact_and_dependency_outcomes(self):
         steps = self.workflow["jobs"]["canonical-gpu-receipt"]["steps"]
@@ -80,6 +97,57 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("source_run_id: run.id", resolver["with"]["script"])
         commands = [step["run"] for step in job["steps"] if "run" in step]
         self.assertEqual(commands, ["python scripts/agentic/watch_pr_gpu_evidence.py"])
+
+    def resolve_merge_queue_event(self, head_branch, merge_base):
+        # Executes the real resolver script under node with a stubbed API whose
+        # branch tip has moved past the group's base.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
+        resolver = next(step for step in workflow["jobs"]["trusted-gpu-controller"]["steps"] if step.get("id") == "event")
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "node is required to execute the resolver script")
+        run = dict(event="merge_group", head_sha="b" * 40, head_branch=head_branch, id=7)
+        harness = """
+const outputs = {}, statuses = [];
+const context = {payload: {workflow_run: RUN}, eventName: 'workflow_run', repo: {owner: 'o', repo: 'r'}, runId: 1};
+const core = {setOutput: (key, value) => { outputs[key] = value; }};
+const github = {rest: {
+  repos: {createCommitStatus: async args => { statuses.push(args.state); },
+          listPullRequestsAssociatedWithCommit: async () => ({data: []}),
+          getBranch: async () => ({data: {commit: {sha: 'f'.repeat(40)}}}),
+          compareCommits: async () => ({data: {merge_base_commit: {sha: MERGE_BASE}}})},
+  pulls: {get: async () => { throw new Error('unexpected'); }}}};
+(async () => {
+SCRIPT
+})().then(() => console.log(JSON.stringify({outputs, statuses})),
+          error => console.log(JSON.stringify({outputs, statuses, error: String(error)})));
+""".replace("RUN", json.dumps(run)).replace("MERGE_BASE", json.dumps(merge_base)).replace("SCRIPT", resolver["with"]["script"])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "resolver.js"
+            path.write_text(harness, encoding="utf-8")
+            result = subprocess.run([node, str(path)], capture_output=True, encoding="utf-8", timeout=60,
+                                    env={**os.environ, "RUNNER_TEMP": temp}, check=True)
+            state = json.loads(result.stdout.strip().splitlines()[-1])
+            if "path" in state["outputs"]:
+                state["event"] = json.loads(Path(state["outputs"]["path"]).read_text(encoding="utf-8"))
+            return state
+
+    def test_merge_queue_lifecycle_keeps_the_immutable_group_base(self):
+        base = "c" * 40
+        for branch in ("master", "release/v1.0"):
+            with self.subTest(branch=branch):
+                state = self.resolve_merge_queue_event(f"gh-readonly-queue/{branch}/pr-12-{base}", base)
+                self.assertNotIn("error", state)
+                self.assertEqual(state["outputs"]["base"], base)
+                self.assertEqual(state["event"]["merge_group"], {"base_sha": base, "head_sha": "b" * 40})
+        # A ref without the base suffix, or a suffix that is not the group's
+        # ancestor, fails closed instead of reading the moving branch tip.
+        for branch, merge_base in (("gh-readonly-queue/master/pr-12", base),
+                                   (f"gh-readonly-queue/master/pr-12-{base}", "d" * 40)):
+            with self.subTest(branch=branch, merge_base=merge_base):
+                state = self.resolve_merge_queue_event(branch, merge_base)
+                self.assertIn("error", state)
+                self.assertEqual(state["statuses"], ["pending", "failure"])
+                self.assertNotIn("base", state["outputs"])
 
 
 

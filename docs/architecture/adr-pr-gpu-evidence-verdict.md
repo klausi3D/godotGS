@@ -26,7 +26,9 @@ required trusted verdict.
 
 The producer runs the proposed tree, so the trusted verdict only accepts evidence
 whose producer definitions are unchanged from the base. These definitions are the
-production-gates workflow, the receipt writer and the GPU-contention verdict script.
+production-gates workflow, the receipt writer, the GPU-contention verdict script and
+the runner GPU-environment preflight. A wiring test derives the scripts the producer's
+preflight, postflight and receipt steps run and fails if one is not pinned.
 A PR that changes any of them fails the verdict and needs maintainer disposition,
 because a run cannot certify itself. The test harnesses the steps invoke stay PR
 code by design, since they are the subject under test and are covered by review.
@@ -81,6 +83,9 @@ which does not satisfy required protection. No fork code is checked out or run.
 
 Producer `workflow_run` in-progress and completed events reset and revalidate the
 proposed-head status, including reruns. PR base edits also reset the verdict.
+A merge-queue lifecycle event takes the group's immutable base from the SHA suffix of
+its `gh-readonly-queue/<base>/pr-<n>-<base_sha>` ref, the base the receipt binds, and
+requires it to be an ancestor of the group head. It never re-reads the moving branch tip.
 The metadata bootstrap publishes pending before resolving the current trusted base;
 resolution failures publish failure. The consumer selects the
 newest same-head run and its current attempt, so a prior successful attempt cannot satisfy a
