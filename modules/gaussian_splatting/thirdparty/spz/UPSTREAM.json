@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/nianticlabs/spz",
+  "commit": "affd0ecea7fbb4c265ee119475af7ee5b2997482",
+  "upstream_sha256": {
+    "load-spz.cc": "20dd38dbdc73d5e9f742e24edcefa915ef21b9f5f220a09435b6a79596b0e604",
+    "load-spz.h": "2406981962dd1c78bcae9665f1d02095133e9b0e246b1a4b3e3e0ebd173d7359",
+    "splat-types.cc": "c91f19bb96fbf89393bd07c336c93d96f5990dda12e348defbbf089f434cab7c",
+    "splat-types.h": "a892a9b646b94dfef5ea76cd0b6a90471ea7fe5d0401ff46e9b76f74f37c0701",
+    "splat-utils.h": "bd61c7418d880ac909e9df14f8c8626fd9ee0e4cf740ce9a14e0c0e843ce4ab9",
+    "splat-extensions.cc": "f9e99c0bffbacf5fa3554058597599cbcdaf5e899759c2087c2438827f51060e",
+    "splat-extensions.h": "bd33ca1b79d21aaec186348bcfcbd5b50e06d212eefaf8f4704bf29f7e8bd1a6",
+    "coordinate-system-adobe.cc": "4788de67968183a3b4f203f3f394e53a70043aa7a829e6125aa44c2d89e8022f",
+    "coordinate-system-adobe.h": "5e90e78ae827ad73f03b318b95248a4b63b10093e4e37dbe0f1e448aba6fcb5d",
+    "safe-orbit-camera-adobe.cc": "4815bd12e101fea908f191c69031c493bcdd01e765172e97e68e8c63fb648e56",
+    "safe-orbit-camera-adobe.h": "8f3d92f9fab3af37aced28fd05aac0049757117282510cc93eb4e9774908ca87",
+    "LICENSE": "d2b852220d1043148f523c4154e8bf7d9c5e419aede33b4c94115cfc457e4714",
+    "splat-c-types.cc": "f37b8a3d52fa5637d9899d32f873315e061e022fa9cb6cfbe3d76e07d0e966f7",
+    "splat-c-types.h": "726aa56d344821e665db4e0191b67e2d34b24395629cc0bc824f06b28ccd6ee6"
+  },
+  "godot_patches": [
+    "SPZ_NO_PARALLEL_CODEC selects existing sequential codec paths, avoiding unmanaged std::async work.",
+    "PackedGaussians::at avoids referencing the empty SH vector for degree 0.",
+    "PackedGaussian::unpack reads legacy Half values with memcpy rather than an unaligned typed pointer.",
+    "Legacy gzip membuf supports bounded seek/tell so the official extension reader can validate remaining bytes and preserve coordinate descriptors.",
+    "V4 preallocation validation replaces the false compressed-size ratio bound with exact TOC/Zstd frame extents and a fixed 1-GiB expanded packed-payload cap; Godot adapter point/input/working-memory caps remain mandatory."
+  ]
+}

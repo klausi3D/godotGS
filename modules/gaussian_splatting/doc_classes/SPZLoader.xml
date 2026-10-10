@@ -4,9 +4,9 @@
 		Loader for Niantic's SPZ compressed Gaussian Splatting format.
 	</brief_description>
 	<description>
-		SPZLoader reads SPZ files, a compressed format that provides approximately 10x file size reduction compared to PLY with minimal visual degradation. SPZ is used by Scaniverse and other mobile-oriented Gaussian Splatting applications.
-		The format uses a 16-byte header with magic number [code]0x5053474E[/code] ("NGSP"), followed by gzip-compressed packed splat attributes. Positions are 24-bit fixed-point and scales are 8-bit log-encoded. Rotations are quaternions: version 3 uses smallest-three encoding, while version 2 stores three signed components and reconstructs the fourth. Alphas are 8-bit linear-encoded ([code][0, 255][/code] mapped to [code][0, 1][/code]). Spherical harmonics coefficients are included when the header's SH degree is greater than zero.
-		Both version 2 (3-byte rotations) and version 3 (4-byte rotations with improved precision) are supported. Files may be raw SPZ or fully gzip-wrapped.
+		Reads SPZ using the pinned official Niantic decoder. Versions 1-3 use gzip, and version 4 uses independent Zstd streams. Historical GodotGS header-plus-gzip wrappers remain readable.
+		Preserves SH degrees 0-4 and antialiased training metadata. Position, quaternion and SH coordinate conversions are applied together into Godot coordinates. Log scales and logit opacity are activated once. Runtime color stores the SH-DC contribution; the renderer adds its 0.5 bias.
+		Input, expanded streams and staging allocations are bounded before decoding. Unsupported extensions are rejected. A failed reload preserves the previous valid resource and statistics. Imported assets are reimported for the corrected data contract; rendering SH4 and antialias compensation also requires renderer support.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -21,7 +21,7 @@
 		<method name="get_gaussian_data">
 			<return type="GaussianData" />
 			<description>
-				Returns the [GaussianData] resource produced by the most recent [method load_file] call, or [code]null[/code] if no file has been loaded.
+				Returns the [GaussianData] resource produced by the most recent successful [method load_file] call. Before the first successful load, returns an empty resource.
 			</description>
 		</method>
 		<method name="get_splat_count">
