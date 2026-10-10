@@ -79,7 +79,6 @@ class ClassifyChangeTest(unittest.TestCase):
         "mkdocs.yml",
         "overrides/home.html",
         "overrides/partials/nested/footer.html",
-        "scripts/stage_public_docs.py",
         "scripts/build_docs_site.py",
         "scripts/docs/release_acceptance.py",
         "docs/requirements.txt",
@@ -92,19 +91,27 @@ class ClassifyChangeTest(unittest.TestCase):
                 self.assertEqual(self._cls([path]), "R1")
 
     def test_executed_docs_site_code_is_r3(self):
-        # The tag deploy runs the C++ API redirect script with a write token, and
+        # The deploy job runs the stage script on every deploy and the C++ API
+        # redirect script on v* tags, after a credential-persisting checkout with
+        # contents: write. It also runs the settings manifest checker, which
+        # scripts/generate_project_settings_reference.py loads with exec_module.
         # mkdocs.yml loads docs/assets/javascripts/** into readers' browsers. No
         # check executes or inspects that code for side effects, so it is R3 by an
         # explicit rule, not only by the fail-closed default: a broader R0 or R1
-        # glob (docs/** is R0) must not lower it (#1212, PR #1207).
+        # glob (docs/** is R0, modules/gaussian_splatting/** is R1) must not lower
+        # it (#1212, PR #1207).
         for path in (
+            "scripts/stage_public_docs.py",
+            "modules/gaussian_splatting/tests/check_project_settings_manifest.py",
             "scripts/docs/redirect_cpp_api_to_latest.py",
             "docs/assets/javascripts/latest-nightlies.js",
             "docs/assets/javascripts/home-splat.js",
             "docs/assets/javascripts/nested/new.js",
         ):
             with self.subTest(path=path):
-                self.assertEqual(self._cls([path]), "R3")
+                overall, detail = classify.classify_paths([path], POLICY)
+                self.assertEqual(overall, "R3")
+                self.assertNotEqual(detail[0]["reason"], "unclassified path (fail-closed)")
         self.assertEqual(
             self._cls(["overrides/home.html", "docs/assets/javascripts/home-splat.js"]),
             "R3",
@@ -138,6 +145,7 @@ class ClassifyChangeTest(unittest.TestCase):
             ("scripts/docs/some_new_docs_check.py", "R3"),
             ("scripts/generate_shader_docs.py", "R3"),
             ("scripts/stage_public_docs.py.bak", "R3"),
+            ("modules/gaussian_splatting/tests/check_shader_includes.py", "R1"),
             ("overrides.yml", "R3"),
             ("site/overrides/home.html", "R3"),
             ("docs/mkdocs.yml", "R0"),

@@ -32,6 +32,19 @@ split on the source of every file under `overrides/`.
 4. **No `javascript:` URL.** Checked after decoding HTML entities and removing
    whitespace and control characters, because browsers do the same:
    `java&#x09;script:`, `&#106;avascript:` and `JavaScript :` are all caught.
+5. **No nested document or plugin.** No `<iframe`, `<frame`, `<frameset`,
+   `<object` or `<embed` element, and no `srcdoc` attribute on anything. A
+   browser entity-decodes `srcdoc="&lt;script&gt;..."` and runs the result as a
+   nested document, and the other elements load a document or plugin this guard
+   cannot see.
+6. **No `<meta http-equiv="refresh">` that carries a URL.** Only a bare delay
+   (`content="30"`) passes; a URL, an unparsable value or a Jinja expression in
+   `content` fails.
+
+Rules 2, 3, 5 and 6 run twice: on the raw source and on the source after
+`html.unescape()`, so an entity-encoded payload in any attribute value
+(`title="&lt;script&gt;"`, `srcdoc="&#60;img onerror=...&#62;"`) is caught. A
+literal `&lt;script&gt;` in text content is reported too; write it another way.
 
 ## Exit codes
 
@@ -56,6 +69,7 @@ import argparse
 import html
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,22 +88,72 @@ EVENT_HANDLER_RE = re.compile(r"(?<![A-Za-z0-9_\-])on[a-z]+\s*=", re.IGNORECASE)
 # scheme, so the normalised text drops them before the match.
 _URL_IGNORED_RE = re.compile(r"[\x00-\x20\x7f]+")
 JAVASCRIPT_URL_TOKEN = "javascript:"
+EMBED_ELEMENT_RE = re.compile(
+    r"<\s*(?:iframe|object|embed|frameset|frame)(?![A-Za-z0-9_\-])", re.IGNORECASE
+)
+SRCDOC_ATTR_RE = re.compile(r"(?<![A-Za-z0-9_\-])srcdoc(?![A-Za-z0-9_\-])", re.IGNORECASE)
+# A whole <meta ...> tag; a quoted value may contain '>'.
+META_TAG_RE = re.compile(r"<\s*meta(?![A-Za-z0-9_\-])(?:\"[^\"]*\"|'[^']*'|[^'\">])*>?", re.IGNORECASE)
+META_REFRESH_RE = re.compile(
+    r"(?<![A-Za-z0-9_\-])http-equiv\s*=\s*[\"']?\s*refresh", re.IGNORECASE
+)
+META_CONTENT_RE = re.compile(
+    r"(?<![A-Za-z0-9_\-])content\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))", re.IGNORECASE
+)
+# A refresh `content` that is only a delay reloads the same page; anything after
+# the delay is a URL to navigate to.
+META_DELAY_ONLY_RE = re.compile(r"\s*\d+(?:\.\d*)?\s*")
 
 
 def _line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
-def scan_text(text: str) -> list[str]:
-    """Return one message per violation found in a file's text."""
-    problems: list[str] = []
+def _meta_refresh_with_url(tag: str) -> bool:
+    if not META_REFRESH_RE.search(tag):
+        return False
+    content = META_CONTENT_RE.search(tag)
+    if content is None:
+        return False
+    value = next(group for group in content.groups() if group is not None)
+    return META_DELAY_ONLY_RE.fullmatch(value) is None
+
+
+def _scan_markup(text: str) -> list[str]:
+    """Rules 2, 3, 5 and 6 on one rendering of the source."""
+    found: list[str] = []
     for m in SCRIPT_TAG_RE.finditer(text):
-        problems.append(f"line {_line_of(text, m.start())}: script tag {m.group(0)!r}")
+        found.append(f"line {_line_of(text, m.start())}: script tag {m.group(0)!r}")
     for m in EVENT_HANDLER_RE.finditer(text):
-        problems.append(
+        found.append(
             f"line {_line_of(text, m.start())}: inline event-handler attribute {m.group(0)!r}"
         )
-    normalised = _URL_IGNORED_RE.sub("", html.unescape(text)).lower()
+    for m in EMBED_ELEMENT_RE.finditer(text):
+        found.append(
+            f"line {_line_of(text, m.start())}: nested-document/plugin element {m.group(0)!r}"
+        )
+    for m in SRCDOC_ATTR_RE.finditer(text):
+        found.append(f"line {_line_of(text, m.start())}: srcdoc attribute {m.group(0)!r}")
+    for m in META_TAG_RE.finditer(text):
+        if _meta_refresh_with_url(m.group(0)):
+            found.append(f"line {_line_of(text, m.start())}: meta refresh with a URL")
+    return found
+
+
+def scan_text(text: str) -> list[str]:
+    """Return one message per violation found in a file's text."""
+    raw = _scan_markup(text)
+    problems = list(raw)
+    decoded = html.unescape(text)
+    if decoded != text:
+        # Report only what entity decoding adds, so a raw hit is not listed twice.
+        already_reported = Counter(raw)
+        for message in _scan_markup(decoded):
+            if already_reported[message] > 0:
+                already_reported[message] -= 1
+            else:
+                problems.append(f"{message} (after HTML entity decoding)")
+    normalised = _URL_IGNORED_RE.sub("", decoded).lower()
     count = normalised.count(JAVASCRIPT_URL_TOKEN)
     if count:
         problems.append(

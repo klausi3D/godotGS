@@ -111,29 +111,37 @@ from the changed paths:
   not R3, because a required check covers each entry, or the entry cannot change
   what is published:
     - `docs-build`, a required check on `master` since 2026-10-08, builds with
-      `mkdocs.yml` and `overrides/**` and runs `scripts/stage_public_docs.py`. It
-      fails on a broken stage or strict MkDocs build.
+      `mkdocs.yml` and `overrides/**`. It fails on a broken strict MkDocs build.
     - `overrides/**` may not contain script.
       `tests/ci/check_overrides_no_inline_script.py` fails on any `<script` tag
       (any case), any inline event-handler attribute (`on*=`), any `javascript:`
-      URL, and any file that is not `.html` or `.css` under `overrides/`. It runs
+      URL, any `<iframe`, `<frame`, `<object` or `<embed` element, any `srcdoc`
+      attribute, any `<meta http-equiv="refresh">` that carries a URL, and any
+      file that is not `.html` or `.css` under `overrides/`. The tag, handler,
+      element, `srcdoc` and refresh checks run on the raw source and again after
+      HTML entity decoding, so an entity-encoded payload in an attribute is
+      caught too. It runs
       in the `--guard-only` lane of the required `agentic-pr-gate`, and the guard
       script itself is R3 machinery. Script for the site lives in
       `docs/assets/javascripts/` (R3, below), loaded through `extra_javascript`.
-    - `tests/agentic/test_stage_public_docs.py` pins the public-scope exclusions of
-      `scripts/stage_public_docs.py`. It runs in the required `agentic-pr-gate`.
     - No workflow runs `scripts/build_docs_site.py`, a local wrapper.
       `scripts/docs/release_acceptance.py` is report-only in `docs-build`, and
       `deploy` does not run it. Neither can change what is published.
     - `docs/requirements*.txt` (the docs toolchain inputs) are raised from R0
       (`docs/**`).
-    - `scripts/docs/redirect_cpp_api_to_latest.py` and `docs/assets/javascripts/**`
-      are R3, by their own rule, so neither `docs/**` (R0) nor a later broader
-      glob can lower them. The `deploy` job runs the redirect script on `v*` tags
-      with a write token, and `mkdocs.yml` loads the scripts into readers'
-      browsers. `tests/agentic/test_cpp_api_redirect.py` checks the redirect's
-      output, and the strict MkDocs build neither runs nor inspects the
-      JavaScript, so no check can catch an added side effect in either.
+    - Code the `deploy` job executes, and `docs/assets/javascripts/**`, are R3 by
+      their own rule, so neither `docs/**` (R0), `modules/gaussian_splatting/**`
+      (R1) nor a later broader glob can lower them. `deploy` checks out with the
+      default persisted credential and `contents: write`, then runs
+      `scripts/stage_public_docs.py` on every deploy,
+      `scripts/docs/redirect_cpp_api_to_latest.py` on `v*` tags, and
+      `modules/gaussian_splatting/tests/check_project_settings_manifest.py`, which
+      `scripts/generate_project_settings_reference.py` loads with `exec_module`.
+      `mkdocs.yml` loads the JavaScript into readers' browsers.
+      `tests/agentic/test_stage_public_docs.py` and
+      `tests/agentic/test_cpp_api_redirect.py` check the scripts' output, and the
+      strict MkDocs build neither runs nor inspects the JavaScript, so no check
+      can catch an added side effect, such as a use of the write token.
     - `docs/requirements-lock.txt` is R3, by its own rule. `docs-build` and
       `deploy` install it, and `deploy` installs it with a write token in git
       config. The hashes only authenticate what the lock selects, and a green

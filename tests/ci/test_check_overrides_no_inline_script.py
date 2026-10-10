@@ -132,6 +132,88 @@ class SyntheticOverridesTest(unittest.TestCase):
             with self.subTest(body=body):
                 self._assert_rejected(body, "javascript: URL")
 
+    # Nested documents, plugins and refresh redirects (PR #1207 round 5).
+
+    def test_srcdoc_iframe_fails(self) -> None:
+        # The browser entity-decodes srcdoc and runs the nested document.
+        self._assert_rejected(
+            '<iframe srcdoc="&lt;script&gt;parent.location=1&lt;/script&gt;"></iframe>',
+            "srcdoc attribute",
+        )
+
+    def test_srcdoc_on_any_element_fails(self) -> None:
+        for body in ('<div SRCDOC="x"></div>', "<x-frame srcdoc='x'></x-frame>", "<p srcdoc>x</p>"):
+            with self.subTest(body=body):
+                self._assert_rejected(body, "srcdoc attribute")
+
+    def test_embedding_elements_fail(self) -> None:
+        for body in (
+            '<iframe src="https://example.com/"></iframe>',
+            '<IFRAME src="x"></IFRAME>',
+            '<object data="x.svg"></object>',
+            '<embed src="x.swf">',
+            '<frameset><frame src="x"></frameset>',
+            '< frame src="x">',
+        ):
+            with self.subTest(body=body):
+                self._assert_rejected(body, "nested-document/plugin element")
+
+    def test_meta_refresh_with_url_fails(self) -> None:
+        for body in (
+            '<meta http-equiv="refresh" content="0; url=https://example.com/">',
+            "<meta content='0;https://example.com/' http-equiv=Refresh>",
+            '<META HTTP-EQUIV="refresh" CONTENT="5,URL=x">',
+            '<meta http-equiv="refresh" content="{{ delay }}; url={{ target }}">',
+            '<meta content="0;url=a>b" http-equiv="refresh">',
+        ):
+            with self.subTest(body=body):
+                self._assert_rejected(body, "meta refresh with a URL")
+
+    def test_meta_refresh_without_url_and_other_meta_pass(self) -> None:
+        self._write(
+            "home.html",
+            CLEAN_TEMPLATE.replace(
+                "</main>",
+                '<meta http-equiv="refresh" content="30">\n'
+                '<meta name="description" content="0; url=not-a-refresh">\n'
+                '<meta http-equiv="content-type" content="text/html">\n</main>',
+            ),
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+
+    # Entity-encoded payloads in any attribute.
+
+    def test_entity_encoded_payloads_fail(self) -> None:
+        for body, fragment in (
+            ('<div title="&lt;script&gt;x&lt;/script&gt;"></div>', "script tag"),
+            ('<div title="&#60;img src=x &#111;&#110;error=go()&#62;"></div>', "inline event-handler"),
+            ('<div data-x="x&#x20;&#x6F;nclick&#61;go()"></div>', "inline event-handler"),
+            ('<div title="&lt;iframe src=x&gt;"></div>', "nested-document/plugin element"),
+            ('<meta http-equiv="&#114;efresh" content="0;url=x">', "meta refresh with a URL"),
+        ):
+            with self.subTest(body=body):
+                self._assert_rejected(body, fragment)
+                self._assert_rejected(body, "(after HTML entity decoding)")
+
+    def test_raw_hit_is_not_reported_twice_after_decoding(self) -> None:
+        self._write("home.html", CLEAN_TEMPLATE.replace("</main>", "<script>a &amp; b</script>\n</main>"))
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_VIOLATIONS, output)
+        self.assertEqual(output.count("script tag"), 1, output)
+        self.assertNotIn("after HTML entity decoding", output)
+
+    def test_clean_markup_with_entities_passes(self) -> None:
+        self._write(
+            "home.html",
+            CLEAN_TEMPLATE.replace(
+                "</main>",
+                "<p>Splats &amp; meshes &mdash; 2 &lt; 3, &quot;online&quot; &#169;</p>\n</main>",
+            ),
+        )
+        code, output = _run_guard(self.root)
+        self.assertEqual(code, guard.EXIT_OK, output)
+
     # File types and encodings.
 
     def test_script_file_under_overrides_fails(self) -> None:
