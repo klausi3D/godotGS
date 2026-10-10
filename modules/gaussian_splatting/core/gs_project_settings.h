@@ -144,6 +144,20 @@ static inline bool is_all_debug_enabled(ProjectSettings *p_ps) {
 }
 
 /**
+ * @brief Project default for the Mip-Splatting opacity compensation (#1173).
+ *
+ * `rendering/gaussian_splatting/rasterization/antialiasing_compensation`: true
+ * when the project's splats were trained with antialiasing. Used where no node
+ * or asset states the training mode. Null ProjectSettings reads as classic.
+ */
+static inline bool get_antialiasing_compensation_default(ProjectSettings *p_ps) {
+	if (p_ps == nullptr) {
+		return false;
+	}
+	return get_bool(p_ps, "rendering/gaussian_splatting/rasterization/antialiasing_compensation", false);
+}
+
+/**
  * @brief Check whether data-level debug logging is enabled.
  */
 static inline bool is_data_log_enabled() {

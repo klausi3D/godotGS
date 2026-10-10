@@ -8,6 +8,7 @@
 #include "../core/gaussian_splat_source_path.h"
 #include "../core/gs_vector_alloc.h"
 #include "../core/quality_tier_config.h"
+#include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../logger/gs_debug_trace.h"
 #include "../renderer/gpu_debug_utils.h"
@@ -170,6 +171,11 @@ void GaussianSplatNode3D::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_cast_shadow"), &GaussianSplatNode3D::get_cast_shadow);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rendering/cast_shadow"), "set_cast_shadow", "get_cast_shadow");
 
+    ClassDB::bind_method(D_METHOD("set_antialiasing_compensation", "mode"), &GaussianSplatNode3D::set_antialiasing_compensation);
+    ClassDB::bind_method(D_METHOD("get_antialiasing_compensation"), &GaussianSplatNode3D::get_antialiasing_compensation);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "rendering/antialiasing_compensation", PROPERTY_HINT_ENUM, "Auto,Off,On"),
+            "set_antialiasing_compensation", "get_antialiasing_compensation");
+
     ClassDB::bind_method(D_METHOD("set_use_frustum_culling", "enabled"), &GaussianSplatNode3D::set_use_frustum_culling);
     ClassDB::bind_method(D_METHOD("is_frustum_culling_enabled"), &GaussianSplatNode3D::is_frustum_culling_enabled);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rendering/frustum_culling"), "set_use_frustum_culling", "is_frustum_culling_enabled");
@@ -324,6 +330,10 @@ void GaussianSplatNode3D::_bind_methods() {
     BIND_ENUM_CONSTANT(DEBUG_DRAW_WIREFRAME);
     BIND_ENUM_CONSTANT(DEBUG_DRAW_POINTS);
     BIND_ENUM_CONSTANT(DEBUG_DRAW_HEATMAP);
+
+    BIND_ENUM_CONSTANT(ANTIALIASING_COMPENSATION_AUTO);
+    BIND_ENUM_CONSTANT(ANTIALIASING_COMPENSATION_OFF);
+    BIND_ENUM_CONSTANT(ANTIALIASING_COMPENSATION_ON);
 
     // Signals
     ADD_SIGNAL(MethodInfo("asset_loaded"));
@@ -1285,6 +1295,15 @@ void GaussianSplatNode3D::set_cast_shadow(bool p_enabled) {
         }
     }
     _sync_gaussian_storage();
+    _update_instance_params_in_director();
+}
+
+void GaussianSplatNode3D::set_antialiasing_compensation(AntialiasingCompensation p_mode) {
+    ERR_FAIL_INDEX((int)p_mode, (int)ANTIALIASING_COMPENSATION_ON + 1);
+    if (antialiasing_compensation == p_mode) {
+        return;
+    }
+    antialiasing_compensation = p_mode;
     _update_instance_params_in_director();
 }
 
@@ -2614,8 +2633,32 @@ bool GaussianSplatNode3D::_resolve_is_2d_mode() const {
     return false;
 }
 
+// #1173: the Mip-Splatting opacity compensation is right only for splats trained
+// with antialiasing. Precedence: the node's explicit mode, then the training
+// mode the asset recorded on import (SPZ header flag 0x1, stored as
+// `spz_antialiased`), then the project setting.
+bool GaussianSplatNode3D::_resolve_antialiasing_compensation() const {
+    if (antialiasing_compensation == ANTIALIASING_COMPENSATION_ON) {
+        return true;
+    }
+    if (antialiasing_compensation == ANTIALIASING_COMPENSATION_OFF) {
+        return false;
+    }
+    if (splat_asset.is_valid()) {
+        Dictionary import_metadata = splat_asset->get_import_metadata();
+        if (import_metadata.has(StringName("spz_antialiased"))) {
+            return (bool)import_metadata[StringName("spz_antialiased")];
+        }
+    }
+    return gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton());
+}
+
 uint32_t GaussianSplatNode3D::_get_instance_flags() const {
-    return _resolve_is_2d_mode() ? 1u : 0u;
+    uint32_t flags = _resolve_is_2d_mode() ? GS_INSTANCE_FLAG_IS_2D : 0u;
+    if (_resolve_antialiasing_compensation()) {
+        flags |= GS_INSTANCE_FLAG_ANTIALIASED;
+    }
+    return flags;
 }
 
 float GaussianSplatNode3D::_get_instance_wind_intensity() const {

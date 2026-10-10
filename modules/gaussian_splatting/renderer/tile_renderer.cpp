@@ -1495,7 +1495,7 @@ GaussianSplatting::TileRenderParams::TileRenderParams() {
 	cull_far_tolerance = 0.05f;
 	tiny_splat_screen_radius = 0.3f;  // Drop subpixel splats to prevent tile overflow (#797)
 	max_conic_aspect = 10.0f;
-	low_pass_filter = 0.35f;
+	low_pass_filter = gs::RASTER_LOW_PASS_FILTER_DEFAULT;
 	jacobian_bypass_radius_depth_floor = false;
 	jacobian_bypass_j_col2_clamp = false;
 	jacobian_invert_j_col2_sign = false;

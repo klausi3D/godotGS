@@ -12,9 +12,11 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+#include "../core/gs_project_settings.h"
 // #798 round 3: the TESTS_ENABLED failure-injection seam used by the failed-set_splat_data
 // case below (gs_vector_alloc_force_failure_at / _is_armed / _clear).
 #include "../core/gs_vector_alloc.h"
+#include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/sh_config.h"
 #include "../resources/color_grading_resource.h"
@@ -3299,6 +3301,121 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     root->remove_child(node_a);
     memdelete(node_b);
     memdelete(node_a);
+}
+
+TEST_CASE("[GaussianSplatting][Node] Antialiasing compensation mode defaults to Auto and rejects out-of-range values") {
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    node->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    ERR_PRINT_OFF;
+    node->set_antialiasing_compensation((GaussianSplatNode3D::AntialiasingCompensation)7);
+    ERR_PRINT_ON;
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    memdelete(node);
+
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (ps == nullptr) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    const StringName key("rendering/gaussian_splatting/rasterization/antialiasing_compensation");
+    CHECK_MESSAGE(ps->has_setting(key), "the project default must be registered");
+    // #1173: classic 3DGS (Inria, gsplat default) is the default training mode.
+    CHECK_FALSE((bool)ps->get_setting(key));
+    CHECK_FALSE(gs::settings::get_antialiasing_compensation_default(ps));
+    CHECK_FALSE(gs::settings::get_antialiasing_compensation_default(nullptr));
+}
+
+// #1173: the instance flag that turns on the Mip-Splatting opacity compensation in
+// tile_binning.glsl. Precedence: node mode, then the asset's spz_antialiased import
+// metadata, then the project setting.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Instance buffer carries the antialiasing-compensation flag by node, asset and project precedence") {
+    SceneTree *tree = SceneTree::get_singleton();
+    Window *root = tree != nullptr ? tree->get_root() : nullptr;
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (root == nullptr || ps == nullptr) {
+        FAIL("SceneTree root and ProjectSettings are required");
+        return;
+    }
+    const StringName key("rendering/gaussian_splatting/rasterization/antialiasing_compensation");
+    const Variant saved_setting = ps->get_setting(key);
+    ps->set_setting(key, false);
+
+    const float node_a_x = 3331.0f;
+    const float node_b_x = 3332.0f;
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(node_a_x));
+    Ref<GaussianSplatAsset> asset_b = make_single_splat_asset(node_b_x);
+    Dictionary metadata_b = asset_b->get_import_metadata();
+    metadata_b[StringName("spz_antialiased")] = true;
+    asset_b->set_import_metadata(metadata_b);
+    node_b->set_splat_asset(asset_b);
+    node_a->set_position(Vector3(node_a_x, 0.0f, 0.0f));
+    node_b->set_position(Vector3(node_b_x, 0.0f, 0.0f));
+    root->add_child(node_a);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    auto cleanup = [&]() {
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        ps->set_setting(key, saved_setting);
+    };
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!renderer.is_valid() || director == nullptr || node_b->get_renderer() != renderer) {
+        // The GPU harness provides a renderer; its absence is a failure, not a skip.
+        FAIL("shared renderer or director unavailable");
+        cleanup();
+        return;
+    }
+
+    // Returns {flag on node_a, flag on node_b}; -1 when a row is missing.
+    auto read_flags = [&](int &r_a, int &r_b) {
+        LocalVector<InstanceDataGPU> instances;
+        director->build_instance_buffer_for_renderer(renderer.ptr(), instances);
+        const int ia = find_instance_index_by_translation_x(instances, node_a_x);
+        const int ib = find_instance_index_by_translation_x(instances, node_b_x);
+        r_a = ia < 0 ? -1 : int((instances[ia].ids[1] & GS_INSTANCE_FLAG_ANTIALIASED) != 0u);
+        r_b = ib < 0 ? -1 : int((instances[ib].ids[1] & GS_INSTANCE_FLAG_ANTIALIASED) != 0u);
+    };
+
+    int flag_a = -1;
+    int flag_b = -1;
+    // Auto: node_a has no recorded training mode -> project default (classic);
+    // node_b's asset records spz_antialiased = true.
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 0);
+    CHECK_EQ(flag_b, 1);
+
+    // The node mode overrides the asset and the project in both directions.
+    node_a->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    node_b->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_OFF);
+    tree->process(0.0);
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 1);
+    CHECK_EQ(flag_b, 0);
+
+    // Back to Auto with the project default on: node_a follows the project; node_b
+    // keeps its asset's recorded flag (true either way). Flip node_b's asset
+    // metadata to false to show the asset wins over the project.
+    ps->set_setting(key, true);
+    Dictionary metadata_b_classic = asset_b->get_import_metadata();
+    metadata_b_classic[StringName("spz_antialiased")] = false;
+    asset_b->set_import_metadata(metadata_b_classic);
+    node_a->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    node_b->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    tree->process(0.0);
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 1);
+    CHECK_EQ(flag_b, 0);
+
+    cleanup();
 }
 
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks") {

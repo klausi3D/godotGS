@@ -118,6 +118,7 @@
     "rendering/gaussian_splatting/quality/tier_apply_pipeline_toggles",
     "rendering/gaussian_splatting/quality/tier_apply_streaming_budgets",
     "rendering/gaussian_splatting/quality/tier_preset",
+    "rendering/gaussian_splatting/rasterization/antialiasing_compensation",
     "rendering/gaussian_splatting/rasterization/low_pass_filter",
     "rendering/gaussian_splatting/renderdoc_compatibility",
     "rendering/gaussian_splatting/rendering/sh_bands",
