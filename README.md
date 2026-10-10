@@ -5,12 +5,12 @@ GodotGS is a Godot 4.5 fork with an in-tree Gaussian Splatting module for import
 
 ## Download
 
-Nightly editor builds are published as prereleases on GitHub. Pick the latest:
+godotGS runs as its own editor, not as a plugin for stock Godot. Nightly editors are published as prereleases on GitHub:
 
-- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)** - pick the most recent `nightly-YYYYMMDD` entry at the top. The release workflow guarantees the Linux editor tarball when publishing succeeds. The Windows editor zip and the Windows export template zip are included when the self-hosted Windows build lane and its export smoke test succeed for that run.
-- macOS users currently need to [build from source](docs/BUILDING.md)
+- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)**: pick the most recent `nightly-YYYYMMDD` entry at the top. Every nightly has the Linux editor. The Windows editor and the Windows export template are attached only when that night's Windows build passed, so on Windows pick the newest nightly that lists `godotgs-windows-x86_64-<tag>.zip`.
+- macOS: [build from source](docs/BUILDING.md).
 
-No named stable (`v*`) release is published yet, so nightly is the only public install path today. See [Release Channels](docs/development/release-channels.md) for the full publishing model.
+[Downloads](docs/getting-started/downloads.md) explains each archive and how to run and verify it. No stable (`v*`) release is published yet, so nightlies are the only published binaries. See [Release Channels](docs/development/release-channels.md) for the publishing model.
 
 > [!WARNING]
 > **The nightly Linux editor is an unoptimized `-O0` build.** It is compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude. The `.dev` segment in its filename is that flag. The nightly Windows editor is optimized (`optimize=speed_trace`, no `.dev` segment). Use the Linux nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).
@@ -20,7 +20,7 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 | Area | State |
 | --- | --- |
 | Maturity | Alpha |
-| Public binaries | Linux nightly editor (`dev_build=yes` / `-O0`, not performance-representative). When the Windows lane succeeds: an optimized Windows nightly editor and the Windows export template. |
+| Public binaries | Linux nightly editor (unoptimized, see the warning above). When that night's Windows build passed: an optimized Windows nightly editor and the Windows export template. |
 | macOS | Source build first |
 | Stable release | Not yet published |
 | API stability | **No promise.** Any registered class, method, property, setting or on-disk format may change or be removed in any release — see [API Stability](docs/development/api-stability.md) |
@@ -30,21 +30,25 @@ No named stable (`v*`) release is published yet, so nightly is the only public i
 
 ## Who This Is For
 
+- Godot users who want captured Gaussian splat scenes in their projects
 - Technical artists and graphics engineers evaluating Gaussian Splatting inside a Godot 4.5 fork
 - Contributors who need an in-tree module plus engine-patch context, not a standalone plugin
 - Reviewers who want to separate the upstream Godot tree from the godotGS-specific delta quickly
 
-## Fastest Way In
+## Get Started
 
-1. [Your First Splat](docs/getting-started/quick-start.md) if you want the shortest honest path from an editor to a visible splat in the sample project.
-2. [Compatibility Matrix](docs/reference/compatibility-matrix.md) if you need platform evidence before trying it.
-3. [Build from Source](docs/BUILDING.md) if you are on macOS or you want a custom editor binary.
+1. [Downloads](docs/getting-started/downloads.md): get a nightly editor for Windows or Linux, or [build from source](docs/BUILDING.md) on macOS or for a custom editor binary.
+2. [Your First Splat](docs/getting-started/quick-start.md): open the sample project and see a splat.
+3. [Import Workflow](docs/workflows/importing.md): bring in your own `.ply` or `.spz` capture.
+4. [Guides](docs/user/index.md): concepts, quality presets, lighting and features.
+
+Something not working? See [Troubleshooting](docs/troubleshooting/index.md). Need platform evidence before you try it? See the [Compatibility Matrix](docs/reference/compatibility-matrix.md).
 
 ## Current Public Evidence
 
 - Compatibility snapshot: Windows is `editor-tested` on the self-hosted Vulkan Forward+ lane with `NVIDIA GeForce RTX 3090` and now ships a nightly editor zip. Linux is `smoke-tested` on `ubuntu-24.04` with `xvfb` and `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.1` and ships a nightly editor tarball (the Linux CI lane runs a headless import + runtime smoke check, not a QA-scene lane — see the [Compatibility Matrix](docs/reference/compatibility-matrix.md)). macOS is currently `build-supported`.
 - Benchmark snapshot: five committed lanes captured 2026-07-19 at commit `9161d92f349` on an **optimized** build (RTX 3090, Ryzen 7 5800X, Windows 11, Vulkan Forward+). That commit was 8 behind `master` at publication; see [Currency](docs/performance/index.md#currency). **The published baseline is `dense_resident_2m` (4.9M visible splats): 12 FPS.** The resident path does not reach interactive frame rates at ~5M visible splats, and that is the project's headline number. Supporting lanes, steady-state — `static_baseline` (10K splats) 455 FPS, `city_flyover` (160K) 129 FPS, `lighting_stress` (90K) 73 FPS, `instance_storm` (360K) 32 FPS. `static_baseline` is a low-noise regression reference on a single 10K-splat instance; it was previously quoted as the top-line figure, which described a workload nobody ships ([#790](https://github.com/klausi3D/godotGS/issues/790)). Depth sorting is 64–87% of GPU frame time across all five lanes. Assets are synthetic fixtures, not real captures. Full hardware context, per-pass GPU breakdown, variance, and caveats: [Performance Dashboard](docs/performance/index.md).
-- Visual proof: real editor screenshots and short workflow clips are still pending. The current figures are technical diagrams, not product captures. A doctest-driven visual-compare lane now runs in `baseline_qa.yml` against seeded baselines in `tests/visual_baselines/`.
+- Visual proof: the docs now carry real editor screenshots and rendered captures of real scans, in [Your First Splat](docs/getting-started/quick-start.md), the [Import Workflow](docs/workflows/importing.md), the [Color Grading Quick Start](docs/features/color-grading-quick-start.md), the [Artist Pipeline](docs/features/artist_pipeline.md), [Runtime Behavior](docs/user/manual/runtime-behavior.md) and the [world bake workflow](docs/workflows/GSPLATWORLD_BAKE.md). Short workflow clips are still pending. A doctest-driven visual-compare lane now runs in `baseline_qa.yml` against seeded baselines in `tests/visual_baselines/`.
 
 ## For Reviewers
 
