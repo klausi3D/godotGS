@@ -58,7 +58,7 @@ func _configure_gaussian_node() -> void:
     gaussian_node.set_show_density_heatmap(false)
     gaussian_node.set_show_performance_hud(false)
     gaussian_node.set_show_timing_gizmo(false)
-    gaussian_node.set_debug_draw_mode(GaussianSplatNode3D.DEBUG_DRAW_POINTS)
+    gaussian_node.set_debug_draw_mode(GaussianSplatNode3D.DEBUG_DRAW_OFF)
     gaussian_node.set_runtime_preview_enabled(false)
     gaussian_node.set_show_residency_hud(false)
 

@@ -48,9 +48,12 @@ The template applies the recommended inspector values programmatically and in th
 
 - **Asset**: assign the imported `GaussianSplatAsset` for `res://assets/template_splats.ply` to `splat_asset`.
 - **Quality**: `preset = Balanced`, `lod_bias = 1.0`, `max_render_distance = 150m`, `max_splat_count = 750,000`.
-  `max_splat_count` is not a limit on what one splat node draws: the inspector
-  shows it only for the `Custom` preset, and an 8,000,000-splat scan drew the
-  same 4,117,954 visible splats with `750,000` as with `100,000,000`
+  The inspector shows `max_splat_count` only for the `Custom` preset. It can
+  cap how many splats the renderer draws, except for an asset imported at full
+  fidelity (import options `quality/max_splats = 0` and
+  `quality/density_multiplier = 1.0`): such an 8,000,000-splat scan drew the
+  same 4,117,954 visible splats with the template's settings as with the
+  `Custom` preset and `100,000,000`
   ([#1221](https://github.com/klausi3D/godotGS/issues/1221)).
 - **Painterly**: **disabled** by default; the stroke parameters are prefilled (edge threshold `0.25`, stroke opacity `0.85`, stroke width `1.1`, color variation `0.12`, temporal blend `0.35`, seed `1337`) so that enabling it needs one toggle.
 - **Rendering**: update when visible, cast shadows (no effect while the demo light is hidden), frustum and occlusion culling on, opacity `1.0`.
