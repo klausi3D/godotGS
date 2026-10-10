@@ -10,7 +10,7 @@ hide:
 
 Use godotGS day to day: import splat content, understand behavior, and tune quality, lighting, and performance without digging through maintainer docs first. These guides are written for artists, technical artists, and non-programmers as much as for engineers.
 
-Visual captures for these workflows are still pending, so the guides stay text-first for now.
+The import, colour grading, artist pipeline, runtime behavior and world bake guides include real editor screenshots and rendered captures. Short workflow clips are still pending.
 
 </div>
 
