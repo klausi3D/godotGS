@@ -6,6 +6,13 @@
 
 class GaussianSplatWorld;
 class GaussianData;
+struct GaussianSplatHlodTree;
+
+// The given world bounds (ignored unless finite with a surface) united with the HLOD root's
+// world-space AABB, rounded outward to real_t. These bounds become the RenderingServer custom
+// AABB, so the v2 saver writes them and the v2 loader refuses header bounds that do not enclose
+// the root. Returns false when the result does not fit runtime coordinates.
+bool gs_hlod_bounds_enclosing_root(const GaussianSplatHlodTree &p_tree, const AABB &p_world_bounds, AABB &r_bounds);
 
 class ResourceFormatLoaderGaussianSplatWorld : public ResourceFormatLoader {
 public:

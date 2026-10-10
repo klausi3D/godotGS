@@ -1374,6 +1374,11 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 
 } // namespace
 
+// GaussianSplatWorld::bake_hlod() publishes the same bounds the v2 saver writes into the header.
+bool gs_hlod_bounds_enclosing_root(const GaussianSplatHlodTree &p_tree, const AABB &p_world_bounds, AABB &r_bounds) {
+	return _hlod_header_bounds(p_tree, p_world_bounds, r_bounds);
+}
+
 static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_error, float *r_progress, bool p_force_resident) {
 	if (r_progress) {
 		*r_progress = 0.0f;

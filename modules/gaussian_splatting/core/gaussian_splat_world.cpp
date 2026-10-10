@@ -125,6 +125,10 @@ void GaussianSplatWorld::set_gaussian_data(const Ref<GaussianData> &p_data) {
 
 void GaussianSplatWorld::_assign_gaussian_data(const Ref<GaussianData> &p_data, bool p_keep_hlod) {
     if (!p_keep_hlod) {
+        if (!hlod_tree.is_empty()) {
+            // The leaf chunks are built from the tree and index the old payload, like the tree.
+            static_chunks.clear();
+        }
         hlod_tree.clear();
     } else if (!hlod_tree.is_empty() && p_data.is_valid()) {
         // Same payload (materialized from the file the tree was loaded with).
@@ -490,8 +494,13 @@ Error GaussianSplatWorld::bake_hlod() {
     baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order, sh_high_order_count, is_2d);
     result.leaf_gaussians.reset();
     result.leaf_sh_high_order.reset();
+    // The bounds become the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
+    // so they must enclose the root's covariance-aware support, as the v2 saver's header does.
+    AABB baked_bounds;
+    if (!gs_hlod_bounds_enclosing_root(result.tree, bounds.has_volume() ? bounds : baked->get_aabb(), baked_bounds)) {
+        ERR_FAIL_V_MSG(ERR_INVALID_DATA, "GaussianSplatWorld.bake_hlod(): the HLOD root bounds do not fit runtime coordinates.");
+    }
     auto publish = [&]() {
-        const AABB keep_bounds = bounds;
         gaussian_data = baked;
         chunk_payload_source.unref(); // it indexes the old order; the baked payload is resident
         splat_count_metadata = baked->get_count();
@@ -499,7 +508,7 @@ Error GaussianSplatWorld::bake_hlod() {
         sh_first_order_count_metadata = sh_first_order;
         sh_high_order_count_metadata = sh_high_order_count;
         is_2d_metadata = is_2d;
-        bounds = keep_bounds.has_volume() ? keep_bounds : baked->get_aabb();
+        bounds = baked_bounds;
         hlod_tree = std::move(result.tree);
         hlod_tree.leaf_payload_revision = baked->get_content_revision();
         hlod_tree.leaf_payload_revision_valid = true;

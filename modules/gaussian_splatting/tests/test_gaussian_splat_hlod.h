@@ -1204,7 +1204,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 		g[i].position += Vector3(1000.0f, 2.0f, -500.0f);
 	}
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
-	world->set_bounds(AABB(Vector3(984, 1, -516), Vector3(32, 7, 32)));
+	const AABB user_bounds(Vector3(984, 1, -516), Vector3(32, 7, 32));
+	world->set_bounds(user_bounds);
 	Dictionary meta;
 	meta["note"] = "hlod round trip";
 	world->set_metadata(meta);
@@ -1302,10 +1303,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 			// These user bounds start at x = 984 m, inside the splats' three-sigma support.
 			double lo[3], hi[3];
 			hlod_root_extent(tree, lo, hi);
-			const AABB user = world->get_bounds();
+			const AABB user = user_bounds;
 			const AABB got = loaded->get_bounds();
 			CHECK_FALSE(hlod_aabb_encloses(user, lo, hi));
 			CHECK(hlod_aabb_encloses(got, lo, hi));
+			// bake_hlod() already published these bounds on the live world; the saver adds nothing.
+			CHECK(got == world->get_bounds());
 			for (int a = 0; a < 3; a++) {
 				CAPTURE(a);
 				const double want_lo = MIN(lo[a], double(user.position[a]));
@@ -1449,6 +1452,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 	// A new payload drops the tree (its leaves would index the old one), and saving then writes v1.
 	world->set_gaussian_data(world->get_gaussian_data());
 	CHECK_FALSE(world->has_hlod_tree());
+	CHECK_EQ(world->get_chunk_count(), 0);
 
 	// The 2D flag (set by the PLY loader for any PLY with normals) bakes and round-trips.
 	LocalVector<Gaussian> small;
@@ -1645,8 +1649,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r3 header 
 	}
 	double lo[3], hi[3];
 	hlod_root_extent(world->get_hlod_tree(), lo, hi);
-	// Control: on this valid content the world's default bounds (GaussianData::get_aabb()) miss
-	// the rotated three-sigma support, so writing them verbatim reproduces the defect.
+	// bake_hlod() publishes bounds that enclose the root on the live world, too.
+	CHECK(hlod_aabb_encloses(world->get_bounds(), lo, hi));
+	// Control: on this valid content GaussianData::get_aabb() misses the rotated three-sigma
+	// support, so writing it verbatim reproduces the defect. Put it back as the world's bounds
+	// (as a caller's set_bounds() can) so the saver below must widen it.
+	world->set_bounds(world->get_gaussian_data()->get_aabb());
 	CHECK_FALSE(hlod_aabb_encloses(world->get_bounds(), lo, hi));
 	CHECK(hi[0] - lo[0] > 10.0);
 
@@ -2575,6 +2583,60 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] replacing a file-backed payload in
 	DirAccess::remove_absolute(saved_path);
 }
 
+// Resident counterpart of the file-backed case above: set_gaussian_data() with another payload
+// must drop the leaf chunks with the tree, or the next submission pairs the new payload with the
+// old leaf index ranges and bounds.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] replacing a resident payload invalidates its tree and leaf chunks") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24000u, 16000u, g);
+	LocalVector<Gaussian> small;
+	hlod_make_fixture(200u, 100u, small);
+	Ref<GaussianData> replacement;
+	replacement.instantiate();
+	LocalVector<Vector3> no_sh;
+	replacement->set_gaussian_payload(small, no_sh, 0u, 0u, false);
+
+	// Baked in memory.
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK || world->get_chunk_count() < 2) {
+		FAIL("bake a multi-leaf resident world");
+		return;
+	}
+	world->set_gaussian_data(replacement);
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK_EQ(world->get_chunk_count(), 0);
+	CHECK(world->get_gaussian_data() == replacement);
+
+	// Loaded resident from a v2 file.
+	Ref<GaussianSplatWorld> baked = hlod_make_world(g);
+	ResourceFormatSaverGaussianSplatWorld saver;
+	const String path = hlod_temp_path("resident_replace");
+	if (baked->bake_hlod() != OK || saver.save_resident_uncompressed(baked, path) != OK) {
+		FAIL("save a baked resident world");
+		return;
+	}
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> loaded = loader.load_resident(path, &err);
+	DirAccess::remove_absolute(path);
+	if (err != OK || loaded.is_null() || !loaded->has_hlod_tree() || loaded->get_chunk_count() < 2) {
+		FAIL("load the baked resident world");
+		return;
+	}
+	loaded->set_gaussian_data(replacement);
+	CHECK_FALSE(loaded->has_hlod_tree());
+	CHECK_EQ(loaded->get_chunk_count(), 0);
+
+	// Control: a tree-less world keeps the chunks its producer set (behaviour unchanged).
+	Ref<GaussianSplatWorld> plain = hlod_make_world(g);
+	plain->set_static_chunks(baked->get_static_chunks());
+	const int plain_chunks = plain->get_chunk_count();
+	CHECK(plain_chunks >= 2);
+	plain->set_gaussian_data(plain->get_gaussian_data());
+	CHECK_EQ(plain->get_chunk_count(), plain_chunks);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a rejected file-backed bake preserves streaming and emits no changes") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> bad;
@@ -2904,7 +2966,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds k
 	}
 	double lo[3], hi[3];
 	hlod_root_extent(source->get_hlod_tree(), lo, hi);
-	const AABB root(Vector3(real_t(lo[0]), real_t(lo[1]), real_t(lo[2])),
+	// static_cast, not real_t(lo[0]): GCC parses the functional casts as a function declaration.
+	const AABB root(Vector3(static_cast<real_t>(lo[0]), static_cast<real_t>(lo[1]), static_cast<real_t>(lo[2])),
 			Vector3(real_t(hi[0] - lo[0]), real_t(hi[1] - lo[1]), real_t(hi[2] - lo[2])));
 
 	Projection projection;
@@ -2922,7 +2985,14 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds k
 	};
 	// Controls: the validated splat support is in view; the verbatim-header bounds are not.
 	CHECK(in_near(root));
-	CHECK_FALSE(in_near(source->get_bounds()));
+	const AABB payload_aabb = source->get_gaussian_data()->get_aabb();
+	CHECK_FALSE(in_near(payload_aabb));
+	// The live world bake_hlod() returns, rendered without a save and reload.
+	CHECK(source->get_bounds().has_volume());
+	CHECK(in_near(source->get_bounds()));
+	CHECK_FALSE(in_far(source->get_bounds()));
+	// Loaded worlds: the saver must widen bounds that miss the root (e.g. set by a caller).
+	source->set_bounds(payload_aabb);
 
 	ResourceFormatSaverGaussianSplatWorld saver;
 	ResourceFormatLoaderGaussianSplatWorld loader;
