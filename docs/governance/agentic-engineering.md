@@ -111,10 +111,8 @@ from the changed paths:
   not R3, because a required check covers each entry, or the entry cannot change
   what is published:
     - `docs-build`, a required check on `master` since 2026-10-08, builds with
-      `mkdocs.yml` and `overrides/**` and runs `scripts/build_documentation.py`
-      (which runs `scripts/docs/check_doxygen_output.py`) and
-      `scripts/stage_public_docs.py`. It fails on a broken generator run, stage or
-      strict MkDocs build.
+      `mkdocs.yml` and `overrides/**` and runs `scripts/stage_public_docs.py`. It
+      fails on a broken stage or strict MkDocs build.
     - `tests/agentic/test_stage_public_docs.py` pins the public-scope exclusions of
       `scripts/stage_public_docs.py`. `tests/agentic/test_cpp_api_redirect.py` pins
       `scripts/docs/redirect_cpp_api_to_latest.py`, which only a `v*` tag deploy
@@ -127,6 +125,11 @@ from the changed paths:
       browsers) are raised from R0 (`docs/**`).
     - `scripts/check_docs_media_budget.py` stays R3. `deploy` runs it right before
       publishing, and no test checks the budget script itself.
+    - `scripts/build_documentation.py` and `scripts/docs/check_doxygen_output.py`
+      stay R3. `docs-build` runs the PR's own copies, so a change that skips a
+      generator (its committed output then stays unchanged and the freshness diff
+      passes) or that accepts an empty Doxygen shell still passes, and no test
+      checks either script.
 - **A diff that touches `.agentic/policy.json` is forced to the top class**, R3
   (`SELF_REFERENTIAL_PATHS` in the classifier), although the rules list
   `.agentic/**` as R0. The rest of `.agentic/` stays R0.
