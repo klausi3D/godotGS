@@ -1,5 +1,12 @@
 var NAVTREEINDEX41 =
 {
+"structPainterlyRenderInput.html#a77279e06e3324588d2620da5899e24ec":[1,0,149,1],
+"structPainterlyRenderInput.html#a7fe3bdefdfb64d496a69e9e27f0114a2":[1,0,149,9],
+"structPainterlyRenderInput.html#abca5b34a7eaa7bc28dc18d1eb143dd8e":[1,0,149,7],
+"structPainterlyRenderInput.html#acc59c787c77834bba2171562c6d25dbf":[1,0,149,4],
+"structPainterlyRenderInput.html#ae21201f83c13650e39a807086553a37d":[1,0,149,5],
+"structPainterlyRenderInput.html#af4f383202834248ee162ec148547597f":[1,0,149,0],
+"structPainterlyRenderResult.html":[1,0,150],
 "structPainterlyRenderResult.html#a6fdc5ae414851792322da1d1a3662d70":[1,0,150,1],
 "structPainterlyRenderResult.html#a7d3cbcd069e535e3869ec37f03391ec6":[1,0,150,0],
 "structPainterlyRenderResult.html#a7f4c58ca94bd996bc51c8ad83571d409":[1,0,150,3],
@@ -242,12 +249,5 @@ var NAVTREEINDEX41 =
 "structRasterStats.html#ad8f5bdf350c4dab0d14842b1d37db0a4":[1,0,166,26],
 "structRasterStats.html#adca5e258a91741d44a6db9330383e3d7":[1,0,166,19],
 "structRasterStats.html#ae325a160dce4fb4019ab5e3d418acfc8":[1,0,166,24],
-"structRasterStats.html#ae911433f94d5cf087d056680faee54aa":[1,0,166,25],
-"structRasterStats.html#aefbc8959c2caee04477b4f1b40845102":[1,0,166,30],
-"structRasterStats.html#afc93ce6c92498181eacbe8f54bc4c633":[1,0,166,21],
-"structRasterStats.html#afd4bf85cec9e310c463b17d89632ce4e":[1,0,166,18],
-"structRenderConfigOrchestrator_1_1Dependencies.html":[1,0,167,0],
-"structRenderConfigOrchestrator_1_1Dependencies.html#a0080f54ae93f9d37006f128c2f832c8c":[1,0,167,0,1],
-"structRenderConfigOrchestrator_1_1Dependencies.html#a70f794d347cfc97dcad9ff64b728cbce":[1,0,167,0,3],
-"structRenderConfigOrchestrator_1_1Dependencies.html#a97106b0ba1b85fd211fa8414fd8c6fe5":[1,0,167,0,2]
+"structRasterStats.html#ae911433f94d5cf087d056680faee54aa":[1,0,166,25]
 };

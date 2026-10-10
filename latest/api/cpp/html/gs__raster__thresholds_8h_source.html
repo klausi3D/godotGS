@@ -109,9 +109,17 @@ $(document).ready(function(){initNavTree('gs__raster__thresholds_8h_source.html'
 <div class="line"><a id="l00010" name="l00010"></a><span class="lineno">   10</span><span class="comment">// (GLSL cannot share a C++ constexpr) — keep the two numerically equal.</span></div>
 <div class="line"><a id="l00011" name="l00011"></a><span class="lineno">   11</span><span class="keyword">static</span> <span class="keyword">constexpr</span> <span class="keywordtype">float</span> RASTER_ALPHA_THRESHOLD = 1.0f / 255.0f;</div>
 <div class="line"><a id="l00012" name="l00012"></a><span class="lineno">   12</span> </div>
-<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span>} <span class="comment">// namespace gs</span></div>
-<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span> </div>
-<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span><span class="preprocessor">#endif </span><span class="comment">// GS_RASTER_THRESHOLDS_H</span></div>
+<div class="line"><a id="l00013" name="l00013"></a><span class="lineno">   13</span><span class="comment">// Default screen-space low-pass (px^2 added to the cov2d diagonal in tile</span></div>
+<div class="line"><a id="l00014" name="l00014"></a><span class="lineno">   14</span><span class="comment">// binning). 0.3 is what every reference adds: Inria forward.cu, gsplat `eps2d`</span></div>
+<div class="line"><a id="l00015" name="l00015"></a><span class="lineno">   15</span><span class="comment">// (classic and antialiased modes) and aras-p. Classic-trained models were</span></div>
+<div class="line"><a id="l00016" name="l00016"></a><span class="lineno">   16</span><span class="comment">// optimized against exactly this dilation (#1173). The shader clamps the</span></div>
+<div class="line"><a id="l00017" name="l00017"></a><span class="lineno">   17</span><span class="comment">// runtime value to [0.05, 2.0]. Single host source for the struct defaults and</span></div>
+<div class="line"><a id="l00018" name="l00018"></a><span class="lineno">   18</span><span class="comment">// the `rendering/gaussian_splatting/rasterization/low_pass_filter` default.</span></div>
+<div class="line"><a id="l00019" name="l00019"></a><span class="lineno">   19</span><span class="keyword">static</span> <span class="keyword">constexpr</span> <span class="keywordtype">float</span> RASTER_LOW_PASS_FILTER_DEFAULT = 0.3f;</div>
+<div class="line"><a id="l00020" name="l00020"></a><span class="lineno">   20</span> </div>
+<div class="line"><a id="l00021" name="l00021"></a><span class="lineno">   21</span>} <span class="comment">// namespace gs</span></div>
+<div class="line"><a id="l00022" name="l00022"></a><span class="lineno">   22</span> </div>
+<div class="line"><a id="l00023" name="l00023"></a><span class="lineno">   23</span><span class="preprocessor">#endif </span><span class="comment">// GS_RASTER_THRESHOLDS_H</span></div>
 <div class="ttc" id="anamespacegs_html"><div class="ttname"><a href="namespacegs.html">gs</a></div><div class="ttdef"><b>Definition</b> gs_project_settings.h:24</div></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->

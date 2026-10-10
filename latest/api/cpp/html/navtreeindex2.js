@@ -246,8 +246,8 @@ var NAVTREEINDEX2 =
 "classGaussianSplatManager_1_1ScopedSubmissionLock.html#ac2dae0d00da2a716897c50439fc0f19f":[1,0,66,0,0],
 "classGaussianSplatManager_1_1ScopedSubmissionLock.html#ae40185337a6897c1ede7e1774f4fd848":[1,0,66,0,3],
 "classGaussianSplatNode3D.html":[1,0,69],
-"classGaussianSplatNode3D.html#a003cd5a334d5103a448475b40644dec8":[1,0,69,98],
-"classGaussianSplatNode3D.html#a013fb829d4bae4b57709909d44da9b65":[1,0,69,25],
-"classGaussianSplatNode3D.html#a0323a45d006c4b708373ac4f90160a4e":[1,0,69,40],
-"classGaussianSplatNode3D.html#a05c414543edc23befa395863f492ca93":[1,0,69,73]
+"classGaussianSplatNode3D.html#a003cd5a334d5103a448475b40644dec8":[1,0,69,101],
+"classGaussianSplatNode3D.html#a013fb829d4bae4b57709909d44da9b65":[1,0,69,27],
+"classGaussianSplatNode3D.html#a0323a45d006c4b708373ac4f90160a4e":[1,0,69,42],
+"classGaussianSplatNode3D.html#a05c414543edc23befa395863f492ca93":[1,0,69,75]
 };

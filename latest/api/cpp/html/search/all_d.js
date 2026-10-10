@@ -324,7 +324,7 @@ var searchData=
   ['loddebugstats_321',['LODDebugStats',['../structLODDebugStats.html',1,'']]],
   ['lodstats_322',['LODStats',['../structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html',1,'GaussianSplatting::HierarchicalSplatStructure::QueryResult']]],
   ['log_323',['log',['../namespacegs__logger.html#adff94b27f1e0dab276953e7026874590',1,'gs_logger']]],
-  ['log_5finterval_5fframes_324',['log_interval_frames',['../structSortingStrategyConfig.html#a729f51a8c7f9430c763aaec07dc0fcf3',1,'SortingStrategyConfig::log_interval_frames'],['../structGaussianStreamingTypes_1_1DiagnosticsState.html#abe60cce699aea08b0ba6c6a50d040a34',1,'GaussianStreamingTypes::DiagnosticsState::LOG_INTERVAL_FRAMES']]],
+  ['log_5finterval_5fframes_324',['log_interval_frames',['../structGaussianStreamingTypes_1_1DiagnosticsState.html#abe60cce699aea08b0ba6c6a50d040a34',1,'GaussianStreamingTypes::DiagnosticsState::LOG_INTERVAL_FRAMES'],['../structSortingStrategyConfig.html#a729f51a8c7f9430c763aaec07dc0fcf3',1,'SortingStrategyConfig::log_interval_frames']]],
   ['log_5finterval_5fpath_325',['LOG_INTERVAL_PATH',['../structGPUSortingConfig.html#ae29dcc828899b861ab7299609502c7b6',1,'GPUSortingConfig']]],
   ['log_5fmessage_326',['log_message',['../namespacegs__logger.html#ad30704cdcbcb1cd9928fa52c734e33fc',1,'gs_logger']]],
   ['log_5fmetrics_327',['log_metrics',['../structSortingStrategyConfig.html#a9f344c865269beb0f1b9dc34bc176a98',1,'SortingStrategyConfig']]],

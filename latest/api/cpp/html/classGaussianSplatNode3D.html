@@ -139,6 +139,12 @@ Public Types</h2></td></tr>
  }</td></tr>
 <tr class="memdesc:a61a43ff1af027581c8deee88786b06c0"><td class="mdescLeft">&#160;</td><td class="mdescRight">Debug visualization modes for development.  <a href="classGaussianSplatNode3D.html#a61a43ff1af027581c8deee88786b06c0">More...</a><br /></td></tr>
 <tr class="separator:a61a43ff1af027581c8deee88786b06c0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a844e04484eb8b961d433378753991823" id="r_a844e04484eb8b961d433378753991823"><td class="memItemLeft" align="right" valign="top">enum &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">AntialiasingCompensation</a> { <a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823a640aa6b7275143b888d26d61b78670ec">ANTIALIASING_COMPENSATION_AUTO</a> = 0
+, <a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823aedb70dce2f7e87b5bf9c0516fa855f26">ANTIALIASING_COMPENSATION_OFF</a>
+, <a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823a47b6f3b1948870f318e53fdfc14e15bd">ANTIALIASING_COMPENSATION_ON</a>
+ }</td></tr>
+<tr class="memdesc:a844e04484eb8b961d433378753991823"><td class="mdescLeft">&#160;</td><td class="mdescRight">How the asset was trained, which decides the Mip-Splatting opacity compensation in binning (#1173).  <a href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">More...</a><br /></td></tr>
+<tr class="separator:a844e04484eb8b961d433378753991823"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
@@ -256,6 +262,12 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ad0cdb40080ba02da7c55f523b3de7c64" id="r_ad0cdb40080ba02da7c55f523b3de7c64"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#ad0cdb40080ba02da7c55f523b3de7c64">get_cast_shadow</a> () const</td></tr>
 <tr class="memdesc:ad0cdb40080ba02da7c55f523b3de7c64"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns true if shadow casting is enabled.  <br /></td></tr>
 <tr class="separator:ad0cdb40080ba02da7c55f523b3de7c64"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a81b13575c9683653bbba463d1d45c34c" id="r_a81b13575c9683653bbba463d1d45c34c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a81b13575c9683653bbba463d1d45c34c">set_antialiasing_compensation</a> (<a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">AntialiasingCompensation</a> p_mode)</td></tr>
+<tr class="memdesc:a81b13575c9683653bbba463d1d45c34c"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets how the asset was trained (#1173).  <br /></td></tr>
+<tr class="separator:a81b13575c9683653bbba463d1d45c34c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acfe45c073174f679e3c0de6d1bb076d1" id="r_acfe45c073174f679e3c0de6d1bb076d1"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">AntialiasingCompensation</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#acfe45c073174f679e3c0de6d1bb076d1">get_antialiasing_compensation</a> () const</td></tr>
+<tr class="memdesc:acfe45c073174f679e3c0de6d1bb076d1"><td class="mdescLeft">&#160;</td><td class="mdescRight">Returns the antialiasing-compensation mode.  <br /></td></tr>
+<tr class="separator:acfe45c073174f679e3c0de6d1bb076d1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2bdcbaf23c193b3075af4aabfbb2e82b" id="r_a2bdcbaf23c193b3075af4aabfbb2e82b"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatNode3D.html#a2bdcbaf23c193b3075af4aabfbb2e82b">set_use_frustum_culling</a> (bool p_enabled)</td></tr>
 <tr class="memdesc:a2bdcbaf23c193b3075af4aabfbb2e82b"><td class="mdescLeft">&#160;</td><td class="mdescRight">Enables or disables frustum culling.  <br /></td></tr>
 <tr class="separator:a2bdcbaf23c193b3075af4aabfbb2e82b"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -542,6 +554,30 @@ Basic Usage</h2>
 </div><!-- fragment --><dl class="section user"><dt>Note: Use <code>splat_asset</code> (imported or raw PLY/SPZ resource) or</dt><dd><code><a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a></code> (procedural) instead. This node and <a class="el" href="classGaussianSplatWorld3D.html">GaussianSplatWorld3D</a> are the two canonical public scene surfaces for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> splatting content. </dd></dl>
 <dl class="section user"><dt>Note: This node participates in the shared scene renderer registry and does not</dt><dd>own a dedicated <a class="el" href="classGaussianSplatRenderer.html" title="GPU rendering backend for Gaussian Splatting.">GaussianSplatRenderer</a> instance. It always registers as a resident instance submission; the project-wide streaming/route_policy applies to <a class="el" href="classGaussianSplatWorld3D.html">GaussianSplatWorld3D</a> only. </dd></dl>
 </div><h2 class="groupheader">Member Enumeration Documentation</h2>
+<a id="a844e04484eb8b961d433378753991823" name="a844e04484eb8b961d433378753991823"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a844e04484eb8b961d433378753991823">&#9670;&#160;</a></span>AntialiasingCompensation</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">enum <a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">GaussianSplatNode3D::AntialiasingCompensation</a></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>How the asset was trained, which decides the Mip-Splatting opacity compensation in binning (#1173). </p>
+<table class="fieldtable">
+<tr><th colspan="2">Enumerator</th></tr><tr><td class="fieldname"><a id="a844e04484eb8b961d433378753991823a640aa6b7275143b888d26d61b78670ec" name="a844e04484eb8b961d433378753991823a640aa6b7275143b888d26d61b78670ec"></a>ANTIALIASING_COMPENSATION_AUTO&#160;</td><td class="fielddoc"><p>Asset's recorded training mode (SPZ flag), else the project setting. </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a844e04484eb8b961d433378753991823aedb70dce2f7e87b5bf9c0516fa855f26" name="a844e04484eb8b961d433378753991823aedb70dce2f7e87b5bf9c0516fa855f26"></a>ANTIALIASING_COMPENSATION_OFF&#160;</td><td class="fielddoc"><p>Classic 3DGS (Inria, gsplat <code>classic</code>): no compensation. </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a844e04484eb8b961d433378753991823a47b6f3b1948870f318e53fdfc14e15bd" name="a844e04484eb8b961d433378753991823a47b6f3b1948870f318e53fdfc14e15bd"></a>ANTIALIASING_COMPENSATION_ON&#160;</td><td class="fielddoc"><p>Trained with antialiasing (Mip-Splatting, gsplat <code>antialiased</code>). </p>
+</td></tr>
+</table>
+
+</div>
+</div>
 <a id="a61a43ff1af027581c8deee88786b06c0" name="a61a43ff1af027581c8deee88786b06c0"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a61a43ff1af027581c8deee88786b06c0">&#9670;&#160;</a></span>DebugDrawMode</h2>
 
@@ -951,6 +987,33 @@ Basic Usage</h2>
 </div><div class="memdoc">
 
 <p>Returns the axis-aligned bounding box in local space. </p>
+
+</div>
+</div>
+<a id="acfe45c073174f679e3c0de6d1bb076d1" name="acfe45c073174f679e3c0de6d1bb076d1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acfe45c073174f679e3c0de6d1bb076d1">&#9670;&#160;</a></span>get_antialiasing_compensation()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">AntialiasingCompensation</a> GaussianSplatNode3D::get_antialiasing_compensation </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Returns the antialiasing-compensation mode. </p>
 
 </div>
 </div>
@@ -2510,6 +2573,27 @@ Basic Usage</h2>
 
 <p>Restores original colors before any color grading was baked. </p>
 <p>This reverts all splat colors to their state before the first <a class="el" href="classGaussianSplatNode3D.html#ab735c41b1c164c9fa58f24d41ad00c9b" title="Bakes the current color grading into the splat data.">bake_color_grading()</a> call. Does nothing (and returns OK) if no baking has been applied. </p><dl class="section return"><dt>Returns</dt><dd>OK, ERR_UNAVAILABLE on a splat_asset node (#1105), ERR_UNCONFIGURED with no data, or ERR_INVALID_DATA when <a class="el" href="classGaussianSplatNode3D.html#acc3d654ab0aae9335bf66dd9c17d20c0" title="Sets splat data directly from arrays (procedural generation).">set_splat_data()</a> replaced the data since the bake (nothing restored; grading stays disabled). </dd></dl>
+
+</div>
+</div>
+<a id="a81b13575c9683653bbba463d1d45c34c" name="a81b13575c9683653bbba463d1d45c34c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a81b13575c9683653bbba463d1d45c34c">&#9670;&#160;</a></span>set_antialiasing_compensation()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatNode3D::set_antialiasing_compensation </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823">AntialiasingCompensation</a>&#160;</td>
+          <td class="paramname"><em>p_mode</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Sets how the asset was trained (#1173). </p>
+<p>Auto uses the asset's recorded flag (SPZ), else <code>rendering/gaussian_splatting/rasterization/antialiasing_compensation</code>. </p>
 
 </div>
 </div>

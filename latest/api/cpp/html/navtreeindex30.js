@@ -1,5 +1,12 @@
 var NAVTREEINDEX30 =
 {
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#ab0f1592556ddf944144213ab741b5303":[1,0,61,0,9],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#ab6377c573ba929720b8e0c64048c042d":[1,0,61,0,17],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#abe40b7f7bc781fbf14b7cb73e59b0b24":[1,0,61,0,20],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#abff1365f9c7f8f940b14d8ec74805624":[1,0,61,0,1],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#ac6c984119bb5fb1bc137df29791e0886":[1,0,61,0,21],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#acd9c25bc3f52c53c9c109a440b1dd755":[1,0,61,0,3],
+"structGaussianSplatAsset_1_1PayloadSnapshot.html#ad52f023895ea4de11bbe3bb816b73cb5":[1,0,61,0,14],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#adcba55325dc9c7cc049badaec4f0422a":[1,0,61,0,10],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#ae2c8f8eceed7b4afa62c259d58e505e3":[1,0,61,0,18],
 "structGaussianSplatAsset_1_1PayloadSnapshot.html#af422cf8c58782a104c0e461e2170851c":[1,0,61,0,7],
@@ -242,12 +249,5 @@ var NAVTREEINDEX30 =
 "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a75ab88589c0f710121b356933ce20e7d":[1,0,77,15,12],
 "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a79f3f68595cff1d061b1f59c0f0b2043":[1,0,77,15,0],
 "structGaussianSplatRenderer_1_1WorldSubmissionContract.html#a9c461e882ee09e90efabfabc88b8d79c":[1,0,77,15,1],
-"structGaussianSplatRenderer_1_1WorldSubmissionContract.html#aa780d34146d616a357a73a958df5f5b9":[1,0,77,15,7],
-"structGaussianSplatRenderer_1_1WorldSubmissionContract.html#aaaa389fb7e62ce5d9788389d064d7c8d":[1,0,77,15,8],
-"structGaussianSplatRenderer_1_1WorldSubmissionContract.html#ac039a05dfb07a6a7ec56e5840255243e":[1,0,77,15,13],
-"structGaussianSplatRenderer_1_1WorldSubmissionContract.html#ac9be3c8092097494b02ee7375634d9bd":[1,0,77,15,3],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html":[1,0,77,16],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a04695d09e1f89038614f07ab2f000fb8":[1,0,77,16,4],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a162986661dca6014503d97d970eec0c9":[1,0,77,16,17],
-"structGaussianSplatRenderer_1_1WorldSubmissionRuntimeStateSnapshot.html#a2dc0e461321baeebefbe16c6774d15df":[1,0,77,16,1]
+"structGaussianSplatRenderer_1_1WorldSubmissionContract.html#aa780d34146d616a357a73a958df5f5b9":[1,0,77,15,7]
 };

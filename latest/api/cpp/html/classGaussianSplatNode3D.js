@@ -1,5 +1,10 @@
 var classGaussianSplatNode3D =
 [
+    [ "AntialiasingCompensation", "classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823", [
+      [ "ANTIALIASING_COMPENSATION_AUTO", "classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823a640aa6b7275143b888d26d61b78670ec", null ],
+      [ "ANTIALIASING_COMPENSATION_OFF", "classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823aedb70dce2f7e87b5bf9c0516fa855f26", null ],
+      [ "ANTIALIASING_COMPENSATION_ON", "classGaussianSplatNode3D.html#a844e04484eb8b961d433378753991823a47b6f3b1948870f318e53fdfc14e15bd", null ]
+    ] ],
     [ "DebugDrawMode", "classGaussianSplatNode3D.html#a61a43ff1af027581c8deee88786b06c0", [
       [ "DEBUG_DRAW_OFF", "classGaussianSplatNode3D.html#a61a43ff1af027581c8deee88786b06c0ac7bc48970b9faaff9b5e42019463451d", null ],
       [ "DEBUG_DRAW_WIREFRAME", "classGaussianSplatNode3D.html#a61a43ff1af027581c8deee88786b06c0ab0ddba315699e1e2bc36595210747990", null ],
@@ -30,6 +35,7 @@ var classGaussianSplatNode3D =
     [ "can_bake_color_grading", "classGaussianSplatNode3D.html#a5d0b964d0ef1c985dae7344aedd911c5", null ],
     [ "force_update", "classGaussianSplatNode3D.html#a4d3b9ae2e5dca717e7f72f1fe96a4fd3", null ],
     [ "get_aabb", "classGaussianSplatNode3D.html#a92165143c8a66dbc35fc0eabb93764c3", null ],
+    [ "get_antialiasing_compensation", "classGaussianSplatNode3D.html#acfe45c073174f679e3c0de6d1bb076d1", null ],
     [ "get_asset_origin_label", "classGaussianSplatNode3D.html#a25d46e776c082ae849d7b10ae9c52de8", null ],
     [ "get_baked_color_grading", "classGaussianSplatNode3D.html#a2a2c832eb505f362a0a2e214a6769f7c", null ],
     [ "get_cast_shadow", "classGaussianSplatNode3D.html#ad0cdb40080ba02da7c55f523b3de7c64", null ],
@@ -93,6 +99,7 @@ var classGaussianSplatNode3D =
     [ "process_gaussian_render", "classGaussianSplatNode3D.html#a45e4dc2107db7d2524864b7a6db58f8f", null ],
     [ "reload_asset", "classGaussianSplatNode3D.html#a312cd145ef40835535c42be61b809d20", null ],
     [ "restore_color_grading", "classGaussianSplatNode3D.html#aea577d7c480670e1f045f6ac2fb497d4", null ],
+    [ "set_antialiasing_compensation", "classGaussianSplatNode3D.html#a81b13575c9683653bbba463d1d45c34c", null ],
     [ "set_cast_shadow", "classGaussianSplatNode3D.html#ae3ac1b4bb8ee1b4326679e36d85f810e", null ],
     [ "set_color_grading", "classGaussianSplatNode3D.html#a9385d070b5d2fe98d3732e7fe788c2c1", null ],
     [ "set_color_variation", "classGaussianSplatNode3D.html#a1ee338e3b3e9b7b9cec45648278af126", null ],

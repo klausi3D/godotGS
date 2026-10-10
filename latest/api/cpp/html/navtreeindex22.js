@@ -1,5 +1,12 @@
 var NAVTREEINDEX22 =
 {
+"streaming__diagnostics__surface_8cpp.html":[2,0,0,0,3,50],
+"streaming__eviction__controller_8cpp.html":[2,0,0,0,3,51],
+"streaming__eviction__controller_8h.html":[2,0,0,0,3,52],
+"streaming__eviction__controller_8h_source.html":[2,0,0,0,3,52],
+"streaming__global__atlas__registry_8cpp.html":[2,0,0,0,3,53],
+"streaming__global__atlas__registry_8h.html":[2,0,0,0,3,54],
+"streaming__global__atlas__registry_8h_source.html":[2,0,0,0,3,54],
 "streaming__layout__hint_8cpp.html":[2,0,0,0,3,55],
 "streaming__layout__hint_8cpp.html#a038963a4b2338ec586f025d807ec3c93":[2,0,0,0,3,55,7],
 "streaming__layout__hint_8cpp.html#a098b22662c1da1f579a90ba4096ab9ec":[2,0,0,0,3,55,4],
@@ -242,12 +249,5 @@ var NAVTREEINDEX22 =
 "structComputeCapabilityProbe.html#a4652412d63d0f576c713c838f15431b2":[1,0,39,4],
 "structComputeCapabilityProbe.html#a7584d5f85cfb159a946da075765ea9a5":[1,0,39,8],
 "structComputeCapabilityProbe.html#a7cd348cd287954d41a20a87a323a3fb7":[1,0,39,3],
-"structComputeCapabilityProbe.html#a940ba0d1aca374d7593cc3755dbef0fc":[1,0,39,0],
-"structComputeCapabilityProbe.html#a9f47969c5c9a0513afba7094b5223d24":[1,0,39,1],
-"structComputeCapabilityProbe.html#ac8de9c8bd99b4e4c592fe593b58a7636":[1,0,39,7],
-"structCullCounters.html":[1,0,40],
-"structCullCounters.html#a0e4a6efa59983e8bf46b83cd4e1f7d05":[1,0,40,0],
-"structCullCounters.html#a0ffbd1d05c83123a02f6d0c446201e54":[1,0,40,6],
-"structCullCounters.html#a261b6d4b9e2d311e96612881baeb9e8f":[1,0,40,7],
-"structCullCounters.html#a411af4c2583c12a90ad3d324426a51de":[1,0,40,8]
+"structComputeCapabilityProbe.html#a940ba0d1aca374d7593cc3755dbef0fc":[1,0,39,0]
 };

@@ -1,5 +1,12 @@
 var NAVTREEINDEX43 =
 {
+"structSPZLoader_1_1SPZHeader.html#a78ab135132696b2311eb466fceac4c51":[1,0,214,0,1],
+"structSPZLoader_1_1SPZHeader.html#a8410a887440f1c31ae515f1c34843f8b":[1,0,214,0,4],
+"structSPZLoader_1_1SPZHeader.html#ad63d4979c0fcbce16b5983e9e0950f62":[1,0,214,0,6],
+"structSelectionState.html":[1,0,190],
+"structSelectionState.html#a34f0d9a2573568ea56c406217d0abf9a":[1,0,190,0],
+"structSelectionState.html#a4136320bb8d73cd3b571f05ea101059b":[1,0,190,3],
+"structSelectionState.html#ac4eee0ddc544b09e4c5bee411e9c4717":[1,0,190,4],
 "structSelectionState.html#ae0359dc0bb31deeb4dadac4e2d15a8c6":[1,0,190,1],
 "structSelectionState.html#afd3af6e72ea38e7633e9eea515d7b2e3":[1,0,190,2],
 "structSortBufferHandles.html":[1,0,195],
@@ -242,12 +249,5 @@ var NAVTREEINDEX43 =
 "structStreamingUploadPipeline_1_1PackJob.html#a0fd22eb9d4e615326e636ece230abba1":[1,0,224,0,8],
 "structStreamingUploadPipeline_1_1PackJob.html#a2e1492948ee25ad375f1ba17ba01562e":[1,0,224,0,4],
 "structStreamingUploadPipeline_1_1PackJob.html#a2f6766a34ef1cc942852e772d22b954e":[1,0,224,0,9],
-"structStreamingUploadPipeline_1_1PackJob.html#a43c9fbecafe9e48f0c35ffcd4e53d94f":[1,0,224,0,2],
-"structStreamingUploadPipeline_1_1PackJob.html#a4c1fb68339a2e5eda92ebe99c0e5013a":[1,0,224,0,6],
-"structStreamingUploadPipeline_1_1PackJob.html#a528bd235ce045575b92e649ca9d1b253":[1,0,224,0,0],
-"structStreamingUploadPipeline_1_1PackJob.html#a7d0f42595c41aba5231ddc685df713eb":[1,0,224,0,1],
-"structStreamingUploadPipeline_1_1PackJob.html#a838657f71a395785888e1bbf651703d5":[1,0,224,0,3],
-"structStreamingUploadPipeline_1_1PackJob.html#a97b1e5102e427be9dcfd9bba4410b70c":[1,0,224,0,10],
-"structStreamingUploadPipeline_1_1PackJob.html#ac8d8bfcd1de5556b2f570f1967f665fb":[1,0,224,0,5],
-"structStreamingUploadPipeline_1_1PackJob.html#af090eee4aa66515e9471c5fc66a082be":[1,0,224,0,7]
+"structStreamingUploadPipeline_1_1PackJob.html#a43c9fbecafe9e48f0c35ffcd4e53d94f":[1,0,224,0,2]
 };

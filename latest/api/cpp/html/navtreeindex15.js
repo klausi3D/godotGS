@@ -1,5 +1,11 @@
 var NAVTREEINDEX15 =
 {
+"classTileRenderer.html#aff457304904abeb382abb1ff1456c42b":[1,0,233,150],
+"classTileRenderer_1_1RenderFrameExecutor.html":[1,0,233,1],
+"classTileRenderer_1_1RenderFrameExecutor.html#a42c19c7a06fa66bc4b5191246f5e19eb":[1,0,233,1,0],
+"classTileRenderer_1_1RenderFrameExecutor.html#a5d4753410be789981a2e5f9f5a026814":[1,0,233,1,1],
+"classTileRenderer_1_1RenderFrameExecutor.html#ab580af09cd72c357d7f9e1dec35523f9":[1,0,233,1,2],
+"classVRAMBudgetRegulator.html":[1,0,240],
 "classVRAMBudgetRegulator.html#a1e963e55eba70fa0eedf9720a9c8e584":[1,0,240,13],
 "classVRAMBudgetRegulator.html#a23069e42699735640328d4abdc32fa9e":[1,0,240,0],
 "classVRAMBudgetRegulator.html#a537c768394145aa9d3d2d73eb745698f":[1,0,240,4],
@@ -126,8 +132,8 @@ var NAVTREEINDEX15 =
 "float16__utils_8h.html#ae94e3aaedc72714f65e0ddef18b30f08":[2,0,0,0,12,5,7],
 "float16__utils_8h.html#afbd8cadebbee8d40ded6edf3a4196859":[2,0,0,0,12,5,8],
 "float16__utils_8h_source.html":[2,0,0,0,12,5],
-"functions.html":[1,3,0],
 "functions.html":[1,3,0,0],
+"functions.html":[1,3,0],
 "functions_a.html":[1,3,0,1],
 "functions_b.html":[1,3,0,2],
 "functions_c.html":[1,3,0,3],
@@ -179,8 +185,8 @@ var NAVTREEINDEX15 =
 "functions_type.html":[1,3,3],
 "functions_u.html":[1,3,0,21],
 "functions_v.html":[1,3,0,22],
-"functions_vars.html":[1,3,2,0],
 "functions_vars.html":[1,3,2],
+"functions_vars.html":[1,3,2,0],
 "functions_vars_a.html":[1,3,2,1],
 "functions_vars_b.html":[1,3,2,2],
 "functions_vars_c.html":[1,3,2,3],
@@ -243,11 +249,5 @@ var NAVTREEINDEX15 =
 "gaussian__editor__plugin_8cpp.html":[2,0,0,0,4,4],
 "gaussian__editor__plugin_8h.html":[2,0,0,0,4,5],
 "gaussian__editor__plugin_8h_source.html":[2,0,0,0,4,5],
-"gaussian__editor__services_8cpp.html":[2,0,0,0,4,6],
-"gaussian__editor__services_8h.html":[2,0,0,0,4,7],
-"gaussian__editor__services_8h_source.html":[2,0,0,0,4,7],
-"gaussian__gpu__layout_8cpp.html":[2,0,0,0,12,6],
-"gaussian__gpu__layout_8cpp.html#a209dc33d3828ba249436a40c4a1786b1":[2,0,0,0,12,6,5],
-"gaussian__gpu__layout_8cpp.html#a526f5cdbe71ac61e60c38f6a64dceb35":[2,0,0,0,12,6,6],
-"gaussian__gpu__layout_8cpp.html#a54f4877865c5e9e3dc121d8618f98744":[2,0,0,0,12,6,3]
+"gaussian__editor__services_8cpp.html":[2,0,0,0,4,6]
 };
