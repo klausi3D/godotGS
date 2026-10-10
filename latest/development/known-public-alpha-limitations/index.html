@@ -2278,10 +2278,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#an-emptied-world-does-not-reach-the-renderer-1002" class="md-nav__link">
+  <a href="#editing-a-worlds-metadata-in-place-does-not-reach-the-renderer-1002" class="md-nav__link">
     <span class="md-ellipsis">
       
-        An emptied world does not reach the renderer (#1002)
+        Editing a world's metadata in place does not reach the renderer (#1002)
       
     </span>
   </a>
@@ -4964,10 +4964,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#an-emptied-world-does-not-reach-the-renderer-1002" class="md-nav__link">
+  <a href="#editing-a-worlds-metadata-in-place-does-not-reach-the-renderer-1002" class="md-nav__link">
     <span class="md-ellipsis">
       
-        An emptied world does not reach the renderer (#1002)
+        Editing a world's metadata in place does not reach the renderer (#1002)
       
     </span>
   </a>
@@ -5280,9 +5280,9 @@ fixed them.</p>
 <td>Active</td>
 </tr>
 <tr>
-<td>An emptied world does not reach the renderer</td>
+<td>Editing a world's metadata in place does not reach the renderer</td>
 <td><a href="https://github.com/klausi3D/godotGS/issues/1002">#1002</a></td>
-<td>Active</td>
+<td>Mitigated</td>
 </tr>
 <tr>
 <td>World bounds are never re-derived once set</td>
@@ -5850,16 +5850,14 @@ unconditional re-upload is a code fact, and the ~2 s order of magnitude at 1M is
 plausibly contention alone — but the three medians should be retaken before anyone quotes
 them as a baseline.</p>
 <p><strong>Workaround:</strong> change world content at load boundaries, not during gameplay.</p>
-<h3 id="an-emptied-world-does-not-reach-the-renderer-1002">An emptied world does not reach the renderer (<a href="https://github.com/klausi3D/godotGS/issues/1002">#1002</a>)<a class="headerlink" href="#an-emptied-world-does-not-reach-the-renderer-1002" title="Permanent link">¶</a></h3>
-<p><strong>Status: Active.</strong></p>
-<p><code>GaussianSplatWorld::clear()</code> is the one payload mutator that emits no <code>changed</code> signal.
-Every other one does. The director holds its own copy of the payload rather than the
-resource, so with no signal nothing re-registers and the previous content stays on screen.
-<code>clear()</code> is script-bound and has no in-tree C++ callers, so this is reachable only from
-user code.</p>
-<p>A second, related path: <code>get_metadata()</code> returns the resource's <code>Dictionary</code> by reference,
-so mutating it from script changes the resource without emitting <code>changed</code> either.</p>
-<p><strong>Workaround:</strong> assign an empty <code>GaussianData</code> instead of calling <code>clear()</code>.</p>
+<h3 id="editing-a-worlds-metadata-in-place-does-not-reach-the-renderer-1002">Editing a world's metadata in place does not reach the renderer (<a href="https://github.com/klausi3D/godotGS/issues/1002">#1002</a>)<a class="headerlink" href="#editing-a-worlds-metadata-in-place-does-not-reach-the-renderer-1002" title="Permanent link">¶</a></h3>
+<p><strong>Status: Mitigated.</strong> <code>GaussianSplatWorld::clear()</code> now emits <code>changed</code>, so an emptied
+world reaches the renderer. See <a href="#recently-resolved">Recently resolved</a>.</p>
+<p><code>get_metadata()</code> returns the resource's <code>Dictionary</code> by reference, so mutating it from
+script changes the resource without emitting <code>changed</code>. The director holds its own copy of
+the submission rather than the resource, so nothing re-registers and the director keeps the
+previous metadata.</p>
+<p><strong>Workaround:</strong> build a new <code>Dictionary</code> and assign it with <code>set_metadata()</code>.</p>
 <h3 id="bounds-are-never-re-derived-after-they-are-once-set-1003">Bounds are never re-derived after they are once set (<a href="https://github.com/klausi3D/godotGS/issues/1003">#1003</a>)<a class="headerlink" href="#bounds-are-never-re-derived-after-they-are-once-set-1003" title="Permanent link">¶</a></h3>
 <p><strong>Status: Active.</strong></p>
 <p>Bounds are derived from the payload only while they are empty
@@ -6045,6 +6043,14 @@ re-checked in code at the commit named in its row's <strong>Checked at</strong> 
 <td>Issue closed 2026-10-03. <code>GaussianSplatRenderer::render_shadow_depth_map</code> blits only a depth image its own pass rasterized (<code>rastered_splat_count &gt; 0</code>, not a cached reuse or painterly output, the rasterizer's current depth target at the atlas-rect size); otherwise it returns <code>SHADOW_SKIP_NO_CASTER_RASTERED</code> and writes nothing. <a href="https://github.com/klausi3D/godotGS/issues/1089#issuecomment-5972398702">Closing comment</a>: on the template, splat luma 0.31 → 0.88 (equal to shadows off), false floor-shadow pixels 23,248 → 0, mesh shadows unchanged, and a two-omni-light check showed no cross-light depth copy. Splats now cast no shadows at all; that is the Rendering entry "Splats cast no shadows" (#1095).</td>
 <td><code>ab74e332aa8</code></td>
 </tr>
+<tr>
+<td><a href="https://github.com/klausi3D/godotGS/issues/1002">#1002</a></td>
+<td>An emptied world does not reach the renderer: <code>GaussianSplatWorld::clear()</code> emits no <code>changed</code>, so the director keeps the old payload and the old content stays on screen. Workaround: assign an empty <code>GaussianData</code> instead.</td>
+<td><a href="https://github.com/klausi3D/godotGS/pull/1197">#1197</a></td>
+<td>on merge of #1197</td>
+<td><code>GaussianSplatWorld::clear()</code> emits <code>changed</code> once, after its full reset. The world node resubmits the empty world, and <code>GaussianSplatRenderer::apply_world_submission_contract</code> drops a zero-splat payload. A <code>[Node][SceneTree]</code> test asserts that after <code>clear()</code> the director's record holds no payload. The renderer step is checked in code only, with no GPU run. The metadata path is still open; it is the Mitigated entry under GaussianSplatWorld3D.</td>
+<td><code>d365a082576</code></td>
+</tr>
 </tbody>
 </table>
 
@@ -6067,7 +6073,7 @@ re-checked in code at the commit named in its row's <strong>Checked at</strong> 
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2026 21:01:58 UTC">October 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 06:35:44 UTC">October 10, 2026</span>
   </span>
 
     
