@@ -18,7 +18,6 @@
 #include "../core/gaussian_splat_world.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/resource_importer_gsplatworld.h"
-#include "../nodes/gaussian_splat_world_3d.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -27,10 +26,6 @@
 #include "core/math/math_funcs.h"
 #include "core/math/projection.h"
 #include "core/os/os.h"
-#include "scene/main/scene_tree.h"
-#include "scene/main/window.h"
-#include "scene/resources/3d/world_3d.h"
-#include "servers/rendering_server.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2891,19 +2886,15 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 }
 #endif // TOOLS_ENABLED
 
-// Real engine frustum culling (RendererSceneCull through RenderingServer::instances_cull_convex)
-// on a loaded v2 world. The camera sees only needle support that GaussianData::get_aabb(), the
-// bounds a verbatim header would carry, misses; GaussianSplatWorld3D turns the header bounds into
-// the instance AABB, so the world is found only if the header encloses the validated root.
-TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] HLOD v2 header bounds keep valid splats inside the engine frustum") {
+// Camera-frustum property on what the engine is handed. GaussianSplatWorld3D::_update_bounds()
+// publishes world->get_bounds() (when it has volume) as the instance AABB, and RendererSceneCull
+// keeps an instance when that AABB intersects the camera's convex frustum. The camera below sees
+// only needle support that GaussianData::get_aabb(), the bounds a verbatim header would carry,
+// misses. RendererSceneCull itself is not reachable here: under --gs-gpu-test the [SceneTree]
+// listener uses the dummy rasterizer, which creates no GaussianSplatStorage, so a world node's
+// instance never enters the scenario indexer.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds keep valid splats inside a camera frustum") {
 	using namespace TestGaussianSplatHlod;
-	RenderingServer *rs = RenderingServer::get_singleton();
-	SceneTree *scene_tree = SceneTree::get_singleton();
-	Window *root = scene_tree != nullptr ? scene_tree->get_root() : nullptr;
-	if (rs == nullptr || root == nullptr) {
-		FAIL("RenderingServer and the SceneTree root window are required");
-		return;
-	}
 	LocalVector<Gaussian> g;
 	hlod_make_needle_fixture(g);
 	Ref<GaussianSplatWorld> source = hlod_make_world(g);
@@ -2911,51 +2902,51 @@ TEST_CASE("[GaussianSplatting][World][SceneTree][RequiresGPU] HLOD v2 header bou
 		FAIL("bake the needle producer");
 		return;
 	}
-	const String path = hlod_temp_path("frustum_r3");
-	ResourceFormatSaverGaussianSplatWorld saver;
-	if (saver.save_resident_uncompressed(source, path) != OK) {
-		FAIL("save the needle producer");
-		return;
-	}
-	ResourceFormatLoaderGaussianSplatWorld loader;
-	Error err = ERR_BUG;
-	Ref<GaussianSplatWorld> loaded = loader.load(path, "", &err);
-	DirAccess::remove_absolute(path); // resident payload: the loaded world keeps no file handle
-	if (loaded.is_null() || err != OK || !loaded->has_resident_gaussian_data()) {
-		FAIL("the resident needle producer must load");
-		return;
-	}
+	double lo[3], hi[3];
+	hlod_root_extent(source->get_hlod_tree(), lo, hi);
+	const AABB root(Vector3(real_t(lo[0]), real_t(lo[1]), real_t(lo[2])),
+			Vector3(real_t(hi[0] - lo[0]), real_t(hi[1] - lo[1]), real_t(hi[2] - lo[2])));
 
 	Projection projection;
 	projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
-	const Transform3D near_view(Basis(), Vector3(4.0f, 0.0f, 5.0f)); // sees x in [0.5, 7.5] m at z = 0
-	const Transform3D far_view(Basis(), Vector3(50.0f, 0.0f, 5.0f));
-	const Vector<Plane> near_planes = projection.get_projection_planes(near_view);
-	const Vector<Plane> far_planes = projection.get_projection_planes(far_view);
-	{
-		// Control: a header that copied the world's default bounds would be culled from this view.
-		const Vector<Vector3> points = Geometry3D::compute_convex_mesh_points(near_planes.ptr(), near_planes.size());
-		CHECK_FALSE(source->get_bounds().intersects_convex_shape(near_planes.ptr(), near_planes.size(), points.ptr(), points.size()));
-	}
+	// Looking down -z from (4, 0, 5): sees x in [0.5, 7.5] m at z = 0.
+	const Vector<Plane> near_planes = projection.get_projection_planes(Transform3D(Basis(), Vector3(4.0f, 0.0f, 5.0f)));
+	const Vector<Plane> far_planes = projection.get_projection_planes(Transform3D(Basis(), Vector3(50.0f, 0.0f, 5.0f)));
+	const Vector<Vector3> near_points = Geometry3D::compute_convex_mesh_points(near_planes.ptr(), near_planes.size());
+	const Vector<Vector3> far_points = Geometry3D::compute_convex_mesh_points(far_planes.ptr(), far_planes.size());
+	auto in_near = [&](const AABB &p_box) {
+		return p_box.intersects_convex_shape(near_planes.ptr(), near_planes.size(), near_points.ptr(), near_points.size());
+	};
+	auto in_far = [&](const AABB &p_box) {
+		return p_box.intersects_convex_shape(far_planes.ptr(), far_planes.size(), far_points.ptr(), far_points.size());
+	};
+	// Controls: the validated splat support is in view; the verbatim-header bounds are not.
+	CHECK(in_near(root));
+	CHECK_FALSE(in_near(source->get_bounds()));
 
-	GaussianSplatWorld3D *node = memnew(GaussianSplatWorld3D);
-	node->set_auto_apply_on_ready(false);
-	node->set_world(loaded);
-	root->add_child(node);
-	scene_tree->process(0.0);
-	node->apply_world();
-	Ref<World3D> world_3d = node->get_world_3d();
-	if (world_3d.is_null()) {
-		FAIL("the world node must be inside a World3D");
-	} else {
-		const RID scenario = world_3d->get_scenario();
-		const ObjectID id = node->get_instance_id();
-		CHECK(rs->instances_cull_convex(near_planes, scenario).has(id));
-		// A view 50 m away must not find it, so the hit above comes from culling, not from an
-		// instance that is never culled.
-		CHECK_FALSE(rs->instances_cull_convex(far_planes, scenario).has(id));
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	for (int mode = 1; mode <= 3; mode++) {
+		const String path = hlod_temp_path("frustum_r3");
+		if (saver.save_with_payload_mode(source, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+			FAIL("save the needle producer");
+			return;
+		}
+		CAPTURE(mode);
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded = loader.load(path, "", &err);
+		if (loaded.is_null() || err != OK) {
+			FAIL("the needle producer must load");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		const AABB published = loaded->get_bounds();
+		// _update_bounds() falls back to GaussianData::get_aabb() for bounds without volume.
+		CHECK(published.has_volume());
+		CHECK(in_near(published));
+		// A view 50 m away misses it, so the frustum test discriminates.
+		CHECK_FALSE(in_far(published));
+		loaded.unref();
+		DirAccess::remove_absolute(path);
 	}
-	root->remove_child(node);
-	memdelete(node);
-	scene_tree->process(0.0);
 }
