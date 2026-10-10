@@ -1,4 +1,5 @@
 #include "gaussian_scene_serializer.h"
+#include "gaussian_scene_payload.h"
 #include "incremental_saver.h"
 #include "../core/gs_vector_alloc.h"
 #include "../io/gs_atomic_file_writer.h"
@@ -522,23 +523,10 @@ bool GaussianSceneSerializer::_verify_checksum(const PackedByteArray &data, uint
 }
 
 Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData::SaveSnapshot &snapshot) {
-    const Vector<Gaussian> &storage = snapshot.get_gaussians();
     PackedByteArray payload;
-    // #798: sized from the splat count, so this is the largest allocation the writer makes
-    // (144 B/splat) and by far the likeliest to fail. Both memcpys go through the raw `w`
-    // pointer, which a failed resize leaves null, and memcpy has no null guard -- note the
-    // first one runs even when count == 0. Fail closed with an Error: save_scene() routes
-    // the whole write through gs_atomic_file_write(), so any error here abandons the temp
-    // file and leaves the previous good scene byte-intact.
-    if (!gs_resize_or_fail(payload, int64_t(sizeof(uint32_t)) + int64_t(storage.size()) * int64_t(sizeof(Gaussian)),
-                "GaussianSceneSerializer::_write_gaussian_data_chunk payload")) {
-        return ERR_OUT_OF_MEMORY;
-    }
-    uint8_t *w = payload.ptrw();
-    uint32_t count = storage.size();
-    memcpy(w, &count, sizeof(uint32_t));
-    if (count > 0) {
-        memcpy(w + sizeof(uint32_t), storage.ptr(), storage.size() * sizeof(Gaussian));
+    const Error encode_err = ScenePayload::encode(snapshot, payload);
+    if (encode_err != OK) {
+        return encode_err;
     }
 
     bool used_compression = false;
@@ -759,7 +747,13 @@ Error GaussianSceneSerializer::_read_scene_header(Ref<FileAccess> file, SceneHea
 }
 
 Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, const ChunkHeader &header,
-        uint32_t p_declared_splat_count, LocalVector<Gaussian> &r_gaussians) const {
+        uint32_t p_declared_splat_count, uint16_t p_version, LoadStaging &r_staging) const {
+    const uint64_t corroborated_max_size = p_version >= 3
+            ? ScenePayload::PREFIX_SIZE + uint64_t(p_declared_splat_count) * (ScenePayload::RECORD_SIZE + ScenePayload::MAX_HIGH_ORDER * 12)
+            : uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * sizeof(Gaussian);
+    ERR_FAIL_COND_V(uint64_t(header.size) > get_load_allocation_budget_bytes(), ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(uint64_t(header.size) > corroborated_max_size + sizeof(uint32_t), ERR_FILE_CORRUPT);
+    LocalVector<Gaussian> &r_gaussians = r_staging.gaussians;
     PackedByteArray buffer = file->get_buffer(header.size);
     ERR_FAIL_COND_V_MSG(uint64_t(buffer.size()) != uint64_t(header.size), ERR_FILE_CORRUPT,
             "GAUSSIAN_DATA chunk payload is shorter than its declared size (truncated).");
@@ -770,14 +764,18 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     // Corroboration for the decompression bound: the scene header independently
     // declared how many splats this file holds, and it was read (and checksum
     // verified) before this chunk. That fixes the exact number of decompressed
-    // bytes this chunk is entitled to, so the chunk's own declared size can no
-    // longer authorise an allocation by itself (#603a).
-    const uint64_t corroborated_max_size = uint64_t(sizeof(uint32_t)) + uint64_t(p_declared_splat_count) * uint64_t(sizeof(Gaussian));
+    // bytes a legacy chunk is entitled to. V3 bounds the largest SH0-4 payload
+    // independently; its metadata and exact extent are checked after decode.
 
     PackedByteArray payload;
     const Error decode_err = _decode_chunk_payload(buffer, header, corroborated_max_size, "GAUSSIAN_DATA", payload);
     if (decode_err != OK) {
         return decode_err;
+    }
+
+    if (p_version >= 3) {
+        return ScenePayload::decode(payload, p_declared_splat_count, get_load_allocation_budget_bytes(), r_staging.gaussians, r_staging.high_order,
+                r_staging.first_order_count, r_staging.high_order_count, r_staging.mode_2d, r_staging.antialiased);
     }
 
     ERR_FAIL_COND_V(payload.size() < (int)sizeof(uint32_t), ERR_FILE_CORRUPT);
@@ -800,13 +798,6 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     // Decode into the caller's staging vector; the canonical bulk commit happens
     // in load_scene() only once the whole file has parsed (transactional, #601).
     //
-    // Format limitation (#600): the GAUSSIAN_DATA chunk carries only the per-splat
-    // `Gaussian` struct bytes (which embed the first-order SH triplet `sh_1[3]`).
-    // The high-order SH sidecar (`sh_high_order_coefficients`) is NOT persisted
-    // by this format, and the 2D-mode flag is not persisted either. After load
-    // both reset to defaults (sh_high_order_count == 0, is_2d_mode == false); the
-    // writer emits a runtime warning when a save would drop them.
-    //
     // Peak-memory note (#618 review, MAJOR 5): `payload` and `r_gaussians` are
     // both live across this copy, so a chunk of B decompressed bytes costs ~2B at
     // peak. get_load_allocation_budget_bytes() already halves the machine's
@@ -815,6 +806,15 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     if (count > 0) {
         r_gaussians.resize(count);
         memcpy(r_gaussians.ptr(), r + sizeof(uint32_t), uint64_t(count) * sizeof(Gaussian));
+    }
+
+    // Legacy records embedded SH1 but carried no structural metadata.
+    for (uint32_t i = 0; i < r_gaussians.size(); i++) {
+        for (uint32_t j = 0; j < 3; j++) {
+            if (r_gaussians[i].sh_1[j] != Vector3()) {
+                r_staging.first_order_count = MAX(r_staging.first_order_count, j + 1);
+            }
+        }
     }
 
     return OK;
@@ -946,24 +946,6 @@ Error GaussianSceneSerializer::save_scene(const String &file_path, const ::Gauss
 }
 
 Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData::SaveSnapshot &snapshot, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
-    // Honest lossy-save warning (#600). The GAUSSIAN_DATA chunk persists only the
-    // per-splat `Gaussian` struct bytes (which embed first-order SH). The
-    // high-order SH sidecar and the 2D-mode flag are NOT part of the .gsf format
-    // yet, so they will be dropped on load. Warn instead of losing data silently.
-    // A lossless versioned schema is deferred to the ADR for #600.
-    {
-        const uint32_t dropped_sh_high_order = snapshot.get_sh_high_order_count();
-        const bool dropped_2d_mode = snapshot.get_2d_mode();
-        if (dropped_sh_high_order > 0 || dropped_2d_mode) {
-            WARN_PRINT(vformat(
-                    "GaussianSceneSerializer: the .gsf format does not persist high-order "
-                    "spherical-harmonic coefficients (%d per splat) or the 2D-mode flag "
-                    "(is_2d_mode=%s); these will reset to defaults on load. Lossless "
-                    "persistence is tracked by issue #600 (deferred to a format ADR).",
-                    (int64_t)dropped_sh_high_order, dropped_2d_mode ? "true" : "false"));
-        }
-    }
-
     SceneHeader header = {};
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;
@@ -990,9 +972,7 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     header.creation_time = (uint64_t)now;
     header.modification_time = (uint64_t)now;
 
-    if (snapshot.get_gaussians().size() > 0) {
-        chunk_count++;
-    }
+    chunk_count++; // V3 always carries the complete payload, including empty assets.
     if (animation != nullptr && animation->get_clip_count() > 0) {
         chunk_count++;
     }
@@ -1011,11 +991,9 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         return err;
     }
 
-    if (snapshot.get_gaussians().size() > 0) {
-        err = _write_gaussian_data_chunk(file, snapshot);
-        if (err != OK) {
-            return err;
-        }
+    err = _write_gaussian_data_chunk(file, snapshot);
+    if (err != OK) {
+        return err;
     }
 
     if (animation != nullptr && animation->get_clip_count() > 0) {
@@ -1105,9 +1083,11 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
 
         r_staging.chunks_parsed++;
 
+        ERR_FAIL_COND_V(header.version >= 3 && chunk.type == ChunkType::HEADER, ERR_FILE_CORRUPT);
         switch (chunk.type) {
             case ChunkType::GAUSSIAN_DATA:
-                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, r_staging.gaussians);
+                ERR_FAIL_COND_V(header.version >= 3 && r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT);
+                err = _read_gaussian_data_chunk(file, chunk, header.splat_count, header.version, r_staging);
                 if (err == OK) {
                     r_staging.has_gaussian_chunk = true;
                 }
@@ -1216,7 +1196,7 @@ Error GaussianSceneSerializer::_read_scene_body(const Ref<FileAccess> &file, con
     ERR_FAIL_COND_V_MSG(chunks_seen != uint64_t(header.total_chunks), ERR_FILE_CORRUPT,
             vformat("GSF chunk count mismatch in '%s': header declares %d, parsed %d.",
                     file_path, (int64_t)header.total_chunks, (int64_t)chunks_seen));
-    ERR_FAIL_COND_V_MSG(header.splat_count > 0 && !r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT,
+    ERR_FAIL_COND_V_MSG((header.version >= 3 || header.splat_count > 0) && !r_staging.has_gaussian_chunk, ERR_FILE_CORRUPT,
             vformat("GSF header declares %d splats but the file contains no GAUSSIAN_DATA chunk: %s",
                     (int64_t)header.splat_count, file_path));
     return OK;
@@ -1241,6 +1221,10 @@ Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &f
     ERR_FAIL_COND_V_MSG(scene_header.magic != GAUSSIAN_SCENE_MAGIC, ERR_FILE_UNRECOGNIZED, "Invalid Gaussian scene file: " + file_path);
     ERR_FAIL_COND_V_MSG(scene_header.version == 0, ERR_FILE_UNRECOGNIZED,
             "Invalid Gaussian scene version 0 in file: " + file_path);
+
+    ERR_FAIL_COND_V(scene_header.minimum_reader_version == 0 || scene_header.minimum_reader_version > scene_header.version, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(scene_header.version >= 3 && scene_header.minimum_reader_version < 3, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(scene_header.minimum_reader_version > GAUSSIAN_SCENE_VERSION, ERR_FILE_UNRECOGNIZED);
 
     // Version negotiation: if the file is from a newer writer, check whether
     // this reader is still allowed to open it via minimum_reader_version.
@@ -1292,7 +1276,8 @@ Error GaussianSceneSerializer::load_scene(const String &file_path, ::GaussianDat
     // _read_scene_body already guarantees the two agree: a header declaring >0
     // splats with no GAUSSIAN_DATA chunk is rejected, and _read_gaussian_data_chunk
     // rejects a chunk whose count differs from the header's.
-    gaussian_data->set_gaussians(staging.gaussians);
+    gaussian_data->set_gaussian_payload(staging.gaussians, staging.high_order, staging.first_order_count,
+            staging.high_order_count, staging.mode_2d, staging.antialiased);
     if (animation && staging.has_animation_chunk) {
         animation->from_dict(staging.animation_dict);
     }
@@ -1555,7 +1540,14 @@ Dictionary GaussianSceneSerializer::get_file_info(const String &file_path) const
 uint64_t GaussianSceneSerializer::get_file_size_estimate(const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation) const {
     ERR_FAIL_NULL_V(gaussian_data, 0);
     uint64_t size = SCENE_HEADER_PACKED_SIZE + sizeof(ChunkHeader);
-    size += sizeof(ChunkHeader) + sizeof(uint32_t) + gaussian_data->get_count() * sizeof(Gaussian);
+    // Extents only: an estimate must not copy the payload a full save captures.
+    uint32_t splat_count = 0;
+    uint32_t high_order_count = 0;
+    if (gaussian_data->capture_save_layout(splat_count, high_order_count) != OK) {
+        return 0;
+    }
+    size += GSF_CHUNK_HEADER_SIZE + ScenePayload::PREFIX_SIZE + uint64_t(splat_count) * ScenePayload::RECORD_SIZE
+            + uint64_t(splat_count) * uint64_t(high_order_count) * 12;
     if (animation && animation->get_clip_count() > 0) {
         size += sizeof(ChunkHeader) + 4096; // Rough estimate for animation payloads.
     }

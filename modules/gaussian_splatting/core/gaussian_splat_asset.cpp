@@ -1281,6 +1281,23 @@ Dictionary GaussianSplatAsset::get_import_metadata() const {
     return import_metadata;
 }
 
+bool GaussianSplatAsset::resolve_antialiased_from_metadata(const Dictionary &p_import_metadata) {
+    const char *const key_names[] = { "gaussian_antialiased", "spz_antialiased" };
+    for (const char *key_name : key_names) {
+        const StringName key(key_name);
+        if (!p_import_metadata.has(key)) {
+            continue;
+        }
+        const Variant value = p_import_metadata[key];
+        if (value.get_type() == Variant::BOOL) {
+            return bool(value);
+        }
+        GS_LOG_WARN_DEFAULT(vformat("[GaussianSplatAsset] ignoring non-bool import metadata '%s' (%s)",
+                String(key), Variant::get_type_name(value.get_type())));
+    }
+    return false;
+}
+
 // Invariant: every bound setter below that mutates `import_metadata` acquires
 // `populate_mutex` on entry. A concurrent prefetch_parallel() worker reads
 // metadata under the same lock in populate_gaussian_data(), so writers must
@@ -1434,6 +1451,10 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 		if (err == OK) {
 			source_stats = spz_loader->get_load_statistics();
 			gaussian_data = spz_loader->get_gaussian_data();
+			if (gaussian_data.is_valid()) {
+				// Header flag 0x1 is antialiased training; carry it into the cached data.
+				gaussian_data->set_antialiased((spz_loader->get_header().flags & SPZLoader::SPZ_FLAG_ANTIALIASED) != 0);
+			}
 			file_label = "SPZ";
 			source_stage = "raw";
 		}
@@ -1767,6 +1788,7 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
         g.render_meta = gaussian_set_dc_encoding(g.render_meta, staged_dc_encoding);
         staged->set_gaussian(i, g);
     }
+    staged->set_antialiased(resolve_antialiased_from_metadata(asset_metadata));
 
     staged->set_streaming_chunk_bake(streaming_chunk_records,
             streaming_primary_source_indices,
@@ -2199,6 +2221,7 @@ Error GaussianSplatAsset::populate_from_gaussian_data(const Ref<::GaussianData> 
     import_metadata[StringName("has_stroke_age")] = stroke_ages.size() == splat_count;
     import_metadata[StringName("opacity_encoding")] = StringName("logit");
     import_metadata[StringName("gaussian_2d_mode")] = p_gaussian_data->get_2d_mode();
+    import_metadata[StringName("gaussian_antialiased")] = p_gaussian_data->get_antialiased();
     if (bounds_initialized) {
         import_metadata[StringName("bounds")] = AABB(min_pos, max_pos - min_pos);
         import_metadata[StringName("bounds_dirty")] = false;

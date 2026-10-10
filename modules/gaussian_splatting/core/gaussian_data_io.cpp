@@ -144,6 +144,7 @@ Error GaussianData::load_from_file(const String &p_path) {
     uint32_t loaded_first_order = 0;
     uint32_t loaded_high_order = 0;
     bool loaded_is_2d_mode = false;
+    bool loaded_antialiased = false;
     {
         RWLockRead loaded_lock(loaded_data->data_rwlock);
         loaded_gaussians = loaded_data->gaussians;
@@ -151,10 +152,12 @@ Error GaussianData::load_from_file(const String &p_path) {
         loaded_high_order = loaded_data->sh_high_order_count;
         loaded_high_coeffs = loaded_data->sh_high_order_coefficients;
         loaded_is_2d_mode = loaded_data->is_2d_mode;
+        loaded_antialiased = loaded_data->is_antialiased;
     }
 
     // Route through the bulk payload setter to ensure full storage invalidation.
-    set_gaussian_payload(loaded_gaussians, loaded_high_coeffs, loaded_first_order, loaded_high_order, loaded_is_2d_mode);
+    set_gaussian_payload(loaded_gaussians, loaded_high_coeffs, loaded_first_order, loaded_high_order, loaded_is_2d_mode,
+            loaded_antialiased);
 
     const int count = static_cast<int>(loaded_gaussians.size());
 
@@ -293,7 +296,8 @@ Error GaussianData::populate_from_asset(const Ref<GaussianSplatAsset> &p_asset) 
             staged_high_order_coefficients,
             staged_first_order_count,
             staged_high_order_count,
-            staged_is_2d_mode);
+            staged_is_2d_mode,
+            GaussianSplatAsset::resolve_antialiased_from_metadata(import_metadata));
     return OK;
 }
 

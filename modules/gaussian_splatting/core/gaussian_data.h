@@ -300,6 +300,8 @@ private:
     LocalVector<Vector3> sh_high_order_coefficients;
     mutable RWLock data_rwlock;
     bool is_2d_mode = false;
+    // Asset rasterization semantics, protected by data_rwlock.
+    bool is_antialiased = false;
 
     struct BrushStroke {
         Vector3 center;
@@ -453,7 +455,7 @@ public:
             const LocalVector<Vector3> &p_sh_high_order_coefficients,
             uint32_t p_sh_first_order_count,
             uint32_t p_sh_high_order_count,
-            bool p_is_2d_mode);
+            bool p_is_2d_mode, bool p_antialiased = false);
 
     /**
      * @brief Destructively drops low-importance splats, keeping the highest-ranked subset.
@@ -615,6 +617,8 @@ public:
      */
     void set_2d_mode(bool p_enabled);
     bool get_2d_mode() const { return is_2d_mode; }
+    void set_antialiased(bool p_enabled);
+    bool get_antialiased() const;
 
     /**
      * @brief Sets surface normals for 2D Gaussian (surfel) rendering.
@@ -701,6 +705,7 @@ public:
         uint32_t first_order_count = 0;
         uint32_t high_order_count = 0;
         bool mode_2d = false;
+        bool antialiased = false;
         uint64_t revision = 0;
         AABB bounds;
 
@@ -711,12 +716,17 @@ public:
         uint32_t get_sh_first_order_count() const { return first_order_count; }
         uint32_t get_sh_high_order_count() const { return high_order_count; }
         bool get_2d_mode() const { return mode_2d; }
+        bool get_antialiased() const { return antialiased; }
         uint64_t get_content_revision() const { return revision; }
         const AABB &get_aabb() const { return bounds; }
     };
 
     // On failure, the previous caller-owned snapshot remains unchanged.
     Error capture_save_snapshot(SaveSnapshot &r_snapshot) const;
+    // Reads the splat and SH sidecar extents a full save would capture, under one
+    // data_rwlock read and without copying the payload. Fails like
+    // capture_save_snapshot() when the sidecar is shorter than its declared extent.
+    Error capture_save_layout(uint32_t &r_splat_count, uint32_t &r_sh_high_order_count) const;
 
     /**
      * @brief Captures a coherent chunk snapshot for async pack jobs.
