@@ -146,7 +146,7 @@ void GPUSortingConfig::load_from_project_settings() {
             max_sort_elements, max_overlap_records, int(has_elements), int(has_overlap)));
 
     radix_bits = ps->get_setting(RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
-    workgroup_size = ps->get_setting(WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+    workgroup_size = ps->get_setting(WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE);
     // Fallbacks MUST match the registered GLOBAL_DEF (and the shippable
     // contract): 64/32/32. The old 32/16/16 fallbacks were the known-bad
     // flicker config (GS-298) and would be silently selected by any read that
@@ -225,7 +225,7 @@ void GPUSortingConfig::reset_to_defaults() {
     max_overlap_records = 100000000;
     max_raster_splats_per_tile = 65536;
     radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS;
-    workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
+    workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE;
     // 64-bit keys (32 tile + 32 depth) are the only shippable layout; 32-bit (16 depth bits)
     // bands/flickers on real-scan content (GS-298). reset_to_defaults() is also the recovery
     // path used by initialize_gpu_sorting_config() after a validation failure, so it must NOT
@@ -515,7 +515,7 @@ GPUSortingConfig GPUSortingConfig::preset_medium() {
 
     // Radix parameters - standard configuration
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower for our workload
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Standard workgroup size
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Standard workgroup size
 
     // Key layout - 64-bit for precision
     config.key_bits = 64;
@@ -549,7 +549,7 @@ GPUSortingConfig GPUSortingConfig::preset_high() {
 
     // Radix parameters - optimized for throughput
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower (larger histograms, lower occupancy)
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Standard workgroup size
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Standard workgroup size
 
     // Key layout - full precision
     config.key_bits = 64;
@@ -583,7 +583,7 @@ GPUSortingConfig GPUSortingConfig::preset_ultra() {
 
     // Radix parameters - maximum throughput
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower for our workload
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Can try 512 on very high-end GPUs
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Reduced to device-supported size at RadixSort init
 
     // Key layout - maximum precision with tie-breaker
     config.key_bits = 64;
@@ -720,7 +720,7 @@ void initialize_gpu_sorting_config() {
     // positive value is an explicit override that wins under a named preset too (#1137).
     GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 0);
     GLOBAL_DEF(GPUSortingConfig::RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
-    GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+    GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE);
     GLOBAL_DEF(GPUSortingConfig::KEY_BITS_PATH, GPUSortingConstants::DEFAULT_KEY_BITS);
     GLOBAL_DEF(GPUSortingConfig::TILE_BITS_PATH, GPUSortingConstants::DEFAULT_TILE_BITS);
     GLOBAL_DEF(GPUSortingConfig::DEPTH_BITS_PATH, GPUSortingConstants::DEFAULT_DEPTH_BITS);

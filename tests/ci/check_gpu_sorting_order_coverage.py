@@ -68,6 +68,9 @@ BATCH_NAME = "GpuSorting"
 # body: its discriminating order/reference assertion. If a wrong sort could not
 # fail this assertion, the oracle is not an oracle -- so the guard requires it.
 REQUIRED_ORDER_ORACLES: dict[str, str] = {
+    # #539: real probe/factory/init under reduced device limits, with 64-bit order proof.
+    "Radix device adaptation preserves indirect64 sorting (#539)":
+        r"actual\[\s*i\s*\]\s*==\s*expected\[\s*i\s*\]",
     # Ascending order of the sorted depth buffer (BitonicSort).
     "GPU Bitonic Sorting": r"depth_ptr\[\s*i\s*\]\s*>=\s*depth_ptr\[\s*i\s*-\s*1\s*\]",
     # Exact key order against a hand-computed reference (32-bit radix).

@@ -5,16 +5,12 @@
 
 namespace GPUSortingConstants {
 
-// Default radix-sort workgroup size. 512 (#539): the overlap sort's per-pass prefix kernels
-// (wg_prefix / bin_prefix) run at local_size_x = 1 over one entry per workgroup, so their
-// cost scales with element_count / workgroup_size. Measured on the Mip-NeRF 360 bicycle
-// (RTX 3090, 2026-10-09): overlap sort 24.1 -> 13.9 ms static, frame 47.8 -> 33.3 ms, output
-// bit-identical. Portable with the default 4-bit radix: the scatter kernel needs
-// radix_scatter_shared_memory_bytes(4, 512) = 1152 B of the 16 KB Vulkan floor (#634).
-// Devices whose maxComputeWorkGroupInvocations is below 512 cannot run RadixSort at this
-// size (RadixSort::is_supported fails and the factory falls back); set
-// rendering/gaussian_splatting/gpu_sorting/workgroup_size to 256 there.
-static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
+// Fixed shader workgroup size for BitonicSort and OneSweepSort.
+static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 256;
+// RadixSort uses fewer workgroups to reduce the serial per-workgroup prefix cost
+// on large overlap lists (#539). Probe and initialization reduce this preference
+// when the device's invocation, X-dimension or shared-memory limit requires it.
+static constexpr uint32_t DEFAULT_RADIX_WORKGROUP_SIZE = 512;
 // Radix-sort digit width PER PASS (4-bit = 16 passes for a 64-bit key, 8-bit = 8 passes). This is a
 // performance/mechanics knob ONLY — it does NOT change the sorted output or key precision (precision is
 // key_bits/tile_bits/depth_bits). Both 4 and 8 are valid (validate() accepts both) and both are now
@@ -106,7 +102,7 @@ inline uint64_t sort_path_max_buffer_bytes(uint64_t p_max_elements, uint32_t p_r
 	// workgroup_size only ever appears as a DIVISOR here, so it cannot invoke UB
 	// the way a shift count can; it is still coerced away from zero to keep the
 	// division defined for any input.
-	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_WORKGROUP_SIZE;
+	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_RADIX_WORKGROUP_SIZE;
 	const uint32_t key_bits = p_key_bits > 32 ? 64u : 32u;
 
 	// --- RadixSort (gpu_sorter.cpp RadixSort::initialize) ---
@@ -201,11 +197,32 @@ inline uint32_t radix_scatter_shared_memory_bytes(uint32_t p_radix_bits, uint32_
 	if (!is_supported_radix_bits(p_radix_bits)) {
 		return RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED;
 	}
-	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_WORKGROUP_SIZE;
+	const uint32_t workgroup_size = p_workgroup_size > 0 ? p_workgroup_size : DEFAULT_RADIX_WORKGROUP_SIZE;
 	const uint32_t radix_size = 1u << p_radix_bits; // radix_bits is 4 or 8 here — never >= 32.
 	const uint32_t mask_words = (workgroup_size + 31u) / 32u;
 	const uint32_t scatter_shared_uints = radix_size * (2u + mask_words);
 	return scatter_shared_uints * uint32_t(sizeof(uint32_t));
+}
+
+// Largest validated workgroup size <= the configured preference that fits the
+// device's actual scatter-kernel limits. Zero configuration uses the radix
+// default; zero result means no supported size (or invalid configuration).
+inline uint32_t radix_workgroup_size_for_device(uint32_t p_configured, uint64_t p_max_workgroup_size_x,
+		uint64_t p_max_invocations, uint64_t p_max_shared_memory_bytes, uint32_t p_radix_bits) {
+	if (!is_supported_radix_bits(p_radix_bits)) {
+		return 0;
+	}
+	const uint32_t configured = p_configured > 0 ? p_configured : DEFAULT_RADIX_WORKGROUP_SIZE;
+	if (configured != 64 && configured != 128 && configured != 256 && configured != 512) {
+		return 0;
+	}
+	for (uint32_t size = configured; size >= 64; size >>= 1) {
+		if (size <= p_max_workgroup_size_x && size <= p_max_invocations &&
+				radix_scatter_shared_memory_bytes(p_radix_bits, size) <= p_max_shared_memory_bytes) {
+			return size;
+		}
+	}
+	return 0;
 }
 
 } // namespace GPUSortingConstants
