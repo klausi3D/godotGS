@@ -13,11 +13,34 @@
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/os/os.h"
+#include "core/object/callable_method_pointer.h"
 
 #include <cstring>
 
 
 namespace {
+
+class WorldClearNotificationProbe : public Object {
+public:
+    Ref<GaussianSplatWorld> world;
+    int changes = 0;
+
+    void changed() {
+        changes++;
+        // Inspect state in the callback: a pre-reset signal is also incorrect.
+        CHECK(world->get_gaussian_data().is_null());
+        CHECK(world->get_chunk_payload_source().is_null());
+        CHECK(world->get_static_chunks().is_empty());
+        CHECK(world->get_bounds() == AABB());
+        CHECK(world->get_metadata().is_empty());
+        CHECK(world->get_splat_count() == 0);
+        CHECK(world->get_sh_degree() == 0);
+        CHECK(world->get_sh_first_order_count() == 0);
+        CHECK(world->get_sh_high_order_count() == 0);
+        CHECK_FALSE(world->get_2d_mode());
+        CHECK_FALSE(world->has_renderable_payload());
+    }
+};
 
 Gaussian make_gaussian(const Vector3 &p_position, const Color &p_dc) {
     Gaussian g;
@@ -1522,4 +1545,40 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] StagedFileChunkPayloadS
     CHECK(sh_high.is_empty());
 
     _remove_world_io_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO] clear notifies consumers after resetting every payload field") {
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(1);
+    data->set_gaussians(gaussians);
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(data);
+    Ref<InMemoryChunkPayloadSource> source;
+    source.instantiate();
+    source->set_data(data);
+    world->set_chunk_payload_source(source);
+    Vector<GaussianSplatRenderer::StaticChunk> chunks;
+    chunks.resize(1);
+    world->set_static_chunks(chunks);
+    world->set_bounds(AABB(Vector3(1, 2, 3), Vector3(4, 5, 6)));
+    Dictionary metadata;
+    metadata["clear_probe"] = true;
+    world->set_metadata(metadata);
+    world->set_payload_metadata(1, 3, 3, 12, true);
+    CHECK(world->has_renderable_payload());
+
+    WorldClearNotificationProbe *probe = memnew(WorldClearNotificationProbe);
+    probe->world = world;
+    const Callable callback = callable_mp(probe, &WorldClearNotificationProbe::changed);
+    CHECK(world->connect(SNAME("changed"), callback) == OK);
+    world->clear();
+    CHECK(probe->changes == 1);
+    // Repeated clears retain the Resource mutation notification contract.
+    world->clear();
+    CHECK(probe->changes == 2);
+    world->disconnect(SNAME("changed"), callback);
+    memdelete(probe);
 }

@@ -5199,6 +5199,55 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world applied while empty
     CHECK(after_fill.bounds == arrived->get_aabb());
 }
 
+// M3 -- the inverse of M2 (#1002): an applied, filled world emptied with
+// GaussianSplatWorld::clear(). Before clear() emitted `changed`, the director kept
+// the apply-time payload, so the old content stayed on screen.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #1002 Clearing an applied world republishes the empty world to the director") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    world_res->set_gaussian_data(make_test_gaussian_data(3, 0.0f));
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission at_apply;
+    if (!gs862_world_submission(node.get(), at_apply) || !gs862_record_has_resident_payload(at_apply)) {
+        FAIL("the world must be registered with a renderable payload before clear(), or an "
+             "empty record afterwards proves nothing");
+        return;
+    }
+    MessageQueue::get_singleton()->flush();
+
+    world_res->clear();
+    MessageQueue::get_singleton()->flush();
+
+    GaussianSplatSceneDirector::WorldSubmission after_clear;
+    if (!gs862_world_submission(node.get(), after_clear)) {
+        FAIL("clear() must republish the node's submission, not release it");
+        return;
+    }
+    CHECK_MESSAGE(after_clear.gaussian_data.is_null(),
+            "#1002: the director must drop the payload the cleared world no longer holds");
+    CHECK_MESSAGE(!gs862_record_has_resident_payload(after_clear),
+            "#1002: a cleared world must not look renderable to the route gate");
+    CHECK(after_clear.payload_source.is_null());
+    CHECK(after_clear.static_chunks.is_empty());
+    CHECK(after_clear.bounds == AABB());
+}
+
 // H1 -- a node that was never applied must stay unregistered. Blocks a fix that
 // resubmits unconditionally instead of honouring the "already registered" guard.
 TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world that was never applied stays unregistered when its payload changes") {

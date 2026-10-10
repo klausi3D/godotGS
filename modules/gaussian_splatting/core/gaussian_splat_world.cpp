@@ -353,6 +353,9 @@ void GaussianSplatWorld::clear() {
     sh_high_order_count_metadata = 0;
     is_2d_metadata = false;
     hlod_tree.clear();
+    // Consumers must observe the completed reset, not retain their apply-time
+    // payload/submission after this resource has become empty.
+    emit_changed();
 }
 
 Error GaussianSplatWorld::save_to_file(const String &p_path) const {
