@@ -100,7 +100,11 @@ jobs:
     # runner token from arbitrary code in `tests/ci/*.py`, `SConstruct`,
     # `methods.py`, or any `SCsub` checked out from a fork. (merge_group is
     # maintainer-gated — see the README runner trust boundary.)
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || (needs.pr-evidence-policy.result == 'success' && (needs.pr-evidence-policy.outputs.risk_class == 'R2' || needs.pr-evidence-policy.outputs.risk_class == 'R3'))) }}
+    # Only R0 (docs / agentic governance) PRs skip the Windows build and module
+    # tests; the hosted agentic-pr-gate runs their guards. R1 module/test changes
+    # still build and run module tests here, as under the old path filter. Only
+    # the GPU *evidence* requirement is exempted below R2.
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || (needs.pr-evidence-policy.result == 'success' && needs.pr-evidence-policy.outputs.risk_class != 'R0')) }}
     runs-on: [self-hosted, Windows, X64, godotgs]
     timeout-minutes: 10
     defaults:

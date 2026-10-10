@@ -165,7 +165,7 @@ class TrustedConsumerTests(unittest.TestCase):
 
     def exercise_controller(self, runs, *, source_id=None, partial=False, stale=False,
                             files=("modules/gaussian_splatting/renderer/probe.cpp",), shared=(),
-                            risk="R2"):
+                            risk="R2", base_moves_during_classification=False):
         base, head, checkout = "c" * 40, "b" * 40, "a" * 40
         pull = dict(number=1, base={"sha": base}, head={"sha": head, "repo": {"full_name": "owner/repo"}},
                     changed_files=len(files), merge_commit_sha=checkout, updated_at="2026-10-06T12:00:00Z")
@@ -195,6 +195,10 @@ class TrustedConsumerTests(unittest.TestCase):
             with zipfile.ZipFile(output, "w") as archive:
                 archive.writestr("pr-gpu-evidence.json", json.dumps(receipt))
             return output.getvalue()
+        def classification(paths):
+            if base_moves_during_classification:
+                current["base"]["sha"] = "e" * 40
+            return risk
         sequence = iter(runs)
         last_batch = []
         def listing(endpoint, key=None):
@@ -218,7 +222,7 @@ class TrustedConsumerTests(unittest.TestCase):
             env = dict(GITHUB_EVENT_PATH=str(path), GITHUB_REPOSITORY="owner/repo", GITHUB_RUN_ID="123")
             with patch.dict(os.environ, env), patch.object(sys, "argv", ["watcher"]), \
                  patch.object(watcher.checker, "git", return_value=base), \
-                 patch.object(watcher, "classify_paths", return_value=risk), \
+                 patch.object(watcher, "classify_paths", side_effect=classification), \
                  patch.object(watcher, "api", side_effect=metadata), \
                  patch.object(watcher, "pages", side_effect=listing), patch.object(watcher.time, "sleep"):
                 result = watcher.controller()
@@ -252,6 +256,23 @@ class TrustedConsumerTests(unittest.TestCase):
 
     def test_changed_base_rejects_stale_event_before_exemption(self):
         self.assertEqual(self.exercise_controller([], stale=True), (1, ["pending", "failure"]))
+
+    def test_low_risk_exemption_is_revalidated_before_success(self):
+        # R0/R1 publish a SHA-wide success without waiting for a run, so a base
+        # edit or a new same-head PR during classification must still fail it.
+        for risk in ("R0", "R1"):
+            with self.subTest(risk=risk):
+                self.assertEqual(self.exercise_controller([], risk=risk), (0, ["pending", "success"]))
+                self.assertEqual(self.exercise_controller([], risk=risk, base_moves_during_classification=True),
+                                 (1, ["pending", "failure"]))
+                calls = []
+                def late_sharer(repo, number, sha):
+                    calls.append(sha)
+                    if len(calls) > 1:
+                        raise ValueError("Head SHA is shared with other open PRs #2")
+                with patch.object(watcher, "require_unshared_head", side_effect=late_sharer):
+                    self.assertEqual(self.exercise_controller([], risk=risk), (1, ["pending", "failure"]))
+                self.assertEqual(len(calls), 2)
 
     def test_pr_changing_the_evidence_producer_cannot_certify_itself(self):
         # Same labels and a valid receipt, but the proposed tree defines what ran.

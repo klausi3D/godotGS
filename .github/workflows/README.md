@@ -592,6 +592,12 @@ actually succeed. The receipt binds checkout/head/base SHAs, run ID/attempt and
 binary/report hashes. A skipped fork lane or unavailable GPU is not a passing
 measurement; fork changes need a maintainer-owned same-repo validation branch.
 R0/R1 results explicitly say that GPU evidence is not required, not that it passed.
+Only that evidence requirement is exempted (maintainer decision, 2026-10-10): R1
+module and test PRs still run the self-hosted `guards` and `module-validation` jobs
+(Windows build, module tests and runtime steps), as the earlier path filter did.
+Those jobs report as their own checks; the R1 verdict does not consume them. R0
+docs and governance PRs skip the self-hosted jobs; `agentic-pr-gate` runs their
+guards on a hosted runner.
 
 The producer runs the proposed tree, so step labels and a well-formed receipt only
 mean something while the definitions behind them are the trusted ones. An R2/R3 PR
@@ -622,5 +628,9 @@ The controller publishes `gpu-evidence-gate` as a commit status on the proposed
 head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
 job alone is deliberately not the required context. `statuses: write` is the only
 write permission; repository content remains read-only. Failed or missing evidence
-publishes a failure. Bootstrap/API failures leave a missing or pending context,
-which does not satisfy required protection. No fork code is checked out or run.
+publishes a failure. After the resolver publishes `pending`, a final always-run
+step replaces this run's own pending status with failure when checkout, Python
+setup or the controller aborts, or the job is cancelled or times out. It leaves a
+terminal verdict, or a newer run's status, untouched. A failure before `pending`,
+or of that final API call, leaves a missing or pending context, which does not
+satisfy required protection. No fork code is checked out or run.

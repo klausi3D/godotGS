@@ -44,6 +44,7 @@ jobs:
             }
             const sha = event.pull_request?.head.sha || event.merge_group?.head_sha || source?.head_sha;
             if (!/^[0-9a-f]{40}$/.test(sha || '')) throw new Error('Missing proposed SHA');
+            core.setOutput('sha', sha);
             const status = state => github.rest.repos.createCommitStatus({owner, repo, sha, state,
               context: 'gpu-evidence-gate', description: 'Trusted GPU evidence lifecycle revalidation',
               target_url: `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`});
@@ -100,3 +101,31 @@ jobs:
           GITHUB_EVENT_PATH: ${{ steps.event.outputs.path }}
           GH_TOKEN: ${{ github.token }}
         run: python scripts/agentic/watch_pr_gpu_evidence.py
+      # The resolver has already published `pending`. If checkout, Python setup or
+      # the controller aborts (or the job is cancelled or times out) before a
+      # terminal verdict, replace THIS run's pending status with failure. A
+      # terminal verdict, or a newer run's status, is left untouched.
+      - name: Publish failure if the controller aborted
+        if: ${{ always() && steps.event.outputs.sha != '' }}
+        uses: actions/github-script@v7
+        env:
+          GS_PROPOSED_SHA: ${{ steps.event.outputs.sha }}
+        with:
+          script: |
+            const sha = process.env.GS_PROPOSED_SHA;
+            if (!/^[0-9a-f]{40}$/.test(sha || '')) throw new Error('Missing proposed SHA');
+            const {owner, repo} = context.repo;
+            const target_url = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            let latest;
+            try {
+              const response = await github.rest.repos.listCommitStatusesForRef({owner, repo, ref: sha, per_page: 100});
+              latest = response.data.find(item => item.context === 'gpu-evidence-gate');
+            } catch (error) {
+              core.warning(`Cannot read current status; failing closed: ${error.message}`);
+            }
+            if (latest && (latest.state !== 'pending' || latest.target_url !== target_url)) {
+              core.info(`Leaving ${latest.state} status from ${latest.target_url}`);
+              return;
+            }
+            await github.rest.repos.createCommitStatus({owner, repo, sha, state: 'failure', target_url,
+              context: 'gpu-evidence-gate', description: 'Trusted GPU evidence controller aborted before a verdict'});

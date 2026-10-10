@@ -69,13 +69,48 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("python tests/ci/test_pr_gpu_evidence.py", workflow)
         self.assertIn("python tests/ci/test_pr_gpu_evidence_wiring.py", workflow)
 
-    def test_exempt_prs_do_not_queue_self_hosted_work(self):
+    @staticmethod
+    def evaluate(condition, values):
+        # Minimal GitHub expression evaluator for the operators these conditions use.
+        expr = condition.strip()
+        if expr.startswith("${{"):
+            expr = expr[3:-2]
+        expr = expr.replace("always()", "True").replace("&&", " and ").replace("||", " or ")
+        expr = re.sub(r"!(?!=)", " not ", expr)
+        expr = re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", expr))
+        expr = re.sub(r"\b(?:github|needs|inputs)\.[A-Za-z0-9_.-]+",
+                      lambda match: repr(values.get(match.group(0), "")), expr)
+        return bool(eval(expr, {"__builtins__": {}}))  # noqa: S307 - test-only, repo-controlled input
+
+    def test_only_docs_prs_skip_the_windows_build_and_module_tests(self):
+        # Maintainer decision 2026-10-10: R1 module/test PRs still build and run
+        # module tests on Windows; only the GPU evidence requirement is exempted.
         guards = self.workflow["jobs"]["guards"]
         self.assertEqual(guards["needs"], "pr-evidence-policy")
-        condition = guards["if"]
-        for risk in ("R2", "R3"):
-            self.assertIn("needs.pr-evidence-policy.outputs.risk_class == '" + risk + "'", condition)
-        self.assertIn("needs.pr-evidence-policy.result == 'success'", condition)
+        module = self.workflow["jobs"]["module-validation"]
+        self.assertIn("guards", module["needs"])
+        repo = "owner/repo"
+        for event in ("pull_request", "merge_group"):
+            for risk, expected in (("R0", False), ("R1", True), ("R2", True), ("R3", True)):
+                values = {"github.event_name": event, "github.repository": repo,
+                          "github.event.pull_request.head.repo.full_name": repo,
+                          "needs.pr-evidence-policy.result": "success",
+                          "needs.pr-evidence-policy.outputs.risk_class": risk}
+                with self.subTest(event=event, risk=risk):
+                    self.assertEqual(self.evaluate(guards["if"], values), expected)
+                    self.assertTrue(self.evaluate(module["if"], values))
+            values = {"github.event_name": event, "github.repository": repo,
+                      "github.event.pull_request.head.repo.full_name": repo,
+                      "needs.pr-evidence-policy.result": "failure"}
+            self.assertFalse(self.evaluate(guards["if"], values))
+        fork = {"github.event_name": "pull_request", "github.repository": repo,
+                "github.event.pull_request.head.repo.full_name": "fork/repo",
+                "needs.pr-evidence-policy.result": "success",
+                "needs.pr-evidence-policy.outputs.risk_class": "R1"}
+        self.assertFalse(self.evaluate(guards["if"], fork))
+        self.assertFalse(self.evaluate(module["if"], fork))
+        self.assertTrue(self.evaluate(guards["if"], {"github.event_name": "push",
+                                                    "needs.pr-evidence-policy.result": "skipped"}))
 
     def test_required_verdict_checks_out_only_the_trusted_base(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
@@ -130,6 +165,66 @@ SCRIPT
             if "path" in state["outputs"]:
                 state["event"] = json.loads(Path(state["outputs"]["path"]).read_text(encoding="utf-8"))
             return state
+
+    def run_abort_publisher(self, statuses, list_fails=False):
+        # Executes the real final step under node against a stubbed status API.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
+        publisher = workflow["jobs"]["trusted-gpu-controller"]["steps"][-1]
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "node is required to execute the abort publisher")
+        harness = """
+const posted = [];
+const context = {repo: {owner: 'o', repo: 'r'}, runId: 1};
+const core = {info: () => {}, warning: () => {}};
+const github = {rest: {repos: {
+  listCommitStatusesForRef: async () => { if (LIST_FAILS) throw new Error('api down'); return {data: STATUSES}; },
+  createCommitStatus: async args => { posted.push(args); }}}};
+(async () => {
+SCRIPT
+})().then(() => console.log(JSON.stringify({posted})),
+          error => console.log(JSON.stringify({posted, error: String(error)})));
+""".replace("LIST_FAILS", json.dumps(list_fails)).replace("STATUSES", json.dumps(statuses)).replace("SCRIPT", publisher["with"]["script"])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "publisher.js"
+            path.write_text(harness, encoding="utf-8")
+            result = subprocess.run([node, str(path)], capture_output=True, encoding="utf-8", timeout=60,
+                                    env={**os.environ, "GS_PROPOSED_SHA": "b" * 40}, check=True)
+            return json.loads(result.stdout.strip().splitlines()[-1])
+
+    def test_controller_abort_replaces_its_own_pending_status(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["trusted-gpu-controller"]["steps"]
+        publisher = steps[-1]
+        # Runs after a checkout/setup/controller failure, cancellation or
+        # timeout, whenever the resolver identified a proposed SHA.
+        self.assertIn("always()", publisher["if"])
+        self.assertIn("steps.event.outputs.sha != ''", publisher["if"])
+        self.assertEqual(publisher["env"]["GS_PROPOSED_SHA"], "${{ steps.event.outputs.sha }}")
+        resolver = next(step for step in steps if step.get("id") == "event")
+        self.assertLess(resolver["with"]["script"].index("core.setOutput('sha', sha)"),
+                        resolver["with"]["script"].index("await status('pending')"))
+        own = "https://github.com/o/r/actions/runs/1"
+        other = "https://github.com/o/r/actions/runs/2"
+        def status(state, url, context="gpu-evidence-gate"):
+            return {"context": context, "state": state, "target_url": url}
+        for statuses, list_fails, published in (
+                ([status("pending", own)], False, True),
+                ([status("success", "x", "other-context"), status("pending", own)], False, True),
+                ([], False, True),
+                ([], True, True),
+                ([status("success", own), status("pending", own)], False, False),
+                ([status("failure", own)], False, False),
+                ([status("pending", other), status("pending", own)], False, False)):
+            with self.subTest(statuses=statuses, list_fails=list_fails):
+                state = self.run_abort_publisher(statuses, list_fails)
+                self.assertNotIn("error", state)
+                if published:
+                    self.assertEqual(len(state["posted"]), 1)
+                    post = state["posted"][0]
+                    self.assertEqual((post["sha"], post["state"], post["context"], post["target_url"]),
+                                     ("b" * 40, "failure", "gpu-evidence-gate", own))
+                else:
+                    self.assertEqual(state["posted"], [])
 
     def test_merge_queue_lifecycle_keeps_the_immutable_group_base(self):
         base = "c" * 40

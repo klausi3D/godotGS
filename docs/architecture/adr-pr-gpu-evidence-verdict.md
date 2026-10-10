@@ -40,7 +40,12 @@ PR against another base. The SHA-keyed concurrency group is kept so pull-request
 lifecycle events for one head still supersede each other.
 
 R0/R1 changes report promptly that GPU evidence is not required; the hosted
-consumer does not wait for a GPU runner, and PR hardware jobs are skipped. R2/R3 fork
+consumer does not wait for a GPU runner. Only the GPU evidence requirement is
+exempted (maintainer decision, 2026-10-10). R1 module and test PRs still run the
+Windows guard and module-validation jobs (build, module tests and runtime steps),
+as the earlier path filter did. Those jobs report as their own checks; the R1
+verdict does not consume their result. R0 docs and governance PRs skip the
+self-hosted jobs, and the hosted `agentic-pr-gate` runs their guards. R2/R3 fork
 changes fail the hosted verdict without running fork code on a self-hosted
 runner; a maintainer must move the change onto a same-repository branch. A runner
 unavailability label cannot turn missing evidence into a passing verdict.
@@ -78,8 +83,12 @@ The controller publishes `gpu-evidence-gate` as a commit status on the proposed
 head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
 job alone is deliberately not the required context. `statuses: write` is the only
 write permission; repository content remains read-only. Failed or missing evidence
-publishes a failure. Bootstrap/API failures leave a missing or pending context,
-which does not satisfy required protection. No fork code is checked out or run.
+publishes a failure. After the resolver publishes `pending`, a final always-run
+step replaces this run's own pending status with failure when checkout, Python
+setup or the controller aborts, or the job is cancelled or times out. It leaves a
+terminal verdict, or a newer run's status, untouched. A failure before `pending`,
+or of that final API call, leaves a missing or pending context, which does not
+satisfy required protection. No fork code is checked out or run.
 
 Producer `workflow_run` in-progress and completed events reset and revalidate the
 proposed-head status, including reruns. PR base edits also reset the verdict.

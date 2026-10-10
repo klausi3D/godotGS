@@ -194,6 +194,13 @@ def main() -> int:
         require_unshared_head(repo, number, head)
     risk = classify_paths(paths)
     if risk in ("R0", "R1"):
+        if pull:
+            # The exemption is published as a SHA-wide success, so recheck the
+            # bindings it was classified under right before returning it.
+            current = api(f"repos/{repo}/pulls/{number}")
+            if current["head"]["sha"] != head or current["base"]["sha"] != base:
+                raise ValueError("PR changed during classification; exemption is stale")
+            require_unshared_head(repo, number, head)
         print(f"Base policy: {risk}; GPU evidence not required (not a GPU pass).")
         return 0
     if pull and pull["head"]["repo"]["full_name"] != repo:
