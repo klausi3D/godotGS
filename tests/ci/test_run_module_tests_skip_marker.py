@@ -678,6 +678,44 @@ class UncheckedResizeBaseForwardingTests(BaseForwardingTests):
         self.fail(f"unchecked-resize guard was never invoked; calls={calls}")
 
 
+class GpuHarnessContractBaseForwardingTests(UncheckedResizeBaseForwardingTests):
+    """The SAME forwarding, for the third base-anchored ratchet: the
+    VACUOUS_CASE_ALLOWLIST shrink-only check in test_gpu_harness_deferred_contract.py
+    (#1218/#1219). It reuses the shared resolver, so it must get the same base;
+    before this it was launched with no --base-ref and resolved origin/master on
+    its own under `--guard-only --base-ref <stack-base>` (Codex on #1218).
+    """
+
+    def _capture(self, env: dict[str, str], override: str | None = None):
+        calls: list[list[str]] = []
+
+        def fake_run(command, *args, **kwargs):
+            calls.append(list(command))
+            return 0, "", ""
+
+        saved_override = harness._GUARD_BASE_REF_OVERRIDE
+        harness._GUARD_BASE_REF_OVERRIDE = override
+        with mock.patch.object(harness, "_run_command", fake_run):
+            with mock.patch.dict(os.environ, env, clear=False):
+                for name in harness.ENVIRONMENT_SKIP_BASE_ENV_VARS:
+                    if name not in env:
+                        os.environ.pop(name, None)
+                if "GITHUB_EVENT_NAME" not in env:
+                    os.environ["GITHUB_EVENT_NAME"] = "pull_request"
+                try:
+                    ok, output = harness._run_gpu_harness_deferred_contract_guard()
+                finally:
+                    harness._GUARD_BASE_REF_OVERRIDE = saved_override
+        return ok, output, calls
+
+    def _guard_call(self, calls: list[list[str]]) -> list[str]:
+        script = str(harness.ROOT / "tests" / "ci" / "test_gpu_harness_deferred_contract.py")
+        for command in calls:
+            if script in command:
+                return command
+        self.fail(f"GPU harness deferred contract guard was never invoked; calls={calls}")
+
+
 class WorkflowBaseExportTests(IsolatedTestCase):
     """Every base-bearing event the gate triggers on must be given a base.
 

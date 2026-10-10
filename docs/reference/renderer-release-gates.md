@@ -310,6 +310,16 @@ reads `CurrentTestCaseStats::numAssertsCurrentTest` in `test_case_end` and print
 per batch and escalates them for required batches as `hollow_required_cases` /
 `case_audit_missing_batches` / `case_audit_mismatch_batches`.
 
+Advisory batches that matched at least one case get the same audit (#906/#907),
+with one difference. A zero-assertion case fails the run as
+`vacuous_advisory_cases` unless it printed an explicit environment skip
+(`GS_ENV_SKIP:` or legacy `Skipping …`, the same detector the headless lanes
+use) inside its own doctest output block. Such a case is reported as
+`env_skipped_advisory_cases` instead. In a required batch a skipped case still
+fails. An advisory batch whose cases evaluated 0 assertions in total fails as
+`zero_assertion_advisory_batches`, even when every case skipped explicitly. The
+shrink-only, issue-linked `VACUOUS_CASE_ALLOWLIST` is empty.
+
 The audit marker is required to be **present**: the hollow-case signal is carried
 by the absence of `NO-ASSERTS` lines, and absence is equally what a binary built
 without the listener produces. A required batch that finished and printed a

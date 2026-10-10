@@ -1802,7 +1802,16 @@ def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
     if not script.is_file():
         return False, [f"Missing GPU harness deferred contract guard: {script.relative_to(ROOT)}"]
 
-    code, out, err = _run_command([sys.executable, str(script)])
+    # Its VACUOUS_CASE_ALLOWLIST ratchet grades against the REVIEW BASE through the
+    # same shared resolver as the env-skip and unchecked-resize guards, so it gets
+    # the same one base from `_environment_skip_base_ref()`. Without this,
+    # `--guard-only --base-ref X` reached those two and not this one, which fell back
+    # to origin/master on a stacked PR (Codex on #1218).
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+    extra = ["--base-ref", base_ref] if base_ref else []
+    code, out, err = _run_command([sys.executable, str(script), *extra])
     if code != 0:
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if not output_lines:

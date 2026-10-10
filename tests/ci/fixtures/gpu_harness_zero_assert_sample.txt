@@ -1,0 +1,16 @@
+[GS-GPU] driver=vulkan adapter="NVIDIA GeForce RTX 3090" vendor="NVIDIA"
+[GS-GPU][NO-ASSERTS] test=[GaussianSplatting][RequiresGPU] RenderDeviceManager blocks untracked free path
+[GS-GPU][NO-ASSERTS] test=[GaussianSplatting][RequiresGPU] Instance buffer upload uses the published renderer-side remap
+[GS-GPU][CASE-ASSERT-AUDIT] started=3 zero_assert=2
+[doctest] doctest version is "2.4.12"
+[doctest] run with "--help" for options
+===============================================================================
+Z:\wt-zero-assert\modules\gaussian_splatting\tests\test_renderer_pipeline.h(1044):
+TEST CASE:  [GaussianSplatting][RequiresGPU] Instance buffer upload uses the published renderer-side remap
+
+Z:\wt-zero-assert\modules\gaussian_splatting\tests\test_renderer_pipeline.h(1047): MESSAGE: Skipping test - Rendering server unavailable
+
+===============================================================================
+[doctest] test cases: 3 | 3 passed | 0 failed | 2184 skipped
+[doctest] assertions: 5 | 5 passed | 0 failed |
+[doctest] Status: SUCCESS!

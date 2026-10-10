@@ -47,8 +47,9 @@ previous one. Bound at the next `TEST_CASE`, not by depth.)
 ## SHAPE CONTRACT — what is counted, and what is knowingly not
 
 This is a written contract, not whatever the regexes happen to do. Both this
-guard and `run_module_tests.py`'s runtime detector implement exactly this list,
-and they must be changed together.
+guard and `run_module_tests.py`'s runtime detector implement exactly this list
+(`run_gpu_harness.py` restates that detector per case; see the `[RequiresGPU]`
+limitation below), and they must be changed together.
 
 **Counted:**
 
@@ -149,16 +150,40 @@ executes".
 ### Named limitation: 232 of 384 sites are in `[RequiresGPU]` cases
 
 **60.4%** of the inventory (232 sites: 21 `macro`, 211 `message`) lives in cases
-tagged `[RequiresGPU]`. Those run only under `tests/ci/run_gpu_harness.py`, and
-**that harness performs no skip detection at all** — it does not consume
-`DOCTEST_SKIP_MARKER_RE` and has no allowance. So for the majority of the
-inventory there is a static count and *no runtime enforcement whatsoever*.
+tagged `[RequiresGPU]`. Those run only under `tests/ci/run_gpu_harness.py`.
+That harness now consumes the same detector (its `DOCTEST_SKIP_MARKER_RE` is a
+restatement of `run_module_tests.py`'s, and
+`tests/ci/test_gpu_harness_deferred_contract.py` fails if the two differ), but
+**only per case, only to classify a case that evaluated zero assertions, and with
+no allowance**:
+
+* in a REQUIRED batch a zero-assertion case fails the run whether or not it
+  printed a skip marker — the marker earns nothing there;
+* in an ADVISORY batch a zero-assertion case whose own doctest block carries a
+  recognised marker is REPORTED as an environment skip (`env_skipped_advisory_cases`),
+  not failed; one without a marker fails unless it is in the shrink-only,
+  issue-linked `VACUOUS_CASE_ALLOWLIST`; an advisory batch that evaluated 0
+  assertions in total fails regardless of markers.
+
+What that still does NOT enforce, so the static count remains the only
+mechanism that sees most of these sites:
+
+* **no skip budget** — advisory skips are listed, never counted against an
+  allowance, so a batch may skip more cases than it did yesterday and stay green;
+* **mid-case skips are invisible** — a case that asserts once and then skips its
+  real work is scored as coverage, because classification starts from the
+  `[GS-GPU][NO-ASSERTS]` line and a case with one assertion never emits it;
+* **unlaned cases** — `[RequiresGPU]` cases that match no batch run nowhere;
+* the `WARN_PRINT` and embedded-prose gaps above apply to the GPU harness
+  exactly as to the headless lanes, and the per-case classification needs a
+  binary built with the `[GS-GPU][CASE-ASSERT-AUDIT]` listener.
 
 This is by far the largest of the three declared gaps — 20× the embedded-prose
 gap (9) and 100× the `WARN_PRINT` gap (2) — and it is the reason the static
-inventory exists at all: it is the only mechanism that sees those sites. Adding
-detection to the GPU harness is follow-on GS-595-C. Until then, do not read a
-green GPU batch as evidence that its cases executed.
+inventory exists at all. A skip budget for the GPU harness (follow-on GS-595-C)
+is still open. Until then, read a green advisory GPU batch as "every
+zero-assertion case either skipped explicitly or is allowlisted", never as
+evidence that its cases executed.
 
 ### The macro surface, and why it is derived
 
@@ -304,7 +329,8 @@ MACRO_HEADER_NAME = "test_macros.h"
 FILE_SCOPE = "<file-scope>"
 
 # The token the canonical helper must emit into doctest's output. Kept in sync
-# with tests/ci/run_module_tests.py:DOCTEST_SKIP_MARKER_RE and with
+# with tests/ci/run_module_tests.py:DOCTEST_SKIP_MARKER_RE (restated, and
+# cross-checked, in tests/ci/run_gpu_harness.py) and with
 # modules/gaussian_splatting/tests/test_macros.h:GS_ENV_SKIP.
 ENV_SKIP_TOKEN = "GS_ENV_SKIP:"
 

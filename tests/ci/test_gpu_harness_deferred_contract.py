@@ -38,10 +38,13 @@ Run standalone:
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -105,6 +108,217 @@ def _load(name: str, path: Path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# The review-base resolver shared by every shrink-only ratchet in tests/ci
+# (check_unchecked_resize.py imports it for the same reason). There is one review
+# base per diff; a private copy would answer differently the first time either
+# was edited.
+BASE_RESOLVER_PATH = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
+VACUOUS_ALLOWLIST_NAME = "VACUOUS_CASE_ALLOWLIST"
+
+# Set from --base-ref in __main__: run_module_tests.py forwards the review base it
+# selected (its own --base-ref, else the CI base variables) exactly as it does for
+# check_environment_skip_marker.py and check_unchecked_resize.py. None means "not
+# given", and the shared resolver then reads the base environment variables. Without
+# this, `--guard-only --base-ref <stack-base>` reached the other two ratchets and not
+# this one, which resolved origin/master on its own (Codex on #1218).
+_REVIEW_BASE_REF: str | None = None
+
+
+def _allowlist_rebinding_uses(tree: ast.Module, assignment: ast.stmt | None) -> list[str]:
+    """Every use of the allowlist name that could make its runtime value differ from the literal.
+
+    The literal is only the runtime value if nothing else touches the name. So
+    the harness may READ it in exactly two shapes -- `key in ALLOWLIST` (or
+    `not in`) and `ALLOWLIST[key]` -- and nothing else: no second binding, no
+    `.update()`/`.setdefault()`, no subscript store or delete, no `global`, no
+    alias passed elsewhere, no attribute or string spelling of the name
+    (`globals()["..."]`, `setattr(module, "...", ...)`). Anything outside that
+    whitelist fails closed; it is not interpreted.
+    """
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    own_targets: set[int] = set()
+    if isinstance(assignment, ast.Assign):
+        own_targets = {id(t) for t in assignment.targets}
+    elif isinstance(assignment, ast.AnnAssign):
+        own_targets = {id(assignment.target)}
+    bad: list[str] = []
+    name = VACUOUS_ALLOWLIST_NAME
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", "?")
+        if isinstance(node, ast.Name) and node.id == name:
+            if id(node) in own_targets:
+                continue
+            parent = parents.get(id(node))
+            if isinstance(node.ctx, ast.Load):
+                if (
+                    isinstance(parent, ast.Compare)
+                    and node in parent.comparators
+                    and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops)
+                ):
+                    continue
+                if (
+                    isinstance(parent, ast.Subscript)
+                    and parent.value is node
+                    and isinstance(parent.ctx, ast.Load)
+                ):
+                    continue
+            bad.append(f"line {line}: {type(parent).__name__} use of {name}")
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
+            bad.append(f"line {line}: {type(node).__name__.lower()} {name}")
+        elif isinstance(node, ast.alias) and name in (node.name, node.asname):
+            bad.append(f"line {line}: import binds {name}")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            bad.append(f"line {line}: def/class named {name}")
+        elif isinstance(node, ast.arg) and node.arg == name:
+            bad.append(f"line {line}: parameter named {name}")
+        elif isinstance(node, ast.Attribute) and node.attr == name:
+            bad.append(f"line {line}: attribute access .{name}")
+        elif isinstance(node, ast.Constant) and node.value == name:
+            bad.append(f"line {line}: string spelling of {name} (globals()/setattr route)")
+    return bad
+
+
+def _allowlist_from_source(
+    source: str, where: str
+) -> tuple[dict[str, str] | None, list[str]]:
+    """The module-level VACUOUS_CASE_ALLOWLIST of harness source, read STATICALLY.
+
+    Used for BOTH copies the ratchet compares: the one at the review base and
+    the one in the tree under review. The harness is never imported for this:
+    importing the proposed copy would evaluate it in the guard's environment, so
+    a change could compute the allowlist from the platform/environment (empty on
+    the Linux guard, populated on the Windows GPU runner) or run arbitrary code
+    at import (Codex on #1218).
+
+    No assignment at all -> the empty dict: the allowlist did not exist there,
+    so nothing was tolerated, which is the strictest possible baseline. Anything
+    else must be exactly one top-level `{"Batch/case": "url", ...}` dict display
+    whose keys and values are plain string constants, and nothing else in the
+    module may rebind or mutate the name (_allowlist_rebinding_uses). Anything
+    that cannot be read that way FAILS rather than being guessed at.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return None, [f"harness source {where} does not parse: {exc}"]
+    assignments: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            if any(isinstance(t, ast.Name) and t.id == VACUOUS_ALLOWLIST_NAME for t in node.targets):
+                assignments.append(node)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == VACUOUS_ALLOWLIST_NAME:
+                assignments.append(node)
+    if not assignments:
+        # Absent -- unless the name is still reached some other way.
+        stray = _allowlist_rebinding_uses(tree, None)
+        if stray:
+            return None, [
+                f"{VACUOUS_ALLOWLIST_NAME} {where} has no literal assignment but is bound "
+                f"or used another way: {'; '.join(stray)}"
+            ]
+        return {}, []
+    if len(assignments) > 1:
+        return None, [
+            f"{VACUOUS_ALLOWLIST_NAME} is assigned {len(assignments)} times {where}; "
+            "cannot tell which value was in force."
+        ]
+    assignment = assignments[0]
+    if isinstance(assignment, ast.Assign) and len(assignment.targets) != 1:
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} is a chained assignment (an alias)."]
+    value = assignment.value
+    if not isinstance(value, ast.Dict):
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} is not a plain dict literal."]
+    result: dict[str, str] = {}
+    for key, val in zip(value.keys, value.values):
+        if not (
+            isinstance(key, ast.Constant) and isinstance(key.value, str)
+            and isinstance(val, ast.Constant) and isinstance(val.value, str)
+        ):
+            return None, [
+                f"{VACUOUS_ALLOWLIST_NAME} {where} has an entry (line "
+                f"{getattr(val, 'lineno', '?')}) that is not a string-constant key and "
+                "value (computed, spread, or non-string)."
+            ]
+        if key.value in result:
+            return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} repeats key {key.value!r}."]
+        result[key.value] = val.value
+    stray = _allowlist_rebinding_uses(tree, assignment)
+    if stray:
+        return None, [
+            f"{VACUOUS_ALLOWLIST_NAME} {where} is a literal, but the module can change it "
+            f"after assignment, so the literal is not its runtime value: {'; '.join(stray)}"
+        ]
+    return result, []
+
+
+def _allowlist_keys_from_source(
+    source: str, where: str = "at the review base"
+) -> tuple[frozenset[str] | None, list[str]]:
+    """Keys of _allowlist_from_source(), for the review-base side of the ratchet."""
+    value, failures = _allowlist_from_source(source, where)
+    if value is None:
+        return None, failures
+    return frozenset(value), []
+
+
+def _allowlist_keys_at_review_base(
+    *, root: Path = ROOT, resolve=None
+) -> tuple[frozenset[str] | None, list[str]]:
+    """The allowlist keys as they stand at the immutable review base, or a failure.
+
+    tests/AGENTS.md: a ratchet compares against a reference OUTSIDE the change,
+    never HEAD and never a constant the same change can edit, and fails closed
+    when that reference cannot be resolved. A path that is absent from the base
+    tree is the empty set (strictest); git being unable to answer is a failure,
+    never "absent" -- `ls-tree` separates the two before `show` is attempted.
+
+    `root` and `resolve` exist only so a test can point the reader at a
+    throwaway repository; production calls pass neither.
+    """
+    try:
+        if resolve is None:
+            resolver = _load("_gs_review_base_resolver_vacuous", BASE_RESOLVER_PATH)
+            resolve = lambda: resolver.resolve_base_sha(_REVIEW_BASE_REF)  # noqa: E731
+        base_sha, failures = resolve()
+    except Exception as exc:  # noqa: BLE001 -- any failure here must fail closed
+        return None, [f"cannot load the shared review-base resolver {BASE_RESOLVER_PATH}: {exc}"]
+    if failures:
+        return None, list(failures)
+    if not base_sha:
+        return None, ["the shared review-base resolver returned no base and no reason."]
+
+    rel = HARNESS_PATH.relative_to(ROOT).as_posix()
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
+
+    try:
+        listing = git("ls-tree", "--name-only", base_sha, "--", rel)
+        if listing.returncode != 0:
+            return None, [
+                f"git could not read the tree at review base {base_sha[:12]} "
+                f"(exit {listing.returncode}): {listing.stderr.strip() or 'no stderr'}"
+            ]
+        if not listing.stdout.strip():
+            return frozenset(), []
+        shown = git("show", f"{base_sha}:{rel}")
+    except (OSError, ValueError) as exc:
+        return None, [f"git is unavailable, so the review base cannot be read: {exc}"]
+    if shown.returncode != 0:
+        return None, [
+            f"'{rel}' is in the tree at review base {base_sha[:12]} but could not be read "
+            f"(exit {shown.returncode}): {shown.stderr.strip() or 'no stderr'}"
+        ]
+    return _allowlist_keys_from_source(shown.stdout)
 
 
 def doctest_match(pattern: str, name: str) -> bool:
@@ -535,11 +749,14 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
     early-returned on a null RenderingServer. doctest scores an early return as a
     pass, so the gate treated "verified nothing" as evidence.
 
-    This is scoped to REQUIRED_BATCHES on purpose. "0 tests matched" is documented
-    success for advisory batches (catalogued-but-not-yet-running batches are the
-    point of that leniency), and these tests pin BOTH halves of that asymmetry so
-    a later refactor cannot quietly extend the strict rule to advisory batches or
-    quietly drop it from required ones.
+    The batch-level rule is scoped to REQUIRED_BATCHES on purpose: "0 tests
+    matched" is documented success for advisory batches (catalogued-but-not-yet-
+    running batches are the point of that leniency). The PER-CASE audit is not
+    scoped that way any more (#906/#907): an advisory batch that matched cases
+    fails on a case that asserted nothing and printed no explicit skip, while an
+    explicitly skipped case is reported, not failed. Required batches stay
+    stricter (any hollow case fails, skip or not). These tests pin all three
+    halves so a refactor cannot quietly drop one.
 
     Drives `main()` with `_run_batch` stubbed, so it is deterministic, needs no
     GPU and no subprocess -- it runs in the headless guard lane.
@@ -554,11 +771,15 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
         zero_assertion_cases: list[str] | None = None,
         case_assert_audit_ok: bool = True,
         zero_assert_reported: int | None = None,
+        env_skipped_cases: list[str] | None = None,
+        allowlist: dict[str, str] | None = None,
     ):
         import contextlib
         import io
 
         harness = _load("gs_harness_zero_assert", HARNESS_PATH)
+        if allowlist is not None:
+            harness.VACUOUS_CASE_ALLOWLIST = dict(allowlist)
         report_path = tmpdir / "report.json"
 
         def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
@@ -592,6 +813,7 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 if zero_assert_reported is None
                 else zero_assert_reported
             )
+            r.env_skipped_cases = list(env_skipped_cases or [])
             return r
 
         harness._run_batch = _fake_run_batch
@@ -745,11 +967,40 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
         self.assertEqual(report["case_audit_missing_batches"], [batch_name])
         self.assertIn("CASE-ASSERT-AUDIT", stdout)
 
-    def test_advisory_batch_with_hollow_case_still_passes(self):
-        """Scope check, mirroring the batch-level asymmetry above.
+    def test_advisory_batch_with_silent_hollow_case_fails_and_is_named(self):
+        """#906/#907: a silent zero-assertion case fails an ADVISORY batch too.
 
-        Without this the two rejections could pass vacuously via a rule that
-        simply always fires.
+        Before #906/#907 this exact run (2 cases, 3 assertions, one case that
+        asserted nothing and printed no skip) passed, which is how a batch of
+        such cases would have gone green while testing nothing.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=3,
+                zero_assertion_cases=["some advisory case"],
+            )
+
+        self.assertNotEqual(rc, 0, "A silent hollow case must fail an advisory batch.")
+        self.assertEqual(
+            report["vacuous_advisory_cases"], [f"{batch_name}/some advisory case"]
+        )
+        self.assertIn("some advisory case", stdout)
+        # Disjoint from the required-only reasons.
+        self.assertEqual(report["hollow_required_cases"], [])
+        self.assertEqual(report["env_skipped_advisory_cases"], [])
+
+    def test_advisory_batch_with_explicitly_skipped_case_passes_and_is_reported(self):
+        """Discrimination: an explicit environment skip is not vacuous.
+
+        Same shape as the failing case above, except the case printed the repo's
+        skip marker. It must pass (the case said what it could not do), and it
+        must be REPORTED as a skip so nobody reads it as coverage.
         """
         import tempfile
 
@@ -760,13 +1011,332 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 batch_name,
                 cases=2,
                 asserts=3,
-                zero_assertion_cases=["some advisory case"],
-                case_assert_audit_ok=False,
+                zero_assertion_cases=["skipping case"],
+                env_skipped_cases=["skipping case"],
             )
 
-        self.assertEqual(rc, 0, "Advisory batches keep their documented leniency.")
-        self.assertEqual(report["hollow_required_cases"], [])
-        self.assertEqual(report["case_audit_missing_batches"], [])
+        self.assertEqual(rc, 0, "An explicitly skipped case is not vacuous.")
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertEqual(
+            report["env_skipped_advisory_cases"], [f"{batch_name}/skipping case"]
+        )
+
+    def test_advisory_batch_of_only_skips_fails(self):
+        """Every case skipped explicitly: the batch still verified nothing.
+
+        This is what laning #906 as is would produce. Each skip is honest, but a
+        green batch built only from skips is the "absence of a signal" the gate
+        exists to refuse.
+        """
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=0,
+                zero_assertion_cases=["skip a", "skip b"],
+                env_skipped_cases=["skip a", "skip b"],
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["zero_assertion_advisory_batches"], [batch_name])
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertIn("0 assertions", stdout)
+
+    def test_required_batch_still_fails_an_explicitly_skipped_case(self):
+        """The advisory skip credit must not leak into REQUIRED batches (#695)."""
+        import tempfile
+
+        batch_name = self._a_required_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=4,
+                asserts=17,
+                zero_assertion_cases=["skipping case"],
+                env_skipped_cases=["skipping case"],
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["hollow_required_cases"], [f"{batch_name}/skipping case"])
+        self.assertEqual(report["env_skipped_advisory_cases"], [])
+
+    def test_advisory_batch_without_case_audit_marker_fails(self):
+        """Fail closed for advisory batches too: no marker means nobody looked."""
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        with tempfile.TemporaryDirectory() as td:
+            rc, stdout, report = self._run_main(
+                Path(td), batch_name, cases=2, asserts=3, case_assert_audit_ok=False
+            )
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["case_audit_missing_batches"], [batch_name])
+        self.assertIn("CASE-ASSERT-AUDIT", stdout)
+
+    def test_allowlisted_vacuous_case_passes_but_is_reported(self):
+        """The allowlist mechanism works, and tolerating is not hiding."""
+        import tempfile
+
+        batch_name = self._an_advisory_batch()
+        key = f"{batch_name}/known vacuous case"
+        with tempfile.TemporaryDirectory() as td:
+            rc, _stdout, report = self._run_main(
+                Path(td),
+                batch_name,
+                cases=2,
+                asserts=3,
+                zero_assertion_cases=["known vacuous case"],
+                allowlist={key: "https://github.com/klausi3D/godotGS/issues/907"},
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(report["vacuous_advisory_cases"], [])
+        self.assertEqual(report["allowlisted_vacuous_cases"], [key])
+
+    def test_vacuous_case_allowlist_is_shrink_only(self):
+        """Ratchet: the allowlist may only lose entries, never gain them.
+
+        The baseline is the allowlist AS IT STANDS AT THE IMMUTABLE REVIEW BASE
+        (merge-base with GS_CI_BASE_REF / GITHUB_BASE_REF / ..., else
+        origin/master), read with git -- not a constant in this file. A constant
+        here is not a ratchet: the same PR could add a vacuous case, its
+        allowlist entry, and the matching baseline key, and go green (Codex on
+        #1218; tests/AGENTS.md "a ratchet compares against an immutable
+        reference outside the change"). If the base cannot be resolved this
+        FAILS; it never falls back to HEAD.
+        """
+        base_keys, failures = _allowlist_keys_at_review_base()
+        self.assertEqual(
+            failures, [],
+            "cannot read VACUOUS_CASE_ALLOWLIST at the review base, so the "
+            "shrink-only ratchet has nothing immutable to compare against",
+        )
+        assert base_keys is not None
+        # Parsed, never imported: see _allowlist_from_source.
+        current, current_failures = _allowlist_from_source(
+            HARNESS_PATH.read_text(encoding="utf-8"), "in the tree under review"
+        )
+        self.assertEqual(
+            current_failures, [],
+            "cannot read VACUOUS_CASE_ALLOWLIST statically in the tree under review",
+        )
+        assert current is not None
+        added = set(current) - base_keys
+        self.assertEqual(
+            added, set(),
+            "VACUOUS_CASE_ALLOWLIST gained entries that are not in it at the review "
+            "base. A laned case that asserts nothing must be fixed or leave its batch.",
+        )
+        for key, url in current.items():
+            self.assertRegex(
+                url, r"^https://github\.com/klausi3D/godotGS/issues/\d+$",
+                f"allowlist entry {key!r} must link its tracking issue",
+            )
+            self.assertIn("/", key, f"allowlist key {key!r} must be 'Batch/case'")
+
+    def test_allowlist_base_reader_parses_only_what_it_can_prove(self):
+        """The base-side parser: absent = empty (strictest), unreadable = failure."""
+        keys, failures = _allowlist_keys_from_source(
+            'X = 1\nVACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u", "C/d": "v"}\n'
+        )
+        self.assertEqual((keys, failures), (frozenset({"A/b", "C/d"}), []))
+        self.assertEqual(_allowlist_keys_from_source("X = 1\n"), (frozenset(), []))
+        self.assertEqual(_allowlist_keys_from_source("VACUOUS_CASE_ALLOWLIST = {}\n"), (frozenset(), []))
+        for unreadable in (
+            "VACUOUS_CASE_ALLOWLIST = dict(a=1)\n",
+            "VACUOUS_CASE_ALLOWLIST = []\n",
+            "VACUOUS_CASE_ALLOWLIST = {}\nVACUOUS_CASE_ALLOWLIST = {'A/b': 'u'}\n",
+            "def (:\n",
+        ):
+            keys, failures = _allowlist_keys_from_source(unreadable)
+            self.assertIsNone(keys, unreadable)
+            self.assertTrue(failures, unreadable)
+
+    def test_current_allowlist_is_parsed_not_imported(self):
+        """The proposed copy is read like the base one: literal or fail (Codex P1 on #1218).
+
+        Each source below would, if imported, put a different allowlist in force
+        than its text shows (or run code in the guard). None of them may parse
+        as a clean allowlist; the plain literal must.
+        """
+        literal = 'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u"}\n'
+        self.assertEqual(
+            _allowlist_from_source(
+                literal + "def f(k):\n    return k in VACUOUS_CASE_ALLOWLIST and VACUOUS_CASE_ALLOWLIST[k]\n",
+                "here",
+            ),
+            ({"A/b": "u"}, []),
+        )
+        dynamic = (
+            "import os\n"
+            'VACUOUS_CASE_ALLOWLIST = {} if os.name != "nt" else {"A/b": "u"}\n',
+            'VACUOUS_CASE_ALLOWLIST = {"A/" + "b": "u"}\n',
+            "VACUOUS_CASE_ALLOWLIST = {**OTHER}\n",
+            'VACUOUS_CASE_ALLOWLIST = {"A/b": 1}\n',
+            'VACUOUS_CASE_ALLOWLIST = X = {}\n',
+            literal + 'VACUOUS_CASE_ALLOWLIST["C/d"] = "u"\n',
+            literal + 'VACUOUS_CASE_ALLOWLIST.update({"C/d": "u"})\n',
+            literal + 'del VACUOUS_CASE_ALLOWLIST["A/b"]\n',
+            literal + "VACUOUS_CASE_ALLOWLIST |= {}\n",
+            literal + "alias = VACUOUS_CASE_ALLOWLIST\n",
+            literal + "def f():\n    global VACUOUS_CASE_ALLOWLIST\n",
+            literal + 'globals()["VACUOUS_CASE_ALLOWLIST"] = {}\n',
+            literal + 'import sys\nsys.modules[__name__].VACUOUS_CASE_ALLOWLIST = {}\n',
+            literal + "from x import y as VACUOUS_CASE_ALLOWLIST\n",
+            literal + "for VACUOUS_CASE_ALLOWLIST in ():\n    pass\n",
+            'globals()["VACUOUS_CASE_ALLOWLIST"] = {"A/b": "u"}\n',
+        )
+        for source in dynamic:
+            value, failures = _allowlist_from_source(source, "here")
+            self.assertIsNone(value, source)
+            self.assertTrue(failures, source)
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sentinel = Path(td) / "imported"
+            source = (
+                f"open({str(sentinel)!r}, 'w').close()\n"
+                'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u"}\n'
+            )
+            value, failures = _allowlist_from_source(source, "here")
+            self.assertEqual((value, failures), ({"A/b": "u"}, []))
+            self.assertFalse(sentinel.exists(), "the reader executed the source it was given")
+
+    def test_shrink_only_ratchet_does_not_import_the_harness(self):
+        """The ratchet itself reads HARNESS_PATH as text; it never executes it."""
+        source = Path(__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        method = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "test_vacuous_case_allowlist_is_shrink_only"
+        )
+        calls = {
+            node.func.id for node in ast.walk(method)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("_load", calls)
+        self.assertIn("_allowlist_from_source", calls)
+
+    def test_allowlist_base_reader_fails_closed_on_an_unresolvable_base(self):
+        """An explicitly named base that does not resolve is a failure, never HEAD.
+
+        The real shared resolver, given the ref as its explicit argument: that is
+        authoritative there, so CI's own base variables cannot rescue it.
+        """
+        resolver = _load("_gs_review_base_resolver_failclosed", BASE_RESOLVER_PATH)
+        keys, failures = _allowlist_keys_at_review_base(
+            resolve=lambda: resolver.resolve_base_sha("gs/no-such-base-ref-1218")
+        )
+        self.assertIsNone(keys)
+        self.assertTrue(failures)
+
+    def _run_ratchet_cli(self, extra_args: list[str], base_env: dict[str, str]):
+        """Run ONLY the shrink-only ratchet in a child, as run_module_tests.py does.
+
+        Every base variable the shared resolver reads is cleared first, then
+        `base_env` is applied: an ambient CI base must not decide which path is
+        being exercised.
+        """
+        resolver = _load("_gs_review_base_resolver_cli", BASE_RESOLVER_PATH)
+        env = {k: v for k, v in os.environ.items() if k not in resolver.BASE_REF_ENV_VARS}
+        env.update(base_env)
+        test_id = f"{type(self).__name__}.test_vacuous_case_allowlist_is_shrink_only"
+        return subprocess.run(
+            [sys.executable, "-B", str(Path(__file__).resolve()), *extra_args, test_id],
+            cwd=ROOT, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=300,
+        )
+
+    def _assert_ran_one(self, proc) -> None:
+        """A child that collected no test exits non-zero too; that is not a ratchet failure."""
+        self.assertRegex(proc.stdout + proc.stderr, r"(?m)^Ran 1 test in ", proc.stdout + proc.stderr)
+
+    def test_ratchet_honours_the_forwarded_base_ref_flag(self):
+        """`--base-ref` (what run_module_tests.py forwards) reaches the resolver.
+
+        An unresolvable named base must FAIL the ratchet; before the flag existed
+        the child ignored it and graded against origin/master. The control run
+        with a resolvable base proves the failure is the base, not the harness.
+        """
+        bad = self._run_ratchet_cli(["--base-ref", "gs/no-such-base-ref-1218"], {})
+        self._assert_ran_one(bad)
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertIn("gs/no-such-base-ref-1218", bad.stdout + bad.stderr)
+        good = self._run_ratchet_cli(["--base-ref", "HEAD"], {})
+        self._assert_ran_one(good)
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+
+    def test_ratchet_honours_the_base_environment_variable(self):
+        """The env path still works when no flag is given (and a flag would win)."""
+        bad = self._run_ratchet_cli([], {"GS_CI_BASE_REF": "gs/no-such-base-ref-1218"})
+        self._assert_ran_one(bad)
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertIn("gs/no-such-base-ref-1218", bad.stdout + bad.stderr)
+        flag_wins = self._run_ratchet_cli(
+            ["--base-ref", "HEAD"], {"GS_CI_BASE_REF": "gs/no-such-base-ref-1218"}
+        )
+        self._assert_ran_one(flag_wins)
+        self.assertEqual(flag_wins.returncode, 0, flag_wins.stdout + flag_wins.stderr)
+
+    def test_allowlist_base_reader_reads_the_base_not_the_worktree(self):
+        """Discrimination: the reader returns the base's keys even when the worktree differs.
+
+        Throwaway repository: the base commit allowlists one case, the working
+        tree has emptied it, and a second base without the file at all must give
+        the strictest baseline (the empty set), not a failure.
+        """
+        import tempfile
+
+        rel = HARNESS_PATH.relative_to(ROOT).as_posix()
+
+        def git(cwd: Path, *args: str) -> str:
+            done = subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                 "-c", "commit.gpgsign=false", *args],
+                cwd=cwd, capture_output=True, text=True,
+            )
+            if done.returncode != 0:
+                self.fail(f"git {' '.join(args)} failed: {done.stderr}")
+            return done.stdout.strip()
+
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            git(repo, "init", "-q")
+            (repo / "README").write_text("x\n", encoding="utf-8")
+            git(repo, "add", "README")
+            git(repo, "commit", "-q", "-m", "no harness")
+            without_harness = git(repo, "rev-parse", "HEAD")
+
+            harness = repo / rel
+            harness.parent.mkdir(parents=True)
+            harness.write_text(
+                'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"B/at base": "u"}\n', encoding="utf-8"
+            )
+            git(repo, "add", rel)
+            git(repo, "commit", "-q", "-m", "base")
+            base = git(repo, "rev-parse", "HEAD")
+            harness.write_text("VACUOUS_CASE_ALLOWLIST: dict[str, str] = {}\n", encoding="utf-8")
+
+            keys, failures = _allowlist_keys_at_review_base(root=repo, resolve=lambda: (base, []))
+            self.assertEqual((keys, failures), (frozenset({"B/at base"}), []))
+
+            keys, failures = _allowlist_keys_at_review_base(
+                root=repo, resolve=lambda: (without_harness, [])
+            )
+            self.assertEqual((keys, failures), (frozenset(), []))
+
+            keys, failures = _allowlist_keys_at_review_base(
+                root=repo, resolve=lambda: ("0" * 40, [])
+            )
+            self.assertIsNone(keys, "an unreadable base must fail, not read as absent")
+            self.assertTrue(failures)
 
     def test_clean_required_batch_with_audit_passes(self):
         """Discrimination: audit ran, nothing hollow, four-digit skip count -> pass."""
@@ -861,8 +1431,12 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             [f"{batch_name}: zero_assert=1 named=2"],
         )
 
-    def test_advisory_batch_with_audit_count_mismatch_still_passes(self) -> None:
-        """Scope check: the rule is REQUIRED-only, like its two siblings."""
+    def test_advisory_batch_with_audit_count_mismatch_fails(self) -> None:
+        """#906/#907: the reconciliation applies to advisory batches that ran cases.
+
+        A trimmed NO-ASSERTS line in an advisory batch would otherwise hide a
+        vacuous case from the per-case rule above.
+        """
         import tempfile
 
         batch_name = self._an_advisory_batch()
@@ -877,8 +1451,139 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
                 zero_assert_reported=2,
             )
 
-        self.assertEqual(rc, 0, "Advisory batches keep their documented leniency.")
-        self.assertEqual(report["case_audit_mismatch_batches"], [])
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(
+            report["case_audit_mismatch_batches"],
+            [f"{batch_name}: zero_assert=2 named=0"],
+        )
+
+
+class GpuHarnessSkipAttributionTests(unittest.TestCase):
+    """#906/#907: `_parse_summary` tells an explicit skip from a silent return.
+
+    The input is CAPTURED from the producer, not written by hand:
+    tests/ci/fixtures/gpu_harness_zero_assert_sample.txt is the verbatim stdout of
+    `godot.windows.editor.dev.x86_64.console.exe --gs-gpu-test` (dev build at
+    ab74e332aa8, RTX 3090, Vulkan) for three cases:
+
+      * `RenderDeviceManager blocks untracked free path` -- returns SILENTLY with
+        0 assertions (#907);
+      * `Instance buffer upload uses the published renderer-side remap` -- 0
+        assertions after `MESSAGE("Skipping test - Rendering server unavailable")`
+        (#906, legacy prefix form);
+      * `Memory validator reset clears all tracked state` -- 5 assertions.
+
+    It also records the property that broke the first design: the listener's
+    NO-ASSERTS lines come out BEFORE doctest's per-case blocks, so a skip cannot
+    be attributed by position. git stores the fixture with LF; the tests also feed
+    the CRLF form the Windows runner actually pipes.
+    """
+
+    FIXTURE = ROOT / "tests" / "ci" / "fixtures" / "gpu_harness_zero_assert_sample.txt"
+    SILENT = "[GaussianSplatting][RequiresGPU] RenderDeviceManager blocks untracked free path"
+    SKIPPED = (
+        "[GaussianSplatting][RequiresGPU] Instance buffer upload uses the published "
+        "renderer-side remap"
+    )
+
+    def _parse(self, text: str):
+        harness = _load("gs_harness_skip_attribution", HARNESS_PATH)
+        r = harness.BatchResult(name="probe", filters=())
+        harness._parse_summary(text, r)
+        return r
+
+    def _fixture_forms(self) -> list[str]:
+        lf = self.FIXTURE.read_text(encoding="utf-8").replace("\r\n", "\n")
+        return [lf, lf.replace("\n", "\r\n")]
+
+    def test_fixture_has_the_shape_it_claims(self):
+        text = self._fixture_forms()[0]
+        self.assertIn("[GS-GPU][CASE-ASSERT-AUDIT] started=3 zero_assert=2", text)
+        self.assertLess(
+            text.index("[GS-GPU][NO-ASSERTS]"), text.index("TEST CASE:"),
+            "the producer prints the listener lines before doctest's blocks",
+        )
+
+    def test_explicit_skip_is_credited_and_silent_return_is_not(self):
+        for text in self._fixture_forms():
+            r = self._parse(text)
+            self.assertTrue(r.summary_parse_ok)
+            self.assertEqual(r.zero_assertion_cases, [self.SILENT, self.SKIPPED])
+            self.assertEqual(r.env_skipped_cases, [self.SKIPPED])
+            self.assertEqual(r.zero_assert_reported, 2)
+
+    def test_skip_credit_needs_the_cases_own_block(self):
+        """Fail closed: drop the skipped case's block and it is vacuous again."""
+        text = self._fixture_forms()[0]
+        start = text.index("TEST CASE:")
+        end = text.index("[doctest] test cases:")
+        r = self._parse(text[:start] + text[end:])
+        self.assertEqual(r.env_skipped_cases, [])
+        self.assertEqual(r.zero_assertion_cases, [self.SILENT, self.SKIPPED])
+
+    def test_skip_in_another_cases_block_is_not_credited(self):
+        """A marker is attributed by the block's own name, not by proximity."""
+        text = self._fixture_forms()[0].replace(
+            "TEST CASE:  " + self.SKIPPED, "TEST CASE:  some other case"
+        )
+        r = self._parse(text)
+        self.assertEqual(r.env_skipped_cases, [])
+
+    def test_canonical_token_counts_as_a_skip(self):
+        text = self._fixture_forms()[0].replace(
+            "MESSAGE: Skipping test - Rendering server unavailable",
+            "MESSAGE: GS_ENV_SKIP: RenderingDevice unavailable",
+        )
+        r = self._parse(text)
+        self.assertEqual(r.env_skipped_cases, [self.SKIPPED])
+
+    def test_skip_detector_is_the_headless_lanes_detector(self):
+        """One shape contract: the harness pattern must equal run_module_tests'."""
+        harness = _load("gs_harness_skip_re", HARNESS_PATH)
+        lanes = _load("gs_run_module_tests_skip_re", ROOT / "tests" / "ci" / "run_module_tests.py")
+        self.assertEqual(
+            harness.DOCTEST_SKIP_MARKER_RE.pattern, lanes.DOCTEST_SKIP_MARKER_RE.pattern
+        )
+        self.assertEqual(
+            harness.DOCTEST_SKIP_MARKER_RE.flags, lanes.DOCTEST_SKIP_MARKER_RE.flags
+        )
+
+    def test_fixture_drives_the_gate_end_to_end(self):
+        """Parsed fixture through main(): the silent case fails an advisory batch."""
+        import contextlib
+        import io
+        import tempfile
+
+        harness = _load("gs_harness_skip_e2e", HARNESS_PATH)
+        advisory = sorted(
+            s.name for s in harness.BATCHES if s.name not in harness.REQUIRED_BATCHES
+        )[0]
+        text = self._fixture_forms()[1]
+
+        def _fake_run_batch(godot, name, filters, excludes, timeout_sec, extra_args):
+            r = harness.BatchResult(name=name, filters=filters, excludes=excludes)
+            r.rc = 0
+            harness._parse_summary(text, r)
+            return r
+
+        harness._run_batch = _fake_run_batch
+        with tempfile.TemporaryDirectory() as td:
+            report_path = Path(td) / "report.json"
+            old_argv = sys.argv
+            sys.argv = [
+                "run_gpu_harness.py", "--godot", str(HARNESS_PATH),
+                "--batch", advisory, "--report", str(report_path),
+            ]
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = harness.main()
+            finally:
+                sys.argv = old_argv
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(report["vacuous_advisory_cases"], [f"{advisory}/{self.SILENT}"])
+        self.assertEqual(report["env_skipped_advisory_cases"], [f"{advisory}/{self.SKIPPED}"])
 
 
 class GpuHarnessBatchTimeoutBudgetTests(unittest.TestCase):
@@ -967,7 +1672,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--print-summary", action="store_true")
     parser.add_argument("--print-fingerprint", action="store_true")
+    parser.add_argument("--base-ref", dest="base_ref", default=None,
+                        help="Review base for the VACUOUS_CASE_ALLOWLIST ratchet "
+                             "(default: the shared resolver's env vars, then origin/master).")
     args, rest = parser.parse_known_args()
+    _REVIEW_BASE_REF = args.base_ref
     if args.print_fingerprint:
         _names = _manifest().get("unbatched_requires_gpu_backlog", {}).get("test_names", [])
         print(f"BACKLOG_MAX_ENTRIES = {len(_names)}")
