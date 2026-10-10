@@ -44,19 +44,13 @@ struct BakeResult {
 bool choose_root_cell(const double p_origin[3], const double p_min[3], const double p_max[3],
 		GaussianSplatHlodCell &r_cell, bool &r_origin_centred);
 
-// Fallible allocation probe for the bake's splat-count-sized allocations (the OOM-probe row of
-// docs/architecture/adr-import-input-hardening.md): LocalVector::reserve() CRASH_CONDs on a failed
-// memrealloc, so each such allocation is first proven available with memalloc(), which returns
-// null instead. False means "do not allocate; report ERR_OUT_OF_MEMORY". p_where names the site
-// for the message and for the TESTS_ENABLED forced-failure seam in gs_vector_alloc.h.
-bool bake_allocation_probe(uint64_t p_bytes, const char *p_where);
-
 // Bakes p_input. Fails closed (returns false, r_error set) on empty input, non-finite splat
 // fields (position, scale, rotation, opacity, SH), a leaf size outside [1, 16384], a payload
 // that would not fit the 32-bit index space, or a splat-count-sized allocation that cannot be
 // served. r_code, when given, receives ERR_OUT_OF_MEMORY for the last and ERR_INVALID_DATA
-// otherwise. Allocations bounded per node (kMaxChildren x kMaxNodeSplats splats) and the
-// node-count-sized build stacks are not probed: they are not proportional to the splat count.
+// otherwise. The interior merge's per-node allocations are probed too (the bound comment in
+// gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <= kMaxChildren child
+// spans are not.
 bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
 		Error *r_code = nullptr);
 

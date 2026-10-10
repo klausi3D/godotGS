@@ -539,7 +539,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importance order is opacity x area
 	g[3].opacity = 1.0f;
 	g[3].scale = Vector3(4.0f, 0.1f, 0.1f); // 0.4 (largest axis is long, area small)
 	LocalVector<uint32_t> order;
-	gs_hlod::importance_order(TestGaussianSplatHlod::hlod_span(g), order);
+	CHECK(gs_hlod::importance_order(TestGaussianSplatHlod::hlod_span(g), order));
 	if ((order.size()) != (4u)) {
 		FAIL("order.size() == 4u");
 		return;
@@ -3050,6 +3050,21 @@ static const char *const kHlodBakeAllocationSites[] = {
 	"gs_hlod::bake_world interior_payloads",
 	"gs_hlod::bake_world node_lo",
 	"gs_hlod::bake_world node_hi",
+	// Interior merge (per node; not a small constant, see gaussian_splat_hlod_merge.h).
+	"gs_hlod::bake_world children_frame_gaussians",
+	"gs_hlod::bake_world children_frame_sh_high_order",
+	"gs_hlod::bake_interior_node reference_gaussians",
+	"gs_hlod::bake_interior_node reference_sh_high_order",
+	"gs_hlod::bucket_cells pass_through",
+	"gs_hlod::bucket_cells cells",
+	"gs_hlod::bucket_cells entries",
+	"gs_hlod::merge_at_eps merged_gaussians",
+	"gs_hlod::merge_at_eps merged_sh_high_order",
+	"gs_hlod::merge_at_eps members",
+	"gs_hlod::importance_order order",
+	"gs_hlod::importance_order keys",
+	"gs_hlod::bake_interior_node payload_gaussians",
+	"gs_hlod::bake_interior_node payload_sh_high_order",
 	"gs_hlod::bake_world interior_gaussians",
 	"gs_hlod::bake_world interior_sh_high_order",
 	"GaussianSplatWorld::bake_hlod baked_gaussians",
@@ -3112,13 +3127,15 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	importer.instantiate();
 	HashMap<StringName, Variant> options;
 	LocalVector<Gaussian> g;
-	hlod_make_fixture(3000u, 1000u, g);
+	// Over one leaf, so the bake reaches the interior merge.
+	hlod_make_fixture(12000u, 6000u, g);
 	const String source = hlod_temp_path("import_oom_source");
 	if (saver.save(hlod_make_world(g), source) != OK) {
 		FAIL("save source");
 		return;
 	}
-	for (const char *site : { "GaussianSplatWorld::bake_hlod snapshot_gaussians", "gs_hlod::bake_world leaf_gaussians" }) {
+	for (const char *site : { "GaussianSplatWorld::bake_hlod snapshot_gaussians", "gs_hlod::bake_world leaf_gaussians",
+				 "gs_hlod::bake_interior_node payload_gaussians" }) {
 		INFO(site);
 		const String base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_oom_" + itos(OS::get_singleton()->get_ticks_usec()));
 		Variant md;

@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 
 namespace gs_hlod {
 
@@ -643,7 +644,12 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				}
 				src.sh_high_order_count = sh_count;
 				const uint32_t base = children_frame.size();
-				children_frame.append(src, 0u, src.count);
+				const Error appended = children_frame.append(src, 0u, src.count,
+						"gs_hlod::bake_world children_frame_gaussians", "gs_hlod::bake_world children_frame_sh_high_order");
+				if (appended != OK) {
+					return fail(vformat("HLOD node %d: cannot gather the children's payloads.", i),
+							appended == ERR_OUT_OF_MEMORY ? ERR_OUT_OF_MEMORY : ERR_INVALID_DATA);
+				}
 				for (uint32_t k = base; k < children_frame.size(); k++) {
 					Vector3 &p = children_frame.gaussians[k].position;
 					p = Vector3(real_t(double(p.x) + shift[0]), real_t(double(p.y) + shift[1]), real_t(double(p.z) + shift[2]));
@@ -664,13 +670,16 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			const double edge = tree.node_cell_edge(node);
 			const Vector3 grid_origin(real_t(-0.5 * edge), real_t(-0.5 * edge), real_t(-0.5 * edge));
 			String error;
+			Error interior_code = ERR_INVALID_DATA;
 			if (!bake_interior_node(child_spans.ptr(), node.child_count, grid_origin, edge, max_child_error,
-						p_params.interior, interior_scratch, interior_result, &error)) {
-				return fail(vformat("HLOD node %d: %s", i, error));
+						p_params.interior, interior_scratch, interior_result, &error, &interior_code)) {
+				return fail(vformat("HLOD node %d: %s", i, error), interior_code == ERR_OUT_OF_MEMORY ? ERR_OUT_OF_MEMORY : ERR_INVALID_DATA);
 			}
 			merge_usec += interior_result.merge_usec;
 			order_usec += interior_result.order_usec;
-			interior_payloads[i] = interior_result.payload;
+			// Moved, not copied: the payload was allocated fallibly in bake_interior_node(), and a
+			// copy would be a second, unprobed allocation per node (all retained until the end).
+			interior_payloads[i] = std::move(interior_result.payload);
 			node.geometric_error = round_up(interior_result.geometric_error);
 			// Monotone after float rounding: a parent's error is at least twice its children's
 			// in double; keep it >= every child after rounding too.

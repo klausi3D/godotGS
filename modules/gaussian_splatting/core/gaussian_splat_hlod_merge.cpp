@@ -167,20 +167,25 @@ Quaternion matrix_to_quat(const double p_m[3][3]) {
 
 
 // Buckets the non-pass-through splats of p_rep on the eps grid. Fills r_entries sorted by
-// (cell, index) and r_pass_through (1 = passes through). Returns false when the grid is too fine
-// for the 21-bit-per-axis cell key (the caller's eps is far below the content extent).
-bool bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch) {
+// (cell, index) and r_pass_through (1 = passes through). Returns ERR_PARAMETER_RANGE_ERROR when the
+// grid is too fine for the 21-bit-per-axis cell key (the caller's eps is far below the content
+// extent) and ERR_OUT_OF_MEMORY when the scratch cannot grow (entries then empty).
+Error bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch) {
 	LocalVector<MergeCellEntry> &r_entries = r_scratch.entries;
 	LocalVector<uint8_t> &r_pass_through = r_scratch.pass_through;
 	LocalVector<int64_t> &cells = r_scratch.cells;
 	r_entries.clear();
-	r_pass_through.resize(p_rep.count);
+	if (!fallible_resize(r_pass_through, p_rep.count, "gs_hlod::bucket_cells pass_through")) {
+		return ERR_OUT_OF_MEMORY;
+	}
 	if (p_rep.count == 0u) {
-		return true;
+		return OK;
 	}
 	int64_t lo[3] = { INT64_MAX, INT64_MAX, INT64_MAX };
 	int64_t hi[3] = { INT64_MIN, INT64_MIN, INT64_MIN };
-	cells.resize(uint32_t(p_rep.count) * 3u);
+	if (!fallible_resize(cells, uint64_t(p_rep.count) * 3u, "gs_hlod::bucket_cells cells")) {
+		return ERR_OUT_OF_MEMORY;
+	}
 	uint32_t merged = 0u;
 	for (uint32_t i = 0; i < p_rep.count; i++) {
 		const Gaussian &g = p_rep.gaussians[i];
@@ -197,7 +202,7 @@ bool bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		for (int a = 0; a < 3; a++) {
 			const double f = std::floor((p[a] - o[a]) / p_eps);
 			if (!(f > -9.0e15 && f < 9.0e15)) {
-				return false;
+				return ERR_PARAMETER_RANGE_ERROR;
 			}
 			const int64_t c = int64_t(f);
 			cells[i * 3u + uint32_t(a)] = c;
@@ -206,14 +211,16 @@ bool bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		}
 	}
 	if (merged == 0u) {
-		return true;
+		return OK;
 	}
 	for (int a = 0; a < 3; a++) {
 		if (hi[a] - lo[a] >= kCellCoordLimit) {
-			return false;
+			return ERR_PARAMETER_RANGE_ERROR;
 		}
 	}
-	r_entries.resize(merged);
+	if (!fallible_resize(r_entries, merged, "gs_hlod::bucket_cells entries")) {
+		return ERR_OUT_OF_MEMORY;
+	}
 	uint32_t w = 0u;
 	for (uint32_t i = 0; i < p_rep.count; i++) {
 		if (r_pass_through[i]) {
@@ -234,7 +241,7 @@ bool bucket_cells(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		w++;
 	}
 	std::sort(r_entries.ptr(), r_entries.ptr() + r_entries.size());
-	return true;
+	return OK;
 }
 
 } // namespace
@@ -267,22 +274,31 @@ SplatSpan SplatList::span() const {
 	return s;
 }
 
-void SplatList::append(const SplatSpan &p_src, uint32_t p_first, uint32_t p_count) {
-	ERR_FAIL_COND(p_src.sh_high_order_count != sh_high_order_count);
-	ERR_FAIL_COND(uint64_t(p_first) + uint64_t(p_count) > uint64_t(p_src.count));
+Error SplatList::append(const SplatSpan &p_src, uint32_t p_first, uint32_t p_count,
+		const char *p_where_gaussians, const char *p_where_sh) {
+	ERR_FAIL_COND_V(p_src.sh_high_order_count != sh_high_order_count, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(uint64_t(p_first) + uint64_t(p_count) > uint64_t(p_src.count), ERR_INVALID_PARAMETER);
 	const uint32_t base = gaussians.size();
-	gaussians.resize(base + p_count);
+	const uint32_t sh_base = sh_high_order.size();
+	// A failed SH grow shrinks the Gaussians back, so a failure leaves the list's contents unchanged.
+	if (!fallible_resize(gaussians, uint64_t(base) + p_count, p_where_gaussians)) {
+		return ERR_OUT_OF_MEMORY;
+	}
+	if (sh_high_order_count > 0u &&
+			!fallible_resize(sh_high_order, uint64_t(sh_base) + uint64_t(p_count) * sh_high_order_count, p_where_sh)) {
+		gaussians.resize(base);
+		return ERR_OUT_OF_MEMORY;
+	}
 	if (p_count > 0u) {
 		memcpy(gaussians.ptr() + base, p_src.gaussians + p_first, sizeof(Gaussian) * p_count);
 	}
 	if (sh_high_order_count > 0u) {
-		const uint32_t sh_base = sh_high_order.size();
-		sh_high_order.resize(sh_base + p_count * sh_high_order_count);
 		if (p_count > 0u) {
 			memcpy(sh_high_order.ptr() + sh_base, p_src.sh_high_order + uint64_t(p_first) * sh_high_order_count,
 					sizeof(Vector3) * uint64_t(p_count) * sh_high_order_count);
 		}
 	}
+	return OK;
 }
 
 float importance_area(const Gaussian &p_g) {
@@ -291,10 +307,13 @@ float importance_area(const Gaussian &p_g) {
 	return clamp01(p_g.opacity) * s_max * s_mid;
 }
 
-void importance_order(const SplatSpan &p_span, LocalVector<uint32_t> &r_order) {
-	r_order.resize(p_span.count);
+bool importance_order(const SplatSpan &p_span, LocalVector<uint32_t> &r_order) {
 	LocalVector<float> keys;
-	keys.resize(p_span.count);
+	if (!fallible_resize(r_order, p_span.count, "gs_hlod::importance_order order") ||
+			!fallible_resize(keys, p_span.count, "gs_hlod::importance_order keys")) {
+		r_order.clear();
+		return false;
+	}
 	for (uint32_t i = 0; i < p_span.count; i++) {
 		r_order[i] = i;
 		keys[i] = importance_area(p_span.gaussians[i]);
@@ -303,6 +322,7 @@ void importance_order(const SplatSpan &p_span, LocalVector<uint32_t> &r_order) {
 	std::sort(r_order.ptr(), r_order.ptr() + r_order.size(), [k](uint32_t p_a, uint32_t p_b) {
 		return k[p_a] > k[p_b] || (k[p_a] == k[p_b] && p_a < p_b);
 	});
+	return true;
 }
 
 void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t p_member_count,
@@ -475,9 +495,17 @@ void merge_cell_sat(const SplatSpan &p_rep, const uint32_t *p_members, uint32_t 
 	}
 }
 
-uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch) {
+uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch,
+		Error *r_code) {
+	if (r_code) {
+		*r_code = OK;
+	}
 	ERR_FAIL_COND_V(!(p_eps > 0.0), UINT32_MAX);
-	if (!bucket_cells(p_rep, p_origin, p_eps, r_scratch)) {
+	const Error bucketed = bucket_cells(p_rep, p_origin, p_eps, r_scratch);
+	if (bucketed != OK) {
+		if (r_code) {
+			*r_code = bucketed;
+		}
 		return UINT32_MAX;
 	}
 	const LocalVector<MergeCellEntry> &entries = r_scratch.entries;
@@ -493,12 +521,15 @@ uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, do
 	return count;
 }
 
-void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch, SplatList &r_out) {
+Error merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch, SplatList &r_out) {
 	r_out.clear();
 	r_out.sh_high_order_count = p_rep.sh_high_order_count;
-	ERR_FAIL_COND(!(p_eps > 0.0));
-	ERR_FAIL_COND_MSG(!bucket_cells(p_rep, p_origin, p_eps, r_scratch),
-			"HLOD merge cell size is too small for the content extent.");
+	ERR_FAIL_COND_V(!(p_eps > 0.0), ERR_INVALID_PARAMETER);
+	const Error bucketed = bucket_cells(p_rep, p_origin, p_eps, r_scratch);
+	if (bucketed == ERR_OUT_OF_MEMORY) {
+		return ERR_OUT_OF_MEMORY;
+	}
+	ERR_FAIL_COND_V_MSG(bucketed != OK, bucketed, "HLOD merge cell size is too small for the content extent.");
 	const LocalVector<MergeCellEntry> &entries = r_scratch.entries;
 	const uint32_t sh_count = p_rep.sh_high_order_count;
 
@@ -512,9 +543,11 @@ void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 	for (uint32_t i = 0; i < p_rep.count; i++) {
 		pass_count += r_scratch.pass_through[i];
 	}
-	r_out.gaussians.resize(pass_count + cell_count);
-	if (sh_count > 0u) {
-		r_out.sh_high_order.resize((pass_count + cell_count) * sh_count);
+	if (!fallible_resize(r_out.gaussians, uint64_t(pass_count) + cell_count, "gs_hlod::merge_at_eps merged_gaussians") ||
+			(sh_count > 0u && !fallible_resize(r_out.sh_high_order, (uint64_t(pass_count) + cell_count) * sh_count,
+									   "gs_hlod::merge_at_eps merged_sh_high_order"))) {
+		r_out.clear();
+		return ERR_OUT_OF_MEMORY;
 	}
 
 	uint32_t w = 0u;
@@ -530,7 +563,7 @@ void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		w++;
 	}
 	if (entries.is_empty()) {
-		return; // All payload and SH entries have already been copied unchanged.
+		return OK; // All payload and SH entries have already been copied unchanged.
 	}
 	LocalVector<uint32_t> &members = r_scratch.members;
 	uint32_t run_start = 0u;
@@ -538,7 +571,10 @@ void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		if (i < entries.size() && entries[i].key == entries[run_start].key) {
 			continue;
 		}
-		members.resize(i - run_start);
+		if (!fallible_resize(members, i - run_start, "gs_hlod::merge_at_eps members")) {
+			r_out.clear();
+			return ERR_OUT_OF_MEMORY;
+		}
 		for (uint32_t m = run_start; m < i; m++) {
 			members[m - run_start] = entries[m].index;
 		}
@@ -547,13 +583,23 @@ void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps,
 		w++;
 		run_start = i;
 	}
+	return OK;
 }
 
 bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 		const Vector3 &p_grid_origin, double p_cell_edge, double p_max_child_error,
 		const InteriorBakeParams &p_params, InteriorBakeScratch &r_scratch, InteriorBakeResult &r_result,
-		String *r_error) {
+		String *r_error, Error *r_code) {
 	const uint64_t t_start = OS::get_singleton()->get_ticks_usec();
+	auto out_of_memory = [&](const char *p_what) {
+		if (r_error) {
+			*r_error = vformat("HLOD merge cannot allocate %s.", String(p_what));
+		}
+		if (r_code) {
+			*r_code = ERR_OUT_OF_MEMORY;
+		}
+		return false;
+	};
 	ERR_FAIL_COND_V(p_child_count == 0u, false);
 	const uint32_t sh_count = p_children[0].sh_high_order_count;
 
@@ -562,7 +608,12 @@ bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 	rep.sh_high_order_count = sh_count;
 	for (uint32_t c = 0; c < p_child_count; c++) {
 		ERR_FAIL_COND_V(p_children[c].sh_high_order_count != sh_count, false);
-		rep.append(p_children[c], 0u, p_children[c].count);
+		const Error appended = rep.append(p_children[c], 0u, p_children[c].count,
+				"gs_hlod::bake_interior_node reference_gaussians", "gs_hlod::bake_interior_node reference_sh_high_order");
+		if (appended == ERR_OUT_OF_MEMORY) {
+			return out_of_memory("the merge reference");
+		}
+		ERR_FAIL_COND_V(appended != OK, false);
 	}
 	const SplatSpan rep_span = rep.span();
 	ERR_FAIL_COND_V(rep_span.count == 0u, false);
@@ -579,7 +630,11 @@ bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 			MAX<uint64_t>(1u, uint64_t(std::ceil(double(rep_span.count) / p_params.reduction)))));
 	uint32_t steps = 0u;
 	while (true) {
-		const uint32_t count = merged_count_at_eps(rep_span, p_grid_origin, eps, r_scratch.merge);
+		Error count_code = OK;
+		const uint32_t count = merged_count_at_eps(rep_span, p_grid_origin, eps, r_scratch.merge, &count_code);
+		if (count_code == ERR_OUT_OF_MEMORY) {
+			return out_of_memory("the merge cell scratch");
+		}
 		if (count <= target) {
 			break;
 		}
@@ -588,20 +643,31 @@ bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 				*r_error = vformat("HLOD merge did not reach %d splats from %d within %d cell-size steps.",
 						target, rep_span.count, p_params.max_eps_steps);
 			}
+			if (r_code) {
+				*r_code = ERR_INVALID_DATA;
+			}
 			return false;
 		}
 		eps *= p_params.eps_growth;
 	}
-	merge_at_eps(rep_span, p_grid_origin, eps, r_scratch.merge, r_scratch.merged);
+	const Error merged = merge_at_eps(rep_span, p_grid_origin, eps, r_scratch.merge, r_scratch.merged);
+	if (merged == ERR_OUT_OF_MEMORY) {
+		return out_of_memory("the merged candidate");
+	}
+	ERR_FAIL_COND_V(merged != OK, false);
 	const uint64_t t_merged = OS::get_singleton()->get_ticks_usec();
 
 	const SplatSpan merged_span = r_scratch.merged.span();
-	importance_order(merged_span, r_scratch.order);
+	if (!importance_order(merged_span, r_scratch.order)) {
+		return out_of_memory("the importance order");
+	}
 	r_result.payload.clear();
 	r_result.payload.sh_high_order_count = sh_count;
-	r_result.payload.gaussians.resize(merged_span.count);
-	if (sh_count > 0u) {
-		r_result.payload.sh_high_order.resize(merged_span.count * sh_count);
+	if (!fallible_resize(r_result.payload.gaussians, merged_span.count, "gs_hlod::bake_interior_node payload_gaussians") ||
+			(sh_count > 0u && !fallible_resize(r_result.payload.sh_high_order, uint64_t(merged_span.count) * sh_count,
+									   "gs_hlod::bake_interior_node payload_sh_high_order"))) {
+		r_result.payload.clear();
+		return out_of_memory("the node payload");
 	}
 	for (uint32_t i = 0; i < merged_span.count; i++) {
 		const uint32_t src = r_scratch.order[i];

@@ -9,6 +9,7 @@
 // `scale` is linear (the exp of the PLY log-scale), `rotation` is a unit quaternion, `sh_dc` holds
 // SH_C0 x f_dc. Sigma_a >= sigma_b are the two largest scale axes.
 
+#include "core/error/error_list.h"
 #include "core/math/vector3.h"
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
@@ -18,6 +19,48 @@
 #include <cstdint>
 
 namespace gs_hlod {
+
+// Fallible allocation probe for the bake's data-sized allocations (the OOM-probe row of
+// docs/architecture/adr-import-input-hardening.md): LocalVector::reserve() CRASH_CONDs on a failed
+// memrealloc, so each such allocation is first proven available with memalloc(), which returns
+// null instead. False means "do not allocate; report ERR_OUT_OF_MEMORY". p_where names the site
+// for the message and for the TESTS_ENABLED forced-failure seam in gs_vector_alloc.h (a string
+// literal). Defined in gaussian_splat_hlod_bake.cpp.
+bool bake_allocation_probe(uint64_t p_bytes, const char *p_where);
+
+// Resizes r_vec to p_count, proving any growth with bake_allocation_probe() first. A grow makes
+// LocalVector::reserve() allocate max(p_count, 2, 1.5 x capacity) elements; that is what is probed
+// and then reserved explicitly, so the probed and the allocated size are the same. Returns false
+// with r_vec unchanged when the probe fails.
+template <typename T>
+[[nodiscard]] bool fallible_resize(LocalVector<T> &r_vec, uint64_t p_count, const char *p_where) {
+	if (p_count > uint64_t(UINT32_MAX)) {
+		return false;
+	}
+	const uint64_t capacity = r_vec.get_capacity();
+	if (p_count > capacity) {
+		const uint64_t grown = MAX(p_count, MAX<uint64_t>(2u, capacity + ((1u + capacity) >> 1u)));
+		if (grown > uint64_t(UINT32_MAX) || !bake_allocation_probe(grown * uint64_t(sizeof(T)), p_where)) {
+			return false;
+		}
+		r_vec.reserve(uint32_t(grown));
+	}
+	r_vec.resize(uint32_t(p_count));
+	return true;
+}
+
+// Interior-merge allocation bound (#1149 review). Per interior node the merge holds the children's
+// payloads concatenated twice (bake_world's re-framed copy and the merge reference): at most
+// kMaxChildren x max(leaf_max_splats, node_max_splats) = 8 x 16,384 = 131,072 splats at the
+// defaults, i.e. 18.0 MiB of Gaussian (144 B) plus 131,072 x sh_high_order_count x 12 B of SH
+// (22.5 MiB at 15 coefficients) EACH, before LocalVector's 1.5x growth; the bucketing scratch adds
+// 24 + 16 + 1 B per splat (5.1 MiB), the merged output and the payload up to 16,384 splats each.
+// That is ~100 MiB per node, scaling with the SH count and the interior parameters (neither is
+// capped by bake_world), and every node's payload is retained until the end of the bake, which
+// scales with the world. So these are not "small constant" allocations: each one goes through
+// fallible_resize() and a failure surfaces as ERR_OUT_OF_MEMORY. Excluded: merge_cell_sat()'s
+// SH accumulator, which allocates only above 16 SH coefficients (SH degree > 3) and then
+// sh_high_order_count x 24 B per cell.
 
 // A borrowed list of splats and their high-order SH (`count * sh_high_order_count` vectors,
 // splat-major; may be null when sh_high_order_count is 0).
@@ -40,16 +83,21 @@ struct SplatList {
 		sh_high_order.clear();
 	}
 	SplatSpan span() const;
-	// Appends p_count splats of p_src starting at p_first. SH counts must match.
-	void append(const SplatSpan &p_src, uint32_t p_first, uint32_t p_count);
+	// Appends p_count splats of p_src starting at p_first. SH counts must match
+	// (ERR_INVALID_PARAMETER otherwise). Growth is fallible: ERR_OUT_OF_MEMORY leaves the list
+	// unchanged. p_where_* label the two allocations (see bake_allocation_probe()).
+	Error append(const SplatSpan &p_src, uint32_t p_first, uint32_t p_count,
+			const char *p_where_gaussians = "gs_hlod::SplatList::append gaussians",
+			const char *p_where_sh = "gs_hlod::SplatList::append sh_high_order");
 };
 
 // Importance used inside nodes: opacity x sigma_a x sigma_b (ADR §5.2 "A-area", §6.2).
 float importance_area(const Gaussian &p_g);
 
 // Writes the permutation that orders p_span by importance_area descending, ties by index
-// ascending, so any prefix is the best subset by that key (ADR §6.2).
-void importance_order(const SplatSpan &p_span, LocalVector<uint32_t> &r_order);
+// ascending, so any prefix is the best subset by that key (ADR §6.2). Returns false (r_order
+// empty) when the order or its key scratch cannot be allocated.
+bool importance_order(const SplatSpan &p_span, LocalVector<uint32_t> &r_order);
 
 // Packed symmetric covariance (xx, xy, xz, yy, yz, zz) of a splat, Sigma = R diag(s^2) R^T.
 void splat_covariance(const Gaussian &p_g, double r_cov[6]);
@@ -100,12 +148,17 @@ struct MergeScratch {
 // Number of splats the merge produces at cell size p_eps: the pass-through splats
 // (2 sigma_max >= eps) plus the number of occupied cells of the grid anchored at p_origin.
 // A cell is per DC encoding: splats with different encodings never merge.
-// Returns UINT32_MAX when the grid is too fine for the content (more than 2^21 cells per axis).
-uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch);
+// Returns UINT32_MAX when the grid is too fine for the content (more than 2^21 cells per axis;
+// r_code = ERR_PARAMETER_RANGE_ERROR) or the bucketing scratch cannot be allocated
+// (r_code = ERR_OUT_OF_MEMORY). r_code, when given, is OK otherwise.
+uint32_t merged_count_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch,
+		Error *r_code = nullptr);
 
 // The merged candidate at cell size p_eps: pass-through splats unchanged in input order, then one
 // `sat` merge per occupied cell in ascending cell-key order (the order of the ADR prototype).
-void merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch, SplatList &r_out);
+// Returns ERR_INVALID_PARAMETER for a non-positive eps, ERR_PARAMETER_RANGE_ERROR when the grid is
+// too fine, ERR_OUT_OF_MEMORY when an allocation fails; r_out is then empty.
+Error merge_at_eps(const SplatSpan &p_rep, const Vector3 &p_origin, double p_eps, MergeScratch &r_scratch, SplatList &r_out);
 
 // ---------------------------------------------------------------------------------------------
 // One interior node (ADR §6.3), independent of how the tree was split.
@@ -139,11 +192,12 @@ struct InteriorBakeResult {
 // merge holds at most min(node_max_splats, ceil(total / reduction)) splats; the payload is that
 // merge, importance-ordered. p_grid_origin anchors the merge cells (the node's cell corner, so the
 // merge cells are world-aligned too). Returns false (r_error set) when no eps reaches the target
-// within max_eps_steps (only non-finite input can cause that).
+// within max_eps_steps (only non-finite input can cause that; r_code = ERR_INVALID_DATA) or when an
+// allocation fails (r_code = ERR_OUT_OF_MEMORY).
 bool bake_interior_node(const SplatSpan *p_children, uint32_t p_child_count,
 		const Vector3 &p_grid_origin, double p_cell_edge, double p_max_child_error,
 		const InteriorBakeParams &p_params, InteriorBakeScratch &r_scratch, InteriorBakeResult &r_result,
-		String *r_error);
+		String *r_error, Error *r_code = nullptr);
 
 } // namespace gs_hlod
 
