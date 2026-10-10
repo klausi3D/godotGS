@@ -42,6 +42,7 @@ import ast
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -116,6 +117,14 @@ def _load(name: str, path: Path):
 BASE_RESOLVER_PATH = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
 VACUOUS_ALLOWLIST_NAME = "VACUOUS_CASE_ALLOWLIST"
 
+# Set from --base-ref in __main__: run_module_tests.py forwards the review base it
+# selected (its own --base-ref, else the CI base variables) exactly as it does for
+# check_environment_skip_marker.py and check_unchecked_resize.py. None means "not
+# given", and the shared resolver then reads the base environment variables. Without
+# this, `--guard-only --base-ref <stack-base>` reached the other two ratchets and not
+# this one, which resolved origin/master on its own (Codex on #1218).
+_REVIEW_BASE_REF: str | None = None
+
 
 def _allowlist_keys_from_source(source: str) -> tuple[frozenset[str] | None, list[str]]:
     """Keys of the module-level VACUOUS_CASE_ALLOWLIST literal in harness source.
@@ -170,7 +179,8 @@ def _allowlist_keys_at_review_base(
     """
     try:
         if resolve is None:
-            resolve = _load("_gs_review_base_resolver_vacuous", BASE_RESOLVER_PATH).resolve_base_sha
+            resolver = _load("_gs_review_base_resolver_vacuous", BASE_RESOLVER_PATH)
+            resolve = lambda: resolver.resolve_base_sha(_REVIEW_BASE_REF)  # noqa: E731
         base_sha, failures = resolve()
     except Exception as exc:  # noqa: BLE001 -- any failure here must fail closed
         return None, [f"cannot load the shared review-base resolver {BASE_RESOLVER_PATH}: {exc}"]
@@ -1049,6 +1059,54 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
         self.assertIsNone(keys)
         self.assertTrue(failures)
 
+    def _run_ratchet_cli(self, extra_args: list[str], base_env: dict[str, str]):
+        """Run ONLY the shrink-only ratchet in a child, as run_module_tests.py does.
+
+        Every base variable the shared resolver reads is cleared first, then
+        `base_env` is applied: an ambient CI base must not decide which path is
+        being exercised.
+        """
+        resolver = _load("_gs_review_base_resolver_cli", BASE_RESOLVER_PATH)
+        env = {k: v for k, v in os.environ.items() if k not in resolver.BASE_REF_ENV_VARS}
+        env.update(base_env)
+        test_id = f"{type(self).__name__}.test_vacuous_case_allowlist_is_shrink_only"
+        return subprocess.run(
+            [sys.executable, "-B", str(Path(__file__).resolve()), *extra_args, test_id],
+            cwd=ROOT, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=300,
+        )
+
+    def _assert_ran_one(self, proc) -> None:
+        """A child that collected no test exits non-zero too; that is not a ratchet failure."""
+        self.assertRegex(proc.stdout + proc.stderr, r"(?m)^Ran 1 test in ", proc.stdout + proc.stderr)
+
+    def test_ratchet_honours_the_forwarded_base_ref_flag(self):
+        """`--base-ref` (what run_module_tests.py forwards) reaches the resolver.
+
+        An unresolvable named base must FAIL the ratchet; before the flag existed
+        the child ignored it and graded against origin/master. The control run
+        with a resolvable base proves the failure is the base, not the harness.
+        """
+        bad = self._run_ratchet_cli(["--base-ref", "gs/no-such-base-ref-1218"], {})
+        self._assert_ran_one(bad)
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertIn("gs/no-such-base-ref-1218", bad.stdout + bad.stderr)
+        good = self._run_ratchet_cli(["--base-ref", "HEAD"], {})
+        self._assert_ran_one(good)
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+
+    def test_ratchet_honours_the_base_environment_variable(self):
+        """The env path still works when no flag is given (and a flag would win)."""
+        bad = self._run_ratchet_cli([], {"GS_CI_BASE_REF": "gs/no-such-base-ref-1218"})
+        self._assert_ran_one(bad)
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertIn("gs/no-such-base-ref-1218", bad.stdout + bad.stderr)
+        flag_wins = self._run_ratchet_cli(
+            ["--base-ref", "HEAD"], {"GS_CI_BASE_REF": "gs/no-such-base-ref-1218"}
+        )
+        self._assert_ran_one(flag_wins)
+        self.assertEqual(flag_wins.returncode, 0, flag_wins.stdout + flag_wins.stderr)
+
     def test_allowlist_base_reader_reads_the_base_not_the_worktree(self):
         """Discrimination: the reader returns the base's keys even when the worktree differs.
 
@@ -1436,7 +1494,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--print-summary", action="store_true")
     parser.add_argument("--print-fingerprint", action="store_true")
+    parser.add_argument("--base-ref", dest="base_ref", default=None,
+                        help="Review base for the VACUOUS_CASE_ALLOWLIST ratchet "
+                             "(default: the shared resolver's env vars, then origin/master).")
     args, rest = parser.parse_known_args()
+    _REVIEW_BASE_REF = args.base_ref
     if args.print_fingerprint:
         _names = _manifest().get("unbatched_requires_gpu_backlog", {}).get("test_names", [])
         print(f"BACKLOG_MAX_ENTRIES = {len(_names)}")
