@@ -4612,7 +4612,7 @@ machine-readable mirror lives under <code>.agentic/</code> (<code>policy.json</c
 schemas, templates, roles), validated by <code>scripts/agentic/</code>. Most of what this
 page describes is process, not tooling: see
 <a href="#what-is-enforced-and-what-is-process">What is enforced and what is process</a>. See
-also <a href="https://github.com/klausi3D/godotGS/blob/34719aceb3a91c431ecc24e04470f1555008b080/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
+also <a href="https://github.com/klausi3D/godotGS/blob/54ed1d353131f73916158919940222a1013f3449/AGENTS.md"><code>AGENTS.md</code></a>, <a href="../contribution-standards/">contribution standards</a>,
 and the <a href="../review-policy/">review policy</a>.</p>
 <h2 id="principles">Principles<a class="headerlink" href="#principles" title="Permanent link">¶</a></h2>
 <ul>
@@ -4721,8 +4721,61 @@ from the changed paths:</p>
   matches, and the PR takes the highest class among its paths.</li>
 <li><strong>Any path that matches no rule is R3</strong> (<code>classification.default_unclassified</code>).
   This covers every unlisted path, not only sensitive ones: for example
-  <code>scripts/docs/*.py</code>, other <code>scripts/*.py</code> outside <code>scripts/agentic/</code>,
+  <code>scripts/docs/check_links.py</code>, any other <code>scripts/**/*.py</code> outside
+  <code>scripts/agentic/</code> and the docs-site tooling below,
   <code>.gitignore</code> and <code>LICENSE.txt</code> all classify as R3.</li>
+<li><strong>Docs-site build and publish tooling is R1</strong> (maintainer decision,
+  <a href="https://github.com/klausi3D/godotGS/issues/1212">#1212</a>). It
+  is not R0, because it decides what the public site builds and publishes. It is
+  not R3, because a required check covers each entry, or the entry cannot change
+  what is published:<ul>
+<li><code>docs-build</code>, a required check on <code>master</code> since 2026-10-08, builds with
+  <code>mkdocs.yml</code> and <code>overrides/**</code>. It fails on a broken strict MkDocs build.</li>
+<li><code>overrides/**</code> may not contain script.
+  <code>tests/ci/check_overrides_no_inline_script.py</code> fails on any <code>&lt;script</code> tag
+  (any case), any inline event-handler attribute (<code>on*=</code>), any <code>javascript:</code>
+  URL, any <code>&lt;iframe</code>, <code>&lt;frame</code>, <code>&lt;object</code> or <code>&lt;embed</code> element, any <code>srcdoc</code>
+  attribute, any <code>&lt;meta http-equiv="refresh"&gt;</code> that carries a URL, and any
+  file that is not <code>.html</code> or <code>.css</code> under <code>overrides/</code>. The tag, handler,
+  element, <code>srcdoc</code> and refresh checks run on the raw source and again after
+  HTML entity decoding, so an entity-encoded payload in an attribute is
+  caught too. It runs
+  in the <code>--guard-only</code> lane of the required <code>agentic-pr-gate</code>, and the guard
+  script itself is R3 machinery. Script for the site lives in
+  <code>docs/assets/javascripts/</code> (R3, below), loaded through <code>extra_javascript</code>.</li>
+<li>No workflow runs <code>scripts/build_docs_site.py</code>, a local wrapper.
+  <code>scripts/docs/release_acceptance.py</code> is report-only in <code>docs-build</code>, and
+  <code>deploy</code> does not run it. Neither can change what is published.</li>
+<li><code>docs/requirements*.txt</code> (the docs toolchain inputs) are raised from R0
+  (<code>docs/**</code>).</li>
+<li>Code the <code>deploy</code> job executes, and <code>docs/assets/javascripts/**</code>, are R3 by
+  their own rule, so neither <code>docs/**</code> (R0), <code>modules/gaussian_splatting/**</code>
+  (R1) nor a later broader glob can lower them. <code>deploy</code> checks out with the
+  default persisted credential and <code>contents: write</code>, then runs
+  <code>scripts/stage_public_docs.py</code> on every deploy,
+  <code>scripts/docs/redirect_cpp_api_to_latest.py</code> on <code>v*</code> tags, and
+  <code>modules/gaussian_splatting/tests/check_project_settings_manifest.py</code>, which
+  <code>scripts/generate_project_settings_reference.py</code> loads with <code>exec_module</code>.
+  <code>mkdocs.yml</code> loads the JavaScript into readers' browsers.
+  <code>tests/agentic/test_stage_public_docs.py</code> and
+  <code>tests/agentic/test_cpp_api_redirect.py</code> check the scripts' output, and the
+  strict MkDocs build neither runs nor inspects the JavaScript, so no check
+  can catch an added side effect, such as a use of the write token.</li>
+<li><code>docs/requirements-lock.txt</code> is R3, by its own rule. <code>docs-build</code> and
+  <code>deploy</code> install it, and <code>deploy</code> installs it with a write token in git
+  config. The hashes only authenticate what the lock selects, and a green
+  <code>docs-build</code> only proves that the install succeeded. No CI job installs
+  <code>docs/requirements.txt</code> or <code>docs/requirements-site.txt</code> directly. They are
+  the inputs the lock is compiled from.</li>
+<li><code>scripts/check_docs_media_budget.py</code> stays R3. <code>deploy</code> runs it right before
+  publishing, and no test checks the budget script itself.</li>
+<li><code>scripts/build_documentation.py</code> and <code>scripts/docs/check_doxygen_output.py</code>
+  stay R3. <code>docs-build</code> runs the PR's own copies, so a change that skips a
+  generator (its committed output then stays unchanged and the freshness diff
+  passes) or that accepts an empty Doxygen shell still passes, and no test
+  checks either script.</li>
+</ul>
+</li>
 <li><strong>A diff that touches <code>.agentic/policy.json</code> is forced to the top class</strong>, R3
   (<code>SELF_REFERENTIAL_PATHS</code> in the classifier), although the rules list
   <code>.agentic/**</code> as R0. The rest of <code>.agentic/</code> stays R0.</li>
@@ -4777,7 +4830,7 @@ checks that the class's evidence or reviews were produced.</p>
 higher-of-the-two rule is implemented in <code>check_pr_contract.py</code>, but that script only
 runs against the shipped fixture <code>.agentic/templates/task.json</code>, because the
 repository has no per-PR contract source (a task-contract instance is a local agent
-artifact and <a href="https://github.com/klausi3D/godotGS/blob/34719aceb3a91c431ecc24e04470f1555008b080/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
+artifact and <a href="https://github.com/klausi3D/godotGS/blob/54ed1d353131f73916158919940222a1013f3449/AGENTS.md"><code>AGENTS.md</code></a> forbids committing those). So a declared
 class is a review-time convention, not an enforced one, and per-PR scope
 (<code>owned_paths</code> / <code>forbidden_paths</code>) and evidence contracts are not enforced at all.
 Wiring a contract source is the Phase-2 contract-source ADR; the limit is recorded in
@@ -4857,7 +4910,7 @@ its history remains in git.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 14:09:56 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 15:12:48 UTC">October 10, 2026</span>
   </span>
 
     
@@ -4967,6 +5020,8 @@ its history remains in git.</p>
         <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
       
         <script src="../../assets/javascripts/latest-nightlies.js"></script>
+      
+        <script src="../../assets/javascripts/home-splat.js"></script>
       
     
   
