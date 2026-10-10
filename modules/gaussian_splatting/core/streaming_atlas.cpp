@@ -253,7 +253,7 @@ bool GaussianStreamingSystem::_load_requested_chunks(uint32_t asset_id, AtlasAss
             chunks_already_loaded++;
             if (chunk.is_loaded) {
                 chunk.explicit_request_generation = 0;
-                eviction_controller.touch_chunk_use(chunk.last_used_frame);
+                eviction_controller.touch_chunk_use(chunk.last_used_frame, total_frame_count);
                 _update_requested_chunk_state(asset, chunk_id,
                         GaussianStreamingTypes::RESIDENCY_REQUEST_STATE_SATISFIED,
                         GaussianStreamingTypes::RESIDENCY_REQUEST_STATE_SATISFIED);
