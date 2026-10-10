@@ -22,6 +22,8 @@
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_merge_utils.h"
+#include "../core/streaming_quantization.h"
+#include "../renderer/gaussian_gpu_layout.h"
 #include "core/io/resource.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
@@ -29,6 +31,8 @@
 #include "tests/test_macros.h"
 
 #include <atomic>
+#include <cstring>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -652,6 +656,201 @@ TEST_CASE("[GaussianSplatting][DataAuthority] GaussianSplatAsset payload snapsho
     CHECK_MESSAGE(ctx.invalid_snapshots.load(std::memory_order_acquire) == 0,
             "Payload snapshots must observe one complete asset generation, never mixed arrays/metadata during copy_from().");
 #endif
+}
+
+namespace {
+
+// Records payload_version at the moment `changed` fires. That instant is the one that
+// matters: GaussianSplatNode3D::_on_asset_changed() re-registers with the scene
+// director synchronously, and InstanceStore::refresh_asset() keeps the cached
+// GaussianData whenever the version it reads then has not moved.
+class GS1174PayloadVersionProbe : public Object {
+public:
+    GaussianSplatAsset *asset = nullptr;
+    int emissions = 0;
+    uint32_t version_at_emit = 0;
+    void on_changed() {
+        emissions++;
+        version_at_emit = asset->get_payload_version();
+    }
+};
+
+} // namespace
+
+// #1174: GaussianSplatNode3D::reload_asset() loads with CACHE_MODE_REPLACE, which applies
+// Resource::copy_from() to the SAME asset object. The packed setters it runs never bumped
+// payload_version, so the director's AssetRecord kept rendering the pre-reload GaussianData.
+TEST_CASE("[GaussianSplatting][DataAuthority] A copy_from hot reload bumps payload_version before it announces the change (#1174)") {
+    Ref<GaussianSplatAsset> target = _make_asset_snapshot_pattern(11.0f, Color(1, 0, 0, 1));
+    Ref<GaussianSplatAsset> reloaded_source = _make_asset_snapshot_pattern(-23.0f, Color(0, 1, 0, 1));
+
+    // Materialise (and seal) the target the way registration does, so the reload has a
+    // cached payload to invalidate and has to take the unseal path.
+    Ref<::GaussianData> before_reload = target->get_gaussian_data();
+    REQUIRE(before_reload.is_valid());
+    const uint32_t version_before = target->get_payload_version();
+
+    GS1174PayloadVersionProbe *probe = memnew(GS1174PayloadVersionProbe);
+    probe->asset = target.ptr();
+    const Callable on_changed = callable_mp(probe, &GS1174PayloadVersionProbe::on_changed);
+    target->connect(SNAME("changed"), on_changed);
+
+    REQUIRE(target->copy_from(reloaded_source) == OK);
+
+    // The reload really replaced the lanes (otherwise a version check proves nothing).
+    const PackedFloat32Array reloaded_positions = target->get_positions();
+    if (reloaded_positions.is_empty()) {
+        target->disconnect(SNAME("changed"), on_changed);
+        memdelete(probe);
+        FAIL("copy_from() must leave the reloaded positions in place");
+        return;
+    }
+    CHECK(reloaded_positions[0] == doctest::Approx(-23.0f));
+    CHECK(target->get_payload_version() != version_before);
+    CHECK_MESSAGE(probe->emissions >= 1,
+            "copy_from() must announce the reload; without an emission the next check is vacuous");
+    CHECK_MESSAGE(probe->version_at_emit != version_before,
+            "payload_version must already have moved when `changed` fires, or the director's "
+            "synchronous refresh keeps the stale GaussianData");
+
+    // The asset's own materialised payload is rebuilt from the reloaded lanes.
+    Ref<::GaussianData> after_reload = target->get_gaussian_data();
+    REQUIRE(after_reload.is_valid());
+    CHECK(after_reload != before_reload);
+
+    // A rejected copy (null source) changes nothing and must not announce a new payload.
+    const uint32_t version_after = target->get_payload_version();
+    Error rejected;
+    {
+        ERR_PRINT_OFF;
+        rejected = target->copy_from(Ref<Resource>());
+        ERR_PRINT_ON;
+    }
+    CHECK(rejected != OK);
+    CHECK(target->get_payload_version() == version_after);
+
+    target->disconnect(SNAME("changed"), on_changed);
+    memdelete(probe);
+}
+
+namespace {
+
+inline Gaussian gs1175_make_splat(const Vector3 &p_position, float p_opacity) {
+    Gaussian g;
+    g.position = p_position;
+    g.opacity = p_opacity;
+    g.scale = Vector3(0.1f, 0.2f, 0.3f);
+    g.rotation = Quaternion();
+    g.sh_dc = Color(0.4f, 0.5f, 0.6f, 1.0f);
+    g.normal = Vector3(0.0f, 0.0f, 1.0f);
+    return g;
+}
+
+inline bool gs1175_packed_all_finite(const PackedGaussian &p_packed) {
+    const float lanes[] = {
+        p_packed.position[0], p_packed.position[1], p_packed.position[2], p_packed.opacity,
+        p_packed.scale[0], p_packed.scale[1], p_packed.scale[2],
+        p_packed.rotation[0], p_packed.rotation[1], p_packed.rotation[2], p_packed.rotation[3],
+        p_packed.sh.dc[0], p_packed.sh.dc[1], p_packed.sh.dc[2], p_packed.sh.dc[3],
+        p_packed.normal[0], p_packed.normal[1], p_packed.normal[2],
+    };
+    for (float lane : lanes) {
+        if (!Math::is_finite(lane)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+// #1175: the finite validator ran on the file-load paths only. Every route a
+// GaussianSplatNode3D actually takes to the GPU -- the resident atlas publisher, the
+// buffer manager, the memory stream and the streaming upload -- packs
+// get_gaussian_storage() through pack_gaussians_range*(), and the non-quantized packer
+// copied position/opacity/scale/rotation verbatim, so a NaN installed through
+// set_splat_data() / set_gaussian_data() / a .gsplatworld payload reached cov3d and the
+// sort keys. The gate now lives in the packers, once for every route: the bad splat is
+// uploaded finite and fully transparent, the others byte-identical, and it is counted.
+TEST_CASE("[GaussianSplatting][DataAuthority] A NaN splat installed in a GaussianData is rejected at the GPU pack boundary and counted (#1175)") {
+    LocalVector<Gaussian> splats;
+    splats.push_back(gs1175_make_splat(Vector3(1.0f, 2.0f, 3.0f), 0.8f));
+    splats.push_back(gs1175_make_splat(Vector3(std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f), 0.9f));
+    splats.push_back(gs1175_make_splat(Vector3(-4.0f, 5.0f, -6.0f), 0.7f));
+
+    // Installed the way set_splat_data() / set_gaussian_data() install a payload.
+    Ref<::GaussianData> data;
+    data.instantiate();
+    data->set_gaussians(splats);
+    int first_bad = -1;
+    REQUIRE_FALSE(data->all_render_fields_finite(&first_bad));
+    REQUIRE(first_bad == 1);
+
+    const LocalVector<Gaussian> &storage = data->get_gaussian_storage();
+    REQUIRE(storage.size() == 3u);
+    const uint64_t global_before = gs_get_non_finite_pack_rejection_count();
+
+    // Control: a clean payload packs with zero rejections, so the count below is not
+    // something every pack reports.
+    {
+        LocalVector<Gaussian> clean;
+        clean.push_back(splats[0]);
+        clean.push_back(splats[2]);
+        Vector<PackedGaussian> clean_packed;
+        SHCompressionMetrics clean_metrics;
+        REQUIRE(pack_gaussians_range(clean, 0, clean.size(), clean_packed, clean_metrics));
+        CHECK(clean_metrics.non_finite_rejected == 0u);
+    }
+
+    // Non-quantized packer: the route resident_instance_contract_publisher.cpp,
+    // gpu_buffer_manager.cpp, gpu_memory_stream.cpp and streaming_upload_pipeline.cpp take.
+    Vector<PackedGaussian> packed;
+    SHCompressionMetrics metrics;
+    {
+        ERR_PRINT_OFF;
+        REQUIRE(pack_gaussians_range(storage, 0, storage.size(), packed, metrics));
+        ERR_PRINT_ON;
+    }
+    if (packed.size() != 3) {
+        FAIL("pack_gaussians_range must emit one record per splat, got ", packed.size());
+        return;
+    }
+    CHECK(metrics.non_finite_rejected == 1u);
+    CHECK(gs_get_non_finite_pack_rejection_count() - global_before >= 1u);
+    CHECK(gs1175_packed_all_finite(packed[1]));
+    CHECK(packed[1].opacity == 0.0f);
+    // The other splats are untouched: byte-identical to packing them on their own.
+    for (int i : { 0, 2 }) {
+        PackedGaussian reference;
+        SHCompressionMetrics reference_metrics;
+        pack_gaussian(splats[i], reference, reference_metrics);
+        CHECK(std::memcmp(&packed[i], &reference, sizeof(PackedGaussian)) == 0);
+        CHECK(packed[i].opacity == splats[i].opacity);
+    }
+
+    // Quantized packer (the resident publisher's quantized branch and streaming chunk
+    // loads): it floored the NaN to the chunk's min corner and drew it there.
+    ChunkQuantizationInfo chunk;
+    chunk.position_min = Vector3(-10.0f, -10.0f, -10.0f);
+    chunk.position_max = Vector3(10.0f, 10.0f, 10.0f);
+    chunk.position_range = chunk.position_max - chunk.position_min;
+    chunk.scale_min = Vector3(0.01f, 0.01f, 0.01f);
+    chunk.scale_max = Vector3(1.0f, 1.0f, 1.0f);
+    chunk.scale_range = chunk.scale_max - chunk.scale_min;
+    chunk.position_bits = 16;
+    chunk.scale_bits = 12;
+    chunk.scales_quantized = true;
+    PackedGaussianQuantized quantized[3];
+    SHCompressionMetrics quantized_metrics;
+    {
+        ERR_PRINT_OFF;
+        pack_gaussians_range_quantized(storage, 0, storage.size(), chunk, 0, quantized, quantized_metrics);
+        ERR_PRINT_ON;
+    }
+    CHECK(quantized_metrics.non_finite_rejected == 1u);
+    CHECK(quantized[1].opacity == 0.0f);
+    CHECK(quantized[0].opacity == splats[0].opacity);
+    CHECK(quantized[2].opacity == splats[2].opacity);
 }
 
 TEST_CASE("[GaussianSplatting][DataAuthority] Raw storage accessors compile-survivable and main-thread safe") {

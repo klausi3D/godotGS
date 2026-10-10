@@ -33,6 +33,8 @@ PROJECT_SETTINGS_REFERENCE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_project
 PROJECT_SETTINGS_REFERENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_project_settings_reference.py"
 GAUSSIAN_LAYOUT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_gaussian_layout_sync.py"
 GAUSSIAN_LAYOUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_gaussian_layout_sync.py"
+# Shader numerical contracts evaluated from the .glsl source on the host (#1157, #1153, #1168).
+SHADER_HOST_NUMERICS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_shader_host_numerics.py"
 CULL_SIGNATURE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_cull_signature_parity.py"
 CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_parity.py"
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
@@ -219,7 +221,22 @@ MODULE_TEST_FILTERS: tuple[tuple[str, tuple[str, ...], tuple[str, ...], bool], .
     # measured 11 cases / 2,097,742 assertions, all passing.
     ("TileRenderer", ("*[TileRenderer]*",), ("*][RequiresGPU]*",), False),
     ("GPU Memory Stream", ("*Triple Buffering*",), (), False),
-    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), (), False),
+    # #1166: PROMOTED to strict. This lane holds every #1087 (distance bound) and
+    # #1088 (atlas pages, byte budget, evict-until-fit) host test; as an advisory
+    # lane a failure printed "advisory lane, continuing" and CI stayed green.
+    # Only this lane is promoted here; [Synthetic], [untagged], [Renderer],
+    # TileRenderer and GPU Memory Stream (and the opt-in [requires-RD]
+    # catalogue) stay advisory
+    # until their known failures / zero coverage are laned or quarantined
+    # (docs/architecture/adr-advisory-lane-ledger.md). Held in place by
+    # StreamingPipelineStrictPromotionTests in test_check_test_lane_coverage.py.
+    #
+    # #1195: GPU cases now execute in the REQUIRED StreamingPipeline batch
+    # (37/37 cases on source 2a6929071d7, no hollow coverage or RID leaks).
+    # Keep all host regressions strict here; the derived coverage contract above
+    # requires every case to reach strict CPU OR required GPU, including excludes.
+    # No skip allowance is added: an unavailable prerequisite fails its GPU case.
+    ("Streaming Pipeline", ("*[Streaming Pipeline]*",), ("*][RequiresGPU]*",), True),
 )
 # Renderer-dependent (requires-RD) doctest lane.  Under Godot's --test mode
 # every test here will skip because no RenderingDevice is available.  This lane
@@ -889,6 +906,22 @@ def _run_gaussian_layout_guard() -> tuple[bool, list[str]]:
                 output_lines = [f"{label} failed with exit code {code}."]
             return False, output_lines
 
+    return True, output_lines
+
+
+def _run_shader_host_numerics_guard() -> tuple[bool, list[str]]:
+    """Shader numerics (SH basis vs the Inria reference, payload encodings) evaluated from the
+    real .glsl source by tests/ci/glsl_host_eval.py. A construct the evaluator cannot model
+    raises, so this lane fails rather than skips when a shader leaves the modelled subset."""
+    script = SHADER_HOST_NUMERICS_TEST_SCRIPT
+    if not script.is_file():
+        return False, [f"Missing shader host-numerics test script: {script.relative_to(ROOT)}"]
+    code, out, err = _run_command([sys.executable, str(script)])
+    output_lines = [line for line in (out + err).splitlines() if line.strip()]
+    if code != 0:
+        if not output_lines:
+            output_lines = [f"Shader host-numerics tests failed with exit code {code}."]
+        return False, output_lines
     return True, output_lines
 
 
@@ -1787,6 +1820,30 @@ def _run_streaming_evidence_fail_closed_guard() -> tuple[bool, list[str]]:
         return False, output_lines
 
     return True, ["Streaming evidence fail-closed guard passed."]
+
+
+def _run_production_readiness_enforcement_guard() -> tuple[bool, list[str]]:
+    """Guard (#1164): production readiness evidence is enforced, not only collected.
+
+    Evaluates the Production Gates' "Enforce readiness booleans" condition per
+    event (it used to run only on an opted-in workflow_dispatch), checks that
+    every readiness boolean collect_production_evidence.ps1 writes is enforced,
+    and that the script classifies runtime scenarios by their real
+    [RUNTIME_SKIP]/[RUNTIME_PASS] markers and exits non-zero on a failed
+    sub-command. Static, headless, no GPU and no engine binary.
+    """
+    script = ROOT / "tests" / "ci" / "test_production_readiness_enforcement.py"
+    if not script.is_file():
+        return False, [f"Missing production readiness enforcement test: {script.relative_to(ROOT)}"]
+
+    code, out, err = _run_command([sys.executable, str(script)])
+    if code != 0:
+        output_lines = [line for line in (out + err).splitlines() if line.strip()]
+        if not output_lines:
+            output_lines = [f"Production readiness enforcement guard failed with exit code {code}."]
+        return False, output_lines
+
+    return True, ["Production readiness enforcement guard passed."]
 
 
 def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
@@ -3585,6 +3642,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_shader_host_numerics_guard,
+            "Shader host-numerics tests failed.",
+            "Shader host-numerics tests passed.",
+        ),
+        (
+            True,
             _run_cull_signature_parity_guard,
             "Cull-signature parity guard failed.",
             "Cull-signature parity guard passed.",
@@ -3744,6 +3807,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_streaming_evidence_fail_closed_guard,
             "Streaming evidence fail-closed guard failed.",
             "Streaming evidence fail-closed guard passed.",
+        ),
+        (
+            True,
+            _run_production_readiness_enforcement_guard,
+            "Production readiness enforcement guard failed.",
+            "Production readiness enforcement guard passed.",
         ),
         (
             True,

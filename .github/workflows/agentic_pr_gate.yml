@@ -113,6 +113,19 @@ jobs:
         # falling back to the PR's copy. classify_change.py independently forces any
         # diff touching .agentic/policy.json to the top class, so neither half is
         # load-bearing alone.
+        #
+        # #1167: the same holds for the classifier CODE. Running
+        # scripts/agentic/classify_change.py from this checkout let a PR that edits
+        # renderer code and the classifier be graded by the edited classifier
+        # (scripts/agentic/** is R0). So the classifier is materialised from the
+        # base SHA too, with the same fail-closed pattern, and the base source is
+        # what executes. The base copy derives its repository root from __file__,
+        # so it is exec'd with __file__ anchored at this checkout's path: `git -C`
+        # then diffs THIS PR, while no PR-head classifier code runs. The anchor
+        # need not exist (a PR deleting the classifier is still graded by the base
+        # copy). Declared limit: a PR that edits this workflow can change what
+        # runs here; that is inherent to pull_request workflows and is left to
+        # review of the workflow diff.
         env:
           GS_PR_BASE_SHA: >-
             ${{ github.event_name == 'merge_group'
@@ -133,11 +146,27 @@ jobs:
             echo "::error::Base .agentic/policy.json at ${GS_PR_BASE_SHA} is empty; refusing to classify this PR against its own policy."
             exit 1
           fi
-          python scripts/agentic/classify_change.py \
+          base_classifier="${RUNNER_TEMP}/base_classify_change.py"
+          if ! git show "${GS_PR_BASE_SHA}:scripts/agentic/classify_change.py" > "${base_classifier}"; then
+            echo "::error::Cannot read scripts/agentic/classify_change.py at base ${GS_PR_BASE_SHA}; refusing to classify this PR with its own classifier."
+            exit 1
+          fi
+          if [ ! -s "${base_classifier}" ]; then
+            echo "::error::Base scripts/agentic/classify_change.py at ${GS_PR_BASE_SHA} is empty; refusing to classify this PR with its own classifier."
+            exit 1
+          fi
+          python - "${base_classifier}" "${PWD}/scripts/agentic/classify_change.py" \
             --base-ref "${GS_PR_BASE_SHA}" \
             --policy "${base_policy}" \
             --format json \
-            --github-step-summary
+            --github-step-summary <<'GS_BASE_CLASSIFIER'
+          import sys
+          source, anchor = sys.argv[1], sys.argv[2]
+          sys.argv = [anchor] + sys.argv[3:]
+          with open(source, encoding="utf-8") as handle:
+              code = compile(handle.read(), source, "exec")
+          exec(code, {"__name__": "__main__", "__file__": anchor})
+          GS_BASE_CLASSIFIER
 
       - name: Run agentic unit tests
         run: python -m unittest discover -s tests/agentic -v

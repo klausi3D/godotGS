@@ -111,7 +111,8 @@ private:
 
     uint32_t splat_count = 0;
     // DATA-001: monotonic version bumped every time the payload is (re)populated via
-    // populate_from_gaussian_data(). Unlike Resource::get_edited_version() (TOOLS-only, so
+    // populate_from_gaussian_data() or replaced by a hot reload through copy_from()
+    // (#1174). Unlike Resource::get_edited_version() (TOOLS-only, so
     // a compile-time 0 in exported builds and never bumped by procedural repopulation) it
     // is always live, letting the scene director detect that a DYNAMIC asset was
     // re-populated at runtime and rebuild its cached GaussianData. Guarded by populate_mutex.
@@ -316,7 +317,9 @@ public:
     // a TypedArray and forwards valid entries to the LocalVector overload.
     static void prefetch_parallel(const TypedArray<GaussianSplatAsset> &p_assets);
     Error populate_from_gaussian_data(const Ref<::GaussianData> &p_gaussian_data);
-    Error save_to_file(const String &p_path) const;
+    // Writes the asset as a PLY via GaussianData::save_to_file(); see there for
+    // the layout. p_include_painterly_fields opts in to the GodotGS-only columns.
+    Error save_to_file(const String &p_path, bool p_include_painterly_fields = false) const;
 
     // Import-time importance pruning (GS-PERF-PRUNE, issue #456). Thin adapter
     // that reuses GaussianData::prune_by_importance (slice 2a) on a materialized

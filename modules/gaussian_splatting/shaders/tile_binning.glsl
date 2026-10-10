@@ -267,6 +267,7 @@ layout(set = 0, binding = 6, std430) buffer DebugCounters {
     uint min_allowed_radius_q8;        // max(MIN_SPLAT_RADIUS, tiny_splat) (max across threads)
     uint min_radius_min_q8_inv;        // inverted min(min_radius) across threads: 0xFFFFFFFF - q8
     uint sh_unknown_encoding_count;    // #1054: splats whose SH encoding id is unsupported (rendered DC-only)
+    uint color_nonfinite_count;        // #1168: splats whose final colour was NaN/Inf (zeroed before packing)
 } debug_counters;
 
 const uint GS_DEBUG_SPLAT_AUDIT_MAX_SAMPLES = 64u;
@@ -452,6 +453,12 @@ uint gs_build_quantized_sh_metadata(uint encoded_total, bool dc_linear_rgb) {
     return metadata;
 }
 
+// Smallest orthographic focal scale (pixels per world unit) project_gaussian_2d
+// accepts (#1156). Below it a 100-unit splat (the scale_reject ceiling) covers
+// less than 1e-4 px, so nothing renderable is lost; it only screens out a
+// degenerate projection matrix.
+const float GS_ORTHO_MIN_FOCAL_PX_PER_UNIT = 1e-6;
+
 // Project a Gaussian into screen space and derive its 2D covariance.
 //
 // `alpha_rescale` is the Mip-Splatting α-rescale companion (Yu et al. 2024 §3.3).
@@ -572,8 +579,27 @@ vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out fl
     float focal_x_abs = abs(focal_x);
     float focal_y_abs = abs(focal_y);
 
-    // Validate focal lengths are reasonable (use absolute values)
-    if (focal_x_abs < 1.0 || focal_y_abs < 1.0 || focal_x_abs > params.viewport_size.x * 2.0 || focal_y_abs > params.viewport_size.y * 2.0) {
+    // Projection model (#1156). Same test as tile_resolve.glsl's gs_is_ortho:
+    // a perspective matrix carries -1 in [2][3] (w = -z), an orthographic one 0.
+    // Derived from the uploaded matrix rather than the scene camera flag, so the
+    // shadow pass (whose directional-light projection is orthographic) is
+    // classified by the projection it actually rasterizes with.
+    bool gs_is_ortho = abs(params.projection_matrix[2][3]) < 0.5;
+
+    if (gs_is_ortho) {
+        // Orthographic: focal_x/focal_y are pixels per world unit
+        // (viewport / ortho extent), independent of depth, and legitimately far
+        // outside the perspective band below -- KEEP_HEIGHT at ortho size 2000
+        // on a 1080-row viewport is 0.54 px/unit. Reject only a degenerate or
+        // non-finite scale; an overflowing covariance is caught by
+        // covariance_nan_reject further down.
+        if (!(focal_x_abs >= GS_ORTHO_MIN_FOCAL_PX_PER_UNIT) || !(focal_y_abs >= GS_ORTHO_MIN_FOCAL_PX_PER_UNIT) ||
+                isinf(focal_x_abs) || isinf(focal_y_abs)) {
+            GS_DEBUG_INCREMENT(focal_length_reject);
+            return vec3(0.0); // Invalid focal length
+        }
+    } else if (focal_x_abs < 1.0 || focal_y_abs < 1.0 || focal_x_abs > params.viewport_size.x * 2.0 || focal_y_abs > params.viewport_size.y * 2.0) {
+        // Validate focal lengths are reasonable (use absolute values)
         GS_DEBUG_INCREMENT(focal_length_reject);
         return vec3(0.0); // Invalid focal length
     }
@@ -581,75 +607,86 @@ vec3 project_gaussian_2d(Gaussian g, out vec2 screen_pos, out mat2 cov2d, out fl
     float near_far_range = max(params.far_plane - params.near_plane, 1e-4);
     linear_depth = clamp((positive_depth - params.near_plane) / near_far_range, 0.0, 1.0);
 
-    float depth = positive_depth;
-    float clamped_depth = clamp(depth, params.near_plane, params.far_plane);
-
-    // Radius-aware minimum depth: when camera is inside/near a large splat, use the splat's
-    // radius to set a floor on the Jacobian depth. This prevents covariance explosion that
-    // causes blocky artifacts instead of proper ellipses.
-    float splat_radius = max(g.scale.x, max(g.scale.y, g.scale.z));
-
-    // Diagnostic toggle: bypass_radius_depth_floor (jacobian_diag_flags.x > 0.5)
-    float min_safe_depth;
-    if (params.jacobian_diag_flags.x > 0.5) {
-        // Bypass: use only near_plane, ignore radius-based floor
-        min_safe_depth = params.near_plane;
+    mat3 J;
+    if (gs_is_ortho) {
+        // Orthographic EWA Jacobian (#1156): screen = focal * view.xy + const, so
+        // d(screen)/d(view) = diag(focal_x, focal_y) with no depth column and no
+        // 1/z terms. The radius-aware depth floor and the z_inverse reject exist
+        // only to keep 1/z finite and do not apply. The perspective J below is
+        // the negated true Jacobian (z_inv < 0); the overall sign cancels in
+        // J * cov3d * J^T, so the two branches agree on orientation.
+        J = mat3(vec3(focal_x, 0.0, 0.0), vec3(0.0, focal_y, 0.0), vec3(0.0));
     } else {
-        // Normal: radius-aware depth floor
-        min_safe_depth = max(params.near_plane, max(0.02, splat_radius * 0.5));
-    }
+        float depth = positive_depth;
+        float clamped_depth = clamp(depth, params.near_plane, params.far_plane);
 
-    if (clamped_depth < 1e-6) {
-        GS_DEBUG_INCREMENT(z_inverse_reject);
-        return vec3(0.0);
-    }
+        // Radius-aware minimum depth: when camera is inside/near a large splat, use the splat's
+        // radius to set a floor on the Jacobian depth. This prevents covariance explosion that
+        // causes blocky artifacts instead of proper ellipses.
+        float splat_radius = max(g.scale.x, max(g.scale.y, g.scale.z));
 
-    float safe_depth = max(clamped_depth, min_safe_depth);
-
-    // Diagnostic: track when safe_depth differs significantly from actual depth
-    float depth_diff = safe_depth - positive_depth;
-    if (depth_diff > 0.01) {  // More than 1cm discrepancy
-        GS_DEBUG_INCREMENT(depth_discrepancy_count);
-        // Store sum as Q8.8 fixed-point (max ~16 million before overflow)
-        uint diff_q8 = uint(clamp(depth_diff * 256.0, 0.0, 65535.0));
-        GS_DEBUG_INCREMENT_BY(depth_discrepancy_sum_q8, diff_q8);
-    }
-
-    // Use NEGATIVE z_inv to match the view-space depth convention (negative for visible)
-    // Legacy: z_inv = 1.0 / view_pos.z where view_pos.z < 0
-    // Tile: safe_depth = -view_pos.z > 0, so we negate to get same z_inv sign
-    float z_inv = -1.0 / safe_depth;
-    float z_inv_sq = z_inv * z_inv;
-
-    // Columns of the Jacobian (column-major layout)
-    // With negative z_inv, J[0][0] = focal_x * z_inv (negative if focal_x > 0)
-    vec3 J_col0 = vec3(focal_x * z_inv, 0.0, 0.0);
-    vec3 J_col1 = vec3(0.0, focal_y * z_inv, 0.0);
-    // J_col2: Legacy uses -focal_x * view_pos.x * z_inv_sq
-    // With z_inv_sq always positive, we need explicit negative sign
-    //
-    // Diagnostic toggle: invert_j_col2_sign (jacobian_diag_flags.z > 0.5) flips sign
-    float j2_sign = (params.jacobian_diag_flags.z > 0.5) ? 1.0 : -1.0;
-    float j2_x_raw = j2_sign * focal_x * view_pos.x * z_inv_sq;
-    float j2_y_raw = j2_sign * focal_y * view_pos.y * z_inv_sq;
-
-    // Diagnostic toggle: bypass_j_col2_clamp (jacobian_diag_flags.y > 0.5)
-    float j2_x, j2_y;
-    if (params.jacobian_diag_flags.y > 0.5) {
-        // Bypass: no clamping
-        j2_x = j2_x_raw;
-        j2_y = j2_y_raw;
-    } else {
-        // Normal: clamp to ±1e4
-        j2_x = clamp(j2_x_raw, -1e4, 1e4);
-        j2_y = clamp(j2_y_raw, -1e4, 1e4);
-        // Track when clamp is hit
-        if (abs(j2_x_raw) > 1e4 || abs(j2_y_raw) > 1e4) {
-            GS_DEBUG_INCREMENT(j_col2_clamp_count);
+        // Diagnostic toggle: bypass_radius_depth_floor (jacobian_diag_flags.x > 0.5)
+        float min_safe_depth;
+        if (params.jacobian_diag_flags.x > 0.5) {
+            // Bypass: use only near_plane, ignore radius-based floor
+            min_safe_depth = params.near_plane;
+        } else {
+            // Normal: radius-aware depth floor
+            min_safe_depth = max(params.near_plane, max(0.02, splat_radius * 0.5));
         }
+
+        if (clamped_depth < 1e-6) {
+            GS_DEBUG_INCREMENT(z_inverse_reject);
+            return vec3(0.0);
+        }
+
+        float safe_depth = max(clamped_depth, min_safe_depth);
+
+        // Diagnostic: track when safe_depth differs significantly from actual depth
+        float depth_diff = safe_depth - positive_depth;
+        if (depth_diff > 0.01) {  // More than 1cm discrepancy
+            GS_DEBUG_INCREMENT(depth_discrepancy_count);
+            // Store sum as Q8.8 fixed-point (max ~16 million before overflow)
+            uint diff_q8 = uint(clamp(depth_diff * 256.0, 0.0, 65535.0));
+            GS_DEBUG_INCREMENT_BY(depth_discrepancy_sum_q8, diff_q8);
+        }
+
+        // Use NEGATIVE z_inv to match the view-space depth convention (negative for visible)
+        // Legacy: z_inv = 1.0 / view_pos.z where view_pos.z < 0
+        // Tile: safe_depth = -view_pos.z > 0, so we negate to get same z_inv sign
+        float z_inv = -1.0 / safe_depth;
+        float z_inv_sq = z_inv * z_inv;
+
+        // Columns of the Jacobian (column-major layout)
+        // With negative z_inv, J[0][0] = focal_x * z_inv (negative if focal_x > 0)
+        vec3 J_col0 = vec3(focal_x * z_inv, 0.0, 0.0);
+        vec3 J_col1 = vec3(0.0, focal_y * z_inv, 0.0);
+        // J_col2: Legacy uses -focal_x * view_pos.x * z_inv_sq
+        // With z_inv_sq always positive, we need explicit negative sign
+        //
+        // Diagnostic toggle: invert_j_col2_sign (jacobian_diag_flags.z > 0.5) flips sign
+        float j2_sign = (params.jacobian_diag_flags.z > 0.5) ? 1.0 : -1.0;
+        float j2_x_raw = j2_sign * focal_x * view_pos.x * z_inv_sq;
+        float j2_y_raw = j2_sign * focal_y * view_pos.y * z_inv_sq;
+
+        // Diagnostic toggle: bypass_j_col2_clamp (jacobian_diag_flags.y > 0.5)
+        float j2_x, j2_y;
+        if (params.jacobian_diag_flags.y > 0.5) {
+            // Bypass: no clamping
+            j2_x = j2_x_raw;
+            j2_y = j2_y_raw;
+        } else {
+            // Normal: clamp to ±1e4
+            j2_x = clamp(j2_x_raw, -1e4, 1e4);
+            j2_y = clamp(j2_y_raw, -1e4, 1e4);
+            // Track when clamp is hit
+            if (abs(j2_x_raw) > 1e4 || abs(j2_y_raw) > 1e4) {
+                GS_DEBUG_INCREMENT(j_col2_clamp_count);
+            }
+        }
+        vec3 J_col2 = vec3(j2_x, j2_y, 0.0);
+        J = mat3(J_col0, J_col1, J_col2);
     }
-    vec3 J_col2 = vec3(j2_x, j2_y, 0.0);
-    mat3 J = mat3(J_col0, J_col1, J_col2);
 
     mat3 cov_proj = J * cov3d * transpose(J);
     cov2d = mat2(cov_proj[0][0], cov_proj[0][1], cov_proj[1][0], cov_proj[1][1]);
@@ -834,11 +871,8 @@ void main() {
         return;
     }
 
-    // Align screen_pos with packed precision to keep binning consistent with rasterization.
-    vec2 screen_pos_full = screen_pos;
-    vec2 screen_pos_packed = gs_unpack_screen_xy(gs_pack_screen_xy(screen_pos));
-    vec2 screen_pos_error = abs(screen_pos_packed - screen_pos_full);
-    screen_pos = screen_pos_packed;
+    // The payload stores screen_pos as raw fp32 (#1153), so binning and rasterization see
+    // the same centre without re-quantizing it here.
 
     float max_sigma = MAX_SIGMA;
     // GS_TIGHTER_BOUNDS multiplier (was MAX_SIGMA * 0.85) removed: silently
@@ -1082,14 +1116,13 @@ void main() {
     float inv_tile = 1.0 / float(TILE_SIZE);
     // Pad bounds before tile quantization to avoid edge cutoffs.
     // For close-up splats with large footprints, we need more padding because:
-    // 1. Half-float quantization errors grow with coordinate magnitude
-    // 2. Large splats have more numerical error in their bbox computation
-    // 3. Edge tiles are sensitive to sub-pixel rounding
-    // Base padding of half a tile, plus a fraction of the splat's footprint.
+    // 1. Large splats have more numerical error in their bbox computation
+    // 2. Edge tiles are sensitive to sub-pixel rounding
+    // Base padding of half a tile, plus a fraction of the splat's footprint. (The
+    // half-float centre quantization pad is gone: the payload centre is exact fp32, #1153.)
     float base_pad = float(TILE_SIZE) * 0.5;
     float footprint_pad = max(ellipse_half_extent.x, ellipse_half_extent.y) * 0.02;
-    float quant_pad = max(screen_pos_error.x, screen_pos_error.y);
-    float tile_pad = max(base_pad, max(footprint_pad, quant_pad));
+    float tile_pad = max(base_pad, footprint_pad);
     vec2 padded_min = bbox_min - vec2(tile_pad);
     vec2 padded_max = bbox_max + vec2(tile_pad);
     int min_tile_x = int(floor(padded_min.x * inv_tile));
@@ -1405,6 +1438,13 @@ void main() {
         }
     }
 
+    // #1168: a NaN/Inf colour (degenerate light direction, extreme grade) would survive the
+    // R11G11B10 pack and the raster would accumulate it over the splat's whole footprint;
+    // max()/clamp() with a NaN operand are undefined in GLSL. Zero it and count it.
+    if (!gs_color_is_finite(final_color)) {
+        GS_DEBUG_INCREMENT(color_nonfinite_count);
+        final_color = vec3(0.0);
+    }
     sh_color = max(final_color, vec3(0.0));
 
     // PERF-8 (#679): Redundant safety net — the primary NaN/Inf conic check now lives

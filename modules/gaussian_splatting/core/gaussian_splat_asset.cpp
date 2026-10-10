@@ -126,7 +126,7 @@ void GaussianSplatAsset::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_source_path", "path"), &GaussianSplatAsset::set_source_path);
     ClassDB::bind_method(D_METHOD("get_source_path"), &GaussianSplatAsset::get_source_path);
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianSplatAsset::load_from_file);
-    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianSplatAsset::save_to_file);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianSplatAsset::save_to_file, DEFVAL(false));
 
     ClassDB::bind_method(D_METHOD("set_streaming_chunk_records", "records"), &GaussianSplatAsset::set_streaming_chunk_records);
     ClassDB::bind_method(D_METHOD("get_streaming_chunk_records"), &GaussianSplatAsset::get_streaming_chunk_records);
@@ -285,6 +285,19 @@ Error GaussianSplatAsset::copy_from(const Ref<Resource> &p_resource) {
     MutexLock cache_lock(populate_mutex);
     const bool previous_seal = payload_sealed;
     payload_sealed = false;
+    // #1174: a hot reload replaces the payload, so it must be announced on
+    // payload_version exactly like populate_from_gaussian_data() announces one --
+    // the scene director's AssetRecord gates its cached GaussianData on that
+    // version (edited_version is TOOLS-only and a load never bumps it). The bump
+    // has to land BEFORE Resource::copy_from(): that call blocks `changed` while
+    // the packed setters run and emits it once from its own _unblock_emit_changed()
+    // before returning here, and the node's synchronous handler re-registers with
+    // the director right then. A bump after the call would be read by nobody.
+    // Only bumped when the base call will actually copy (it rejects a null or
+    // different-class source before touching anything).
+    if (p_resource.is_valid() && p_resource->get_class() == get_class()) {
+        payload_version++;
+    }
     const Error err = Resource::copy_from(p_resource);
     if (err != OK) {
         // Restore seal on failure so a rejected copy (null/incompatible
@@ -1529,12 +1542,12 @@ Error GaussianSplatAsset::load_from_file(const String &p_path) {
 	return OK;
 }
 
-Error GaussianSplatAsset::save_to_file(const String &p_path) const {
+Error GaussianSplatAsset::save_to_file(const String &p_path, bool p_include_painterly_fields) const {
     Ref<::GaussianData> data = get_gaussian_data();
     if (data.is_null()) {
         return ERR_INVALID_DATA;
     }
-    return data->save_to_file(p_path);
+    return data->save_to_file(p_path, p_include_painterly_fields);
 }
 
 // Contract: holding populate_mutex across the read of the source SoA arrays is

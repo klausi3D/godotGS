@@ -58,7 +58,23 @@ public:
     //       imported by v4-v7 from such an SPZ holds poisoned splats in its .res;
     //       bumping the format version makes Godot re-run import() automatically
     //       so it fails loudly instead of shipping the NaN to the GPU.
-    virtual int get_format_version() const override { return 8; }
+    //   v9: SPZ v2 rotations are decoded with the reference unsigned 127.5
+    //       offset, (byte - 127.5) / 127.5, instead of int8 / 127 (issue #1154).
+    //       An asset imported by v4-v8 from a v2 file holds wrong orientations
+    //       in its .res (the identity became a 180-degree turn); bumping the
+    //       format version makes Godot re-run import() automatically. v3 files
+    //       decode unchanged. (The colour ADR planned 8->9 for the SPZ DC decode;
+    //       that change takes the next free number.)
+    //  v10: SPZ colour bytes are decoded as the reference SH DC coefficient,
+    //       sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15, instead of byte / 255
+    //       (issue #1056; colour ADR adr-splat-colour-encoding.md section 4, which
+    //       planned this as 8 -> 9 before #1154 took 9). The output colours of
+    //       every SPZ import change, so every .res written by v4-v9 rendered about
+    //       +0.5 too bright and must be re-imported.
+    //  v11: a max_splats cap at density_multiplier 1.0 thins by a uniform stride
+    //       instead of keeping a file-order prefix (issue #1155; same change as
+    //       ResourceImporterPLY v12). Only assets imported under such a cap change.
+    virtual int get_format_version() const override { return 11; }
 
     ResourceImporterSPZ();
 };

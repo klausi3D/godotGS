@@ -2852,9 +2852,15 @@ class SizeIndexBaselineIntegrity(unittest.TestCase):
     def test_the_count_reconciles_with_issue_844(self):
         """#844's sweep: 46 dangerous, 4 fixed by #843 -> 42 remaining.
 
-        This detector reports 50 = 43 straight-line + 7 bounded only by ANOTHER
-        container's size(). See the guard's docstring for the +1/+7 reconciliation;
-        pinned here so the split cannot drift without someone re-deciding it.
+        The historical detector sweep reported 50 = 43 straight-line + 7 bounded
+        only by ANOTHER container's size(). See the guard's docstring for the
+        +1/+7 reconciliation. #1195 then fixed two straight-line sites in
+        test_gpu_streaming.cpp with explicit failure-and-return bounds guards:
+        asset_chunks[0] in "Cancelled pending chunk loads do not count as
+        evictions", and overlap_hints.write[mutate_index] in "Randomized IO layout
+        hint cases keep stable fallback reasons and chunk counts".
+        The current corpus is therefore 48 = 41 straight-line + 7 other-bound;
+        pin the reduced inventory without changing detection or allowed additions.
         """
         found, errors = GUARD.scan_all_size_index()
         self.assertEqual(errors, [])
@@ -2862,12 +2868,12 @@ class SizeIndexBaselineIntegrity(unittest.TestCase):
         straight = [s for s in sites if s[6] == GUARD._CLASS_STRAIGHT_LINE]
         other = [s for s in sites if s[6] == GUARD._CLASS_OTHER_BOUND]
         under = [s for s in sites if s[6] == GUARD._CLASS_UNDER_BOUND]
-        self.assertEqual(len(straight), 43)
+        self.assertEqual(len(straight), 41)
         self.assertEqual(len(other), 7)
         # Round 6's population is EMPTY on this corpus, and pinned at zero so that
         # a site whose guard proves too small a bound cannot appear unremarked.
         self.assertEqual(len(under), 0)
-        self.assertEqual(len(sites), 50)
+        self.assertEqual(len(sites), 48)
 
     def test_the_named_concentrations_in_issue_844_reconcile_exactly(self):
         """#844 names three files by count. All three match the straight-line

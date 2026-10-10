@@ -151,7 +151,11 @@ rather than by the six-config visual matrix.
   `sampler2D`/`image2D` bindings cannot address the multiview 2D-array internal
   color (`_copy_final_output_compute`'s scratch-fill exclusion in
   `output_compositor.cpp`), so `view_count > 1` keeps the legacy post-scene
-  composite path with its pre-existing behavior.
+  hook. Since #1160 (step 1) `GaussianSplatRenderer::render_scene_instance()`
+  refuses such a frame before any GPU work: one `WARN_PRINT_ONCE` naming the
+  view count, route `COMMON.SKIP.MULTIVIEW_UNSUPPORTED` (stage metrics
+  `skip_cause_stage = "view_count"`), no splats, meshes unaffected. Per-eye
+  rendering is #1160 step 2.
 - **Forward mobile** has no pre-upscale hook yet; it keeps the legacy
   post-scene path (mobile-parity delta tracked as follow-up work on #921).
 - **Reflection probes** never run post-process and keep the legacy path.
@@ -165,14 +169,16 @@ Splats supply **colour only**.
 
 - **Jitter — supplied since #929.** The projection uploaded to the splat pipeline
   is built by `GaussianSplatRenderer::build_render_projection()`, which applies
-  the module's pre-existing `flip_y` *and* the engine's `scene_data->taa_jitter`.
+  `flip_y` *and* the engine's `scene_data->taa_jitter`.
   The jitter term is the engine's exactly — the same left-multiplied translation
   `RenderSceneDataRD::get_cam_projection()` gives ordinary geometry, for every
-  projection type, because it depends only on the matrix's w row. (The *flip*
-  is not the engine's: GS negates `columns[1][1]` while the engine negates the
-  whole y row. The two coincide for a symmetric perspective and diverge for an
-  off-axis frustum offset. That predates the jitter work and is unchanged by it;
-  see `build_render_projection()`'s docblock.)
+  projection type, because it depends only on the matrix's w row. Since #1159
+  the *flip* is the engine's too: `GaussianSplatRenderer::apply_flip_y()` builds
+  `correction * projection` with `set_depth_correction(flip_y, false, false)`,
+  negating the whole clip-Y row, for the render, cull and shadow projections
+  alike. (Before #1159 GS negated only `columns[1][1]`, which coincides for a
+  symmetric perspective but displaced splats against meshes and mirrored the
+  cull frustum for an off-axis frustum offset or a shifted orthographic matrix.)
   Before #929 it applied the flip only, so FSR2 — which un-jitters its input by
   exactly that vector — reconstructed the splat layer displaced by +jitter every
   frame and it visibly swam against the meshes beside it. The value must come

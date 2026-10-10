@@ -122,6 +122,7 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["vram_persistent_buffer_mb"] = double(allocated_persistent_bytes) / (1024.0 * 1024.0);
     analytics_snapshot["loaded_chunks"] = get_loaded_chunks();
     analytics_snapshot["atlas_published_chunks"] = global_atlas_registry.get_atlas_published_chunks();
+    analytics_snapshot["atlas_generation"] = static_cast<int64_t>(global_atlas_registry.get_atlas_generation());
     analytics_snapshot["visible_splats"] = get_visible_count();
     analytics_snapshot["effective_max_chunks"] = get_effective_max_chunks();
     analytics_snapshot["streaming_initial_capacity"] = static_cast<int64_t>(streaming_initial_capacity);
@@ -166,6 +167,10 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     analytics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     analytics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    // #1177: stale (cancelled-then-superseded) uploads dropped at pack completion and retirement.
+    analytics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    analytics_snapshot["stale_sequence_dropped_upload_retirements"] =
+            static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
     analytics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     // #1087: the distance bound on chunk demand (0 = unbounded) and what it removed this frame.
     analytics_snapshot["load_distance_limit"] = visibility.load_distance_limit;
@@ -368,6 +373,9 @@ void GaussianStreamingSystem::end_frame() {
     analytics_snapshot["needed_chunks_completed"] = static_cast<int64_t>(scheduler.last_needed_chunks_completed);
     analytics_snapshot["needed_set_net_progress"] = static_cast<int64_t>(scheduler.last_needed_set_net_progress);
     analytics_snapshot["needed_set_displacement_debt"] = static_cast<int64_t>(scheduler.needed_set_displacement_debt);
+    // #1178: failed chunk payload reads (cumulative). A failing chunk stays needed and unserved
+    // while it backs off, so this names the cause when needed_unserved_chunks does not drain.
+    analytics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
     analytics_snapshot["scheduler_visible_scan_starvation_eligible"] = scheduler.last_visible_scan_starvation_eligible;
     analytics_snapshot["needed_chunks"] = static_cast<int64_t>(scheduler.last_needed_chunk_count);
     analytics_snapshot["needed_resident_chunks"] = static_cast<int64_t>(scheduler.last_needed_resident_chunk_count);
@@ -419,6 +427,8 @@ void GaussianStreamingSystem::end_frame() {
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
     analytics_snapshot["visible_evict_fallback_successes"] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
+    analytics_snapshot["prefetch_visible_eviction_refusals"] =
+            static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
 
     Dictionary streaming_diagnostics = _build_streaming_diagnostics_snapshot(
             pack_queue_depth, upload_queue_depth, sync_fallback_queue_depth);
@@ -772,6 +782,10 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
     diagnostics_snapshot["retired_upload_slots_this_frame"] = static_cast<int64_t>(budget.retired_upload_slots_this_frame);
     diagnostics_snapshot["failed_upload_retirements"] = static_cast<int64_t>(budget.failed_upload_retirements);
     diagnostics_snapshot["stride_flip_dropped_upload_retirements"] = static_cast<int64_t>(budget.stride_flip_dropped_upload_retirements);
+    diagnostics_snapshot["chunk_payload_read_failures"] = static_cast<int64_t>(diagnostics.chunk_payload_read_failures);
+    diagnostics_snapshot["stale_sequence_dropped_uploads"] = static_cast<int64_t>(budget.stale_sequence_dropped_uploads);
+    diagnostics_snapshot["stale_sequence_dropped_upload_retirements"] =
+            static_cast<int64_t>(budget.stale_sequence_dropped_upload_retirements);
     diagnostics_snapshot["last_upload_completion_mode"] = last_upload_completion_mode;
     diagnostics_snapshot["last_completed_upload_ticket_id"] = static_cast<int64_t>(last_completed_upload_ticket_id);
     diagnostics_snapshot["sync_promoted_pack_jobs_this_frame"] = static_cast<int64_t>(upload_pipeline.last_sync_promoted_pack_jobs);
@@ -851,6 +865,8 @@ Dictionary GaussianStreamingSystem::_build_streaming_diagnostics_snapshot(
             static_cast<int64_t>(diagnostics.visible_evict_fallback_attempts);
     diagnostics_snapshot["visible_evict_fallback_successes"] =
             static_cast<int64_t>(diagnostics.visible_evict_fallback_successes);
+    diagnostics_snapshot["prefetch_visible_eviction_refusals"] =
+            static_cast<int64_t>(diagnostics.prefetch_visible_eviction_refusals);
     diagnostics_snapshot["invariant_slot_ownership_violations"] =
             static_cast<int64_t>(diagnostics.invariant_slot_ownership_violations);
     diagnostics_snapshot["invariant_upload_lifecycle_violations"] =

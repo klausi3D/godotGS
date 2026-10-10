@@ -34,6 +34,7 @@
 #include "../resources/color_grading_resource.h"
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 namespace GaussianSplatting {
 
@@ -195,6 +196,80 @@ struct Gaussian {
 static_assert(sizeof(Gaussian) % 16 == 0, "Gaussian struct must remain 16-byte aligned");
 static_assert(sizeof(Gaussian) == 144, "Gaussian authoring struct size changed; it is NOT the GPU layout (see PackedGaussian)");
 static_assert(offsetof(Gaussian, brush_axes) % 8 == 0, "Gaussian::brush_axes must stay 8-byte aligned for std430 layout");
+
+// Persisted layout fingerprint (#1172).
+//
+// `.gsplatworld` (and the `.gsplatcache` PLY sidecar, which is a .gsplatworld)
+// and the GSF GAUSSIAN_DATA chunk store this struct as raw bytes. The size
+// assert above cannot see a same-size change -- swapping painterly_meta and
+// render_meta, or repurposing a padding slot as happened when render_meta took
+// part of _padding2 -- and such a change would misdecode every existing file
+// without any check firing. So every writer records
+// GAUSSIAN_STRUCT_LAYOUT_VERSION in its header and every reader rejects a
+// payload recorded under a different layout.
+//
+// The asserts below pin every member's offset and type. If one fails you are
+// changing the persisted layout or the meaning of a field: bump
+// GAUSSIAN_STRUCT_LAYOUT_VERSION, update the asserts, and decide what happens
+// to files written under the old layout (they are rejected by default). Do not
+// edit the asserts without the bump.
+static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION = 1u;
+
+// Files written before the layout word existed (.gsplatworld v1, GSF headers
+// whose layout word is 0) were all written with layout 1. They resolve to that
+// version, so they keep loading today and are rejected as soon as the layout
+// version moves on. Never change this value.
+static constexpr uint32_t GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED = 1u;
+
+// Layout a persisted payload is decoded with: the recorded word, or the legacy
+// layout when the writer predates the word (0).
+constexpr uint32_t gaussian_resolve_persisted_layout_version(uint32_t p_recorded) {
+    return p_recorded == 0u ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : p_recorded;
+}
+
+#define GS_PIN_GAUSSIAN_FIELD(m_field, m_type, m_offset) \
+    static_assert(offsetof(Gaussian, m_field) == (m_offset), \
+            "Gaussian::" #m_field " moved: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)"); \
+    static_assert(std::is_same<decltype(Gaussian::m_field), m_type>::value, \
+            "Gaussian::" #m_field " changed type: bump GAUSSIAN_STRUCT_LAYOUT_VERSION (#1172)")
+GS_PIN_GAUSSIAN_FIELD(position, Vector3, 0);
+GS_PIN_GAUSSIAN_FIELD(opacity, float, 12);
+GS_PIN_GAUSSIAN_FIELD(scale, Vector3, 16);
+GS_PIN_GAUSSIAN_FIELD(area, float, 28);
+GS_PIN_GAUSSIAN_FIELD(rotation, Quaternion, 32);
+GS_PIN_GAUSSIAN_FIELD(sh_dc, Color, 48);
+GS_PIN_GAUSSIAN_FIELD(sh_1, Vector3[3], 64);
+GS_PIN_GAUSSIAN_FIELD(normal, Vector3, 100);
+GS_PIN_GAUSSIAN_FIELD(stroke_age, float, 112);
+GS_PIN_GAUSSIAN_FIELD(_padding, float, 116);
+GS_PIN_GAUSSIAN_FIELD(brush_axes, Vector2, 120);
+GS_PIN_GAUSSIAN_FIELD(painterly_meta, uint32_t, 128);
+GS_PIN_GAUSSIAN_FIELD(render_meta, uint32_t, 132);
+GS_PIN_GAUSSIAN_FIELD(_padding2, float[2], 136);
+#undef GS_PIN_GAUSSIAN_FIELD
+static_assert(GAUSSIAN_STRUCT_LAYOUT_VERSION != 0u, "0 means 'not recorded' in persisted headers");
+
+/**
+ * @brief True when every render-critical field of ONE splat is finite.
+ *
+ * The fields the rasterizer consumes directly: position, scale, rotation, opacity,
+ * the DC colour and the first-order SH coefficients. One definition shared by the
+ * load-time gate (GaussianData::all_render_fields_finite()) and the GPU packers
+ * (pack_gaussian() / pack_gaussian_quantized(), #1175), so the file-load paths and
+ * the upload boundary can never disagree on what "finite" means.
+ */
+inline bool gaussian_render_fields_finite(const Gaussian &p_g) {
+    return Math::is_finite(p_g.position.x) && Math::is_finite(p_g.position.y) && Math::is_finite(p_g.position.z) &&
+            Math::is_finite(p_g.scale.x) && Math::is_finite(p_g.scale.y) && Math::is_finite(p_g.scale.z) &&
+            Math::is_finite(p_g.rotation.x) && Math::is_finite(p_g.rotation.y) &&
+            Math::is_finite(p_g.rotation.z) && Math::is_finite(p_g.rotation.w) &&
+            Math::is_finite(p_g.opacity) &&
+            Math::is_finite(p_g.sh_dc.r) && Math::is_finite(p_g.sh_dc.g) &&
+            Math::is_finite(p_g.sh_dc.b) && Math::is_finite(p_g.sh_dc.a) &&
+            Math::is_finite(p_g.sh_1[0].x) && Math::is_finite(p_g.sh_1[0].y) && Math::is_finite(p_g.sh_1[0].z) &&
+            Math::is_finite(p_g.sh_1[1].x) && Math::is_finite(p_g.sh_1[1].y) && Math::is_finite(p_g.sh_1[1].z) &&
+            Math::is_finite(p_g.sh_1[2].x) && Math::is_finite(p_g.sh_1[2].y) && Math::is_finite(p_g.sh_1[2].z);
+}
 
 /**
  * @brief Packs palette ID and painterly flags into a single uint32.
@@ -610,14 +685,19 @@ public:
     /// @{
 
     /**
-     * @brief Enables or disables 2D Gaussian (surfel) mode.
-     * @param p_enabled When true, splats use normals for disc-like rendering.
+     * @brief Sets the 2D Gaussian (surfel) flag. METADATA ONLY (#1185).
+     *
+     * No renderer path reads the flag: splats are still projected as 3D ellipsoids.
+     * Its only effect is that save_to_file() writes nx/ny/nz columns and declares the
+     * mode in the PLY header. Enabling it warns once.
+     * @param p_enabled Flag value to store.
      */
     void set_2d_mode(bool p_enabled);
     bool get_2d_mode() const { return is_2d_mode; }
 
     /**
-     * @brief Sets surface normals for 2D Gaussian (surfel) rendering.
+     * @brief Sets per-splat surface normals (shading normals; they do not change the
+     *        projected footprint, see set_2d_mode()).
      * @param p_normals Array of unit normal vectors (must match get_count()).
      */
     void set_normals(const PackedVector3Array &p_normals);
@@ -636,11 +716,20 @@ public:
     Error populate_from_asset(const Ref<class GaussianSplatAsset> &p_asset);
 
     /**
-     * @brief Saves current Gaussian data to a PLY file.
+     * @brief Saves current Gaussian data to a binary PLY file.
+     *
+     * The default output is the canonical Inria 3DGS layout: position, optional
+     * normals (2D mode), f_dc_0..2, f_rest_0..44 (channel-major, written when any
+     * band-1..3 SH is stored), opacity, scale and rotation. The payload is
+     * snapshotted under data_rwlock before any byte is written.
+     *
      * @param p_path Destination path.
+     * @param p_include_painterly_fields Also write the GodotGS-only painterly
+     *        columns (palette_id, brush_override_id, brush_axis_u/v, stroke_age).
+     *        Off by default because third-party viewers expect the Inria layout.
      * @return OK on success, or an error code.
      */
-    Error save_to_file(const String &p_path) const;
+    Error save_to_file(const String &p_path, bool p_include_painterly_fields = false) const;
 
     /// @}
 

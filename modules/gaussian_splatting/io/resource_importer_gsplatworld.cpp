@@ -41,15 +41,21 @@ struct GSplatWorldHeaderInfo {
 
 static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWorldHeaderInfo *r_info = nullptr) {
 	constexpr uint32_t world_magic = 0x57505347u; // 'GSPW' little-endian.
-	constexpr uint32_t world_version = 1u;
+	// KEEP IN SYNC with kWorldVersion / kHeaderSizeBytes in
+	// io/gaussian_splat_world_io.cpp: v1 (104-byte header, no layout word) and
+	// v2 (112-byte header with the Gaussian struct layout word, #1172).
+	constexpr uint32_t world_version_v1 = 1u;
+	constexpr uint32_t world_version = 2u;
 	constexpr uint32_t max_sh_degree = 3u;
 	constexpr uint32_t max_sh_first_order = 3u;
 	constexpr uint32_t flag_has_metadata = 1u << 0u;
+	constexpr uint32_t flag_is_2d = 1u << 1u;
 	constexpr uint32_t flag_has_chunks = 1u << 2u;
 	constexpr uint32_t flag_has_high_sh = 1u << 3u;
 	constexpr uint32_t flag_compressed = 1u << 4u;
 	constexpr uint32_t flag_resident_payload = 1u << 5u;
-	constexpr uint64_t header_size_bytes = 104u;
+	constexpr uint64_t header_size_bytes_v1 = 104u;
+	constexpr uint64_t header_size_bytes_v2 = 112u;
 	constexpr uint64_t chunk_record_size_bytes = 56u;
 	// Compressed-payload cap = the gzip decompression limit (INT32_MAX). KEEP IN
 	// SYNC with the loader's kMaxCompressedGaussianBytes in
@@ -65,7 +71,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint64_t file_size = file->get_length();
-	if (file_size < header_size_bytes) {
+	if (file_size < header_size_bytes_v1) {
 		return ERR_FILE_CORRUPT;
 	}
 
@@ -75,11 +81,20 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != world_version) {
+	if (version != world_version && version != world_version_v1) {
+		return ERR_FILE_CORRUPT;
+	}
+	const uint64_t header_size_bytes = (version == world_version_v1) ? header_size_bytes_v1 : header_size_bytes_v2;
+	if (file_size < header_size_bytes) {
 		return ERR_FILE_CORRUPT;
 	}
 
 	const uint32_t flags = file->get_32();
+	const uint32_t supported_flags = flag_has_metadata | flag_is_2d | flag_has_chunks |
+			flag_has_high_sh | flag_compressed | flag_resident_payload;
+	if ((flags & ~supported_flags) != 0u) {
+		return ERR_FILE_UNRECOGNIZED;
+	}
 	const uint32_t splat_count = file->get_32();
 
 	const uint32_t sh_degree = file->get_32();
@@ -109,6 +124,15 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	const uint64_t indices_offset = file->get_64();
 	const uint64_t metadata_offset = file->get_64();
 	const uint64_t metadata_size = file->get_64();
+
+	// Mirror the loader (#1172): the raw Gaussian payload must have been written
+	// with this build's struct layout.
+	const uint32_t recorded_layout = (version == world_version_v1) ? GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED : file->get_32();
+	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT(vformat("Refusing to import %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
+				p_source_file, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
+		return ERR_FILE_UNRECOGNIZED;
+	}
 
 	if (gaussian_offset < header_size_bytes || gaussian_offset >= file_size) {
 		return ERR_FILE_CORRUPT;

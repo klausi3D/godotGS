@@ -79,6 +79,7 @@ private:
 			LocalVector<uint32_t> &r_dirty_indices, uint32_t p_total_chunks);
 
 	GlobalAtlasState global_atlas_state;
+	uint64_t atlas_generation_counter = 0;
 	SyncDiagnostics last_sync_diagnostics;
 	uint32_t max_chunk_count_per_asset = 0;
 	uint32_t max_chunk_splats = 0;

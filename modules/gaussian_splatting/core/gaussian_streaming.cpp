@@ -207,6 +207,8 @@ void _record_successful_upload_retirement(GaussianStreamingTypes::BudgetState &r
     r_total_metrics.raw_bytes += p_ticket.metrics.raw_bytes;
     r_total_metrics.compressed_bytes += p_ticket.metrics.compressed_bytes;
     r_total_metrics.coefficient_count += p_ticket.metrics.coefficient_count;
+    r_total_metrics.non_finite_rejected += p_ticket.metrics.non_finite_rejected;
+    r_total_metrics.dropped_coefficient_count += p_ticket.metrics.dropped_coefficient_count;
     r_last_completed_upload_ticket_id = p_ticket.ticket_id;
     r_last_upload_completion_mode = _streaming_upload_completion_mode_name(p_ticket.completion_mode);
 }
@@ -581,6 +583,8 @@ void GaussianStreamingSystem::_reset_runtime_state() {
     budget.failed_upload_retirements = 0;
     budget.stride_flip_dropped_upload_retirements = 0;
     budget.stride_flip_dropped_prewrite_uploads = 0;
+    budget.stale_sequence_dropped_uploads = 0;
+    budget.stale_sequence_dropped_upload_retirements = 0;
     pending_upload_retirements.clear();
     next_upload_ticket_id = 1;
     last_completed_upload_ticket_id = 0;
@@ -2998,17 +3002,26 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_for_admi
     // _evict_non_primary_lru() returns the actual EvictionResult; propagate it
     // so callers record visible-vs-nonvisible counts correctly (the previous
     // hardcoded EvictedNonVisible under-counted visible evictions).
-    EvictionResult non_primary_result = _evict_non_primary_lru();
+    // Prediction protects visible chunks in every asset, not only the primary fallback.
+    EvictionResult non_primary_result = _evict_non_primary_lru(p_admission_gate.context.allow_visible_eviction);
     if (non_primary_result == EvictionResult::EvictedNonVisible ||
             non_primary_result == EvictionResult::EvictedVisible) {
         return non_primary_result;
     }
 
     EvictionResult result = _evict_least_recently_used(false);
+    if (result == EvictionResult::NoEviction && non_primary_result == EvictionResult::SkippedAllVisible) {
+        result = EvictionResult::SkippedAllVisible;
+    }
     if (result == EvictionResult::SkippedAllVisible &&
             ResidencyBudgetController::should_attempt_visible_evict_fallback(p_admission_gate)) {
         r_visible_fallback_attempted = true;
         result = _evict_least_recently_used(true, visible_fit_pages);
+    } else if (result == EvictionResult::SkippedAllVisible &&
+            ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(p_admission_gate)) {
+        // #1176: only visible chunks are left to evict, and this admission is a prediction
+        // (prefetch). The load is skipped instead; counted so the skip is observable.
+        diagnostics.prefetch_visible_eviction_refusals++;
     }
 
     return result;
@@ -3039,7 +3052,12 @@ bool GaussianStreamingSystem::_evict_until_atlas_fit(const ResidencyBudgetContro
             }
         }
         if (!evicted) {
-            ResidencyBudgetController::note_blocked_eviction(r_frame_budget);
+            // #1176: a prefetch refused only because the victims left are visible does not
+            // block the frame's eviction budget: a needed load after it may still use it.
+            if (!(result == EvictionResult::SkippedAllVisible &&
+                        ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(p_admission_gate))) {
+                ResidencyBudgetController::note_blocked_eviction(r_frame_budget);
+            }
             return false;
         }
         eviction_controller.record_eviction_result(result);
@@ -3186,6 +3204,9 @@ void GaussianStreamingSystem::_load_visible_chunks(uint32_t effective_max, uint3
         if (!_is_chunk_within_load_distance(chunk, load_threshold) || chunk.is_loaded || chunk.upload_pending) {
             continue;
         }
+        if (_is_chunk_load_backing_off(chunk)) {
+            continue; // #1178: its payload read failed recently; not a load candidate yet
+        }
         load_candidates++;
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
@@ -3284,7 +3305,8 @@ void GaussianStreamingSystem::_record_visible_scan_starvation(uint32_t p_scan_or
                 continue;
             }
             const StreamingChunk &chunk = chunks[chunk_idx];
-            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending) {
+            if (_is_chunk_within_load_distance(chunk, p_load_threshold) && !chunk.is_loaded && !chunk.upload_pending &&
+                    !_is_chunk_load_backing_off(chunk)) {
                 unscanned_unserved++;
             }
         }
@@ -3518,6 +3540,9 @@ bool GaussianStreamingSystem::_begin_chunk_upload(uint32_t asset_id, uint32_t ch
     chunk.buffer_slot = buffer_slot;
     chunk.upload_pending = true;
     chunk.gpu_resident = false;
+    // #1177: a new upload of this chunk; any job or ticket still carrying the previous
+    // sequence is stale from here on. 0 is reserved for "never began".
+    chunk.upload_sequence = chunk.upload_sequence == UINT32_MAX ? 1u : chunk.upload_sequence + 1u;
     chunk.upload_lifecycle_state = GaussianStreamingTypes::STREAMING_UPLOAD_STATE_CPU_PACKED;
     chunk.upload_completion_mode = GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE;
     chunk.upload_ticket_id = 0;
@@ -3536,7 +3561,8 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
         const SHCompressionMetrics &metrics, RenderingDevice *submission_rd,
         uint32_t override_retire_after_frames,
         StreamingUploadCompletionMode override_completion_mode,
-        uint64_t override_packed_stride_bytes) {
+        uint64_t override_packed_stride_bytes,
+        uint32_t override_upload_sequence) {
     if (!chunk.upload_pending || chunk.is_loaded || chunk.buffer_slot != buffer_slot ||
             buffer_slot == UINT32_MAX || bytes == 0) {
         _mark_chunk_upload_failed(asset_id, chunk_idx, chunk, "_stage_chunk_upload_retirement.invalid_state");
@@ -3588,6 +3614,7 @@ bool GaussianStreamingSystem::_stage_chunk_upload_retirement(uint32_t asset_id, 
     ticket.packed_stride_bytes = override_packed_stride_bytes != 0
             ? override_packed_stride_bytes
             : _atlas_gaussian_stride_bytes();
+    ticket.upload_sequence = override_upload_sequence != 0 ? override_upload_sequence : chunk.upload_sequence;
     ticket.completion_mode = completion_mode;
     ticket.metrics = metrics;
     pending_upload_retirements.push_back(ticket);
@@ -3666,6 +3693,26 @@ void GaussianStreamingSystem::_rollback_pending_chunk(uint32_t asset_id, uint32_
             !release_slot);
 }
 
+void GaussianStreamingSystem::_record_chunk_payload_read_failure(uint32_t asset_id, uint32_t chunk_idx,
+        StreamingChunk &chunk) {
+    // #1178: without this memo the rolled-back chunk is idle and still in range, so the load
+    // scan re-queued it on the very next frame, forever, each attempt taking a pack slot and a
+    // failed disk read while healthy chunks behind it starved, with nothing in the log.
+    diagnostics.chunk_payload_read_failures++;
+    if (chunk.load_failures < UINT32_MAX) {
+        chunk.load_failures++;
+    }
+    const uint32_t doublings = MIN<uint32_t>(chunk.load_failures - 1u, 6u);
+    const uint32_t backoff_frames = MIN<uint32_t>(CHUNK_LOAD_RETRY_BASE_FRAMES << doublings, CHUNK_LOAD_RETRY_MAX_FRAMES);
+    chunk.retry_after_frame = total_frame_count + backoff_frames;
+    if (chunk.load_failures == 1) {
+        // Once per failure episode of this chunk; later failures only count.
+        WARN_PRINT(vformat("[Streaming] Chunk payload read failed: asset=%d chunk=%d (start=%d, %d splats). "
+                           "Retrying with backoff from %d frames up to %d; repeats are counted in chunk_payload_read_failures.",
+                asset_id, chunk_idx, chunk.start_idx, chunk.count, CHUNK_LOAD_RETRY_BASE_FRAMES, CHUNK_LOAD_RETRY_MAX_FRAMES));
+    }
+}
+
 void GaussianStreamingSystem::_process_upload_retirements() {
     if (pending_upload_retirements.is_empty()) {
         return;
@@ -3697,6 +3744,21 @@ void GaussianStreamingSystem::_process_upload_retirements() {
         }
 
         StreamingChunk &chunk = asset_chunks[ticket.chunk_idx];
+        if (ticket.upload_sequence != chunk.upload_sequence) {
+            // #1177: the ticket belongs to an upload that was cancelled and superseded by a later
+            // _begin_chunk_upload(), which may own the very same page run. Rolling the chunk back
+            // here (the state-mismatch path below) would discard that newer, valid upload, so
+            // drop the ticket and leave the chunk and any run it owns alone.
+            const bool chunk_owns_ticket_slot = chunk.buffer_slot == ticket.buffer_slot &&
+                    (chunk.upload_pending || chunk.is_loaded);
+            if (!chunk_owns_ticket_slot) {
+                _release_chunk_slot_if_matches(atlas_allocator,
+                        _make_chunk_key(ticket.asset_id, ticket.chunk_idx), ticket.buffer_slot);
+            }
+            budget.stale_sequence_dropped_upload_retirements++;
+            last_completed_upload_ticket_id = ticket.ticket_id;
+            continue;
+        }
         if (!_retirement_ticket_matches_chunk(ticket, chunk)) {
             if (_retirement_state_mismatch_can_rollback(ticket, chunk)) {
                 _mark_chunk_upload_failed(ticket.asset_id, ticket.chunk_idx, chunk,
@@ -3802,8 +3864,12 @@ Error GaussianStreamingSystem::_load_chunk(uint32_t asset_id, uint32_t chunk_idx
 
     Vector<uint8_t> chunk_data;
     SHCompressionMetrics metrics;
-    if (!_pack_chunk_data(asset_id, chunk_idx, *asset, chunk, chunk_data, metrics)) {
+    bool payload_read_failed = false;
+    if (!_pack_chunk_data(asset_id, chunk_idx, *asset, chunk, chunk_data, metrics, &payload_read_failed)) {
         _rollback_pending_chunk(asset_id, chunk_idx, chunk, true);
+        if (payload_read_failed) {
+            _record_chunk_payload_read_failure(asset_id, chunk_idx, chunk);
+        }
         return FAILED;
     }
     _log_chunk_load_metrics(chunk_idx, metrics);
@@ -3852,9 +3918,12 @@ uint64_t GaussianStreamingSystem::_atlas_gaussian_stride_bytes() const {
 }
 
 bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-        Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics) {
+        Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics, bool *r_payload_read_failed) {
     chunk_bytes.clear();
     metrics = SHCompressionMetrics();
+    if (r_payload_read_failed) {
+        *r_payload_read_failed = false;
+    }
 
     // Resolve data source: prefer payload_source (supports out-of-core),
     // fall back to in-memory asset.data.
@@ -3898,11 +3967,17 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         }
         if (!read_indexed(source_indices.ptr(), chunk.count,
                     gaussian_snapshot, sh_high_order_snapshot, sh_first_order, sh_high_order)) {
+            if (r_payload_read_failed) {
+                *r_payload_read_failed = true;
+            }
             return false;
         }
     } else {
         if (!read_contiguous(chunk.start_idx, chunk.count,
                     gaussian_snapshot, sh_high_order_snapshot, sh_first_order, sh_high_order)) {
+            if (r_payload_read_failed) {
+                *r_payload_read_failed = true;
+            }
             return false;
         }
     }
@@ -3911,6 +3986,9 @@ bool GaussianStreamingSystem::_pack_chunk_data(uint32_t asset_id, uint32_t chunk
         return true;
     }
     if (gaussian_snapshot.size() != chunk.count) {
+        if (r_payload_read_failed) {
+            *r_payload_read_failed = true;
+        }
         return false;
     }
 
@@ -4018,6 +4096,8 @@ void GaussianStreamingSystem::_log_chunk_load_metrics(uint32_t chunk_idx, const 
     total_sh_metrics.raw_bytes += metrics.raw_bytes;
     total_sh_metrics.compressed_bytes += metrics.compressed_bytes;
     total_sh_metrics.coefficient_count += metrics.coefficient_count;
+    total_sh_metrics.non_finite_rejected += metrics.non_finite_rejected;
+    total_sh_metrics.dropped_coefficient_count += metrics.dropped_coefficient_count;
 
     if (total_sh_metrics.coefficient_count > 0) {
         float total_raw_mb = total_sh_metrics.raw_bytes / (1024.0f * 1024.0f);
@@ -4088,6 +4168,9 @@ void GaussianStreamingSystem::_finalize_chunk_load(uint32_t asset_id, uint32_t c
 }
 
 void GaussianStreamingSystem::_complete_chunk_load_common(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk) {
+    // #1178: a successful load ends the chunk's failure episode.
+    chunk.load_failures = 0;
+    chunk.retry_after_frame = 0;
     if (chunk.pending_upload_bytes > 0) {
         budget.pending_upload_bytes = budget.pending_upload_bytes > chunk.pending_upload_bytes
                 ? (budget.pending_upload_bytes - chunk.pending_upload_bytes)
@@ -4179,8 +4262,8 @@ GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_least_re
     return eviction_controller.evict_least_recently_used(*this, p_allow_visible_eviction, p_visible_fit_pages);
 }
 
-GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru() {
-    return eviction_controller.evict_non_primary_lru(*this);
+GaussianStreamingSystem::EvictionResult GaussianStreamingSystem::_evict_non_primary_lru(bool p_allow_visible_eviction) {
+    return eviction_controller.evict_non_primary_lru(*this, p_allow_visible_eviction);
 }
 
 void GaussianStreamingSystem::begin_frame() {
@@ -4423,9 +4506,10 @@ void GaussianStreamingSystem::_stop_pack_threads() {
 }
 
 bool GaussianStreamingSystem::_enqueue_chunk_load_request(
-        uint32_t asset_id, uint32_t chunk_idx, bool can_async_pack, bool prioritize_sync_fallback) {
+        uint32_t asset_id, uint32_t chunk_idx, bool can_async_pack, bool prioritize_sync_fallback,
+        bool p_allow_visible_eviction) {
     if (can_async_pack) {
-        return _queue_chunk_load(asset_id, chunk_idx);
+        return _queue_chunk_load(asset_id, chunk_idx, p_allow_visible_eviction);
     }
     return _enqueue_sync_fallback_chunk_load(asset_id, chunk_idx, prioritize_sync_fallback);
 }
@@ -4527,6 +4611,9 @@ bool GaussianStreamingSystem::_enqueue_sync_fallback_chunk_load(uint32_t asset_i
     if (chunk.is_loaded || chunk.upload_pending) {
         return false;
     }
+    if (_is_chunk_load_backing_off(chunk)) {
+        return false; // #1178: its payload read failed recently
+    }
 
     const uint64_t chunk_key = _make_chunk_key(asset_id, chunk_idx);
     if (scheduler.sync_fallback_chunk_load_set.has(chunk_key)) {
@@ -4606,10 +4693,12 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
     const Vector3 primary_camera_pos = visibility.camera_tracker.last_position;
     const float primary_prefetch_threshold_sq = visibility.prefetch_lookahead_distance *
             visibility.prefetch_lookahead_distance * 2.25f;
-    const auto is_primary_chunk_relevant = [&](const StreamingChunk &p_chunk) -> bool {
-        if (p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold)) {
-            return true;
-        }
+    const auto is_primary_chunk_needed = [&](const StreamingChunk &p_chunk) -> bool {
+        return p_chunk.is_visible && _is_chunk_within_load_distance(p_chunk, primary_load_threshold);
+    };
+    // #1176: relevant only through the camera prediction (the prefetch branch). Such a chunk
+    // is admitted with allow_visible_eviction = false below.
+    const auto is_primary_chunk_predicted = [&](const StreamingChunk &p_chunk) -> bool {
         if (!primary_prefetch_enabled) {
             return false;
         }
@@ -4657,11 +4746,14 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
         }
         const bool explicitly_requested = _is_requested_chunk_in_current_generation(*asset, chunk_idx);
         bool enforce_vram_regulator_gate = true;
+        bool allow_visible_eviction = true;
         if (asset_id == PRIMARY_ASSET_ID) {
-            if (!explicitly_requested && !is_primary_chunk_relevant(chunk)) {
+            const bool needed = explicitly_requested || is_primary_chunk_needed(chunk);
+            if (!needed && !is_primary_chunk_predicted(chunk)) {
                 scheduler.last_sync_fallback_stalled_count++;
                 continue;
             }
+            allow_visible_eviction = needed;
             if (explicitly_requested) {
                 enforce_vram_regulator_gate = false;
             }
@@ -4676,6 +4768,7 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
 
         ResidencyBudgetController::AdmissionPolicy admission_policy;
         admission_policy.can_replace_without_eviction = false;
+        admission_policy.allow_visible_eviction = allow_visible_eviction;
         admission_policy.enforce_vram_regulator_gate =
                 enforce_vram_regulator_gate && budget.vram_regulator.is_valid();
         const uint32_t reserved_chunks = _get_reserved_chunk_count();
@@ -4720,7 +4813,9 @@ uint32_t GaussianStreamingSystem::_drain_sync_fallback_chunk_loads(
             if (evicted) {
                 eviction_controller.record_eviction_result(result);
                 ResidencyBudgetController::note_successful_eviction(admission_budget);
-            } else {
+            } else if (!(result == EvictionResult::SkippedAllVisible &&
+                               ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(admission_gate))) {
+                // #1176: a refused prefetch leaves the budget to the needed loads behind it.
                 ResidencyBudgetController::note_blocked_eviction(admission_budget);
             }
             if (!evicted || !_evict_until_atlas_fit(admission_gate, required_pages, admission_budget)) {
@@ -4800,8 +4895,8 @@ bool GaussianStreamingSystem::_queue_chunk_load(uint32_t chunk_idx) {
     return _queue_chunk_load(PRIMARY_ASSET_ID, chunk_idx);
 }
 
-bool GaussianStreamingSystem::_queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx) {
-    return upload_pipeline.queue_chunk_load(*this, asset_id, chunk_idx);
+bool GaussianStreamingSystem::_queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction) {
+    return upload_pipeline.queue_chunk_load(*this, asset_id, chunk_idx, p_allow_visible_eviction);
 }
 
 void GaussianStreamingSystem::_process_upload_queue() {

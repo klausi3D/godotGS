@@ -25,7 +25,7 @@ Only the methods below are callable from GDScript. `PLYLoader::get_property_defi
 | API | Type | Behavior | Implementation reference |
 | --- | --- | --- | --- |
 | `GaussianData.load_from_file(path)` | Bound method | Routes by extension: `.spz` goes through `SPZLoader`, `.ply` through `PLYLoader`, any other extension returns `ERR_FILE_UNRECOGNIZED`. A PLY missing any required property, or with a non-finite position/scale/rotation/opacity, returns `ERR_FILE_CORRUPT`. | `GaussianData::load_from_file`, `load_gaussian_data_from_file()` in `modules/gaussian_splatting/io/gaussian_data_loader.cpp` |
-| `GaussianData.save_to_file(path)` | Bound method | Writes binary little-endian PLY with position, SH DC, scale, rotation, opacity, and painterly fields, plus `nx,ny,nz` when the data is in 2D mode. Higher-order SH (`f_rest_*`) is **not** written. | `GaussianData::save_to_file` |
+| `GaussianData.save_to_file(path)` | Bound method | Writes binary little-endian PLY with position, SH DC, scale, rotation, opacity, and painterly fields, plus `nx,ny,nz` and a `comment gs_2d_mode` header line when the data carries the (metadata-only) 2D flag. Higher-order SH (`f_rest_*`) is **not** written. | `GaussianData::save_to_file` |
 | `PLYLoader.load_file(path)` | Bound method | Parses the header, reuses the `.gsplatcache` sidecar when the cache is enabled and valid, otherwise parses binary or ASCII vertex data. It does not fail on missing required properties; missing fields fall back to defaults. | `PLYLoader::load_file`, `PLYLoader::try_load_cache` |
 | `PLYLoader.get_load_statistics()` | Bound method | Returns `splat_count`, `format` (`"binary"` or `"ascii"`), `properties` (count), and, after a load, `load_time_ms`, `header_time_ms`, `parse_time_ms`, `cache_time_ms`, `cache_hit`, `bounds_min`, `bounds_max`. | `PLYLoader::get_load_statistics` |
 | `PLYLoader.has_property(name)` | Bound method | `true` when the header declares that vertex property. | `PLYLoader::has_property` |
@@ -39,7 +39,7 @@ Only the methods below are callable from GDScript. `PLYLoader::get_property_defi
 | `scale_0,scale_1,scale_2` | Yes | Scale is decoded with `exp`. | `PLYLoader::parse_binary_data`, `PLYLoader::parse_ascii_data` |
 | `rot_0..rot_3` | Yes | Rotation is read as quaternion (`rot_0` = w) and normalized. | `PLYLoader::parse_binary_data`, `PLYLoader::parse_ascii_data` |
 | `opacity` | Yes | Opacity is decoded as sigmoid from logit. | `PLYLoader::parse_binary_data`, `PLYLoader::parse_ascii_data` |
-| `nx,ny,nz` | No | If all three are present, the loader enables 2D mode. | `PLYLoader::parse_binary_data` |
+| `nx,ny,nz` | No | Loaded as per-splat shading normals. They do **not** set 2D mode: stock 3DGS PLYs carry them as zeros. Only a `comment gs_2d_mode` header line sets the (metadata-only) 2D flag. | `PLYLoader::parse_header`, `PLYLoader::parse_binary_data` |
 | `palette_id,brush_override_id,brush_axis_u,brush_axis_v,stroke_age` | No | Painterly metadata is loaded when present and written on save. | `PLYLoader::parse_binary_data`, `GaussianData::save_to_file` |
 | `f_rest_*` | No | Higher-order SH is repacked from channel-major to coefficient-major RGB on load. It is not written by `GaussianData.save_to_file()`. | `PLYLoader::assemble_sh_coefficients` |
 
@@ -52,7 +52,7 @@ Only the methods below are callable from GDScript. `PLYLoader::get_property_defi
 | Import option | Default | Effect | Implementation reference |
 | --- | --- | --- | --- |
 | `quality/preset` | preset-specific | Chooses the preset baseline: `mobile`, `desktop`, `high`, `ultra`, `development`, or `custom`. | `ResourceImporterPLY::get_import_options` |
-| `quality/max_splats` | preset-specific | Caps the final splat count after import processing (`0` = no cap). | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
+| `quality/max_splats` | preset-specific | Caps the final splat count (`0` = no cap). A capped import keeps an evenly spaced subset of the whole file, the same uniform stride `density_multiplier` uses, not the first splats in the file. | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
 | `quality/density_multiplier` | preset-specific | Reduces density (clamped to `0.1..1.0`) and can merge source ranges. | `ResourceImporterPLY::get_import_options`, `ResourceImporterPLY::import` |
 | `validation/validate_required_properties` | `true` | Fails the import if required properties are missing or the first splats are invalid. Non-finite data is rejected even when this is off. | `ResourceImporterPLY::validate_ply_properties`, `ResourceImporterPLY::import` |
 | `validation/warn_missing_optional` | `true` | Logs optional property presence and omissions. | `ResourceImporterPLY::log_missing_properties` |
@@ -113,7 +113,7 @@ func inspect_ply_header() -> void:
 		if not loader.has_property(property_name):
 			missing_required.append(property_name)
 	print("Missing required: ", missing_required)
-	print("Has normals (2D mode): ", loader.has_property("nx") and loader.has_property("ny") and loader.has_property("nz"))
+	print("Has normals: ", loader.has_property("nx") and loader.has_property("ny") and loader.has_property("nz"))
 ```
 
 ## Troubleshooting
@@ -123,5 +123,5 @@ func inspect_ply_header() -> void:
 | `ERR_FILE_CORRUPT` from `GaussianData.load_from_file()` | Required properties are missing, or a splat has a NaN/Inf position, scale, rotation, or opacity. | Ensure `x,y,z`, `f_dc_0..2`, `scale_0..2`, `rot_0..3`, and `opacity` exist and are finite. | `GaussianData::load_from_file` |
 | `ERR_FILE_UNRECOGNIZED` from `GaussianData.load_from_file()` | The file extension is neither `.ply` nor `.spz`, or the file does not start with a `ply` header. | Use a `.ply` or `.spz` path. | `load_gaussian_data_from_file()` in `modules/gaussian_splatting/io/gaussian_data_loader.cpp`, `PLYLoader::parse_header` |
 | Import fails during validation | Validation found missing fields or invalid values. | Re-export with required fields and finite position/scale/opacity values. | `ResourceImporterPLY::validate_ply_properties` |
-| 2D surfel mode is not enabled | Source PLY does not include the full normal triplet. | Export `nx,ny,nz` for each vertex. | `PLYLoader::parse_binary_data` |
+| `GaussianData.get_2d_mode()` is `false` for a PLY with normals | Normal columns alone no longer set the flag (#1185). The flag is metadata-only: splats render as 3D ellipsoids whether it is set or not. | Add a `comment gs_2d_mode` header line if the flag is wanted. | `PLYLoader::parse_header` |
 | Repeated loads are slower than expected | Cache path is disabled or cache metadata mismatch prevents reuse. | Enable `rendering/gaussian_splatting/import/use_gsplatworld_cache` and keep source timestamp and size stable. | `_is_ply_cache_enabled()` in `modules/gaussian_splatting/io/ply_loader.cpp`, `PLYLoader::try_load_cache` |

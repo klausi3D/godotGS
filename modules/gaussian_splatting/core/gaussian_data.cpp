@@ -113,7 +113,7 @@ void GaussianData::_bind_methods() {
 
     // File I/O
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianData::load_from_file);
-    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianData::save_to_file);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianData::save_to_file, DEFVAL(false));
 
     // Spatial queries
     ClassDB::bind_method(D_METHOD("build_octree", "max_depth", "min_gaussians"), &GaussianData::build_octree, DEFVAL(8), DEFVAL(32));
@@ -593,16 +593,8 @@ bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
         // and before #518 only splat 0's geometry was ever checked — so the sweep
         // must visit ALL render-critical fields of every splat, including the DC
         // color (sh_dc) and first-order SH (sh_1) coefficients (Codex #756).
-        if (!Math::is_finite(g.position.x) || !Math::is_finite(g.position.y) || !Math::is_finite(g.position.z) ||
-                !Math::is_finite(g.scale.x) || !Math::is_finite(g.scale.y) || !Math::is_finite(g.scale.z) ||
-                !Math::is_finite(g.rotation.x) || !Math::is_finite(g.rotation.y) ||
-                !Math::is_finite(g.rotation.z) || !Math::is_finite(g.rotation.w) ||
-                !Math::is_finite(g.opacity) ||
-                !Math::is_finite(g.sh_dc.r) || !Math::is_finite(g.sh_dc.g) ||
-                !Math::is_finite(g.sh_dc.b) || !Math::is_finite(g.sh_dc.a) ||
-                !Math::is_finite(g.sh_1[0].x) || !Math::is_finite(g.sh_1[0].y) || !Math::is_finite(g.sh_1[0].z) ||
-                !Math::is_finite(g.sh_1[1].x) || !Math::is_finite(g.sh_1[1].y) || !Math::is_finite(g.sh_1[1].z) ||
-                !Math::is_finite(g.sh_1[2].x) || !Math::is_finite(g.sh_1[2].y) || !Math::is_finite(g.sh_1[2].z)) {
+        // The per-splat predicate is shared with the GPU packers (#1175).
+        if (!gaussian_render_fields_finite(g)) {
             if (r_first_bad_index) {
                 *r_first_bad_index = (int)i;
             }
@@ -1107,6 +1099,12 @@ void GaussianData::set_stroke_ages(const PackedFloat32Array &p_stroke_ages) {
 }
 
 void GaussianData::set_2d_mode(bool p_enabled) {
+    if (p_enabled) {
+        // #1185: the flag reaches the GPU asset/instance flags, but no shader reads
+        // GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D and project_gaussian_2d always
+        // builds the 3D covariance. Say so rather than let the API imply surfels.
+        WARN_PRINT_ONCE("[GaussianData] set_2d_mode(true): 2D mode is metadata-only: no renderer path reads it, so splats still render as 3D ellipsoids; it only makes save_to_file() write normal columns (#1185).");
+    }
     RWLockWrite lock(data_rwlock);
     is_2d_mode = p_enabled;
     // PERSIST-001: is_2d_mode is outside the per-index delta contract (and the GSF baseline

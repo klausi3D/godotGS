@@ -621,6 +621,9 @@ bool publish_resident_direct_data_contract(GaussianSplatRenderer *p_renderer, St
 
 				SHCompressionMetrics sh_metrics;
 				const Vector3 *sh_coeffs = sh_high_order_snapshot.is_empty() ? nullptr : sh_high_order_snapshot.ptr();
+				// #1158: a degree-3 asset loses SH coefficients to the atlas slot count; say so
+				// once per asset and layout instead of rendering partial bands silently.
+				gs_warn_sh_layout_truncation_once(**asset.data, sh_first_order, sh_high_order, quantize_atlas);
 				// atlas_base is the SPLAT index into the atlas buffer (the shader indexes
 				// gaussians[atlas_base + i]); it advances by chunk in whichever atlas is active.
 				uint32_t atlas_base = 0;

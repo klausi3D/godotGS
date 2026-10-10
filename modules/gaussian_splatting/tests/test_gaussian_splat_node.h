@@ -35,6 +35,10 @@
 #include "core/templates/local_vector.h"
 #include "core/templates/list.h"
 #include "core/variant/variant.h"
+#include "core/doc_data.h"
+#include "core/io/file_access.h"
+#include "core/object/class_db.h"
+#include "tests/test_utils.h"
 #include "scene/gui/button.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/main/scene_tree.h"
@@ -6469,6 +6473,53 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] #1105 A set_splat_d
     CHECK(gs_1105_inspector_offers_bake(manual_node.get()));
     CHECK_FALSE(gs_1105_inspector_offers_bake(asset_node.get()));
 #endif
+}
+
+
+// #1187: doc_classes/GaussianSplatNode3D.xml documented defaults the node's member
+// initialisers contradict, and tests/ci/check_doc_classes_complete.py checks only class
+// presence and the brief, so the drift was invisible. This compares the XML `default=`
+// of each member #1187 named against what `--doctool` would emit for it: the ClassDB
+// default instance, formatted by DocData::get_default_value_string() (the doctool's own
+// formatter). The XML is read from the source tree next to the binary, as upstream's
+// TestUtils::get_data_path() does; a missing file FAILS rather than skipping.
+TEST_CASE("[GaussianSplatting][Node] GaussianSplatNode3D.xml member defaults match the ClassDB defaults (#1187)") {
+    const String xml_path = TestUtils::get_executable_dir().path_join(
+            "../modules/gaussian_splatting/doc_classes/GaussianSplatNode3D.xml");
+    Error read_err = OK;
+    const String xml = FileAccess::get_file_as_string(xml_path, &read_err);
+    REQUIRE_MESSAGE(read_err == OK, vformat("cannot read %s; without it this check proves nothing", xml_path));
+
+    const char *properties[] = {
+        "painterly/temporal_blend",
+        "painterly/seed",
+        "rendering/update_mode",
+        "rendering/wind_enabled",
+        "rendering/wind_direction",
+        "debug/preview_enabled",
+        "debug/show_lod_spheres",
+        "debug/overlay_opacity",
+    };
+    for (const char *property : properties) {
+        const String member_tag = vformat("<member name=\"%s\"", property);
+        const int tag_start = xml.find(member_tag);
+        REQUIRE_MESSAGE(tag_start >= 0, vformat("member %s missing from the XML", property));
+        const int tag_end = xml.find(">", tag_start);
+        REQUIRE(tag_end > tag_start);
+        const String tag = xml.substr(tag_start, tag_end - tag_start);
+        const int default_start = tag.find("default=\"");
+        REQUIRE_MESSAGE(default_start >= 0, vformat("member %s has no default attribute", property));
+        const int value_start = default_start + String("default=\"").length();
+        const String documented = tag.substr(value_start, tag.find("\"", value_start) - value_start);
+
+        bool valid = false;
+        const Variant actual = ClassDB::class_get_default_property_value(
+                SNAME("GaussianSplatNode3D"), StringName(property), &valid);
+        REQUIRE_MESSAGE(valid, vformat("ClassDB has no default for %s", property));
+        CHECK_MESSAGE(documented == DocData::get_default_value_string(actual),
+                vformat("%s: XML documents default=\"%s\", the node constructs %s", property, documented,
+                        DocData::get_default_value_string(actual)));
+    }
 }
 
 #endif // TESTS_ENABLED || TOOLS_ENABLED

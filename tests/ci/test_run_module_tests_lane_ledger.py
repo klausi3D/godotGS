@@ -4066,7 +4066,11 @@ class GuardScriptWiringTests(unittest.TestCase):
             commands.append(list(argv))
             return 0, "", ""
 
-        with mock.patch.object(harness, "_run_command", _record_command):
+        # The child suite does not inherit its parent's --base-ref global. Keep
+        # CI enabled, but supply this wiring-only fixture's explicit base input;
+        # the mocked process boundary never resolves or grades that reference.
+        with mock.patch.object(harness, "_GUARD_BASE_REF_OVERRIDE", "wiring-fixture-review-base"), \
+                mock.patch.object(harness, "_run_command", _record_command):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertIsNone(
                     harness._run_optional_message_guards(self._cli_args()),
@@ -4169,6 +4173,7 @@ class GuardScriptWiringTests(unittest.TestCase):
         exist rather than a list of the ones somebody remembered.
         """
         reached = self._scripts_reached_by_wired_runners()
+        launched = self._scripts_launched_by_optional_guards()
         pairs = [
             (script, script.with_name(f"test_{script.name}"))
             for script in sorted(self.GUARD_SCRIPT_DIR.glob("check_*.py"))
@@ -4180,12 +4185,12 @@ class GuardScriptWiringTests(unittest.TestCase):
         missing = sorted(
             sibling.relative_to(ROOT).as_posix()
             for _script, sibling in pairs
-            if sibling.resolve() not in reached
+            if sibling.resolve() not in reached or sibling.resolve() not in launched
         )
         self.assertEqual(
             missing,
             [],
-            "these guards ship discrimination tests that no wired runner executes, "
+            "these guards ship discrimination tests that no wired runner actually launches, "
             "so a guard that has silently stopped being able to fail would not be "
             f"caught: {missing}",
         )

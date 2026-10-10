@@ -160,9 +160,48 @@ function Invoke-LoggedCommand {
         working_directory = $WorkingDirectory
         log_path = $LogPath
         exit_code = $exitCode
+        # `passed` is the verdict every readiness boolean reads. For a plain
+        # command it is the exit code; Set-RuntimeMarkerVerdict tightens it for
+        # runtime scenarios, whose exit code alone cannot tell a skip from a pass.
+        passed = ($exitCode -eq 0)
         duration_seconds = $duration
         error = $errorText
     }
+}
+
+# The runtime scenarios print `[RUNTIME_SKIP] <reason>` and then quit(0) when no
+# local RenderingDevice is available, so exit code 0 is shared by "ran and
+# passed" and "did not run" (#1164 / N-27). Classify like
+# tests/runtime/run_runtime_validation.py: a skip or fail marker anywhere in the
+# log makes the run not-passed (over-matching only makes this stricter), and a
+# pass requires exactly one positive `[RUNTIME_PASS]` completion marker at the
+# start of a line (gs_runtime_report.gd emit_pass()).
+$RuntimeSkipMarkerPattern = '\[RUNTIME_SKIP\]'
+$RuntimeFailMarkerPattern = '\[RUNTIME_FAIL\]'
+$RuntimePassMarkerPattern = '^\s*\[RUNTIME_PASS\]'
+
+function Set-RuntimeMarkerVerdict {
+    param([object]$Record)
+
+    $passCount = 0
+    $skipCount = 0
+    $failCount = 0
+    if (Test-Path -LiteralPath $Record.log_path) {
+        $passCount = @(Select-String -LiteralPath $Record.log_path -Pattern $RuntimePassMarkerPattern -CaseSensitive -ErrorAction SilentlyContinue).Count
+        $skipCount = @(Select-String -LiteralPath $Record.log_path -Pattern $RuntimeSkipMarkerPattern -ErrorAction SilentlyContinue).Count
+        $failCount = @(Select-String -LiteralPath $Record.log_path -Pattern $RuntimeFailMarkerPattern -ErrorAction SilentlyContinue).Count
+    }
+
+    $Record | Add-Member -NotePropertyName runtime_pass_markers -NotePropertyValue $passCount -Force
+    $Record | Add-Member -NotePropertyName runtime_skip_markers -NotePropertyValue $skipCount -Force
+    $Record | Add-Member -NotePropertyName runtime_fail_markers -NotePropertyValue $failCount -Force
+    $Record.passed = (
+        ([int]$Record.exit_code -eq 0) -and
+        ($passCount -eq 1) -and
+        ($skipCount -eq 0) -and
+        ($failCount -eq 0)
+    )
+    return $Record
 }
 
 function Get-ResultByName {
@@ -181,7 +220,7 @@ function Test-ResultPassed {
     )
 
     $result = Get-ResultByName -Results $Results -Name $Name
-    return ($null -ne $result -and [int]$result.exit_code -eq 0)
+    return ($null -ne $result -and [bool]$result.passed)
 }
 
 function Get-RuntimeMetricsFromLog {
@@ -321,6 +360,7 @@ foreach ($runtimeScript in $runtimeScripts) {
         "--script", $runtimeScript.script
     )
     $result = Invoke-LoggedCommand -Name $runtimeScript.name -Command $cmd -WorkingDirectory $Root -LogPath (Join-Path $runDir ($runtimeScript.name + ".log"))
+    $result = Set-RuntimeMarkerVerdict -Record $result
     $results += $result
 }
 
@@ -338,6 +378,7 @@ if ($RuntimeLoops -gt 0) {
                 "--script", $runtimeScript.script
             )
             $loopResult = Invoke-LoggedCommand -Name $loopName -Command $cmd -WorkingDirectory $Root -LogPath (Join-Path $loopDir ($loopName + ".log"))
+            $loopResult = Set-RuntimeMarkerVerdict -Record $loopResult
             $results += $loopResult
         }
     }
@@ -377,7 +418,7 @@ if (-not $SkipPainterly) {
 
 $allLogFiles = @(Get-ChildItem -Path $runDir -Recurse -Filter *.log -File)
 $signatureRules = @(
-    @{ id = "headless_skip"; regex = "Skipping .*headless mode" },
+    @{ id = "runtime_skip"; regex = $RuntimeSkipMarkerPattern },
     @{ id = "gpu_sort_fallback"; regex = "Radix sort failed; falling back|GPU sorter never executed" },
     @{ id = "leak"; regex = "\\bleak(ed)?\\b" },
     @{ id = "invalid_free"; regex = "invalid free|Invalid ID" },
@@ -457,7 +498,7 @@ foreach ($runtimeScript in $runtimeScripts) {
 
 $runtimeHeadlessHits = @()
 if ($runtimeLogPaths.Count -gt 0) {
-    $runtimeHeadlessHits = @(Select-String -Path $runtimeLogPaths -Pattern "Skipping .*headless mode" -CaseSensitive:$false -ErrorAction SilentlyContinue)
+    $runtimeHeadlessHits = @(Select-String -Path $runtimeLogPaths -Pattern $RuntimeSkipMarkerPattern -CaseSensitive:$false -ErrorAction SilentlyContinue)
 }
 
 $runtimeMetrics = [ordered]@{}
@@ -495,7 +536,7 @@ if ($null -ne $streamingBudgetMetrics) {
 $streamingBudgetTierCount = $streamingBudgetTiers.Count
 
 $loopResults = @($results | Where-Object { $_.name -like "loop*_runtime_*" })
-$loopFailCount = @($loopResults | Where-Object { [int]$_.exit_code -ne 0 }).Count
+$loopFailCount = @($loopResults | Where-Object { -not [bool]$_.passed }).Count
 $loopLeakHits = @($signatureHits | Where-Object {
     $_.file -like "runtime_loops*" -and ($_.rule -eq "leak" -or $_.rule -eq "invalid_free")
 })
@@ -598,7 +639,18 @@ $issue815Ready = (
     $painterlyMarkerFound
 )
 
-$issue902Ready = ($issue897Ready -and $issue900Ready -and $issue871Ready -and $issue815Ready)
+# #1164 / N-26: the module tests and the #943 streaming budgets were collected
+# here but read by no readiness boolean, so a failing module-test lane inside
+# this step could not make #902 false.
+$moduleTestsPassed = (Test-ResultPassed -Results $results -Name "module_tests")
+$issue902Ready = (
+    $moduleTestsPassed -and
+    $issue897Ready -and
+    $issue900Ready -and
+    $issue943Ready -and
+    $issue871Ready -and
+    $issue815Ready
+)
 
 $summaryObject = [ordered]@{
     timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
@@ -620,6 +672,7 @@ $summaryObject = [ordered]@{
     qa_only_streaming_visual_failure = $qaOnlyStreamingVisualFailure
     qa_runner_passed = $qaRunnerPassed
     qa_runner_effective_pass = $qaRunnerEffectivePass
+    module_tests_passed = $moduleTestsPassed
     issues = [ordered]@{
         "897_907_ready" = $issue897Ready
         "900_ready" = $issue900Ready
@@ -659,11 +712,11 @@ $issue897Lines += @(
     "- " + (Mark-Check (Test-ResultPassed -Results $results -Name "runtime_engine_capabilities")) + " test_engine_capabilities.gd passed.",
     "- " + (Mark-Check (Test-ResultPassed -Results $results -Name "runtime_gpu_streaming_stress")) + " test_gpu_streaming_stress.gd passed.",
     "- " + (Mark-Check (Test-ResultPassed -Results $results -Name "runtime_world_streaming_gate")) + " test_world_streaming_gate.gd passed.",
-    "- " + (Mark-Check ($runtimeHeadlessHits.Count -eq 0)) + " No headless-skip markers in runtime logs.",
+    "- " + (Mark-Check ($runtimeHeadlessHits.Count -eq 0)) + " No [RUNTIME_SKIP] markers in runtime logs.",
     "",
     "## Signature Hits",
     "",
-    "- Runtime headless-skip hits: " + $runtimeHeadlessHits.Count,
+    "- Runtime [RUNTIME_SKIP] hits: " + $runtimeHeadlessHits.Count,
     "- Global signature hits file: " + (Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir "signature_hits.txt")),
     "",
     "## Suggested Status",
@@ -883,6 +936,7 @@ $issue902Lines = @(
     "",
     "## Lane Status",
     "",
+    "- " + (Mark-Check $moduleTestsPassed) + " Module tests (run_module_tests.py) passed.",
     "- " + (Mark-Check $issue897Ready) + " Runtime gate (#897/#907) ready.",
     "- " + (Mark-Check $issue900Ready) + " RID ownership lifetime gate (#900) ready.",
     "- " + (Mark-Check $issue943Ready) + " Streaming scale budgets (#943) ready.",
@@ -916,7 +970,7 @@ $summaryLines = @(
 Write-MarkdownFile -Path (Join-Path $runDir "README.md") -Lines $summaryLines
 
 Write-Host ""
-Write-Host "Evidence collection completed."
+Write-Host "Evidence collection finished."
 Write-Host "Summary: $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'README.md'))"
 Write-Host "Issue drafts:"
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_897_907.md'))"
@@ -925,3 +979,19 @@ Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_871.md'))"
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_815.md'))"
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_902.md'))"
+
+# #1164 / N-26: the step used to end with "Evidence collection completed." and
+# whatever $LASTEXITCODE the last native command happened to leave behind, so a
+# failed sub-command other than the last one could not fail the step. Exit
+# explicitly: non-zero when any recorded sub-command did not pass.
+$failedCommands = @($results | Where-Object { -not [bool]$_.passed })
+if ($failedCommands.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("Evidence collection FAILED: {0} of {1} recorded sub-command(s) did not pass:" -f $failedCommands.Count, $results.Count)
+    foreach ($failed in $failedCommands) {
+        Write-Host ("  - {0} (exit {1}; log {2})" -f $failed.name, $failed.exit_code, (Get-RelativePath -BasePath $Root -ChildPath $failed.log_path))
+    }
+    exit 1
+}
+Write-Host "Evidence collection completed: all $($results.Count) recorded sub-command(s) passed."
+exit 0

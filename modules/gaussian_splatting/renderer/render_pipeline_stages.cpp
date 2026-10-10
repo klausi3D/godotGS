@@ -757,6 +757,110 @@ static uint64_t _compute_cull_config_signature(const GaussianSplatRenderer &p_re
 }
 
 
+// Low-pass filter (project setting). The ONE reader for the raster parameter and
+// the cached-render reuse signature (#1162): a second, hand-kept copy goes stale
+// silently and a stale signature serves a cached render.
+static float _resolve_low_pass_filter_setting(float p_default) {
+	float low_pass_filter = p_default;
+	if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
+		static const StringName low_pass_filter_path("rendering/gaussian_splatting/rasterization/low_pass_filter");
+		if (ps->has_setting(low_pass_filter_path)) {
+			low_pass_filter = (float)ps->get_setting_with_override(low_pass_filter_path);
+		}
+	}
+	return CLAMP(low_pass_filter, 0.05f, 2.0f);
+}
+
+} // namespace
+
+uint64_t RenderPipelineStages::compute_raster_params_signature(const GaussianSplatRenderer &p_renderer,
+		const GaussianSplatRenderer::IFrameStateView &p_state_view, RD::DataFormat p_viewport_format) {
+	// Every raster input that render_tile_fallback() and the painterly path push to
+	// the GPU and that no other reuse signature (content generation, cull config,
+	// colour grading, lighting) covers (#1162). The values are taken from the same
+	// producers the raster reads, not from a parallel list of setters: setters that
+	// mutate these structs in place (debug toggles, Jacobian diagnostics, pipeline
+	// features) never call invalidate_cached_render().
+	uint64_t seed = HASH_MURMUR3_SEED;
+	seed = _hash_u64(static_cast<uint64_t>(p_viewport_format), seed);
+
+	// Painterly: every PainterlyConfig field reaches PainterlyPassGraph::configure()
+	// or the painterly config block; only `enabled` was in the key (painterly_active).
+	const GaussianSplatRenderer::PainterlyConfig &painterly = p_renderer.get_painterly_config();
+	seed = _hash_bool(painterly.enabled, seed);
+	seed = _hash_bool(painterly.enable_strokes, seed);
+	seed = _hash_bool(painterly.low_end_mode, seed);
+	seed = _hash_float_bits(painterly.internal_scale, seed);
+	seed = _hash_float_bits(painterly.edge_threshold, seed);
+	seed = _hash_float_bits(painterly.edge_intensity, seed);
+	seed = _hash_float_bits(painterly.stroke_length, seed);
+	seed = _hash_float_bits(painterly.stroke_opacity, seed);
+	seed = _hash_float_bits(painterly.gamma, seed);
+	{
+		const Ref<PainterlyMaterial> painterly_material = p_renderer.get_painterly_material();
+		seed = _hash_u64(painterly_material.is_valid() ? static_cast<uint64_t>(painterly_material->get_instance_id()) : 0ull, seed);
+	}
+
+	// Debug / preview visualisation: run the raster's own applier on a scratch
+	// params block, seeded with the frame plan's compute-raster policy so the
+	// debug override is observed exactly as render_tile_fallback() sees it.
+	{
+		TileRenderer::RenderParams debug_params;
+		const GaussianSplatRenderer::RenderFramePlan *frame_plan = p_state_view.get_frame_plan();
+		if (frame_plan) {
+			debug_params.compute_raster_policy = frame_plan->compute_raster_policy;
+		}
+		p_renderer.apply_debug_options_to_render_params(debug_params);
+		seed = _hash_u64(static_cast<uint64_t>(debug_params.compute_raster_policy), seed);
+		seed = _hash_bool(debug_params.debug_show_tile_bounds, seed);
+		seed = _hash_bool(debug_params.debug_show_splat_coverage, seed);
+		seed = _hash_bool(debug_params.debug_show_overflow_tiles, seed);
+		seed = _hash_bool(debug_params.debug_show_projection_issues, seed);
+		seed = _hash_bool(debug_params.debug_show_white_albedo, seed);
+		seed = _hash_bool(debug_params.debug_show_shadow_opacity, seed);
+		seed = _hash_bool(debug_params.debug_show_tile_grid, seed);
+		seed = _hash_bool(debug_params.debug_show_density_heatmap, seed);
+		seed = _hash_bool(debug_params.debug_show_performance_hud, seed);
+		seed = _hash_bool(debug_params.debug_show_depth_visualization, seed);
+		seed = _hash_float_bits(debug_params.debug_overlay_opacity, seed);
+	}
+
+	// Pipeline features copied into the raster params.
+	if (const PipelineFeatureSet *features = p_state_view.get_pipeline_features()) {
+		seed = _hash_u64(1ull, seed);
+		seed = _hash_bool(features->enable_packed_stage_data, seed);
+		seed = _hash_bool(features->enable_tighter_bounds, seed);
+		seed = _hash_bool(features->enable_fast_raster, seed);
+		seed = _hash_bool(features->enable_sh_amortization, seed);
+		seed = _hash_u64(static_cast<uint64_t>(features->sh_amortization_divisor), seed);
+	} else {
+		seed = _hash_u64(0ull, seed);
+	}
+
+	// Low-pass filter, through the raster's own reader.
+	seed = _hash_float_bits(_resolve_low_pass_filter_setting(TileRenderer::RenderParams().low_pass_filter), seed);
+
+	// Jacobian diagnostic toggles.
+	const GaussianSplatRenderer::JacobianDebugConfig &jacobian = p_state_view.get_jacobian_debug_view();
+	seed = _hash_bool(jacobian.bypass_radius_depth_floor, seed);
+	seed = _hash_bool(jacobian.bypass_j_col2_clamp, seed);
+	seed = _hash_bool(jacobian.invert_j_col2_sign, seed);
+	seed = _hash_float_bits(jacobian.max_conic_aspect, seed);
+
+	// Interactive state: the uniform block the raster binds through
+	// interactive_state_uniform (InteractiveStateManager::ensure_state_uniform_buffer).
+	const GaussianSplatRenderer::InteractiveStateConfig &interactive = p_renderer.get_interactive_state_config();
+	seed = _hash_u64(static_cast<uint64_t>(interactive.current_state), seed);
+	seed = _hash_float_bits(interactive.uniform_data.highlight_strength, seed);
+	seed = _hash_float_bits(interactive.uniform_data.outline_width, seed);
+	seed = _hash_float_bits(interactive.uniform_data.state, seed);
+	seed = _hash_color(interactive.uniform_data.highlight_color, seed);
+	seed = _hash_color(interactive.uniform_data.outline_color, seed);
+	return seed;
+}
+
+namespace {
+
 static void _record_validation_event(GaussianSplatRenderer *p_renderer, const char *p_stage,
 		const GaussianSplatRenderer::StageIO &p_io) {
 	if (!p_renderer || !p_io.validation_failed) {
@@ -899,6 +1003,31 @@ void RenderPipelineStages::stamp_stage_result_contract(StageResult &r_result, co
 	r_result.output_count = p_output_count;
 	if (r_result.status == StageResult::StageStatus::FAILED && r_result.first_failure_stage.is_empty()) {
 		r_result.first_failure_stage = r_result.stage_name;
+	}
+}
+
+// Which sort output the raster consumes (#1163). The metrics' sort block is only
+// authoritative when a sort stage in THIS pass produced it (`did_sort`). Entries that
+// replay the color pass without sorting hand over default-constructed StageMetrics;
+// their valid snapshot supplies the count. Shadows cannot reuse that camera snapshot:
+// they need caster evidence produced by the current light-view pass.
+void RenderPipelineStages::resolve_raster_sort_input(const RenderFrameContext &p_context,
+		GaussianSplatRenderer::RasterStageInput &r_input) {
+	if (p_context.metrics && p_context.metrics->sort.did_sort) {
+		r_input.sorted_splat_count = p_context.metrics->sort.sorted_count;
+		r_input.sort_time_ms = p_context.metrics->sort.sort_time_ms;
+		r_input.sorted_index_domain = p_context.metrics->sort.output_domain;
+	} else if (p_context.snapshot.valid &&
+			p_context.pass_kind != GaussianSplatRenderer::RenderPassKind::SHADOW_MAP) {
+		// The snapshot belongs to the color camera. Until a shadow pass produces
+		// its own caster evidence, it must not authorize a shadow-atlas write.
+		r_input.sorted_splat_count = p_context.snapshot.sorted_splats;
+		r_input.sort_time_ms = 0.0f;
+		r_input.sorted_index_domain = p_context.snapshot.sorted_index_domain;
+	} else {
+		r_input.sorted_splat_count = 0;
+		r_input.sort_time_ms = 0.0f;
+		r_input.sorted_index_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
 	}
 }
 
@@ -1813,23 +1942,13 @@ struct RenderPipelineStages::RasterCompositeStage {
 		raster_input.render_projection = p_context.render_projection;
 		raster_input.viewport_size = p_context.viewport_size;
 		raster_input.viewport_format = p_context.viewport_format;
-		if (p_context.metrics) {
-			raster_input.sorted_splat_count = p_context.metrics->sort.sorted_count;
-			raster_input.sort_time_ms = p_context.metrics->sort.sort_time_ms;
-			raster_input.sorted_index_domain = p_context.metrics->sort.output_domain;
-		} else if (p_context.snapshot.valid) {
-			raster_input.sorted_splat_count = p_context.snapshot.sorted_splats;
-			raster_input.sort_time_ms = 0.0f;
-			raster_input.sorted_index_domain = p_context.snapshot.sorted_index_domain;
-		} else {
-			raster_input.sorted_splat_count = 0;
-			raster_input.sort_time_ms = 0.0f;
-			raster_input.sorted_index_domain = GaussianSplatRenderer::IndexDomain::UNKNOWN;
-		}
+		RenderPipelineStages::resolve_raster_sort_input(p_context, raster_input);
 		raster_input.content_generation = renderer->get_instance_pipeline_content_generation();
 		raster_input.cull_config_signature = _compute_cull_config_signature(*renderer, state_view);
 		raster_input.color_grading_signature = _compute_color_grading_signature(state_view.get_render_config_view(), renderer);
 		raster_input.lighting_signature = _compute_lighting_signature(p_context.render_data, p_context.frame_id, renderer);
+		raster_input.raster_params_signature = RenderPipelineStages::compute_raster_params_signature(*renderer, state_view,
+				p_context.viewport_format);
 		raster_input.metrics = p_context.metrics;
 		raster_input.state_view = &state_view;
 		raster_input.mutation_access = &state_mut;
@@ -1927,7 +2046,8 @@ struct RenderPipelineStages::RasterCompositeStage {
 						raster_input.viewport_size, r_raster_output.painterly_active,
 						r_raster_output.depth, r_raster_output.internal_size, r_raster_output.color,
 						raster_input.content_generation, raster_input.cull_config_signature,
-						raster_input.color_grading_signature, raster_input.lighting_signature, require_scene_depth);
+						raster_input.color_grading_signature, raster_input.lighting_signature, require_scene_depth,
+						raster_input.raster_params_signature);
 			}
 		}
 
@@ -2341,16 +2461,7 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 	// gaussian_splat_manager.cpp:1045 is 0.05 — over-aggressive Mip-Splatting
 	// dilation produces a uniform soft halo on edges. Mirrors the read in
 	// painterly_renderer.cpp:1769-1776 so both paths agree.
-	{
-		float low_pass_filter = render_params.low_pass_filter;
-		if (ProjectSettings *ps = ProjectSettings::get_singleton()) {
-			static const StringName low_pass_filter_path("rendering/gaussian_splatting/rasterization/low_pass_filter");
-			if (ps->has_setting(low_pass_filter_path)) {
-				low_pass_filter = (float)ps->get_setting_with_override(low_pass_filter_path);
-			}
-		}
-		render_params.low_pass_filter = CLAMP(low_pass_filter, 0.05f, 2.0f);
-	}
+	render_params.low_pass_filter = _resolve_low_pass_filter_setting(render_params.low_pass_filter);
 
 	// Apply Jacobian diagnostic toggles
 	render_params.jacobian_bypass_radius_depth_floor = jacobian_debug.bypass_radius_depth_floor;
@@ -2542,7 +2653,8 @@ bool RenderPipelineStages::RasterStage::try_reuse_cached_render(const GaussianSp
 				p_input.render_projection,
 				p_input.viewport_size, r_output.painterly_active, cached_render,
 				p_input.content_generation, p_input.cull_config_signature,
-				p_input.color_grading_signature, p_input.lighting_signature, require_scene_depth)) {
+				p_input.color_grading_signature, p_input.lighting_signature, require_scene_depth,
+				p_input.raster_params_signature)) {
 		return false;
 	}
 

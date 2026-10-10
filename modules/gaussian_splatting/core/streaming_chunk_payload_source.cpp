@@ -187,17 +187,21 @@ StagedFileChunkPayloadSource::ScopedReaderSuspend::ScopedReaderSuspend(const Str
 		// Stop NEW opens (lock-free, so readers never block on us), then take over the
 		// cached handles so the only remaining owners are in-flight reads.
 		source->suspend_opens.set();
-		for (const KeyValue<Thread::ID, Ref<FileAccess>> &cached : source->cached_files) {
-			if (cached.value.is_valid()) {
-				pending.push_back(cached.value);
+		// #1179: every pooled handle, idle or checked out. A checked-out one is also held by
+		// its in-flight read, so the drain below waits for it; bumping the epoch makes that
+		// read drop it on return instead of putting it back into the pool.
+		for (const PooledFile &pooled : source->file_pool) {
+			if (pooled.file.is_valid()) {
+				pending.push_back(pooled.file);
 			}
 		}
-		source->cached_files.clear();
+		source->file_pool.clear();
+		source->file_pool_epoch++;
 		source->file_mutex.unlock();
 		held.push_back(source);
 	}
 
-	// suspend_opens stops new opens, but a read already past _get_thread_file() holds
+	// suspend_opens stops new opens, but a read already past _acquire_pooled_file() holds
 	// its own Ref and reads OUTSIDE the mutex, so its OS handle is still open and
 	// still denies delete access. Wait for those to drain: once a reader returns, its
 	// Ref drops and -- since the cache no longer holds one -- `pending` is the only
@@ -275,13 +279,14 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 	sh_first_order = p_sh_first_order;
 	sh_high_order = p_sh_high_order;
 	bounds = p_bounds;
-	cached_files.clear();
+	file_pool.clear(); // in-flight leases hold their own Ref and drop it on return
+	file_pool_epoch++;
 	bytes_requested = 0;
 	bytes_read = 0;
 	file_open_count = 0;
 }
 
-Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
+Ref<FileAccess> StagedFileChunkPayloadSource::_acquire_pooled_file(uint32_t &r_slot, uint64_t &r_epoch) const {
 	// #714: a writer is atomically replacing this file. Opening a handle now would
 	// deny it delete access on Windows and fail the replace, so wait for the guard to
 	// finish rather than fail the read outright.
@@ -290,15 +295,16 @@ Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
 	// mutex to finish (_record_io_counters), and stalling it here would be the very
 	// deadlock this lock-free flag exists to avoid. The flag is then RECHECKED once
 	// the mutex is held, because a lock-free check followed by a lock is a
-	// check-then-act race: the guard can take over the cache in between, and a handle
+	// check-then-act race: the guard can take over the pool in between, and a handle
 	// opened after that point would be invisible to it.
 	//
 	// On exhausting the wait budget the read proceeds anyway: stalling an editor
 	// import beats breaking a running scene's streaming, and the import then fails
 	// loudly rather than degrading silently.
 	OS *os = OS::get_singleton();
-	const Thread::ID thread_id = Thread::get_caller_id();
 	uint32_t waited_usec = 0;
+	r_slot = UINT32_MAX;
+	r_epoch = 0;
 
 	while (true) {
 		// Wait with NO mutex held: a reader that already holds a handle needs
@@ -312,18 +318,25 @@ Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
 		MutexLock lock(file_mutex);
 
 		// Recheck UNDER the mutex. The check above is lock-free, so the guard can set
-		// the flag and take over the cache in the window between it and this
-		// acquisition; opening here would cache a fresh delete-denying handle that the
+		// the flag and take over the pool in the window between it and this
+		// acquisition; opening here would pool a fresh delete-denying handle that the
 		// guard never saw, and its rename would fail. Rechecking closes that window:
 		// either we get here before the guard (it then takes our handle over with the
-		// rest of the cache) or we see the flag and go back to waiting.
+		// rest of the pool) or we see the flag and go back to waiting.
 		if (suspend_opens.is_set() && os != nullptr && waited_usec < MAX_OPEN_SUSPEND_WAIT_USEC) {
 			continue; // releases file_mutex, resumes the wait above
 		}
 
-		Ref<FileAccess> *cached_file = cached_files.getptr(thread_id);
-		if (cached_file && cached_file->is_valid()) {
-			return *cached_file;
+		// #1179: reuse an idle pooled handle; open a new one only when every pooled handle is
+		// checked out by a concurrent capture.
+		for (uint32_t i = 0; i < file_pool.size(); i++) {
+			PooledFile &pooled = file_pool[i];
+			if (!pooled.in_use && pooled.file.is_valid()) {
+				pooled.in_use = true;
+				r_slot = i;
+				r_epoch = file_pool_epoch;
+				return pooled.file;
+			}
 		}
 
 		Ref<FileAccess> file = FileAccess::open(file_path, FileAccess::READ);
@@ -331,9 +344,38 @@ Ref<FileAccess> StagedFileChunkPayloadSource::_get_thread_file() const {
 			ERR_PRINT(vformat("[StagedFileSource] Cannot open staged world file: %s", file_path));
 			return Ref<FileAccess>();
 		}
-		cached_files.insert(thread_id, file);
+		PooledFile pooled;
+		pooled.file = file;
+		pooled.in_use = true;
+		file_pool.push_back(pooled);
+		r_slot = file_pool.size() - 1;
+		r_epoch = file_pool_epoch;
 		file_open_count++;
 		return file;
+	}
+}
+
+void StagedFileChunkPayloadSource::_release_pooled_file(uint32_t p_slot, uint64_t p_epoch) const {
+	MutexLock lock(file_mutex);
+	// A lease from before the pool was taken over (configure(), ScopedReaderSuspend) owns
+	// the last reference to its handle; dropping the lease closes it.
+	if (p_epoch != file_pool_epoch || p_slot >= file_pool.size()) {
+		return;
+	}
+	file_pool[p_slot].in_use = false;
+}
+
+StagedFileChunkPayloadSource::PooledFileLease::PooledFileLease(const StagedFileChunkPayloadSource *p_source) :
+		source(p_source) {
+	file = source->_acquire_pooled_file(slot, epoch);
+}
+
+StagedFileChunkPayloadSource::PooledFileLease::~PooledFileLease() {
+	// Drop our Ref before returning the slot, so a suspended writer that took the handle
+	// over sees the in-flight count fall as soon as the read is done.
+	file.unref();
+	if (slot != UINT32_MAX) {
+		source->_release_pooled_file(slot, epoch);
 	}
 }
 
@@ -400,10 +442,11 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 		return false;
 	}
 
-	Ref<FileAccess> file = _get_thread_file();
-	if (file.is_null()) {
+	PooledFileLease lease(this);
+	if (lease.file.is_null()) {
 		return false;
 	}
+	const Ref<FileAccess> &file = lease.file;
 
 	// Read gaussian data.
 	const uint64_t gaussian_byte_offset = gaussian_data_offset + uint64_t(p_start) * sizeof(Gaussian);
@@ -482,10 +525,11 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 		sparse_requests.sort_custom<IndexedReadRequestComparator>();
 	}
 
-	Ref<FileAccess> file = _get_thread_file();
-	if (file.is_null()) {
+	PooledFileLease lease(this);
+	if (lease.file.is_null()) {
 		return false;
 	}
+	const Ref<FileAccess> &file = lease.file;
 
 	r_gaussians.resize(p_count);
 	r_sh_first_order_count = sh_first_order;

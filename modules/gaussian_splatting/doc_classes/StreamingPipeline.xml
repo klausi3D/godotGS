@@ -4,7 +4,7 @@
 		Coordinates streaming of visible splat data to the GPU.
 	</brief_description>
 	<description>
-		Drives streaming of the visible splat ranges to the GPU through a [GaussianMemoryStream], handling upload and frame synchronization for the streamed render path.
+		Captures visible splat ranges on a CPU worker and publishes the latest snapshot through a [GaussianMemoryStream]. Initialize both resources on the RenderingDevice owner thread. Drain uploads there each frame with [method process_uploads] or [method get_current_buffer], and shut down there. The worker never calls GPU APIs.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -17,6 +17,7 @@
 		<method name="get_current_buffer">
 			<return type="RID" />
 			<description>
+				Drains the latest pending snapshot on the initialization thread before returning the current buffer. Returns an invalid RID on upload failure.
 			</description>
 		</method>
 		<method name="get_current_lod" qualifiers="const">
@@ -34,6 +35,12 @@
 			<param index="0" name="memory_stream" type="GaussianMemoryStream" />
 			<param index="1" name="gaussian_data" type="GaussianData" />
 			<description>
+			</description>
+		</method>
+		<method name="process_uploads">
+			<return type="int" enum="Error" />
+			<description>
+				Uploads the latest completed CPU snapshot. Call only on the initialization thread; a different thread returns ERR_UNAVAILABLE without consuming the snapshot. Upload failures remain observable as [code]last_upload_error[/code] until a new upload succeeds; snapshot failures are exposed as [code]last_capture_error[/code]. Pending snapshots and in-progress uploads count as [code]is_streaming[/code]. A successfully drained empty range makes [method get_current_buffer] return an invalid RID rather than previous content.
 			</description>
 		</method>
 		<method name="set_lod_level">

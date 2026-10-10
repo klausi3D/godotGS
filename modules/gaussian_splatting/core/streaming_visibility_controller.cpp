@@ -1154,7 +1154,11 @@ uint32_t StreamingVisibilityController::schedule_prefetch_loads(
             break;
         }
 
-        const bool queued = system._enqueue_chunk_load_request(GaussianStreamingSystem::PRIMARY_ASSET_ID, candidates[i], can_async_pack);
+        // #1176: a prefetch is a prediction, not demand: it may evict only off-screen chunks.
+        // The sync route (can_async_pack == false) only queues here; its drain re-derives the
+        // same intent when it admits the chunk.
+        const bool queued = system._enqueue_chunk_load_request(GaussianStreamingSystem::PRIMARY_ASSET_ID, candidates[i],
+                can_async_pack, /*prioritize_sync_fallback*/ false, /*p_allow_visible_eviction*/ false);
         if (!queued) {
             if (can_async_pack &&
                     _compute_visibility_async_enqueue_headroom(

@@ -103,6 +103,19 @@ static int _compute_final_splat_count(int p_original_count, int p_max_splats, do
     return final_count;
 }
 
+// #1155: name the limit that set a reduced count, for the import log. Both can
+// bind at once (e.g. max_splats equal to round(original * density)).
+static String _describe_count_limit(int p_original_count, int p_final_count, int p_max_splats, double p_density) {
+    PackedStringArray limits;
+    if (p_max_splats > 0 && p_final_count == p_max_splats) {
+        limits.push_back(vformat("max_splats=%d", p_max_splats));
+    }
+    if (p_final_count == int(Math::round(p_original_count * p_density))) {
+        limits.push_back(vformat("density_multiplier=%.3f", p_density));
+    }
+    return limits.is_empty() ? String("minimum of 1 splat") : String(", ").join(limits);
+}
+
 static Gaussian _merge_gaussian_range(const Ref<::GaussianData> &p_data, const int *p_indices,
         int p_start, int p_end, bool p_normalize_opacity, int *r_source_index = nullptr) {
     // Density multiplier is a subsampling factor; pick a representative splat
@@ -350,8 +363,20 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     thumbnail_size = CLAMP(thumbnail_size, 32, 512);
 
     int final_count = _compute_final_splat_count(original_count, max_splats, density_multiplier);
-    const bool merge_density = density_multiplier < 0.999 && final_count < original_count;
-    const double merge_stride = merge_density ? double(original_count) / double(final_count) : 1.0;
+    // #1155: any reduction, whether max_splats or density_multiplier set the
+    // count, is a uniform stride over the index order (source order, or
+    // opacity-descending with sort_by_opacity). It used to apply only when
+    // density_multiplier < 0.999, so a max_splats-only cap (the "High Quality"
+    // preset is max_splats = 1,000,000 at density 1.0) kept the first
+    // final_count splats of the FILE: a spatial prefix of an unshuffled 3DGS
+    // scan, not a thinning. No reduction -> no stride, unchanged.
+    const bool stride_subsample = final_count < original_count;
+    const double merge_stride = stride_subsample ? double(original_count) / double(final_count) : 1.0;
+    if (stride_subsample) {
+        GS_LOG_STREAMING_INFO(vformat("PLY import: reducing %d -> %d splats by uniform stride %.3f over the %s order (limit: %s)",
+                original_count, final_count, merge_stride, sort_by_opacity ? "opacity-sorted" : "source",
+                _describe_count_limit(original_count, final_count, max_splats, density_multiplier)));
+    }
 
     Vector<int> indices;
     // #798: original_count is the PLY's splat count -- FILE-DERIVED, so this allocation is
@@ -434,13 +459,13 @@ Error ResourceImporterPLY::import(ResourceUID::ID p_source_id, const String &p_s
     float *sh_high_ptr = sh_high_order.ptrw();
 
     for (int i = 0; i < final_count; i++) {
-        int start = merge_density ? int(Math::floor(double(i) * merge_stride)) : i;
-        int end = merge_density ? int(Math::floor(double(i + 1) * merge_stride)) : i + 1;
+        int start = stride_subsample ? int(Math::floor(double(i) * merge_stride)) : i;
+        int end = stride_subsample ? int(Math::floor(double(i + 1) * merge_stride)) : i + 1;
         start = CLAMP(start, 0, original_count - 1);
         end = CLAMP(end, start + 1, original_count);
         int source_index = indices_ptr[start];
-        Gaussian g = merge_density ? _merge_gaussian_range(gaussian_data, indices_ptr, start, end, normalize_opacity, &source_index)
-                                   : gaussian_data->get_gaussian(source_index);
+        Gaussian g = stride_subsample ? _merge_gaussian_range(gaussian_data, indices_ptr, start, end, normalize_opacity, &source_index)
+                                      : gaussian_data->get_gaussian(source_index);
         int pos_base = i * 3;
         positions_ptr[pos_base + 0] = g.position.x;
         positions_ptr[pos_base + 1] = g.position.y;

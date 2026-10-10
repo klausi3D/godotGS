@@ -19,8 +19,9 @@
 #include <limits>
 
 // ProjectedGaussian payload layout (must match tile_projection_common.glsl).
-// Full layout (36 bytes):
-//   data[0]: screen XY as packHalf2x16 (4 bytes)
+// Full layout (40 bytes):
+//   data[0]: screen X as raw float32 (pixels). The centre used to be packHalf2x16, whose
+//            1 px spacing above x = 1024 snapped centres off the pixel grid (#1153).
 //   data[1]: depth as raw float32 (was float16 -- f16 far-field quantization exceeded the
 //            composite depth_epsilon and caused silhouette shimmer against mesh depth)
 //   data[2]: color as R11G11B10F packed format
@@ -30,24 +31,25 @@
 //   data[6]: global_idx as uint32
 //   data[7]: normal.xy as half2
 //   data[8]: normal.z as half (low 16) + opacity (unorm8) + flags (uint8) (high 16)
+//   data[9]: screen Y as raw float32 (pixels)
 //
-// Packed layout (32 bytes, optional): conic.y packed as float16 + 16-bit global_idx;
-// normal.z+opacity+flags share data[7]. Lower precision and limited to 16-bit indices,
-// so it is gated at runtime.
+// Packed layout (36 bytes, optional): conic.y packed as float16 + 16-bit global_idx;
+// normal.z+opacity+flags share data[7]; screen Y in data[8]. Lower precision and limited
+// to 16-bit indices, so it is gated at runtime.
 struct TileProjectionLayout {
 	struct alignas(4) Payload {
-		uint32_t data[9];
+		uint32_t data[10];
 	};
 
 	struct alignas(4) PackedPayload {
-		uint32_t data[8];
+		uint32_t data[9];
 	};
 
 	static constexpr uint32_t STRIDE_FULL = sizeof(Payload);
 	static constexpr uint32_t STRIDE_PACKED = sizeof(PackedPayload);
 	static constexpr uint32_t STRIDE = STRIDE_FULL;
-	static_assert(sizeof(Payload) == 36, "TileProjectionLayout::Payload must be 36 bytes");
-	static_assert(sizeof(PackedPayload) == 32, "TileProjectionLayout::PackedPayload must be 32 bytes");
+	static_assert(sizeof(Payload) == 40, "TileProjectionLayout::Payload must be 40 bytes");
+	static_assert(sizeof(PackedPayload) == 36, "TileProjectionLayout::PackedPayload must be 36 bytes");
 };
 
 namespace GaussianSplatting {
@@ -115,12 +117,15 @@ struct TileDebugCounterSnapshot {
 	uint32_t min_allowed_radius_q8 = 0;
 	uint32_t min_radius_min_q8_inv = 0;
 	// #1054: splats whose SH encoding id the binning decoder does not support (rendered
-	// DC-only). Must stay the last field, mirroring DebugCounters in shaders/tile_binning.glsl.
+	// DC-only).
 	uint32_t sh_unknown_encoding_count = 0;
+	// #1168: splats whose final colour was NaN/Inf and was zeroed before the payload pack.
+	// Must stay the last field, mirroring DebugCounters in shaders/tile_binning.glsl.
+	uint32_t color_nonfinite_count = 0;
 };
 // Anchors the host/shader mirror check in tests/ci/check_gaussian_layout_sync.py
 // (DebugCounters in shaders/tile_binning.glsl, binding 6).
-static_assert(sizeof(TileDebugCounterSnapshot) == 132, "TileDebugCounterSnapshot must match the DebugCounters SSBO");
+static_assert(sizeof(TileDebugCounterSnapshot) == 136, "TileDebugCounterSnapshot must match the DebugCounters SSBO");
 
 struct TileOverflowStatsSnapshot {
 	uint32_t overflow_tile_count = 0;

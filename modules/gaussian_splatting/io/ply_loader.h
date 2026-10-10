@@ -26,7 +26,12 @@
  * - opacity: Logit-encoded opacity (float)
  *
  * **Optional properties** (loaded if present):
- * - nx, ny, nz: Surface normals for 2D Gaussian (surfel) mode
+ * - nx, ny, nz: Per-splat surface normals (shading normals). They do NOT switch
+ *   on 2D mode: stock 3DGS/INRIA PLYs carry them as zeros (#1185).
+ *
+ * **Header declarations**:
+ * - `comment gs_2d_mode`: sets the metadata-only GaussianData 2D (surfel) flag.
+ *   GaussianData::save_to_file() writes it for 2D-flagged data.
  * - f_rest_*: Higher-order spherical harmonic coefficients
  *
  * ## Format Notes
@@ -69,6 +74,9 @@ public:
         // ASCII PLY: number of data rows (lines) belonging to elements declared
         // before `vertex`, which must be skipped before reading vertex rows.
         int64_t pre_vertex_row_count = 0;
+        // #1185: the header declares 2D (surfel) mode with a `comment gs_2d_mode`
+        // line. Normal columns alone never imply it.
+        bool declares_2d_mode = false;
     };
 
 private:

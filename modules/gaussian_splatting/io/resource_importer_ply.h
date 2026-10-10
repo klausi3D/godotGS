@@ -100,7 +100,15 @@ public:
     //       the GPU. No PLY_CACHE_VERSION bump is needed: the raw/runtime path is
     //       validated on every load via GaussianSplatAsset::load_from_file(),
     //       independent of the decode cache.
-    virtual int get_format_version() const override { return 11; }
+    //   v12: a max_splats cap at density_multiplier 1.0 now thins the asset by
+    //       a uniform stride over the whole file instead of keeping the first
+    //       max_splats splats in file order (issue #1155). An asset imported by
+    //       v1-v11 under such a cap (e.g. the "High Quality" preset on a scan
+    //       above 1,000,000 splats) holds only a spatial prefix of the source and
+    //       must be re-imported. Imports below the cap, uncapped imports and
+    //       density < 0.999 imports produce the same output as v11. No
+    //       PLY_CACHE_VERSION bump: the selection runs after the raw decode.
+    virtual int get_format_version() const override { return 12; }
 
     // Validation helpers
     Error validate_ply_properties(const Ref<class PLYLoader> &p_loader) const;

@@ -509,10 +509,11 @@ public:
      * @param p_spherical_harmonics Optional packed SH coefficients.
      * @param p_palette_ids Optional palette indices for painterly rendering.
      * @param p_painterly_flags Optional painterly flag bitfields.
-     * @param p_normals Optional surface normals for surfel mode.
+     * @param p_normals Optional per-splat surface normals (shading normals).
      * @param p_brush_axes Optional brush axis vectors.
      * @param p_stroke_ages Optional stroke age values.
-     * @param p_is_2d_mode When true, enables 2D Gaussian (surfel) mode.
+     * @param p_is_2d_mode Sets the metadata-only 2D (surfel) flag; it does not change
+     *        rendering and warns once when true (#1185).
      */
     void set_splat_data(const PackedVector3Array &p_positions,
             const PackedColorArray &p_colors = PackedColorArray(),

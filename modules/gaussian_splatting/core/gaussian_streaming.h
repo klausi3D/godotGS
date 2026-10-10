@@ -175,6 +175,9 @@ private:
         // against the current stride and fail-closes (drops the ticket) on a mismatch instead of
         // reinterpreting the old-stride payload at the new stride.
         uint64_t packed_stride_bytes = 0;
+        // #1177: StreamingChunk::upload_sequence of the upload this ticket retires. A ticket
+        // whose sequence no longer matches the chunk is dropped without touching the chunk.
+        uint32_t upload_sequence = 0;
         uint8_t completion_mode = GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_NONE;
         SHCompressionMetrics metrics;
     };
@@ -377,6 +380,7 @@ public:
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
     void _test_force_next_chunk_upload_failure() { test_force_next_chunk_upload_failure = true; }
+    void _test_apply_requested_residency_async() { _apply_requested_residency(true); }
 
     // Test-only access to atlas-state internals. Replaced the
     // `#define private public` macro that test_gpu_streaming.cpp used to reach
@@ -636,7 +640,16 @@ private:
     // Packs a chunk into raw atlas bytes (PackedGaussian or PackedGaussianQuantized,
     // per _atlas_gaussian_stride_bytes()). Output size is chunk.count * stride.
     bool _pack_chunk_data(uint32_t asset_id, uint32_t chunk_idx, const AtlasAssetState &asset, StreamingChunk &chunk,
-            Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics);
+            Vector<uint8_t> &chunk_bytes, SHCompressionMetrics &metrics, bool *r_payload_read_failed = nullptr);
+    // #1178: exponential backoff for chunks whose payload read failed, in frames.
+    static constexpr uint32_t CHUNK_LOAD_RETRY_BASE_FRAMES = 30;
+    static constexpr uint32_t CHUNK_LOAD_RETRY_MAX_FRAMES = 30 * 64;
+    // Records a failed payload read of a chunk that has already been rolled back to idle:
+    // counts it, logs once per failure episode of the chunk, and schedules the next attempt.
+    void _record_chunk_payload_read_failure(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk);
+    bool _is_chunk_load_backing_off(const StreamingChunk &p_chunk) const {
+        return p_chunk.retry_after_frame > total_frame_count;
+    }
     void _complete_chunk_load_common(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk);
     void _log_chunk_load_metrics(uint32_t chunk_idx, const SHCompressionMetrics &metrics);
     bool _upload_chunk_to_gpu(RenderingDevice *submission_rd, uint32_t buffer_offset,
@@ -654,7 +667,11 @@ private:
             // the current effective stride -- identical to pre-#766 behavior. Non-zero (async
             // finalize_upload_job, carrying PendingChunkUpload::packed_stride_bytes) is recorded
             // verbatim so the #757 retirement guard compares against the true pack stride.
-            uint64_t override_packed_stride_bytes = 0);
+            uint64_t override_packed_stride_bytes = 0,
+            // #1177: sequence of the upload being staged. 0 (sync path, where begin and stage are
+            // one call) takes the chunk's current upload_sequence; the async finalize passes the
+            // sequence its job carried.
+            uint32_t override_upload_sequence = 0);
     void _process_upload_retirements();
     bool _has_pending_upload_retirement(uint32_t asset_id, uint32_t chunk_idx, uint32_t buffer_slot) const;
     void _mark_chunk_upload_failed(uint32_t asset_id, uint32_t chunk_idx, StreamingChunk &chunk, const char *context);
@@ -672,9 +689,12 @@ private:
     void _start_pack_threads();
     void _stop_pack_threads();
     bool _queue_chunk_load(uint32_t chunk_idx);
-    bool _queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx);
+    bool _queue_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction = true);
+    // #1176: p_allow_visible_eviction is the admission intent. Needed loads keep the default
+    // (true); predictive prefetch passes false so it can never evict a visible chunk. The sync
+    // fallback queue stores only chunk keys, so its drain re-derives the intent per chunk.
     bool _enqueue_chunk_load_request(uint32_t asset_id, uint32_t chunk_idx,
-            bool can_async_pack, bool prioritize_sync_fallback = false);
+            bool can_async_pack, bool prioritize_sync_fallback = false, bool p_allow_visible_eviction = true);
     bool _enqueue_sync_fallback_chunk_load(uint32_t asset_id, uint32_t chunk_idx, bool prioritize = false);
     uint32_t _drain_sync_fallback_chunk_loads(uint32_t effective_max, uint32_t &evictions_left, bool &eviction_blocked);
     bool _should_force_sync_fallback_for_async_stall(uint32_t pack_queue_depth, uint32_t upload_queue_depth);
@@ -734,7 +754,7 @@ private:
     // budget) until a contiguous run of p_required_pages exists. Returns whether it fits.
     bool _evict_until_atlas_fit(const ResidencyBudgetController::AdmissionGate &p_admission_gate,
             uint32_t p_required_pages, ResidencyBudgetController::AdmissionFrameBudget &r_frame_budget);
-    EvictionResult _evict_non_primary_lru();
+    EvictionResult _evict_non_primary_lru(bool p_allow_visible_eviction = true);
 
     // Distance-based LOD (Octree-GS) helpers
     void _update_chunk_lod_parameters(const Vector3 &camera_pos);

@@ -79,7 +79,21 @@ struct SHCompressionMetrics {
     uint64_t raw_bytes = 0;
     uint64_t compressed_bytes = 0;
     uint32_t coefficient_count = 0;
+    // #1175: records this pack rejected because a render-critical field
+    // (gaussian_render_fields_finite()) was NaN/Inf. A rejected record is uploaded
+    // finite and fully transparent (opacity 0) instead of its poisoned values.
+    uint32_t non_finite_rejected = 0;
+    // #1158: non-DC SH coefficients the source splats carried that the GPU layout has no slot
+    // for, summed over packed splats. The 128-byte layout stores 12 of a degree-3 splat's 15
+    // (band 3, m = +1..+3 are dropped); the 80-byte quantized layout stores 6 (two band-2 and
+    // all seven band-3 coefficients are dropped). A narrower coefficient_limit passed by the
+    // caller is a deliberate choice and is not counted here.
+    uint64_t dropped_coefficient_count = 0;
 };
+
+// #1175: process-wide total of records any GPU packer rejected as non-finite
+// (the sum of every SHCompressionMetrics::non_finite_rejected ever produced).
+uint64_t gs_get_non_finite_pack_rejection_count();
 
 // ============================================================================
 // Instance Pipeline GPU Layout (std430)
@@ -625,6 +639,24 @@ static_assert(offsetof(InstanceDepthParamsGPU, cull_frustum_radius) == 448, "Ins
 // Per-chunk quantization bounds (defined in core/streaming_quantization.h).
 struct ChunkQuantizationInfo;
 
+// #1175: non-finite input is the GPU boundary's problem, not the caller's. A splat whose
+// render-critical fields (gaussian_render_fields_finite()) are not all finite is packed
+// finite and fully transparent and counted in metrics.non_finite_rejected.
+// #1158: number of non-DC SH coefficients per splat (first-order count clamped to 3, plus the
+// higher-order count) that a GPU layout cannot store. p_quantized_layout selects the 80-byte
+// PackedGaussianQuantized slot count instead of PackedSphericalHarmonics' 12.
+uint32_t gs_sh_layout_dropped_coefficients(uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout);
+
+// #1158: warns once per (asset key, layout) when the asset's SH does not fit the layout, so a
+// degree-3 asset rendering partial third-order SH is not silent. Thread-safe. Returns true
+// only for the call that printed the warning. p_asset_key must be unique per asset (an
+// ObjectID); p_asset_label only appears in the message.
+bool gs_warn_sh_layout_truncation_once(uint64_t p_asset_key, const String &p_asset_label,
+        uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout);
+// Same, keyed by the GaussianData's ObjectID and labelled with its resource path.
+bool gs_warn_sh_layout_truncation_once(const GaussianData &p_data,
+        uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout);
+
 void pack_gaussian(const Gaussian &src,
         PackedGaussian &dst,
         SHCompressionMetrics &metrics,
@@ -637,7 +669,8 @@ void pack_gaussian(const Gaussian &src,
 // chunk_quant supplies the position/scale normalization bounds and bit depths; chunk_id
 // is the global index into the ChunkQuantizationGPU buffer the shader dereferences.
 // Bit-matches the GLSL dequantization in shaders/includes/quantization_dequant.glsl.
-// Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically.
+// Opacity and sh_dc stay FP32 by design; non-finite inputs are floored deterministically,
+// and a non-finite render-critical field rejects the splat (opacity 0, counted; #1175).
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
         uint16_t chunk_id,

@@ -199,6 +199,7 @@ RID GaussianData::create_gpu_buffer(RenderingDevice *p_rd) const {
                                     sh_high_order_count),
                 RID(),
                 vformat("Failed to pack %d gaussians; not creating a GPU buffer.", gaussian_count));
+        gs_warn_sh_layout_truncation_once(*this, sh_first_order_count, sh_high_order_count, false); // #1158
         pack_end_usec = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : pack_start_usec;
     }
 
@@ -277,6 +278,7 @@ void GaussianData::update_gpu_buffer(RID p_buffer, RenderingDevice *p_rd) const 
                                   sh_first_order_count,
                                   sh_high_order_count),
                 vformat("Failed to pack %d gaussians; skipping GPU buffer update.", gaussian_count));
+        gs_warn_sh_layout_truncation_once(*this, sh_first_order_count, sh_high_order_count, false); // #1158
     }
 
     uint32_t buffer_size = sizeof(PackedGaussian) * packed_gaussians.size();

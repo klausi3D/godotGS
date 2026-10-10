@@ -3,8 +3,11 @@
 #include "../renderer/gaussian_gpu_layout.h"
 
 #include "test_macros.h"
+#include "gs_test_pump.h"
 
 #include "core/error/error_macros.h"
+#include "core/io/dir_access.h"
+#include "core/io/file_access.h"
 #include "core/os/os.h"
 #include "servers/rendering_server.h"
 
@@ -52,56 +55,67 @@ struct TestRenderingDeviceHandle {
 };
 
 TestRenderingDeviceHandle _get_test_rendering_device() {
-    RenderingServer *rs = RenderingServer::get_singleton();
-    if (!rs) {
-        return {};
+    if (RenderingDevice *rd = RenderingDevice::get_singleton()) {
+        return { rd, false };
     }
-
-    RenderingDevice *rd = RenderingDevice::get_singleton();
-    if (!rd) {
-        rd = rs->create_local_rendering_device();
+    if (RenderingServer *rs = RenderingServer::get_singleton()) {
+        RenderingDevice *rd = rs->create_local_rendering_device();
         return { rd, rd != nullptr };
     }
-    return { rd, false };
+    return {};
 }
 
 StreamingUploadPipeline::PendingChunkUpload *_wait_for_prepared_upload(StreamingUploadPipeline &p_uploads) {
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = nullptr;
-    for (int i = 0; i < 500; i++) {
-        {
-            MutexLock lock(p_uploads.pack_mutex);
-            if (p_uploads.upload_queue_read_idx < p_uploads.upload_queue.size()) {
-                prepared_job = p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
-                if (prepared_job && !prepared_job->packed_data.is_empty()) {
-                    break;
-                }
-                prepared_job = nullptr;
+    const auto prepared = TestGaussianSplatting::gs_pump_until([&]() {
+        Thread::yield();
+        MutexLock lock(p_uploads.pack_mutex);
+        if (p_uploads.upload_queue_read_idx < p_uploads.upload_queue.size()) {
+            prepared_job = p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
+            if (prepared_job && !prepared_job->packed_data.is_empty()) {
+                return true;
             }
+            prepared_job = nullptr;
         }
-        OS::get_singleton()->delay_usec(1000);
+        return false;
+    });
+    if (!prepared.ready()) {
+        FAIL("The pack worker did not prepare an upload ", prepared.describe());
+        return nullptr;
     }
     return prepared_job;
 }
 
-void _tamper_first_payload_byte(StreamingUploadPipeline &p_uploads) {
+bool _tamper_first_payload_byte(StreamingUploadPipeline &p_uploads) {
     MutexLock lock(p_uploads.pack_mutex);
+    if (p_uploads.upload_queue_read_idx >= p_uploads.upload_queue.size()) {
+        FAIL("Prepared upload queue is empty before payload mutation");
+        return false;
+    }
     StreamingUploadPipeline::PendingChunkUpload *prepared_job =
             p_uploads.upload_queue[p_uploads.upload_queue_read_idx];
-    REQUIRE(prepared_job != nullptr);
-    REQUIRE(!prepared_job->packed_data.is_empty());
+    if (!prepared_job || prepared_job->packed_data.is_empty()) {
+        FAIL("Prepared upload payload is unavailable before mutation");
+        return false;
+    }
     PackedGaussian *packed_data = prepared_job->packed_data.ptrw();
-    REQUIRE(packed_data != nullptr);
+    if (!packed_data) {
+        FAIL("Prepared upload payload cannot be written");
+        return false;
+    }
     uint8_t *payload_bytes = reinterpret_cast<uint8_t *>(packed_data);
     payload_bytes[0] ^= 0x01;
+    return true;
 }
 
-void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system, uint32_t p_max_frames = 8) {
-    for (uint32_t i = 0; i < p_max_frames; i++) {
+void _advance_frames_until_upload_retired(Ref<GaussianStreamingSystem> p_system) {
+    const auto retired = TestGaussianSplatting::gs_pump_until([&]() {
         p_system->begin_frame();
         p_system->end_frame();
-        if (p_system->get_pending_upload_retirement_slots() == 0) {
-            return;
-        }
+        return p_system->get_pending_upload_retirement_slots() == 0;
+    });
+    if (!retired.ready()) {
+        FAIL("Upload retirement did not reach its frame barrier ", retired.describe());
     }
 }
 
@@ -240,11 +254,11 @@ TEST_CASE("[Streaming Pipeline] cancel_chunk_jobs preserves pending retirement s
     CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] sync fallback drain counts immediate retirement once") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] sync fallback drain counts immediate retirement once") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -252,14 +266,24 @@ TEST_CASE("[Streaming Pipeline] sync fallback drain counts immediate retirement 
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     const uint32_t asset_id = 3531;
     system->register_asset(asset_id, _create_streaming_phase_order_test_data());
-    REQUIRE(system->request_chunk_residency(asset_id, 0, 0) == OK);
-    REQUIRE(system->_test_enqueue_sync_fallback_chunk_load(asset_id, 0, true));
+    const Error request_error = system->request_chunk_residency(asset_id, 0, 0);
+    CHECK(request_error == OK);
+    if (request_error != OK) {
+        FAIL("The sync-fallback fixture could not request chunk residency");
+        return;
+    }
+    const bool load_queued = system->_test_enqueue_sync_fallback_chunk_load(asset_id, 0, true);
+    CHECK(load_queued);
+    if (!load_queued) {
+        FAIL("The sync-fallback fixture could not queue its chunk load");
+        return;
+    }
 
     uint32_t evictions_left = 0;
     bool eviction_blocked = false;
@@ -388,11 +412,11 @@ TEST_CASE("[Streaming Pipeline] upload payload checksum validation is off by def
     CHECK_FALSE(uploads._test_is_upload_payload_checksum_validation_enabled());
 }
 
-TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum hashing") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] production upload path skips payload checksum hashing") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -400,14 +424,14 @@ TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum ha
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -416,11 +440,21 @@ TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum ha
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
-    _tamper_first_payload_byte(uploads);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
+    if (!_tamper_first_payload_byte(uploads)) {
+        return;
+    }
 
     uploads.process_upload_queue(system_ref);
     _advance_frames_until_upload_retired(system);
@@ -436,11 +470,11 @@ TEST_CASE("[Streaming Pipeline] production upload path skips payload checksum ha
     CHECK(int64_t(diagnostics.get("integrity_mismatch_count", int64_t(-1))) == 0);
 }
 
-TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload checksums when validation is enabled") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] async chunk upload rejects tampered payload checksums when validation is enabled") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -448,7 +482,7 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -456,7 +490,7 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     auto &uploads = system->_internal_get_upload_pipeline();
     uploads._test_set_upload_payload_checksum_validation_enabled(true);
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -465,11 +499,21 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
-    _tamper_first_payload_byte(uploads);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
+    if (!_tamper_first_payload_byte(uploads)) {
+        return;
+    }
 
     uploads.process_upload_queue(system_ref);
     _advance_frames_until_upload_retired(system);
@@ -505,11 +549,11 @@ TEST_CASE("[Streaming Pipeline] async chunk upload rejects tampered payload chec
     CHECK(String(reset_diagnostics.get("last_integrity_mismatch_message", String())).is_empty());
 }
 
-TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending jobs without baselines") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] enabling checksum validation rejects pending jobs without baselines") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -517,14 +561,14 @@ TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending job
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
@@ -533,10 +577,18 @@ TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending job
 
     StreamingUploadPipeline::_test_reset_payload_checksum_hash_calls();
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
 
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
     CHECK_FALSE(prepared_job->payload_checksum_valid);
 
     uploads._test_set_upload_payload_checksum_validation_enabled(true);
@@ -558,11 +610,11 @@ TEST_CASE("[Streaming Pipeline] enabling checksum validation rejects pending job
     CHECK(String(diagnostics.get("last_integrity_mismatch_message", String())).contains("without a checksum baseline"));
 }
 
-TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before atlas sync and keeps atlas generation stable when idle") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] update_streaming publishes phase timings before atlas sync and keeps atlas generation stable when idle") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -571,12 +623,15 @@ TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before 
         system.instantiate();
         system->initialize_empty(rd);
         if (!system->is_runtime_ready()) {
-            MESSAGE("Skipping - Streaming runtime not ready");
+            FAIL("Streaming runtime not ready");
             return;
         }
 
         const uint32_t asset_id = 31415;
         system->register_asset(asset_id, _create_streaming_phase_order_test_data());
+        // Publishing the registered asset replaces initialize_empty's 4-byte
+        // placeholders. Idle RID stability starts after that topology change.
+        system->_test_sync_global_atlas_state(rd);
 
         Transform3D camera_transform;
         camera_transform.origin = Vector3(0.0f, 0.0f, 5.0f);
@@ -587,6 +642,10 @@ TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before 
         const RID chunk_meta_before = system->get_chunk_meta_buffer();
         const RID asset_chunk_index_before = system->get_asset_chunk_index_buffer();
         const uint64_t generation_before = system->get_atlas_generation();
+
+        // Keep topology fixed, but give this update real metadata to publish.
+        system->_test_mark_chunk_meta_dirty(asset_id, 0);
+        CHECK(system->get_atlas_generation() == generation_before);
 
         system->begin_frame();
         system->update_streaming(camera_transform, projection);
@@ -654,11 +713,11 @@ TEST_CASE("[Streaming Pipeline] update_streaming publishes phase timings before 
     }
 }
 
-TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after registry cleanup") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] initialize_empty republishes atlas state after registry cleanup") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -666,7 +725,7 @@ TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after r
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -697,11 +756,11 @@ TEST_CASE("[Streaming Pipeline] initialize_empty republishes atlas state after r
     CHECK_FALSE(system->has_asset(asset_id));
 }
 
-TEST_CASE("[Streaming Pipeline] initialize_empty keeps atlas metadata buffers valid with zero chunks") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] initialize_empty keeps atlas metadata buffers valid with zero chunks") {
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -709,7 +768,7 @@ TEST_CASE("[Streaming Pipeline] initialize_empty keeps atlas metadata buffers va
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
@@ -898,7 +957,7 @@ TEST_CASE("[GaussianSplatting][Streaming] Initialize without device emits at mos
     // this line proves the cascade is closed.
 }
 
-TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
+TEST_CASE("[Streaming Pipeline][RequiresGPU] async upload dropped fail-closed on a pack-time/effective stride flip before writing (#766)") {
     // #766 follow-up: the async pack path always emits the 128 B PackedGaussian layout, and
     // process_upload_queue() sizes/offsets the write by sizeof(PackedGaussian). If the effective
     // atlas stride flips 144->80 (a mixed-DC (un)registration toggling per-chunk quantization
@@ -914,7 +973,7 @@ TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/
     const TestRenderingDeviceHandle rd_handle = _get_test_rendering_device();
     RenderingDevice *rd = rd_handle.rd;
     if (!rd) {
-        MESSAGE("Skipping - Rendering device unavailable");
+        FAIL("Rendering device unavailable");
         return;
     }
 
@@ -922,34 +981,50 @@ TEST_CASE("[Streaming Pipeline] async upload dropped fail-closed on a pack-time/
     system.instantiate();
     system->initialize_empty(rd);
     if (!system->is_runtime_ready()) {
-        MESSAGE("Skipping - Streaming runtime not ready");
+        FAIL("Streaming runtime not ready");
         return;
     }
 
     GaussianStreamingSystem &system_ref = *system.ptr();
     auto &uploads = system->_internal_get_upload_pipeline();
     if (!uploads.async_pack_enabled || !uploads.pack_thread_running.load(std::memory_order_acquire)) {
-        MESSAGE("Skipping - Async pack threads unavailable");
+        FAIL("Async pack threads unavailable");
         return;
     }
 
     // Effective 144 B stride at pack time (quantization enabled but mixed-DC), so the async pack
     // path is permitted and stamps packed_stride_bytes = sizeof(PackedGaussian).
     system->_test_set_quantization_state(true, false);
-    REQUIRE(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+    CHECK(system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian)));
+    if (system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian))) {
+        FAIL("The stride-flip fixture did not begin with the packed Gaussian layout");
+        return;
+    }
 
     const uint32_t asset_id = 4243;
     system->register_asset(asset_id, _create_streaming_phase_order_test_data());
 
     const bool queued_upload = uploads.queue_chunk_load(system_ref, asset_id, 0);
-    REQUIRE(queued_upload);
+    CHECK(queued_upload);
+    if (!queued_upload) {
+        FAIL("The streaming upload request could not be queued");
+        return;
+    }
     StreamingUploadPipeline::PendingChunkUpload *prepared_job = _wait_for_prepared_upload(uploads);
-    REQUIRE(prepared_job != nullptr);
+    CHECK(prepared_job != nullptr);
+    if (!prepared_job) {
+        FAIL("The streaming pack worker produced no prepared upload");
+        return;
+    }
 
     // Flip the effective stride to 80 B BEFORE processing the queue. The in-flight 144 B job now
     // mismatches the atlas grid; writing it would corrupt neighboring 80 B slots.
     system->_test_set_quantization_state(true, true);
-    REQUIRE(system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian)));
+    CHECK(system->_test_atlas_gaussian_stride_bytes() != uint64_t(sizeof(PackedGaussian)));
+    if (system->_test_atlas_gaussian_stride_bytes() == uint64_t(sizeof(PackedGaussian))) {
+        FAIL("The stride-flip fixture did not change its effective Gaussian layout");
+        return;
+    }
 
     const uint64_t prewrite_before = system->_test_get_stride_flip_dropped_prewrite_uploads();
     const uint64_t retire_before = system->_test_get_stride_flip_dropped_upload_retirements();
@@ -1856,4 +1931,666 @@ TEST_CASE("[Streaming Pipeline] The VRAM regulator lets the budget-sized atlas f
         CHECK(system._test_atlas_allocator().get_used_page_count() == 440);
         CHECK(system._test_atlas_allocator().get_used_page_count() <= system._test_atlas_occupancy_target_pages());
     }
+}
+
+// ---------------------------------------------------------------------------
+// #1176: a predictive prefetch is a guess about where the camera will be, not demand.
+// It used to share the admission path of needed loads, so when the atlas held only
+// visible chunks it took the visible-eviction fallback and opened a hole on screen for
+// an off-screen chunk. The admission intent now forbids that fallback for prefetch.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+constexpr float PREFETCH_ADMISSION_TEST_HALF_EXTENT = 1.0f;
+
+// Four visible 4-page chunks fill a 16-page atlas: A=[0,4) B=[4,8) C=[8,12) D=[12,16).
+// Chunk 4 also needs 4 pages, is not visible, and sits at p_predicted_pos, so prefetch
+// selects it. Any single visible victim would complete its run: nothing but the
+// admission intent keeps a visible chunk in place.
+void _setup_full_visible_atlas_with_prefetch_candidate(GaussianStreamingSystem &r_system,
+        const Vector3 &p_predicted_pos) {
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
+    chunks.resize(5);
+    const uint32_t page = GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+    const Vector3 half(PREFETCH_ADMISSION_TEST_HALF_EXTENT, PREFETCH_ADMISSION_TEST_HALF_EXTENT,
+            PREFETCH_ADMISSION_TEST_HALF_EXTENT);
+    for (uint32_t i = 0; i < 5; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * 4 * page;
+        chunk.count = 4 * page;
+        chunk.effective_count = chunk.count;
+        // The resident chunks are on screen next to the camera; the candidate is ahead.
+        chunk.center = i < 4 ? Vector3(float(i) * 3.0f, 0.0f, -3.0f) : p_predicted_pos;
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.max_radius = PREFETCH_ADMISSION_TEST_HALF_EXTENT;
+        chunk.is_visible = i < 4;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    for (int i = 0; i < 10; i++) {
+        r_system.begin_frame(); // clear the eviction hysteresis window
+    }
+    // Primary asset with source data, a placeholder buffer and a fresh prefetch scan budget.
+    r_system._test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(64), 1);
+    r_system._test_reset_atlas_allocator(16);
+    for (uint32_t i = 0; i < 4; i++) {
+        r_system._test_mark_chunk_loaded_for_eviction(0, i, true, 0, i + 1, 3.0f);
+    }
+    // Prefetch needs a moving camera: here at (0, 0, -5) heading down -Z.
+    StreamingVisibilityController &visibility = r_system._test_get_visibility_controller();
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, 0.0f), 0.1f);
+    visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+}
+
+int64_t _read_prefetch_visible_eviction_refusals(GaussianStreamingSystem &r_system) {
+    r_system.end_frame();
+    return int64_t(r_system.get_streaming_analytics().get("prefetch_visible_eviction_refusals", int64_t(-1)));
+}
+
+struct NonPrimaryPrefetchAdmissionFixture {
+    static constexpr uint32_t RESIDENT_ASSET_ID = 117601;
+    GaussianStreamingSystem system;
+
+    ~NonPrimaryPrefetchAdmissionFixture() {
+        system._test_end_device_free_load_scan();
+    }
+
+    bool setup(const Vector3 &p_predicted_pos, bool p_visible, bool p_keep_requested = false) {
+        const uint32_t count = 4u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
+        Ref<GaussianData> primary_data = _create_streaming_phase_order_test_data(count);
+        LocalVector<Gaussian> gaussians;
+        gaussians.resize(count);
+        const Vector3 offset = p_predicted_pos - primary_data->get_aabb().get_center();
+        for (uint32_t i = 0; i < count; i++) {
+            gaussians[i] = primary_data->get_gaussians()[i];
+            gaussians[i].position += offset;
+        }
+        primary_data->set_gaussians(gaussians);
+        system._test_begin_device_free_load_scan(primary_data, 1);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &primary = system._test_get_primary_chunks();
+        primary.resize(1);
+        primary[0] = GaussianStreamingTypes::StreamingChunk();
+        primary[0].count = count;
+        primary[0].effective_count = count;
+        primary[0].bounds = primary_data->get_aabb();
+        primary[0].center = primary[0].bounds.get_center();
+        primary[0].is_visible = false;
+        primary[0].buffer_slot = UINT32_MAX;
+
+        system.register_asset(RESIDENT_ASSET_ID, _create_streaming_phase_order_test_data(count));
+        GaussianStreamingTypes::AtlasAssetState *resident = system._test_get_asset_state(RESIDENT_ASSET_ID);
+        if (!resident || system._test_get_asset_chunks(*resident).size() != 1) {
+            FAIL("fixture precondition: one registered non-primary chunk must hold the atlas");
+            return false;
+        }
+        system._test_reset_atlas_allocator(4);
+        system._test_mark_chunk_loaded_for_eviction(RESIDENT_ASSET_ID, 0, p_visible, 0, 1, 3.0f);
+        for (int i = 0; i < 10; i++) {
+            system.begin_frame(); // deterministic lower bound beyond eviction hysteresis
+        }
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(RESIDENT_ASSET_ID, 0, 0) != OK) {
+            FAIL("fixture precondition: the resident must have a genuine explicit request");
+            return false;
+        }
+        system.finalize_residency_requests();
+        if (!bool(system.get_residency_request_status(RESIDENT_ASSET_ID, 0).get("requested", false))) {
+            FAIL("fixture precondition: the resident request must be current");
+            return false;
+        }
+        if (!p_keep_requested) {
+            system.begin_residency_requests();
+            system.finalize_residency_requests();
+        }
+        if (bool(system.get_residency_request_status(RESIDENT_ASSET_ID, 0).get("requested", false)) != p_keep_requested ||
+                system.get_loaded_chunks() != 1 || system._test_atlas_allocator().get_free_page_count() != 0) {
+            FAIL("fixture precondition: full atlas and the intended request lifetime are required");
+            return false;
+        }
+        StreamingVisibilityController &visibility = system._test_get_visibility_controller();
+        visibility.update_camera_tracking(Vector3(), 0.1f);
+        visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+        return true;
+    }
+
+    GaussianStreamingTypes::StreamingChunk &resident_chunk() {
+        return system._test_get_asset_chunks(*system._test_get_asset_state(RESIDENT_ASSET_ID))[0];
+    }
+};
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] Predictive prefetch never evicts a visible chunk to make room (#1176)") {
+    // 1.0 x prefetch_lookahead_distance (10 m) ahead of the camera, so the sync drain's
+    // own prediction check also places the candidate there.
+    const Vector3 predicted(0.0f, 0.0f, -15.0f);
+
+    SUBCASE("async route: the prefetch is skipped and counted, and a needed load still evicts") {
+        GaussianStreamingSystem system;
+        _setup_full_visible_atlas_with_prefetch_candidate(system, predicted);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        auto &uploads = system._internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true); // prefetch takes queue_chunk_load()
+        if (system.get_loaded_chunks() != 4 || system._test_atlas_allocator().get_free_page_count() != 0) {
+            system._test_end_device_free_load_scan();
+            FAIL("fixture precondition: four visible resident chunks must fill the atlas");
+            return;
+        }
+
+        const uint32_t queued = system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                system, predicted, 8, 8, UINT32_MAX);
+        CHECK(queued == 0);
+        CHECK(system.get_loaded_chunks() == 4);
+        for (uint32_t i = 0; i < 4; i++) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+        CHECK_FALSE(chunks[4].upload_pending);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+
+        // The legal route still works: the same chunk requested as needed demand may take
+        // the visible-eviction fallback (one victim) and is queued.
+        CHECK(uploads.queue_chunk_load(system, 0, 4));
+        CHECK(chunks[4].upload_pending);
+        CHECK(system.get_loaded_chunks() == 3);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+
+        system._test_end_device_free_load_scan();
+        // Wired into the published analytics: exactly the one refused prefetch admission.
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("sync route: the drain admits a predicted-only chunk without visible eviction") {
+        GaussianStreamingSystem system;
+        _setup_full_visible_atlas_with_prefetch_candidate(system, predicted);
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        // No async pack owner: prefetch only queues into the sync-fallback queue and the
+        // drain makes the admission decision.
+        const uint32_t queued = system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                system, predicted, 8, 8, UINT32_MAX);
+        if (queued != 1 || !system._test_sync_fallback_queued(0u, 4)) {
+            system._test_end_device_free_load_scan();
+            FAIL("fixture precondition: prefetch must queue the candidate for the sync drain");
+            return;
+        }
+
+        uint32_t evictions_left = 4;
+        bool eviction_blocked = false;
+        system._test_drain_sync_fallback_chunk_loads(32, evictions_left, eviction_blocked);
+        CHECK(system._test_get_sync_fallback_attempted_count() == 1);
+        CHECK(system.get_loaded_chunks() == 4);
+        for (uint32_t i = 0; i < 4; i++) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+        CHECK_FALSE(chunks[4].is_loaded);
+        CHECK_FALSE(chunks[4].upload_pending);
+        CHECK(evictions_left == 4);
+        // A refused prediction leaves the frame's eviction budget to the needed loads.
+        CHECK_FALSE(eviction_blocked);
+
+        system._test_end_device_free_load_scan();
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("async prefetch preserves a visible non-primary resident after its request ends; needed admission still works") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        auto &uploads = system._internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 0);
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(fixture.resident_chunk().is_visible);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system._test_atlas_allocator().get_free_page_count() == 0);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+
+        // The same-frame needed producer must still find the visible candidate skipped by
+        // prefetch; consuming it from the LRU cache would incorrectly defer real demand.
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(0, 0, 0) != OK) {
+            FAIL("needed control could not request the primary candidate");
+            return;
+        }
+        system.finalize_residency_requests();
+        system._test_apply_requested_residency_async();
+        CHECK(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system._test_get_primary_chunks()[0].explicit_request_generation > 0);
+        CHECK_FALSE(fixture.resident_chunk().is_loaded);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("sync predicted-only admission preserves a visible non-primary resident and the needed-load budget") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        if (system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                    system, predicted, 8, 8, UINT32_MAX) != 1 || !system._test_sync_fallback_queued(0, 0)) {
+            FAIL("fixture precondition: the real prefetch producer must enqueue its sync candidate");
+            return;
+        }
+        uint32_t evictions_left = 4;
+        bool eviction_blocked = false;
+        system._test_drain_sync_fallback_chunk_loads(32, evictions_left, eviction_blocked);
+        CHECK(system._test_get_sync_fallback_attempted_count() == 1);
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(fixture.resident_chunk().is_visible);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].is_loaded);
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+        CHECK(evictions_left == 4);
+        CHECK_FALSE(eviction_blocked);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 1);
+    }
+
+    SUBCASE("prefetch may replace a hidden non-primary resident after its request ends") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, false)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        system._internal_get_upload_pipeline()._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 1);
+        CHECK_FALSE(fixture.resident_chunk().is_loaded);
+        CHECK(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+        CHECK(_read_prefetch_visible_eviction_refusals(system) == 0);
+    }
+
+    SUBCASE("neither predictive nor needed admission evicts a currently requested non-primary resident") {
+        NonPrimaryPrefetchAdmissionFixture fixture;
+        if (!fixture.setup(predicted, true, true)) {
+            return;
+        }
+        GaussianStreamingSystem &system = fixture.system;
+        system._internal_get_upload_pipeline()._test_set_async_pack_queue_owner(true);
+        CHECK(system._test_get_visibility_controller().prefetch_chunks_at_predicted_position(
+                      system, predicted, 8, 8, UINT32_MAX) == 0);
+        system.begin_residency_requests();
+        if (system.request_chunk_residency(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID, 0, 0) != OK ||
+                system.request_chunk_residency(0, 0, 0) != OK) {
+            FAIL("needed control could not request both chunks in the same generation");
+            return;
+        }
+        system.finalize_residency_requests();
+        system._test_apply_requested_residency_async();
+        CHECK(fixture.resident_chunk().is_loaded);
+        CHECK(bool(system.get_residency_request_status(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID, 0).get("requested", false)));
+        CHECK_FALSE(system._test_get_primary_chunks()[0].upload_pending);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 0);
+    }
+
+    SUBCASE("ordinary VRAM-budget pressure still evicts a visible non-primary resident first") {
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 46);
+        system.register_asset(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID,
+                _create_streaming_phase_order_test_data(10u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS));
+        GaussianStreamingTypes::AtlasAssetState *resident =
+                system._test_get_asset_state(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID);
+        if (!resident || system._test_get_asset_chunks(*resident).size() != 1) {
+            FAIL("budget control requires one registered non-primary chunk");
+            return;
+        }
+        system._test_mark_chunk_loaded_for_eviction(NonPrimaryPrefetchAdmissionFixture::RESIDENT_ASSET_ID,
+                0, true, 0, 1, 3.0f);
+        if (system._test_atlas_allocator().get_used_page_count() != 470 ||
+                system._test_atlas_occupancy_target_pages() != 448) {
+            FAIL("budget control requires 470 pages against the unchanged 448-page target");
+            return;
+        }
+        bool blocked = false;
+        CHECK(system._test_evict_for_vram_budget(blocked) == 3);
+        CHECK_FALSE(system._test_get_asset_chunks(*resident)[0].is_loaded);
+        CHECK(system._test_atlas_allocator().get_used_page_count() == 440);
+        CHECK(system.get_visible_chunks_evicted_this_frame() == 1);
+        CHECK_FALSE(blocked);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #1177: cancel_chunk_jobs() filters only the pack and upload queues. A pack job a
+// worker has already dequeued survives the cancel; the chunk is rolled back and its run
+// released, and when the chunk is queued again best fit hands back the same run. The
+// stale upload then matched the chunk's slot, was accepted, and staged a second
+// retirement ticket whose retirement rolled back the valid upload. Every upload now
+// carries the chunk's upload_sequence, checked at pack completion and at retirement.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int64_t _read_streaming_analytics_counter(GaussianStreamingSystem &r_system, const char *p_key) {
+    r_system.end_frame();
+    return int64_t(r_system.get_streaming_analytics().get(p_key, int64_t(-1)));
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] A cancelled pack job a worker already holds cannot retire over the re-queued upload (#1177)") {
+    SUBCASE("pack completion drops the stale upload; only the re-queued upload stages a ticket and loads") {
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+        chunks.resize(1);
+        chunks[0] = GaussianStreamingTypes::StreamingChunk();
+        chunks[0].start_idx = 0;
+        chunks[0].count = 128;
+        chunks[0].effective_count = chunks[0].count;
+        chunks[0].is_visible = true;
+        chunks[0].buffer_slot = UINT32_MAX;
+        system->_test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(256), 1);
+        auto &uploads = system->_internal_get_upload_pipeline();
+        uploads._test_set_async_pack_queue_owner(true); // queue_chunk_load() needs a pack-queue owner
+
+        if (!uploads.queue_chunk_load(*system.ptr(), 0, 0)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: the chunk must be queued for packing");
+            return;
+        }
+        const uint32_t first_run = chunks[0].buffer_slot;
+        // A pack worker dequeues the job (pack_thread_func moves it out of pack_queue)...
+        StreamingUploadPipeline::PackJob stale_job;
+        if (!uploads._test_pop_pack_job(stale_job)) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: the queued pack job must be dequeued");
+            return;
+        }
+        // ...and before it finishes the chunk is cancelled. The cancel cannot see the job.
+        uploads.cancel_chunk_jobs(*system.ptr(), 0, 0, UINT32_MAX);
+        // The chunk is requested again and best fit hands back the run just freed.
+        if (chunks[0].upload_pending || !uploads.queue_chunk_load(*system.ptr(), 0, 0) ||
+                chunks[0].buffer_slot != first_run) {
+            system->_test_end_device_free_load_scan();
+            FAIL("fixture precondition: cancel, then re-queue into the same page run");
+            return;
+        }
+
+        // The worker finishes the cancelled job, then the re-queued one.
+        uploads._test_complete_pack_job(stale_job);
+        CHECK(uploads._test_complete_pack_jobs() == 1);
+        // process_upload_queue()'s acceptance and finalize steps, without the buffer write.
+        const uint32_t staged = uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+        CHECK(staged == 1);
+        CHECK(chunks[0].upload_pending);
+        CHECK(chunks[0].buffer_slot == first_run);
+
+        _advance_frames_until_upload_retired(system);
+        CHECK(chunks[0].is_loaded);
+        CHECK_FALSE(chunks[0].upload_pending);
+        CHECK(chunks[0].buffer_slot == first_run);
+        CHECK(system->get_loaded_chunks() == 1);
+        CHECK(system->_test_get_failed_upload_retirements() == 0);
+        CHECK(system->get_pending_upload_retirement_slots() == 0);
+
+        system->_test_end_device_free_load_scan();
+        CHECK(_read_streaming_analytics_counter(*system.ptr(), "stale_sequence_dropped_uploads") == 1);
+        CHECK(int64_t(system->get_streaming_analytics().get("pending_upload_retirement_tickets", int64_t(-1))) == 0);
+    }
+
+    SUBCASE("retirement drops a ticket of a superseded upload instead of rolling back the current one") {
+        // Defense in depth for the pack-completion check: a ticket staged for an upload that
+        // was rolled back and begun again in the same run must not retire over the new one.
+        GaussianStreamingSystem system;
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system._test_get_primary_chunks();
+        chunks.resize(1);
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[0];
+        chunk.start_idx = 0;
+        chunk.count = 128;
+        chunk.is_visible = true;
+        chunk.effective_count = chunk.count;
+        system._test_register_primary_asset_for_chunks();
+        system._test_reset_atlas_allocator(4);
+
+        const uint64_t chunk_key = system._test_make_chunk_key(0, 0);
+        const uint32_t pages = GaussianStreamingSystem::atlas_pages_for_splats(chunk.count);
+        const uint64_t upload_bytes = uint64_t(chunk.count) * sizeof(PackedGaussian);
+        uint32_t first_run = UINT32_MAX;
+        REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, pages, first_run));
+        REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, first_run));
+        REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, first_run, upload_bytes, 2,
+                GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER));
+        // The upload is cancelled while its ticket is in flight...
+        system._test_rollback_pending_chunk(0, 0, chunk, true);
+        // ...and the chunk begins a new upload in the same run, with its own ticket.
+        uint32_t second_run = UINT32_MAX;
+        REQUIRE(system._test_atlas_allocator().allocate_slot(chunk_key, pages, second_run));
+        if (second_run != first_run) {
+            FAIL("fixture precondition: best fit must hand back the same run");
+            return;
+        }
+        REQUIRE(system._test_begin_chunk_upload(0, 0, chunk, second_run));
+        REQUIRE(system._test_stage_chunk_upload_retirement(0, 0, chunk, second_run, upload_bytes, 2,
+                GaussianStreamingTypes::STREAMING_UPLOAD_COMPLETION_MAIN_RD_FRAME_DELAY_BARRIER));
+
+        for (int frame = 0; frame < 8 && !chunk.is_loaded; frame++) {
+            system.begin_frame();
+        }
+        CHECK(chunk.is_loaded);
+        CHECK(chunk.buffer_slot == second_run);
+        CHECK(system.get_loaded_chunks() == 1);
+        CHECK(system._test_get_failed_upload_retirements() == 0);
+        CHECK(system._test_atlas_allocator().get_used_page_count() == pages);
+        CHECK(_read_streaming_analytics_counter(system, "stale_sequence_dropped_upload_retirements") == 1);
+        CHECK(int64_t(system.get_streaming_analytics().get("pending_upload_retirement_tickets", int64_t(-1))) == 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #1178: a chunk whose payload read fails permanently used to be rolled back silently
+// (no counter, no log, no memo) and re-queued by the load scan on the very next frame,
+// forever. It is now counted, logged once, and retried with exponential backoff.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// In-memory payload source whose reads of one chunk (by start index) always fail, as a
+// truncated .gsplatworld or a short network read would. Counts the reads of that chunk.
+class FailingChunkPayloadSource : public InMemoryChunkPayloadSource {
+    uint32_t failing_start = UINT32_MAX;
+
+public:
+    mutable uint32_t failing_reads = 0;
+
+    FailingChunkPayloadSource(const Ref<GaussianData> &p_data, uint32_t p_failing_start) :
+            InMemoryChunkPayloadSource(p_data), failing_start(p_failing_start) {}
+
+    bool capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
+            LocalVector<Gaussian> &r_gaussians,
+            LocalVector<Vector3> &r_sh_high_order,
+            uint32_t &r_sh_first_order_count,
+            uint32_t &r_sh_high_order_count) const override {
+        if (p_start == failing_start) {
+            failing_reads++;
+            return false;
+        }
+        return InMemoryChunkPayloadSource::capture_chunk_snapshot(p_start, p_count, r_gaussians,
+                r_sh_high_order, r_sh_first_order_count, r_sh_high_order_count);
+    }
+};
+
+int _count_payload_read_failure_logs(const ScopedStreamingErrorCapture &p_capture) {
+    int n = 0;
+    for (int i = 0; i < p_capture.messages.size(); i++) {
+        if (p_capture.messages[i].contains("[Streaming]") && p_capture.messages[i].contains("payload read failed")) {
+            n++;
+        }
+    }
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("[Streaming Pipeline] A chunk whose payload read keeps failing backs off, is counted and logged once (#1178)") {
+    const uint32_t chunk_count = 4;
+    const uint32_t splats_per_chunk = 128;
+    const uint32_t failing_chunk = 1;
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(chunk_count);
+    const Vector3 half(2.0f, 2.0f, 2.0f);
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        GaussianStreamingTypes::StreamingChunk &chunk = chunks[i];
+        chunk = GaussianStreamingTypes::StreamingChunk();
+        chunk.start_idx = i * splats_per_chunk;
+        chunk.count = splats_per_chunk;
+        chunk.effective_count = splats_per_chunk;
+        chunk.center = Vector3(0.0f, 0.0f, -(10.0f + 10.0f * float(i))); // all in view, in range
+        chunk.bounds = AABB(chunk.center - half, half * 2.0f);
+        chunk.max_radius = 2.0f;
+        chunk.is_visible = false;
+        chunk.buffer_slot = UINT32_MAX;
+    }
+    const Ref<GaussianData> data = _create_streaming_phase_order_test_data(chunk_count * splats_per_chunk);
+    system->_test_begin_device_free_load_scan(data, 1);
+    FailingChunkPayloadSource *source = memnew(FailingChunkPayloadSource(data, chunks[failing_chunk].start_idx));
+    system->set_chunk_payload_source(0, Ref<ChunkPayloadSource>(source));
+    auto &uploads = system->_internal_get_upload_pipeline();
+    uploads._test_set_async_pack_queue_owner(true); // the load scan takes queue_chunk_load()
+
+    Projection projection;
+    projection.set_perspective(60.0f, 1.0f, 0.1f, 4000.0f);
+    const Transform3D camera_transform;
+    ScopedStreamingErrorCapture capture;
+    // One streaming frame as update_streaming() orders it, minus the GPU write: visibility,
+    // load scan, pack (worker stand-in), pack completion and ticket staging.
+    auto run_frames = [&](uint32_t p_frames) {
+        for (uint32_t frame = 0; frame < p_frames; frame++) {
+            system->begin_frame();
+            system->_test_get_visibility_controller().update_chunk_visibility(*system.ptr(), camera_transform, projection);
+            system->_test_load_visible_chunks(32);
+            uploads._test_complete_pack_jobs();
+            uploads._test_finalize_completed_uploads_without_gpu_write(*system.ptr());
+            system->end_frame();
+        }
+    };
+
+    // 20 frames: inside the first backoff window (30 frames).
+    run_frames(20);
+    if (source->failing_reads == 0) {
+        system->_test_end_device_free_load_scan();
+        FAIL("fixture precondition: the load scan must reach the failing chunk's payload read");
+        return;
+    }
+    // One read, not one per frame.
+    CHECK(source->failing_reads == 1);
+    CHECK(int64_t(system->get_streaming_analytics().get("chunk_payload_read_failures", int64_t(-1))) == 1);
+    CHECK(_count_payload_read_failure_logs(capture) == 1);
+    CHECK_FALSE(chunks[failing_chunk].is_loaded);
+    CHECK_FALSE(chunks[failing_chunk].upload_pending);
+    // The healthy chunks were not starved by the failing one.
+    for (uint32_t i = 0; i < chunk_count; i++) {
+        if (i != failing_chunk) {
+            CAPTURE(i);
+            CHECK(chunks[i].is_loaded);
+        }
+    }
+    CHECK(system->get_loaded_chunks() == chunk_count - 1);
+
+    // 40 more frames: the retry happens once the backoff expires (bounded retry, not
+    // "never retried", #56), fails again and doubles the wait. Still one log line.
+    run_frames(40);
+    CHECK(source->failing_reads == 2);
+    CHECK(int64_t(system->get_streaming_analytics().get("chunk_payload_read_failures", int64_t(-1))) == 2);
+    CHECK(_count_payload_read_failure_logs(capture) == 1);
+    CHECK_FALSE(chunks[failing_chunk].is_loaded);
+    CHECK(system->get_loaded_chunks() == chunk_count - 1);
+
+    system->_test_end_device_free_load_scan();
+}
+
+// ---------------------------------------------------------------------------
+// #1179: StagedFileChunkPayloadSource cached one FileAccess per Thread::ID and never
+// evicted ids of exited threads. The pack workers are stopped and started again on every
+// re-init and whenever pack_worker_threads changes, so every restart left open handles on
+// the world file behind. Handles now come from a pool bounded by concurrent captures.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("[Streaming Pipeline] Restarting the pack threads does not leak payload file handles (#1179)") {
+    const uint32_t splat_count = 128;
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(splat_count);
+    for (uint32_t i = 0; i < splat_count; i++) {
+        Gaussian &g = gaussians[i];
+        g.position = Vector3(float(i) * 0.05f, 0.0f, -2.0f);
+        g.scale = Vector3(0.05f, 0.05f, 0.05f);
+        g.rotation = Quaternion();
+        g.opacity = 1.0f;
+        g.sh_dc = Color(1.0f, 0.85f, 0.7f, 1.0f);
+    }
+    const String path = OS::get_singleton()->get_temp_path().path_join(
+            vformat("godotgs_streaming_1179_%d.gsplatpayload", int64_t(OS::get_singleton()->get_ticks_usec())));
+    {
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        if (f.is_null()) {
+            FAIL("could not open the temporary payload file for writing");
+            return;
+        }
+        f->store_buffer(reinterpret_cast<const uint8_t *>(gaussians.ptr()), uint64_t(splat_count) * sizeof(Gaussian));
+    }
+    Ref<StagedFileChunkPayloadSource> source;
+    source.instantiate();
+    source->configure(path, 0, 0, splat_count, 0, 0, 0, AABB());
+
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+    chunks.resize(1);
+    chunks[0] = GaussianStreamingTypes::StreamingChunk();
+    chunks[0].start_idx = 0;
+    chunks[0].count = splat_count;
+    chunks[0].effective_count = splat_count;
+    chunks[0].is_visible = true;
+    chunks[0].buffer_slot = UINT32_MAX;
+    system->_test_begin_device_free_load_scan(_create_streaming_phase_order_test_data(splat_count), 1);
+    system->set_chunk_payload_source(0, source); // workers now read the chunk from the file
+    auto &uploads = system->_internal_get_upload_pipeline();
+    const uint32_t worker_threads = MAX(1u, uploads.pack_worker_threads);
+
+    // More restarts than the bound, so a handle kept per exited thread would exceed it.
+    const uint32_t restarts = worker_threads + 3;
+    uint32_t rounds_packed = 0;
+    for (uint32_t round = 0; round < restarts; round++) {
+        CAPTURE(round);
+        uploads.start_pack_threads(*system.ptr());
+        if (!uploads.pack_thread_running.load(std::memory_order_acquire)) {
+            break;
+        }
+        system->begin_frame(); // fresh per-frame queue budget
+        // A real pack worker of this generation reads the chunk through the source.
+        if (uploads.queue_chunk_load(*system.ptr(), 0, 0) && _wait_for_prepared_upload(uploads) != nullptr) {
+            rounds_packed++;
+        }
+        // Joins the workers and drops the pending upload, as a tuning change or re-init does.
+        uploads.stop_pack_threads(*system.ptr());
+    }
+    const uint64_t file_opens = source->get_file_open_count();
+    const uint64_t bytes_read = source->get_bytes_read();
+    system->_test_end_device_free_load_scan();
+    system.unref();
+    source.unref();
+    DirAccess::remove_absolute(path);
+
+    if (rounds_packed != restarts) {
+        FAIL("fixture precondition: every restart must pack the chunk on a worker thread (packed ", rounds_packed,
+                " of ", restarts, ")");
+        return;
+    }
+    // Every round really read through the file...
+    CHECK(bytes_read == uint64_t(restarts) * splat_count * sizeof(Gaussian));
+    CHECK(file_opens >= 1);
+    // ...and the open handles stay bounded by what can read at the same time (the workers
+    // plus the main thread's sync pack), not by how many threads ever existed.
+    CHECK(file_opens <= uint64_t(worker_threads) + 1);
 }

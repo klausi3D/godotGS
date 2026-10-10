@@ -270,6 +270,8 @@ void StreamingGlobalAtlasRegistry::cleanup(RenderingDevice *p_rd) {
 	global_atlas_state.chunk_meta_buffer = RID();
 	global_atlas_state.asset_chunk_index_buffer = RID();
 	global_atlas_state.quantization_buffer = RID();
+	global_atlas_state.atlas_generation = 0;
+	atlas_published_chunk_count = 0;
 	max_chunk_count_per_asset = 0;
 	max_chunk_splats = 0;
 }
@@ -555,6 +557,15 @@ void StreamingGlobalAtlasRegistry::mark_chunk_meta_dirty(GaussianStreamingSystem
 
 void StreamingGlobalAtlasRegistry::sync_to_gpu(GaussianStreamingSystem &system, RenderingDevice *p_rd) {
 	_reset_sync_diagnostics();
+	if (!p_rd) {
+		WARN_PRINT_ONCE("[Streaming DIAG] _sync_global_atlas_state skipped GPU upload because RenderingDevice is null; atlas publication is invalid.");
+		// Invalidate publication, not ownership: the owning device must still be
+		// able to release these buffers or republish them when it becomes available.
+		global_atlas_state = GlobalAtlasState();
+		atlas_published_chunk_count = 0;
+		_invalidate_chunk_meta_tracking();
+		return;
+	}
 	global_atlas_state.atlas_gaussian_buffer = system.persistent_buffer;
 	global_atlas_state.atlas_gaussian_count = system.get_buffer_capacity_splats();
 	global_atlas_state.quantization_buffer = system.is_per_chunk_quantization_enabled() ? system.quantization_buffer : RID();
@@ -581,14 +592,6 @@ void StreamingGlobalAtlasRegistry::sync_to_gpu(GaussianStreamingSystem &system, 
 		atlas_dirty = true;
 		build_cpu_state(system);
 		last_sync_diagnostics.cached_total_chunks = cached_total_chunks;
-	}
-
-	if (!p_rd) {
-		if (atlas_dirty) {
-			WARN_PRINT_ONCE("[Streaming DIAG] _sync_global_atlas_state skipped GPU upload because RenderingDevice is null while atlas is dirty.");
-			cleanup(nullptr);
-		}
-		return;
 	}
 
 	const uint32_t asset_meta_size = asset_meta_cpu.size() * sizeof(AssetMetaGPU);
@@ -732,9 +735,10 @@ void StreamingGlobalAtlasRegistry::sync_to_gpu(GaussianStreamingSystem &system, 
 	global_atlas_state.asset_chunk_index_buffer = asset_chunk_index_buffer;
 
 	if (atlas_dirty) {
-		global_atlas_state.atlas_generation++;
-		if (global_atlas_state.atlas_generation == 0) {
-			global_atlas_state.atlas_generation = 1;
+		atlas_generation_counter++;
+		if (atlas_generation_counter == 0) {
+			atlas_generation_counter = 1;
 		}
+		global_atlas_state.atlas_generation = atlas_generation_counter;
 	}
 }

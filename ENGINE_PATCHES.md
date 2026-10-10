@@ -149,6 +149,18 @@ These files are entirely new — they don't exist in upstream Godot.
 RID-based storage class for Gaussian Splat renderer references and AABBs.
 Follows the same pattern as `mesh_storage.h`, `particle_storage.h`, etc.
 
+Threading contract ([#1161](https://github.com/klausi3D/godotGS/issues/1161)):
+`gaussian_owner` is a thread-safe `RID_Owner<GaussianSplat, true>`, because
+slots are allocated on the scene thread and read and freed on the render thread
+under `thread_model=2`. A storage-wide `slot_mutex` guards every field read and
+write and the free, so a scene-thread setter cannot tear the `Ref` that
+`RendererSceneRenderRD::render_scene()` copies. A replaced or freed renderer
+`Ref` is dropped after the lock is released. Callers release a slot in the order
+`instance_set_base(instance, RID())`, then `gaussian_set_renderer(slot, null)`,
+then `RenderingServer::free(slot)`. The free is queued behind the unset and
+reaches `gaussian_free()` through `RendererRD::Utilities::free()`. Calling
+`gaussian_free()` directly from the scene thread bypasses that ordering.
+
 ### `servers/rendering/renderer_rd/storage_rd/gaussian_splat_storage.cpp` (+94, new)
 Implementation of the above.
 

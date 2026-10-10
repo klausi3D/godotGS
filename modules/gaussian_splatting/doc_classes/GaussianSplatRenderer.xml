@@ -1033,8 +1033,8 @@
 		<member name="sort/static_cache_enabled" type="bool" setter="set_static_sort_cache_enabled" getter="is_static_sort_cache_enabled" default="false">
 			When enabled, sort results are cached and reused when the camera has not moved.
 		</member>
-		<member name="render/cached_render_reuse_enabled" type="bool" setter="set_cached_render_reuse_enabled" getter="is_cached_render_reuse_enabled" default="false">
-			When enabled, the previous frame's render output is reused when the scene is unchanged.
+		<member name="render/cached_render_reuse_enabled" type="bool" setter="set_cached_render_reuse_enabled" getter="is_cached_render_reuse_enabled" default="true">
+			When enabled (the default), the previous frame's render output is reused instead of rasterizing again when the camera, viewport, splat content and every raster input are unchanged. Disabling it also drops the cached render.
 		</member>
 		<member name="interactive_state" type="int" setter="set_interactive_state" getter="get_interactive_state" enum="GaussianSplatRenderer.InteractiveState" default="0">
 			The interactive visual state controlling editor feedback effects.

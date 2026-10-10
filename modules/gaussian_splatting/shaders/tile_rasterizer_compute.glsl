@@ -20,11 +20,12 @@
 // This shader allocates shared memory for tile-local splat caching:
 //   gs_shared_sorted_values:         SPLATS_PER_TILE * 4 bytes  (uint array)
 //   gs_shared_projected_gaussians:   SPLATS_PER_TILE * sizeof(ProjectedGaussian) bytes
-//     ProjectedGaussian = 9 uints = 36 bytes (or 8 uints = 32 bytes with GS_PACKED_STAGE_DATA)
+//     ProjectedGaussian = 10 uints = 40 bytes (or 9 uints = 36 bytes with GS_PACKED_STAGE_DATA;
+//     both grew by one word when the screen centre became raw fp32, #1153)
 //   + 4 scalar shared uints = 16 bytes
 //
-// Total shared memory (default, unpacked): SPLATS_PER_TILE * 40 + 16 bytes
-//   e.g. 1024 * 40 + 16 = 40,976 bytes
+// Total shared memory (default, unpacked): SPLATS_PER_TILE * 44 + 16 bytes
+//   e.g. 1024 * 44 + 16 = 45,072 bytes
 // Vulkan minimum guaranteed: 16,384 bytes (most desktop GPUs: 32,768-65,536).
 // The C++ code that compiles this shader should query maxComputeSharedMemorySize
 // at compile time and warn if the requirement exceeds the device limit.

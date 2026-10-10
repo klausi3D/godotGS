@@ -126,8 +126,9 @@ derives the class from the PR's own diff (`classify_change.py --base-ref <PR bas
 and publishes it, together with that class's `evidence_requirements` and
 `deterministic_checks`, to the job summary. The derivation fails closed: an
 unresolvable base ref fails the check, an unreadable base copy of
-`.agentic/policy.json` fails the check (the gate classifies with the base copy, never
-the PR's own), and an empty changed-path set is classified as
+`.agentic/policy.json` or of `classify_change.py` itself fails the check (the gate
+classifies with the base copies of both, never the PR's own; #1167), and an empty
+changed-path set is classified as
 `classification.default_unclassified` (R3), not R0. The class itself is **not** a
 failure condition: an R3 PR passes the gate exactly as an R0 PR does, and nothing
 checks that the class's evidence or reviews were produced.
