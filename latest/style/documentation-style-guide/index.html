@@ -3222,10 +3222,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+  <a href="#page-audiences" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        Page Audiences
       
     </span>
   </a>
@@ -3233,10 +3233,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#citing-code" class="md-nav__link">
+  <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Citing code
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-publish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before You Publish
       
     </span>
   </a>
@@ -4425,10 +4436,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#usage" class="md-nav__link">
+  <a href="#page-audiences" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Usage
+        Page Audiences
       
     </span>
   </a>
@@ -4436,10 +4447,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#citing-code" class="md-nav__link">
+  <a href="#rules" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Citing code
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-publish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before You Publish
       
     </span>
   </a>
@@ -4561,8 +4583,112 @@
 
 <h1 id="documentation-style-guide">Documentation Style Guide<a class="headerlink" href="#documentation-style-guide" title="Permanent link">¶</a></h1>
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
-<p>Keep documentation accurate, concise, and verifiable against code.</p>
-<h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
+<p>Keep documentation accurate, short and written for the person who reads the page.
+These rules apply to every new or changed paragraph. Existing pages are brought in
+line page by page.</p>
+<h2 id="page-audiences">Page Audiences<a class="headerlink" href="#page-audiences" title="Permanent link">¶</a></h2>
+<p>A page's audience is the tab it sits under in <code>docs/.pages</code>. The audience decides
+how the page names things in the code. The home page, <code>docs/index.md</code>, follows the
+Get Started row. Any other page missing from <code>docs/.pages</code>, such as the internal
+pages under <code>not_in_nav</code> in <code>mkdocs.yml</code> (for example <code>docs/architecture/</code> specs
+and <code>docs/programs/</code>), follows the Contributing row unless it is a report.</p>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>Reader</th>
+<th>How to name things</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Get Started, Guides</td>
+<td>People using the editor</td>
+<td>UI labels, written as a path: Inspector › Quality › Preset. Project setting paths such as <code>rendering/gaussian_splatting/quality/tier_preset</code>. Node and resource names as the editor shows them, such as <code>GaussianSplatNode3D</code>. Link to the Reference page for methods. No C++ symbols, no source paths, no "Implementation reference" columns.</td>
+</tr>
+<tr>
+<td>Reference, Performance</td>
+<td>People looking up exact behaviour</td>
+<td>Stable symbols: a bound method or property, a signal, a project setting path, <code>Class::method</code> for C++. No line numbers.</td>
+</tr>
+<tr>
+<td>Contributing</td>
+<td>Contributors and reviewers</td>
+<td>As Reference, plus source file paths. No line numbers.</td>
+</tr>
+<tr>
+<td>Reports (<code>docs/reports/</code>, <code>docs/archive/</code>), PR descriptions, issue comments</td>
+<td>Reviewers checking one change</td>
+<td><code>file:line</code> pinned to a commit SHA, such as <code>modules/gaussian_splatting/register_types.cpp:93</code> at <code>dbc0f49aa8b</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>Line numbers change on unrelated edits, so a <code>file:line</code> on a published page goes
+stale without anyone touching the page.</p>
+<p>Every claim is checked against the code in your change's resulting tree, whatever
+the page cites: a method, property or UI label that the same change adds or renames
+exists only there. Use the base commit only to tell what behaviour existed before
+the change. A UI label is checked against the property it shows (<code>ADD_GROUP</code> and
+<code>ADD_PROPERTY</code> in the class's <code>_bind_methods()</code>), a symbol with
+<code>rg -n "&lt;symbol&gt;" modules/gaussian_splatting</code>.</p>
+<h2 id="rules">Rules<a class="headerlink" href="#rules" title="Permanent link">¶</a></h2>
+<ol>
+<li><strong>Name things for the page's audience.</strong> Follow the table above.</li>
+<li><strong>No process history on Get Started and Guides pages.</strong> Leave out
+   maintainer-decision dates, <code>§</code> references, commit SHAs, how a guard or gate
+   works, and "an earlier revision said…". Say what is true now. History belongs in
+   ADRs, reports and PR descriptions.</li>
+<li><strong>Link an issue only when the reader can act on it</strong>, for example to follow a
+   known limitation until it is fixed. Do not cite issues as the source of a
+   statement.</li>
+<li><strong>Show a limitation on the page where it bites.</strong> One or two sentences, then a
+   link to its section in
+   <a href="../../development/known-public-alpha-limitations/">Known Public Alpha Limitations</a>,
+   which holds the full write-up.</li>
+<li><strong>One name per concept.</strong> Use the term from the
+   <a href="../../user/manual/concepts/#glossary">glossary</a> and none of the names it lists
+   under "Not". A new concept gets a glossary entry in the same PR.</li>
+<li><strong>Procedures are numbered steps</strong>, not table rows. One action per step. Add the
+   expected result when the reader needs to check it.</li>
+<li><strong>Link text says where the link goes</strong>: "see
+   <a href="../../development/release-channels/">Release Channels</a>", not "here", "this page"
+   or a bare URL.</li>
+<li><strong>Diagram alt text gives the steps in order</strong>, such as "Copy the <code>.ply</code> into the
+   project, Godot imports it, assign the splat asset to a <code>GaussianSplatNode3D</code>".
+   "Diagram of the import flow" is not alt text. A caption does not replace it. A
+   Mermaid chart or a video gets the same steps as text next to it.</li>
+<li><strong>State a limit once, in plain words.</strong> No self-labels such as "honest",
+   "candid" or "to be clear", and no repeated caveats.</li>
+<li><strong>Keep internal vocabulary on Contributing pages and in reports.</strong> On other
+    pages, name the thing itself: "the Windows build", not "the Windows lane".</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>lane</td>
+<td>One CI job or test group that runs and reports on its own: a platform build in <code>.github/workflows/release_builds.yml</code>, or a doctest group in <code>MODULE_TEST_FILTERS</code> in <code>tests/ci/run_module_tests.py</code>. Per-splat storage in <code>GaussianData</code> is a field, not a lane.</td>
+</tr>
+<tr>
+<td>strict / advisory</td>
+<td>Whether a lane's ordinary failure (a nonzero exit or a crash) fails the run (strict) or is only reported (advisory). A harness anomaly, such as exit 0 with no doctest summary, fails the run for either kind; see <a href="../../reference/build-test-ci/">Build, test and CI</a>.</td>
+</tr>
+<tr>
+<td>guard</td>
+<td>An automated check of a repository invariant, such as a file format, a settings manifest or a layout mirror, that fails CI when the invariant breaks. Most are <code>check_*.py</code> scripts under <code>tests/ci/</code>; <code>tests/ci/run_module_tests.py --guard-only</code> runs the full set, including checks built into the runner and one that needs a Godot binary.</td>
+</tr>
+<tr>
+<td>gate</td>
+<td>A required check that blocks a merge or a release, such as <code>agentic-pr-gate</code> or the renderer release gate.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="before-you-publish">Before You Publish<a class="headerlink" href="#before-you-publish" title="Permanent link">¶</a></h2>
 <table>
 <thead>
 <tr>
@@ -4578,24 +4704,14 @@
 <td><code>docs/index.md</code></td>
 </tr>
 <tr>
-<td>Implementation verification</td>
-<td>Verify behavior claims against <code>modules/gaussian_splatting/</code> before publishing.</td>
-<td><code>initialize_gaussian_splatting_module()</code> in <code>modules/gaussian_splatting/register_types.cpp</code></td>
-</tr>
-<tr>
-<td>Style application</td>
-<td>Prefer direct task-based writing and compact tables for inventories.</td>
-<td><code>docs/style/documentation-style-guide.md</code></td>
-</tr>
-<tr>
-<td>Evidence capture</td>
-<td>Cite stable symbols in published pages; put <code>file:line</code> evidence in reports and PR descriptions. See <a href="#citing-code">Citing code</a>.</td>
-<td>This page</td>
-</tr>
-<tr>
 <td>Link validation</td>
-<td>Run repository link checks after docs edits.</td>
+<td>Run the repository-wide link check, <code>python scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md AGENTS.md CLAUDE.md</code>, as <code>agentic-pr-gate</code> does. A renamed or deleted heading breaks links on pages you did not touch.</td>
 <td><code>scripts/docs/check_links.py</code></td>
+</tr>
+<tr>
+<td>Snippet and API check</td>
+<td>Run the snippet checker (see below).</td>
+<td><code>tests/ci/check_doc_snippets.py</code></td>
 </tr>
 <tr>
 <td>Generated pages</td>
@@ -4604,32 +4720,6 @@
 </tr>
 </tbody>
 </table>
-<h2 id="citing-code">Citing code<a class="headerlink" href="#citing-code" title="Permanent link">¶</a></h2>
-<p>Line numbers change on unrelated edits, so a <code>file:line</code> in a page that stays
-published goes stale without anyone touching the page.</p>
-<table>
-<thead>
-<tr>
-<th>Where</th>
-<th>Cite</th>
-<th>Examples</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>User-facing and reference pages (all of <code>docs/</code> except <code>docs/reports/</code>, <code>docs/archive/</code> and <code>docs/agent_memory/</code>)</td>
-<td>Stable symbols: <code>Class::method</code>, a bound property or signal name, a project setting path, or a file path when no symbol fits. No line numbers.</td>
-<td><code>GaussianSplatNode3D::_bind_methods()</code>, <code>rendering/gaussian_splatting/lod/enabled</code>, <code>modules/gaussian_splatting/config.py</code></td>
-</tr>
-<tr>
-<td>Reports, investigations, audits (<code>docs/reports/</code>, <code>docs/archive/</code>), PR descriptions, issue comments</td>
-<td><code>file:line</code> pinned to a commit SHA, so the reader can open the exact line that was read.</td>
-<td><code>modules/gaussian_splatting/register_types.cpp:93</code> at <code>dbc0f49aa8b</code></td>
-</tr>
-</tbody>
-</table>
-<p>A symbol citation is still an implementation claim: verify it exists at your base
-commit (<code>rg -n "&lt;symbol&gt;" modules/gaussian_splatting</code>) before you publish it.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <table>
 <thead>
@@ -4694,7 +4784,7 @@ commit (<code>rg -n "&lt;symbol&gt;" modules/gaussian_splatting</code>) before y
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
 <div class="highlight"><pre><span></span><code>python3<span class="w"> </span>tests/ci/check_doc_snippets.py
 rg<span class="w"> </span>-n<span class="w"> </span><span class="s2">"GDREGISTER_CLASS\(|GDREGISTER_ABSTRACT_CLASS\("</span><span class="w"> </span>modules/gaussian_splatting/register_types.cpp
-python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </span>docs/style
+python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </span>docs<span class="w"> </span>README.md<span class="w"> </span>BUILDING.md<span class="w"> </span>CONTRIBUTING.md<span class="w"> </span>AGENTS.md<span class="w"> </span>CLAUDE.md
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
 <table>
@@ -4719,7 +4809,7 @@ python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </spa
 <tr>
 <td><code>check_doc_snippets.py</code> reports <code>MEMBER_CPP_ONLY</code></td>
 <td>The member is declared in C++ but not bound.</td>
-<td>Use a bound alternative, or cite it as <code>Class::member</code> in prose.</td>
+<td>Use a bound alternative. On a Reference or Contributing page you may cite it as <code>Class::member</code> in prose; on a Get Started or Guides page, describe the behaviour and link to Reference.</td>
 </tr>
 <tr>
 <td>Heading anchor link fails</td>
@@ -4758,7 +4848,7 @@ python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 11:37:43 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:55:40 UTC">October 10, 2026</span>
   </span>
 
     

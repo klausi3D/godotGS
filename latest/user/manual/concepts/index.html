@@ -826,10 +826,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-concepts-plain-language" class="md-nav__link">
+  <a href="#glossary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Concepts (Plain Language)
+        Glossary
       
     </span>
   </a>
@@ -4392,10 +4392,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#core-concepts-plain-language" class="md-nav__link">
+  <a href="#glossary" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Core Concepts (Plain Language)
+        Glossary
       
     </span>
   </a>
@@ -4464,17 +4464,127 @@
 <h1 id="user-manual-concepts">User Manual: Concepts<a class="headerlink" href="#user-manual-concepts" title="Permanent link">¶</a></h1>
 <h2 id="what-this-module-does">What This Module Does<a class="headerlink" href="#what-this-module-does" title="Permanent link">¶</a></h2>
 <p>Gaussian splatting renders scenes from splat data (<code>.ply</code> / <code>.spz</code>) instead of traditional meshes.</p>
-<h2 id="core-concepts-plain-language">Core Concepts (Plain Language)<a class="headerlink" href="#core-concepts-plain-language" title="Permanent link">¶</a></h2>
-<ul>
-<li>Splat asset: source point/splat data file you import.</li>
-<li>Node: <code>GaussianSplatNode3D</code> is the scene node that renders the asset.</li>
-<li>Quality preset: quick performance/quality control.</li>
-<li>Streaming: loads scene data in chunks to keep memory under control.</li>
-<li>Sorting: draw order step needed for correct translucent rendering.</li>
-</ul>
+<h2 id="glossary">Glossary<a class="headerlink" href="#glossary" title="Permanent link">¶</a></h2>
+<p>Each concept has one name in these docs. The "Not" column lists names to avoid.</p>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+<th>Not</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Splat</td>
+<td>One 3D Gaussian: a position, size, rotation, opacity and colour. A captured scene is made of millions of them.</td>
+<td>point, particle</td>
+</tr>
+<tr>
+<td>Source file</td>
+<td>The <code>.ply</code> or <code>.spz</code> file you copy into the project.</td>
+<td>asset</td>
+</tr>
+<tr>
+<td>Splat asset (<code>GaussianSplatAsset</code>)</td>
+<td>The resource Godot imports from a source file. Assign it in Inspector › Asset › Splat Asset. The <code>.gsplatcache</code> file next to a <code>.ply</code> is a load cache, not the asset.</td>
+<td>splat file, PLY asset, model, cloud</td>
+</tr>
+<tr>
+<td><code>GaussianSplatNode3D</code></td>
+<td>The scene node that draws one splat asset. After first use on a page, "splat node".</td>
+<td>GS node, splat object</td>
+</tr>
+<tr>
+<td>World file (<code>.gsplatworld</code>)</td>
+<td>A file the <a href="../../../workflows/GSPLATWORLD_BAKE/">world bake</a> writes by merging several source files, or the splat nodes of one scene, into one chunked world.</td>
+<td>baked asset, world cache</td>
+</tr>
+<tr>
+<td>World (<code>GaussianSplatWorld</code>)</td>
+<td>The resource Godot loads from a world file. Write "world" alone only where "world file" or "world node" already set the context.</td>
+<td>scene, level; Godot's <code>World3D</code> is unrelated</td>
+</tr>
+<tr>
+<td>World node (<code>GaussianSplatWorld3D</code>)</td>
+<td>The scene node that draws a world. Assign it in Inspector › World.</td>
+<td>streaming node, world renderer</td>
+</tr>
+<tr>
+<td>Quality preset</td>
+<td>Per splat node: Inspector › Quality › Preset, one of Performance, Balanced, Quality or Custom. See <a href="../performance-presets/">choosing a quality preset</a>.</td>
+<td>performance preset, quality level, tier</td>
+</tr>
+<tr>
+<td>Quality tier</td>
+<td>Project-wide hardware defaults, such as streaming budgets: <code>rendering/gaussian_splatting/quality/tier_preset</code>, for example <code>low</code>, <code>medium</code>, <code>high</code> or <code>steam_deck</code>. The default, <code>custom</code>, applies none.</td>
+<td>quality preset, hardware preset</td>
+</tr>
+<tr>
+<td>Import preset</td>
+<td>Per source file: Import dock › Quality › Preset, one of <code>mobile</code>, <code>desktop</code>, <code>high</code>, <code>ultra</code>, <code>development</code> or <code>custom</code>. Sets import options such as the splat cap and quantization.</td>
+<td>quality preset</td>
+</tr>
+<tr>
+<td>Other presets</td>
+<td>Always qualified: sorting preset (<code>rendering/gaussian_splatting/gpu_sorting/gpu_preset</code>), painterly style preset (Style Preset on a <code>PainterlyMaterial</code>), export preset (Godot's Export dialog).</td>
+<td>"preset" on its own</td>
+</tr>
+<tr>
+<td>Painterly</td>
+<td>An optional stylised look for one splat node that draws brush strokes. Turn it on with Inspector › Painterly › Enabled; a <code>PainterlyMaterial</code> in Inspector › Painterly › Material shapes it.</td>
+<td>NPR mode, paint mode, stylized mode</td>
+</tr>
+<tr>
+<td>SH (spherical harmonics)</td>
+<td>Per-splat colour coefficients that let a splat's colour change with the viewing direction.</td>
+<td>harmonics</td>
+</tr>
+<tr>
+<td>DC</td>
+<td>SH band 0: a splat's base colour, the same from every direction. In a PLY file, the <code>f_dc_*</code> properties.</td>
+<td>diffuse, albedo</td>
+</tr>
+<tr>
+<td>SH bands</td>
+<td>How many SH bands are rendered. Band 0 is DC alone; each higher band adds finer view-dependent colour and costs rendering time. It does not change memory use: each splat takes the same GPU memory at any setting. Set with <code>rendering/gaussian_splatting/rendering/sh_bands</code>; <a href="../../../reference/project-settings/">Project Settings</a> lists the range and default. <code>SHn</code> means bands 0 to n.</td>
+<td>SH level, SH quality, SH order</td>
+</tr>
+<tr>
+<td>Resident route</td>
+<td>The content is uploaded to the GPU as a whole, with no chunk loading. Splat nodes always use it. A world node uses it when <code>rendering/gaussian_splatting/streaming/route_policy</code> is <code>0</code> and its world is held in memory, as a compressed world file is. If the content is larger than the GPU memory set aside for it (at most 2 GB; also at most 60% of VRAM when the GPU reports at least 256 MB of it; less with <code>rendering/gaussian_splatting/resident/atlas_vram_budget_override_mb</code>), only the most important splats are kept and the content looks thinner.</td>
+<td>resident mode, in-memory path</td>
+</tr>
+<tr>
+<td>Streaming route</td>
+<td>A world node loads and evicts chunks of its world around the camera to stay within a VRAM budget. The default for world nodes (<code>route_policy</code> <code>1</code>). An uncompressed world file loaded the normal way always uses it, whatever <code>route_policy</code> says.</td>
+<td>streaming mode, streamed path</td>
+</tr>
+<tr>
+<td>Sorting</td>
+<td>Ordering splats by depth, so transparency blends correctly.</td>
+<td></td>
+</tr>
+<tr>
+<td>Nightly</td>
+<td>A prerelease tagged <code>nightly-YYYYMMDD</code>. The release workflow builds one from <code>master</code> every night and publishes it only when the build and its release checks pass; a maintainer can also publish one by hand, from any branch.</td>
+<td>snapshot, dev build (<code>dev_build</code> is a build option)</td>
+</tr>
+<tr>
+<td>Release channel</td>
+<td>How a build is published: CI artifact, nightly or stable tag. See <a href="../../../development/release-channels/">Release Channels</a>.</td>
+<td>track</td>
+</tr>
+<tr>
+<td>Your First Splat</td>
+<td>The Get Started page that takes you from an editor to a visible splat: <a href="../../../getting-started/quick-start/">Your First Splat</a>.</td>
+<td>Quick Start, Public Evaluator, First Run</td>
+</tr>
+</tbody>
+</table>
 <h2 id="when-to-tune">When to Tune<a class="headerlink" href="#when-to-tune" title="Permanent link">¶</a></h2>
 <ul>
-<li>Use presets first.</li>
+<li>Use the quality preset first.</li>
 <li>Only change advanced settings when you see visible artifacts or performance problems.</li>
 </ul>
 <h2 id="behavior-guides">Behavior Guides<a class="headerlink" href="#behavior-guides" title="Permanent link">¶</a></h2>
@@ -4509,7 +4619,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 11:37:45 UTC">October 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 10, 2026 12:55:41 UTC">October 10, 2026</span>
   </span>
 
     
