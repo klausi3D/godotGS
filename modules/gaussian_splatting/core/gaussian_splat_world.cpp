@@ -473,6 +473,13 @@ Dictionary GaussianSplatWorld::get_hlod_info() const {
     return hlod_tree.get_info();
 }
 
+// Probes the two allocations a payload copy makes (gaussians, then high-order SH).
+static bool _probe_bake_payload(uint64_t p_gaussian_bytes, uint64_t p_sh_bytes, const char *p_where_gaussians,
+        const char *p_where_sh) {
+    return gs_hlod::bake_allocation_probe(p_gaussian_bytes, p_where_gaussians) &&
+            gs_hlod::bake_allocation_probe(p_sh_bytes, p_where_sh);
+}
+
 Error GaussianSplatWorld::bake_hlod() {
     // The 2D flag is carried through, not refused: the PLY loader sets it for any PLY with
     // nx/ny/nz (io/ply_loader.cpp, "has_normals"), which standard 3DGS exports carry, and no
@@ -492,16 +499,27 @@ Error GaussianSplatWorld::bake_hlod() {
         LocalVector<Gaussian> gaussians;
         LocalVector<Vector3> sh_high_order;
         // File-backed input stays file-backed until every fallible bake step succeeds.
+        // The snapshot and the baked copy are splat-count-sized LocalVector allocations, which abort
+        // on failure; probe them first so memory pressure returns ERR_OUT_OF_MEMORY (and the
+        // importer reaches its plain-copy fallback) instead of terminating the process.
         bool captured;
+        bool snapshot_fits;
         if (original_data.is_valid()) {
             RWLockRead lock(original_data->data_rwlock);
-            captured = original_data->_capture_chunk_snapshot_locked(0, original_data->get_count(),
+            snapshot_fits = _probe_bake_payload(uint64_t(original_data->get_count()) * sizeof(Gaussian),
+                    uint64_t(original_data->get_count()) * original_data->get_sh_high_order_count() * sizeof(Vector3),
+                    "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
+            captured = snapshot_fits && original_data->_capture_chunk_snapshot_locked(0, original_data->get_count(),
                     gaussians, sh_high_order, sh_first_order, sh_high_order_count, &snapshot_metadata);
             is_2d = snapshot_metadata.is_2d_mode;
         } else {
-            captured = original_source->capture_chunk_snapshot(0, original_source->get_count(),
+            snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
+                    uint64_t(original_source->get_count()) * sh_high_order_count_metadata * sizeof(Vector3),
+                    "GaussianSplatWorld::bake_hlod snapshot_gaussians", "GaussianSplatWorld::bake_hlod snapshot_sh_high_order");
+            captured = snapshot_fits && original_source->capture_chunk_snapshot(0, original_source->get_count(),
                     gaussians, sh_high_order, sh_first_order, sh_high_order_count);
         }
+        ERR_FAIL_COND_V_MSG(!snapshot_fits, ERR_OUT_OF_MEMORY, "GaussianSplatWorld.bake_hlod(): cannot allocate the payload snapshot.");
         ERR_FAIL_COND_V(!captured, ERR_CANT_ACQUIRE_RESOURCE);
         ERR_FAIL_COND_V_MSG(gaussians.is_empty(), ERR_UNCONFIGURED,
                 "GaussianSplatWorld.bake_hlod(): the world has no splats.");
@@ -517,8 +535,9 @@ Error GaussianSplatWorld::bake_hlod() {
         input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
         gs_hlod::BakeParams params;
         String error;
-        if (!gs_hlod::bake_world(input, params, result, &error)) {
-            ERR_FAIL_V_MSG(ERR_INVALID_DATA, vformat("GaussianSplatWorld.bake_hlod(): %s", error));
+        Error bake_err = ERR_INVALID_DATA;
+        if (!gs_hlod::bake_world(input, params, result, &error, &bake_err)) {
+            ERR_FAIL_V_MSG(bake_err, vformat("GaussianSplatWorld.bake_hlod(): %s", error));
         }
     }
 
@@ -529,6 +548,12 @@ Error GaussianSplatWorld::bake_hlod() {
         ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY, "GaussianSplatWorld.bake_hlod(): cannot allocate the leaf chunks.");
     }
     result.leaf_source_index.reset();
+
+    if (!_probe_bake_payload(uint64_t(result.leaf_gaussians.size()) * sizeof(Gaussian),
+                uint64_t(result.leaf_sh_high_order.size()) * sizeof(Vector3),
+                "GaussianSplatWorld::bake_hlod baked_gaussians", "GaussianSplatWorld::bake_hlod baked_sh_high_order")) {
+        ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY, "GaussianSplatWorld.bake_hlod(): cannot allocate the baked payload.");
+    }
 
     // Retain the original until publication so an edit cannot be silently overwritten.
     Ref<GaussianData> baked;

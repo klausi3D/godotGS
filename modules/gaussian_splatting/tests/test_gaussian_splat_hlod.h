@@ -16,6 +16,7 @@
 #include "../core/gaussian_splat_hlod_merge.h"
 #include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
+#include "../core/gs_vector_alloc.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/resource_importer_gsplatworld.h"
 
@@ -3026,6 +3027,114 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	DirAccess::remove_absolute(good_source);
 	DirAccess::remove_absolute(bad_base + ".gsplatworld");
 	DirAccess::remove_absolute(bad_source);
+}
+
+// #1149 review: every splat-count-sized bake allocation is probed fallibly (LocalVector aborts on a
+// failed memrealloc). Real memory pressure cannot be produced in a test, so each probe is failed
+// through the label-matched gs_vector_alloc seam (TESTS_ENABLED only). Every label must fire: an
+// armed label that stays armed means the site was renamed or bypassed and the case went vacuous.
+static const char *const kHlodBakeAllocationSites[] = {
+	"GaussianSplatWorld::bake_hlod snapshot_gaussians",
+	"GaussianSplatWorld::bake_hlod snapshot_sh_high_order",
+	"gs_hlod::bake_world perm",
+	"gs_hlod::bake_world scratch_perm",
+	"gs_hlod::bake_world octant",
+	"gs_hlod::bake_world index_split_keys",
+	"gs_hlod::bake_world index_split_order",
+	"gs_hlod::bake_world node_of_build",
+	"gs_hlod::bake_world nodes",
+	"gs_hlod::bake_world importance",
+	"gs_hlod::bake_world leaf_gaussians",
+	"gs_hlod::bake_world leaf_sh_high_order",
+	"gs_hlod::bake_world leaf_source_index",
+	"gs_hlod::bake_world interior_payloads",
+	"gs_hlod::bake_world node_lo",
+	"gs_hlod::bake_world node_hi",
+	"gs_hlod::bake_world interior_gaussians",
+	"gs_hlod::bake_world interior_sh_high_order",
+	"GaussianSplatWorld::bake_hlod baked_gaussians",
+	"GaussianSplatWorld::bake_hlod baked_sh_high_order",
+};
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a bake allocation failure returns ERR_OUT_OF_MEMORY and leaves the world unchanged") {
+	using namespace TestGaussianSplatHlod;
+	// Over one leaf (octant partition, interior nodes), with SH, and a cluster of identical
+	// centres over one leaf (index-split group), so every probed site is reached.
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(9000u, 6000u, g);
+	const Gaussian twin = g[0];
+	for (uint32_t i = 0; i < 17000u; i++) {
+		g.push_back(twin);
+	}
+	LocalVector<Vector3> sh;
+	sh.resize(g.size() * 12u);
+	for (Vector3 &v : sh) {
+		v = Vector3(0.125f, -0.25f, 0.5f);
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	const Ref<GaussianData> original = world->get_gaussian_data();
+	const uint64_t revision = original->get_content_revision();
+	const int chunks = world->get_chunk_count();
+	const AABB bounds = world->get_bounds();
+
+	for (const char *site : kHlodBakeAllocationSites) {
+		INFO(site);
+		gs_vector_alloc_force_failure_at(site);
+		ERR_PRINT_OFF;
+		const Error err = world->bake_hlod();
+		ERR_PRINT_ON;
+		const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+		gs_vector_alloc_clear_forced_failure();
+		CHECK(fired);
+		CHECK(err == ERR_OUT_OF_MEMORY);
+		CHECK(world->get_gaussian_data() == original);
+		CHECK(original->get_content_revision() == revision);
+		CHECK(original->get_count() == int(g.size()));
+		CHECK_FALSE(world->has_hlod_tree());
+		CHECK(world->get_chunk_count() == chunks);
+		CHECK(world->get_bounds() == bounds);
+	}
+
+	// Control: with memory available the same world bakes (no behaviour change).
+	if (world->bake_hlod() != OK) {
+		FAIL("control bake");
+		return;
+	}
+	CHECK(world->has_hlod_tree());
+	CHECK(world->get_hlod_tree().interior_splat_count > 0u);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when a bake allocation fails") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(3000u, 1000u, g);
+	const String source = hlod_temp_path("import_oom_source");
+	if (saver.save(hlod_make_world(g), source) != OK) {
+		FAIL("save source");
+		return;
+	}
+	for (const char *site : { "GaussianSplatWorld::bake_hlod snapshot_gaussians", "gs_hlod::bake_world leaf_gaussians" }) {
+		INFO(site);
+		const String base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_oom_" + itos(OS::get_singleton()->get_ticks_usec()));
+		Variant md;
+		gs_vector_alloc_force_failure_at(site);
+		ERR_PRINT_OFF;
+		const Error err = importer->import(ResourceUID::INVALID_ID, source, base, options, nullptr, nullptr, &md);
+		ERR_PRINT_ON;
+		const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+		gs_vector_alloc_clear_forced_failure();
+		CHECK(fired);
+		CHECK(err == OK);
+		CHECK(String(Dictionary(md).get("hlod_skip_reason", "")) == String("bake_failed"));
+		CHECK(hlod_read_file(base + ".gsplatworld") == hlod_read_file(source));
+		DirAccess::remove_absolute(base + ".gsplatworld");
+	}
+	DirAccess::remove_absolute(source);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a v2 copy; source untouched; same tree as bake_hlod()") {

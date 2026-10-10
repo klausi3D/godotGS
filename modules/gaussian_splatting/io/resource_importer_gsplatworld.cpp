@@ -285,6 +285,8 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 // three full-sized copies plus merged nodes, scratch and allocator overhead), then two
 // full-sized copies while saving. This is copy accounting, not a peak-RSS bound.
 // bake_hlod() frees the snapshot after use and retains the source until revision-checked publication.
+// Under memory pressure its splat-count-sized allocations fail with ERR_OUT_OF_MEMORY
+// (gs_hlod::bake_allocation_probe()) instead of aborting, so the caller's plain-copy fallback runs.
 static Error _bake_world_copy(const String &p_source_file, const String &p_dest_file, const GSplatWorldHeaderInfo &p_info,
 		bool &r_bake_failed) {
 	r_bake_failed = true;

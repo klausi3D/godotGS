@@ -1,11 +1,14 @@
 #include "gaussian_splat_hlod_bake.h"
 
+#include "gs_vector_alloc.h"
+
 #include "core/math/math_funcs.h"
 #include "core/os/os.h"
 
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 namespace gs_hlod {
@@ -113,6 +116,26 @@ double payload_radius(const SplatSpan &p_span, const double p_shift[3], const do
 
 } // namespace
 
+bool bake_allocation_probe(uint64_t p_bytes, const char *p_where) {
+	if (p_bytes == 0u) {
+		return true; // nothing is allocated, so nothing can fail (and the test seam stays armed)
+	}
+#if defined(TESTS_ENABLED)
+	if (gs_vector_alloc_consume_forced_failure(p_where)) {
+		return false;
+	}
+#endif
+	if (p_bytes > uint64_t(SIZE_MAX)) {
+		return false;
+	}
+	void *probe = memalloc(size_t(p_bytes));
+	if (probe == nullptr) {
+		return false;
+	}
+	memfree(probe);
+	return true;
+}
+
 bool choose_root_cell(const double p_origin[3], const double p_min[3], const double p_max[3],
 		GaussianSplatHlodCell &r_cell, bool &r_origin_centred) {
 	double extent = 0.0;
@@ -170,13 +193,27 @@ bool choose_root_cell(const double p_origin[3], const double p_min[3], const dou
 	return false;
 }
 
-bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error) {
+bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
+		Error *r_code) {
 	const uint64_t t_start = OS::get_singleton()->get_ticks_usec();
-	auto fail = [&](const String &p_message) {
+	auto fail = [&](const String &p_message, Error p_code = ERR_INVALID_DATA) {
 		if (r_error) {
 			*r_error = p_message;
 		}
+		if (r_code) {
+			*r_code = p_code;
+		}
 		return false;
+	};
+	// Every splat-count-sized resize goes through here (bake_allocation_probe()). The vectors are
+	// empty, so LocalVector::reserve() allocates exactly p_count elements, the size probed.
+	auto resize_or_fail = [&](auto &r_vec, uint64_t p_count, const char *p_where) {
+		const uint64_t bytes = p_count > uint64_t(UINT32_MAX) ? UINT64_MAX : p_count * uint64_t(sizeof(*r_vec.ptr()));
+		if (p_count > uint64_t(UINT32_MAX) || !bake_allocation_probe(bytes, p_where)) {
+			return fail(vformat("HLOD bake cannot allocate %s (%d elements).", String(p_where), p_count), ERR_OUT_OF_MEMORY);
+		}
+		r_vec.resize(uint32_t(p_count));
+		return true;
 	};
 	r_result = BakeResult();
 	const uint32_t n = p_input.count;
@@ -226,12 +263,16 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 
 	// ---------------------------------------------------------------- tree build (§6.1)
 	LocalVector<uint32_t> perm;
-	perm.resize(n);
+	if (!resize_or_fail(perm, n, "gs_hlod::bake_world perm")) {
+		return false;
+	}
 	for (uint32_t i = 0; i < n; i++) {
 		perm[i] = i;
 	}
 	LocalVector<uint32_t> scratch_perm;
-	scratch_perm.resize(n);
+	if (!resize_or_fail(scratch_perm, n, "gs_hlod::bake_world scratch_perm")) {
+		return false;
+	}
 	LocalVector<BuildNode> build;
 	build.push_back(BuildNode());
 	build[0].begin = 0u;
@@ -316,7 +357,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			// intermediate nodes on the same cell so no node has more than 8 children.
 			index_split_groups++;
 			LocalVector<uint64_t> keys;
-			keys.resize(count);
+			if (!resize_or_fail(keys, count, "gs_hlod::bake_world index_split_keys")) {
+				return false;
+			}
 			for (uint32_t i = 0; i < count; i++) {
 				const Vector3 &p = p_input.gaussians[perm[begin + i]].position;
 				uint64_t code = 0u;
@@ -329,7 +372,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 				keys[i] = code;
 			}
 			LocalVector<uint32_t> order;
-			order.resize(count);
+			if (!resize_or_fail(order, count, "gs_hlod::bake_world index_split_order")) {
+				return false;
+			}
 			for (uint32_t i = 0; i < count; i++) {
 				order[i] = i;
 			}
@@ -384,7 +429,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		uint32_t bucket_count[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 		const double mid[3] = { corner[0] + 0.5 * edge, corner[1] + 0.5 * edge, corner[2] + 0.5 * edge };
 		LocalVector<uint8_t> octant;
-		octant.resize(count);
+		if (!resize_or_fail(octant, count, "gs_hlod::bake_world octant")) {
+			return false;
+		}
 		for (uint32_t i = 0; i < count; i++) {
 			const Vector3 &p = p_input.gaussians[perm[begin + i]].position;
 			const uint8_t o = uint8_t((double(p.x) >= mid[0] ? 1u : 0u) | (double(p.y) >= mid[1] ? 2u : 0u) | (double(p.z) >= mid[2] ? 4u : 0u));
@@ -451,7 +498,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	// ---------------------------------------------------------------- node table (BFS)
 	LocalVector<uint32_t> bfs; // node index -> build index
 	LocalVector<uint32_t> node_of_build;
-	node_of_build.resize(build.size());
+	if (!resize_or_fail(node_of_build, build.size(), "gs_hlod::bake_world node_of_build")) {
+		return false;
+	}
 	bfs.push_back(0u);
 	node_of_build[0] = 0u;
 	for (uint32_t i = 0; i < bfs.size(); i++) {
@@ -462,7 +511,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		}
 	}
 	const uint32_t node_count = bfs.size();
-	tree.nodes.resize(node_count);
+	if (!resize_or_fail(tree.nodes, node_count, "gs_hlod::bake_world nodes")) {
+		return false;
+	}
 	for (uint32_t i = 0; i < node_count; i++) {
 		const BuildNode &b = build[bfs[i]];
 		GaussianSplatHlodNode &node = tree.nodes[i];
@@ -477,15 +528,21 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	// ---------------------------------------------------------------- leaves (§6.2)
 	// Depth-first leaf order, so every subtree's leaves are contiguous; importance order inside.
 	LocalVector<float> importance;
-	importance.resize(n);
+	if (!resize_or_fail(importance, n, "gs_hlod::bake_world importance")) {
+		return false;
+	}
 	for (uint32_t i = 0; i < n; i++) {
 		importance[i] = importance_area(p_input.gaussians[i]);
 	}
-	r_result.leaf_gaussians.resize(n);
-	if (sh_count > 0u) {
-		r_result.leaf_sh_high_order.resize(n * sh_count);
+	if (!resize_or_fail(r_result.leaf_gaussians, n, "gs_hlod::bake_world leaf_gaussians")) {
+		return false;
 	}
-	r_result.leaf_source_index.resize(n);
+	if (sh_count > 0u && !resize_or_fail(r_result.leaf_sh_high_order, uint64_t(n) * sh_count, "gs_hlod::bake_world leaf_sh_high_order")) {
+		return false;
+	}
+	if (!resize_or_fail(r_result.leaf_source_index, n, "gs_hlod::bake_world leaf_source_index")) {
+		return false;
+	}
 	uint32_t leaf_cursor = 0u;
 	LocalVector<uint32_t> dfs;
 	dfs.push_back(0u);
@@ -525,10 +582,14 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	// Bottom-up (reverse BFS). Every payload is node-relative: positions relative to the centre
 	// of the node's cell; children are re-expressed relative to the parent's centre first.
 	LocalVector<SplatList> interior_payloads;
-	interior_payloads.resize(node_count);
+	if (!resize_or_fail(interior_payloads, node_count, "gs_hlod::bake_world interior_payloads")) {
+		return false;
+	}
 	LocalVector<double> node_lo, node_hi; // world-frame bounds (double), 3 per node
-	node_lo.resize(node_count * 3u);
-	node_hi.resize(node_count * 3u);
+	if (!resize_or_fail(node_lo, uint64_t(node_count) * 3u, "gs_hlod::bake_world node_lo") ||
+			!resize_or_fail(node_hi, uint64_t(node_count) * 3u, "gs_hlod::bake_world node_hi")) {
+		return false;
+	}
 	InteriorBakeScratch interior_scratch;
 	InteriorBakeResult interior_result;
 	SplatList children_frame;
@@ -669,9 +730,12 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return fail("HLOD payload's SH section exceeds the 32-bit element count the loader accepts.");
 	}
 	tree.interior_splat_count = uint32_t(interior_total);
-	tree.interior_gaussians.resize(tree.interior_splat_count);
-	if (sh_count > 0u) {
-		tree.interior_sh_high_order.resize(tree.interior_splat_count * sh_count);
+	if (!resize_or_fail(tree.interior_gaussians, tree.interior_splat_count, "gs_hlod::bake_world interior_gaussians")) {
+		return false;
+	}
+	if (sh_count > 0u && !resize_or_fail(tree.interior_sh_high_order, uint64_t(tree.interior_splat_count) * sh_count,
+								 "gs_hlod::bake_world interior_sh_high_order")) {
+		return false;
 	}
 	uint32_t interior_cursor = 0u;
 	for (uint32_t i = 0; i < node_count; i++) {
