@@ -9,7 +9,10 @@ line page by page.
 ## Page Audiences
 
 A page's audience is the tab it sits under in `docs/.pages`. The audience decides
-how the page names things in the code.
+how the page names things in the code. The home page, `docs/index.md`, follows the
+Get Started row. Any other page missing from `docs/.pages`, such as the internal
+pages under `not_in_nav` in `mkdocs.yml` (for example `docs/architecture/` specs
+and `docs/programs/`), follows the Contributing row unless it is a report.
 
 | Tab | Reader | How to name things |
 | --- | --- | --- |
