@@ -22,6 +22,7 @@
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
 #include "core/io/compression.h"
+#include "core/io/resource_loader.h"
 #include "core/math/geometry_3d.h"
 #include "core/math/math_funcs.h"
 #include "core/math/projection.h"
@@ -2757,6 +2758,130 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake notifications publish complet
 	const String path = hlod_temp_path("callback_stale_bake");
 	CHECK(saver.save(world, path) == ERR_INVALID_DATA);
 	DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r4 editor reimport reloads the complete world state") {
+	using namespace TestGaussianSplatHlod;
+	// A is loaded and cached; B then overwrites A's file, as an editor reimport does.
+	LocalVector<Gaussian> ga;
+	hlod_make_fixture(24000u, 16000u, ga);
+	LocalVector<Gaussian> gb;
+	hlod_make_fixture(14000u, 8000u, gb);
+	for (uint32_t i = 0; i < gb.size(); i++) {
+		gb[i].position += Vector3(40.0f, 1.0f, -25.0f);
+	}
+	Ref<GaussianSplatWorld> world_a = hlod_make_world(ga);
+	Ref<GaussianSplatWorld> world_b = hlod_make_world(gb);
+	Dictionary meta_b;
+	meta_b["note"] = "reimported";
+	world_b->set_metadata(meta_b);
+	if (world_a->bake_hlod() != OK || world_b->bake_hlod() != OK) {
+		FAIL("bake the reload fixtures");
+		return;
+	}
+	using Saver = ResourceFormatSaverGaussianSplatWorld;
+	Saver saver;
+	// Cached file-backed world reimported as resident, and cached resident world reimported as
+	// file-backed (the file source must be replaced, not kept or dropped).
+	for (int cached_streamable = 0; cached_streamable < 2; cached_streamable++) {
+		CAPTURE(cached_streamable);
+		const Saver::PayloadSaveMode mode_a = cached_streamable ? Saver::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED : Saver::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED;
+		const Saver::PayloadSaveMode mode_b = cached_streamable ? Saver::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED : Saver::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED;
+		const String path = hlod_temp_path(vformat("reload%d", cached_streamable));
+		const String resave_cached = hlod_temp_path(vformat("reload%d_cached", cached_streamable));
+		const String resave_fresh = hlod_temp_path(vformat("reload%d_fresh", cached_streamable));
+		if (saver.save_with_payload_mode(world_a, path, mode_a) != OK) {
+			FAIL("save the cached world");
+			return;
+		}
+		Ref<GaussianSplatWorld> cached = ResourceLoader::load(path, "GaussianSplatWorld", ResourceFormatLoader::CACHE_MODE_IGNORE);
+		if (cached.is_null() || !cached->has_hlod_tree() || cached->is_streamable_payload() != bool(cached_streamable)) {
+			FAIL("load the cached world");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		if (saver.save_with_payload_mode(world_b, path, mode_b) != OK) {
+			FAIL("overwrite the cached world's file");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		// The body of Resource::reload_from_file(), which returns early for paths outside res://.
+		Ref<Resource> reimported = ResourceLoader::load(path, "GaussianSplatWorld", ResourceFormatLoader::CACHE_MODE_IGNORE);
+		Ref<GaussianSplatWorld> fresh = ResourceLoader::load(path, "GaussianSplatWorld", ResourceFormatLoader::CACHE_MODE_IGNORE);
+		if (reimported.is_null() || fresh.is_null() || !fresh->has_hlod_tree()) {
+			FAIL("load the reimported world");
+			DirAccess::remove_absolute(path);
+			return;
+		}
+		HlodBakeObserver *observer = memnew(HlodBakeObserver);
+		cached->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+		CHECK(cached->copy_from(reimported) == OK);
+		reimported.unref();
+		CHECK_EQ(observer->notifications, 1);
+		cached->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+		memdelete(observer);
+
+		// Payload mode and payload metadata.
+		CHECK_EQ(cached->get_payload_mode(), fresh->get_payload_mode());
+		CHECK_EQ(cached->is_streamable_payload(), fresh->is_streamable_payload());
+		CHECK_EQ(cached->is_streamable_payload(), !bool(cached_streamable));
+		CHECK_EQ(cached->has_resident_gaussian_data(), fresh->has_resident_gaussian_data());
+		CHECK_EQ(cached->has_chunk_payload_source(), fresh->has_chunk_payload_source());
+		CHECK_EQ(cached->get_resident_only_reason(), fresh->get_resident_only_reason());
+		CHECK_EQ(cached->get_splat_count(), fresh->get_splat_count());
+		CHECK_EQ(cached->get_splat_count(), gb.size());
+		CHECK_EQ(cached->get_sh_degree(), fresh->get_sh_degree());
+		CHECK_EQ(cached->get_sh_first_order_count(), fresh->get_sh_first_order_count());
+		CHECK_EQ(cached->get_sh_high_order_count(), fresh->get_sh_high_order_count());
+		CHECK_EQ(cached->get_2d_mode(), fresh->get_2d_mode());
+		CHECK(cached->get_bounds() == fresh->get_bounds());
+		CHECK(cached->get_metadata() == fresh->get_metadata());
+		// Leaf chunks.
+		const Vector<GaussianSplatRenderer::StaticChunk> &cached_chunks = cached->get_static_chunks();
+		const Vector<GaussianSplatRenderer::StaticChunk> &fresh_chunks = fresh->get_static_chunks();
+		CHECK_GT(fresh_chunks.size(), 1);
+		if (cached_chunks.size() != fresh_chunks.size()) {
+			FAIL_CHECK("reloaded leaf chunk count ", cached_chunks.size(), " != fresh ", fresh_chunks.size());
+		} else {
+			bool chunks_equal = true;
+			for (int i = 0; i < fresh_chunks.size(); i++) {
+				chunks_equal = chunks_equal && cached_chunks[i].bounds == fresh_chunks[i].bounds &&
+						cached_chunks[i].center == fresh_chunks[i].center && cached_chunks[i].radius == fresh_chunks[i].radius &&
+						cached_chunks[i].indices == fresh_chunks[i].indices;
+			}
+			CHECK(chunks_equal);
+		}
+		// Tree: node table, counts, interior payload location.
+		CHECK(cached->has_hlod_tree());
+		CHECK(cached->is_hlod_payload_current());
+		CHECK(cached->get_hlod_info() == fresh->get_hlod_info());
+		const GaussianSplatHlodTree &ct = cached->get_hlod_tree();
+		const GaussianSplatHlodTree &ft = fresh->get_hlod_tree();
+		bool nodes_equal = ct.nodes.size() == ft.nodes.size();
+		for (uint32_t i = 0; nodes_equal && i < ft.nodes.size(); i++) {
+			nodes_equal = hlod_nodes_equal(ct.nodes[i], ft.nodes[i]);
+		}
+		CHECK(nodes_equal);
+		CHECK_EQ(ct.leaf_splat_count, ft.leaf_splat_count);
+		CHECK_EQ(ct.interior_splat_count, ft.interior_splat_count);
+		CHECK_EQ(ct.interior_resident, ft.interior_resident);
+		CHECK_EQ(ct.interior_file_path, ft.interior_file_path);
+		CHECK_EQ(ct.interior_gaussian_offset, ft.interior_gaussian_offset);
+		CHECK_EQ(ct.interior_sh_offset, ft.interior_sh_offset);
+		CHECK(std::memcmp(ct.origin, ft.origin, sizeof(ct.origin)) == 0);
+		// Everything the format round-trips: re-saving the reloaded and a fresh load gives one file.
+		CHECK(saver.save(cached, resave_cached) == OK);
+		CHECK(saver.save(fresh, resave_fresh) == OK);
+		const PackedByteArray cached_bytes = hlod_read_file(resave_cached);
+		CHECK_FALSE(cached_bytes.is_empty());
+		CHECK(cached_bytes == hlod_read_file(resave_fresh));
+
+		cached.unref();
+		fresh.unref();
+		DirAccess::remove_absolute(path);
+		DirAccess::remove_absolute(resave_cached);
+		DirAccess::remove_absolute(resave_fresh);
+	}
 }
 
 #ifdef TOOLS_ENABLED

@@ -358,6 +358,45 @@ void GaussianSplatWorld::clear() {
     emit_changed();
 }
 
+Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
+    const Ref<GaussianSplatWorld> other = p_resource;
+    if (other.is_null() || other.ptr() == this || get_class() != p_resource->get_class()) {
+        return Resource::copy_from(p_resource);
+    }
+    // One changed notification, after the complete state is in place.
+    _block_emit_changed();
+    reset_state();
+    // Base Resource storage properties (name, local_to_scene, script, ...). The world's own
+    // properties are assigned below directly: the gaussian_data setter would clear the tree.
+    List<PropertyInfo> properties;
+    p_resource->get_property_list(&properties);
+    for (const PropertyInfo &property : properties) {
+        if (!(property.usage & PROPERTY_USAGE_STORAGE) || property.name == "resource_path" ||
+                property.name == "gaussian_data" || property.name == "bounds" || property.name == "metadata") {
+            continue;
+        }
+        set(property.name, p_resource->get(property.name));
+    }
+    // Everything the v1/v2 loaders install: payload or file source, leaf chunks, bounds,
+    // metadata, payload metadata and the tree. The tree's leaf revision refers to the shared
+    // GaussianData, so it stays valid.
+    gaussian_data = other->gaussian_data;
+    chunk_payload_source = other->chunk_payload_source;
+    static_chunks = other->static_chunks;
+    bounds = other->bounds;
+    metadata = other->metadata;
+    splat_count_metadata = other->splat_count_metadata;
+    sh_degree_metadata = other->sh_degree_metadata;
+    sh_first_order_count_metadata = other->sh_first_order_count_metadata;
+    sh_high_order_count_metadata = other->sh_high_order_count_metadata;
+    is_2d_metadata = other->is_2d_metadata;
+    hlod_tree = other->hlod_tree;
+    notify_property_list_changed();
+    emit_changed();
+    _unblock_emit_changed();
+    return OK;
+}
+
 Error GaussianSplatWorld::save_to_file(const String &p_path) const {
     ResourceFormatSaverGaussianSplatWorld saver;
     return saver.save(Ref<Resource>(const_cast<GaussianSplatWorld *>(this)), p_path, 0);

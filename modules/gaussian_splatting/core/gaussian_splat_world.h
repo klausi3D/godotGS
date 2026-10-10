@@ -75,6 +75,10 @@ public:
 
     void clear();
 
+    // Editor reimport (Resource::reload_from_file()) lands here. The base copies only storage
+    // properties, and its gaussian_data setter drops the tree, so this copies the whole world.
+    Error copy_from(const Ref<Resource> &p_resource) override;
+
     Error save_to_file(const String &p_path) const;
 
     // HLOD (slice S1a). bake_hlod() bakes the tree from a resident or file-backed payload,
