@@ -2351,7 +2351,9 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer preserves payload 
     Ref<ResourceImporterGSplatWorld> importer;
     importer.instantiate();
     CHECK(importer->get_save_extension() == "gsplatworld");
-    CHECK(importer->get_format_version() == 2);
+    // 3 since HLOD slice S1a: v1 sources are baked into a v2 imported copy.
+    // 4: v2 header world bounds must enclose the HLOD root.
+    CHECK(importer->get_format_version() == 4);
 
     HashMap<StringName, Variant> options;
     Variant import_metadata_variant;
