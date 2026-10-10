@@ -5,7 +5,16 @@
 
 namespace GPUSortingConstants {
 
-static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 256;
+// Default radix-sort workgroup size. 512 (#539): the overlap sort's per-pass prefix kernels
+// (wg_prefix / bin_prefix) run at local_size_x = 1 over one entry per workgroup, so their
+// cost scales with element_count / workgroup_size. Measured on the Mip-NeRF 360 bicycle
+// (RTX 3090, 2026-10-09): overlap sort 24.1 -> 13.9 ms static, frame 47.8 -> 33.3 ms, output
+// bit-identical. Portable with the default 4-bit radix: the scatter kernel needs
+// radix_scatter_shared_memory_bytes(4, 512) = 1152 B of the 16 KB Vulkan floor (#634).
+// Devices whose maxComputeWorkGroupInvocations is below 512 cannot run RadixSort at this
+// size (RadixSort::is_supported fails and the factory falls back); set
+// rendering/gaussian_splatting/gpu_sorting/workgroup_size to 256 there.
+static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 512;
 // Radix-sort digit width PER PASS (4-bit = 16 passes for a 64-bit key, 8-bit = 8 passes). This is a
 // performance/mechanics knob ONLY — it does NOT change the sorted output or key precision (precision is
 // key_bits/tile_bits/depth_bits). Both 4 and 8 are valid (validate() accepts both) and both are now

@@ -761,9 +761,13 @@ TEST_CASE("[GaussianSplatting][Config] RadixSort scatter shared-memory product i
 		// (4, 512): 16 * (2 + 16) * 4 = 1152.
 		CHECK(radix_scatter_shared_memory_bytes(4, 512) == 1152u);
 		CHECK(radix_scatter_shared_memory_bytes(4, 512) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
-		// The shipped default (radix_bits=4, workgroup_size=256): 16 * 10 * 4 = 640.
+		// (4, 256), the default before #539: 16 * 10 * 4 = 640.
 		CHECK(radix_scatter_shared_memory_bytes(4, 256) == 640u);
 		CHECK(radix_scatter_shared_memory_bytes(4, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// #539: the shipped default pair must fit the guaranteed floor.
+		CHECK(DEFAULT_WORKGROUP_SIZE == 512u);
+		CHECK(radix_scatter_shared_memory_bytes(DEFAULT_RADIX_BITS, DEFAULT_WORKGROUP_SIZE) <=
+				VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
 	}
 
 	SUBCASE("An unsupported radix width fails closed with the sentinel, never a small footprint") {
@@ -809,7 +813,8 @@ TEST_CASE("[GaussianSplatting][Config] get_portability_warnings flags the valid-
 	}
 
 	SUBCASE("Supported (radix, workgroup) products yield no portability warning") {
-		CHECK(config.get_portability_warnings().is_empty()); // (4, 256) shipped default
+		CHECK(config.workgroup_size == GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+		CHECK(config.get_portability_warnings().is_empty()); // (4, 512) shipped default (#539)
 		config.radix_bits = 8;
 		config.workgroup_size = 256;
 		CHECK(config.get_portability_warnings().is_empty());
