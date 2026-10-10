@@ -126,41 +126,145 @@ VACUOUS_ALLOWLIST_NAME = "VACUOUS_CASE_ALLOWLIST"
 _REVIEW_BASE_REF: str | None = None
 
 
-def _allowlist_keys_from_source(source: str) -> tuple[frozenset[str] | None, list[str]]:
-    """Keys of the module-level VACUOUS_CASE_ALLOWLIST literal in harness source.
+def _allowlist_rebinding_uses(tree: ast.Module, assignment: ast.stmt | None) -> list[str]:
+    """Every use of the allowlist name that could make its runtime value differ from the literal.
 
-    No assignment at all -> the empty set: the allowlist did not exist there, so
-    nothing was tolerated, which is the strictest possible baseline. A value that
-    is not a plain dict literal, or more than one assignment, cannot be read
-    statically and FAILS rather than being guessed at.
+    The literal is only the runtime value if nothing else touches the name. So
+    the harness may READ it in exactly two shapes -- `key in ALLOWLIST` (or
+    `not in`) and `ALLOWLIST[key]` -- and nothing else: no second binding, no
+    `.update()`/`.setdefault()`, no subscript store or delete, no `global`, no
+    alias passed elsewhere, no attribute or string spelling of the name
+    (`globals()["..."]`, `setattr(module, "...", ...)`). Anything outside that
+    whitelist fails closed; it is not interpreted.
+    """
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    own_targets: set[int] = set()
+    if isinstance(assignment, ast.Assign):
+        own_targets = {id(t) for t in assignment.targets}
+    elif isinstance(assignment, ast.AnnAssign):
+        own_targets = {id(assignment.target)}
+    bad: list[str] = []
+    name = VACUOUS_ALLOWLIST_NAME
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", "?")
+        if isinstance(node, ast.Name) and node.id == name:
+            if id(node) in own_targets:
+                continue
+            parent = parents.get(id(node))
+            if isinstance(node.ctx, ast.Load):
+                if (
+                    isinstance(parent, ast.Compare)
+                    and node in parent.comparators
+                    and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops)
+                ):
+                    continue
+                if (
+                    isinstance(parent, ast.Subscript)
+                    and parent.value is node
+                    and isinstance(parent.ctx, ast.Load)
+                ):
+                    continue
+            bad.append(f"line {line}: {type(parent).__name__} use of {name}")
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
+            bad.append(f"line {line}: {type(node).__name__.lower()} {name}")
+        elif isinstance(node, ast.alias) and name in (node.name, node.asname):
+            bad.append(f"line {line}: import binds {name}")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            bad.append(f"line {line}: def/class named {name}")
+        elif isinstance(node, ast.arg) and node.arg == name:
+            bad.append(f"line {line}: parameter named {name}")
+        elif isinstance(node, ast.Attribute) and node.attr == name:
+            bad.append(f"line {line}: attribute access .{name}")
+        elif isinstance(node, ast.Constant) and node.value == name:
+            bad.append(f"line {line}: string spelling of {name} (globals()/setattr route)")
+    return bad
+
+
+def _allowlist_from_source(
+    source: str, where: str
+) -> tuple[dict[str, str] | None, list[str]]:
+    """The module-level VACUOUS_CASE_ALLOWLIST of harness source, read STATICALLY.
+
+    Used for BOTH copies the ratchet compares: the one at the review base and
+    the one in the tree under review. The harness is never imported for this:
+    importing the proposed copy would evaluate it in the guard's environment, so
+    a change could compute the allowlist from the platform/environment (empty on
+    the Linux guard, populated on the Windows GPU runner) or run arbitrary code
+    at import (Codex on #1218).
+
+    No assignment at all -> the empty dict: the allowlist did not exist there,
+    so nothing was tolerated, which is the strictest possible baseline. Anything
+    else must be exactly one top-level `{"Batch/case": "url", ...}` dict display
+    whose keys and values are plain string constants, and nothing else in the
+    module may rebind or mutate the name (_allowlist_rebinding_uses). Anything
+    that cannot be read that way FAILS rather than being guessed at.
     """
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
-        return None, [f"harness source at the review base does not parse: {exc}"]
-    values: list[ast.expr] = []
+        return None, [f"harness source {where} does not parse: {exc}"]
+    assignments: list[ast.stmt] = []
     for node in tree.body:
         if isinstance(node, ast.Assign):
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            if VACUOUS_ALLOWLIST_NAME in names:
-                values.append(node.value)
+            if any(isinstance(t, ast.Name) and t.id == VACUOUS_ALLOWLIST_NAME for t in node.targets):
+                assignments.append(node)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == VACUOUS_ALLOWLIST_NAME and node.value is not None:
-                values.append(node.value)
-    if not values:
-        return frozenset(), []
-    if len(values) > 1:
+            if node.target.id == VACUOUS_ALLOWLIST_NAME:
+                assignments.append(node)
+    if not assignments:
+        # Absent -- unless the name is still reached some other way.
+        stray = _allowlist_rebinding_uses(tree, None)
+        if stray:
+            return None, [
+                f"{VACUOUS_ALLOWLIST_NAME} {where} has no literal assignment but is bound "
+                f"or used another way: {'; '.join(stray)}"
+            ]
+        return {}, []
+    if len(assignments) > 1:
         return None, [
-            f"{VACUOUS_ALLOWLIST_NAME} is assigned {len(values)} times at the review base; "
+            f"{VACUOUS_ALLOWLIST_NAME} is assigned {len(assignments)} times {where}; "
             "cannot tell which value was in force."
         ]
-    try:
-        value = ast.literal_eval(values[0])
-    except (ValueError, TypeError, SyntaxError) as exc:
-        return None, [f"{VACUOUS_ALLOWLIST_NAME} at the review base is not a literal: {exc}"]
-    if not isinstance(value, dict):
-        return None, [f"{VACUOUS_ALLOWLIST_NAME} at the review base is not a dict literal."]
-    return frozenset(str(key) for key in value), []
+    assignment = assignments[0]
+    if isinstance(assignment, ast.Assign) and len(assignment.targets) != 1:
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} is a chained assignment (an alias)."]
+    value = assignment.value
+    if not isinstance(value, ast.Dict):
+        return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} is not a plain dict literal."]
+    result: dict[str, str] = {}
+    for key, val in zip(value.keys, value.values):
+        if not (
+            isinstance(key, ast.Constant) and isinstance(key.value, str)
+            and isinstance(val, ast.Constant) and isinstance(val.value, str)
+        ):
+            return None, [
+                f"{VACUOUS_ALLOWLIST_NAME} {where} has an entry (line "
+                f"{getattr(val, 'lineno', '?')}) that is not a string-constant key and "
+                "value (computed, spread, or non-string)."
+            ]
+        if key.value in result:
+            return None, [f"{VACUOUS_ALLOWLIST_NAME} {where} repeats key {key.value!r}."]
+        result[key.value] = val.value
+    stray = _allowlist_rebinding_uses(tree, assignment)
+    if stray:
+        return None, [
+            f"{VACUOUS_ALLOWLIST_NAME} {where} is a literal, but the module can change it "
+            f"after assignment, so the literal is not its runtime value: {'; '.join(stray)}"
+        ]
+    return result, []
+
+
+def _allowlist_keys_from_source(
+    source: str, where: str = "at the review base"
+) -> tuple[frozenset[str] | None, list[str]]:
+    """Keys of _allowlist_from_source(), for the review-base side of the ratchet."""
+    value, failures = _allowlist_from_source(source, where)
+    if value is None:
+        return None, failures
+    return frozenset(value), []
 
 
 def _allowlist_keys_at_review_base(
@@ -1014,14 +1118,22 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             "shrink-only ratchet has nothing immutable to compare against",
         )
         assert base_keys is not None
-        harness = _load("gs_harness_vacuous_allowlist", HARNESS_PATH)
-        added = set(harness.VACUOUS_CASE_ALLOWLIST) - base_keys
+        # Parsed, never imported: see _allowlist_from_source.
+        current, current_failures = _allowlist_from_source(
+            HARNESS_PATH.read_text(encoding="utf-8"), "in the tree under review"
+        )
+        self.assertEqual(
+            current_failures, [],
+            "cannot read VACUOUS_CASE_ALLOWLIST statically in the tree under review",
+        )
+        assert current is not None
+        added = set(current) - base_keys
         self.assertEqual(
             added, set(),
             "VACUOUS_CASE_ALLOWLIST gained entries that are not in it at the review "
             "base. A laned case that asserts nothing must be fixed or leave its batch.",
         )
-        for key, url in harness.VACUOUS_CASE_ALLOWLIST.items():
+        for key, url in current.items():
             self.assertRegex(
                 url, r"^https://github\.com/klausi3D/godotGS/issues/\d+$",
                 f"allowlist entry {key!r} must link its tracking issue",
@@ -1045,6 +1157,72 @@ class GpuHarnessZeroAssertionRequiredBatchTests(unittest.TestCase):
             keys, failures = _allowlist_keys_from_source(unreadable)
             self.assertIsNone(keys, unreadable)
             self.assertTrue(failures, unreadable)
+
+    def test_current_allowlist_is_parsed_not_imported(self):
+        """The proposed copy is read like the base one: literal or fail (Codex P1 on #1218).
+
+        Each source below would, if imported, put a different allowlist in force
+        than its text shows (or run code in the guard). None of them may parse
+        as a clean allowlist; the plain literal must.
+        """
+        literal = 'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u"}\n'
+        self.assertEqual(
+            _allowlist_from_source(
+                literal + "def f(k):\n    return k in VACUOUS_CASE_ALLOWLIST and VACUOUS_CASE_ALLOWLIST[k]\n",
+                "here",
+            ),
+            ({"A/b": "u"}, []),
+        )
+        dynamic = (
+            "import os\n"
+            'VACUOUS_CASE_ALLOWLIST = {} if os.name != "nt" else {"A/b": "u"}\n',
+            'VACUOUS_CASE_ALLOWLIST = {"A/" + "b": "u"}\n',
+            "VACUOUS_CASE_ALLOWLIST = {**OTHER}\n",
+            'VACUOUS_CASE_ALLOWLIST = {"A/b": 1}\n',
+            'VACUOUS_CASE_ALLOWLIST = X = {}\n',
+            literal + 'VACUOUS_CASE_ALLOWLIST["C/d"] = "u"\n',
+            literal + 'VACUOUS_CASE_ALLOWLIST.update({"C/d": "u"})\n',
+            literal + 'del VACUOUS_CASE_ALLOWLIST["A/b"]\n',
+            literal + "VACUOUS_CASE_ALLOWLIST |= {}\n",
+            literal + "alias = VACUOUS_CASE_ALLOWLIST\n",
+            literal + "def f():\n    global VACUOUS_CASE_ALLOWLIST\n",
+            literal + 'globals()["VACUOUS_CASE_ALLOWLIST"] = {}\n',
+            literal + 'import sys\nsys.modules[__name__].VACUOUS_CASE_ALLOWLIST = {}\n',
+            literal + "from x import y as VACUOUS_CASE_ALLOWLIST\n",
+            literal + "for VACUOUS_CASE_ALLOWLIST in ():\n    pass\n",
+            'globals()["VACUOUS_CASE_ALLOWLIST"] = {"A/b": "u"}\n',
+        )
+        for source in dynamic:
+            value, failures = _allowlist_from_source(source, "here")
+            self.assertIsNone(value, source)
+            self.assertTrue(failures, source)
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            sentinel = Path(td) / "imported"
+            source = (
+                f"open({str(sentinel)!r}, 'w').close()\n"
+                'VACUOUS_CASE_ALLOWLIST: dict[str, str] = {"A/b": "u"}\n'
+            )
+            value, failures = _allowlist_from_source(source, "here")
+            self.assertEqual((value, failures), ({"A/b": "u"}, []))
+            self.assertFalse(sentinel.exists(), "the reader executed the source it was given")
+
+    def test_shrink_only_ratchet_does_not_import_the_harness(self):
+        """The ratchet itself reads HARNESS_PATH as text; it never executes it."""
+        source = Path(__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        method = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "test_vacuous_case_allowlist_is_shrink_only"
+        )
+        calls = {
+            node.func.id for node in ast.walk(method)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("_load", calls)
+        self.assertIn("_allowlist_from_source", calls)
 
     def test_allowlist_base_reader_fails_closed_on_an_unresolvable_base(self):
         """An explicitly named base that does not resolve is a failure, never HEAD.
