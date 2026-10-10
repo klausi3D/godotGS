@@ -2209,6 +2209,52 @@ TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_sorter_u
             return r;
         }
 
+        // A failed raster stage must reject a new frame after a good output
+        // exists. Prove actual fragment and compute execution: ForceOn can fall
+        // back, so a policy request alone is not a compute coverage premise.
+        for (int path = 0; path < 2; ++path) {
+            params.compute_raster_policy = path == 0 ? GaussianSplatting::ComputeRasterPolicy::ForceOff : GaussianSplatting::ComputeRasterPolicy::ForceOn;
+            const bool expect_compute = path == 1;
+            auto recorded_once = [&](const auto &before) {
+                const auto &after = tile_renderer->_test_raster_metrics();
+                return after.last_raster_used_compute == expect_compute &&
+                        after.compute_raster_frames == before.compute_raster_frames + (expect_compute ? 1 : 0) &&
+                        after.fragment_raster_frames == before.fragment_raster_frames + (expect_compute ? 0 : 1);
+            };
+            const auto control_before = tile_renderer->_test_raster_metrics();
+            params.frame_serial++;
+            if (!tile_renderer->render(p_rd, params).is_valid() || !recorded_once(control_before)) {
+                r.error_message = vformat("Required %s raster control did not execute; both stages require qualified GPU support.", expect_compute ? "compute" : "fragment");
+                return r;
+            }
+            for (int failure_mode = 1; failure_mode <= 3; ++failure_mode) {
+                const auto failure_before = tile_renderer->_test_raster_metrics();
+                params.frame_serial++;
+                tile_renderer->_test_fail_next_raster_dispatch(failure_mode);
+                RID rejected_raster = tile_renderer->render(p_rd, params);
+                if (tile_renderer->_test_raster_failure_pending()) {
+                    r.error_message = "Raster failure premise not reached; an earlier stage rejected the frame.";
+                    return r;
+                }
+                if (rejected_raster.is_valid()) {
+                    r.error_message = "Failed raster dispatch published a stale output as a valid new frame.";
+                    return r;
+                }
+                const auto &failure_after = tile_renderer->_test_raster_metrics();
+                if (failure_after.compute_raster_frames != failure_before.compute_raster_frames ||
+                        failure_after.fragment_raster_frames != failure_before.fragment_raster_frames) {
+                    r.error_message = "Failed raster dispatch incremented a recorded-frame counter.";
+                    return r;
+                }
+                const auto recovery_before = failure_after;
+                params.frame_serial++;
+                if (!tile_renderer->render(p_rd, params).is_valid() || !recorded_once(recovery_before)) {
+                    r.error_message = "Raster publication did not recover through the required stage after the injected resource failure.";
+                    return r;
+                }
+            }
+        }
+
         r.passed = true;
         return r;
     }();

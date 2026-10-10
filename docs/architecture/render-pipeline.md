@@ -279,3 +279,13 @@ Relevant code:
 - [Architecture overview](overview.md)
 - [Lighting details](lighting-system.md)
 - [Memory and residency design](../../modules/gaussian_splatting/MEMORY_SUBSYSTEM.md)
+
+## Raster publication result
+
+Compute and fragment raster stages report successful command recording or failed
+recording explicitly. The executor treats an empty scene as a separate clear-only
+result. Recording does not certify GPU completion. Missing resources, wrong
+device generation or list creation failure reject the frame before resolve and
+publication. The previous output texture cannot become a new valid frame.
+Path counters increment only for recorded raster work. CPU dispatch timing
+includes failed attempts; GPU timestamps describe recorded work only.
