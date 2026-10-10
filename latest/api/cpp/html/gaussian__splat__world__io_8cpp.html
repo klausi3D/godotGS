@@ -89,6 +89,8 @@ $(document).ready(function(){initNavTree('gaussian__splat__world__io_8cpp.html',
 </div>
 
 <div class="header">
+  <div class="summary">
+<a href="#func-members">Functions</a>  </div>
   <div class="headertitle"><div class="title">gaussian_splat_world_io.cpp File Reference</div></div>
 </div><!--header-->
 <div class="contents">
@@ -96,6 +98,7 @@ $(document).ready(function(){initNavTree('gaussian__splat__world__io_8cpp.html',
 <code>#include &quot;<a class="el" href="gs__vector__alloc_8h_source.html">../core/gs_vector_alloc.h</a>&quot;</code><br />
 <code>#include &quot;core/error/error_macros.h&quot;</code><br />
 <code>#include &quot;core/io/file_access.h&quot;</code><br />
+<code>#include &quot;core/io/resource_importer.h&quot;</code><br />
 <code>#include &quot;core/io/json.h&quot;</code><br />
 <code>#include &quot;core/io/compression.h&quot;</code><br />
 <code>#include &quot;core/string/ustring.h&quot;</code><br />
@@ -103,17 +106,65 @@ $(document).ready(function(){initNavTree('gaussian__splat__world__io_8cpp.html',
 <code>#include &quot;<a class="el" href="io__settings__utils_8h_source.html">io_settings_utils.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__atomic__file__writer_8h_source.html">gs_atomic_file_writer.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__data_8h_source.html">../core/gaussian_data.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="gaussian__splat__hlod__tree_8h_source.html">../core/gaussian_splat_hlod_tree.h</a>&quot;</code><br />
+<code>#include &quot;<a class="el" href="gaussian__splat__hlod__merge_8h_source.html">../core/gaussian_splat_hlod_merge.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gaussian__splat__world_8h_source.html">../core/gaussian_splat_world.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gpu__culler_8h_source.html">../interfaces/gpu_culler.h</a>&quot;</code><br />
 <code>#include &quot;<a class="el" href="gs__logger_8h_source.html">../logger/gs_logger.h</a>&quot;</code><br />
+<code>#include &lt;algorithm&gt;</code><br />
+<code>#include &lt;cfloat&gt;</code><br />
 <code>#include &lt;cstring&gt;</code><br />
 <code>#include &lt;cstdint&gt;</code><br />
+<code>#include &lt;iterator&gt;</code><br />
+<code>#include &lt;cmath&gt;</code><br />
+<code>#include &lt;limits&gt;</code><br />
 </div><div class="textblock"><div class="dynheader">
 Include dependency graph for gaussian_splat_world_io.cpp:</div>
 <div class="dyncontent">
 <div class="center"><img src="gaussian__splat__world__io_8cpp__incl.png" border="0" usemap="#agaussian__splat__world__io_8cpp" alt=""/></div>
 </div>
-</div></div><!-- contents -->
+</div><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
+Functions</h2></td></tr>
+<tr class="memitem:a17cc2633e50d05074348d805af831f7e" id="r_a17cc2633e50d05074348d805af831f7e"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__splat__world__io_8cpp.html#a17cc2633e50d05074348d805af831f7e">gs_hlod_bounds_enclosing_root</a> (const <a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;p_tree, const AABB &amp;p_world_bounds, AABB &amp;r_bounds)</td></tr>
+<tr class="separator:a17cc2633e50d05074348d805af831f7e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table>
+<h2 class="groupheader">Function Documentation</h2>
+<a id="a17cc2633e50d05074348d805af831f7e" name="a17cc2633e50d05074348d805af831f7e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a17cc2633e50d05074348d805af831f7e">&#9670;&#160;</a></span>gs_hlod_bounds_enclosing_root()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_hlod_bounds_enclosing_root </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="structGaussianSplatHlodTree.html">GaussianSplatHlodTree</a> &amp;&#160;</td>
+          <td class="paramname"><em>p_tree</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const AABB &amp;&#160;</td>
+          <td class="paramname"><em>p_world_bounds</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">AABB &amp;&#160;</td>
+          <td class="paramname"><em>r_bounds</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+</div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->
 <div id="nav-path" class="navpath"><!-- id is needed for treeview function! -->

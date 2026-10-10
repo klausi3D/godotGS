@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="LODDebugStats",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structLODDebugStats.html",tooltip="Debug statistics for LOD system monitoring."];
+  Node0 [id="Node000000",label="gs_tier_cap::StreamingTier\lCapPolicy",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structgs__tier__cap_1_1StreamingTierCapPolicy.html",tooltip=" "];
 }

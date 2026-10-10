@@ -94,6 +94,7 @@ $(document).ready(function(){initNavTree('classGaussianData.html',''); initResiz
 <a href="#pub-methods">Public Member Functions</a> &#124;
 <a href="#pub-static-methods">Static Public Member Functions</a> &#124;
 <a href="#pro-static-methods">Static Protected Member Functions</a> &#124;
+<a href="#friends">Friends</a> &#124;
 <a href="classGaussianData-members.html">List of all members</a>  </div>
   <div class="headertitle"><div class="title">GaussianData Class Reference</div></div>
 </div><!--header-->
@@ -114,6 +115,11 @@ Collaboration diagram for GaussianData:</div>
 <div class="center"><img src="classGaussianData__coll__graph.png" border="0" usemap="#aGaussianData_coll__map" alt="Collaboration graph"/></div>
 <center><span class="legend">[<a target="top" href="graph_legend.html">legend</a>]</span></center></div>
 <table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
+Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
 <tr class="memitem:ac8420d56586c93ffba97a98ff458bafb" id="r_ac8420d56586c93ffba97a98ff458bafb"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ac8420d56586c93ffba97a98ff458bafb">GaussianData</a> ()</td></tr>
@@ -378,6 +384,11 @@ Static Protected Member Functions</h2></td></tr>
 <tr class="memitem:aa479c7b3aa99287a4ed7ff5fcb2fb40e" id="r_aa479c7b3aa99287a4ed7ff5fcb2fb40e"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#aa479c7b3aa99287a4ed7ff5fcb2fb40e">_bind_methods</a> ()</td></tr>
 <tr class="separator:aa479c7b3aa99287a4ed7ff5fcb2fb40e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="friends" name="friends"></a>
+Friends</h2></td></tr>
+<tr class="memitem:ac3eace805130e4ae95e48246e1c902d7" id="r_ac3eace805130e4ae95e48246e1c902d7"><td class="memItemLeft" align="right" valign="top">class&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ac3eace805130e4ae95e48246e1c902d7">GaussianSplatWorld</a></td></tr>
+<tr class="separator:ac3eace805130e4ae95e48246e1c902d7"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader">Spatial Queries</h2></td></tr>
 <tr class="memitem:a0bd6570d08f4c7fd897b3a5633de4274" id="r_a0bd6570d08f4c7fd897b3a5633de4274"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a0bd6570d08f4c7fd897b3a5633de4274">build_octree</a> (int p_max_depth=8, uint32_t p_min_gaussians=32)</td></tr>
 <tr class="memdesc:a0bd6570d08f4c7fd897b3a5633de4274"><td class="mdescLeft">&#160;</td><td class="mdescRight">Builds or rebuilds the internal octree for spatial queries.  <br /></td></tr>
@@ -391,9 +402,9 @@ Static Protected Member Functions</h2></td></tr>
 <tr class="memitem:af4258510b2e000f2d26a2c6973df5848" id="r_af4258510b2e000f2d26a2c6973df5848"><td class="memItemLeft" align="right" valign="top">const LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#af4258510b2e000f2d26a2c6973df5848">get_gaussian_storage</a> () const</td></tr>
 <tr class="memdesc:af4258510b2e000f2d26a2c6973df5848"><td class="mdescLeft">&#160;</td><td class="mdescRight">Direct access to internal storage.  <br /></td></tr>
 <tr class="separator:af4258510b2e000f2d26a2c6973df5848"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a7ba69ef746d8fc76ae02a37add9dce7c" id="r_a7ba69ef746d8fc76ae02a37add9dce7c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const</td></tr>
-<tr class="memdesc:a7ba69ef746d8fc76ae02a37add9dce7c"><td class="mdescLeft">&#160;</td><td class="mdescRight">Captures a coherent chunk snapshot for async pack jobs.  <br /></td></tr>
-<tr class="separator:a7ba69ef746d8fc76ae02a37add9dce7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a69c889321e57cc38a5c3d3a1451712a3" id="r_a69c889321e57cc38a5c3d3a1451712a3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count, <a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a> *r_metadata=nullptr) const</td></tr>
+<tr class="memdesc:a69c889321e57cc38a5c3d3a1451712a3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Captures a coherent chunk snapshot for async pack jobs.  <br /></td></tr>
+<tr class="separator:a69c889321e57cc38a5c3d3a1451712a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a44cfbd5eef347f191d4d3ac2318f4d4d" id="r_a44cfbd5eef347f191d4d3ac2318f4d4d"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a44cfbd5eef347f191d4d3ac2318f4d4d">capture_indexed_chunk_snapshot</a> (const uint32_t *p_indices, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const</td></tr>
 <tr class="separator:a44cfbd5eef347f191d4d3ac2318f4d4d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ada3c7f7c607bb9369fce70f8a8ae6265" id="r_ada3c7f7c607bb9369fce70f8a8ae6265"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ada3c7f7c607bb9369fce70f8a8ae6265">_debug_check_raw_storage_access</a> (const char *p_method)</td></tr>
@@ -411,7 +422,7 @@ Static Protected Member Functions</h2></td></tr>
 <li>Animation system integration for animated splats</li>
 <li>Octree-based spatial queries for frustum culling</li>
 </ul>
-<dl class="section user"><dt>Note: Thread safety: Gaussian payload, SH metadata, brush history, and</dt><dd>GaussianData-owned animation refs/state are serialized by <code>data_rwlock</code> (RWLock — readers may run concurrently, writers are exclusive). Animation state-machine sampling/update and animation caches are protected by a separate <code>animation_cache_mutex</code>. Async streaming pack jobs must read chunk data through <a class="el" href="classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> only, which captures under the read lock. </dd></dl>
+<dl class="section user"><dt>Note: Thread safety: Gaussian payload, SH metadata, brush history, and</dt><dd>GaussianData-owned animation refs/state are serialized by <code>data_rwlock</code> (RWLock — readers may run concurrently, writers are exclusive). Animation state-machine sampling/update and animation caches are protected by a separate <code>animation_cache_mutex</code>. Async streaming pack jobs must read chunk data through <a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> only, which captures under the read lock. </dd></dl>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="ac8420d56586c93ffba97a98ff458bafb" name="ac8420d56586c93ffba97a98ff458bafb"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ac8420d56586c93ffba97a98ff458bafb">&#9670;&#160;</a></span>GaussianData()</h2>
@@ -498,7 +509,7 @@ Static Protected Member Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Debug-only diagnostic for raw storage accessors. </p>
-<p>Fires once per process (in DEV_ENABLED builds) when the caller is off-main-thread. Intended to surface long-tail worker-thread readers that should be migrated to <a class="el" href="classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a>. In release builds this compiles to a no-op. </p>
+<p>Fires once per process (in DEV_ENABLED builds) when the caller is off-main-thread. Intended to surface long-tail worker-thread readers that should be migrated to <a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a>. In release builds this compiles to a no-op. </p>
 
 </div>
 </div>
@@ -736,8 +747,8 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a7ba69ef746d8fc76ae02a37add9dce7c" name="a7ba69ef746d8fc76ae02a37add9dce7c"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a7ba69ef746d8fc76ae02a37add9dce7c">&#9670;&#160;</a></span>capture_chunk_snapshot()</h2>
+<a id="a69c889321e57cc38a5c3d3a1451712a3" name="a69c889321e57cc38a5c3d3a1451712a3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a69c889321e57cc38a5c3d3a1451712a3">&#9670;&#160;</a></span>capture_chunk_snapshot()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -776,7 +787,13 @@ Static Protected Member Functions</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t &amp;&#160;</td>
-          <td class="paramname"><em>r_sh_high_order_count</em>&#160;</td>
+          <td class="paramname"><em>r_sh_high_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype"><a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a> *&#160;</td>
+          <td class="paramname"><em>r_metadata</em> = <code>nullptr</code>&#160;</td>
         </tr>
         <tr>
           <td></td>
@@ -796,6 +813,7 @@ Static Protected Member Functions</h2></td></tr>
     <tr><td class="paramdir">[out]</td><td class="paramname">r_sh_high_order</td><td>Snapshot of high-order SH coefficients for the chunk. </td></tr>
     <tr><td class="paramdir">[out]</td><td class="paramname">r_sh_first_order_count</td><td>First-order SH coefficient count. </td></tr>
     <tr><td class="paramdir">[out]</td><td class="paramname">r_sh_high_order_count</td><td>High-order SH coefficient count. </td></tr>
+    <tr><td class="paramdir">[out]</td><td class="paramname">r_metadata</td><td>Optional header state and revision, captured under data_rwlock with the payload. </td></tr>
   </table>
   </dd>
 </dl>
@@ -1453,7 +1471,7 @@ Static Protected Member Functions</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Direct access to internal storage. </p>
-<p>Render-thread only. Worker threads must use <a class="el" href="classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> instead.</p>
+<p>Render-thread only. Worker threads must use <a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> instead.</p>
 <p>In dev builds this emits a once-per-process diagnostic if it is called from a context that looks like obvious misuse (off main thread without an explicit render-thread opt-in). This is a tripwire, not a hard block — legitimate render-thread consumers remain functional. </p>
 
 </div>
@@ -1475,7 +1493,7 @@ Static Protected Member Functions</h2></td></tr>
 
 <p>Returns a pointer to the raw <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> array. </p>
 <dl class="section return"><dt>Returns</dt><dd>Pointer to contiguous <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> storage, or nullptr if empty.</dd></dl>
-<dl class="section warning"><dt>Warning</dt><dd>Raw accessor. Caller must be on the render/main thread OR hold a read lock. Async worker threads MUST use <a class="el" href="classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> / <a class="el" href="classGaussianData.html#a44cfbd5eef347f191d4d3ac2318f4d4d">capture_indexed_chunk_snapshot()</a> instead. This method trips a once-per-process dev-build diagnostic if obvious misuse is detected. </dd></dl>
+<dl class="section warning"><dt>Warning</dt><dd>Raw accessor. Caller must be on the render/main thread OR hold a read lock. Async worker threads MUST use <a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3" title="Captures a coherent chunk snapshot for async pack jobs.">capture_chunk_snapshot()</a> / <a class="el" href="classGaussianData.html#a44cfbd5eef347f191d4d3ac2318f4d4d">capture_indexed_chunk_snapshot()</a> instead. This method trips a once-per-process dev-build diagnostic if obvious misuse is detected. </dd></dl>
 
 </div>
 </div>
@@ -3008,6 +3026,29 @@ Static Protected Member Functions</h2></td></tr>
   </dd>
 </dl>
 <dl class="section return"><dt>Returns</dt><dd>OK if payload is upload-safe, ERR_INVALID_DATA otherwise. </dd></dl>
+
+</div>
+</div>
+<h2 class="groupheader">Friends And Related Symbol Documentation</h2>
+<a id="ac3eace805130e4ae95e48246e1c902d7" name="ac3eace805130e4ae95e48246e1c902d7"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac3eace805130e4ae95e48246e1c902d7">&#9670;&#160;</a></span>GaussianSplatWorld</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">friend class <a class="el" href="classGaussianSplatWorld.html">GaussianSplatWorld</a></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">friend</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
 
 </div>
 </div>

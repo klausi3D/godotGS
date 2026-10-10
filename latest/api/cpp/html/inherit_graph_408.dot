@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="StreamingUploadPipeline\l::PackTelemetry",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structStreamingUploadPipeline_1_1PackTelemetry.html",tooltip=" "];
+  Node0 [id="Node000000",label="StreamingEvictionController\l::NonPrimaryEvictionCandidate",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structStreamingEvictionController_1_1NonPrimaryEvictionCandidate.html",tooltip=" "];
 }

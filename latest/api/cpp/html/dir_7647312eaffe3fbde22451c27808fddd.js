@@ -4,7 +4,7 @@ var dir_7647312eaffe3fbde22451c27808fddd =
     [ "gaussian_data_loader.h", "gaussian__data__loader_8h.html", "gaussian__data__loader_8h" ],
     [ "gaussian_import_preset.cpp", "gaussian__import__preset_8cpp.html", "gaussian__import__preset_8cpp" ],
     [ "gaussian_import_preset.h", "gaussian__import__preset_8h.html", "gaussian__import__preset_8h" ],
-    [ "gaussian_splat_world_io.cpp", "gaussian__splat__world__io_8cpp.html", null ],
+    [ "gaussian_splat_world_io.cpp", "gaussian__splat__world__io_8cpp.html", "gaussian__splat__world__io_8cpp" ],
     [ "gaussian_splat_world_io.h", "gaussian__splat__world__io_8h.html", "gaussian__splat__world__io_8h" ],
     [ "gs_atomic_file_writer.cpp", "gs__atomic__file__writer_8cpp.html", "gs__atomic__file__writer_8cpp" ],
     [ "gs_atomic_file_writer.h", "gs__atomic__file__writer_8h.html", "gs__atomic__file__writer_8h" ],

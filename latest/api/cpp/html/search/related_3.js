@@ -16,5 +16,6 @@ var searchData=
   ['gaussiansplatting_3a_3atilesubpixelhistorybuffers_13',['TileSubpixelHistoryBuffers',['../classTileRenderer.html#a684256f9294c506130cf174875a42a0a',1,'TileRenderer']]],
   ['gaussiansplatting_3a_3atilesubpixelvisibilitybuffers_14',['TileSubpixelVisibilityBuffers',['../classTileRenderer.html#aad40527c851552ab6de2519fc22b77d5',1,'TileRenderer']]],
   ['gaussiansplatting_3a_3atileuniformbuffers_15',['TileUniformBuffers',['../classTileRenderer.html#a3b7e5e1e19674110498cc09dc4d3a71f',1,'TileRenderer']]],
-  ['gaussianstreamingsystem_16',['gaussianstreamingsystem',['../classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingGlobalAtlasRegistry::GaussianStreamingSystem'],['../classStreamingVisibilityController.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingVisibilityController::GaussianStreamingSystem']]]
+  ['gaussiansplatworld_16',['GaussianSplatWorld',['../classGaussianData.html#ac3eace805130e4ae95e48246e1c902d7',1,'GaussianData']]],
+  ['gaussianstreamingsystem_17',['gaussianstreamingsystem',['../classStreamingGlobalAtlasRegistry.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingGlobalAtlasRegistry::GaussianStreamingSystem'],['../classStreamingVisibilityController.html#ab8502788321cd608deaf44e722b1ff02',1,'StreamingVisibilityController::GaussianStreamingSystem']]]
 ];

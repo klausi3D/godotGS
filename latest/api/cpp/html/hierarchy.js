@@ -26,6 +26,9 @@ var hierarchy =
     [ "AttachmentValidationInfo", "structAttachmentValidationInfo.html", null ],
     [ "GPUSorterFactory::AutoThresholds", "structGPUSorterFactory_1_1AutoThresholds.html", null ],
     [ "AutoTuneResult", "structAutoTuneResult.html", null ],
+    [ "gs_hlod::BakeInput", "structgs__hlod_1_1BakeInput.html", null ],
+    [ "gs_hlod::BakeParams", "structgs__hlod_1_1BakeParams.html", null ],
+    [ "gs_hlod::BakeResult", "structgs__hlod_1_1BakeResult.html", null ],
     [ "TileBinningStage::BinningUniformSets", "structTileBinningStage_1_1BinningUniformSets.html", null ],
     [ "GaussianMemoryStream::MemoryPool::Block", "structGaussianMemoryStream_1_1MemoryPool_1_1Block.html", null ],
     [ "GaussianStreamingTypes::BudgetState", "structGaussianStreamingTypes_1_1BudgetState.html", null ],
@@ -38,6 +41,7 @@ var hierarchy =
       [ "GaussianSplatPerformanceOverlay", "classGaussianSplatPerformanceOverlay.html", null ]
     ] ],
     [ "GaussianSplatting::ComputeInfrastructure::CapabilityGatePolicy", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy.html", null ],
+    [ "gs_hlod::CellMergeMoments", "structgs__hlod_1_1CellMergeMoments.html", null ],
     [ "GaussianSplatting::ChangeEntry", "structGaussianSplatting_1_1ChangeEntry.html", null ],
     [ "ChunkBounds", "structChunkBounds.html", null ],
     [ "StreamingVisibilityController::ChunkCullingStats", "structStreamingVisibilityController_1_1ChunkCullingStats.html", null ],
@@ -49,6 +53,7 @@ var hierarchy =
     [ "ChunkQuantizationGPU", "structChunkQuantizationGPU.html", null ],
     [ "ChunkQuantizationInfo", "structChunkQuantizationInfo.html", null ],
     [ "ChunkQuantizationRuntimeParams", "structChunkQuantizationRuntimeParams.html", null ],
+    [ "GaussianData::ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", null ],
     [ "ChunkSpatialGrid", "structChunkSpatialGrid.html", null ],
     [ "RenderingError::Code", "structRenderingError_1_1Code.html", null ],
     [ "TileShaderCompilation::CompilationResult", "structTileShaderCompilation_1_1CompilationResult.html", null ],
@@ -123,6 +128,11 @@ var hierarchy =
     [ "GaussianImportPresetDefinition", "structGaussianImportPresetDefinition.html", null ],
     [ "GaussianRenderingDiagnostics", "classGaussianRenderingDiagnostics.html", null ],
     [ "GaussianSplatConfigRegistry", "classGaussianSplatConfigRegistry.html", null ],
+    [ "GaussianSplatHlodBakeStats", "structGaussianSplatHlodBakeStats.html", null ],
+    [ "GaussianSplatHlodCell", "structGaussianSplatHlodCell.html", null ],
+    [ "GaussianSplatHlodInstance", "structGaussianSplatHlodInstance.html", null ],
+    [ "GaussianSplatHlodNode", "structGaussianSplatHlodNode.html", null ],
+    [ "GaussianSplatHlodTree", "structGaussianSplatHlodTree.html", null ],
     [ "GaussianSplatting::GaussianSplatLODConfig", "structGaussianSplatting_1_1GaussianSplatLODConfig.html", null ],
     [ "GaussianSplatMergeResult", "structGaussianSplatMergeResult.html", null ],
     [ "GaussianSplatMergeSource", "structGaussianSplatMergeSource.html", null ],
@@ -181,6 +191,9 @@ var hierarchy =
     [ "GaussianRenderConfig::InteractiveStateConfig< InteractiveStateT >", "structGaussianRenderConfig_1_1InteractiveStateConfig.html", null ],
     [ "GaussianRenderConfig::InteractiveStateConfig< InteractiveState >", "structGaussianRenderConfig_1_1InteractiveStateConfig.html", null ],
     [ "InteractiveUniformData", "structInteractiveUniformData.html", null ],
+    [ "gs_hlod::InteriorBakeParams", "structgs__hlod_1_1InteriorBakeParams.html", null ],
+    [ "gs_hlod::InteriorBakeResult", "structgs__hlod_1_1InteriorBakeResult.html", null ],
+    [ "gs_hlod::InteriorBakeScratch", "structgs__hlod_1_1InteriorBakeScratch.html", null ],
     [ "GaussianSplatting::InstancePipelineContract::InvariantViolation", "structGaussianSplatting_1_1InstancePipelineContract_1_1InvariantViolation.html", null ],
     [ "IOutputCompositor", "classIOutputCompositor.html", [
       [ "OutputCompositor", "classOutputCompositor.html", null ]
@@ -243,6 +256,8 @@ var hierarchy =
     [ "LODDebugStats", "structLODDebugStats.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure::QueryResult::LODStats", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1QueryResult_1_1LODStats.html", null ],
     [ "GaussianMemoryStream::MemoryPool", "structGaussianMemoryStream_1_1MemoryPool.html", null ],
+    [ "gs_hlod::MergeCellEntry", "structgs__hlod_1_1MergeCellEntry.html", null ],
+    [ "gs_hlod::MergeScratch", "structgs__hlod_1_1MergeScratch.html", null ],
     [ "gs::ModuleStringNames", "structgs_1_1ModuleStringNames.html", null ],
     [ "GaussianSplattingPerformanceMonitors::MonitorSourceInfo", "structGaussianSplattingPerformanceMonitors_1_1MonitorSourceInfo.html", null ],
     [ "GaussianSplatRenderer::MonitorStreamingSnapshot", "structGaussianSplatRenderer_1_1MonitorStreamingSnapshot.html", null ],
@@ -305,6 +320,7 @@ var hierarchy =
     [ "PLYLoader::PLYProperty", "structPLYLoader_1_1PLYProperty.html", null ],
     [ "GPUSorterFactory::PolicyDecision", "structGPUSorterFactory_1_1PolicyDecision.html", null ],
     [ "GPUSorterFactory::PolicyProbe", "structGPUSorterFactory_1_1PolicyProbe.html", null ],
+    [ "StagedFileChunkPayloadSource::PositionFrame", "structStagedFileChunkPayloadSource_1_1PositionFrame.html", null ],
     [ "TilePrefixScanStage::PrefixDispatchContext", "structTilePrefixScanStage_1_1PrefixDispatchContext.html", null ],
     [ "StreamingQueuePressureController::PressureSample", "structStreamingQueuePressureController_1_1PressureSample.html", null ],
     [ "StreamingQueuePressureController::PressureSummary", "structStreamingQueuePressureController_1_1PressureSummary.html", null ],
@@ -405,7 +421,9 @@ var hierarchy =
     ] ],
     [ "ResourceFormatLoader", null, [
       [ "ResourceFormatLoaderGaussianSplat", "classResourceFormatLoaderGaussianSplat.html", null ],
-      [ "ResourceFormatLoaderGaussianSplatWorld", "classResourceFormatLoaderGaussianSplatWorld.html", null ]
+      [ "ResourceFormatLoaderGaussianSplatWorld", "classResourceFormatLoaderGaussianSplatWorld.html", [
+        [ "ResourceFormatLoaderImportedGaussianSplatWorld", "classResourceFormatLoaderImportedGaussianSplatWorld.html", null ]
+      ] ]
     ] ],
     [ "ResourceFormatSaver", null, [
       [ "ResourceFormatSaverGaussianSplatWorld", "classResourceFormatSaverGaussianSplatWorld.html", null ]
@@ -477,7 +495,9 @@ var hierarchy =
     [ "GaussianSplatting::SplatChange", "structGaussianSplatting_1_1SplatChange.html", null ],
     [ "GaussianRenderPipeline::SplatDataSource", "structGaussianRenderPipeline_1_1SplatDataSource.html", null ],
     [ "GaussianSplatting::HierarchicalSplatStructure::SplatInfo", "structGaussianSplatting_1_1HierarchicalSplatStructure_1_1SplatInfo.html", null ],
+    [ "gs_hlod::SplatList", "structgs__hlod_1_1SplatList.html", null ],
     [ "SplatRefGPU", "structSplatRefGPU.html", null ],
+    [ "gs_hlod::SplatSpan", "structgs__hlod_1_1SplatSpan.html", null ],
     [ "SPZLoader::SPZHeader", "structSPZLoader_1_1SPZHeader.html", null ],
     [ "GaussianRenderPipeline::StageIO", "structGaussianRenderPipeline_1_1StageIO.html", null ],
     [ "GaussianRenderPipeline::StageMetrics", "structGaussianRenderPipeline_1_1StageMetrics.html", null ],

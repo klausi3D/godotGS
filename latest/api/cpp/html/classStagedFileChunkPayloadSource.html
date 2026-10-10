@@ -114,6 +114,8 @@ Collaboration diagram for StagedFileChunkPayloadSource:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend.html">ScopedReaderSuspend</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
@@ -125,6 +127,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a97e6848ce86f528622c871ba9a571bcc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae9e5de5e6446c13dd3d10e3840cd7bbb" id="r_ae9e5de5e6446c13dd3d10e3840cd7bbb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ae9e5de5e6446c13dd3d10e3840cd7bbb">configure</a> (const String &amp;p_path, uint64_t p_gaussian_offset, uint64_t p_sh_offset, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order, const AABB &amp;p_bounds)</td></tr>
 <tr class="separator:ae9e5de5e6446c13dd3d10e3840cd7bbb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad73e7c70dbc587d22521a316ca4ed2e2" id="r_ad73e7c70dbc587d22521a316ca4ed2e2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ad73e7c70dbc587d22521a316ca4ed2e2">set_position_frames</a> (const LocalVector&lt; <a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a> &gt; &amp;p_frames)</td></tr>
+<tr class="separator:ad73e7c70dbc587d22521a316ca4ed2e2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a53085fc916ab1f6a83f6ea169f4d6dc2" id="r_a53085fc916ab1f6a83f6ea169f4d6dc2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a53085fc916ab1f6a83f6ea169f4d6dc2">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const override</td></tr>
 <tr class="separator:a53085fc916ab1f6a83f6ea169f4d6dc2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a738a85e1748b247f96b272c9e72af2ee" id="r_a738a85e1748b247f96b272c9e72af2ee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a738a85e1748b247f96b272c9e72af2ee">capture_indexed_chunk_snapshot</a> (const uint32_t *p_indices, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const override</td></tr>
@@ -153,6 +157,8 @@ Public Member Functions</h2></td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pro-methods" name="pro-methods"></a>
 Protected Member Functions</h2></td></tr>
+<tr class="memitem:aab84f5a0fddd4228cf1a203e367e14f1" id="r_aab84f5a0fddd4228cf1a203e367e14f1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#aab84f5a0fddd4228cf1a203e367e14f1">_apply_position_frames</a> (const uint32_t *p_indices, uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians) const</td></tr>
+<tr class="separator:aab84f5a0fddd4228cf1a203e367e14f1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3ebcc70ab0731c5d6617f6af9bb98ec6" id="r_a3ebcc70ab0731c5d6617f6af9bb98ec6"><td class="memItemLeft" align="right" valign="top">Ref&lt; FileAccess &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a3ebcc70ab0731c5d6617f6af9bb98ec6">_get_thread_file</a> () const</td></tr>
 <tr class="separator:a3ebcc70ab0731c5d6617f6af9bb98ec6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a964f6cd8ded86d0cd1c7a975a73274e5" id="r_a964f6cd8ded86d0cd1c7a975a73274e5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a964f6cd8ded86d0cd1c7a975a73274e5">_read_exact</a> (FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read=nullptr) const</td></tr>
@@ -200,6 +206,8 @@ Protected Attributes</h2></td></tr>
 <tr class="separator:a596f163164b0fe8d1b965686f6c15100"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a794b6a3ebfa795522611591382c2ea98" id="r_a794b6a3ebfa795522611591382c2ea98"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a794b6a3ebfa795522611591382c2ea98">file_open_count</a> = 0</td></tr>
 <tr class="separator:a794b6a3ebfa795522611591382c2ea98"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac34ce39717a894ed41ee1d23f4841278" id="r_ac34ce39717a894ed41ee1d23f4841278"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; <a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ac34ce39717a894ed41ee1d23f4841278">position_frames</a></td></tr>
+<tr class="separator:ac34ce39717a894ed41ee1d23f4841278"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="acf575483ba95ccdde36fc68c11899952" name="acf575483ba95ccdde36fc68c11899952"></a>
@@ -245,6 +253,54 @@ Protected Attributes</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
+<a id="aab84f5a0fddd4228cf1a203e367e14f1" name="aab84f5a0fddd4228cf1a203e367e14f1"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aab84f5a0fddd4228cf1a203e367e14f1">&#9670;&#160;</a></span>_apply_position_frames()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool StagedFileChunkPayloadSource::_apply_position_frames </td>
+          <td>(</td>
+          <td class="paramtype">const uint32_t *&#160;</td>
+          <td class="paramname"><em>p_indices</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_start</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;&#160;</td>
+          <td class="paramname"><em>r_gaussians</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a364e4dd687fb58500e810ebcbcd5acb2" name="a364e4dd687fb58500e810ebcbcd5acb2"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a364e4dd687fb58500e810ebcbcd5acb2">&#9670;&#160;</a></span>_bind_methods()</h2>
 
@@ -830,6 +886,24 @@ Protected Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ad73e7c70dbc587d22521a316ca4ed2e2" name="ad73e7c70dbc587d22521a316ca4ed2e2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad73e7c70dbc587d22521a316ca4ed2e2">&#9670;&#160;</a></span>set_position_frames()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool StagedFileChunkPayloadSource::set_position_frames </td>
+          <td>(</td>
+          <td class="paramtype">const LocalVector&lt; <a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a> &gt; &amp;&#160;</td>
+          <td class="paramname"><em>p_frames</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <h2 class="groupheader">Member Data Documentation</h2>
 <a id="a1f6d1d6887adadd735da465b0767dd91" name="a1f6d1d6887adadd735da465b0767dd91"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a1f6d1d6887adadd735da465b0767dd91">&#9670;&#160;</a></span>bounds</h2>
@@ -974,6 +1048,28 @@ Protected Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t StagedFileChunkPayloadSource::gaussian_data_offset = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac34ce39717a894ed41ee1d23f4841278" name="ac34ce39717a894ed41ee1d23f4841278"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac34ce39717a894ed41ee1d23f4841278">&#9670;&#160;</a></span>position_frames</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">LocalVector&lt;<a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a>&gt; StagedFileChunkPayloadSource::position_frames</td>
         </tr>
       </table>
   </td>

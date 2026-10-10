@@ -53,6 +53,7 @@ var namespaces_dup =
       [ "safe_texture_get_data", "namespacegs__device__utils.html#ac68f17389f188703848b534c1945632f", null ],
       [ "settle_outstanding_submit", "namespacegs__device__utils.html#a0790a6bd67a8deb285f07b44110b5256", null ]
     ] ],
+    [ "gs_hlod", "namespacegs__hlod.html", "namespacegs__hlod" ],
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],

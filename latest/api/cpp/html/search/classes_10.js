@@ -40,9 +40,10 @@ var searchData=
   ['plyproperty_37',['PLYProperty',['../structPLYLoader_1_1PLYProperty.html',1,'PLYLoader']]],
   ['policydecision_38',['PolicyDecision',['../structGPUSorterFactory_1_1PolicyDecision.html',1,'GPUSorterFactory']]],
   ['policyprobe_39',['PolicyProbe',['../structGPUSorterFactory_1_1PolicyProbe.html',1,'GPUSorterFactory']]],
-  ['prefixdispatchcontext_40',['PrefixDispatchContext',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html',1,'TilePrefixScanStage']]],
-  ['pressuresample_41',['PressureSample',['../structStreamingQueuePressureController_1_1PressureSample.html',1,'StreamingQueuePressureController']]],
-  ['pressuresummary_42',['PressureSummary',['../structStreamingQueuePressureController_1_1PressureSummary.html',1,'StreamingQueuePressureController']]],
-  ['primarychunklayoutmetrics_43',['PrimaryChunkLayoutMetrics',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html',1,'GaussianStreamingTypes']]],
-  ['publishedinstanceassetremap_44',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
+  ['positionframe_40',['PositionFrame',['../structStagedFileChunkPayloadSource_1_1PositionFrame.html',1,'StagedFileChunkPayloadSource']]],
+  ['prefixdispatchcontext_41',['PrefixDispatchContext',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html',1,'TilePrefixScanStage']]],
+  ['pressuresample_42',['PressureSample',['../structStreamingQueuePressureController_1_1PressureSample.html',1,'StreamingQueuePressureController']]],
+  ['pressuresummary_43',['PressureSummary',['../structStreamingQueuePressureController_1_1PressureSummary.html',1,'StreamingQueuePressureController']]],
+  ['primarychunklayoutmetrics_44',['PrimaryChunkLayoutMetrics',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html',1,'GaussianStreamingTypes']]],
+  ['publishedinstanceassetremap_45',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
 ];

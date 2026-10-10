@@ -4,6 +4,7 @@ var gaussian__data_8h =
     [ "GaussianSplatting::GaussianData", "structGaussianSplatting_1_1GaussianData.html", "structGaussianSplatting_1_1GaussianData" ],
     [ "Gaussian", "structGaussian.html", "structGaussian" ],
     [ "GaussianData", "classGaussianData.html", "classGaussianData" ],
+    [ "GaussianData::ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
     [ "GaussianDCEncoding", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40", [
       [ "GAUSSIAN_DC_ENCODING_LEGACY_BIAS", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40ab520416b597f11a93b07cd92d0f2e612", null ],
       [ "GAUSSIAN_DC_ENCODING_LINEAR_RGB", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40a50486bdfa7fcef022420f9336f15dc2c", null ]

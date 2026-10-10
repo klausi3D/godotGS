@@ -1,8 +1,10 @@
 var classStagedFileChunkPayloadSource =
 [
+    [ "PositionFrame", "structStagedFileChunkPayloadSource_1_1PositionFrame.html", "structStagedFileChunkPayloadSource_1_1PositionFrame" ],
     [ "ScopedReaderSuspend", "classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend.html", "classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend" ],
     [ "StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html#acf575483ba95ccdde36fc68c11899952", null ],
     [ "~StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc", null ],
+    [ "_apply_position_frames", "classStagedFileChunkPayloadSource.html#aab84f5a0fddd4228cf1a203e367e14f1", null ],
     [ "_get_thread_file", "classStagedFileChunkPayloadSource.html#a3ebcc70ab0731c5d6617f6af9bb98ec6", null ],
     [ "_read_exact", "classStagedFileChunkPayloadSource.html#a964f6cd8ded86d0cd1c7a975a73274e5", null ],
     [ "_record_io_counters", "classStagedFileChunkPayloadSource.html#afa8ac443ce0e3483b018010518408b7d", null ],
@@ -18,6 +20,7 @@ var classStagedFileChunkPayloadSource =
     [ "get_sh_degree", "classStagedFileChunkPayloadSource.html#a04d0af8029dc1d901b6427c50a032dcc", null ],
     [ "is_valid", "classStagedFileChunkPayloadSource.html#ad073082280c76c4454e1ad6ea8d21550", null ],
     [ "reset_io_counters", "classStagedFileChunkPayloadSource.html#a15398eb9dd92c4d4c2bb538f155a6c7c", null ],
+    [ "set_position_frames", "classStagedFileChunkPayloadSource.html#ad73e7c70dbc587d22521a316ca4ed2e2", null ],
     [ "bounds", "classStagedFileChunkPayloadSource.html#a1f6d1d6887adadd735da465b0767dd91", null ],
     [ "bytes_read", "classStagedFileChunkPayloadSource.html#a596f163164b0fe8d1b965686f6c15100", null ],
     [ "bytes_requested", "classStagedFileChunkPayloadSource.html#ab5ef15273c169ddec02f3d481430cf4b", null ],
@@ -25,6 +28,7 @@ var classStagedFileChunkPayloadSource =
     [ "file_mutex", "classStagedFileChunkPayloadSource.html#a6d5b7560f561217899be96a3a8a22f34", null ],
     [ "file_open_count", "classStagedFileChunkPayloadSource.html#a794b6a3ebfa795522611591382c2ea98", null ],
     [ "gaussian_data_offset", "classStagedFileChunkPayloadSource.html#a9d00a29e1fd2e00ff0dc422d5c426918", null ],
+    [ "position_frames", "classStagedFileChunkPayloadSource.html#ac34ce39717a894ed41ee1d23f4841278", null ],
     [ "sh_data_offset", "classStagedFileChunkPayloadSource.html#a9509634b1bea4f759c6f85402e908e45", null ],
     [ "sh_degree", "classStagedFileChunkPayloadSource.html#a082a20510458d1a1bbe51250ada07069", null ],
     [ "sh_first_order", "classStagedFileChunkPayloadSource.html#a1dc8078df70cfbe07ab3e238db0fa671", null ],

@@ -5,7 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="GaussianRenderDebug\l::DebugConfigBase",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfigBase.html",tooltip="Base debug configuration flags independent of renderer class."];
-  Node0 -> Node1 [id="edge3_Node000000_Node000001",dir="back",color="steelblue1",style="solid",tooltip=" "];
-  Node1 [id="Node000001",label="GaussianRenderDebug\l::DebugConfig",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianRenderDebug_1_1DebugConfig.html",tooltip=" "];
+  Node0 [id="Node000000",label="GaussianRenderConfig\l::StateUniformData",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianRenderConfig_1_1StateUniformData.html",tooltip="GPU uniform data for interactive state rendering effects."];
 }

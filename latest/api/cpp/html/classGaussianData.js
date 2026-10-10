@@ -1,5 +1,6 @@
 var classGaussianData =
 [
+    [ "ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
     [ "GaussianData", "classGaussianData.html#ac8420d56586c93ffba97a98ff458bafb", null ],
     [ "~GaussianData", "classGaussianData.html#ab06af58eeeb7980227ee2639d6aabc11", null ],
     [ "all_render_fields_finite", "classGaussianData.html#a69b1c0bb4dfec56fb8c7bc9ee6163689", null ],
@@ -8,7 +9,7 @@ var classGaussianData =
     [ "bake_color_grading", "classGaussianData.html#ab92acfa907ddeb24f3590f6dc4917c72", null ],
     [ "build_octree", "classGaussianData.html#a0bd6570d08f4c7fd897b3a5633de4274", null ],
     [ "capture_brush_affected_state", "classGaussianData.html#ac27d1689efa40d996bc2e098ccd383c3", null ],
-    [ "capture_chunk_snapshot", "classGaussianData.html#a7ba69ef746d8fc76ae02a37add9dce7c", null ],
+    [ "capture_chunk_snapshot", "classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3", null ],
     [ "capture_indexed_chunk_snapshot", "classGaussianData.html#a44cfbd5eef347f191d4d3ac2318f4d4d", null ],
     [ "clear_brush_strokes", "classGaussianData.html#aa53d92472844d6fc19d4bb61e7c3609d", null ],
     [ "commit_runtime_changes", "classGaussianData.html#aa0ffffbc6805518ed386da30a1716215", null ],
@@ -87,5 +88,6 @@ var classGaussianData =
     [ "set_stroke_ages", "classGaussianData.html#a43420ec15c15f1898ad7614dbf693b14", null ],
     [ "update_animation", "classGaussianData.html#a7ee4fc675e4c5607c87cbbd69466e90e", null ],
     [ "update_gpu_buffer", "classGaussianData.html#a5b346238fa0d39ba60380f35f2aecd33", null ],
-    [ "validate_gpu_payload", "classGaussianData.html#a1bae684385faf13217d37701ba246119", null ]
+    [ "validate_gpu_payload", "classGaussianData.html#a1bae684385faf13217d37701ba246119", null ],
+    [ "GaussianSplatWorld", "classGaussianData.html#ac3eace805130e4ae95e48246e1c902d7", null ]
 ];
