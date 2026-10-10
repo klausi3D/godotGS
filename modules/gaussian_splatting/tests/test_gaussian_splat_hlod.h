@@ -1979,6 +1979,64 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 	}
 }
 
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 save refuses metadata that cannot round-trip as JSON") {
+	using namespace TestGaussianSplatHlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(30u, 10u, g);
+	Ref<GaussianSplatWorld> world = hlod_make_world(g);
+	if (world->bake_hlod() != OK) {
+		FAIL("bake metadata round-trip control");
+		return;
+	}
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	const String path = hlod_temp_path("metadata_review_r3");
+	// Control: finite floats (top level and nested) save and reload.
+	Dictionary finite;
+	finite["scale"] = 0.5;
+	Array nested;
+	nested.push_back(-2.25);
+	finite["nested"] = nested;
+	world->set_metadata(finite);
+	if (saver.save(world, path) != OK) {
+		FAIL("save finite metadata control");
+		return;
+	}
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> control = loader.load(path, "", &err);
+	CHECK(err == OK);
+	CHECK(control.is_valid());
+	const PackedByteArray previous = hlod_read_file(path);
+	control.unref();
+
+	const double non_finite[] = { NAN, INFINITY, -INFINITY };
+	for (double value : non_finite) {
+		for (bool in_array : { false, true }) {
+			CAPTURE(value);
+			CAPTURE(in_array);
+			Dictionary bad;
+			if (in_array) {
+				Array arr;
+				arr.push_back(value);
+				bad["nested"] = arr;
+			} else {
+				bad["scale"] = value;
+			}
+			world->set_metadata(bad);
+			for (int mode = 1; mode <= 3; mode++) {
+				CAPTURE(mode);
+				ERR_PRINT_OFF;
+				const Error save_err = saver.save_with_payload_mode(world, path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode));
+				ERR_PRINT_ON;
+				CHECK(save_err == ERR_INVALID_DATA);
+				// The refused save must not replace the previous, loadable file.
+				CHECK(bool(hlod_read_file(path) == previous));
+			}
+		}
+	}
+	DirAccess::remove_absolute(path);
+}
+
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects finite doubles that overflow runtime node coordinates") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;

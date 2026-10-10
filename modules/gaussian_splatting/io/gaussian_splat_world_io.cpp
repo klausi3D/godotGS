@@ -867,6 +867,20 @@ static bool _hlod_header_bounds(const GaussianSplatHlodTree &p_tree, const AABB 
 	return false;
 }
 
+// The one v2 metadata acceptance rule, shared by the loader and the saver so the saver never
+// publishes metadata the loader refuses (JSON::stringify writes non-finite floats as nan/inf).
+static bool _decode_v2_metadata_json(const PackedByteArray &p_bytes, Dictionary &r_metadata) {
+	String text;
+	JSON json;
+	if (p_bytes.is_empty() || memchr(p_bytes.ptr(), 0, p_bytes.size()) != nullptr ||
+			text.append_utf8(reinterpret_cast<const char *>(p_bytes.ptr()), p_bytes.size()) != OK ||
+			json.parse(text) != OK || json.get_data().get_type() != Variant::DICTIONARY) {
+		return false;
+	}
+	r_metadata = json.get_data();
+	return true;
+}
+
 static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
@@ -1054,14 +1068,9 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		if (!_read_exact(p_file, metadata_bytes.ptrw(), p_metadata_size) || p_file->get_error() != OK) {
 			return refuse("short read or read error in metadata");
 		}
-		String text;
-		JSON json;
-		if (memchr(metadata_bytes.ptr(), 0, metadata_bytes.size()) != nullptr ||
-				text.append_utf8(reinterpret_cast<const char *>(metadata_bytes.ptr()), metadata_bytes.size()) != OK ||
-				json.parse(text) != OK || json.get_data().get_type() != Variant::DICTIONARY) {
+		if (!_decode_v2_metadata_json(metadata_bytes, file_metadata)) {
 			return refuse("metadata is not a valid UTF-8 JSON dictionary");
 		}
-		file_metadata = json.get_data();
 	}
 	if (r_progress) {
 		*r_progress = 0.25f;
@@ -1281,6 +1290,15 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		flags |= kFlagCompressed;
 	}
 	const PackedByteArray metadata_bytes = _build_world_metadata_bytes(p_world, flags);
+	if ((flags & kFlagHasMetadata) != 0u) {
+		// Same acceptance as the v2 loader, so a saved file always reloads.
+		Dictionary reparsed;
+		ERR_FAIL_COND_V_MSG(uint64_t(metadata_bytes.size()) >= uint64_t(INT32_MAX) || !_decode_v2_metadata_json(metadata_bytes, reparsed),
+				ERR_INVALID_DATA,
+				vformat("Refusing to save %s: the world metadata does not serialize to JSON the loader can read back "
+						"(non-finite floats such as NaN or INF have no JSON form).",
+						p_path));
+	}
 
 	HlodHeaderExtension ext;
 	for (int a = 0; a < 3; a++) {
