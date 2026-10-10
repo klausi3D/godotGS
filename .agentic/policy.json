@@ -128,6 +128,13 @@
         ]
       },
       {
+        "class": "R3",
+        "reason": "Docs dependency lock installed by docs-build and deploy",
+        "path_globs": [
+          "docs/requirements-lock.txt"
+        ]
+      },
+      {
         "class": "R2",
         "reason": "Renderer / shaders / compute / streaming / performance",
         "path_globs": [

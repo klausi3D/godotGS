@@ -84,7 +84,6 @@ class ClassifyChangeTest(unittest.TestCase):
         "scripts/docs/redirect_cpp_api_to_latest.py",
         "docs/requirements.txt",
         "docs/requirements-site.txt",
-        "docs/requirements-lock.txt",
         "docs/assets/javascripts/latest-nightlies.js",
     )
 
@@ -92,6 +91,15 @@ class ClassifyChangeTest(unittest.TestCase):
         for path in self.DOCS_SITE_TOOLING_R1:
             with self.subTest(path=path):
                 self.assertEqual(self._cls([path]), "R1")
+
+    def test_docs_dependency_lock_is_r3(self):
+        # docs-build and deploy install docs/requirements-lock.txt, deploy with a
+        # write token in git config. A green install cannot vouch for what the lock
+        # selects, so the lock stays R3 although docs/requirements*.txt is R1 (#1212).
+        self.assertEqual(self._cls(["docs/requirements-lock.txt"]), "R3")
+        self.assertEqual(
+            self._cls(["docs/requirements.txt", "docs/requirements-lock.txt"]), "R3"
+        )
 
     def test_docs_site_tooling_rule_does_not_reach_neighbouring_paths(self):
         # The rule names exact files, so neighbours keep their own class: other

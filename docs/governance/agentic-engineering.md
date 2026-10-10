@@ -120,9 +120,15 @@ from the changed paths:
     - No workflow runs `scripts/build_docs_site.py`, a local wrapper.
       `scripts/docs/release_acceptance.py` is report-only in `docs-build`, and
       `deploy` does not run it. Neither can change what is published.
-    - `docs/requirements*.txt` (the hash-locked docs toolchain that both jobs
-      install) and `docs/assets/javascripts/**` (script that runs in readers'
-      browsers) are raised from R0 (`docs/**`).
+    - `docs/requirements*.txt` (the docs toolchain inputs) and
+      `docs/assets/javascripts/**` (script that runs in readers' browsers) are
+      raised from R0 (`docs/**`).
+    - `docs/requirements-lock.txt` is R3, by its own rule. `docs-build` and
+      `deploy` install it, and `deploy` installs it with a write token in git
+      config. The hashes only authenticate what the lock selects, and a green
+      `docs-build` only proves that the install succeeded. No CI job installs
+      `docs/requirements.txt` or `docs/requirements-site.txt` directly. They are
+      the inputs the lock is compiled from.
     - `scripts/check_docs_media_budget.py` stays R3. `deploy` runs it right before
       publishing, and no test checks the budget script itself.
     - `scripts/build_documentation.py` and `scripts/docs/check_doxygen_output.py`
