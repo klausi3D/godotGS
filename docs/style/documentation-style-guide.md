@@ -24,8 +24,10 @@ and `docs/programs/`), follows the Contributing row unless it is a report.
 Line numbers change on unrelated edits, so a `file:line` on a published page goes
 stale without anyone touching the page.
 
-Every claim is checked against the code at your base commit, whatever the page
-cites. A UI label is checked against the property it shows (`ADD_GROUP` and
+Every claim is checked against the code in your change's resulting tree, whatever
+the page cites: a method, property or UI label that the same change adds or renames
+exists only there. Use the base commit only to tell what behaviour existed before
+the change. A UI label is checked against the property it shows (`ADD_GROUP` and
 `ADD_PROPERTY` in the class's `_bind_methods()`), a symbol with
 `rg -n "<symbol>" modules/gaussian_splatting`.
 
@@ -72,7 +74,7 @@ cites. A UI label is checked against the property it shows (`ADD_GROUP` and
 | Step | Action | Reference |
 | --- | --- | --- |
 | Scope review | Read all Markdown files in the target docs area before editing. | `docs/index.md` |
-| Link validation | Run the link checker on the changed area. | `scripts/docs/check_links.py` |
+| Link validation | Run the repository-wide link check, `python scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md AGENTS.md CLAUDE.md`, as `agentic-pr-gate` does. A renamed or deleted heading breaks links on pages you did not touch. | `scripts/docs/check_links.py` |
 | Snippet and API check | Run the snippet checker (see below). | `tests/ci/check_doc_snippets.py` |
 | Generated pages | Regenerate generated pages and commit the result; the `docs-build` CI job fails when a committed generated page is stale. | `docs/development/docs-site.md` |
 
@@ -112,7 +114,7 @@ A `prelude` is checked like code (separate declarations with `;`). A `pseudo` ma
 ```bash
 python3 tests/ci/check_doc_snippets.py
 rg -n "GDREGISTER_CLASS\(|GDREGISTER_ABSTRACT_CLASS\(" modules/gaussian_splatting/register_types.cpp
-python3 scripts/docs/check_links.py docs/style
+python3 scripts/docs/check_links.py docs README.md BUILDING.md CONTRIBUTING.md AGENTS.md CLAUDE.md
 ```
 
 ## Troubleshooting
