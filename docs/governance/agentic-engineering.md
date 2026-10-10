@@ -102,8 +102,59 @@ from the changed paths:
   matches, and the PR takes the highest class among its paths.
 - **Any path that matches no rule is R3** (`classification.default_unclassified`).
   This covers every unlisted path, not only sensitive ones: for example
-  `scripts/docs/*.py`, other `scripts/*.py` outside `scripts/agentic/`,
+  `scripts/docs/check_links.py`, any other `scripts/**/*.py` outside
+  `scripts/agentic/` and the docs-site tooling below,
   `.gitignore` and `LICENSE.txt` all classify as R3.
+- **Docs-site build and publish tooling is R1** (maintainer decision,
+  [#1212](https://github.com/klausi3D/godotGS/issues/1212)). It
+  is not R0, because it decides what the public site builds and publishes. It is
+  not R3, because a required check covers each entry, or the entry cannot change
+  what is published:
+    - `docs-build`, a required check on `master` since 2026-10-08, builds with
+      `mkdocs.yml` and `overrides/**`. It fails on a broken strict MkDocs build.
+    - `overrides/**` may not contain script.
+      `tests/ci/check_overrides_no_inline_script.py` fails on any `<script` tag
+      (any case), any inline event-handler attribute (`on*=`), any `javascript:`
+      URL, any `<iframe`, `<frame`, `<object` or `<embed` element, any `srcdoc`
+      attribute, any `<meta http-equiv="refresh">` that carries a URL, and any
+      file that is not `.html` or `.css` under `overrides/`. The tag, handler,
+      element, `srcdoc` and refresh checks run on the raw source and again after
+      HTML entity decoding, so an entity-encoded payload in an attribute is
+      caught too. It runs
+      in the `--guard-only` lane of the required `agentic-pr-gate`, and the guard
+      script itself is R3 machinery. Script for the site lives in
+      `docs/assets/javascripts/` (R3, below), loaded through `extra_javascript`.
+    - No workflow runs `scripts/build_docs_site.py`, a local wrapper.
+      `scripts/docs/release_acceptance.py` is report-only in `docs-build`, and
+      `deploy` does not run it. Neither can change what is published.
+    - `docs/requirements*.txt` (the docs toolchain inputs) are raised from R0
+      (`docs/**`).
+    - Code the `deploy` job executes, and `docs/assets/javascripts/**`, are R3 by
+      their own rule, so neither `docs/**` (R0), `modules/gaussian_splatting/**`
+      (R1) nor a later broader glob can lower them. `deploy` checks out with the
+      default persisted credential and `contents: write`, then runs
+      `scripts/stage_public_docs.py` on every deploy,
+      `scripts/docs/redirect_cpp_api_to_latest.py` on `v*` tags, and
+      `modules/gaussian_splatting/tests/check_project_settings_manifest.py`, which
+      `scripts/generate_project_settings_reference.py` loads with `exec_module`.
+      `mkdocs.yml` loads the JavaScript into readers' browsers.
+      `tests/agentic/test_stage_public_docs.py` and
+      `tests/agentic/test_cpp_api_redirect.py` check the scripts' output, and the
+      strict MkDocs build neither runs nor inspects the JavaScript, so no check
+      can catch an added side effect, such as a use of the write token.
+    - `docs/requirements-lock.txt` is R3, by its own rule. `docs-build` and
+      `deploy` install it, and `deploy` installs it with a write token in git
+      config. The hashes only authenticate what the lock selects, and a green
+      `docs-build` only proves that the install succeeded. No CI job installs
+      `docs/requirements.txt` or `docs/requirements-site.txt` directly. They are
+      the inputs the lock is compiled from.
+    - `scripts/check_docs_media_budget.py` stays R3. `deploy` runs it right before
+      publishing, and no test checks the budget script itself.
+    - `scripts/build_documentation.py` and `scripts/docs/check_doxygen_output.py`
+      stay R3. `docs-build` runs the PR's own copies, so a change that skips a
+      generator (its committed output then stays unchanged and the freshness diff
+      passes) or that accepts an empty Doxygen shell still passes, and no test
+      checks either script.
 - **A diff that touches `.agentic/policy.json` is forced to the top class**, R3
   (`SELF_REFERENTIAL_PATHS` in the classifier), although the rules list
   `.agentic/**` as R0. The rest of `.agentic/` stays R0.
