@@ -31,7 +31,7 @@
 		<method name="clear">
 			<return type="void" />
 			<description>
-				Removes all data from this world resource, releasing the [GaussianData] reference, clearing chunks, resetting bounds, and emptying metadata.
+				Removes all data from this world resource, releasing the [GaussianData] and chunk payload source references, clearing chunks, resetting bounds, and emptying metadata. Emits [signal Resource.changed] after the reset is complete so consumers can remove their previous world submission.
 			</description>
 		</method>
 	</methods>
