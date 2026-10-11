@@ -277,6 +277,11 @@ public:
 
     void set_import_metadata(const Dictionary &p_metadata);
     Dictionary get_import_metadata() const;
+    // Antialiased training semantics recorded in import metadata. The canonical
+    // "gaussian_antialiased" key wins; "spz_antialiased" (written by
+    // ResourceImporterSPZ from header flag 0x1) is the fallback for imports that
+    // predate it. A non-bool value is reported and ignored. Absent: false.
+    static bool resolve_antialiased_from_metadata(const Dictionary &p_import_metadata);
 
     void set_import_quality_preset(const String &p_preset);
     String get_import_quality_preset() const;

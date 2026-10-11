@@ -723,6 +723,10 @@ public:
 
     // On failure, the previous caller-owned snapshot remains unchanged.
     Error capture_save_snapshot(SaveSnapshot &r_snapshot) const;
+    // Reads the splat and SH sidecar extents a full save would capture, under one
+    // data_rwlock read and without copying the payload. Fails like
+    // capture_save_snapshot() when the sidecar is shorter than its declared extent.
+    Error capture_save_layout(uint32_t &r_splat_count, uint32_t &r_sh_high_order_count) const;
 
     /**
      * @brief Captures a coherent chunk snapshot for async pack jobs.
