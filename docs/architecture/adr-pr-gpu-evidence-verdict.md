@@ -293,3 +293,115 @@ Official contracts: [required status selection and registration](https://docs.gi
 [deployment-ref policy](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
 and [test-merge regeneration](https://github.blog/changelog/2026-02-19-changes-to-test-merge-commit-generation-for-pull-requests/).
 Race/collision cases above are design inferences, not live exploitation evidence.
+
+## Canonical GPU completion and data-only policy migration (2026-10-11)
+
+Status: approved design for local preparation, before this supplement's production
+implementation. Two independent reviews covered the GPU, closure and corrected
+owner authority. Native/hosted proof, human/CODEOWNER acceptance and activation
+remain pending. This separate design commit preserves the earlier chronology;
+it does not retroactively establish a design before the original v1 implementation.
+
+### Actual GPU profile and report consumption
+
+The prior module `--gpu` selection includes advisory requires-RD lanes that can
+skip without a RenderingDevice. It is not actual GPU-batch proof. Add the existing
+`run_gpu_harness.py` unconditionally for supported same-repository master PRs,
+with the bound executable, a fresh report, `--baseline-mode compare` and the full
+catalogue (currently 13 batches; 8 required). Do not narrow `--batch` or relax
+timeouts, skips, baselines or thresholds. Streaming runtime remains additional
+evidence, rather than a replacement for GPU batches.
+
+A fifth bound report must accompany the receipt and actual successful hosted
+step metadata. The unchanged trusted consumer checks complete ordered catalogue,
+filters/exclusions, required manifest agreement/minima, all current fatal fields
+and their types, authoritative totals and each required row's actual stdout
+through the canonical parser. Reconcile counters, lifetime/leak and assertion
+audit markers. Missing, hollow, skipped, timed-out or altered evidence fails.
+Doctest's filter-exclusion count remains benign; declared advisory exclusions and
+skip severity retain the canonical supervisor contract. Directly launch the new
+checker and its negative controls from the existing required guard; an inventory
+exception is not a fix for a checker that never runs.
+
+### Fixed repository execution and oracle closure
+
+Pin all canonical tests and fixture/project inputs, Gaussian native test oracles,
+GPU bootstrap/listener/macros, `main/main.cpp`, doctest, the renderer manifest,
+all `SCsub` definitions, root build Python and build-tree Python under
+`core`, `main`, `editor`, `drivers`, `platform`, `modules`, `servers`, `scene` and
+`misc/utility`. This includes test library definitions, module discovery/generated
+registration, SCons flags and builders. Select future matching files, regular
+tracked blob bytes and modes. All workflows and privileged Python/action revisions
+are fixed. Ordinary production C++/GLSL implementations remain measured candidate
+code, rather than being frozen to default. External compiler/interpreter/driver
+and hardware are explicit trusted-runner/runtime prerequisites, not a claimed
+complete byte attestation of the platform.
+
+Fixed executable/control inputs are nondelegatable. Changes to them after
+activation fail closed and need separate owner maintenance scope. This availability
+cost includes unrelated upstream test headers included by the canonical registry.
+Compiled Gaussian oracle changes and canonical fixture/GDScript/reference data
+may use the bounded transition below; macros, GPU runner/listener/registration,
+Python, workflow/action and unknown executable definitions cannot.
+
+### Noncircular data-only transition
+
+Let `B` be current protected default executing privileged code, `T` a separate
+immutable policy-only commit with canonical single parent `B`, and `S` the measured
+candidate. `T` differs from `S`; its diff admits only narrowly selected oracle or
+fixture data. Privileged code always executes from `B`. It reads approved `T`
+bytes/hashes/JSON as data and never imports or executes proposed Python/YAML.
+All nondelegatable definitions and selector bytes/modes equal `B`. The effective
+`P2` combines unchanged execution with approved oracle/data bytes, and the full
+selected bundle in `S` equals `P2`. Existing required sets, no-skip/no-timeout/
+no-leak rules and minima cannot be weakened; unsupported schema/profile changes
+fail closed. Fixed privileged validators must consume the effective approved data,
+not silently continue to use old default configuration.
+
+The exact JSON migration record read from the canonical `trusted-gpu-verdict`
+environment-variable endpoint is the sole authority. Support only a personal-owner
+repository: GitHub requires its owner to configure environments and create their
+variables. Bind current `B`, `T`, `S`, exact policy/context, dedicated App, genuine
+source run/attempt and expiry. No repository-variable, workflow-env, comment or
+receipt fallback. A read-only proof credential needs Administration(read),
+Actions(read) and Environments(read); the publisher remains statuses(write) only.
+No environment-write credential may reach untrusted code.
+
+A public owner-authored comment can corroborate the exact record digest but is
+not an owner signature: another repository writer can edit its text while the
+original creator identity persists. Such an edit cannot redirect the authoritative
+environment payload; changed, missing or unreadable corroboration fails closed.
+Organization/custom-role authority is outside this supported profile. Every final
+SUCCESS repeats canonical parent, producer-policy, complete environment record,
+current-base, expiry, App, exact run and full evidence checks.
+
+After fixed-diff independent and human/CODEOWNER review, an owner may configure
+this exact record. Genuine complete `S/P2` evidence may register only the new `P2`
+context before it is required; it never produces an old `P1` success. The owner
+then replaces `P1` with `P2` in one required-checks update, preserving strict,
+existing agentic/docs/source App and other protection, and verifies readback
+before permitting merge. `P1` is explicitly retired; requiring impossible overlap
+would prevent the policy change from entering default. This settings update and
+its readback are not a cross-API transaction or compare-and-swap. The human merges
+`S`, default now carries `P2`, and the owner retires the one-shot record. A target
+advance invalidates the old record; no generic bootstrap pin bypass is supplied.
+
+Expiry limits publication, not the truth of immutable measured evidence. Owner
+configuration changes between read and POST remain an administrative trust
+boundary. Once-minted App credentials expire after one hour while polling permits
+150 minutes; fresh completed-event controllers ordinarily recover, but hosted
+availability must be measured. Whole-workflow cancellation and API outages can
+still prevent publication; missing/failure never becomes success.
+
+Required controls include changed C++ assertions/fixtures, unauthorized execution
+or selector changes, relaxed/dropped policy, wrong or expired B/T/S/context/App/
+run binding, edited-owner-comment redirection, stale/changed report bytes,
+missing actual GPU step/report/audit, and real guard-launch deletion with RED and
+restored GREEN. Portable fixture observations are not native GPU qualification.
+Existing optional visual/export/performance and legacy collector raw-leak-filter
+limits remain separate; this design claims only its explicit canonical profile.
+
+Primary authority contracts: [environment variables](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables),
+[environment configuration](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
+[environment variable API](https://docs.github.com/en/rest/actions/variables#get-an-environment-variable),
+and [comment editing](https://docs.github.com/en/communities/moderating-comments-and-conversations/managing-disruptive-comments).
