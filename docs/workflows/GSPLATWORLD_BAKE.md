@@ -54,6 +54,13 @@ In scene mode the instantiated scene is **not** added to the scene tree, so `Gau
 3. Set the output path first.
 4. Run the bake once, then validate the baked world in a clean scene.
 
+To check a baked world, add a `GaussianSplatWorld3D` node to a clean scene and assign the `.gsplatworld` file to Inspector › World. With Inspector › Auto Apply on Ready on (the default), the node applies the world when it becomes ready, in the editor as well as in the running game.
+
+<figure markdown="1">
+![The godotGS editor with a GaussianSplatWorld3D node selected in a scene named world_view. The 3D viewport shows a captured red-brick community hall with a white bell tower, seen from above, on a lawn with trees. The Inspector shows World set to knock.gsplatworld, Auto Apply on Ready on, and the Quality section with LOD Enabled on, LOD Bias 1.0 and Max Render Distance 1000 m.](../assets/images/screenshots/editor-world-knock.webp){ .gs-shot width="1280" height="720" loading="lazy" }
+<figcaption markdown="span">A world baked in scene mode from one scan (1,935,275 splats, 43 chunks) and shown by a `GaussianSplatWorld3D` node. The node's own settings are the defaults except Max Splat Count, raised so that no splat is dropped. The faint shapes in the dark sky are large translucent splats, a known difference from reference renderers ([#1222](https://github.com/klausi3D/godotGS/issues/1222)). Scan: Knock Community Hall by scbenoit ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), converted from SOG to PLY. Editor: godotGS built from [PR #1226](https://github.com/klausi3D/godotGS/pull/1226), RTX 3090. Not the default settings: black background, scene light off, tile cap 65,536. See [Image credits](../reference/index.md#image-credits).</figcaption>
+</figure>
+
 ## Payload Mode
 
 For runtime worlds, keep baked `.gsplatworld` files uncompressed when you want out-of-core file-backed streaming. Normal uncompressed loads attach a staged chunk payload source and do not allocate resident `GaussianData` by default.

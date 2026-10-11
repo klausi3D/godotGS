@@ -3,12 +3,10 @@
 This is the canonical import page for `.ply` and `.spz` assets.
 Use [PLY Loader](../features/ply-loader.md) only when you need the lower-level loader rules.
 
-Visual captures for the import dialog are still pending, so this page stays text-first for now.
-
 ## Before You Import
 
 - Keep the source file inside the project so Godot can import it.
-- Finish [Public Evaluator](../getting-started/quick-start.md) first if you have not confirmed a visible sample yet.
+- Finish [Your First Splat](../getting-started/quick-start.md) first if you have not confirmed a visible sample yet.
 - Choose `.ply` when that is what your source pipeline exports, or `.spz` when you already have a supported compressed asset.
 
 ## Supported Paths
@@ -30,6 +28,13 @@ For out-of-core source streaming, use an uncompressed `.gsplatworld` loaded norm
 2. Let the editor import it into a `GaussianSplatAsset`.
 3. Assign the imported asset to your scene node.
 4. Verify a first visible result before you tune quality, lighting, or bake flows.
+
+To change how a file imports, select it in the FileSystem dock, open the Import dock, change the options and click Reimport.
+
+<figure markdown="1">
+![The Godot Import dock for mipnerf360-garden-gsplat-30k.ply, imported as Gaussian Splat PLY: Quality section with Preset ultra, Max Splats 0, Density Multiplier 1.0, Enable LOD on and Optimize for GPU on; General section with Asset Type Static; a Validation section; Advanced and Reimport buttons. Below it, the FileSystem dock with the .ply file selected under assets, and the garden scan in the 3D viewport on the right.](../assets/images/screenshots/editor-import-dock-garden.webp){ .gs-shot width="1120" height="1080" loading="lazy" }
+<figcaption markdown="span">The Import dock for a `.ply` source file, with the default options: preset `ultra` and Max Splats `0` (keep every splat). Scan: Mip-NeRF 360 "garden" (Barron et al., [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), trained with gsplat by the godotGS project. Editor: godotGS built from [PR #1226](https://github.com/klausi3D/godotGS/pull/1226), RTX 3090; the viewport uses non-default settings (black background, scene light off). See [Image credits](../reference/index.md#image-credits).</figcaption>
+</figure>
 
 ## What Success Looks Like
 

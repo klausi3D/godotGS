@@ -4066,7 +4066,11 @@ class GuardScriptWiringTests(unittest.TestCase):
             commands.append(list(argv))
             return 0, "", ""
 
-        with mock.patch.object(harness, "_run_command", _record_command):
+        # The child suite does not inherit its parent's --base-ref global. Keep
+        # CI enabled, but supply this wiring-only fixture's explicit base input;
+        # the mocked process boundary never resolves or grades that reference.
+        with mock.patch.object(harness, "_GUARD_BASE_REF_OVERRIDE", "wiring-fixture-review-base"), \
+                mock.patch.object(harness, "_run_command", _record_command):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertIsNone(
                     harness._run_optional_message_guards(self._cli_args()),

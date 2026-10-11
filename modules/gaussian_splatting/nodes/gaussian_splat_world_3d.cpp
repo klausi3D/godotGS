@@ -337,21 +337,21 @@ void GaussianSplatWorld3D::_on_world_resource_changed() {
     // queue explicitly is what actually makes point 3 true.
     //
     // WHICH EMISSIONS RESUBMIT: all of them, because filtering buys nothing here.
-    // Five of the resource's six emitters -- set_gaussian_data (:120), set_bounds
+    // Six of the resource's seven emitters -- set_gaussian_data (:120), set_bounds
     // (:129), set_metadata (:135), set_static_chunks (:141),
-    // set_chunk_payload_source (:158) -- write a field that store_submission()
+    // set_chunk_payload_source (:158) and clear() (:321, once, after it has reset
+    // all five fields; #1002) -- write a field that store_submission()
     // copies into the record (gaussian_data/payload_source/static_chunks/bounds/
-    // metadata, ../core/gaussian_splat_scene_director.cpp:831-835). The sixth,
+    // metadata, ../core/gaussian_splat_scene_director.cpp:831-835). The seventh,
     // set_payload_metadata (:214), writes only the resource's scalar metadata
     // mirrors, but it is emitted only from set_gaussian_data() at :110 and
     // materialize_resident_gaussian_data() at :279 -- both of which are
     // record-relevant writes -- so it never fires alone. With the coalescing
     // below, the redundant emission costs one latch test.
     //
-    // KNOWN GAP, not covered by this: GaussianSplatWorld::clear()
-    // (../core/gaussian_splat_world.cpp:305-319) is a bound, script-reachable
-    // payload mutator that emits NOTHING, so an emptied world still does not reach
-    // the director. Tracked as #1002; fixing it belongs on the resource, not here.
+    // KNOWN GAP, not covered by this: get_metadata() hands script the resource's
+    // own Dictionary, so mutating it in place emits nothing and the director keeps
+    // the previous metadata until something else re-registers.
     if (world_resource_resubmit_pending.exchange(true)) {
         return;
     }

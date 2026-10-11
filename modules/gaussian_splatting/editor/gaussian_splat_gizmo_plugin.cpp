@@ -11,6 +11,7 @@
 #include "scene/resources/3d/sphere_shape_3d.h"
 #include "scene/resources/texture.h"
 
+#include "../core/gs_vector_alloc.h"
 #include "../nodes/gaussian_splat_node_3d.h"
 
 GaussianSplatGizmoPlugin::GaussianSplatGizmoPlugin() {
@@ -129,10 +130,47 @@ void GaussianSplatGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
     }
 
     // Draw splat preview (simplified representation)
-    if (splat_node->is_preview_enabled() && splat_node->get_splat_asset().is_valid() &&
-            splat_node->get_debug_draw_mode() != GaussianSplatNode3D::DEBUG_DRAW_OFF) {
+    if (should_draw_splat_preview(splat_node, p_gizmo->is_selected())) {
         draw_splat_preview(p_gizmo, splat_node);
     }
+}
+
+bool GaussianSplatGizmoPlugin::should_draw_splat_preview(const GaussianSplatNode3D *p_node, bool p_selected) {
+    // Splats are composited at the end of the frame, so these lines always sit on
+    // top of them (#1220). Drawing them for every unselected node covered the view.
+    return p_node != nullptr && p_selected && p_node->is_preview_enabled() &&
+            p_node->get_splat_asset().is_valid() &&
+            p_node->get_debug_draw_mode() != GaussianSplatNode3D::DEBUG_DRAW_OFF;
+}
+
+float GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(const Vector<Vector3> &p_points) {
+    const float min_half_extent = 0.01f;
+    const int count = p_points.size();
+    if (count == 0) {
+        return min_half_extent;
+    }
+
+    // Per-axis 5th-95th percentile. The raw AABB includes floaters: on an 8M-splat
+    // outdoor scan it was 5256 m long, which made every arm 52.6 m (#1220).
+    // Drop floor(5 %) of the samples at each end, so exactly 5 % of floaters on
+    // one side are all excluded (ceil(0.95 * (count - 1)) kept the first one).
+    const int trim = count / 20;
+    const int lo = trim;
+    const int hi = count - 1 - trim;
+    float longest = 0.0f;
+    Vector<float> axis_values;
+    if (!gs_resize_or_fail(axis_values, count, "GaussianSplatGizmoPlugin::compute_preview_cross_half_extent")) {
+        return min_half_extent;
+    }
+    for (int axis = 0; axis < 3; axis++) {
+        float *w = axis_values.ptrw();
+        for (int i = 0; i < count; i++) {
+            w[i] = p_points[i][axis];
+        }
+        axis_values.sort();
+        longest = MAX(longest, axis_values[hi] - axis_values[lo]);
+    }
+    return MAX(min_half_extent, longest * 0.01f);
 }
 
 void GaussianSplatGizmoPlugin::draw_bounds(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node) {
@@ -351,7 +389,20 @@ void GaussianSplatGizmoPlugin::draw_splat_preview(EditorNode3DGizmo *p_gizmo, Ga
         return;
     }
 
-    const float cross_size = MAX(0.01f, p_node->get_aabb().get_longest_axis_size() * 0.01f);
+    // Size the crosses from the points the loops below draw (same stride and cap),
+    // not from the node AABB, which floaters inflate (#1220; robust bounds: #1213).
+    Vector<Vector3> sampled_points;
+    for (int i = 0; i < splat_count && sampled_points.size() < max_preview_points; i += step) {
+        const int idx = i * 3;
+        if (idx + 2 >= positions.size()) {
+            break;
+        }
+        const Vector3 point(positions[idx], positions[idx + 1], positions[idx + 2]);
+        if (point.is_finite()) {
+            sampled_points.push_back(point);
+        }
+    }
+    const float cross_size = compute_preview_cross_half_extent(sampled_points);
 
     if (mode == GaussianSplatNode3D::DEBUG_DRAW_POINTS) {
         Vector<Vector3> point_lines;

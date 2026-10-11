@@ -116,6 +116,7 @@ extra_javascript:
   - https://cdn.jsdelivr.net/npm/vega-lite@5
   - https://cdn.jsdelivr.net/npm/vega-embed@6
   - assets/javascripts/latest-nightlies.js
+  - assets/javascripts/home-splat.js
 
 markdown_extensions:
   - admonition

@@ -297,7 +297,8 @@ struct GsGpuRidLeakListener : public doctest::IReporter {
 		}
 		// #695: a case that ran but evaluated no assertion verified nothing.
 		// Format: `[GS-GPU][NO-ASSERTS] test=<name>` -- scraped by
-		// tests/ci/run_gpu_harness.py, which escalates it for REQUIRED batches.
+		// tests/ci/run_gpu_harness.py, which fails a REQUIRED batch on it and an
+		// advisory batch unless the case printed an explicit skip (#906/#907).
 		// Listener reporters cannot call CHECK_MESSAGE, so the signal goes out
 		// over stdout exactly like the [RID-LEAK?] advisory below.
 		if (p_stats.numAssertsCurrentTest <= 0) {
