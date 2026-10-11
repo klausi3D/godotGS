@@ -1,6 +1,9 @@
 #ifdef TOOLS_ENABLED
 
 #include "gaussian_resource_preview_generator.h"
+#ifdef TESTS_ENABLED
+#include "../tests/gs_live_editor_observation.h"
+#endif
 
 #include "core/io/resource_loader.h"
 #include "core/math/math_funcs.h"
@@ -57,6 +60,9 @@ constexpr uint64_t PREVIEW_TEXTURE_WAIT_POLL_USEC = 2000; // 2 ms.
 
 GaussianSplatAssetPreviewGenerator::GaussianSplatAssetPreviewGenerator() :
 		wait_timeout_usec(DEFAULT_WAIT_TIMEOUT_USEC) {
+#ifdef TESTS_ENABLED
+	GSLiveEditorObservation::observe_preview_generator(uint64_t(get_instance_id()));
+#endif
 }
 
 // Reference-counted shared state for a cross-thread texture-creation request.
@@ -71,16 +77,26 @@ public:
 	Ref<Image> image;
 	Ref<Texture2D> texture;
 	Semaphore done;
+#ifdef TESTS_ENABLED
+	uint32_t live_case = 0;
+	uint64_t live_generator = 0;
+#endif
 
 	// Runs on the main thread. The bound argument is this same request; it is
 	// there only so the queued message holds a strong reference that keeps this
 	// object alive for the duration of (and after) the call. Its value is
 	// intentionally unused.
 	void create_texture(const Variant &p_keepalive) {
+#ifdef TESTS_ENABLED
+		GSLiveEditorObservation::preview_event(GSLiveEditorObservation::PREVIEW_ENTRY, live_case, live_generator, uint64_t(get_instance_id()));
+#endif
 		if (image.is_valid() && !image->is_empty()) {
 			texture = ImageTexture::create_from_image(image);
 		}
 		done.post();
+#ifdef TESTS_ENABLED
+		GSLiveEditorObservation::preview_event(GSLiveEditorObservation::PREVIEW_COMPLETE, live_case, live_generator, uint64_t(get_instance_id()));
+#endif
 	}
 };
 
@@ -99,6 +115,10 @@ Ref<Texture2D> GaussianSplatAssetPreviewGenerator::_create_preview_texture_from_
 	Ref<GaussianPreviewTextureCreateRequest> request;
 	request.instantiate();
 	request->image = p_image;
+#ifdef TESTS_ENABLED
+	request->live_case = GSLiveEditorObservation::preview_case_for(uint64_t(get_instance_id()));
+	request->live_generator = uint64_t(get_instance_id());
+#endif
 
 	// Bind the request itself as the callable's argument. push_callable() copies
 	// the argument into the queued message as a Variant, and a Variant holding a
@@ -107,6 +127,9 @@ Ref<Texture2D> GaussianSplatAssetPreviewGenerator::_create_preview_texture_from_
 	// what makes abandoning the wait use-after-free-safe.
 	const Error err = main_queue->push_callable(
 			callable_mp(request.ptr(), &GaussianPreviewTextureCreateRequest::create_texture), request);
+	#ifdef TESTS_ENABLED
+	GSLiveEditorObservation::preview_event(GSLiveEditorObservation::PREVIEW_SCHEDULE, request->live_case, request->live_generator, uint64_t(request->get_instance_id()), err);
+	#endif
 	ERR_FAIL_COND_V_MSG(err != OK, Ref<Texture2D>(), "Failed to queue Gaussian preview texture creation on the main thread.");
 
 	// Bounded, non-blocking wait. We poll try_wait() and never block in wait(),

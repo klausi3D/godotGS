@@ -1,6 +1,10 @@
 #ifdef TOOLS_ENABLED
 
 #include "gaussian_import_dialog.h"
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "../tests/gs_live_editor_runner.h"
+#endif
+
 
 #include "../core/gs_vector_alloc.h"
 
@@ -75,6 +79,11 @@ void GaussianImportDialog::_bind_methods() {
 
 GaussianImportDialog::GaussianImportDialog() {
     singleton = this;
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	if (GSLiveEditorTestRunner *runner = GSLiveEditorTestRunner::get_current()) {
+		singleton = Object::cast_to<GaussianImportDialog>(runner->preserve_publication(false, this, false));
+	}
+#endif
     thumbnail_generator.instantiate();
     set_title(TTR("Gaussian Splat Import"));
     set_min_size(Size2(720, 520));
@@ -83,6 +92,11 @@ GaussianImportDialog::GaussianImportDialog() {
 
 GaussianImportDialog::~GaussianImportDialog() {
     singleton = nullptr;
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	if (GSLiveEditorTestRunner *runner = GSLiveEditorTestRunner::get_current()) {
+		singleton = Object::cast_to<GaussianImportDialog>(runner->preserve_publication(false, this, true));
+	}
+#endif
 }
 
 void GaussianImportDialog::_build_ui() {

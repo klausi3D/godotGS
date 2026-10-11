@@ -1,6 +1,9 @@
 #ifdef TOOLS_ENABLED
 
 #include "gaussian_thumbnail_generator.h"
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "../tests/gs_live_editor_observation.h"
+#endif
 
 #include "../core/gs_vector_alloc.h"
 #include "core/io/dir_access.h"
@@ -525,6 +528,9 @@ Ref<Image> GaussianThumbnailGenerator::_generate_heatmap_thumbnail(const Gaussia
 
 Ref<Image> GaussianThumbnailGenerator::generate_thumbnail_image(const Ref<GaussianSplatAsset> &p_asset, int p_size,
         ThumbnailStyle p_style) const {
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	GSLiveEditorObservation::GenerateScope live_generate(uint64_t(get_instance_id()), p_asset.is_valid() ? uint64_t(p_asset->get_instance_id()) : 0, p_size, p_style);
+#endif
     ERR_FAIL_COND_V(p_size <= 0, Ref<Image>());
     ERR_FAIL_COND_V(p_asset.is_null(), Ref<Image>());
     const GaussianSplatAsset::PayloadSnapshot snapshot = p_asset->capture_payload_snapshot();

@@ -31,3 +31,17 @@
 #pragma once
 
 int test_main(int argc, char *argv[]);
+
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "core/templates/vector.h"
+#include "core/string/ustring.h"
+
+// Explicit borrowed runtime. The existing mock listener is the default.
+struct BorrowedEditorTestHooks {
+	void *userdata = nullptr;
+	void (*case_start)(void *, const char *) = nullptr;
+	void (*case_end)(void *, int, int, bool) = nullptr;
+	void (*run_end)(void *, unsigned, unsigned, int, int) = nullptr;
+};
+int run_borrowed_editor_tests(const BorrowedEditorTestHooks &p_hooks, const Vector<String> &p_args);
+#endif

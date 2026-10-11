@@ -171,7 +171,10 @@ protected:
     virtual void ok_pressed() override;
 
 public:
-    GaussianImportDialog();
+#ifdef TESTS_ENABLED
+	static void _test_restore_live_singleton(GaussianImportDialog *p_dialog) { singleton = p_dialog; }
+#endif
+	GaussianImportDialog();
     ~GaussianImportDialog();
 
     void configure_for_file(const String &p_source_path, const Ref<GaussianSplatAsset> &p_existing_asset, bool p_reimport,

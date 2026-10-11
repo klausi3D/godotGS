@@ -112,6 +112,9 @@ public:
 	bool _test_has_preview_splat_node() const { return splat_node != nullptr; }
 	Ref<GaussianSplatAsset> _test_get_loaded_asset() const { return loaded_asset; }
 
+#ifdef TESTS_ENABLED
+	static void _test_restore_live_singleton(GaussianImportSettingsDialog *p_dialog) { singleton = p_dialog; }
+#endif
 	GaussianImportSettingsDialog();
 	~GaussianImportSettingsDialog();
 };

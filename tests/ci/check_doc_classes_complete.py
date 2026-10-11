@@ -7,6 +7,12 @@ GDREGISTER_ABSTRACT_CLASS in register_types.cpp. Each such class must ship a
 doc_classes/<Class>.xml with a real brief so the class reference is not blank in
 the editor and docs. This locks in G6 (docs true) against a new class landing
 without documentation.
+
+This is the shipping editor documentation inventory (TESTS_ENABLED is absent).
+Exclude only branches proved impossible under that one fact. TOOLS and unknown
+conditions remain conservative candidates in every possible branch; ambiguous
+expressions are never used to omit a class. Malformed nesting fails closed.
+Compiled-out test APIs do not ship class-reference XML.
 """
 
 from __future__ import annotations
@@ -33,8 +39,113 @@ _CLASS_NAME_RE = re.compile(r'<class\s+name="([^"]+)"')
 _BRIEF_RE = re.compile(r"<brief_description>(.*?)</brief_description>", re.DOTALL)
 
 
+def _shipping_condition(text: str) -> bool | None:
+    """Tiny tri-state grammar; unsupported CPP expressions remain unknown."""
+    text = text.split("//", 1)[0].strip()
+    parts = re.findall(r"defined|[A-Za-z_]\w*|&&|\|\||[!()]", text)
+    if "".join(parts) != re.sub(r"\s+", "", text):
+        return None
+    index = 0
+
+    def negate(value):
+        return None if value is None else not value
+
+    def combine(a, b, is_and):
+        if is_and:
+            return False if a is False or b is False else (True if a is True and b is True else None)
+        return True if a is True or b is True else (False if a is False and b is False else None)
+
+    def atom():
+        nonlocal index
+        if index >= len(parts):
+            raise ValueError("missing condition operand")
+        item = parts[index]
+        index += 1
+        if item == "!":
+            return negate(atom())
+        if item == "(":
+            result = expression()
+            if index >= len(parts) or parts[index] != ")":
+                raise ValueError("unclosed condition")
+            index += 1
+            return result
+        if item == "defined":
+            parenthesized = index < len(parts) and parts[index] == "("
+            if parenthesized:
+                index += 1
+            if index >= len(parts) or not re.fullmatch(r"[A-Za-z_]\w*", parts[index]):
+                raise ValueError("missing defined identifier")
+            name = parts[index]
+            index += 1
+            if parenthesized:
+                if index >= len(parts) or parts[index] != ")":
+                    raise ValueError("missing defined close")
+                index += 1
+            return False if name == "TESTS_ENABLED" else None
+        if re.fullmatch(r"[A-Za-z_]\w*", item):
+            return None
+        raise ValueError("unsupported condition")
+
+    def conjunction():
+        nonlocal index
+        value = atom()
+        while index < len(parts) and parts[index] == "&&":
+            index += 1
+            value = combine(value, atom(), True)
+        return value
+
+    def expression():
+        nonlocal index
+        value = conjunction()
+        while index < len(parts) and parts[index] == "||":
+            index += 1
+            value = combine(value, conjunction(), False)
+        return value
+
+    try:
+        value = expression()
+        return value if index == len(parts) else None
+    except ValueError:
+        return None
+
+
+def _shipping_registration_source(text: str) -> str:
+    stack = []
+    visible = True
+    output = []
+    for line in text.splitlines():
+        directive = re.match(r"\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)", line)
+        if not directive:
+            if visible:
+                output.append(line)
+            continue
+        op, condition = directive.groups()
+        condition = condition.split("//", 1)[0].strip()
+        if op in ("if", "ifdef", "ifndef"):
+            truth = (_shipping_condition(condition) if op == "if" else
+                     ((op == "ifndef") if condition == "TESTS_ENABLED" else None))
+            stack.append({"parent": visible, "taken": truth, "else": False})
+            visible = visible and truth is not False
+        elif op in ("elif", "else"):
+            if not stack or stack[-1]["else"]:
+                raise ValueError("Malformed registration preprocessor branch")
+            frame = stack[-1]
+            truth = _shipping_condition(condition) if op == "elif" else True
+            visible = frame["parent"] and frame["taken"] is not True and truth is not False
+            previous = frame["taken"]
+            frame["taken"] = True if previous is True or truth is True else (False if previous is False and truth is False else None)
+            frame["else"] = op == "else"
+        else:
+            if not stack:
+                raise ValueError("Unmatched registration #endif")
+            visible = stack.pop()["parent"]
+    if stack:
+        raise ValueError("Unclosed registration preprocessor branch")
+    return "\n".join(output)
+
+
 def _registered_classes(text: str) -> set[str]:
-    return set(_REGISTER_RE.findall(text))
+    return set(_REGISTER_RE.findall(_shipping_registration_source(text)))
 
 
 def _well_formed_error(text: str) -> str | None:

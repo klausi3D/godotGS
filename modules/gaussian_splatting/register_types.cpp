@@ -1,4 +1,7 @@
 #include "register_types.h"
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "tests/gs_live_editor_runner.h"
+#endif
 
 #include "core/config/project_settings.h"
 #include "logger/startup_trace.h"
@@ -225,6 +228,9 @@ void initialize_gaussian_splatting_module(ModuleInitializationLevel p_level) {
 
 #ifdef TOOLS_ENABLED
         case MODULE_INITIALIZATION_LEVEL_EDITOR: {
+#ifdef TESTS_ENABLED
+			GDREGISTER_CLASS(GSLiveEditorTestRunner);
+#endif
             EditorPlugins::add_by_type<GaussianEditorPlugin>();
 
             // Register PLY importer

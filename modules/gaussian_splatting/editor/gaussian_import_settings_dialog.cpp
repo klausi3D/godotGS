@@ -1,6 +1,10 @@
 #ifdef TOOLS_ENABLED
 
 #include "gaussian_import_settings_dialog.h"
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "../tests/gs_live_editor_runner.h"
+#endif
+
 
 #include <cfloat>
 
@@ -278,6 +282,11 @@ void GaussianImportSettingsDialog::_on_inspector_property_edited(const String &p
 
 GaussianImportSettingsDialog::GaussianImportSettingsDialog() {
 	singleton = this;
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	if (GSLiveEditorTestRunner *runner = GSLiveEditorTestRunner::get_current()) {
+		singleton = Object::cast_to<GaussianImportSettingsDialog>(runner->preserve_publication(true, this, false));
+	}
+#endif
 	set_title(TTR("Advanced Import Settings for Gaussian Splat"));
 	set_ok_button_text(TTR("Reimport"));
 	set_cancel_button_text(TTR("Close"));
@@ -289,6 +298,11 @@ GaussianImportSettingsDialog::GaussianImportSettingsDialog() {
 
 GaussianImportSettingsDialog::~GaussianImportSettingsDialog() {
 	singleton = nullptr;
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	if (GSLiveEditorTestRunner *runner = GSLiveEditorTestRunner::get_current()) {
+		singleton = Object::cast_to<GaussianImportSettingsDialog>(runner->preserve_publication(true, this, true));
+	}
+#endif
 	if (inspector) {
 		inspector->edit(nullptr);
 	}

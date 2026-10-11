@@ -65,6 +65,10 @@
 // only on the Linux lane -- which is exactly how it was found.
 #include "core/variant/variant.h"
 
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "../tests/gs_live_editor_observation.h"
+#endif
+
 #if defined(TESTS_ENABLED)
 #include <atomic>
 #include <cstring>
@@ -97,6 +101,9 @@ inline std::atomic<const char *> &gs_vector_alloc_forced_failure_site() {
 
 inline void gs_vector_alloc_force_failure_at(const char *p_where) {
 	gs_vector_alloc_forced_failure_site().store(p_where, std::memory_order_relaxed);
+#ifdef TOOLS_ENABLED
+	GSLiveEditorObservation::observe_arm(p_where);
+#endif
 }
 
 inline void gs_vector_alloc_clear_forced_failure() {
@@ -116,8 +123,12 @@ inline bool gs_vector_alloc_consume_forced_failure(const char *p_where) {
 	if (armed == nullptr || p_where == nullptr || strcmp(armed, p_where) != 0) {
 		return false;
 	}
-	return gs_vector_alloc_forced_failure_site().compare_exchange_strong(
+	const bool consumed = gs_vector_alloc_forced_failure_site().compare_exchange_strong(
 			armed, nullptr, std::memory_order_relaxed);
+#ifdef TOOLS_ENABLED
+	if (consumed) { GSLiveEditorObservation::observe_consume(p_where); }
+#endif
+	return consumed;
 }
 #endif // TESTS_ENABLED
 
@@ -137,10 +148,17 @@ template <typename T>
 	// the same exit as a real allocation failure: output cleared, error emitted, false.
 	if (gs_vector_alloc_consume_forced_failure(p_where)) {
 		p_vec.clear();
+		#ifdef TOOLS_ENABLED
+		GS_LIVE_EDITOR_INJECTED_ERROR(false,
+				vformat("%s: injected allocation failure (test seam); "
+						"leaving the output empty instead of writing out of bounds.",
+						String(p_where)), p_count, sizeof(T));
+#else
 		ERR_FAIL_V_MSG(false,
 				vformat("%s: injected allocation failure (test seam); "
 						"leaving the output empty instead of writing out of bounds.",
 						String(p_where)));
+#endif
 	}
 #endif
 	if (p_vec.resize((typename Vector<T>::Size)p_count) == OK) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gs_live_editor_runner.h"
 #include "test_macros.h"
 
 #ifdef TOOLS_ENABLED
@@ -1225,7 +1226,9 @@ TEST_CASE("[GaussianSplatting][Thumbnail][Editor] Editor preview generator gives
         // starvation. If the worker still blocked in wait() (the pre-#592
         // bug) or never re-checked its deadline, this call would hang the
         // whole test binary.
+        const uint64_t live_worker_id = worker.get_id();
         worker.wait_to_finish();
+        GSLiveEditorObservation::preview_join(live_worker_id);
     }
     const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
 
@@ -1303,7 +1306,9 @@ TEST_CASE("[GaussianSplatting][Thumbnail][Editor] Editor preview generator abort
     if (worker.is_started()) {
         // Main queue is deliberately never flushed: only abort() can unblock
         // this worker.
+        const uint64_t live_worker_id = worker.get_id();
         worker.wait_to_finish();
+        GSLiveEditorObservation::preview_join(live_worker_id);
     }
     const uint64_t elapsed_usec = OS::get_singleton()->get_ticks_usec() - start_usec;
 
@@ -1437,7 +1442,9 @@ TEST_CASE("[GaussianSplatting][Importer][RequiresGPU] GaussianSplatAsset loads l
 }
 
 TEST_CASE("[GaussianSplatting][Editor] Import dialog respects metadata baselines") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     Dictionary baseline_options;
     baseline_options[StringName("quality/preset")] = String("desktop");
@@ -1470,7 +1477,9 @@ TEST_CASE("[GaussianSplatting][Editor] Import dialog respects metadata baselines
 }
 
 TEST_CASE("[GaussianSplatting][Editor] Import dialog applies quality override options") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     Dictionary baseline_options;
     baseline_options[StringName("quality/preset")] = String("desktop");
@@ -3014,7 +3023,9 @@ TEST_CASE("[GaussianSplatting][Importer] GaussianSplatAsset save_to_file persist
 // ============================================================================
 
 TEST_CASE("[GaussianSplatting][Editor] Thumbnail style change triggers custom_settings flag") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     // Configure dialog with default "desktop" preset
     Ref<GaussianSplatAsset> asset;
@@ -3055,7 +3066,9 @@ TEST_CASE("[GaussianSplatting][Editor] Thumbnail style change triggers custom_se
 }
 
 TEST_CASE("[GaussianSplatting][Editor] Thumbnail size change triggers custom_settings flag") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();
@@ -3089,7 +3102,9 @@ TEST_CASE("[GaussianSplatting][Editor] Thumbnail size change triggers custom_set
 }
 
 TEST_CASE("[GaussianSplatting][Editor] Disabling thumbnail generation triggers custom_settings flag") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();
@@ -3119,7 +3134,9 @@ TEST_CASE("[GaussianSplatting][Editor] Disabling thumbnail generation triggers c
 }
 
 TEST_CASE("[GaussianSplatting][Editor] Import dialog handles SPZ source paths") {
-    GaussianImportDialog *dialog = memnew(GaussianImportDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    GaussianImportDialog *dialog = live_fixture.create<GaussianImportDialog>();
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
 
     Ref<GaussianSplatAsset> asset;
     asset.instantiate();
@@ -3191,7 +3208,9 @@ TEST_CASE("[GaussianSplatting][Editor] Advanced import settings reimport refresh
     refreshed_options[StringName("quality/max_splats")] = 54321;
     refreshed_options[StringName("custom/preserve")] = String("beta");
 
-    TestGaussianImportSettingsDialog *dialog = memnew(TestGaussianImportSettingsDialog);
+    GSLiveEditorFixtureLease live_fixture;
+    TestGaussianImportSettingsDialog *dialog = live_fixture.create<TestGaussianImportSettingsDialog>(true);
+    if (!dialog) { FAIL("Live editor dialog fixture failed to attach safely"); return; }
     dialog->current_import_options = initial_options;
     dialog->current_asset = _make_editor_test_asset(source_path, 3, initial_options,
             GaussianSplatAsset::COMPRESSION_POSITIONS, 1048576);
@@ -3201,6 +3220,7 @@ TEST_CASE("[GaussianSplatting][Editor] Advanced import settings reimport refresh
     CHECK(String(dialog->_test_get_setting_value(StringName("quality/preset"))) == String("desktop"));
     CHECK(int(dialog->_test_get_setting_value(StringName("quality/max_splats"))) == 12345);
     REQUIRE_MESSAGE(dialog->_test_get_loaded_asset().is_valid(), "Import settings dialog should load the initial asset.");
+    if (dialog->_test_get_loaded_asset().is_null()) { FAIL("Required live import-settings asset was missing"); return; }
     CHECK(dialog->_test_get_loaded_asset()->get_splat_count() == 3);
     CHECK(dialog->_test_get_stats_text().contains("Splats: 3"));
     CHECK(dialog->_test_get_stats_text().contains("Est. Memory: 1.0 MB"));
@@ -3226,12 +3246,14 @@ TEST_CASE("[GaussianSplatting][Editor] Advanced import settings reimport refresh
     CHECK(String(dialog->_test_get_setting_value(StringName("quality/preset"))) == String("ultra"));
     CHECK(int(dialog->_test_get_setting_value(StringName("quality/max_splats"))) == 54321);
     REQUIRE_MESSAGE(dialog->_test_get_loaded_asset().is_valid(), "Import settings dialog should refresh the loaded asset.");
+    if (dialog->_test_get_loaded_asset().is_null()) { FAIL("Required live import-settings asset was missing"); return; }
     CHECK(dialog->_test_get_loaded_asset()->get_splat_count() == 5);
     CHECK(dialog->_test_get_stats_text().contains("Splats: 5"));
     CHECK(dialog->_test_get_stats_text().contains("Est. Memory: 2.0 MB"));
 
     GaussianSplatNode3D *preview_node = Object::cast_to<GaussianSplatNode3D>(dialog->find_child("ImportPreviewSplat", true, false));
     REQUIRE_MESSAGE(preview_node != nullptr, "Import settings dialog should rebuild its preview splat node.");
+    if (!preview_node) { FAIL("Required live import-settings preview node was missing"); return; }
     CHECK(preview_node->get_splat_asset() == dialog->_test_get_loaded_asset());
 
     memdelete(dialog);

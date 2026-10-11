@@ -46,6 +46,7 @@ REQUIRE_NULL_DEREF_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_require_nul
 ENVIRONMENT_SKIP_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_environment_skip_marker.py"
 ENVIRONMENT_SKIP_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_environment_skip_marker.py"
 SKIP_MARKER_DETECTOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_skip_marker.py"
+LIVE_EDITOR_TEST_SCRIPT = ROOT / "tests/ci/test_live_editor_tests.py"
 LANE_LEDGER_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_run_module_tests_lane_ledger.py"
 ENVIRONMENT_SKIP_BASELINE_PATH = ROOT / "tests" / "ci" / "environment_skip_baseline.json"
 
@@ -2264,6 +2265,11 @@ def _run_quarantine_manifest_guard() -> tuple[bool, list[str]]:
     return test_ok, messages + test_messages
 
 
+def _run_live_editor_guard() -> tuple[bool, list[str]]:
+    code, out, err = _run_command([sys.executable, str(LIVE_EDITOR_TEST_SCRIPT)])
+    return code == 0, (out + err).splitlines()
+
+
 def _run_lane_ledger_guard() -> tuple[bool, list[str]]:
     """Run the per-lane ledger's own unit test in the fast --guard-only lane (#705).
 
@@ -2480,6 +2486,15 @@ def _run_godot(godot: str, args: Iterable[str]) -> tuple[bool, bool, str]:
     if result.returncode != 0 and _tests_unavailable(output):
         return GodotRunResult(True, True, output, result.returncode)
     return GodotRunResult(result.returncode == 0, False, output, result.returncode)
+
+
+def _run_live_editor(godot: str, args: Iterable[str]) -> GodotRunResult:
+    from run_live_editor_tests import run
+    try:
+        ok, output, code = run(godot, list(args))
+    except (OSError, ValueError, RuntimeError) as exc:
+        return GodotRunResult(False, False, f"Live Editor infrastructure INVALID: {exc}", None)
+    return GodotRunResult(ok, False, output, code)
 
 
 def _test_runner_is_unavailable(godot: str) -> bool:
@@ -3785,6 +3800,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
         ),
         (
             True,
+            _run_live_editor_guard,
+            "Live Editor contract guard failed.",
+            "Live Editor contract guard passed.",
+        ),
+        (
+            True,
             _run_lane_ledger_guard,
             "Lane-ledger guard failed.",
             "Lane-ledger guard passed.",
@@ -4602,7 +4623,8 @@ def _execute_lane(
     behaviour -- every printed message and every exit code -- is unchanged; this
     function only *observes* what the baseline already decided.
     """
-    run_result = _run_godot(godot, run_args)
+    run_result = (_run_live_editor(godot, run_args) if name == "GaussianSplatting [Editor]"
+                  else _run_godot(godot, run_args))
     ok, skipped, output = run_result
     raw_returncode = getattr(run_result, "returncode", None)
     # The availability is carried, not encoded into the value: -1 is a return

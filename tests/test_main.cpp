@@ -32,6 +32,9 @@
 
 #include "core/error/error_macros.h"
 #include "core/io/dir_access.h"
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+#include "core/os/thread.h"
+#endif
 #include "modules/modules_enabled.gen.h"
 
 #ifdef TOOLS_ENABLED
@@ -305,6 +308,33 @@ int test_main(int argc, char *argv[]) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+static const BorrowedEditorTestHooks *borrowed_editor_test_hooks = nullptr;
+
+int run_borrowed_editor_tests(const BorrowedEditorTestHooks &p_hooks, const Vector<String> &p_args) {
+	if (!Thread::is_main_thread() || borrowed_editor_test_hooks || SignalWatcher::get_singleton() ||
+			!p_hooks.case_start || !p_hooks.case_end || !p_hooks.run_end) {
+		return 1;
+	}
+	Vector<CharString> storage;
+	storage.resize(p_args.size());
+	if (storage.size() != p_args.size()) { return 1; }
+	Vector<const char *> argv;
+	argv.resize(p_args.size());
+	if (argv.size() != p_args.size()) { return 1; }
+	for (int i = 0; i < p_args.size(); ++i) {
+		storage.write[i] = p_args[i].utf8();
+		argv.write[i] = storage[i].get_data();
+	}
+	doctest::Context context;
+	context.applyCommandLine(argv.size(), argv.ptr());
+	borrowed_editor_test_hooks = &p_hooks;
+	const int result = context.run();
+	borrowed_editor_test_hooks = nullptr;
+	return result;
+}
+#endif
+
 struct GodotTestCaseListener : public doctest::IReporter {
 	GodotTestCaseListener(const doctest::ContextOptions &p_in) {}
 
@@ -326,6 +356,12 @@ struct GodotTestCaseListener : public doctest::IReporter {
 
 	void test_case_start(const doctest::TestCaseData &p_in) override {
 		reinitialize();
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+		if (borrowed_editor_test_hooks) {
+			borrowed_editor_test_hooks->case_start(borrowed_editor_test_hooks->userdata, p_in.m_name);
+			return;
+		}
+#endif
 
 		String name = String(p_in.m_name);
 		String suite_name = String(p_in.m_test_suite);
@@ -427,7 +463,15 @@ struct GodotTestCaseListener : public doctest::IReporter {
 #endif // NAVIGATION_2D_DISABLED
 	}
 
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	void test_case_end(const doctest::CurrentTestCaseStats &p_stats) override {
+		if (borrowed_editor_test_hooks) {
+			borrowed_editor_test_hooks->case_end(borrowed_editor_test_hooks->userdata, p_stats.numAssertsCurrentTest, p_stats.numAssertsFailedCurrentTest, p_stats.testCaseSuccess);
+			return;
+		}
+#else
 	void test_case_end(const doctest::CurrentTestCaseStats &) override {
+#endif
 #ifdef TOOLS_ENABLED
 		if (EditorSettings::get_singleton()) {
 			EditorSettings::destroy();
@@ -522,7 +566,14 @@ struct GodotTestCaseListener : public doctest::IReporter {
 		signal_watcher = memnew(SignalWatcher);
 	}
 
+#if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
+	void test_run_end(const doctest::TestRunStats &p_stats) override {
+		if (borrowed_editor_test_hooks) {
+			borrowed_editor_test_hooks->run_end(borrowed_editor_test_hooks->userdata, p_stats.numTestCasesPassingFilters, p_stats.numTestCasesFailed, p_stats.numAsserts, p_stats.numAssertsFailed);
+		}
+#else
 	void test_run_end(const doctest::TestRunStats &) override {
+#endif
 		memdelete(signal_watcher);
 	}
 

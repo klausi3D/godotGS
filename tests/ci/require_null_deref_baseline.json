@@ -51,11 +51,8 @@
       "data|is_valid()|6886d3a184",
       "data|is_valid()|bdabf76a7e",
       "data|is_valid()|ddf52a3bb0",
-      "dialog->_test_get_loaded_asset()|is_valid()|9738c937cf",
-      "dialog->_test_get_loaded_asset()|is_valid()|f7d3ceea29",
       "file|is_valid()|5d86a5bd8e",
       "file|is_valid()|bcfe8b0877",
-      "preview_node|!= nullptr|95d6c23da3",
       "project_settings|!= nullptr|5f9521769b",
       "source_data|is_valid()|de91b209e8"
     ],

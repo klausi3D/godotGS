@@ -1410,7 +1410,8 @@ def _drive(
     buffer = io.StringIO()
     with contextlib.ExitStack() as stack:
         stack.enter_context(mock.patch.dict(os.environ, {"CI": "1" if ci else ""}))
-        stack.enter_context(godot_stub)
+        owned_stub = stack.enter_context(godot_stub)
+        stack.enter_context(mock.patch.object(harness, "_run_live_editor", side_effect=owned_stub))
         stack.enter_context(
             mock.patch.object(harness, "_load_quarantine", return_value=dict(quarantine or {}))
         )
@@ -1435,7 +1436,8 @@ def _run_main(argv, *, drop_lane: bool = False, godot_result=None):
         stack.enter_context(
             mock.patch.object(harness, "_prepare_synthetic_assets", return_value=(True, []))
         )
-        stack.enter_context(mock.patch.object(harness, "_run_godot", return_value=result))
+        owned_stub = stack.enter_context(mock.patch.object(harness, "_run_godot", return_value=result))
+        stack.enter_context(mock.patch.object(harness, "_run_live_editor", side_effect=owned_stub))
         stack.enter_context(mock.patch.object(harness, "_load_quarantine", return_value={}))
         if drop_lane:
             original = harness._build_module_test_runs
@@ -4314,6 +4316,13 @@ class GuardScriptWiringTests(unittest.TestCase):
             "these runtime contract tests are referenced by reachable guard runners but "
             f"never appear in argv launched through _run_command: {missing}",
         )
+
+    def test_live_editor_guard_is_independently_wired(self) -> None:
+        reached = self._scripts_reached_by_wired_runners()
+        self.assertIn((ROOT / "tests/ci/test_live_editor_tests.py").resolve(), reached,
+                      "Canonical live Editor guard was disconnected")
+        self.assertIn((ROOT / "tests/ci/test_live_editor_tests.py").resolve(), self._scripts_launched_by_optional_guards(),
+                      "Canonical live Editor guard is read but not actually launched")
 
     def test_this_files_own_runner_is_wired(self) -> None:
         """The contract above is only worth anything while this file still runs."""

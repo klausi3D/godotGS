@@ -8,6 +8,7 @@
 
 #ifdef TOOLS_ENABLED
 
+#include "gs_live_editor_observation.h"
 #include "test_macros.h"
 
 #include "../core/gaussian_splat_asset.h"
@@ -89,6 +90,8 @@ TEST_CASE("[GaussianSplatting][Editor] A failed thumbnail canvas allocation is n
 	gs_vector_alloc_force_failure_at("GaussianThumbnailGenerator::_project_to_canvas hits");
 	Ref<Image> failed;
 	{
+		GSLiveEditorObservation::PhaseScope live_phase(1, uint64_t(generator->get_instance_id()), uint64_t(asset->get_instance_id()), size, style, asset->get_splat_count());
+		if (!live_phase.valid()) { FAIL("Actual live injection phase/input could not be validated"); return; }
 		// The injected failure emits the expected ERR_PRINT; keep the log clean.
 		ERR_PRINT_OFF;
 		failed = generator->generate_thumbnail_image(asset, size, style);
@@ -116,6 +119,8 @@ TEST_CASE("[GaussianSplatting][Editor] A failed thumbnail canvas allocation is n
 	gs_vector_alloc_force_failure_at("GaussianThumbnailGenerator::_project_to_canvas hits");
 	Ref<Image> failed_again;
 	{
+		GSLiveEditorObservation::PhaseScope live_phase(2, uint64_t(generator->get_instance_id()), uint64_t(asset->get_instance_id()), size, style, asset->get_splat_count());
+		if (!live_phase.valid()) { FAIL("Actual live injection phase/input could not be validated"); return; }
 		ERR_PRINT_OFF;
 		failed_again = generator->generate_thumbnail_image(asset, size, style);
 		ERR_PRINT_ON;
