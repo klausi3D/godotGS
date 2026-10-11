@@ -3659,52 +3659,96 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot allocation failur
 namespace {
 struct FullSnapshotRaceContext {
     GaussianData *data = nullptr;
-    std::atomic<bool> stop{false};
-    std::atomic<uint32_t> writes{0};
-};
-void full_snapshot_replace_worker(void *p_userdata) {
-    FullSnapshotRaceContext *ctx = static_cast<FullSnapshotRaceContext *>(p_userdata);
     LocalVector<Gaussian> first, second;
-    first.resize(4096);
-    second.resize(3072);
-    for (uint32_t i = 0; i < first.size(); ++i) {
-        first[i].position = Vector3(11, 12, 13);
-        first[i].scale = Vector3(1, 1, 1);
+    std::atomic<bool> stop{false};
+    std::atomic<bool> checkpoint_timed_out{false};
+    std::atomic<bool> unexpected_entry{false};
+    std::atomic<uint32_t> armed_token{0};
+    std::atomic<uint32_t> active_capture_token{0};
+    std::atomic<uint32_t> requested_token{0};
+    std::atomic<uint32_t> captured_token{0};
+    std::atomic<uint32_t> attempted_token{0};
+    std::atomic<uint32_t> completed_token{0};
+    std::atomic<uint32_t> capture_entries{0};
+    std::atomic<uint32_t> attempt_entries{0};
+};
+bool full_snapshot_wait_for_token(FullSnapshotRaceContext &ctx, const std::atomic<uint32_t> &observed, uint32_t token) {
+    const uint64_t deadline = OS::get_singleton()->get_ticks_usec() + 10000000;
+    while (!ctx.stop.load(std::memory_order_acquire) && observed.load(std::memory_order_acquire) != token &&
+            OS::get_singleton()->get_ticks_usec() <= deadline) {
+        Thread::yield();
     }
-    for (uint32_t i = 0; i < second.size(); ++i) {
-        second[i].position = Vector3(-21, -22, -23);
-        second[i].scale = Vector3(2, 2, 2);
+    // The deadline binds PASS, including an observation on the final poll.
+    return !ctx.stop.load(std::memory_order_acquire) && observed.load(std::memory_order_acquire) == token &&
+            OS::get_singleton()->get_ticks_usec() <= deadline;
+}
+void full_snapshot_race_checkpoint(void *p_userdata, GaussianData::SaveSnapshotTestCheckpoint checkpoint) {
+    FullSnapshotRaceContext &ctx = *static_cast<FullSnapshotRaceContext *>(p_userdata);
+    if (checkpoint == GaussianData::SaveSnapshotTestCheckpoint::REPLACEMENT_ENTERED) {
+        const uint32_t token = ctx.requested_token.load(std::memory_order_acquire);
+        if (token == 0 || ctx.active_capture_token.load(std::memory_order_acquire) != token ||
+                ctx.attempted_token.load(std::memory_order_acquire) == token) {
+            ctx.unexpected_entry.store(true, std::memory_order_release);
+            return;
+        }
+        ctx.attempt_entries.fetch_add(1, std::memory_order_relaxed);
+        ctx.attempted_token.store(token, std::memory_order_release);
+        return;
     }
-    while (!ctx->stop.load(std::memory_order_acquire)) {
-        ctx->data->set_gaussians(first);
-        ctx->writes.fetch_add(1, std::memory_order_release);
-        ctx->data->set_gaussians(second);
-        ctx->writes.fetch_add(1, std::memory_order_release);
+    const uint32_t token = ctx.armed_token.load(std::memory_order_acquire);
+    ctx.capture_entries.fetch_add(1, std::memory_order_relaxed);
+    ctx.captured_token.store(token, std::memory_order_release);
+    ctx.active_capture_token.store(token, std::memory_order_release);
+    ctx.requested_token.store(token, std::memory_order_release);
+    // We hold the actual read lock. Observe setter ENTRY, never completion:
+    // completion needs that same lock exclusively and is checked after save.
+    if (!full_snapshot_wait_for_token(ctx, ctx.attempted_token, token)) {
+        ctx.checkpoint_timed_out.store(true, std::memory_order_release);
+    }
+    ctx.active_capture_token.store(0, std::memory_order_release);
+}
+void full_snapshot_replace_worker(void *p_userdata) {
+    FullSnapshotRaceContext &ctx = *static_cast<FullSnapshotRaceContext *>(p_userdata);
+    uint32_t processed = 0;
+    while (!ctx.stop.load(std::memory_order_acquire)) {
+        const uint32_t token = ctx.requested_token.load(std::memory_order_acquire);
+        if (token == processed) {
+            Thread::yield();
+            continue;
+        }
+        if (token != processed + 1u) {
+            ctx.unexpected_entry.store(true, std::memory_order_release);
+        }
+        ctx.data->set_gaussians((token & 1u) ? ctx.second : ctx.first);
+        ctx.completed_token.store(token, std::memory_order_release);
+        processed = token;
     }
 }
-void full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &serializer, GaussianData *data, const String &path) {
+bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &serializer, GaussianData *data, const String &path) {
     const Error save = serializer.save_scene(path, data);
     CHECK(save == OK);
     if (save != OK) {
-        return;
+        return false;
     }
-    CHECK(serializer.validate_file(path) == OK);
+    const Error validated = serializer.validate_file(path);
+    CHECK(validated == OK);
     Ref<GaussianData> loaded;
     loaded.instantiate();
     const Error load = serializer.load_scene(path, loaded.ptr());
     CHECK(load == OK);
     if (load != OK) {
-        return;
+        return false;
     }
     GaussianData::SaveSnapshot snapshot;
     const Error capture = loaded->capture_save_snapshot(snapshot);
     CHECK(capture == OK);
     CHECK(!snapshot.get_gaussians().is_empty());
     if (capture != OK || snapshot.get_gaussians().is_empty()) {
-        return;
+        return false;
     }
     const bool first = snapshot.get_gaussians().size() == 4096;
-    CHECK((first || snapshot.get_gaussians().size() == 3072));
+    const bool valid_generation = first || snapshot.get_gaussians().size() == 3072;
+    CHECK(valid_generation);
     const Vector3 position = first ? Vector3(11, 12, 13) : Vector3(-21, -22, -23);
     bool coherent = true;
     for (int64_t i = 0; i < snapshot.get_gaussians().size(); ++i) {
@@ -3715,16 +3759,22 @@ void full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
     // hide a mixed-generation header produced by a second live bounds read.
     Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
     CHECK(stored.is_valid());
+    bool header_coherent = stored.is_valid();
     if (stored.is_valid()) {
         stored->seek(GaussianSplatting::GSF_CHUNK_HEADER_SIZE + 16);
         const float extent = first ? 3.0f : 6.0f;
         for (int axis = 0; axis < 3; ++axis) {
-            CHECK(stored->get_float() == float(position[axis] - extent));
+            const bool matches = stored->get_float() == float(position[axis] - extent);
+            CHECK(matches);
+            header_coherent = header_coherent && matches;
         }
         for (int axis = 0; axis < 3; ++axis) {
-            CHECK(stored->get_float() == float(position[axis] + extent));
+            const bool matches = stored->get_float() == float(position[axis] + extent);
+            CHECK(matches);
+            header_coherent = header_coherent && matches;
         }
     }
+    return validated == OK && valid_generation && coherent && header_coherent;
 }
 }
 TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during concurrent structural replacement") {
@@ -3737,31 +3787,68 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
     data.instantiate();
     FullSnapshotRaceContext ctx;
     ctx.data = data.ptr();
-    Thread worker;
-    worker.start(full_snapshot_replace_worker, &ctx);
-    if (!worker.is_started()) {
-        FAIL("Could not start the snapshot replacement worker");
-        return;
-    }
-    const uint64_t startup_deadline = OS::get_singleton()->get_ticks_usec() + 10000000;
-    while (ctx.writes.load(std::memory_order_acquire) < 2 && OS::get_singleton()->get_ticks_usec() < startup_deadline) {
-        OS::get_singleton()->delay_usec(100);
-    }
-    if (ctx.writes.load(std::memory_order_acquire) < 2) {
-        ctx.stop.store(true, std::memory_order_release);
-        worker.wait_to_finish();
-        FAIL("Snapshot replacement worker did not establish the concurrency premise within 10 seconds");
+    ctx.first.resize(4096);
+    ctx.second.resize(3072);
+    if (ctx.first.size() != 4096 || ctx.second.size() != 3072) {
+        FAIL("Could not prepare both snapshot replacement generations");
         _remove_persistence_fixture(path);
         return;
     }
-    const uint32_t writes_before = ctx.writes.load(std::memory_order_acquire);
+    for (uint32_t i = 0; i < ctx.first.size(); ++i) {
+        ctx.first[i].position = Vector3(11, 12, 13);
+        ctx.first[i].scale = Vector3(1, 1, 1);
+    }
+    for (uint32_t i = 0; i < ctx.second.size(); ++i) {
+        ctx.second[i].position = Vector3(-21, -22, -23);
+        ctx.second[i].scale = Vector3(2, 2, 2);
+    }
+    data->set_gaussians(ctx.first);
+    // Immutable hook configuration during worker lifetime; no global observer.
+    data->save_snapshot_test_userdata = &ctx;
+    data->save_snapshot_test_hook = full_snapshot_race_checkpoint;
+    Thread worker;
+    worker.start(full_snapshot_replace_worker, &ctx);
+    if (!worker.is_started()) {
+        data->save_snapshot_test_hook = nullptr;
+        data->save_snapshot_test_userdata = nullptr;
+        FAIL("Could not start the snapshot replacement worker");
+        _remove_persistence_fixture(path);
+        return;
+    }
+    uint32_t successful_roundtrips = 0;
+    uint32_t confirmed_attempts = 0;
+    uint32_t completed_replacements = 0;
     GaussianSplatting::GaussianSceneSerializer serializer;
-    for (int attempt = 0; attempt < 20; ++attempt) {
-        full_snapshot_check_roundtrip(serializer, data.ptr(), path);
+    for (uint32_t token = 1; token <= 20; ++token) {
+        ctx.armed_token.store(token, std::memory_order_release);
+        if (full_snapshot_check_roundtrip(serializer, data.ptr(), path)) {
+            ++successful_roundtrips;
+        }
+        const bool capture_seen = ctx.captured_token.load(std::memory_order_acquire) == token;
+        const bool attempt_seen = ctx.attempted_token.load(std::memory_order_acquire) == token &&
+                !ctx.checkpoint_timed_out.load(std::memory_order_acquire) && !ctx.unexpected_entry.load(std::memory_order_acquire);
+        CHECK(capture_seen);
+        CHECK(attempt_seen);
+        if (!capture_seen || !attempt_seen) {
+            break; // Capture has returned and released its read lock before cleanup.
+        }
+        ++confirmed_attempts;
+        const bool completed = full_snapshot_wait_for_token(ctx, ctx.completed_token, token);
+        CHECK(completed);
+        if (!completed) {
+            break;
+        }
+        ++completed_replacements;
     }
     ctx.stop.store(true, std::memory_order_release);
     worker.wait_to_finish();
-    CHECK(ctx.writes.load(std::memory_order_acquire) > writes_before);
+    data->save_snapshot_test_hook = nullptr;
+    data->save_snapshot_test_userdata = nullptr;
+    CHECK(successful_roundtrips == 20u);
+    CHECK(confirmed_attempts == 20u);
+    CHECK(completed_replacements == 20u);
+    CHECK(ctx.capture_entries.load(std::memory_order_acquire) == 20u);
+    CHECK(ctx.attempt_entries.load(std::memory_order_acquire) == 20u);
     _remove_persistence_fixture(path);
 }
 #endif

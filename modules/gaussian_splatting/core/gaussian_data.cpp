@@ -300,6 +300,11 @@ void GaussianData::_on_gaussian_storage_changed_locked() {
 }
 
 void GaussianData::set_gaussians(const LocalVector<Gaussian> &p_gaussians) {
+#ifdef TESTS_ENABLED
+    if (save_snapshot_test_hook) {
+        save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::REPLACEMENT_ENTERED);
+    }
+#endif
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     // PERSIST-001: _on_gaussian_storage_changed_locked() fails the incremental saver
@@ -636,6 +641,11 @@ Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
     SaveSnapshot captured;
     {
         RWLockRead lock(data_rwlock);
+#ifdef TESTS_ENABLED
+        if (save_snapshot_test_hook) {
+            save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::CAPTURE_READ_LOCKED);
+        }
+#endif
         const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
         // resize() and coefficient setters may retain allocation slack. Only
         // the active extent belongs to the immutable payload.
