@@ -420,9 +420,9 @@ $allLogFiles = @(Get-ChildItem -Path $runDir -Recurse -Filter *.log -File)
 $signatureRules = @(
     @{ id = "runtime_skip"; regex = $RuntimeSkipMarkerPattern },
     @{ id = "gpu_sort_fallback"; regex = "Radix sort failed; falling back|GPU sorter never executed" },
-    @{ id = "leak"; regex = "\\bleak(ed)?\\b" },
+    @{ id = "leak"; regex = "\bleak(ed)?\b" },
     @{ id = "invalid_free"; regex = "invalid free|Invalid ID" },
-    @{ id = "streaming_invariant"; regex = "\\[Streaming\\] Invalid chunk state" }
+    @{ id = "streaming_invariant"; regex = "\[Streaming\] Invalid chunk state" }
 )
 
 $signatureHits = @()

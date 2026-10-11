@@ -67,6 +67,8 @@ PAINTERLY_NON_VACUITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_painterly_te
 RENDER_PARAM_FAMILY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_render_param_family_producers.py"
 DOWNLOAD_BUILD_FLAVOR_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_download_build_flavor_warning.py"
 DOWNLOAD_BUILD_FLAVOR_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_download_build_flavor_warning.py"
+OVERRIDES_NO_INLINE_SCRIPT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_overrides_no_inline_script.py"
+OVERRIDES_NO_INLINE_SCRIPT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_overrides_no_inline_script.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
@@ -1508,6 +1510,36 @@ def _run_download_build_flavor_guard() -> tuple[bool, list[str]]:
     return True, output_lines
 
 
+def _run_overrides_no_inline_script_guard() -> tuple[bool, list[str]]:
+    # overrides/** (the MkDocs theme custom_dir) is R1 only while nothing under it
+    # runs in a reader's browser (#1212, PR #1207). The guard rejects script tags,
+    # inline event handlers, javascript: URLs and non-template files there. Its
+    # discrimination cases run first, in the same lane: the guard passing proves
+    # the tree is clean today, not that the guard can still fail.
+    missing = [
+        path.relative_to(ROOT)
+        for path in (OVERRIDES_NO_INLINE_SCRIPT_GUARD_SCRIPT, OVERRIDES_NO_INLINE_SCRIPT_TEST_SCRIPT)
+        if not path.is_file()
+    ]
+    if missing:
+        return False, [f"Missing overrides inline-script guard file: {path}" for path in missing]
+
+    output_lines: list[str] = []
+    commands = (
+        [sys.executable, str(OVERRIDES_NO_INLINE_SCRIPT_TEST_SCRIPT)],
+        [sys.executable, str(OVERRIDES_NO_INLINE_SCRIPT_GUARD_SCRIPT)],
+    )
+    for args in commands:
+        code, out, err = _run_command(args)
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"Overrides inline-script guard failed with exit code {code}."]
+            return False, output_lines
+
+    return True, output_lines
+
+
 def _run_metric_reset_parity_guard() -> tuple[bool, list[str]]:
     # Mirrors _run_renderer_release_gate_guard: run the guard script against
     # the committed header, then the guard's own unit test (which pins the
@@ -1859,7 +1891,16 @@ def _run_gpu_harness_deferred_contract_guard() -> tuple[bool, list[str]]:
     if not script.is_file():
         return False, [f"Missing GPU harness deferred contract guard: {script.relative_to(ROOT)}"]
 
-    code, out, err = _run_command([sys.executable, str(script)])
+    # Its VACUOUS_CASE_ALLOWLIST ratchet grades against the REVIEW BASE through the
+    # same shared resolver as the env-skip and unchecked-resize guards, so it gets
+    # the same one base from `_environment_skip_base_ref()`. Without this,
+    # `--guard-only --base-ref X` reached those two and not this one, which fell back
+    # to origin/master on a stacked PR (Codex on #1218).
+    base_ref, base_failures = _environment_skip_base_ref()
+    if base_failures:
+        return False, base_failures
+    extra = ["--base-ref", base_ref] if base_ref else []
+    code, out, err = _run_command([sys.executable, str(script), *extra])
     if code != 0:
         output_lines = [line for line in (out + err).splitlines() if line.strip()]
         if not output_lines:
@@ -3663,6 +3704,12 @@ def _run_optional_message_guards(cli_args: argparse.Namespace) -> int | None:
             _run_download_build_flavor_guard,
             "Download build-flavor warning guard failed.",
             "Download build-flavor warning guard passed.",
+        ),
+        (
+            True,
+            _run_overrides_no_inline_script_guard,
+            "Overrides inline-script guard failed.",
+            "Overrides inline-script guard passed.",
         ),
         (
             True,

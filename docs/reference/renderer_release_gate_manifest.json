@@ -90,9 +90,9 @@
         "title": "Audit P0: repair opaque qlty check failures blocking renderer PRs",
         "status": "deferred",
         "goal": "Do not let opaque external qlty status block the local renderer release gate when GitHub branch protection does not require it.",
-        "rationale": "As of 2026-10-01, master branch protection requires exactly one status check, agentic-pr-gate, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
+        "rationale": "As of 2026-10-08, master branch protection requires two status checks, agentic-pr-gate and docs-build, and not qlty check (on 2026-05-21, when this entry was written, it required none), and the repository tracks no qlty configuration; qlty is therefore an advisory external signal, not a public-alpha release blocker.",
         "evidence_required": [
-          "GitHub branch protection for master does not require qlty check (its only required status check is agentic-pr-gate)",
+          "GitHub branch protection for master does not require qlty check (its only required status checks are agentic-pr-gate and docs-build)",
           "qlty check is documented as a non-blocking external signal in docs/reference/renderer-release-gates.md and .github/workflows/README.md",
           "candidate issue validation can resolve #369 through this deferred manifest classification"
         ]
@@ -129,8 +129,8 @@
     ]
   },
   "external_status_check_policy": {
-    "source": "GitHub branch protection for master checked on 2026-10-01 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": ["agentic-pr-gate"],
+    "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
+    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -139,7 +139,7 @@
         "classification": "deferred",
         "reason": "The qlty check is not required by master branch protection and has no repo-owned configuration/log contract in this tree.",
         "decision_evidence": [
-          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\"] on 2026-10-01 (required_status_checks=null on 2026-05-21)",
+          "gh api repos/klausi3D/godotGS/branches/master/protection returned required_status_checks.contexts=[\"agentic-pr-gate\",\"docs-build\"] on 2026-10-08 (contexts=[\"agentic-pr-gate\"] on 2026-10-01; required_status_checks=null on 2026-05-21)",
           "repo search found no tracked qlty.toml, .qlty, .codeclimate.yml, or .codefactor.yml policy file"
         ],
         "local_gate_behavior": "Do not fail tests/ci/check_renderer_release_gates.py solely because qlty check is failing, pending, absent, or inaccessible."
@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 209,
-    "sha256": "b100cdf19d0f60c521248145aec46c5507d07d4cfd6728f6c5ff0af88eec50ea",
-    "sha256_last_changed_by": "#1195 StreamingPipeline route and coupled REQUIRED promotion: RETAG 37 existing [Streaming Pipeline] cases as [RequiresGPU] (29 in test_gpu_streaming.cpp, 8 in test_gaussian_streaming_lifecycle.cpp), including 3 [SceneTree] renderer cases. Corpus 172 -> 209, running_in_a_named_batch 107 -> 144, deferred_count remains 2, unbatched_backlog remains 63. Count and digest recomputed using check_renderer_release_gates._extract_requires_gpu_tests and _requires_gpu_snapshot, and test_gpu_harness_deferred_contract.py --print-summary. Real GPU source 2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca: 37/37 cases, 5313/5313 assertions, complete per-case audit, zero hollow cases and RID leak bytes, 13.528s under unchanged 60s. StreamingPipeline is REQUIRED; the still-strict CPU lane excludes RequiresGPU, and every case must reach strict CPU or required GPU including excludes. Promotion changes policy, not this count/digest. Exact binary and evidence limits are recorded in adr-advisory-lane-ledger.md. Previous pin: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172).",
+    "test_count": 210,
+    "sha256": "00c1239f8341c038fab2d065c7794ccd5e20f9048d18dbe86684f5fb4d57d2f3",
+    "sha256_last_changed_by": "#1195 StreamingPipeline route and coupled REQUIRED promotion: RETAG 37 existing [Streaming Pipeline] cases as [RequiresGPU] (29 in test_gpu_streaming.cpp, 8 in test_gaussian_streaming_lifecycle.cpp), including 3 [SceneTree] renderer cases. Corpus 172 -> 209, running_in_a_named_batch 107 -> 144, deferred_count remains 2, unbatched_backlog remains 63. Count and digest recomputed using check_renderer_release_gates._extract_requires_gpu_tests and _requires_gpu_snapshot, and test_gpu_harness_deferred_contract.py --print-summary. Real GPU source 2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca: 37/37 cases, 5313/5313 assertions, complete per-case audit, zero hollow cases and RID leak bytes, 13.528s under unchanged 60s. StreamingPipeline is REQUIRED; the still-strict CPU lane excludes RequiresGPU, and every case must reach strict CPU or required GPU including excludes. Promotion changes policy, not this count/digest. Exact binary and evidence limits are recorded in adr-advisory-lane-ledger.md. Previous pin: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172). Current-master integration012960050 (including merged1199/1202; source inventory unchanged from8e3aa741) additionally preserves the merged#1173 NodeSceneTree antialias-compensation precedence test: computed corpus209 ->210, named-batch144 ->145, deferred2 and unbatched63 unchanged. Snapshot computed from the merged source using the same extraction/hash functions; this is a source inventory, not new runtime proof.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -483,8 +483,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 209,
-      "running_in_a_named_batch": 144,
+      "requires_gpu_total": 210,
+      "running_in_a_named_batch": 145,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },

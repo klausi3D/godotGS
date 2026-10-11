@@ -10,6 +10,14 @@ namespace gs {
 // (GLSL cannot share a C++ constexpr) — keep the two numerically equal.
 static constexpr float RASTER_ALPHA_THRESHOLD = 1.0f / 255.0f;
 
+// Default screen-space low-pass (px^2 added to the cov2d diagonal in tile
+// binning). 0.3 is what every reference adds: Inria forward.cu, gsplat `eps2d`
+// (classic and antialiased modes) and aras-p. Classic-trained models were
+// optimized against exactly this dilation (#1173). The shader clamps the
+// runtime value to [0.05, 2.0]. Single host source for the struct defaults and
+// the `rendering/gaussian_splatting/rasterization/low_pass_filter` default.
+static constexpr float RASTER_LOW_PASS_FILTER_DEFAULT = 0.3f;
+
 } // namespace gs
 
 #endif // GS_RASTER_THRESHOLDS_H

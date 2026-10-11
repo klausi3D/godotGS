@@ -31,16 +31,18 @@ How the cases below can fail:
   writes under `issues`, so a new readiness boolean cannot be collected and
   left unenforced.
 
-Declared limits: the PowerShell script is not executed here (no `pwsh` in the
-guard lane); its checks are structural over the script text. The behaviour on
-the self-hosted runner is evidence only once a GPU run of the Production Gates
-has executed it.
+Declared limits: most checks are structural. When PowerShell 7 is available,
+the native signature test executes the collector's actual scan and #900
+assignments against captured producer output. This bounded test runs no Godot
+process and does not replace self-hosted Production Gates runtime evidence.
 """
 
 from __future__ import annotations
 
 import math
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -494,6 +496,17 @@ class CollectProductionEvidenceScriptTests(unittest.TestCase):
         self.assertIn("$failedCommands = @($results | Where-Object { -not [bool]$_.passed })", joined)
         self.assertRegex(joined, r"if \(\$failedCommands\.Count -gt 0\) \{(?:.|\n)*?\n\s+exit 1\n\}")
         self.assertEqual(tail[-1].strip(), "exit 0", "the script must end with an explicit exit")
+
+
+class NativeProductionSignatureWiringTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7 native signature test requires pwsh")
+    def test_native_collector_signature_and_readiness_wiring(self) -> None:
+        result = subprocess.run(
+            [shutil.which("pwsh"), "-NoProfile", "-File", str(ROOT / "tests/ci/test_production_signature_wiring.ps1")],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("6 cases passed", result.stdout)
 
 
 if __name__ == "__main__":

@@ -366,6 +366,11 @@
   background: var(--gs-surface-raised);
   box-shadow: var(--gs-shadow-md);
 }
+/* A small crop (an Inspector panel) shown at its own size, not stretched. */
+.md-typeset img.gs-shot--natural {
+  width: auto;
+  max-width: 100%;
+}
 /* Captions: text face, upright (no Geist italic is loaded, so Material's
    italic would be a synthesized slant), secondary colour. */
 .md-typeset figure figcaption {

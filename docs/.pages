@@ -74,6 +74,7 @@ nav:
           - governance/review-policy.md
           - governance/evidence-integrity.md
           - governance/release-acceptance-bar.md
+          - governance/real-scan-visual-pass.md
           - governance/github-settings.md
       - Docs Site:
           - development/docs-site.md

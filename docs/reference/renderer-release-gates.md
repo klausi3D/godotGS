@@ -40,7 +40,7 @@ limitation before candidate mode can pass.
 | #351 route/fallback/stage contracts | Blocking | #351 closed or split to non-alpha follow-up; resident, streaming, and serial route failure-injection tests; candidate benchmark rows include `route_uid`, `stage_statuses`, and `fallback_counters`. |
 | #352 GPU resource lifetime | Blocking | #352 closed or split to non-alpha follow-up; GPU/RID accounting fails on retained owned resources; required GPU batches report `rid_leak_bytes=0`. |
 | #360 public-alpha acceptance gates | Blocking | Candidate evidence bundle passes `--mode candidate`; issue snapshot classifies every open P0/P1/release-blocker issue; known limitations page contains each accepted alpha limitation. |
-| #369 opaque `qlty check` | Deferred external signal | `master` branch protection does not require `qlty check` (its one required check is `agentic-pr-gate`); no repo-owned qlty config is tracked; `qlty check` is documented as non-blocking unless branch protection later requires it. |
+| #369 opaque `qlty check` | Deferred external signal | `master` branch protection does not require `qlty check` (its required checks are `agentic-pr-gate` and `docs-build`); no repo-owned qlty config is tracked; `qlty check` is documented as non-blocking unless branch protection later requires it. |
 
 Closed umbrella issues #350 and #353 stay closed only because their remaining
 release risk is represented by open child blockers and follow-up issues. They
@@ -72,12 +72,12 @@ requires each entry to be a non-empty string and rejects a context that is both
 required and listed as non-blocking. The `release_candidate_gate` job passes the
 script only the candidate evidence bundle, the issues JSON, the expected commit
 and the archive digests (`.github/workflows/release_builds.yml:1483-1520`). A
-missing or failed `agentic-pr-gate` result on the released commit therefore does
-not fail this gate; that context is enforced only by branch protection when a PR
+missing or failed `agentic-pr-gate` or `docs-build` result on the released commit therefore does
+not fail this gate; those contexts are enforced only by branch protection when a PR
 merges into `master`. `required_for_public_alpha` is empty.
 
-As of 2026-10-01, GitHub branch protection for `master` requires exactly one
-status check, `agentic-pr-gate`, and not `qlty check` (when this policy was written
+As of 2026-10-08, GitHub branch protection for `master` requires two status
+checks, `agentic-pr-gate` and `docs-build`, and not `qlty check` (when this policy was written
 on 2026-05-21 it required none), and the repo does not track a qlty configuration
 file. Therefore `qlty check` is an advisory external signal for this gate. A
 failing, pending, absent, or login-gated qlty result must not fail `tests/ci/check_renderer_release_gates.py`.
@@ -316,6 +316,16 @@ reads `CurrentTestCaseStats::numAssertsCurrentTest` in `test_case_end` and print
 `[GS-GPU][CASE-ASSERT-AUDIT]` marker per batch. `run_gpu_harness.py` records both
 per batch and escalates them for required batches as `hollow_required_cases` /
 `case_audit_missing_batches` / `case_audit_mismatch_batches`.
+
+Advisory batches that matched at least one case get the same audit (#906/#907),
+with one difference. A zero-assertion case fails the run as
+`vacuous_advisory_cases` unless it printed an explicit environment skip
+(`GS_ENV_SKIP:` or legacy `Skipping …`, the same detector the headless lanes
+use) inside its own doctest output block. Such a case is reported as
+`env_skipped_advisory_cases` instead. In a required batch a skipped case still
+fails. An advisory batch whose cases evaluated 0 assertions in total fails as
+`zero_assertion_advisory_batches`, even when every case skipped explicitly. The
+shrink-only, issue-linked `VACUOUS_CASE_ALLOWLIST` is empty.
 
 The audit marker is required to be **present**: the hollow-case signal is carried
 by the absence of `NO-ASSERTS` lines, and absence is equally what a binary built

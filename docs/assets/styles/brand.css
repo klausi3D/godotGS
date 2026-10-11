@@ -78,10 +78,9 @@
    DARK scheme (default look — the product is a dark 3D editor)
    -------------------------------------------------------------------------- */
 [data-md-color-scheme="slate"],
-.gs-marketing .gsm-editor,
 .gs-marketing .gsm-term {
-  /* The landing's editor product shot and terminal are always dark (like a real
-     screenshot), so they re-use this token set in both schemes. */
+  /* The landing's terminal is always dark, so it re-uses this token set in
+     both schemes. */
   color-scheme: dark;
 
   /* Surfaces — cool graphite */

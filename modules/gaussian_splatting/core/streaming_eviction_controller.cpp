@@ -27,8 +27,8 @@ void StreamingEvictionController::reset_per_frame_counters() {
     visible_chunks_evicted_this_frame = 0;
 }
 
-void StreamingEvictionController::touch_chunk_use(uint64_t &r_last_used_frame) {
-    r_last_used_frame = ++chunk_load_counter;
+void StreamingEvictionController::touch_chunk_use(uint64_t &r_last_used_frame, uint64_t p_frame_generation) {
+    r_last_used_frame = p_frame_generation;
 }
 
 void StreamingEvictionController::invalidate_candidate_cache() {

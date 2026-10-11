@@ -2456,11 +2456,8 @@ Error RenderPipelineStages::RasterStage::render_tile_fallback(const Size2i &p_vi
 		render_params.tiny_splat_screen_radius = cull_state.tiny_splat_screen_radius_px;
 	}
 
-	// Low-pass filter (project setting). Direct path otherwise inherits the 0.35
-	// RenderParams struct default while the project setting registered at
-	// gaussian_splat_manager.cpp:1045 is 0.05 — over-aggressive Mip-Splatting
-	// dilation produces a uniform soft halo on edges. Mirrors the read in
-	// painterly_renderer.cpp:1769-1776 so both paths agree.
+	// Resolve the project setting through the same reader used by the cached-render
+	// signature. The shared RenderParams default applies without ProjectSettings.
 	render_params.low_pass_filter = _resolve_low_pass_filter_setting(render_params.low_pass_filter);
 
 	// Apply Jacobian diagnostic toggles

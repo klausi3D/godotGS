@@ -69,6 +69,92 @@ class ClassifyChangeTest(unittest.TestCase):
         self.assertEqual(self._cls(["README.md"]), "R0")
         self.assertEqual(self._cls(["CONTRIBUTING.md"]), "R0")
 
+    # Docs-site build / publish tooling. These decide what the public site builds
+    # and publishes, so they are R1, not R0. Each is checked by something it does
+    # not control (the MkDocs build in docs-build, a tests/agentic test in
+    # agentic-pr-gate, or the overrides inline-script guard in the guard-only
+    # lane) or cannot change what is published, so they are not R3 either
+    # (docs/governance/agentic-engineering.md).
+    DOCS_SITE_TOOLING_R1 = (
+        "mkdocs.yml",
+        "overrides/home.html",
+        "overrides/partials/nested/footer.html",
+        "scripts/build_docs_site.py",
+        "scripts/docs/release_acceptance.py",
+        "docs/requirements.txt",
+        "docs/requirements-site.txt",
+    )
+
+    def test_docs_site_tooling_is_r1(self):
+        for path in self.DOCS_SITE_TOOLING_R1:
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R1")
+
+    def test_executed_docs_site_code_is_r3(self):
+        # The deploy job runs the stage script on every deploy and the C++ API
+        # redirect script on v* tags, after a credential-persisting checkout with
+        # contents: write. It also runs the settings manifest checker, which
+        # scripts/generate_project_settings_reference.py loads with exec_module.
+        # mkdocs.yml loads docs/assets/javascripts/** into readers' browsers. No
+        # check executes or inspects that code for side effects, so it is R3 by an
+        # explicit rule, not only by the fail-closed default: a broader R0 or R1
+        # glob (docs/** is R0, modules/gaussian_splatting/** is R1) must not lower
+        # it (#1212, PR #1207).
+        for path in (
+            "scripts/stage_public_docs.py",
+            "modules/gaussian_splatting/tests/check_project_settings_manifest.py",
+            "scripts/docs/redirect_cpp_api_to_latest.py",
+            "docs/assets/javascripts/latest-nightlies.js",
+            "docs/assets/javascripts/home-splat.js",
+            "docs/assets/javascripts/nested/new.js",
+        ):
+            with self.subTest(path=path):
+                overall, detail = classify.classify_paths([path], POLICY)
+                self.assertEqual(overall, "R3")
+                self.assertNotEqual(detail[0]["reason"], "unclassified path (fail-closed)")
+        self.assertEqual(
+            self._cls(["overrides/home.html", "docs/assets/javascripts/home-splat.js"]),
+            "R3",
+        )
+
+    def test_overrides_script_guard_is_r3_machinery(self):
+        # overrides/** is R1 only because this guard keeps script out of it.
+        self.assertEqual(self._cls(["tests/ci/check_overrides_no_inline_script.py"]), "R3")
+
+    def test_docs_dependency_lock_is_r3(self):
+        # docs-build and deploy install docs/requirements-lock.txt, deploy with a
+        # write token in git config. A green install cannot vouch for what the lock
+        # selects, so the lock stays R3 although docs/requirements*.txt is R1 (#1212).
+        self.assertEqual(self._cls(["docs/requirements-lock.txt"]), "R3")
+        self.assertEqual(
+            self._cls(["docs/requirements.txt", "docs/requirements-lock.txt"]), "R3"
+        )
+
+    def test_docs_site_tooling_rule_does_not_reach_neighbouring_paths(self):
+        # The rule names exact files, so neighbours keep their own class: other
+        # scripts fail closed to R3, the link checker run by the required agentic
+        # gate stays R3, the media budget (run by deploy, no test of its own) stays
+        # R3, the generator and Doxygen output check (docs-build runs the PR's own
+        # copies, no test of their own) stay R3, and ordinary docs pages and assets
+        # stay R0.
+        for path, expected in (
+            ("scripts/docs/check_links.py", "R3"),
+            ("scripts/check_docs_media_budget.py", "R3"),
+            ("scripts/build_documentation.py", "R3"),
+            ("scripts/docs/check_doxygen_output.py", "R3"),
+            ("scripts/docs/some_new_docs_check.py", "R3"),
+            ("scripts/generate_shader_docs.py", "R3"),
+            ("scripts/stage_public_docs.py.bak", "R3"),
+            ("modules/gaussian_splatting/tests/check_shader_includes.py", "R1"),
+            ("overrides.yml", "R3"),
+            ("site/overrides/home.html", "R3"),
+            ("docs/mkdocs.yml", "R0"),
+            ("docs/assets/images/logo.png", "R0"),
+            ("docs/getting-started/downloads.md", "R0"),
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), expected)
+
     def test_unknown_sensitive_path_fails_closed_to_r3(self):
         self.assertEqual(self._cls(["some/unmapped/path.bin"]), "R3")
 

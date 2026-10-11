@@ -205,9 +205,10 @@
         RID _resolve_scene_depth_binding(RenderingDevice *p_device);
         RID _ensure_scene_depth_sampler(RenderingDevice *p_device);
         RID _ensure_scene_depth_fallback(RenderingDevice *p_device);
-        uint64_t dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+        bool _raster_submission_valid(RenderingDevice *p_device, RID p_buffer_uniform_set, RID p_param_uniform_set) const;
+        RasterDispatchResult dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
                 RID p_image_uniform_set, RenderingDevice *p_submission_device);
-        uint64_t dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
+        RasterDispatchResult dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set,
                 RenderingDevice *p_submission_device);
 
         TileRenderer &owner;
