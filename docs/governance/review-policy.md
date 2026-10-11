@@ -114,10 +114,13 @@ the separately committed redesign does not claim retrospective compliance.
 
 Later oracle/fixture policy changes require two fixed-diff reviews of separate
 policy-only `T` and measured `S`, plus human/CODEOWNER acceptance. Exact canonical
-personal-owner environment JSON authorizes data-only P2 delegation; unchanged
+personal-owner signed bindings authorize data-only P2 delegation; unchanged
 trusted default validators consume approved data without executing proposed
-privileged code. Genuine new P2 proof precedes explicit owner retirement of P1
-and required P2 activation, preserving strict/agentic/docs/App protection. Editable
-comments only corroborate the authoritative payload. Fixed control/build/bootstrap
+privileged code. Environment JSON is untrusted transport, and comments confer
+no authority. Bootstrap, migration and final SUCCESS use the same standard
+OpenSSH verifier with immutable B public-key/tool pins; shipped null pins make
+all SUCCESS inactive. Genuine new P2 proof precedes explicit owner retirement
+of P1 and required P2 activation, preserving strict/agentic/docs/App protection.
+Fixed control/build/bootstrap
 changes remain fail-closed separate maintenance scope. See the
 [policy supplement](../architecture/adr-pr-gpu-evidence-verdict.md#canonical-gpu-completion-and-data-only-policy-migration-2026-10-11).

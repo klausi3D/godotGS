@@ -66,6 +66,9 @@ class ClassifyChangeTest(unittest.TestCase):
         for path in (
             "scripts/agentic/gpu_commit_policy.py",
             "scripts/agentic/gpu_commit_policy.json",
+            "scripts/agentic/verify_owner_grant.py",
+            "scripts/agentic/owner_grant_policy.json",
+            "tests/ci/test_owner_grant.py",
             "tests/ci/check_universal_gpu_evidence.py",
         ):
             with self.subTest(path=path):

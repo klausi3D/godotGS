@@ -61,6 +61,8 @@ jobs:
         run: |
           python tests/ci/test_pr_gpu_evidence.py -v
           python tests/ci/test_pr_gpu_evidence_wiring.py -v
+          # Supported hosted Linux: real synthetic-key SSH verification; no skip.
+          python tests/ci/test_owner_grant.py -v
 
       - name: Validate all GitHub Actions workflows
         env:

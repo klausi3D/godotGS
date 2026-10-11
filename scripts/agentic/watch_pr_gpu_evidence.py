@@ -142,7 +142,9 @@ def proof_settings(event: dict) -> tuple[dict[str, bytes], str, dict | None]:
     head, _ = event_head(event)
     bundle, migration = policy.effective_policy(api, repo, trusted, head, os.environ.get("GS_PUBLISH_APP_ID"))
     context = policy.context_for(bundle)
-    bootstrap = policy.environment_record(api, repo, policy.BOOTSTRAP_VARIABLE)
+    # Verification uses the immutable B profile even when effective data comes from T.
+    bootstrap = policy.owner_binding(api, repo, trusted, head, os.environ.get("GS_PUBLISH_APP_ID"),
+                                     policy.policy_bundle(trusted), kind="bootstrap", context=context)
     if migration is not None and bootstrap is not None:
         raise ValueError("Initial bootstrap and data migration must not overlap")
     return bundle, context, migration or bootstrap

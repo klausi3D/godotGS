@@ -218,6 +218,10 @@ pulls: {get: async () => ({data: PULL})}}};
     def test_required_hosted_lane_registers_this_actual_wiring_suite(self):
         gate = (ROOT / ".github/workflows/agentic_pr_gate.yml").read_text()
         self.assertIn("python tests/ci/test_pr_gpu_evidence_wiring.py", gate)
+        workflow = load(ROOT / ".github/workflows/agentic_pr_gate.yml")
+        commands = [step.get("run", "") for step in workflow["jobs"]["agentic-pr-gate"]["steps"]]
+        self.assertTrue(any("python tests/ci/test_owner_grant.py -v" in command for command in commands))
+        self.assertFalse(any("test_owner_grant.py --portable" in command for command in commands))
 
 
 if __name__ == "__main__":

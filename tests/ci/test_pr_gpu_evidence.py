@@ -691,7 +691,10 @@ class CanonicalGpuReportTests(unittest.TestCase):
 
 
 class DataOnlyMigrationTests(unittest.TestCase):
-    """Actual immutable Git objects and canonical API mocks; no live authorization."""
+    """Actual Git/data selection with mocked crypto backend, not signature evidence.
+
+    test_owner_grant.py separately runs the actual required Linux SSH backend.
+    """
     def setUp(self):
         self.policy = watcher.policy
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -726,11 +729,23 @@ class DataOnlyMigrationTests(unittest.TestCase):
         self.root_patch.start(); self.addCleanup(self.root_patch.stop)
         self.trusted = self.policy.policy_bundle(self.base)
         self.proposed = self.policy.policy_bundle(self.target)
-        self.binding = {"base_sha": self.base, "policy_sha": self.target, "head_sha": self.head,
+        self.binding = {"version": "gs-owner-grant-v1", "kind": "migration",
+                        "repository": "klausi3D/godotGS", "owner_id": 103386187, "target_branch": "master",
+                        "base_sha": self.base, "policy_sha": self.target, "head_sha": self.head,
                         "context": self.policy.context_for(self.proposed), "app_id": 701,
                         "run_id": "9", "run_attempt": "1",
                         "expires_utc": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()}
-        self.present = True; self.comment_body = None; self.owner_type = "User"
+        self.present = True; self.unsigned = False; self.owner_type = "User"
+        profile = {"repository": "klausi3D/godotGS", "owner_id": 103386187, "public_key": "synthetic portable composition only"}
+        self.actual_run = subprocess.run
+        def portable_run(argv, **kwargs):
+            # Mock only actual -Y verify; immutable Git subprocesses still execute.
+            if argv[1:3] == ["-Y", "verify"]:
+                return subprocess.CompletedProcess(argv, 0)
+            return self.actual_run(argv, **kwargs)
+        for patcher in (patch.object(self.policy.owner_grants, "configured_profile", return_value=profile),
+                        patch.object(self.policy.owner_grants.subprocess, "run", side_effect=portable_run)):
+            patcher.start(); self.addCleanup(patcher.stop)
         self.parent = self.base
 
     def api(self, endpoint):
@@ -738,20 +753,15 @@ class DataOnlyMigrationTests(unittest.TestCase):
             return {"total_count": int(self.present), "variables": [{"name": self.policy.MIGRATION_VARIABLE}] if self.present else []}
         if endpoint.endswith("/variables/" + self.policy.MIGRATION_VARIABLE):
             return {"name": self.policy.MIGRATION_VARIABLE,
-                    "value": json.dumps({"binding": self.binding, "approval_comment_id": 71})}
-        if endpoint == "repos/owner/repo":
-            return {"owner": {"login": "owner", "id": 17, "type": self.owner_type}}
-        if "/issues/comments/" in endpoint:
-            digest = hashlib.sha256(json.dumps(self.binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            return {"id": 71, "user": {"login": "owner", "id": 17},
-                    "issue_url": "https://api.github.com/repos/owner/repo/issues/1196",
-                    "body": self.comment_body or f"GodotGS GPU policy migration approved\nsha256={digest}\n"}
+                    "value": json.dumps({"binding": self.binding, **({"approval_comment_id": 71} if self.unsigned else {"signature": "-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----\n"})})}
+        if endpoint == "repos/klausi3D/godotGS":
+            return {"owner": {"login": "klausi3D", "id": 103386187, "type": self.owner_type}}
         if "/git/commits/" in endpoint:
             return {"sha": self.target, "parents": [{"sha": self.parent}]}
         raise AssertionError("Unexpected or noncanonical endpoint: " + endpoint)
 
     def effective(self):
-        return self.policy.effective_policy(self.api, "owner/repo", self.base, self.head, 701)
+        return self.policy.effective_policy(self.api, "klausi3D/godotGS", self.base, self.head, 701)
 
     def test_real_data_only_policy_commit_and_candidate_pin(self):
         with self.assertRaises(ValueError): self.policy.require_producer_pin(self.head, self.trusted)
@@ -761,16 +771,16 @@ class DataOnlyMigrationTests(unittest.TestCase):
         self.present = False
         self.assertEqual(self.effective(), (self.trusted, None))
 
-    def test_exact_bindings_expiry_owner_and_writer_edited_comment_cannot_redirect(self):
+    def test_exact_bindings_expiry_owner_and_unsigned_environment_cannot_redirect(self):
         for field, value in (("base_sha", "a" * 40), ("head_sha", "b" * 40), ("policy_sha", self.head),
                              ("context", "wrong"), ("app_id", 702), ("run_attempt", ""),
                              ("expires_utc", "2000-01-01T00:00:00+00:00")):
             original = self.binding[field]; self.binding[field] = value
             with self.subTest(field=field), self.assertRaises((ValueError, KeyError)): self.effective()
             self.binding[field] = original
-        self.comment_body = "writer changed original owner comment to another payload"
+        self.unsigned = True
         with self.assertRaises(ValueError): self.effective()
-        self.comment_body = None; self.owner_type = "Organization"
+        self.unsigned = False; self.owner_type = "Organization"
         with self.assertRaises(ValueError): self.effective()
         self.owner_type = "User"; self.parent = "c" * 40
         with self.assertRaises(ValueError): self.effective()
@@ -807,7 +817,7 @@ class DataOnlyMigrationTests(unittest.TestCase):
         with patch.dict(os.environ, {"GS_CODE_EVIDENCE_MIGRATION": json.dumps(self.binding)}):
             self.assertEqual(self.effective(), (self.trusted, None))
         with self.assertRaises(ValueError):
-            self.policy.environment_record(lambda endpoint: {"variables": [], "total_count": 1}, "owner/repo", self.policy.MIGRATION_VARIABLE)
+            self.policy.environment_record(lambda endpoint: {"variables": [], "total_count": 1}, "klausi3D/godotGS", self.policy.MIGRATION_VARIABLE)
 
 
 if __name__ == "__main__":

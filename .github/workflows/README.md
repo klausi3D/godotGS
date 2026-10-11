@@ -621,11 +621,16 @@ trusted policy. The trusted implementation must first enter the default branch
 through independently reviewed migration under the existing gates, then a
 single-parent candidate with matching definitions can register the initial policy.
 Later oracle/fixture data changes use exact owner-authorized `B/T/S/P2/App/run`
-environment JSON: unchanged default code reads separate reviewed `T` data/hashes,
+signed environment transport: unchanged default code reads separate reviewed `T` data/hashes,
 never executes proposed privileged code, and consumes effective approved data.
 Genuine full `P2` proof precedes explicit owner replacement of required `P1` with
-`P2`, preserving strict and existing agentic/docs source checks. The environment
-record is authority; editable owner-comment text only corroborates its digest.
+`P2`, preserving strict and existing agentic/docs source checks. Both bootstrap
+and migration require a standard OpenSSH owner signature over exact typed bindings;
+environment data and editable comments supply no authority. Trusted default B pins
+the public Ed25519 key, verifier code, executable path/hash, namespace and principal.
+The shipped null key/tool pins disable ALL SUCCESS, including ordinary mode, until
+separate reviewed owner maintenance supplies actual public configuration. The
+private signing key stays offline; it never reaches CI or this repository.
 Fixed workflow/action/Python/build/bootstrap changes cannot delegate and need
 separate owner maintenance scope. The closure pins native oracles, doctest, test
 registration, build definitions and fixtures; ordinary product C++/GLSL stays

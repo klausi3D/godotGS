@@ -3922,9 +3922,21 @@ class UniversalEvidenceGuardLaunchTests(unittest.TestCase):
         with mock.patch.object(harness, "_run_command", side_effect=run):
             self.assertTrue(harness._run_pr_gpu_evidence_guard()[0])
         self.assertEqual([Path(argv[1]).name for argv in calls],
-                         ["check_pr_gpu_evidence.py", "check_universal_gpu_evidence.py", "test_pr_gpu_evidence.py"])
+                         ["check_pr_gpu_evidence.py", "check_universal_gpu_evidence.py", "test_pr_gpu_evidence.py", "test_owner_grant.py"])
         self.assertTrue(all(argv[0] == sys.executable for argv in calls))
         self.assertEqual(calls[1][2:], ["--self-test"])
+
+    def test_owner_crypto_or_portable_failure_is_blocking_and_platform_mode_is_explicit(self):
+        for platform in ("linux", "win32"):
+            calls = []
+            def run(argv):
+                calls.append(argv)
+                return (1, "owner authority rejected", "") if Path(argv[1]).name == "test_owner_grant.py" else (0, "", "")
+            with self.subTest(platform=platform), mock.patch.object(sys, "platform", platform), \
+                    mock.patch.object(harness, "_run_command", side_effect=run):
+                ok, output = harness._run_pr_gpu_evidence_guard()
+            self.assertFalse(ok); self.assertIn("owner authority rejected", output)
+            self.assertEqual(calls[-1][2:], [] if platform == "linux" else ["--portable"])
 
     def test_universal_checker_failure_propagates_and_stops_later_tests(self):
         calls = []

@@ -59,10 +59,12 @@ GitHub-settings checklist. A source change never installs protection by itself.
 
 The canonical GPU report is a fifth fresh bound artifact; advisory `--test --gpu`
 selection alone cannot qualify it. Fixed oracle/build/bootstrap/control inputs
-are pinned. Only reviewed oracle/fixture data may use exact personal-owner
-canonical environment JSON for data-only policy delegation; proposed privileged
-code never executes. Full new-policy proof precedes explicit owner P1→P2 required
-context replacement, preserving strict and existing agentic/docs source checks.
-Comments merely corroborate the authoritative environment record. Fixed execution
+are pinned. Only reviewed oracle/fixture data may use an exact owner-signed
+bootstrap/migration binding transported through canonical environment JSON;
+proposed privileged code never executes. Standard OpenSSH verifies the immutable
+trusted-default owner public key and executable pin. Null pins disable all SUCCESS.
+Environment writers and editable comments supply no approval authority. Full
+new-policy proof precedes explicit owner P1→P2 required context replacement,
+preserving strict and existing agentic/docs source checks. Fixed execution/key/tool
 updates require separate maintenance scope. This acceptance/availability tradeoff
 remains proposed until final human approval and actual activation evidence.

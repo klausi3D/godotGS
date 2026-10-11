@@ -185,7 +185,12 @@ instruction for an agent to change settings.
    set environment variable `GPU_CODE_EVIDENCE_APP_ID` to the dedicated numeric
    App ID. Remove ordinary repository-secret copies before activation. Environment
    readback and the actual credentials' scope must be independently verified.
-4. Merge independently reviewed policy implementation under the existing gates;
+4. Before activation, separately review and land actual owner-selected public
+   Ed25519 key and supported hosted `/usr/bin/ssh-keygen` SHA256 in
+   `scripts/agentic/owner_grant_policy.json`. The shipped null pins disable ALL
+   SUCCESS. The owner private key stays offline and never enters CI/secrets/repo.
+   Fixed verifier/key/tool updates require nondelegatable owner maintenance;
+   hosted executable drift fails closed. Merge independently reviewed policy implementation under the existing gates;
    its changed definitions cannot self-certify against the preceding trusted
    bundle. A human squash landing can establish an eligible single-parent trusted
    default `B`; it does not itself create a universal receipt. Prepare an actual
@@ -200,13 +205,21 @@ instruction for an agent to change settings.
    ```
 
 5. Approve one genuine complete producer run/attempt for that exact commit/context.
-   Set environment variable `GPU_CODE_EVIDENCE_BOOTSTRAP` to JSON containing only
-   `head_sha`, `context`, `run_id`, `run_attempt` (IDs are strings). The controller
-   reads this variable only through its canonical environment API, never the
-   workflow/repository `vars` context. The shared
-   success boundary still requires single-parent identity, full fresh receipt,
-   strict protection, current-base ancestry and environment/App proof. This
-   registers a real new context; it does not establish enforced protection.
+   Prepare the exact typed binding shown below with kind `bootstrap`, policy SHA
+   equal to B, and actual S/P/App/run/attempt/UTC expiry. Canonical signing bytes
+   are sorted compact JSON, `ensure_ascii=True`, UTF-8, with no added newline.
+   Owner reviews those public bytes and signs offline using standard OpenSSH:
+
+   ```text
+   ssh-keygen -Y sign -f <offline-owner-private-key> -n godotgs-owner-grant-v1 <binding-file>
+   ```
+
+   Set canonical environment variable `GPU_CODE_EVIDENCE_BOOTSTRAP` to the public
+   `{binding, signature}` envelope. Never upload the private key. Environment JSON
+   is transport, not authority; unsigned four-field records are rejected. The
+   shared final boundary verifies the signature again and still requires eligible
+   exact S, genuine full fresh GPU receipt, strict ancestry and App/environment
+   proof. Registration alone does not establish enforced protection.
 6. After that recent successful registration, update required-status-checks with
    `strict: true` and append exactly `{"context": "<computed-policy-context>",
    "app_id": <dedicated-App-id>}` to the existing `checks` list. Preserve both
@@ -230,8 +243,10 @@ changes are **NOT_RUN** during local source preparation. Humans alone merge.
 ### Later oracle/fixture policy migration
 
 This profile supports the canonical personal-owner repository only. Environment
-configuration/variables require the owner; independently verify that no delegated
-environment-write credential reaches untrusted code. Organization/custom roles
+JSON is untrusted transport: collaborator REST variable permissions cannot prove
+owner approval. A standard signature from the immutable-B owner key supplies
+that approval. Independently verify no privileged write credential reaches
+untrusted candidate code. Organization/custom roles
 need separate design. Privileged default `B` code and execution definitions stay
 unchanged throughout the following owner-approved transition.
 
@@ -242,18 +257,19 @@ unchanged throughout the following owner-approved transition.
    `S`'s selected definitions equal P2; fixed bytes/modes, selectors, required set,
    no-skip/no-timeout/no-leak invariants and minima remain enforced. Privileged
    validators read approved data from T, never import or execute T scripts/YAML.
-2. Complete the genuine full PR producer run for S/P2. Owner configures environment
-   variable `GS_CODE_EVIDENCE_MIGRATION` with the exact shape below. IDs for run and
-   attempt are strings; App/comment IDs are numeric. Expiry has an explicit UTC
-   offset. The binding JSON alone is authority; a public owner-authored comment
-   merely corroborates SHA256 of canonical sorted compact binding JSON. Other
-   writers can edit its body while the original creator persists: it cannot
-   redirect the authoritative environment payload. Missing or changed corroboration
-   blocks publication.
+2. Complete the genuine full PR producer run for S/P2. Owner inspects and signs
+   the exact canonical binding offline, then transports the public envelope in
+   `GS_CODE_EVIDENCE_MIGRATION`. Run/attempt IDs are strings, owner/App IDs positive
+   integers, expiry explicit UTC. Binding and envelope have exactly these fields:
 
    ```json
    {
      "binding": {
+       "version": "gs-owner-grant-v1",
+       "kind": "migration",
+       "repository": "klausi3D/godotGS",
+       "owner_id": 103386187,
+       "target_branch": "master",
        "base_sha": "<current-B>",
        "policy_sha": "<separate-reviewed-T>",
        "head_sha": "<measured-S>",
@@ -263,14 +279,19 @@ unchanged throughout the following owner-approved transition.
        "run_attempt": "1",
        "expires_utc": "<explicit-UTC-expiry>"
      },
-     "approval_comment_id": 71
+     "signature": "<public ASCII OpenSSH SSHSIG armor>"
    }
    ```
 
-   Numeric values above illustrate types, not actual configured identities. The
-   exact corroborating comment body is `GodotGS GPU policy migration approved`,
-   newline, `sha256=<binding-digest>`, newline. Canonical repository-owner identity
-   and repository comment URL must match. No repository-variable fallback exists.
+   App ID illustrates a type, not configured identity. For initial bootstrap use
+   kind `bootstrap`, policy SHA=B, and P(B). Namespace is fixed
+   `godotgs-owner-grant-v1`, principal `godotgs-personal-owner`. Allowed signers
+   derive only from the trusted B public key; no transport key/options/path exists.
+   Duplicate JSON keys, unsigned records, old comments/body digests, wrong kind,
+   owner/repo/B/T/S/P/App/run/expiry or changed bytes fail closed. A writer can
+   replace transport but cannot forge the owner's signature. There is no
+   workflow/repository variable fallback. Removal after final read is not atomic
+   revocation; fresh publication always re-reads and verifies the complete grant.
 3. Unchanged trusted controller verifies current B/T/S/P2/App/run/expiry, actual
    one-parent identity, producer pins, strict protection, environment and full
    fresh five-file evidence. It may register only genuine NEW P2 SUCCESS before

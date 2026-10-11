@@ -3,6 +3,8 @@
   "files": [
     "scripts/agentic/gpu_commit_policy.json",
     "scripts/agentic/gpu_commit_policy.py",
+    "scripts/agentic/verify_owner_grant.py",
+    "scripts/agentic/owner_grant_policy.json",
     "scripts/agentic/watch_pr_gpu_evidence.py",
     ".github/workflows/pr_gpu_evidence_verdict.yml",
     ".github/workflows/gaussian_production_gates.yml",

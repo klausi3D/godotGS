@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +19,9 @@ MIGRATION_VARIABLE = "GS_CODE_EVIDENCE_MIGRATION"
 BOOTSTRAP_VARIABLE = "GPU_CODE_EVIDENCE_BOOTSTRAP"
 RUNTIME_CONFIG = "tests/runtime/runtime_scenarios.json"
 GPU_MANIFEST = "docs/reference/renderer_release_gate_manifest.json"
+_verifier_spec = importlib.util.spec_from_file_location("owner_grant_verifier", ROOT / "scripts/agentic/verify_owner_grant.py")
+owner_grants = importlib.util.module_from_spec(_verifier_spec)
+_verifier_spec.loader.exec_module(owner_grants)
 
 
 def selected_dependency(path: str, manifest: dict) -> bool:
@@ -191,52 +194,29 @@ def environment_record(api, repo: str, name: str) -> dict | None:
     record = api(f"repos/{repo}/environments/{ENVIRONMENT}/variables/{name}")
     if record.get("name") != name:
         raise ValueError("Wrong canonical environment variable")
-    record = json.loads(record["value"])
+    record = owner_grants.parse_transport(record["value"])
     if not isinstance(record, dict):
         raise ValueError("Environment approval must be an exact JSON object")
     return record
 
 
-def migration_binding(api, repo: str, base: str, head: str, app_id: object) -> dict | None:
-    """Environment data is authority; writer-editable comment is corroboration only."""
-    record = environment_record(api, repo, MIGRATION_VARIABLE)
+def owner_binding(api, repo: str, base: str, head: str, app_id: object,
+                  trusted: dict[str, bytes], *, kind: str, context: str | None = None) -> dict | None:
+    """Environment data is untrusted transport; only immutable-key SSHSIG authorizes."""
+    owner_grants.configured_profile(trusted)
+    variable = BOOTSTRAP_VARIABLE if kind == "bootstrap" else MIGRATION_VARIABLE
+    record = environment_record(api, repo, variable)
     if record is None:
         return None
-    binding = record["binding"]
-    expected = {"base_sha", "policy_sha", "head_sha", "context", "app_id", "run_id", "run_attempt", "expires_utc"}
-    if not isinstance(binding, dict) or set(binding) != expected:
-        raise ValueError("Migration requires complete exact bindings")
-    if (binding["base_sha"] != base or binding["head_sha"] != head
-            or binding["app_id"] != positive_integer(app_id)):
-        raise ValueError("Migration base/head/App changed")
-    require_sha(binding["policy_sha"])
-    if binding["policy_sha"] == head:
-        raise ValueError("Separate reviewed data-only policy commit is required")
-    for key in ("run_id", "run_attempt"):
-        if not isinstance(binding[key], str) or not re.fullmatch(r"[1-9][0-9]*", binding[key]):
-            raise ValueError("Exact producer run/attempt is required")
-    expiry = datetime.fromisoformat(binding["expires_utc"])
-    if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
-        raise ValueError("Migration approval expired or lacks UTC offset")
     repository = api(f"repos/{repo}")
-    owner = repository.get("owner", {})
-    if (owner.get("type") != "User" or owner.get("login", "").casefold() != repo.split("/")[0].casefold()
-            or type(owner.get("id")) is not int or owner["id"] <= 0):
-        raise ValueError("Only canonical personal-owner authority is supported")
-    comment_id = positive_integer(record["approval_comment_id"])
-    comment = api(f"repos/{repo}/issues/comments/{comment_id}")
-    digest = hashlib.sha256(json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    if (comment.get("id") != comment_id or comment.get("user", {}).get("id") != owner.get("id")
-            or comment.get("user", {}).get("login") != owner.get("login")
-            or not str(comment.get("issue_url", "")).startswith(f"https://api.github.com/repos/{repo}/issues/")
-            or comment.get("body") != f"GodotGS GPU policy migration approved\nsha256={digest}\n"):
-        raise ValueError("Owner review corroboration differs from authoritative environment record")
-    return binding
+    return owner_grants.verify_grant(record, trusted, kind=kind, repo=repo,
+                                    owner=repository.get("owner", {}), base=base, head=head,
+                                    app_id=positive_integer(app_id), context=context)
 
 
 def effective_policy(api, repo: str, base: str, head: str, app_id: object) -> tuple[dict[str, bytes], dict | None]:
     trusted = policy_bundle(base)
-    binding = migration_binding(api, repo, base, head, app_id)
+    binding = owner_binding(api, repo, base, head, app_id, trusted, kind="migration")
     if binding is None:
         return trusted, None
     target = binding["policy_sha"]

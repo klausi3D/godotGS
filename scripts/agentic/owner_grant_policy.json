@@ -1,0 +1,10 @@
+{
+  "version": "gs-owner-verifier-v1",
+  "repository": "klausi3D/godotGS",
+  "owner_id": 103386187,
+  "public_key": null,
+  "namespace": "godotgs-owner-grant-v1",
+  "principal": "godotgs-personal-owner",
+  "executable": "/usr/bin/ssh-keygen",
+  "executable_sha256": null
+}

@@ -1929,6 +1929,17 @@ def _run_pr_gpu_evidence_guard() -> tuple[bool, list[str]]:
     code, out, err = _run_command([sys.executable, str(tests)])
     if code != 0:
         return False, [line for line in (out + err).splitlines() if line.strip()]
+    owner_tests = ROOT / "tests" / "ci" / "test_owner_grant.py"
+    if not owner_tests.is_file():
+        return False, ["Missing owner-grant negative-control suite."]
+    # Linux is the supported privileged publisher profile; other platforms run
+    # the inactive/transport tests without claiming unsupported crypto evidence.
+    command = [sys.executable, str(owner_tests)]
+    if sys.platform != "linux":
+        command.append("--portable")
+    code, out, err = _run_command(command)
+    if code != 0:
+        return False, [line for line in (out + err).splitlines() if line.strip()]
     return True, ["Portable PR GPU evidence verdict tests passed; YAML wiring is tested by the required hosted agentic lane."]
 
 
