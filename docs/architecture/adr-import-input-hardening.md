@@ -109,3 +109,51 @@ against this ADR when implemented.
   [`g2-malformed-corpus.md`](g2-malformed-corpus.md) for the coverage matrix and
   the fix-first-then-add workflow. New hostile-input holes are hardened here first
   (a fix PR under this ADR) and only then added to the corpus.
+
+## ADR: World layout identity and HLOD version compatibility (2026-10-11)
+
+- **Status:** Approved by the maintainer on 2026-10-11 before this integration's
+  format implementation. The decision is v3 plain 112-byte / HLOD 192-byte
+  headers, preserved v1/v2 readers, and re-export for the unmerged 112-byte v2
+  prototype. This approval does not approve a candidate implementation or merge.
+- **Risk:** R3; PR #1195, integration baseline
+  `012960050d29427bd00a42e1cd86840806d6bf5c`. The open implementation at
+  `af33ef581f338981792f1d43f9a4d377de272d30` and merged HLOD implementation use
+  incompatible meanings of world version 2. This decision applies to the new
+  integration work; it does not claim to predate either implementation.
+
+The merged v2 format has a 104-byte common header followed by an 80-byte HLOD
+extension. The open prototype instead uses a 112-byte plain header with a raw
+Gaussian layout identifier at offset 104. These formats cannot share one version
+interpretation. The new writer uses world version 3 with this explicit contract:
+
+| World format | Header bytes | Gaussian layout identifier | HLOD extension |
+| --- | ---: | --- | --- |
+| Legacy v1 plain | 104 | Absent; historical layout 1 | Absent |
+| Legacy v2 HLOD | 184 | Absent; historical layout 1 | 80 bytes at offset 104 |
+| v3 plain | 112 | u32 at 104; reserved u32 zero at 108 | Absent |
+| v3 HLOD | 192 | u32 at 104; reserved u32 zero at 108 | 80 bytes at offset 112 |
+
+The HLOD flag (bit 6) is mandatory for legacy v2 and selects the v3 HLOD variant.
+The Gaussian struct ABI, payload encodings, HLOD node layout, bake semantics and
+ownership rules retain their existing contracts. Legacy files resolve to the
+known historical Gaussian layout 1; recorded identifiers must match the current
+layout before resident, compressed or lazy raw-payload processing. A future ABI
+change must explicitly migrate or reject the historical layout.
+
+The loader and importer must select the same version, flags, header size and
+offsets, preserve all HLOD geometry/range/nonoverlap validation, and reject
+unknown versions, mismatched layout identifiers, nonzero v3 reserved words and
+invalid/truncated sections. Plain 112-byte version-2 prototype files are rejected
+with an explicit re-export diagnostic; there is no header-length heuristic or
+failed-HLOD-parse fallback. Existing source files are never rewritten on load.
+The importer format version advances beyond merged version 4 to invalidate
+incompatible imported caches, while imported and staged payload offsets carry the
+selected format's layout identity.
+
+Acceptance requires native compatibility fixtures from the actual v1/v2
+producers, exact v3 plain/HLOD headers and roundtrips, compressed and raw payloads,
+resident/lazy/imported/staged-cache paths, malformed/layout/dispatch red controls,
+and target preservation on failed saves. Two independent fixed-diff reviews,
+required native runtime/GPU evidence and human/CODEOWNER merge disposition remain
+required. This decision changes no visual threshold, budget, baseline or gate.
