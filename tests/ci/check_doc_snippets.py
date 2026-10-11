@@ -18,8 +18,10 @@ fixed.
   every `_bind_*()` body -- `ClassDB::bind_method(D_METHOD(...), ..., DEFVAL...)`,
   `bind_static_method`, `bind_vararg_method`, `GDVIRTUAL_BIND`, `ADD_PROPERTY[I]`,
   `ADD_SIGNAL`, `BIND_*CONSTANT` -- plus `GDCLASS(Name, Parent)`.
-* `modules/gaussian_splatting/register_types.cpp`: `GDREGISTER_*CLASS` (what is
-  script-visible) and the `Engine::Singleton` names.
+* `modules/gaussian_splatting/register_types.cpp`: shipping `GDREGISTER_*CLASS`
+  and `Engine::Singleton` names. Reuse the doc-class guard's semantic projection:
+  TESTS_ENABLED is absent; only proven-disabled branches are removed. TOOLS and
+  unknown conditions remain candidates, and malformed nesting fails closed.
 * `modules/gaussian_splatting/doc_classes/*.xml`: return types (for chaining)
   and enum names only. Existence is decided by the bindings, not by the XML.
 * `doc/classes/*.xml`, `modules/*/doc_classes/*.xml`: the engine classes,
@@ -100,6 +102,7 @@ not part of this guard.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -385,7 +388,19 @@ class Surface:
         register = self.module / "register_types.cpp"
         if not register.is_file():
             raise SurfaceError(f"missing {register}")
-        reg_text = strip_cpp_comments(register.read_text(encoding="utf-8"))
+        # Keep the shipping registration boundary identical to the class-doc
+        # inventory while retaining this parser's original comment handling.
+        projection = importlib.util.spec_from_file_location(
+            "shipping_doc_class_inventory", Path(__file__).with_name("check_doc_classes_complete.py")
+        )
+        if projection is None or projection.loader is None:
+            raise SurfaceError("shipping registration projection is unavailable")
+        shipping = importlib.util.module_from_spec(projection)
+        projection.loader.exec_module(shipping)
+        try:
+            reg_text = shipping._shipping_registration_source(strip_cpp_comments(register.read_text(encoding="utf-8")))
+        except ValueError as exc:
+            raise SurfaceError(f"registration preprocessor: {exc}") from exc
         for m in _REGISTER.finditer(reg_text):
             self.registered[m.group(2)] = (m.group(1) or "").strip("_") or "CLASS"
         self.module_singletons = set(_SINGLETON_NAME.findall(reg_text))

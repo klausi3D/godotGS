@@ -24,6 +24,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -463,6 +464,59 @@ class BindingParserTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(guard.SurfaceError, "without a parsed GDCLASS"):
                 guard.Surface(self._root(tmp, register="GDREGISTER_CLASS(FixtureNode); GDREGISTER_CLASS(Ghost);"))
+
+    def test_shipping_registration_excludes_only_proven_tests_branch(self):
+        register = """
+            GDREGISTER_CLASS(FixtureNode);
+            #if defined(TOOLS_ENABLED) && defined(TESTS_ENABLED)
+            GDREGISTER_CLASS(UnparsedTestFixture);
+            #endif
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp, register="\n" + textwrap.dedent(register))
+            _write(root / guard.MODULE_REL / "tests" / "fixture.h", "class UnparsedTestFixture { GDCLASS(UnparsedTestFixture, Object); };")
+            s = guard.Surface(root)
+        self.assertEqual({"FixtureNode"}, set(s.registered))
+        self.assertNotIn("UnparsedTestFixture", s.parents)
+
+    def test_shipping_registration_keeps_production_and_unknown_branches(self):
+        for conditional in ("", "#ifdef TOOLS_ENABLED", "#ifndef TESTS_ENABLED", "#if defined(UNKNOWN_FEATURE)",
+                            "#if defined(TESTS_ENABLED) || defined(UNKNOWN_FEATURE)", "#if TESTS_ENABLED == 0"):
+            with self.subTest(conditional=conditional), tempfile.TemporaryDirectory() as tmp:
+                register = "\nGDREGISTER_CLASS(FixtureNode);\n" + conditional + "\nGDREGISTER_CLASS(UnparsedTestFixture);\n"
+                if conditional:
+                    register += "#endif\n"
+                with self.assertRaisesRegex(guard.SurfaceError, "without a parsed GDCLASS: UnparsedTestFixture"):
+                    guard.Surface(self._root(tmp, register=register))
+
+    def test_shipping_registration_else_nested_and_malformed(self):
+        register = "\n#if defined(TESTS_ENABLED)\nGDREGISTER_CLASS(UnparsedTestFixture);\n#else\n#ifdef TOOLS_ENABLED\nGDREGISTER_CLASS(FixtureNode);\n#endif\n#endif\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual({"FixtureNode"}, set(guard.Surface(self._root(tmp, register=register)).registered))
+        for register in ("\nGDREGISTER_CLASS(FixtureNode);\n#endif\n", "\n#ifdef TESTS_ENABLED\nGDREGISTER_CLASS(FixtureNode);\n"):
+            with self.subTest(register=register), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaisesRegex(guard.SurfaceError, "registration preprocessor"):
+                    guard.Surface(self._root(tmp, register=register))
+
+    def test_real_registration_moved_outside_tests_still_fails_closed(self):
+        register_path = ROOT / guard.MODULE_REL / "register_types.cpp"
+        original_read = Path.read_text
+        original = original_read(register_path, encoding="utf-8")
+        registration = "GDREGISTER_CLASS(GSLiveEditorTestRunner);"
+        self.assertEqual(1, original.count(registration))
+        self.assertNotIn("GSLiveEditorTestRunner", surface().registered)
+        self.assertNotIn("GSLiveEditorTestRunner", surface().parents)
+        for condition in ("", "#ifdef TOOLS_ENABLED", "#if defined(UNKNOWN_FEATURE)"):
+            changed = original.replace(registration, "") + "\n" + condition + "\n" + registration + "\n"
+            if condition:
+                changed += "#endif\n"
+
+            def read(path, *args, **kwargs):
+                return changed if path == register_path else original_read(path, *args, **kwargs)
+
+            with self.subTest(condition=condition), mock.patch.object(Path, "read_text", read):
+                with self.assertRaisesRegex(guard.SurfaceError, "without a parsed GDCLASS: GSLiveEditorTestRunner"):
+                    guard.Surface(ROOT)
 
     def test_missing_engine_xml_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
