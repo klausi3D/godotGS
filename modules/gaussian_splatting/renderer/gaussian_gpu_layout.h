@@ -256,7 +256,7 @@ struct alignas(16) QuantizationChunkGPU {
 static_assert(sizeof(QuantizationChunkGPU) == 32, "QuantizationChunkGPU must be 32 bytes");
 
 struct alignas(16) PackedSphericalHarmonics {
-    static constexpr uint32_t MAX_ENCODED_COEFFICIENTS = 12;
+    static constexpr uint32_t MAX_ENCODED_COEFFICIENTS = 24;
 
     float dc[4];
     uint32_t encoded[MAX_ENCODED_COEFFICIENTS]; // #1054: raw SNORM10 SH words (uint, never float-typed)
@@ -283,15 +283,15 @@ struct alignas(16) PackedGaussian {
     uint32_t sh_metadata;
 };
 
-static_assert(sizeof(PackedGaussian) == 128, "PackedGaussian must match shader layout (128 bytes)");
+static_assert(sizeof(PackedGaussian) == 176, "PackedGaussian must match shader layout (176 bytes)");
 static_assert(offsetof(PackedGaussian, position) == 0, "PackedGaussian.position offset mismatch");
 static_assert(offsetof(PackedGaussian, opacity) == 12, "PackedGaussian.opacity offset mismatch");
 static_assert(offsetof(PackedGaussian, scale) == 16, "PackedGaussian.scale offset mismatch");
 static_assert(offsetof(PackedGaussian, rotation) == 32, "PackedGaussian.rotation offset mismatch");
 static_assert(offsetof(PackedGaussian, sh) == 48, "PackedGaussian.sh offset mismatch");
-static_assert(offsetof(PackedGaussian, normal) == 112, "PackedGaussian.normal offset mismatch");
+static_assert(offsetof(PackedGaussian, normal) == 160, "PackedGaussian.normal offset mismatch");
 static_assert(offsetof(PackedGaussian, _pad_rotation_align) == 28, "PackedGaussian rotation-alignment padding moved");
-static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_metadata offset mismatch");
+static_assert(offsetof(PackedGaussian, sh_metadata) == 172, "PackedGaussian.sh_metadata offset mismatch");
 
 /**
  * @struct PackedGaussianQuantized
@@ -300,21 +300,11 @@ static_assert(offsetof(PackedGaussian, sh_metadata) == 124, "PackedGaussian.sh_m
  * Uses per-chunk min/max bounds to normalize positions and scales,
  * achieving up to 4x compression ratio with minimal quality loss.
  *
- * Memory layout (80 bytes, 16-byte aligned):
- *   quantized_position: uint16_t[3] - Normalized position (6 bytes)
- *   chunk_id: uint16_t - Index into chunk bounds buffer (2 bytes)
- *   opacity: float (4 bytes)
- *   quantized_scale: uint16_t[3] - Normalized scale (6 bytes, or zeros if not quantized)
- *   area_lo: uint16_t - Low 16 bits of area as float16 (2 bytes)
- *   rotation: uint16_t[4] - Quaternion as float16 (8 bytes)
- *   sh_dc: float[4] - DC coefficients (16 bytes)
- *   sh_encoded: uint32_t[6] - SH coefficient triplets as signed SNORM10 words, scale in sh_dc[3] (24 bytes)
- *   normal_xy: uint32_t - Normal xy as half2 (4 bytes)
- *   normal_z_stroke: uint32_t - Normal z + stroke_age as half2 (4 bytes)
- *   painterly_data: uint32_t - Packed painterly meta (4 bytes)
- *   sh_metadata: uint32_t - SH encoding metadata (4 bytes)
- *
- * Total: 80 bytes (vs 128 bytes for PackedGaussian = 37.5% reduction)
+ * Memory layout (160 bytes, 16-byte aligned): geometry occupies 32 bytes,
+ * FP32 DC plus scale 16 bytes, 24 signed SH1–4 words 96 bytes, normal/stroke
+ * 8 bytes and deterministic trailing padding 8 bytes. SH metadata is
+ * synthesized by the quantized shader path; unused words are zero.
+ * Position/scale precision remains controlled by the per-chunk bounds.
  */
 struct alignas(16) PackedGaussianQuantized {
     uint16_t quantized_position[3]; // 6 bytes @0 - Normalized position per-chunk
@@ -330,13 +320,14 @@ struct alignas(16) PackedGaussianQuantized {
     uint16_t _pre_sh_padding[2];    // 4 bytes @28 - Align to 32
 
     float sh_dc[4];                 // 16 bytes @32 - DC coefficients (FP32)
-    uint32_t sh_encoded[6];         // 24 bytes @48 - SNORM10 SH words (scale in sh_dc[3])
+    uint32_t sh_encoded[24];        // 96 bytes @48 - SH0–4 SNORM10 words (scale in sh_dc[3])
 
-    uint32_t normal_xy;             // 4 bytes @72 - packHalf2x16(nx, ny)
-    uint32_t normal_z_stroke;       // 4 bytes @76 - packHalf2x16(nz, stroke_age)
+    uint32_t normal_xy;             // 4 bytes @144 - packHalf2x16(nx, ny)
+    uint32_t normal_z_stroke;       // 4 bytes @148 - packHalf2x16(nz, stroke_age)
+    uint32_t _tail_padding[2];      // 8 bytes @152 - explicit std430 stride padding
 };
 
-static_assert(sizeof(PackedGaussianQuantized) == 80, "PackedGaussianQuantized must be 80 bytes");
+static_assert(sizeof(PackedGaussianQuantized) == 160, "PackedGaussianQuantized must be 160 bytes");
 static_assert(sizeof(PackedGaussianQuantized) % 16 == 0, "PackedGaussianQuantized must be 16-byte aligned");
 
 // The quantized layout stores position and scale in uint16 slots, so both bit depths are

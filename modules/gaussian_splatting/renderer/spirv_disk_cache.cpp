@@ -92,7 +92,7 @@
 
 namespace {
 
-static constexpr uint32_t GSPLAT_SHADER_CACHE_VERSION = 1;
+static constexpr uint32_t GSPLAT_SHADER_CACHE_VERSION = 2;
 static constexpr const char *CACHE_ROOT_BASE = "user://gsplat_spirv_cache";
 static constexpr const char *CACHE_FILE_EXT = ".spv";
 static constexpr const char *CACHE_TMP_EXT = ".tmp";

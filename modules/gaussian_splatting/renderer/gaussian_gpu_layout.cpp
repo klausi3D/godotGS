@@ -192,10 +192,10 @@ static inline Vector3 sanitize_finite_vec3(const Vector3 &v, const Vector3 &fall
 } // namespace
 
 // Number of SH slots in PackedGaussianQuantized.sh_encoded.
-// The GLSL side synthesizes sh_metadata as gs_build_quantized_sh_metadata(6u, ...),
-// so the layout is a fixed 6-slot array; unused slots are zeroed (a zero word decodes
+// The GLSL side synthesizes sh_metadata as gs_build_quantized_sh_metadata(24u, ...),
+// so the layout is a fixed 24-slot array; unused slots are zeroed (a zero word decodes
 // to vec3(0), contributing nothing, and the per-chunk sh_limit still gates bands).
-static constexpr uint32_t GS_QUANTIZED_SH_ENCODED_SLOTS = 6u;
+static constexpr uint32_t GS_QUANTIZED_SH_ENCODED_SLOTS = PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS;
 
 void pack_gaussian_quantized(const Gaussian &src,
         const ChunkQuantizationInfo &chunk_quant,
@@ -252,9 +252,9 @@ void pack_gaussian_quantized(const Gaussian &src,
     dst.sh_dc[1] = sanitize_finite(src.sh_dc.g, 0.0f);
     dst.sh_dc[2] = sanitize_finite(src.sh_dc.b, 0.0f);
 
-    // Higher-order SH: signed SNORM10 into the fixed 6-slot array, same selection order as
+    // Higher-order SH: signed SNORM10 into the fixed 24-slot array, same selection order as
     // pack_gaussian (first-order coeffs then higher-order), stored as raw uint32 (the
-    // shader bitcasts these back via uintBitsToFloat). The per-splat scale goes to sh_dc[3].
+    // shader reads these as uint words). The per-splat scale goes to sh_dc[3].
     for (uint32_t i = 0; i < GS_QUANTIZED_SH_ENCODED_SLOTS; i++) {
         dst.sh_encoded[i] = 0u;
     }
@@ -268,6 +268,8 @@ void pack_gaussian_quantized(const Gaussian &src,
     const Vector3 safe_normal = sanitize_finite_vec3(src.normal, Vector3());
     dst.normal_xy = Float16Utils::pack_half2(safe_normal.x, safe_normal.y);
     dst.normal_z_stroke = Float16Utils::pack_half2(safe_normal.z, sanitize_finite(src.stroke_age, 0.0f));
+    dst._tail_padding[0] = 0;
+    dst._tail_padding[1] = 0;
 
     metrics.raw_bytes += sizeof(Gaussian);
     metrics.compressed_bytes += sizeof(PackedGaussianQuantized);

@@ -1,6 +1,7 @@
 #include "../core/gaussian_splat_manager.h"
 #include "../core/gaussian_streaming.h"
 #include "../renderer/gaussian_gpu_layout.h"
+#include "../renderer/quantization_config.h"
 
 #include "test_macros.h"
 
@@ -1799,18 +1800,25 @@ TEST_CASE("[Streaming Pipeline] Atlas accounting follows the allocated run, not 
 
 namespace {
 
-// A 512-page atlas (64 MiB at 128 B) under a 64 MiB budget with the default 85% warning threshold,
+// A 512-page atlas under its actual byte budget with the default 85% warning threshold,
 // 10-page chunks, and a 64-chunk cap. Before #1088's regulator alignment the regulator compared
 // payload to the budget: it stopped admitting at 85% and evicted ahead of demand at 76.5%.
 void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_resident_chunks) {
     GaussianStreamingSystem::ConfigOverrides overrides;
     overrides.override_vram_budget = true;
     overrides.vram_budget_config.auto_regulate_enabled = false;
-    overrides.vram_budget_config.budget_mb = 64;
+    const uint64_t atlas_bytes = 512u * uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) *
+            r_system._test_atlas_gaussian_stride_bytes();
+    overrides.vram_budget_config.budget_mb = uint32_t(atlas_bytes / (1024u * 1024u));
     overrides.vram_budget_config.min_chunks = 1;
     overrides.vram_budget_config.max_chunks = 64;
     r_system.set_config_overrides(overrides);
+    const bool saved_quantization = g_quantization_config.per_chunk_quantization;
+    g_quantization_config.per_chunk_quantization = false;
     r_system.initialize_empty(nullptr); // no device: creates the regulator, buffer stays absent
+    g_quantization_config.per_chunk_quantization = saved_quantization;
+    CHECK_EQ(uint64_t(overrides.vram_budget_config.budget_mb) * 1024u * 1024u,
+            512u * uint64_t(GaussianStreamingSystem::ATLAS_PAGE_SPLATS) * r_system._test_atlas_gaussian_stride_bytes());
     LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = r_system._test_get_primary_chunks();
     chunks.resize(60);
     const uint32_t count = 10u * GaussianStreamingSystem::ATLAS_PAGE_SPLATS;
@@ -1833,6 +1841,19 @@ void _setup_regulated_atlas(GaussianStreamingSystem &r_system, uint32_t p_reside
 } // namespace
 
 TEST_CASE("[Streaming Pipeline] The VRAM regulator lets the budget-sized atlas fill to its occupancy target (#1088)") {
+    SUBCASE("fixture isolates and restores an enabled global quantization setting") {
+        const bool saved_quantization = g_quantization_config.per_chunk_quantization;
+        g_quantization_config.per_chunk_quantization = true;
+        GaussianStreamingSystem system;
+        _setup_regulated_atlas(system, 44);
+        const bool quantization_restored = g_quantization_config.per_chunk_quantization;
+        g_quantization_config.per_chunk_quantization = saved_quantization;
+        CHECK(quantization_restored);
+        CHECK_EQ(system._test_atlas_gaussian_stride_bytes(), uint64_t(sizeof(PackedGaussian)));
+        bool blocked = false;
+        CHECK_EQ(system._test_evict_for_vram_budget(blocked), 0u);
+        CHECK_EQ(system.get_loaded_chunks(), 44u);
+    }
     SUBCASE("86% full: admission stays open and nothing is evicted ahead of demand") {
         GaussianStreamingSystem system;
         _setup_regulated_atlas(system, 44); // 440 of 512 pages

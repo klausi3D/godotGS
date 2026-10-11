@@ -182,13 +182,13 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Round-trip within scale/1022 for nega
 		CHECK(packed.sh.dc[1] == g.sh_dc.g);
 		CHECK(packed.sh.dc[2] == g.sh_dc.b);
 
-		// Quantized: 3 first-order + 3 higher-order = the fixed 6 slots; the scale covers
-		// only the coefficients actually stored.
+		// Quantized: the same 12 authored terms survive; remaining slots are zero.
+		// Scale covers every stored coefficient.
 		PackedGaussianQuantized quantized = {};
 		SHCompressionMetrics qmetrics;
 		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized, qmetrics, c.high, 3, 9);
-		CHECK(quantized.sh_dc[3] == TestSHEncoding::max_abs_component(expected, 6));
-		TestSHEncoding::check_round_trip(expected, quantized.sh_encoded, 6, quantized.sh_dc[3], c.label);
+		CHECK(quantized.sh_dc[3] == TestSHEncoding::max_abs_component(expected, 12));
+		TestSHEncoding::check_round_trip(expected, quantized.sh_encoded, 12, quantized.sh_dc[3], c.label);
 	}
 }
 
@@ -457,6 +457,105 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Band-1 SH renders the ref
 	g_quantization_config.per_chunk_quantization = true;
 	TestSHEncoding::check_band1_against_reference(rd, Vector3(1.2f, 0.9f, -3.0f), true, "quantized off-axis");
 	g_quantization_config = saved_quantization;
+}
+
+#include "../renderer/gpu_record_sizes.h"
+
+TEST_CASE("[GaussianSplatting][SHEncoding] GPU byte sizing rejects overflow and covers every aligned upload byte") {
+	for (uint32_t count : { 0u, 1u, 2u, 3u, 15u, 16u, 17u, 255u, 256u, 257u }) {
+		uint32_t bytes = 0;
+		const bool valid = gs_gpu_record_buffer_size(count, sizeof(PackedGaussian), 256, bytes);
+		CHECK(valid);
+		if (!valid) {
+			continue;
+		}
+		CHECK_EQ(bytes % 256, 0u);
+		CHECK(uint64_t(bytes) >= uint64_t(count) * sizeof(PackedGaussian));
+		CHECK(uint64_t(bytes) < uint64_t(count) * sizeof(PackedGaussian) + 256);
+		const uint32_t scratch_count = gs_gpu_upload_scratch_count(bytes, sizeof(PackedGaussian));
+		CHECK(uint64_t(scratch_count) * sizeof(PackedGaussian) >= bytes);
+		if (scratch_count > 0) {
+			CHECK(uint64_t(scratch_count - 1) * sizeof(PackedGaussian) < bytes);
+		}
+	}
+	for (uint32_t stride : { uint32_t(sizeof(PackedGaussian)), uint32_t(sizeof(PackedGaussian) + sizeof(uint32_t)) }) {
+		const uint32_t max_aligned = UINT32_MAX & ~255u;
+		const uint32_t largest_count = max_aligned / stride;
+		uint32_t bytes = 0;
+		CHECK(gs_gpu_record_buffer_size(largest_count, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(largest_count + 1, stride, 256, bytes));
+		CHECK_EQ(bytes, 0u);
+		CHECK_FALSE(gs_gpu_record_buffer_size(25000000, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(UINT32_MAX, stride, 256, bytes));
+	}
+	uint32_t bytes = 123;
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 0, 256, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 0, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 3, bytes));
+	CHECK_EQ(bytes, 0u);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Both GPU layouts preserve every SH0–4 term and zero unused storage") {
+	Vector3 expected[24];
+	for (uint32_t i = 0; i < 24; i++) {
+		expected[i] = Vector3(float(i + 1) / 32.0f, -float(i + 2) / 64.0f, float(24 - i) / 48.0f);
+	}
+	const Gaussian g = TestSHEncoding::make_sh_gaussian(expected[0], expected[1], expected[2]);
+	for (uint32_t degree = 0; degree <= 4; degree++) {
+		const uint32_t total = (degree + 1) * (degree + 1) - 1;
+		const uint32_t first = MIN(total, 3u);
+		const uint32_t high = total - first;
+		PackedGaussian normal_a, normal_b;
+		PackedGaussianQuantized quant_a, quant_b;
+		memset(&normal_a, 0xA5, sizeof(normal_a));
+		memset(&normal_b, 0x5A, sizeof(normal_b));
+		memset(&quant_a, 0xA5, sizeof(quant_a));
+		memset(&quant_b, 0x5A, sizeof(quant_b));
+		SHCompressionMetrics metrics_a, metrics_b, qmetrics_a, qmetrics_b;
+		pack_gaussian(g, normal_a, metrics_a, expected + 3, first, high);
+		pack_gaussian(g, normal_b, metrics_b, expected + 3, first, high);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quant_a, qmetrics_a, expected + 3, first, high);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quant_b, qmetrics_b, expected + 3, first, high);
+		CHECK_EQ(memcmp(&normal_a, &normal_b, sizeof(normal_a)), 0);
+		CHECK_EQ(memcmp(&quant_a, &quant_b, sizeof(quant_a)), 0);
+		CHECK_EQ((normal_a.sh_metadata & GS_SH_METADATA_ENCODED_COUNT_MASK) >> 16u, total);
+		CHECK_EQ(metrics_a.coefficient_count, total);
+		CHECK_EQ(qmetrics_a.coefficient_count, total);
+		TestSHEncoding::check_round_trip(expected, normal_a.sh.encoded, total, normal_a.sh.dc[3], "normal SH0–4");
+		TestSHEncoding::check_round_trip(expected, quant_a.sh_encoded, total, quant_a.sh_dc[3], "quantized SH0–4");
+		for (uint32_t i = total; i < 24; i++) {
+			CHECK_EQ(normal_a.sh.encoded[i], 0u);
+			CHECK_EQ(quant_a.sh_encoded[i], 0u);
+		}
+		CHECK_EQ(quant_a._tail_padding[0], 0u);
+		CHECK_EQ(quant_a._tail_padding[1], 0u);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH4 storage respects explicit limits in both layouts") {
+	Vector3 high[21];
+	for (uint32_t i = 0; i < 21; i++) {
+		high[i] = Vector3(float(i + 1), -float(i + 2), float(i + 3));
+	}
+	const Gaussian g = TestSHEncoding::make_sh_gaussian(Vector3(0.1f, -0.2f, 0.3f), Vector3(), Vector3());
+	for (uint32_t limit : { 0u, 3u, 8u, 15u, 24u, UINT32_MAX }) {
+		PackedGaussian normal;
+		PackedGaussianQuantized quantized;
+		SHCompressionMetrics metrics, qmetrics;
+		pack_gaussian(g, normal, metrics, high, 3, 21, limit);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized, qmetrics, high, 3, 21, limit);
+		const uint32_t stored = MIN(limit, 24u);
+		CHECK_EQ(metrics.coefficient_count, stored);
+		CHECK_EQ(qmetrics.coefficient_count, stored);
+		CHECK_EQ(normal.sh.dc[3], quantized.sh_dc[3]);
+		for (uint32_t i = 0; i < stored; i++) {
+			CHECK_EQ(normal.sh.encoded[i], quantized.sh_encoded[i]);
+		}
+		for (uint32_t i = stored; i < 24; i++) {
+			CHECK_EQ(normal.sh.encoded[i], 0u);
+			CHECK_EQ(quantized.sh_encoded[i], 0u);
+		}
+	}
 }
 
 #endif // GAUSSIAN_SPLATTING_TEST_SH_ENCODING_H
