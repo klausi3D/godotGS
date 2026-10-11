@@ -2260,6 +2260,17 @@ Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
         shutdown();
         return ERR_UNAVAILABLE;
     }
+    // Capacity is known before variants or buffers are created. A smaller
+    // device-selected workgroup must not admit more X groups than the actual
+    // command device can dispatch; never truncate records to fit that limit.
+    const uint64_t required_groups = (uint64_t(max_elements) + workgroup_size - 1) / workgroup_size;
+    if (probe.workgroup_count_x == 0 || required_groups > probe.workgroup_count_x) {
+        GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] RadixSort capacity %d at workgroup_size %d requires %s X groups; device limit is %s.",
+                max_elements, workgroup_size, String::num_uint64(required_groups), String::num_uint64(probe.workgroup_count_x)));
+        max_elements = 0;
+        shutdown();
+        return ERR_UNAVAILABLE;
+    }
     if (workgroup_size < configured_workgroup_size) {
         GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] RadixSort workgroup_size %d exceeds device compute limits; using %d.",
                 configured_workgroup_size, workgroup_size));
