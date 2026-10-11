@@ -1,10 +1,10 @@
 # ADR: fail-closed GPU evidence verdict for pull requests
 
-- Status: accepted for implementation by the v1 implementation request (2026-10-06).
+- Status: historical v1 implementation; the universal commit-code redesign below is proposed and not activated.
 - Risk: R3 (CI policy and the merge boundary).
 - Base: `ab74e332aa8264ab6d0bfb2dc45ee83778a9e293`.
 
-## Decision
+## Historical v1 decision (superseded by the proposed redesign)
 
 A separate hosted `gpu-evidence-gate` runs on `pull_request_target` and merge
 groups. It checks out only the immutable base; proposed PR/fork code is never
@@ -139,3 +139,142 @@ does not eliminate these intervals. The earlier absolute claim about
 cross-base reuse and the strict-only activation alternative remain unresolved
 design findings; the bounded corrections do not authorize activation or imply
 atomic PR/base merge authorization.
+
+## Universal commit-code redesign (2026-10-11)
+
+This design is recorded in a separate commit before implementing its production
+changes. Two independent agents reviewed the conservative profile; local source
+and configuration preparation is authorized. Human/CODEOWNER acceptance, real
+producer evidence and owner activation remain separate. This design does not
+retroactively repair the initial ADR/implementation chronology described above.
+
+### Acceptance contract
+
+A new, case-distinct policy context certifies unconditional full canonical
+build/module-GPU/runtime execution of the exact immutable commit `S` carrying
+its status, under a fixed trusted policy `P`. It never certifies a private PR
+number or mutable labels, paths or base-diff classification. Every accepted
+commit, including docs/governance changes, needs the same complete evidence.
+No R0/R1 exemption or runner-unavailability label can produce success. Existing
+risk classification can remain informational outside this acceptance decision.
+
+GitHub may evaluate a head commit or a test-merge commit. A measurement of `S`
+never means another head executed. Equal source trees do not imply identical
+binaries: Godot embeds the actual Git hash and commit timestamp. Those inputs
+stay bound to the measured `S`.
+
+The initial profile permits **SUCCESS only for commits with exactly one parent**.
+Every publisher, lifecycle/rerun and bootstrap path uses the same guard over
+canonical immutable GitHub commit-object data. Caller receipts, PR metadata and
+local Git graft/replace views cannot establish parent eligibility. Synthetic
+test merges have two parents, so they cannot gain success in this new context,
+even when adopted as a future PR head. This removes both historical synthetic
+head fallback and inverse synthetic-selection collisions without assumptions
+about parent order or pre-activation target history. Pending/failure on an
+ineligible synthetic commit may safely block another PR through merge-status
+precedence; HEAD fallback is conditional, not a guaranteed availability path.
+
+An ordinary merge tip is also ineligible until a normal final source commit or
+rebase supplies a fully measured single-parent tip. Do not force-rewrite ancestry
+or add unexplained empty commits. A final real correction after integration
+preserves ancestry and naturally satisfies this constraint. The operational cost
+is explicit and requires owner acceptance before activation.
+
+### Trusted producer and immutable policy
+
+Use `gpu-code-evidence-v1-<policy_digest>`, with a deterministic digest of the
+trusted enforcement definitions, dependency manifest, action revisions, selected
+lanes/runtime profiles and thresholds. Enumerate the execution/configuration
+dependency closure and test it against real wiring. Policy changes select a new
+context; old success cannot satisfy it. Producer definitions proposed by a PR
+must match the trusted policy bundle, so changes to its own enforcement cannot
+self-certify. Such changes require reviewed owner bootstrap and a new context.
+
+Build/guard/runtime producers explicitly check out the exact event head `S`,
+not a synthetic `github.sha`. Mandatory module execution includes `--gpu` and
+a fresh lane ledger proving the selected strict/GPU batches executed. Required
+build, pipeline, module-GPU, headless, streaming and contention postflight steps
+must actually succeed. Optional visual/export/performance/readiness lanes retain
+separate contracts; this context does not claim their completion.
+
+The receipt binds `head_sha == checkout_sha == S`, policy identity, exact
+run/attempt and the actual binary selected by runtime commands. Hash the built
+binary before runtime and after postflight and reject changes. Remove stale
+reports before capture. Include canonical report/ledger bytes in the exact-run
+artifact; the trusted consumer checks their hashes, required batch coverage,
+blocking verdicts and actual GitHub job/step outcomes. Well-formed hash strings
+and skipped jobs are insufficient. Downloaded artifacts are never executed on
+the privileged hosted consumer.
+
+Forks stay off persistent self-hosted runners. A maintainer-owned branch must
+validate the exact same `S` under `P`; rebasing creates another commit requiring
+its own measurement. Unsupported fork/queue/target cases fail closed.
+
+### Enforced target and publisher boundary
+
+Initially support the canonical protected default/target branch `master` only.
+Before SUCCESS, resolve its live tip, require it to be an ancestor of the current
+head, and read back actual strict up-to-date/admin enforcement, blocked force
+pushes/deletions and the existing required `agentic-pr-gate`/`docs-build`. In
+steady state require the exact policy context and dedicated expected publisher
+App ID. Missing/ambiguous rules, unknown rulesets, inaccessible proof or false
+strict fail closed. A base advance outside the measured head after the final API
+read is blocked by GitHub strict enforcement; an advance already contained in
+the head adds no untested code. Read-to-POST remains non-atomic and is not claimed
+to authorize a PR/base transaction. Repository administrators changing the
+trusted policy/protection remain the owner trust boundary.
+
+The dedicated publisher App has repository-scoped statuses-write permission.
+A distinct read-only proof credential has Administration(read) for branch
+protection and Actions(read) for environment/deployment-policy inspection.
+Provisioning/installing either credential is an owner action. App keys and proof
+credentials are environment secrets in `trusted-gpu-verdict`, restricted to the
+exact `master` branch-type workflow ref: no PR merge refs, topic branches, tags
+or wildcard fallback. Privileged hosted jobs run only trusted immutable default
+code with pinned actions and never execute a proposed checkout. Producer/build
+jobs receive neither credential nor that environment. Read back environment
+restrictions; ordinary repository-secret fallback is prohibited.
+
+Independent hosted timeout cleanup remains bounded and conservative. API/service
+outage or whole-workflow cancellation can prevent terminal publication. Checking
+a latest status before replacing this run's pending status is not an atomic
+read/write operation. None of these failure/pending limits constitute success.
+
+### Reviewed staged activation
+
+Source preparation does not change GitHub settings or install a gate. Current
+observed strict protection is false and this context is **NOT ACTIVE**.
+
+1. Owner enables strict/admin enforcement while preserving required agentic/docs
+   checks and reads it back.
+2. Owner approves a named immutable bootstrap commit/policy/run. A genuine
+   complete single-parent receipt plus strict/ancestry/trust proof may register
+   the new context before it is required; this is not an exemption or bypass.
+3. Owner adds the exact context with the dedicated expected App ID, preserving
+   existing gates, then verifies readback and actual hosted positive/negative
+   cases. GitHub requires a recent successful check for registration; do not
+   assume pending-only bootstrap works.
+4. Retire the one-shot bootstrap allowance. Later policy versions get reviewed
+   registration/activation without silently dropping the preceding requirement.
+
+Final owner approval applies to concrete activation/settings/credentials, after
+complete reviewable source/configuration is prepared. Humans alone merge.
+
+### Required negative controls
+
+Use canonical one-/two-parent commit fixtures and actual publisher wiring to
+reject historical synthetic-as-head, inverse selection and pre-activation rewind
+models. Mutate the parent predicate, its SUCCESS/ bootstrap wiring, policy pins
+and unconditional lane selection to prove RED/restored GREEN. Cover strict false,
+wrong App/context, unavailable enforcement API, new head/base, mutable metadata,
+wrong checkout/run/attempt, stale/changed binary, missing report bytes, skipped
+GPU batches, corrupt report verdicts, fork safety and cleanup failure limits.
+Local mocked checks do not establish hosted enforcement or native GPU execution.
+
+Official contracts: [required status selection and registration](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks),
+[protected-branch strict/App enforcement](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches),
+[protected branch REST permissions](https://docs.github.com/en/rest/branches/branch-protection),
+[environment REST permissions](https://docs.github.com/en/rest/deployments/environments),
+[deployment-ref policy](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
+and [test-merge regeneration](https://github.blog/changelog/2026-02-19-changes-to-test-merge-commit-generation-for-pull-requests/).
+Race/collision cases above are design inferences, not live exploitation evidence.
