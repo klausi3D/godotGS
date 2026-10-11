@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
@@ -14,13 +15,18 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-REQUIRED_STEPS = ("build", "capture", "pipeline", "module", "headless", "streaming", "postflight")
-UNIVERSAL_ARTIFACT_FILES = ("pr-gpu-evidence.json", "module-lanes.json", "headless-report.json", "streaming-report.json")
+REQUIRED_STEPS = ("build", "capture", "pipeline", "module", "headless", "streaming", "gpu_harness", "postflight")
+UNIVERSAL_ARTIFACT_FILES = ("pr-gpu-evidence.json", "module-lanes.json", "headless-report.json", "streaming-report.json", "gpu-harness-report.json")
 REPORT_SOURCES = {
     "module-lanes.json": "artifacts/module-lanes.json",
     "headless-report.json": "tests/runtime/runtime_validation_report_headless_ci.json",
     "streaming-report.json": "tests/runtime/runtime_validation_report_streaming_gpu_ci.json",
+    "gpu-harness-report.json": "artifacts/gpu-harness-report.json",
 }
+GPU_FATAL_FIELDS = ("empty_required_batches", "zero_assertion_required_batches", "hollow_required_cases",
+                    "case_audit_missing_batches", "case_audit_mismatch_batches", "zero_assertion_advisory_batches",
+                    "vacuous_advisory_cases", "summary_parse_failures", "required_lifetime_failures", "timed_out_batches")
+GPU_SCALAR_FIELDS = ("max_batch_rc", "parsed_failures", "total_rid_leak_bytes", "supervisor_exit")
 
 
 def load_module(name: str, path: Path):
@@ -96,9 +102,10 @@ def validate_module_ledger(report: dict) -> None:
             raise ValueError("Required strict/GPU lane did not execute successful coverage")
 
 
-def validate_runtime_report(report: dict, profile: str, binary_path: str) -> None:
+def validate_runtime_report(report: dict, profile: str, binary_path: str, config: dict | None = None) -> None:
     runtime = load_module("universal_runtime_runner", ROOT / "tests/runtime/run_runtime_validation.py")
-    config = json.loads((ROOT / "tests/runtime/runtime_scenarios.json").read_text(encoding="utf-8"))
+    if config is None:
+        config = json.loads((ROOT / "tests/runtime/runtime_scenarios.json").read_text(encoding="utf-8"))
     expected = config["profiles"][profile]
     errors = runtime._validate_summary_schema(report)
     if errors or report.get("schema_valid") is not True or report.get("profile") != profile or report.get("gd_mode") != expected["gd_mode"]:
@@ -126,8 +133,103 @@ def validate_runtime_report(report: dict, profile: str, binary_path: str) -> Non
             raise ValueError("Required runtime renderer proof is absent or failed")
 
 
+def nonnegative_integer(value: object) -> bool:
+    return type(value) is int and value >= 0
+
+
+def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate) -> None:
+    shape = harness.BatchResult(spec.name, spec.filters, spec.excludes).to_dict()
+    if set(shape) - set(row):
+        raise ValueError("GPU batch fields were removed")
+    if row["filters"] != list(spec.filters) or row["excludes"] != list(spec.excludes):
+        raise ValueError("GPU catalogue filters/exclusions differ from fixed policy")
+    for key in ("timed_out", "summary_parse_ok", "case_assert_audit_ok"):
+        if type(row[key]) is not bool:
+            raise ValueError("GPU row flag has invalid type")
+    if type(row["rc"]) is not int or row["rc"] != 0 or row["timed_out"]:
+        raise ValueError("GPU batch failed or timed out")
+    for key in ("rid_leak_bytes", "cases_started", "zero_assert_reported"):
+        if not nonnegative_integer(row[key]):
+            raise ValueError("GPU audit/leak counter has invalid type")
+    for key in ("stdout_tail", "stderr_tail", "status"):
+        if not isinstance(row[key], str):
+            raise ValueError("GPU batch output has invalid type")
+    for key in ("lifetime_failed_scenarios", "zero_assertion_cases", "env_skipped_cases"):
+        if not isinstance(row[key], list) or any(not isinstance(item, str) for item in row[key]):
+            raise ValueError("GPU per-case audit has invalid type")
+    if not isinstance(row["wall_seconds"], (int, float)) or isinstance(row["wall_seconds"], bool) or not math.isfinite(row["wall_seconds"]) or row["wall_seconds"] < 0:
+        raise ValueError("GPU batch duration has invalid type")
+    for key, fields in (("test_cases", ("total", "passed", "failed", "skipped")), ("assertions", ("total", "passed", "failed"))):
+        counts = row[key]
+        if not isinstance(counts, dict) or set(counts) != set(fields) or any(not nonnegative_integer(counts[field]) for field in fields):
+            raise ValueError("GPU summary counters have invalid shape/types")
+        if counts["failed"] or counts["total"] != counts["passed"] + counts["failed"]:
+            raise ValueError("GPU summary counters contradict success")
+    if row["rid_leak_bytes"]:
+        raise ValueError("GPU batch leaked RID bytes")
+    # Reparse all rows; required rows additionally obey assertive minimum/no-skip rules.
+    parsed = harness.BatchResult(spec.name, spec.filters, spec.excludes)
+    harness._parse_summary(row["stdout_tail"], parsed)
+    actual = parsed.to_dict()
+    fields = ("test_cases", "assertions", "status", "summary_parse_ok", "rid_leak_bytes",
+              "lifetime_failed_scenarios", "zero_assertion_cases", "case_assert_audit_ok",
+              "cases_started", "zero_assert_reported", "env_skipped_cases")
+    if any(actual[key] != row[key] for key in fields):
+        raise ValueError("GPU row contradicts canonical stdout parser/audit")
+    if required is not None:
+        failures = candidate._validate_candidate_gpu_batch(spec.name, row, required)
+        if (failures or row["status"] != "SUCCESS" or row["cases_started"] != row["test_cases"]["total"]
+                or row["env_skipped_cases"] or row["assertions"]["passed"] <= 0):
+            raise ValueError("Required GPU batch lacks complete assertive coverage: " + "; ".join(failures))
+    elif row["test_cases"]["total"] > 0:
+        if (row["assertions"]["total"] <= 0 or not row["case_assert_audit_ok"]
+                or row["zero_assert_reported"] != len(row["zero_assertion_cases"])):
+            raise ValueError("Advisory batch violates canonical assertion audit")
+        for case in row["zero_assertion_cases"]:
+            if case not in row["env_skipped_cases"] and spec.name + "/" + case not in harness.VACUOUS_CASE_ALLOWLIST:
+                raise ValueError("Advisory case silently verified nothing without canonical allowance")
+
+
+def validate_gpu_report(report: dict, binary_path: str, manifest: dict | None = None) -> None:
+    harness = load_module("universal_gpu_harness", ROOT / "tests/ci/run_gpu_harness.py")
+    candidate = load_module("universal_renderer_candidate", ROOT / "tests/ci/check_renderer_release_gates.py")
+    if manifest is None:
+        manifest = json.loads((ROOT / policy.GPU_MANIFEST).read_text(encoding="utf-8"))
+    required_rows = manifest["gpu_harness_policy"]["required_batches"]
+    required = {row["name"]: row for row in required_rows}
+    if len(required) != len(required_rows) or set(required) != set(harness.REQUIRED_BATCHES):
+        raise ValueError("GPU manifest disagrees with authoritative required catalogue")
+    if (report.get("schema_version") != harness.REPORT_SCHEMA_VERSION or report.get("baseline_mode") != "compare"
+            or report.get("totals_authoritative") is not True
+            or str(PureWindowsPath(report.get("godot_binary", ""))).casefold() != str(PureWindowsPath(binary_path)).casefold()):
+        raise ValueError("GPU report schema/baseline/binary/authority mismatch")
+    for field in GPU_SCALAR_FIELDS:
+        if type(report.get(field)) is not int or report[field] != 0:
+            raise ValueError("GPU fatal scalar missing, invalid or nonzero: " + field)
+    for field in GPU_FATAL_FIELDS:
+        if type(report.get(field)) is not list or report[field]:
+            raise ValueError("GPU fatal array missing, invalid or nonempty: " + field)
+    for field in ("allowlisted_vacuous_cases", "env_skipped_advisory_cases"):
+        if type(report.get(field)) is not list or any(not isinstance(item, str) for item in report[field]):
+            raise ValueError("GPU advisory metadata missing or invalid")
+    rows = report.get("batches")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows) or [row.get("name") for row in rows] != [spec.name for spec in harness.BATCHES]:
+        raise ValueError("GPU report does not contain the full ordered canonical catalogue")
+    failures = candidate._candidate_gpu_report_verdict_failures(report, "bound GPU report")
+    if failures:
+        raise ValueError("GPU supervisor verdict failed: " + "; ".join(failures))
+    for row, spec in zip(rows, harness.BATCHES):
+        validate_gpu_row(row, spec, required.get(spec.name), harness, candidate)
+    # Aggregate counters never substitute for actual required per-row parser evidence.
+    totals = {family + "_" + field: sum(row[family][field] for row in rows)
+              for family, fields in (("test_cases", ("total", "passed", "failed", "skipped")),
+                                     ("assertions", ("total", "passed", "failed"))) for field in fields}
+    if report.get("totals") != totals:
+        raise ValueError("GPU aggregate counters contradict actual batch rows")
+
+
 def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head: str,
-                               context: str, run_id: str, run_attempt: str) -> None:
+                               context: str, run_id: str, run_attempt: str, bundle: dict[str, bytes] | None = None) -> None:
     policy.require_sha(head)
     if receipt.get("schema_version") != 2:
         raise ValueError("Universal evidence schema is required")
@@ -162,8 +264,19 @@ def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head
         if hashlib.sha256(content).hexdigest() != hashes.get(name):
             raise ValueError("Report bytes do not match receipt digest")
     validate_module_ledger(json.loads(reports["module-lanes.json"]))
-    validate_runtime_report(json.loads(reports["headless-report.json"]), "headless-ci", binary_path)
-    validate_runtime_report(json.loads(reports["streaming-report.json"]), "streaming-gpu-ci", binary_path)
+    config = policy.bundle_json(bundle, policy.RUNTIME_CONFIG) if bundle is not None else None
+    manifest = policy.bundle_json(bundle, policy.GPU_MANIFEST) if bundle is not None else None
+    validate_runtime_report(json.loads(reports["headless-report.json"]), "headless-ci", binary_path, config)
+    validate_runtime_report(json.loads(reports["streaming-report.json"]), "streaming-gpu-ci", binary_path, config)
+    validate_gpu_report(json.loads(reports["gpu-harness-report.json"]), binary_path, manifest)
+    started = datetime.fromisoformat(receipt["measurement_started_utc"])
+    ended = datetime.fromisoformat(receipt["measurement_finished_utc"])
+    gpu = json.loads(reports["gpu-harness-report.json"])
+    gpu_start = datetime.fromisoformat(gpu["timestamp_started_utc"])
+    gpu_end = datetime.fromisoformat(gpu["timestamp_finished_utc"])
+    if (any(value.tzinfo is None for value in (started, ended, gpu_start, gpu_end))
+            or not started <= gpu_start <= gpu_end <= ended <= datetime.now(timezone.utc)):
+        raise ValueError("GPU report does not belong to this fresh measurement window")
 
 
 def write_receipt(directory: Path, binary: Path, measurement: Path) -> None:
@@ -189,6 +302,7 @@ def write_receipt(directory: Path, binary: Path, measurement: Path) -> None:
                "binary_components_before_sha256": state["binary_components_sha256"],
                "binary_components_sha256": binary_components(binary),
                "measurement_started_utc": state["started_utc"],
+               "measurement_finished_utc": datetime.now(timezone.utc).isoformat(),
                "steps": {name: os.environ.get("GS_STEP_" + name.upper(), "") for name in REQUIRED_STEPS},
                "sha256": {"binary": file_hash(binary), **{name: hashlib.sha256(content).hexdigest() for name, content in reports.items()}}}
     validate_universal_receipt(receipt, reports, head=head, context=context, run_id=run_id, run_attempt=attempt)
@@ -204,11 +318,20 @@ def main() -> int:
     modes.add_argument("--start-measurement", type=Path)
     modes.add_argument("--write-receipt", type=Path)
     modes.add_argument("--verify", type=Path)
+    modes.add_argument("--self-test", action="store_true")
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--measurement", type=Path)
     args = parser.parse_args()
     try:
-        if args.verify:
+        if args.self_test:
+            for report in ({}, {"schema_version": 1, "batches": []}):
+                try:
+                    validate_gpu_report(report, "C:/fixture/godot.exe")
+                except (ValueError, KeyError, TypeError):
+                    continue
+                raise ValueError("Incomplete GPU report was accepted")
+            print("Universal checker rejects absent GPU proof; portable discrimination suite remains required.")
+        elif args.verify:
             receipt = json.loads((args.verify / "pr-gpu-evidence.json").read_text(encoding="utf-8"))
             reports = {name: (args.verify / name).read_bytes() for name in REPORT_SOURCES}
             head, context = current_identity()

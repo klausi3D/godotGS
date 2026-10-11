@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,17 @@ ENVIRONMENT = "trusted-gpu-verdict"
 TARGET_BRANCH = "master"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MANIFEST = "scripts/agentic/gpu_commit_policy.json"
+MIGRATION_VARIABLE = "GS_CODE_EVIDENCE_MIGRATION"
+BOOTSTRAP_VARIABLE = "GPU_CODE_EVIDENCE_BOOTSTRAP"
+RUNTIME_CONFIG = "tests/runtime/runtime_scenarios.json"
+GPU_MANIFEST = "docs/reference/renderer_release_gate_manifest.json"
+
+
+def selected_dependency(path: str, manifest: dict) -> bool:
+    return (path in manifest["files"] or any(path.startswith(p) for p in manifest["prefixes"])
+            or path.rsplit("/", 1)[-1] in manifest.get("basenames", [])
+            or (path.endswith(".py") and any(path.startswith(p) if p else "/" not in path
+                for p in manifest.get("build_python_roots", []))))
 
 
 def require_sha(value: object) -> str:
@@ -53,6 +65,10 @@ def policy_bundle(ref: str = "HEAD") -> dict[str, bytes]:
     if (not isinstance(exact, list) or not isinstance(prefixes, list)
             or MANIFEST not in exact or any(not isinstance(p, str) for p in exact + prefixes)):
         raise ValueError("Invalid enforcement dependency manifest")
+    for key in ("basenames", "build_python_roots"):
+        values = manifest.get(key, [])
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            raise ValueError("Invalid fixed build dependency selector")
     entries = []
     for line in _git("ls-tree", "-r", "-z", ref).split(b"\0"):
         if not line:
@@ -60,7 +76,7 @@ def policy_bundle(ref: str = "HEAD") -> dict[str, bytes]:
         metadata, name = line.split(b"\t", 1)
         mode, kind, object_id = metadata.split()
         path = name.decode("utf-8")
-        if path in exact or any(path.startswith(prefix) for prefix in prefixes):
+        if selected_dependency(path, manifest):
             if kind != b"blob" or mode not in (b"100644", b"100755"):
                 raise ValueError("Policy dependencies must be regular tracked files")
             entries.append((path, mode, object_id))
@@ -104,6 +120,147 @@ def positive_integer(value: object) -> int:
     return int(value)
 
 
+def delegated_dependency(path: str) -> bool:
+    """Narrow oracle/fixture families; fixed macros/bootstrap/control never delegate."""
+    fixed = {"modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp",
+             "modules/gaussian_splatting/tests/gs_gpu_test_runner.h",
+             "modules/gaussian_splatting/tests/test_macros.h"}
+    if path in fixed:
+        return False
+    if path in {"tests/test_projection_math.cpp", "tests/servers/rendering/test_renderer_scene_cull.h", GPU_MANIFEST}:
+        return True
+    if path.startswith("modules/gaussian_splatting/tests/") and path.endswith((".h", ".cpp")):
+        return True
+    roots = ("tests/runtime/", "tests/examples/", "tests/fixtures/", "tests/visual_baselines/",
+             "tests/baseline/", "tests/benchmark/", "modules/gaussian_splatting/tests/synthetic_baselines/")
+    return path.startswith(roots) and path.endswith((".gd", ".json", ".png", ".jpg", ".ply",
+                                                   ".gsplatcache", ".gsplatworld", ".tres", ".tscn"))
+
+
+def bundle_json(bundle: dict[str, bytes], path: str) -> dict:
+    mode, content = bundle[path].split(b"\0", 1)
+    if mode != b"100644":
+        raise ValueError("Policy JSON must be a non-executable regular data blob")
+    value = json.loads(content)
+    if not isinstance(value, dict):
+        raise ValueError("Policy configuration must be a JSON object")
+    return value
+
+
+def require_data_invariants(trusted: dict[str, bytes], proposed: dict[str, bytes]) -> None:
+    old, new = bundle_json(trusted, GPU_MANIFEST), bundle_json(proposed, GPU_MANIFEST)
+    if old["schema_version"] != new.get("schema_version"):
+        raise ValueError("Unsupported renderer manifest schema")
+    before, after = old["gpu_harness_policy"], new["gpu_harness_policy"]
+    if any(before[key] != after.get(key) for key in ("script", "blocking_profile")):
+        raise ValueError("Unsupported GPU policy profile")
+    old_rows, new_rows = before["required_batches"], after["required_batches"]
+    if [row["name"] for row in old_rows] != [row.get("name") for row in new_rows]:
+        raise ValueError("Required GPU set/order cannot change by data delegation")
+    for previous, current in zip(old_rows, new_rows):
+        minimum = current.get("minimum_test_cases")
+        if (type(minimum) is not int or minimum < previous["minimum_test_cases"]
+                or any(current.get(key) is not False for key in ("allow_skips", "allow_timeout", "allow_rid_leaks"))):
+            raise ValueError("Delegated required GPU floors cannot be relaxed")
+        references = current.get("reference_artifacts")
+        if not isinstance(references, list) or any(path not in proposed for path in references):
+            raise ValueError("GPU reference artifacts must be pinned verification inputs")
+    old, new = bundle_json(trusted, RUNTIME_CONFIG), bundle_json(proposed, RUNTIME_CONFIG)
+    if old["version"] != new.get("version"):
+        raise ValueError("Unsupported runtime schema")
+    for name in ("headless-ci", "streaming-gpu-ci"):
+        previous, current = old["profiles"][name], new["profiles"][name]
+        if (current.get("gd_mode") != previous["gd_mode"] or current.get("fail_on_skip") is not True
+                or not set(previous["gd_tests"]).issubset(current.get("gd_tests", []))
+                or (previous.get("requires_renderer_proof") and current.get("requires_renderer_proof") is not True)
+                or current.get("godot_args") != previous.get("godot_args")):
+            raise ValueError("Delegated canonical runtime coverage/profile cannot be relaxed")
+
+
+def environment_record(api, repo: str, name: str) -> dict | None:
+    """Read complete canonical environment inventory; never workflow/repository vars."""
+    variables = api(f"repos/{repo}/environments/{ENVIRONMENT}/variables")
+    entries = variables.get("variables")
+    if not isinstance(entries, list) or variables.get("total_count") != len(entries):
+        raise ValueError("Incomplete canonical environment variable inventory")
+    names = [entry.get("name") for entry in entries]
+    if name not in names:
+        return None
+    if names.count(name) != 1:
+        raise ValueError("Ambiguous environment migration record")
+    record = api(f"repos/{repo}/environments/{ENVIRONMENT}/variables/{name}")
+    if record.get("name") != name:
+        raise ValueError("Wrong canonical environment variable")
+    record = json.loads(record["value"])
+    if not isinstance(record, dict):
+        raise ValueError("Environment approval must be an exact JSON object")
+    return record
+
+
+def migration_binding(api, repo: str, base: str, head: str, app_id: object) -> dict | None:
+    """Environment data is authority; writer-editable comment is corroboration only."""
+    record = environment_record(api, repo, MIGRATION_VARIABLE)
+    if record is None:
+        return None
+    binding = record["binding"]
+    expected = {"base_sha", "policy_sha", "head_sha", "context", "app_id", "run_id", "run_attempt", "expires_utc"}
+    if not isinstance(binding, dict) or set(binding) != expected:
+        raise ValueError("Migration requires complete exact bindings")
+    if (binding["base_sha"] != base or binding["head_sha"] != head
+            or binding["app_id"] != positive_integer(app_id)):
+        raise ValueError("Migration base/head/App changed")
+    require_sha(binding["policy_sha"])
+    if binding["policy_sha"] == head:
+        raise ValueError("Separate reviewed data-only policy commit is required")
+    for key in ("run_id", "run_attempt"):
+        if not isinstance(binding[key], str) or not re.fullmatch(r"[1-9][0-9]*", binding[key]):
+            raise ValueError("Exact producer run/attempt is required")
+    expiry = datetime.fromisoformat(binding["expires_utc"])
+    if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+        raise ValueError("Migration approval expired or lacks UTC offset")
+    repository = api(f"repos/{repo}")
+    owner = repository.get("owner", {})
+    if (owner.get("type") != "User" or owner.get("login", "").casefold() != repo.split("/")[0].casefold()
+            or type(owner.get("id")) is not int or owner["id"] <= 0):
+        raise ValueError("Only canonical personal-owner authority is supported")
+    comment_id = positive_integer(record["approval_comment_id"])
+    comment = api(f"repos/{repo}/issues/comments/{comment_id}")
+    digest = hashlib.sha256(json.dumps(binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if (comment.get("id") != comment_id or comment.get("user", {}).get("id") != owner.get("id")
+            or comment.get("user", {}).get("login") != owner.get("login")
+            or not str(comment.get("issue_url", "")).startswith(f"https://api.github.com/repos/{repo}/issues/")
+            or comment.get("body") != f"GodotGS GPU policy migration approved\nsha256={digest}\n"):
+        raise ValueError("Owner review corroboration differs from authoritative environment record")
+    return binding
+
+
+def effective_policy(api, repo: str, base: str, head: str, app_id: object) -> tuple[dict[str, bytes], dict | None]:
+    trusted = policy_bundle(base)
+    binding = migration_binding(api, repo, base, head, app_id)
+    if binding is None:
+        return trusted, None
+    target = binding["policy_sha"]
+    commit = eligible_commit(api, repo, target)
+    if commit["parents"][0]["sha"] != base:
+        raise ValueError("Reviewed policy commit must have current B as sole parent")
+    _git("fetch", "--no-tags", "origin", target)
+    changed = _git("diff", "--name-only", "-z", base, target).split(b"\0")
+    if any(not delegated_dependency(name.decode()) for name in changed if name):
+        raise ValueError("Data-only migration changed fixed execution or production source")
+    proposed = policy_bundle(target)
+    if proposed == trusted:
+        raise ValueError("Data-only migration requires a genuine new policy/context")
+    for path in set(trusted) | set(proposed):
+        if trusted.get(path) != proposed.get(path):
+            if (not delegated_dependency(path) or path not in proposed
+                    or proposed[path].split(b"\0", 1)[0] != (trusted[path].split(b"\0", 1)[0] if path in trusted else b"100644")):
+                raise ValueError("Nondelegatable definitions/selection/modes changed")
+    require_data_invariants(trusted, proposed)
+    if context_for(proposed) != binding["context"]:
+        raise ValueError("Authoritative migration context does not match actual policy bytes")
+    return proposed, binding
+
+
 def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
                 bootstrap: dict | None = None, run_id: str | None = None,
                 run_attempt: str | None = None) -> str:
@@ -111,7 +268,10 @@ def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
     require_sha(head)
     app_id = positive_integer(app_id)
     repository = api(f"repos/{repo}")
-    if repository.get("default_branch") != TARGET_BRANCH:
+    owner = repository.get("owner", {})
+    if (repository.get("default_branch") != TARGET_BRANCH or owner.get("type") != "User"
+            or owner.get("login", "").casefold() != repo.split("/")[0].casefold()
+            or type(owner.get("id")) is not int or owner["id"] <= 0):
         raise ValueError("Unsupported default/target branch")
     rulesets = api(f"repos/{repo}/rulesets")
     if not isinstance(rulesets, list) or rulesets:
@@ -136,6 +296,10 @@ def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
     names = {item.get("context") for item in required}
     if not {"agentic-pr-gate", "docs-build"}.issubset(names):
         raise ValueError("Existing required agentic/docs gates must remain required")
+    for name in ("agentic-pr-gate", "docs-build"):
+        source = [item for item in required if item.get("context") == name]
+        if len(source) != 1 or source[0].get("app_id") != 15368:
+            raise ValueError("Existing agentic/docs expected GitHub Actions App must remain unchanged")
     matching = [item for item in required if item.get("context") == context]
     if matching:
         if len(matching) != 1 or matching[0].get("app_id") != app_id:

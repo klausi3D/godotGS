@@ -34,6 +34,7 @@ JOB_STEPS = {
     "module": "Run module tests",
     "headless": "Run runtime validation harness (headless structural gate)",
     "streaming": "Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)",
+    "gpu_harness": "Run full canonical GPU harness",
     "postflight": "Postflight - GPU contention verdict (#875)",
     "receipt": "Bind canonical GPU evidence to reviewed commit",
     "upload": "Upload canonical PR GPU receipt",
@@ -135,21 +136,33 @@ def proof_settings(event: dict) -> tuple[dict[str, bytes], str, dict | None]:
     trusted = policy.require_sha(event.get("trusted_base_sha"))
     if checker.git("rev-parse", "HEAD") != trusted:
         raise ValueError("Controller must execute only the selected immutable trusted default checkout")
-    bundle = policy.policy_bundle(trusted)
+    repo = os.environ["GITHUB_REPOSITORY"]
+    if api(f"repos/{repo}/branches/{policy.TARGET_BRANCH}").get("commit", {}).get("sha") != trusted:
+        raise ValueError("Trusted default advanced; a fresh immutable controller run is required")
+    head, _ = event_head(event)
+    bundle, migration = policy.effective_policy(api, repo, trusted, head, os.environ.get("GS_PUBLISH_APP_ID"))
     context = policy.context_for(bundle)
-    raw = os.environ.get("GS_CODE_EVIDENCE_BOOTSTRAP", "")
-    bootstrap = json.loads(raw) if raw else None
-    if bootstrap is not None and not isinstance(bootstrap, dict):
-        raise ValueError("Invalid owner bootstrap configuration")
-    return bundle, context, bootstrap
+    bootstrap = policy.environment_record(api, repo, policy.BOOTSTRAP_VARIABLE)
+    if migration is not None and bootstrap is not None:
+        raise ValueError("Initial bootstrap and data migration must not overlap")
+    return bundle, context, migration or bootstrap
 
 
 def live_proof(repo: str, head: str, context: str, bootstrap: dict | None = None,
                run: dict | None = None) -> str:
     policy.eligible_commit(api, repo, head)
-    return policy.enforcement(api, repo, head, context, os.environ.get("GS_PUBLISH_APP_ID"),
-                              bootstrap=bootstrap, run_id=str(run["id"]) if run else None,
+    allowance = bootstrap
+    if bootstrap is not None and "policy_sha" in bootstrap:
+        if (run is None or bootstrap["run_id"] != str(run["id"])
+                or bootstrap["run_attempt"] != str(run["run_attempt"])):
+            raise ValueError("Migration source run/attempt differs from exact owner approval")
+        allowance = {key: bootstrap[key] for key in ("head_sha", "context", "run_id", "run_attempt")}
+    base = policy.enforcement(api, repo, head, context, os.environ.get("GS_PUBLISH_APP_ID"),
+                              bootstrap=allowance, run_id=str(run["id"]) if run else None,
                               run_attempt=str(run["run_attempt"]) if run else None)
+    if bootstrap is not None and "policy_sha" in bootstrap and base != bootstrap["base_sha"]:
+        raise ValueError("Current target changed after migration approval")
+    return base
 
 
 def latest_source_run(repo: str, head: str, event: dict) -> dict | None:
@@ -164,7 +177,7 @@ def latest_source_run(repo: str, head: str, event: dict) -> dict | None:
     return latest
 
 
-def run_verdict(repo: str, run: dict, head: str, context: str) -> None:
+def run_verdict(repo: str, run: dict, head: str, context: str, bundle: dict[str, bytes]) -> None:
     attempt = run["run_attempt"]
     verify_jobs(pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs"))
     artifacts = pages(f"repos/{repo}/actions/runs/{run['id']}/artifacts", "artifacts")
@@ -173,7 +186,7 @@ def run_verdict(repo: str, run: dict, head: str, context: str) -> None:
         raise ValueError("Exact-run universal receipt artifact is absent or ambiguous")
     receipt, reports = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
     checker.validate_universal_receipt(receipt, reports, head=head, context=context,
-                                       run_id=str(run["id"]), run_attempt=str(attempt))
+                                       run_id=str(run["id"]), run_attempt=str(attempt), bundle=bundle)
 
 
 def main() -> EvidenceOutcome:
@@ -195,11 +208,14 @@ def main() -> EvidenceOutcome:
             if run.get("conclusion") != "success":
                 raise ValueError("Newest canonical run is not successful")
             live_proof(repo, head, context, bootstrap, run)
-            run_verdict(repo, run, head, context)
+            run_verdict(repo, run, head, context, bundle)
             newest = latest_source_run(repo, head, event)
             if newest is None or (newest["id"], newest["run_attempt"], newest["status"], newest["conclusion"]) != (run["id"], run["run_attempt"], "completed", "success"):
                 raise ValueError("Run changed during artifact verification")
             current_pull(repo, pull, head)
+            refreshed, _, refreshed_allowance = proof_settings(event)
+            if refreshed != bundle or refreshed_allowance != bootstrap:
+                raise ValueError("Authoritative policy/approval changed during receipt verification")
             live_proof(repo, head, context, bootstrap, run)
             return EvidenceOutcome(0, "Exact commit full module/GPU/runtime evidence accepted",
                                    (run["id"], run["run_attempt"]), head, context)

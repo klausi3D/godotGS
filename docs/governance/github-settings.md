@@ -172,8 +172,10 @@ instruction for an agent to change settings.
    read them back. Other review/conversation settings stay as currently configured.
 2. Install a dedicated repository-scoped publisher GitHub App with **Commit
    statuses: write** and Metadata: read. It must not receive content/settings write.
-   Provide a separate proof credential with Administration: read and Actions: read
-   for protection, rulesets, environment and deployment-branch-policy inspection.
+   Provide a separate proof credential with Administration: read, Actions: read and
+   Environments: read for protection, rulesets, environment/deployment-ref and
+   canonical environment-variable inspection. Neither credential has environment
+   write permission; no owner-authorized write credential reaches candidate code.
 3. Create environment `trusted-gpu-verdict` with
    `deployment_branch_policy = {"protected_branches": false,
    "custom_branch_policies": true}` and exactly one custom policy
@@ -185,8 +187,11 @@ instruction for an agent to change settings.
    readback and the actual credentials' scope must be independently verified.
 4. Merge independently reviewed policy implementation under the existing gates;
    its changed definitions cannot self-certify against the preceding trusted
-   bundle. On the resulting trusted default policy, identify a normal single-parent
-   validation commit containing the current target and matching all definitions.
+   bundle. A human squash landing can establish an eligible single-parent trusted
+   default `B`; it does not itself create a universal receipt. Prepare an actual
+   meaningful single-parent same-policy open PR `S` containing current `B`. Its
+   genuine PR producer run supplies bootstrap evidence. Default/push/manual
+   receipts are unsupported; do not invent an empty commit or force-rewrite ancestry.
    Resolve its policy context with the trusted Python helper:
 
    ```python
@@ -196,7 +201,9 @@ instruction for an agent to change settings.
 
 5. Approve one genuine complete producer run/attempt for that exact commit/context.
    Set environment variable `GPU_CODE_EVIDENCE_BOOTSTRAP` to JSON containing only
-   `head_sha`, `context`, `run_id`, `run_attempt` (IDs are strings). The shared
+   `head_sha`, `context`, `run_id`, `run_attempt` (IDs are strings). The controller
+   reads this variable only through its canonical environment API, never the
+   workflow/repository `vars` context. The shared
    success boundary still requires single-parent identity, full fresh receipt,
    strict protection, current-base ancestry and environment/App proof. This
    registers a real new context; it does not establish enforced protection.
@@ -213,9 +220,74 @@ instruction for an agent to change settings.
    required agentic/docs merge checks. Do not claim operational enforcement before
    these produce the expected merge outcomes.
 
-A policy update changes the digest and requires another reviewed registration/
-activation while retaining the preceding required context until explicit owner
-migration. A missing/ineligible test-merge status may block through GitHub's
+Later data-only policy updates use the noncircular transition below. Fixed
+controller/workflow/action/build/bootstrap changes cannot use it and require a
+separate owner maintenance scope. Creating a new context is not gate enforcement. A missing/ineligible test-merge status may block through GitHub's
 selection precedence; this is an acknowledged fail-closed availability cost.
 Hosted tests, real GPU/runtime execution, credential installation and settings
 changes are **NOT_RUN** during local source preparation. Humans alone merge.
+
+### Later oracle/fixture policy migration
+
+This profile supports the canonical personal-owner repository only. Environment
+configuration/variables require the owner; independently verify that no delegated
+environment-write credential reaches untrusted code. Organization/custom roles
+need separate design. Privileged default `B` code and execution definitions stay
+unchanged throughout the following owner-approved transition.
+
+1. Prepare separate policy-only commit `T`, with sole canonical parent `B`, and
+   measured single-parent PR `S` containing current `B`. `T` differs from `S` and
+   changes only permitted oracle/fixture data, never production/control code.
+   Review both exact diffs independently and obtain human/CODEOWNER disposition.
+   `S`'s selected definitions equal P2; fixed bytes/modes, selectors, required set,
+   no-skip/no-timeout/no-leak invariants and minima remain enforced. Privileged
+   validators read approved data from T, never import or execute T scripts/YAML.
+2. Complete the genuine full PR producer run for S/P2. Owner configures environment
+   variable `GS_CODE_EVIDENCE_MIGRATION` with the exact shape below. IDs for run and
+   attempt are strings; App/comment IDs are numeric. Expiry has an explicit UTC
+   offset. The binding JSON alone is authority; a public owner-authored comment
+   merely corroborates SHA256 of canonical sorted compact binding JSON. Other
+   writers can edit its body while the original creator persists: it cannot
+   redirect the authoritative environment payload. Missing or changed corroboration
+   blocks publication.
+
+   ```json
+   {
+     "binding": {
+       "base_sha": "<current-B>",
+       "policy_sha": "<separate-reviewed-T>",
+       "head_sha": "<measured-S>",
+       "context": "<actual-P2-context>",
+       "app_id": 701,
+       "run_id": "<genuine-source-run>",
+       "run_attempt": "1",
+       "expires_utc": "<explicit-UTC-expiry>"
+     },
+     "approval_comment_id": 71
+   }
+   ```
+
+   Numeric values above illustrate types, not actual configured identities. The
+   exact corroborating comment body is `GodotGS GPU policy migration approved`,
+   newline, `sha256=<binding-digest>`, newline. Canonical repository-owner identity
+   and repository comment URL must match. No repository-variable fallback exists.
+3. Unchanged trusted controller verifies current B/T/S/P2/App/run/expiry, actual
+   one-parent identity, producer pins, strict protection, environment and full
+   fresh five-file evidence. It may register only genuine NEW P2 SUCCESS before
+   P2 is required; it never makes old P1 green. A target advance invalidates the
+   record and requires renewed approval. Final publication repeats all bindings.
+4. After genuine recent P2 success, owner replaces required P1 with P2 in one
+   `required_status_checks` update, retaining strict, both agentic/docs expected
+   App checks and every other requirement. P1 is explicitly retired: impossible
+   overlap would block the policy from entering default. Readback must confirm
+   the exact context/App/strict before any merge; this is not a cross-API atomic
+   transaction/CAS. A missing P2 cannot be replaced by fake evidence or a skip.
+5. Human merges S through required P2. Default now carries P2; retire the exact
+   migration variable and resume ordinary immutable-default policy. Expiry limits
+   publication rather than truth of already measured immutable code evidence.
+
+Once-minted App tokens expire after one hour versus the 150-minute polling budget;
+fresh completed-event controllers normally recover, but hosted availability and
+credential/owner/protection controls must be measured before operational claims.
+All source preparation remains **NOT ACTIVE**; real GPU, hosted activation,
+configuration and credential changes remain **NOT_RUN** until actually executed.

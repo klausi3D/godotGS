@@ -85,7 +85,6 @@ jobs:
           GS_PUBLISH_TOKEN: ${{ steps.publisher.outputs.token }}
           GS_PUBLISH_APP_ID: ${{ vars.GPU_CODE_EVIDENCE_APP_ID }}
           GS_PROTECTION_TOKEN: ${{ secrets.GPU_CODE_EVIDENCE_PROTECTION_READ_TOKEN }}
-          GS_CODE_EVIDENCE_BOOTSTRAP: ${{ vars.GPU_CODE_EVIDENCE_BOOTSTRAP }}
         run: python scripts/agentic/watch_pr_gpu_evidence.py
 
   # Separate job can recover a controller timeout. Whole-workflow cancellation,

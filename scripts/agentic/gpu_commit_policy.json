@@ -8,12 +8,21 @@
     ".github/workflows/gaussian_production_gates.yml",
     "tests/ci/check_pr_gpu_evidence.py",
     "scripts/agentic/classify_change.py",
-    ".agentic/policy.json"
+    ".agentic/policy.json",
+    "SConstruct",
+    "main/main.cpp",
+    "thirdparty/doctest/doctest.h",
+    "docs/reference/renderer_release_gate_manifest.json"
   ],
   "prefixes": [
     "tests/ci/",
     "tests/runtime/",
     "tests/baseline/",
-    "tests/benchmark/"
-  ]
+    "tests/benchmark/",
+    "tests/",
+    "modules/gaussian_splatting/tests/",
+    ".github/workflows/"
+  ],
+  "basenames": ["SCsub"],
+  "build_python_roots": ["", "core/", "main/", "editor/", "drivers/", "platform/", "modules/", "servers/", "scene/", "misc/utility/"]
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Negative controls for the PR evidence consumer and its real workflow wiring."""
 import copy
+from datetime import datetime, timezone, timedelta
+import hashlib
 import importlib.util
 import io
 import json
@@ -230,6 +232,28 @@ class UniversalReceiptProducerTests(unittest.TestCase):
             report["schema_errors"] = runtime._validate_summary_schema(report)
             report["schema_valid"] = not report["schema_errors"]
             reports[filename] = json.dumps(report).encode()
+        harness = universal.load_module("receipt_fixture_gpu_producer", ROOT / "tests/ci/run_gpu_harness.py")
+        capture = json.loads((ROOT / "tests/ci/fixtures/gpu_harness_captured_stdout.json").read_text())
+        rows = []
+        for spec in harness.BATCHES:
+            row = harness.BatchResult(spec.name, spec.filters, spec.excludes, rc=0,
+                                      stdout_tail=capture["stdout_by_batch"][spec.name])
+            harness._parse_summary(row.stdout_tail, row)
+            rows.append(row.to_dict())
+        # Real captured stdout drives the real parser/JSON producer. Identity/time
+        # are deliberately schema observations, not a new native execution.
+        now = datetime.now(timezone.utc).isoformat()
+        gpu = {"schema_version": harness.REPORT_SCHEMA_VERSION, "baseline_mode": "compare",
+               "godot_binary": binary_path, "batches": rows, "totals_authoritative": True,
+               "timestamp_started_utc": now, "timestamp_finished_utc": now}
+        gpu.update({field: 0 for field in universal.GPU_SCALAR_FIELDS})
+        gpu.update({field: [] for field in universal.GPU_FATAL_FIELDS})
+        gpu.update({"allowlisted_vacuous_cases": [], "env_skipped_advisory_cases": [
+            row["name"] + "/" + case for row in rows for case in row["env_skipped_cases"]]})
+        gpu["totals"] = {family + "_" + field: sum(row[family][field] for row in rows)
+                         for family, fields in (("test_cases", ("total", "passed", "failed", "skipped")),
+                                                ("assertions", ("total", "passed", "failed"))) for field in fields}
+        reports["gpu-harness-report.json"] = json.dumps(gpu).encode()
         return reports
 
     def setUp(self):
@@ -252,6 +276,7 @@ class UniversalReceiptProducerTests(unittest.TestCase):
         # real fixed-policy source, never imports a downloaded artifact.
         with patch.object(self.universal, "ROOT", self.root):
             self.universal.start_measurement(self.state, self.binary)
+        self.reports = self.producer_reports(str(self.binary.resolve()))
         for name, relative in self.universal.REPORT_SOURCES.items():
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +293,9 @@ class UniversalReceiptProducerTests(unittest.TestCase):
             config = self.root / "tests/runtime/runtime_scenarios.json"
             config.parent.mkdir(parents=True, exist_ok=True)
             config.write_bytes((ROOT / "tests/runtime/runtime_scenarios.json").read_bytes())
+            manifest = self.root / watcher.policy.GPU_MANIFEST
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_bytes((ROOT / watcher.policy.GPU_MANIFEST).read_bytes())
             self.universal.write_receipt(self.destination, self.binary, self.state)
         return json.loads((self.destination / "pr-gpu-evidence.json").read_text())
 
@@ -330,6 +358,29 @@ class UniversalReceiptProducerTests(unittest.TestCase):
             changed = dict(self.reports); changed[name] = b"{}"
             with self.subTest(report=name), self.assertRaises(ValueError): self.validate(receipt, changed)
 
+    def test_rebound_gpu_report_semantics_are_checked_by_real_receipt_and_artifact_consumer(self):
+        receipt = self.write()
+        gpu = json.loads(self.reports["gpu-harness-report.json"])
+        gpu["supervisor_exit"] = 1
+        reports = dict(self.reports); reports["gpu-harness-report.json"] = json.dumps(gpu).encode()
+        changed = copy.deepcopy(receipt)
+        changed["sha256"]["gpu-harness-report.json"] = hashlib.sha256(reports["gpu-harness-report.json"]).hexdigest()
+        with self.assertRaises(ValueError): self.validate(changed, reports)
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("pr-gpu-evidence.json", json.dumps(changed))
+            for name, content in reports.items(): output.writestr(name, content)
+        jobs = [{"name": watcher.GUARD_JOB, "conclusion": "success"},
+                {"name": watcher.MODULE_JOB, "conclusion": "success", "steps": [
+                    {"name": name, "conclusion": "success", "started_at": "observed", "completed_at": "observed"}
+                    for name in watcher.JOB_STEPS.values()]}]
+        artifact = [{"name": "pr-gpu-evidence-1", "expired": False, "size_in_bytes": len(archive.getvalue()), "id": 7}]
+        data = {name: b"100644\0" + (ROOT / name).read_bytes() for name in (watcher.policy.RUNTIME_CONFIG, watcher.policy.GPU_MANIFEST)}
+        with patch.object(watcher, "pages", side_effect=[jobs, artifact]), patch.object(watcher, "api", return_value=archive.getvalue()), self.assertRaises(ValueError):
+            watcher.run_verdict("owner/repo", {"id": 9, "run_attempt": 1}, self.head, self.context, data)
+        jobs[1]["steps"] = [step for step in jobs[1]["steps"] if step["name"] != watcher.JOB_STEPS["gpu_harness"]]
+        with self.assertRaises(ValueError): watcher.verify_jobs(jobs)
+
     def test_missing_gpu_lane_or_zero_coverage_cannot_validate(self):
         receipt = self.write()
         for modification in ("delete-lane", "zero-coverage", "missing-summary", "not-run"):
@@ -390,7 +441,7 @@ class UniversalPublicationTests(unittest.TestCase):
         if endpoint.endswith("/pulls/1"):
             return self.pull
         if endpoint == "repos/owner/repo":
-            return {"default_branch": "master"}
+            return {"default_branch": "master", "owner": {"type": "User", "login": "owner", "id": 17}}
         if endpoint.endswith("/rulesets"):
             return self.rulesets
         if endpoint.endswith("/branches/master"):
@@ -480,6 +531,27 @@ class UniversalPublicationTests(unittest.TestCase):
         self.bootstrap["run_attempt"] = "2"
         self.assertEqual(self.exercise(), 1)
 
+    def test_data_migration_run_binding_applies_even_after_context_becomes_required(self):
+        self.bootstrap = {"head_sha": self.head, "context": self.context, "run_id": "9", "run_attempt": "1",
+                          "base_sha": self.base, "policy_sha": "c" * 40}
+        self.assertEqual(self.exercise(real_main=True), 0)
+        self.bootstrap["run_attempt"] = "2"
+        self.states = []
+        self.assertEqual(self.exercise(real_main=True), 1)
+        self.assertNotIn("success", [p["state"] for p in self.states])
+
+    def test_last_success_boundary_cannot_use_changed_owner_allowance(self):
+        self.required_context = None
+        self.bootstrap = {"head_sha": self.head, "context": self.context, "run_id": "9", "run_attempt": "1"}
+        settings = (self.bundle, self.context, self.bootstrap)
+        changed = {**self.bootstrap, "run_attempt": "2"}
+        event = self.event
+        with patch.object(watcher, "api", side_effect=self.metadata), patch.object(watcher, "latest_source_run", return_value=self.run), \
+             patch.object(watcher.policy, "require_producer_pin"), patch.object(watcher, "proof_settings", return_value=(self.bundle, self.context, changed)), \
+             patch.dict(os.environ, {"GS_PUBLISH_APP_ID": "701", "GITHUB_RUN_ID": "123"}), self.assertRaises(ValueError):
+            watcher.publish_status("owner/repo", self.head, self.context, "success", "accepted", event=event, proof=self.result)
+        self.assertFalse(self.states)
+
     def test_shared_success_and_bootstrap_cannot_bypass_changed_producer(self):
         self.producer_error = ValueError("changed producer definitions")
         for bootstrap in (None, {"head_sha": self.head, "context": self.context,
@@ -563,6 +635,179 @@ class UniversalCleanupTests(unittest.TestCase):
                  patch.object(watcher, "api") as api:
                 self.assertEqual(watcher.cleanup(), 0)
                 api.assert_not_called()
+
+
+class CanonicalGpuReportTests(unittest.TestCase):
+    """Captured native parser format plus synthetic identities; NOT current GPU proof."""
+    def setUp(self):
+        self.universal = watcher.checker
+        self.binary = "C:/schema-fixture/godot.exe"
+        self.report = json.loads(UniversalReceiptProducerTests.producer_reports(self.binary)["gpu-harness-report.json"])
+
+    def validate(self, report):
+        self.universal.validate_gpu_report(report, self.binary)
+
+    def test_full_real_parser_catalogue_accepts_benign_filter_skips_and_declared_advisory_skip(self):
+        self.validate(self.report)
+        self.assertEqual(len(self.report["batches"]), 13)
+        self.assertGreater(self.report["totals"]["test_cases_skipped"], 0)
+        self.assertTrue(self.report["env_skipped_advisory_cases"])
+
+    def test_every_fatal_field_is_required_typed_and_can_fail(self):
+        for key in self.universal.GPU_FATAL_FIELDS + self.universal.GPU_SCALAR_FIELDS:
+            for value in ("DELETE", None, True, ["failure"] if key in self.universal.GPU_FATAL_FIELDS else 1):
+                report = copy.deepcopy(self.report)
+                if value == "DELETE": del report[key]
+                else: report[key] = value
+                with self.subTest(key=key, value=value), self.assertRaises((ValueError, TypeError)):
+                    self.validate(report)
+
+    def test_subset_reorder_duplicate_or_filter_baseline_binary_drift_is_rejected(self):
+        mutations = [lambda r: r["batches"].pop(), lambda r: r["batches"].reverse(),
+                     lambda r: r["batches"].append(r["batches"][0]),
+                     lambda r: r["batches"][0].update(filters=["*"]),
+                     lambda r: r.update(baseline_mode="update"),
+                     lambda r: r.update(godot_binary="C:/other/godot.exe")]
+        for change in mutations:
+            report = copy.deepcopy(self.report); change(report)
+            with self.subTest(change=change), self.assertRaises(ValueError): self.validate(report)
+
+    def test_required_row_fields_markers_hollow_lifetime_and_counters_cannot_be_laundered(self):
+        mutations = [lambda row: row.pop("case_assert_audit_ok"),
+                     lambda row: row.update(stdout_tail="[doctest] Status: SUCCESS!"),
+                     lambda row: row.update(timed_out=True),
+                     lambda row: row["assertions"].update(total=0, passed=0),
+                     lambda row: row.update(zero_assert_reported=1),
+                     lambda row: row.update(lifetime_failed_scenarios=["scenario: failed"]),
+                     lambda row: row.update(env_skipped_cases=["case"]),
+                     lambda row: row.update(rid_leak_bytes=4),
+                     lambda row: row.update(cases_started=0)]
+        for change in mutations:
+            report = copy.deepcopy(self.report); change(report["batches"][0])
+            with self.subTest(change=change), self.assertRaises(ValueError): self.validate(report)
+        report = copy.deepcopy(self.report)
+        report["totals"]["assertions_passed"] += 1
+        with self.assertRaises(ValueError): self.validate(report)
+
+
+class DataOnlyMigrationTests(unittest.TestCase):
+    """Actual immutable Git objects and canonical API mocks; no live authorization."""
+    def setUp(self):
+        self.policy = watcher.policy
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=self.root, check=True,
+                                  capture_output=True, encoding="utf-8").stdout.strip()
+        self.git = git
+        git("init", "-q"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid")
+        self.oracle = "modules/gaussian_splatting/tests/test_fixture.h"
+        paths = [self.policy.MANIFEST, self.policy.RUNTIME_CONFIG, self.policy.GPU_MANIFEST,
+                 "scripts/agentic/privileged.py", self.oracle, "modules/SCsub", "thirdparty/doctest/doctest.h",
+                 "tests/visual_baselines/composite_hazard_256x256.png"]
+        for name in paths:
+            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("fixed execution\n")
+        manifest = {"version": self.policy.POLICY_VERSION, "files": paths[:4] + [paths[-1]],
+                    "prefixes": ["modules/gaussian_splatting/tests/"], "basenames": ["SCsub"],
+                    "build_python_roots": [""]}
+        (self.root / self.policy.MANIFEST).write_text(json.dumps(manifest))
+        for name in (self.policy.RUNTIME_CONFIG, self.policy.GPU_MANIFEST):
+            (self.root / name).write_bytes((ROOT / name).read_bytes())
+        git("add", "."); git("commit", "-qm", "fixed fixture policy B"); self.base = git("rev-parse", "HEAD")
+        (self.root / self.oracle).write_text("reviewed new assertion\n")
+        git("add", "."); git("commit", "-qm", "oracle data T"); self.target = git("rev-parse", "HEAD")
+        git("checkout", "-q", self.base)
+        (self.root / self.oracle).write_text("reviewed new assertion\n")
+        (self.root / "production.cpp").write_text("candidate product code\n")
+        git("add", "."); git("commit", "-qm", "measured candidate S"); self.head = git("rev-parse", "HEAD")
+        git("remote", "add", "origin", str(self.root))
+        self.root_patch = patch.object(self.policy, "ROOT", self.root)
+        self.root_patch.start(); self.addCleanup(self.root_patch.stop)
+        self.trusted = self.policy.policy_bundle(self.base)
+        self.proposed = self.policy.policy_bundle(self.target)
+        self.binding = {"base_sha": self.base, "policy_sha": self.target, "head_sha": self.head,
+                        "context": self.policy.context_for(self.proposed), "app_id": 701,
+                        "run_id": "9", "run_attempt": "1",
+                        "expires_utc": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()}
+        self.present = True; self.comment_body = None; self.owner_type = "User"
+        self.parent = self.base
+
+    def api(self, endpoint):
+        if endpoint.endswith("/variables"):
+            return {"total_count": int(self.present), "variables": [{"name": self.policy.MIGRATION_VARIABLE}] if self.present else []}
+        if endpoint.endswith("/variables/" + self.policy.MIGRATION_VARIABLE):
+            return {"name": self.policy.MIGRATION_VARIABLE,
+                    "value": json.dumps({"binding": self.binding, "approval_comment_id": 71})}
+        if endpoint == "repos/owner/repo":
+            return {"owner": {"login": "owner", "id": 17, "type": self.owner_type}}
+        if "/issues/comments/" in endpoint:
+            digest = hashlib.sha256(json.dumps(self.binding, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            return {"id": 71, "user": {"login": "owner", "id": 17},
+                    "issue_url": "https://api.github.com/repos/owner/repo/issues/1196",
+                    "body": self.comment_body or f"GodotGS GPU policy migration approved\nsha256={digest}\n"}
+        if "/git/commits/" in endpoint:
+            return {"sha": self.target, "parents": [{"sha": self.parent}]}
+        raise AssertionError("Unexpected or noncanonical endpoint: " + endpoint)
+
+    def effective(self):
+        return self.policy.effective_policy(self.api, "owner/repo", self.base, self.head, 701)
+
+    def test_real_data_only_policy_commit_and_candidate_pin(self):
+        with self.assertRaises(ValueError): self.policy.require_producer_pin(self.head, self.trusted)
+        bundle, allowance = self.effective()
+        self.assertEqual(bundle, self.proposed); self.assertEqual(allowance, self.binding)
+        self.policy.require_producer_pin(self.head, bundle)
+        self.present = False
+        self.assertEqual(self.effective(), (self.trusted, None))
+
+    def test_exact_bindings_expiry_owner_and_writer_edited_comment_cannot_redirect(self):
+        for field, value in (("base_sha", "a" * 40), ("head_sha", "b" * 40), ("policy_sha", self.head),
+                             ("context", "wrong"), ("app_id", 702), ("run_attempt", ""),
+                             ("expires_utc", "2000-01-01T00:00:00+00:00")):
+            original = self.binding[field]; self.binding[field] = value
+            with self.subTest(field=field), self.assertRaises((ValueError, KeyError)): self.effective()
+            self.binding[field] = original
+        self.comment_body = "writer changed original owner comment to another payload"
+        with self.assertRaises(ValueError): self.effective()
+        self.comment_body = None; self.owner_type = "Organization"
+        with self.assertRaises(ValueError): self.effective()
+        self.owner_type = "User"; self.parent = "c" * 40
+        with self.assertRaises(ValueError): self.effective()
+
+    def test_fixed_execution_production_selector_or_modes_cannot_delegate(self):
+        for path in ("scripts/agentic/privileged.py", "modules/SCsub", "production.cpp", self.policy.MANIFEST,
+                     "modules/gaussian_splatting/tests/test_macros.h"):
+            self.git("checkout", "-q", self.base)
+            target = self.root / path; target.parent.mkdir(parents=True, exist_ok=True); target.write_text("changed execution\n")
+            self.git("add", "."); self.git("commit", "-qm", "forbidden policy T")
+            self.target = self.git("rev-parse", "HEAD"); self.binding["policy_sha"] = self.target
+            if path != self.policy.MANIFEST:
+                self.binding["context"] = self.policy.context_for(self.policy.policy_bundle(self.target))
+            with self.subTest(path=path), self.assertRaises(ValueError): self.effective()
+
+    def test_data_invariant_floors_and_effective_configuration(self):
+        for field, value in (("minimum_test_cases", 0), ("allow_skips", True), ("allow_timeout", True), ("allow_rid_leaks", True)):
+            proposed = dict(self.proposed)
+            config = self.policy.bundle_json(proposed, self.policy.GPU_MANIFEST)
+            config["gpu_harness_policy"]["required_batches"][0][field] = value
+            proposed[self.policy.GPU_MANIFEST] = b"100644\0" + json.dumps(config).encode()
+            with self.subTest(field=field), self.assertRaises(ValueError): self.policy.require_data_invariants(self.trusted, proposed)
+        proposed = dict(self.proposed); config = self.policy.bundle_json(proposed, self.policy.RUNTIME_CONFIG)
+        config["profiles"]["headless-ci"]["gd_tests"] = []
+        proposed[self.policy.RUNTIME_CONFIG] = b"100644\0" + json.dumps(config).encode()
+        with self.assertRaises(ValueError): self.policy.require_data_invariants(self.trusted, proposed)
+        manifest = self.policy.bundle_json(self.proposed, self.policy.GPU_MANIFEST)
+        manifest["gpu_harness_policy"]["required_batches"][0]["minimum_test_cases"] = 2
+        report = json.loads(UniversalReceiptProducerTests.producer_reports("C:/fixture/godot.exe")["gpu-harness-report.json"])
+        with self.assertRaises(ValueError): watcher.checker.validate_gpu_report(report, report["godot_binary"], manifest)
+
+    def test_inventory_cannot_fall_back_to_repository_or_process_vars(self):
+        self.present = False
+        with patch.dict(os.environ, {"GS_CODE_EVIDENCE_MIGRATION": json.dumps(self.binding)}):
+            self.assertEqual(self.effective(), (self.trusted, None))
+        with self.assertRaises(ValueError):
+            self.policy.environment_record(lambda endpoint: {"variables": [], "total_count": 1}, "owner/repo", self.policy.MIGRATION_VARIABLE)
 
 
 if __name__ == "__main__":

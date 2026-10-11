@@ -57,6 +57,7 @@ class UniversalWiringTests(unittest.TestCase):
         self.assertEqual(run["run"], "python scripts/agentic/watch_pr_gpu_evidence.py")
         self.assertEqual(run["env"]["GS_PUBLISH_TOKEN"], "${{ steps.publisher.outputs.token }}")
         self.assertEqual(run["env"]["GS_PROTECTION_TOKEN"], "${{ secrets.GPU_CODE_EVIDENCE_PROTECTION_READ_TOKEN }}")
+        self.assertNotIn("GS_CODE_EVIDENCE_BOOTSTRAP", run["env"])
         publisher = next(step for step in workflow["jobs"]["trusted-gpu-controller"]["steps"] if step.get("id") == "publisher")
         self.assertEqual(publisher["with"]["permission-statuses"], "write")
         self.assertEqual(publisher["with"]["private-key"], "${{ secrets.GPU_CODE_EVIDENCE_APP_PRIVATE_KEY }}")
@@ -103,6 +104,12 @@ class UniversalWiringTests(unittest.TestCase):
         module = next(step for step in steps if step.get("id") == "module")
         self.assertIn('--gpu --lane-report artifacts/module-lanes.json', module["run"])
         self.assertIn('"pull_request", "merge_group"', module["run"])
+        gpu = next(step for step in steps if step.get("id") == "gpu_harness")
+        self.assertEqual(gpu["run"], 'python tests/ci/run_gpu_harness.py --godot "$env:GODOT_BINARY" --report artifacts/gpu-harness-report.json --baseline-mode compare')
+        self.assertNotIn("--batch", gpu["run"])
+        for event in ("pull_request", "merge_group"):
+            self.assertTrue(self.evaluate(gpu["if"], {"github.event_name": event}))
+        self.assertNotIn("needs.", gpu["if"])
         capture = next(step for step in steps if step.get("id") == "capture")
         self.assertIn("--start-measurement", capture["run"])
         for step in (capture, next(s for s in steps if s["name"] == "Bind canonical GPU evidence to reviewed commit")):
@@ -110,9 +117,12 @@ class UniversalWiringTests(unittest.TestCase):
         order = {step["name"]: index for index, step in enumerate(steps)}
         self.assertLess(order["Capture measured commit and binary before runtime"], order["Run Gaussian pipeline smoke tests"])
         self.assertLess(order["Postflight - GPU contention verdict (#875)"], order["Bind canonical GPU evidence to reviewed commit"])
+        self.assertLess(order["Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)"], order[gpu["name"]])
+        self.assertLess(order[gpu["name"]], order["Postflight - GPU contention verdict (#875)"])
         receipt = next(step for step in steps if step["name"] == "Bind canonical GPU evidence to reviewed commit")
         self.assertIn("check_universal_gpu_evidence.py --write-receipt", receipt["run"])
         self.assertIn("--measurement artifacts/gpu-measurement.json", receipt["run"])
+        self.assertEqual(receipt["env"]["GS_STEP_GPU_HARNESS"], "${{ steps.gpu_harness.outcome }}")
         artifact = next(step for step in steps if step["name"] == "Upload canonical PR GPU receipt")
         self.assertEqual(artifact["with"]["path"], "repo/artifacts/universal-gpu/")
         self.assertEqual(artifact["with"]["if-no-files-found"], "error")
@@ -121,7 +131,9 @@ class UniversalWiringTests(unittest.TestCase):
 
     def test_all_producer_enforcement_scripts_belong_to_digest_manifest(self):
         manifest = json.loads((ROOT / "scripts/agentic/gpu_commit_policy.json").read_text())
-        covered = lambda path: path in manifest["files"] or any(path.startswith(prefix) for prefix in manifest["prefixes"])
+        spec = importlib.util.spec_from_file_location("wiring_policy", ROOT / "scripts/agentic/gpu_commit_policy.py")
+        policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+        covered = lambda path: policy.selected_dependency(path, manifest)
         commands = [step["run"] for job in load(PRODUCER)["jobs"].values() for step in job.get("steps", []) if "run" in step]
         invoked = {path for command in commands for path in re.findall(r"python\s+([A-Za-z0-9_./-]+\.py)", command)}
         self.assertTrue(invoked)
@@ -129,6 +141,10 @@ class UniversalWiringTests(unittest.TestCase):
             with self.subTest(path=path): self.assertTrue(covered(path), "Missing producer execution dependency: " + path)
         for path in ("scripts/agentic/watch_pr_gpu_evidence.py", "scripts/agentic/gpu_commit_policy.py", "scripts/agentic/gpu_commit_policy.json", "tests/runtime/runtime_scenarios.json"):
             self.assertTrue(covered(path))
+        for path in ("tests/SCsub", "modules/SCsub", "modules/modules_builders.py", "thirdparty/doctest/doctest.h",
+                     "SConstruct", "methods.py", "platform/windows/detect.py", "modules/gaussian_splatting/tests/gs_gpu_test_runner.cpp",
+                     "tests/test_projection_math.cpp", "tests/servers/rendering/test_renderer_scene_cull.h", "docs/reference/renderer_release_gate_manifest.json"):
+            with self.subTest(critical_input=path): self.assertTrue(covered(path))
         for job in load(PRODUCER)["jobs"].values():
             for step in job.get("steps", []):
                 if "uses" in step:

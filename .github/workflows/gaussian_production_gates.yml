@@ -448,6 +448,14 @@ jobs:
             --fail-on-skip `
             --report-path tests/runtime/runtime_validation_report_streaming_gpu_ci.json
 
+      - name: Run full canonical GPU harness
+        id: gpu_harness
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        env:
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
+        shell: pwsh
+        run: python tests/ci/run_gpu_harness.py --godot "$env:GODOT_BINARY" --report artifacts/gpu-harness-report.json --baseline-mode compare
+
       - name: Upload runtime validation reports
         if: ${{ always() && steps.godot_bin.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -528,6 +536,7 @@ jobs:
           GS_STEP_MODULE: ${{ steps.module.outcome }}
           GS_STEP_HEADLESS: ${{ steps.headless.outcome }}
           GS_STEP_STREAMING: ${{ steps.streaming.outcome }}
+          GS_STEP_GPU_HARNESS: ${{ steps.gpu_harness.outcome }}
           GS_STEP_POSTFLIGHT: ${{ steps.postflight.outcome }}
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh

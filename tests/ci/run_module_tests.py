@@ -69,6 +69,7 @@ OVERRIDES_NO_INLINE_SCRIPT_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_overrid
 OVERRIDES_NO_INLINE_SCRIPT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_overrides_no_inline_script.py"
 RENDERER_RELEASE_GATE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_renderer_release_gates.py"
 PR_GPU_EVIDENCE_CHECK_SCRIPT = ROOT / "tests" / "ci" / "check_pr_gpu_evidence.py"
+UNIVERSAL_GPU_EVIDENCE_CHECK_SCRIPT = ROOT / "tests" / "ci" / "check_universal_gpu_evidence.py"
 PR_GPU_EVIDENCE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_pr_gpu_evidence.py"
 RELEASE_ATTESTATION_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_release_attestation.py"
 BASELINE_QA_REQUIRE_FLAG_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_baseline_qa_require_flag.py"
@@ -1916,9 +1917,13 @@ def _run_pr_gpu_evidence_guard() -> tuple[bool, list[str]]:
     """Exercise the portable GPU evidence verdict tests."""
     checker = PR_GPU_EVIDENCE_CHECK_SCRIPT
     tests = PR_GPU_EVIDENCE_TEST_SCRIPT
-    if not checker.is_file() or not tests.is_file():
+    universal = UNIVERSAL_GPU_EVIDENCE_CHECK_SCRIPT
+    if not checker.is_file() or not tests.is_file() or not universal.is_file():
         return False, ["Missing PR GPU evidence checker or negative-control tests."]
     code, out, err = _run_command([sys.executable, str(checker), "--self-test"])
+    if code != 0:
+        return False, [line for line in (out + err).splitlines() if line.strip()]
+    code, out, err = _run_command([sys.executable, str(universal), "--self-test"])
     if code != 0:
         return False, [line for line in (out + err).splitlines() if line.strip()]
     code, out, err = _run_command([sys.executable, str(tests)])

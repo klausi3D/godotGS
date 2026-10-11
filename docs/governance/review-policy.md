@@ -90,8 +90,10 @@ backstop cannot be triggered.
 
 The [R3 redesign](../architecture/adr-pr-gpu-evidence-verdict.md#universal-commit-code-redesign-2026-10-11)
 adds a fixed-policy exact-commit evidence contract: every supported same-repo/master
-PR needs full build, selected strict/module-GPU batches and canonical runtime
-execution. R0/R1 paths and mutable labels cannot exempt this context. Existing
+PR needs full build, strict module tests, the full actual canonical GPU
+catalogue (currently 13 batches, 8 required) and canonical runtime execution.
+Advisory RD lane selection alone cannot qualify GPU proof. A fifth report binds
+real batch stdout, assertion/lifetime/leak audit and fatal supervisor fields. R0/R1 paths and mutable labels cannot exempt this context. Existing
 advisory batch/completion-marker severity stays unchanged, and optional visual,
 export, performance and human acceptance remain separate obligations.
 
@@ -109,3 +111,13 @@ Two independent fixed-diff reviews and human/CODEOWNER disposition remain requir
 The first v1 ADR and implementation shared one commit; a prior approved design
 record has not been verified. A human must address that historical chronology gap;
 the separately committed redesign does not claim retrospective compliance.
+
+Later oracle/fixture policy changes require two fixed-diff reviews of separate
+policy-only `T` and measured `S`, plus human/CODEOWNER acceptance. Exact canonical
+personal-owner environment JSON authorizes data-only P2 delegation; unchanged
+trusted default validators consume approved data without executing proposed
+privileged code. Genuine new P2 proof precedes explicit owner retirement of P1
+and required P2 activation, preserving strict/agentic/docs/App protection. Editable
+comments only corroborate the authoritative payload. Fixed control/build/bootstrap
+changes remain fail-closed separate maintenance scope. See the
+[policy supplement](../architecture/adr-pr-gpu-evidence-verdict.md#canonical-gpu-completion-and-data-only-policy-migration-2026-10-11).

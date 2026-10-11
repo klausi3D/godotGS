@@ -3912,6 +3912,31 @@ class DocConsistencyTests(unittest.TestCase):
                         )
 
 
+class UniversalEvidenceGuardLaunchTests(unittest.TestCase):
+    """Independent launch/error control for the existing evidence guard entry."""
+    def test_actual_guard_launches_both_checkers_and_portable_discrimination(self):
+        calls = []
+        def run(argv):
+            calls.append(argv)
+            return 0, "", ""
+        with mock.patch.object(harness, "_run_command", side_effect=run):
+            self.assertTrue(harness._run_pr_gpu_evidence_guard()[0])
+        self.assertEqual([Path(argv[1]).name for argv in calls],
+                         ["check_pr_gpu_evidence.py", "check_universal_gpu_evidence.py", "test_pr_gpu_evidence.py"])
+        self.assertTrue(all(argv[0] == sys.executable for argv in calls))
+        self.assertEqual(calls[1][2:], ["--self-test"])
+
+    def test_universal_checker_failure_propagates_and_stops_later_tests(self):
+        calls = []
+        def run(argv):
+            calls.append(Path(argv[1]).name)
+            return (1, "universal checker failed", "") if calls[-1] == "check_universal_gpu_evidence.py" else (0, "", "")
+        with mock.patch.object(harness, "_run_command", side_effect=run):
+            ok, output = harness._run_pr_gpu_evidence_guard()
+        self.assertFalse(ok); self.assertIn("universal checker failed", output)
+        self.assertNotIn("test_pr_gpu_evidence.py", calls)
+
+
 class GuardScriptWiringTests(unittest.TestCase):
     """A guard script the runner never executes is a guard nobody runs (#872).
 

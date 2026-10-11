@@ -596,10 +596,12 @@ classification stays informational. No runner-unavailability label creates succe
 
 Producers explicitly check out the event head, capture the built binary before
 runtime, remove stale reports, run module tests with `--gpu --lane-report`, and
-package the fresh ledger plus both canonical runtime reports. The trusted
+run the full canonical `run_gpu_harness.py` catalogue in compare mode, and
+package its fresh report plus the ledger and both canonical runtime reports. The trusted
 consumer validates exact checkout/head, policy, run/attempt, unchanged binary (including the Windows launcher/editor pair),
-report bytes, selected strict/GPU batch coverage and actual GitHub job/step
-outcomes. Existing advisory module batches and completion-marker observations
+report bytes, selected strict module coverage, all 13 actual GPU batches
+(currently 8 required), canonical stdout/audit reconciliation and actual GitHub
+job/step outcomes. Module `--gpu` advisory RD selection alone is insufficient. Existing advisory module batches and completion-marker observations
 retain their established severity. This context certifies the blocking canonical
 profile; optional visual/export/performance/readiness work and human acceptance
 remain separate. It does not certify the legacy collector's raw-log leak filter.
@@ -617,7 +619,17 @@ profiles, thresholds and action revisions. A policy change selects a new context
 a proposed change to those definitions cannot certify itself against the old
 trusted policy. The trusted implementation must first enter the default branch
 through independently reviewed migration under the existing gates, then a
-single-parent candidate with matching definitions can register the new policy.
+single-parent candidate with matching definitions can register the initial policy.
+Later oracle/fixture data changes use exact owner-authorized `B/T/S/P2/App/run`
+environment JSON: unchanged default code reads separate reviewed `T` data/hashes,
+never executes proposed privileged code, and consumes effective approved data.
+Genuine full `P2` proof precedes explicit owner replacement of required `P1` with
+`P2`, preserving strict and existing agentic/docs source checks. The environment
+record is authority; editable owner-comment text only corroborates its digest.
+Fixed workflow/action/Python/build/bootstrap changes cannot delegate and need
+separate owner maintenance scope. The closure pins native oracles, doctest, test
+registration, build definitions and fixtures; ordinary product C++/GLSL stays
+measured candidate code. See the [supplement](../../docs/architecture/adr-pr-gpu-evidence-verdict.md#canonical-gpu-completion-and-data-only-policy-migration-2026-10-11).
 This source change alone neither activates enforcement nor changes settings.
 
 Before success, the controller reads actual strict/admin/append-only protection,
@@ -633,7 +645,9 @@ independent cleanup has five minutes and derives its SHA from the event without
 controller outputs. It replaces only this run's latest pending policy status with
 failure. Whole-workflow cancellation, unavailable API and non-atomic status reads
 can still prevent terminal publication or conservatively replace a newer status.
-Missing/pending/failure is never accepted evidence.
+A once-minted App token expires after one hour while polling permits 150 minutes;
+fresh completed-event controllers ordinarily recover, but hosted availability
+needs measurement. Missing/pending/failure is never accepted evidence.
 
 Human/CODEOWNER approval, native execution and actual hosted activation tests remain
 required. The initial ADR and producer shared commit `bc24d29`; prior approved

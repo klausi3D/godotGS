@@ -191,11 +191,14 @@ lanes/runtime profiles and thresholds. Enumerate the execution/configuration
 dependency closure and test it against real wiring. Policy changes select a new
 context; old success cannot satisfy it. Producer definitions proposed by a PR
 must match the trusted policy bundle, so changes to its own enforcement cannot
-self-certify. Such changes require reviewed owner bootstrap and a new context.
+self-certify. Fixed execution changes require separate owner maintenance scope; narrowly
+reviewed oracle/data changes use the noncircular transition in the supplement.
 
 Build/guard/runtime producers explicitly check out the exact event head `S`,
 not a synthetic `github.sha`. Mandatory module execution includes `--gpu` and
-a fresh lane ledger proving the selected strict/GPU batches executed. Required
+a fresh lane ledger proving selected strict module execution. Actual GPU
+qualification additionally requires the full canonical harness/report in the
+supplement below; advisory RD selection alone does not provide it. Required
 build, pipeline, module-GPU, headless, streaming and contention postflight steps
 must actually succeed. Optional visual/export/performance/readiness lanes retain
 separate contracts; this context does not claim their completion.
@@ -269,8 +272,9 @@ candidate can then register the newly trusted context.
    existing gates, then verifies readback and actual hosted positive/negative
    cases. GitHub requires a recent successful check for registration; do not
    assume pending-only bootstrap works.
-4. Retire the one-shot bootstrap allowance. Later policy versions get reviewed
-   registration/activation without silently dropping the preceding requirement.
+4. Retire the one-shot bootstrap allowance. Later oracle/fixture changes use
+   the exact data-only transition below: genuine new-policy proof precedes explicit
+   owner retirement/replacement of the old requirement, rather than impossible overlap.
 
 Final owner approval applies to concrete activation/settings/credentials, after
 complete reviewable source/configuration is prepared. Humans alone merge.
