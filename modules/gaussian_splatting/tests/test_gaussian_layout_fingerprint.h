@@ -6,10 +6,9 @@
 // field change (e.g. swapping painterly_meta and render_meta) would misdecode
 // every existing file with no check firing.
 //
-// Covered here: `.gsplatworld` (v3 header word, streamable and resident and
-// compressed paths, plus the v1 legacy route), the `.gsplatcache` PLY sidecar
-// (which is a .gsplatworld written by PLYLoader::write_cache), and the GSF scene
-// header word that guards the GAUSSIAN_DATA chunk.
+// Covered here: `.gsplatworld` v3 identity in streamable/resident/compressed
+// paths, the `.gsplatcache` PLY sidecar, and the GSF GAUSSIAN_DATA chunk header.
+// Authentic plain-v1/HLOD-v2 compatibility lives in test_legacy_world_producer_io.h.
 
 #include "test_macros.h"
 
@@ -611,71 +610,6 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] world v3 schemas reject
 			remove_fixture(path);
 		}
 	}
-}
-
-TEST_CASE("[GaussianSplatting][WorldIO] gsplatworld v1 files without a layout word keep loading (#1172)") {
-	using namespace TestGaussianLayoutFingerprint;
-	// A hand-written v1 world: 104-byte header, no layout word, one splat. v1
-	// resolves to GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED, which is today's layout.
-	Gaussian g;
-	g.position = Vector3(4.0f, 5.0f, 6.0f);
-	g.opacity = 0.75f;
-	g.scale = Vector3(0.5f, 0.5f, 0.5f);
-	g.rotation = Quaternion();
-	g.sh_dc = Color(0.1f, 0.2f, 0.3f, 1.0f);
-	g.painterly_meta = gaussian_pack_painterly_meta(23, 5);
-
-	const String path = fixture_path("world_v1_legacy", ".gsplatworld");
-	{
-		Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
-		if (!(f.is_valid())) {
-			FAIL("precondition failed: f.is_valid()");
-			return;
-		}
-		f->store_32(0x57505347u); // 'GSPW'
-		f->store_32(1u); // v1
-		f->store_32(0u); // flags
-		f->store_32(1u); // splat_count
-		f->store_32(0u); // sh_degree
-		f->store_32(0u); // sh_first_order
-		f->store_32(0u); // sh_high_order
-		for (int i = 0; i < 6; i++) {
-			f->store_float(0.0f); // bounds position + size
-		}
-		f->store_32(0u); // chunk_count
-		f->store_64(104u); // gaussian_offset: v1 header size
-		for (int i = 0; i < 5; i++) {
-			f->store_64(0u); // sh, chunk table, indices, metadata offsets; metadata size
-		}
-		if (f->get_position() != 104u) {
-			FAIL("hand-written v1 header is not 104 bytes");
-			return;
-		}
-		f->store_buffer(reinterpret_cast<const uint8_t *>(&g), sizeof(Gaussian));
-	}
-
-	ResourceFormatLoaderGaussianSplatWorld loader;
-	Error err = ERR_BUG;
-	Ref<GaussianSplatWorld> resident = loader.load_resident(path, &err);
-	CHECK_EQ(err, OK);
-	if (!(resident.is_valid())) {
-		FAIL("precondition failed: resident.is_valid()");
-		return;
-	}
-	Ref<GaussianData> loaded = resident->get_gaussian_data();
-	if (!(loaded.is_valid())) {
-		FAIL("precondition failed: loaded.is_valid()");
-		return;
-	}
-	if (loaded->get_count() != 1) {
-		FAIL("v1 world should hold one splat");
-		return;
-	}
-	const Gaussian got = loaded->get_gaussian(0);
-	CHECK(got.position.is_equal_approx(g.position));
-	CHECK_EQ(got.painterly_meta, g.painterly_meta);
-
-	remove_fixture(path);
 }
 
 TEST_CASE("[GaussianSplatting][PLY] gsplatcache records the Gaussian layout and a mismatched cache is re-parsed (#1172)") {
