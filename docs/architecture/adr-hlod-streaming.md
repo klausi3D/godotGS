@@ -7,6 +7,12 @@
   `docs/governance/agentic-engineering.md` requires before implementation, because the
   decision changes an on-disk format (`.gsplatworld`), importer format versions, the renderer
   and its shaders.
+- **Format identity update (2026-10-11):** The version assignments below record
+  the original HLOD decision. New exports use world v3 (plain112/HLOD192) and
+  importer version5 under the approved
+  [world-layout compatibility decision](adr-import-input-hardening.md#adr-world-layout-identity-and-hlod-version-compatibility-2026-10-11).
+  Released plain v1 and HLOD v2 remain readable; the unmerged plain-v2 prototype
+  requires re-export. HLOD node layout, bake semantics and geometry stay unchanged.
 - **Tracking:** Refs #1131 (non-deterministic truncation at `quality/max_splat_count`).
   Builds on #1088 / PR #1134 (atlas pages + byte budget) and #1087 / PR #1130 (distance-bounded
   demand). Related: #1053 (LOD prefix truncation holes), #1016 (streaming in the alpha

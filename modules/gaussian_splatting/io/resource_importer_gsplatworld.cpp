@@ -140,7 +140,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 		// import() runs on the source and output before accepting either; only record what import() needs.
 		if (r_info) {
 			r_info->version = version;
-		r_info->has_hlod = header.has_hlod;
+			r_info->has_hlod = header.has_hlod;
 			r_info->compressed = (flags & flag_compressed) != 0u;
 			r_info->resident_payload = (flags & flag_resident_payload) != 0u;
 			r_info->splat_count = splat_count;

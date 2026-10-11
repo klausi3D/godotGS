@@ -149,17 +149,21 @@ static void check_same_splats(const Ref<GaussianData> &p_got, const Ref<Gaussian
 
 // Asserts that BOTH .gsplatworld load entry points refuse p_path with the layout
 // error (ERR_FILE_UNRECOGNIZED; structural corruption is ERR_FILE_CORRUPT).
-static void check_world_refused_for_layout(const String &p_path) {
+static void check_world_refused(const String &p_path, Error p_expected) {
 	ResourceFormatLoaderGaussianSplatWorld loader;
 	Error err = OK;
 	Ref<Resource> res = loader.load(p_path, "", &err);
 	CHECK_FALSE(res.is_valid());
-	CHECK_EQ(err, ERR_FILE_UNRECOGNIZED);
+	CHECK_EQ(err, p_expected);
 
 	Error resident_err = OK;
 	Ref<GaussianSplatWorld> resident = loader.load_resident(p_path, &resident_err);
 	CHECK_FALSE(resident.is_valid());
-	CHECK_EQ(resident_err, ERR_FILE_UNRECOGNIZED);
+	CHECK_EQ(resident_err, p_expected);
+}
+
+static void check_world_refused_for_layout(const String &p_path) {
+	check_world_refused(p_path, ERR_FILE_UNRECOGNIZED);
 }
 
 } // namespace TestGaussianLayoutFingerprint
@@ -344,6 +348,90 @@ TEST_CASE("[GaussianSplatting][WorldIO] plain v3 empty exports load and import w
 #endif
 		remove_fixture(path);
 	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] v3 truncated headers and invalid EOF payload extents are refused") {
+	using namespace TestGaussianLayoutFingerprint;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	for (bool hlod : {false, true}) {
+		Ref<GaussianSplatWorld> world = make_world(make_data());
+		if (hlod && world->bake_hlod() != OK) {
+			FAIL("bake truncation producer control");
+			return;
+		}
+		const String control_path = fixture_path("world_v3_truncation_control", ".gsplatworld");
+		if (saver.save(world, control_path) != OK) {
+			FAIL("save truncation producer control");
+			return;
+		}
+		const PackedByteArray bytes = FileAccess::get_file_as_bytes(control_path);
+		if (bytes.size() < (hlod ? 192 : 112)) {
+			FAIL("complete producer header before truncation");
+			return;
+		}
+		const int cuts[] = {104, 108, 111, 191};
+		for (int cut : cuts) {
+			if (!hlod && cut > 111) {
+				continue;
+			}
+			const String path = fixture_path("world_v3_truncated", ".gsplatworld");
+			{
+				Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
+				if (file.is_null() || !file->store_buffer(bytes.ptr(), cut)) {
+					FAIL("write producer truncation");
+					return;
+				}
+			}
+			check_world_refused(path, ERR_FILE_CORRUPT);
+#ifdef TOOLS_ENABLED
+			Ref<ResourceImporterGSplatWorld> importer;
+			importer.instantiate();
+			HashMap<StringName, Variant> options;
+			const String destination = fixture_path("world_v3_truncated_import", "");
+			CHECK_EQ(importer->import(ResourceUID::INVALID_ID, path, destination, options, nullptr, nullptr, nullptr), ERR_FILE_CORRUPT);
+			CHECK_FALSE(FileAccess::exists(destination + ".gsplatworld"));
+#endif
+			remove_fixture(path);
+		}
+		remove_fixture(control_path);
+	}
+	Ref<GaussianData> empty;
+	empty.instantiate();
+	const String path = fixture_path("world_v3_invalid_eof", ".gsplatworld");
+	if (saver.save(make_world(empty), path) != OK) {
+		FAIL("save zero-byte EOF producer control");
+		return;
+	}
+	const PackedByteArray control = FileAccess::get_file_as_bytes(path);
+	CHECK_EQ(control.size(), 112);
+	// The positive zero-count EOF route is covered above. Declaring even one
+	// splat without bytes at EOF must fail; zero count also cannot point past EOF.
+	for (bool nonempty : {false, true}) {
+		{
+			Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
+			if (file.is_null() || !file->store_buffer(control.ptr(), control.size())) {
+				FAIL("restore empty producer control");
+				return;
+			}
+			if (nonempty) {
+				file->seek(12u);
+				file->store_32(1u);
+			} else {
+				file->seek(56u);
+				file->store_64(uint64_t(control.size()) + 1u);
+			}
+		}
+		check_world_refused(path, ERR_FILE_CORRUPT);
+#ifdef TOOLS_ENABLED
+		Ref<ResourceImporterGSplatWorld> importer;
+		importer.instantiate();
+		HashMap<StringName, Variant> options;
+		const String destination = fixture_path("world_v3_invalid_eof_import", "");
+		CHECK_EQ(importer->import(ResourceUID::INVALID_ID, path, destination, options, nullptr, nullptr, nullptr), ERR_FILE_CORRUPT);
+		CHECK_FALSE(FileAccess::exists(destination + ".gsplatworld"));
+#endif
+	}
+	remove_fixture(path);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] world v3 schemas reject incompatible identities before publication") {

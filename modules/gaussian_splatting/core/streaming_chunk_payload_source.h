@@ -122,7 +122,7 @@ protected:
 	mutable uint64_t file_open_count = 0;
 
 public:
-	// HLOD v2 worlds (ADR adr-hlod-streaming.md §6.2) store leaf positions relative to each
+	// HLOD v2/v3 worlds (ADR adr-hlod-streaming.md §6.2) store leaf positions relative to each
 	// leaf's cell centre. A frame maps the payload range [first, first + count) to its centre.
 	struct PositionFrame {
 		uint32_t first = 0u;

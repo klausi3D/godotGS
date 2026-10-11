@@ -530,8 +530,9 @@ static Error _write_world_save_sections(const Ref<FileAccess> &p_file,
 // ------------------------------------------------------------------------------------------------
 // HLOD worlds: legacy v2 and explicit-layout v3 (ADR adr-hlod-streaming.md §7).
 //
-// Layout. The 104-byte v1 header (version = 2, chunk fields zero) is followed by an 80-byte
-// extension, then the sections:
+// Layout. Legacy v2 uses the 104-byte common prefix; v3 uses its 112-byte
+// explicit-layout prefix. Both zero the plain chunk fields and append the same
+// 80-byte HLOD extension before these sections:
 //   [gaussians: leaf payload | interior payload]  (total = splat_count + interior_splat_count;
 //                                                   gzip'd as one blob when kFlagCompressed)
 //   [high-order SH: same order]
