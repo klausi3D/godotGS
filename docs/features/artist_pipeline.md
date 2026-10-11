@@ -25,6 +25,15 @@ Use this workflow to import `.ply`/`.spz` assets, iterate with inspector brush t
 !!! warning "Color grading bake on asset-backed nodes"
     Baking is supported only for nodes populated with `set_splat_data()`. On a node that renders a `splat_asset` (the normal import path), `bake_color_grading()`, `bake_color_grading_snapshot()` and `restore_color_grading()` return `ERR_UNAVAILABLE` and change nothing, and the inspector does not show the Bake section ([#1105](https://github.com/klausi3D/godotGS/issues/1105)). The live grade already applies to that node, so keep the `ColorGradingResource` enabled. See the [Color Grading Quick Start](color-grading-quick-start.md#baking-limitation).
 
+### Painterly
+
+Painterly is an experimental stylised render mode on `GaussianSplatNode3D`. It needs two settings on the node: Inspector › Painterly › Enabled on, and a `PainterlyMaterial` in Inspector › Painterly › Material. Without a material the node renders normally. Read the painterly entries in [Known Public Alpha Limitations](../development/known-public-alpha-limitations.md) before you rely on it.
+
+<figure markdown="1">
+![A captured garden with a round wooden table and a vase, split down the middle. The left half, labelled Painterly off, is the normal render. The right half, labelled Painterly on, has a brush-stroke look and is much darker.](../assets/images/screenshots/painterly-garden-split.webp){ .gs-shot width="1280" height="720" loading="lazy" }
+<figcaption markdown="span">Left: painterly off. Right: painterly on, with a new `PainterlyMaterial` left at its default values. With those defaults the result is much darker than the normal render. The halves are two runtime frames from the same camera, joined in the middle. Scan: Mip-NeRF 360 "garden" (Barron et al., [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), trained with gsplat by the godotGS project; godotGS built from [PR #1226](https://github.com/klausi3D/godotGS/pull/1226), RTX 3090. Not the default settings: black background, scene lighting off, tile cap 65,536, Custom quality. See [Image credits](../reference/index.md#image-credits).</figcaption>
+</figure>
+
 | Hot reload behavior | Current behavior | Implementation reference |
 | --- | --- | --- |
 | Watch registration | Opening the Gaussian import dialog for a source file (for example through `Reimport...`) emits `watch_path_requested`, which registers a watch before the import is confirmed. | `GaussianImportDialog::configure_for_file`, `GaussianEditorPlugin::_on_import_dialog_watch` |

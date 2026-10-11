@@ -5,6 +5,14 @@
 #include "core/io/resource_saver.h"
 
 class GaussianSplatWorld;
+class GaussianData;
+struct GaussianSplatHlodTree;
+
+// The given world bounds (ignored unless finite with a surface) united with the HLOD root's
+// world-space AABB, rounded outward to real_t. These bounds become the RenderingServer custom
+// AABB, so the v2 saver writes them and the v2 loader refuses header bounds that do not enclose
+// the root. Returns false when the result does not fit runtime coordinates.
+bool gs_hlod_bounds_enclosing_root(const GaussianSplatHlodTree &p_tree, const AABB &p_world_bounds, AABB &r_bounds);
 
 class ResourceFormatLoaderGaussianSplatWorld : public ResourceFormatLoader {
 public:
@@ -13,12 +21,32 @@ public:
 			float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE) override;
 	Ref<GaussianSplatWorld> load_resident(const String &p_path, Error *r_error = nullptr) const;
 	virtual void get_recognized_extensions(List<String> *p_extensions) const override;
+	bool recognize_path(const String &p_path, const String &p_for_type = String()) const override;
 	virtual bool handles_type(const String &p_type) const override;
 	virtual String get_resource_type(const String &p_path) const override;
 };
 
+class ResourceFormatLoaderImportedGaussianSplatWorld : public ResourceFormatLoaderGaussianSplatWorld {
+public:
+	Ref<Resource> load(const String &p_path, const String &p_original_path = "",
+			Error *r_error = nullptr, bool p_use_sub_threads = false,
+			float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE) override;
+	bool recognize_path(const String &p_path, const String &p_for_type = String()) const override;
+	bool is_import_valid(const String &p_path) const override;
+	bool is_imported(const String &p_path) const override;
+	bool has_custom_uid_support() const override;
+	int get_import_order(const String &p_path) const override;
+	String get_import_group_file(const String &p_path) const override;
+	void get_classes_used(const String &p_path, HashSet<StringName> *r_classes) override;
+};
+
 class ResourceFormatSaverGaussianSplatWorld : public ResourceFormatSaver {
 public:
+#ifdef TESTS_ENABLED
+	using HlodSnapshotTestHook = void (*)(void *, const Ref<GaussianData> &, bool);
+	static HlodSnapshotTestHook hlod_snapshot_test_hook;
+	static void *hlod_snapshot_test_userdata;
+#endif
 	enum PayloadSaveMode {
 		SAVE_PAYLOAD_PRESERVE = 0,
 		SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED,

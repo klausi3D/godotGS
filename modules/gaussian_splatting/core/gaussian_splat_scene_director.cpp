@@ -1710,6 +1710,10 @@ void GaussianSplatSceneDirector::build_instance_buffer_for_renderer(const Gaussi
 			entry.ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY |
 					GS_INSTANCE_FLAG_SCALE_IDENTITY |
 					GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+			// No node states the training mode here: use the project default (#1173).
+			if (gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton())) {
+				entry.ids[1] |= GS_INSTANCE_FLAG_ANTIALIASED;
+			}
 			entry.lod[0] = 0;
 			entry.lod[1] = 0;
 			entry.wind_params[0] = 0.0f;

@@ -6,17 +6,21 @@ nothing in this repo changes them automatically, so this page is hand-written an
 can drift from the live API. It is therefore split into what has been **observed
 live** and what is still **intended**.
 
-## Live state for `master` (observed 2026-08-14, re-read 2026-10-01)
+## Live state for `master` (observed 2026-08-14, re-read 2026-10-01 and 2026-10-08)
 
 Read back with `gh api repos/klausi3D/godotGS/branches/master/protection`, twice and
 byte-identical; the required context was additionally confirmed to be a real,
 completed check-run on PR #881, so it is not a phantom name in the settings. A
 re-read on 2026-10-01 (`gh api .../branches/master/protection` and
-`gh api repos/klausi3D/godotGS/rulesets`) returned the same values.
+`gh api repos/klausi3D/godotGS/rulesets`) returned the same values. By 2026-10-08
+the maintainer had added `docs-build` as a second required context; the re-read that day
+(`gh api .../branches/master/protection/required_status_checks`) returned both
+contexts, each bound to the GitHub Actions app (`app_id` 15368), and `docs-build` is a
+real, completed check-run on PR #1207. The other rows were unchanged.
 
 | Setting | Live value |
 | --- | --- |
-| Required status checks | `["agentic-pr-gate"]` — exactly one context |
+| Required status checks | `["agentic-pr-gate", "docs-build"]` — two contexts |
 | Require branches up to date (`strict`) | `false` |
 | Enforce for administrators | `true` |
 | Require conversation resolution | `true` |
@@ -33,8 +37,9 @@ dangerous direction: it invited "nothing is enforced anyway" reasoning
 
 Two consequences worth stating plainly:
 
-- `agentic-pr-gate` is the **only** required check. Every GPU, runtime, visual and
-  release lane is advisory at the merge boundary.
+- `agentic-pr-gate` and `docs-build` (`docs_pages.yml`) are the **only** required
+  checks. Every GPU, runtime, visual and release lane is advisory at the merge
+  boundary.
 - Because `enforce_admins` is `true`, a broken edit to
   `.github/workflows/agentic_pr_gate.yml` blocks **every** merge in this repository,
   including the fix for itself. Change that workflow in the smallest possible
@@ -103,8 +108,9 @@ corresponds to, so the claim can be checked against
   present, so direct pushes to `master` are refused.
 - **Dismiss stale approvals** when new commits are pushed —
   `dismiss_stale_reviews: true`.
-- Required status check `agentic-pr-gate` (`Agentic PR Gate / agentic-pr-gate` in
-  the PR UI), required conversation resolution, admin enforcement, and blocked
+- Required status checks `agentic-pr-gate` (`Agentic PR Gate / agentic-pr-gate` in
+  the PR UI) and `docs-build` (`Docs Pages (Versioned) / docs-build`), required
+  conversation resolution, admin enforcement, and blocked
   force pushes/deletions — see the table above.
 
 Two of the bullets in this section were themselves wrong when this page was

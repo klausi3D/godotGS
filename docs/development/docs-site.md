@@ -101,9 +101,9 @@ manual dispatch. It has a read-only token and never deploys. Steps, in order:
    ([#1099](https://github.com/klausi3D/godotGS/issues/1099)). Its result does not
    block the job until that is fixed.
 
-`docs-build` is not a required status check. Only `agentic-pr-gate` is required on
-`master`, and making `docs-build` required is a branch-protection decision for the
-maintainer.
+`docs-build` is a required status check on `master`, next to `agentic-pr-gate`: a PR
+cannot merge until it passes. That is why the job has no path filter on
+`pull_request` and no job-level `if:`: a required check must always report.
 
 ### `deploy`: publication
 

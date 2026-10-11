@@ -115,6 +115,17 @@ public:
         DEBUG_DRAW_HEATMAP
     };
 
+    /**
+     * @enum AntialiasingCompensation
+     * @brief How the asset was trained, which decides the Mip-Splatting opacity
+     * compensation in binning (#1173).
+     */
+    enum AntialiasingCompensation {
+        ANTIALIASING_COMPENSATION_AUTO = 0, ///< Asset's recorded training mode (SPZ flag), else the project setting.
+        ANTIALIASING_COMPENSATION_OFF,      ///< Classic 3DGS (Inria, gsplat `classic`): no compensation.
+        ANTIALIASING_COMPENSATION_ON        ///< Trained with antialiasing (Mip-Splatting, gsplat `antialiased`).
+    };
+
 private:
     // These helper classes are value-member subsystems that decompose this node's
     // implementation across multiple files (gaussian_splat_node_helpers.cpp). They
@@ -180,6 +191,7 @@ private:
     // Rendering settings
     ViewportUpdateMode update_mode = UPDATE_MODE_WHEN_VISIBLE;
     bool cast_shadow = false;
+    AntialiasingCompensation antialiasing_compensation = ANTIALIASING_COMPENSATION_AUTO;
     bool use_frustum_culling = true;
     bool use_occlusion_culling = true; // Legacy serialized compatibility only (not an exposed node property).
     float opacity = 1.0f;
@@ -281,10 +293,13 @@ private:
     bool show_lod_spheres = true;
     bool show_timing_gizmo = false;
     float debug_overlay_opacity = 0.3f;
-    DebugDrawMode debug_draw_mode = DEBUG_DRAW_POINTS;
+    // #1220: Off by default. Points drew up to 1000 AABB-scaled crosses over the
+    // splats of every node in the editor. Saved scenes store only non-default
+    // values, so a scene that relied on the old Points default now opens with Off.
+    DebugDrawMode debug_draw_mode = DEBUG_DRAW_OFF;
     bool runtime_preview_enabled = false;
     bool show_residency_hud = false;
-    int runtime_preview_restore_mode = DEBUG_DRAW_POINTS;
+    int runtime_preview_restore_mode = DEBUG_DRAW_OFF;
     CanvasLayer *debug_hud_layer = nullptr;
     GaussianSplatDebugHUD *debug_hud_control = nullptr;
 
@@ -411,6 +426,7 @@ public:
 private:
     void _update_shared_transform();
     bool _resolve_is_2d_mode() const;
+    bool _resolve_antialiasing_compensation() const;
     uint32_t _get_instance_flags() const;
     float _get_instance_wind_intensity() const;
     uint32_t _get_instance_wind_mode() const;
@@ -663,6 +679,16 @@ public:
 
     /** @brief Returns true if shadow casting is enabled. */
     bool get_cast_shadow() const { return cast_shadow; }
+
+    /**
+     * @brief Sets how the asset was trained (#1173). Auto uses the asset's
+     * recorded flag (SPZ), else
+     * `rendering/gaussian_splatting/rasterization/antialiasing_compensation`.
+     */
+    void set_antialiasing_compensation(AntialiasingCompensation p_mode);
+
+    /** @brief Returns the antialiasing-compensation mode. */
+    AntialiasingCompensation get_antialiasing_compensation() const { return antialiasing_compensation; }
 
     /**
      * @brief Enables or disables frustum culling.
@@ -1008,5 +1034,6 @@ public:
 VARIANT_ENUM_CAST(GaussianSplatNode3D::QualityPreset);
 VARIANT_ENUM_CAST(GaussianSplatNode3D::ViewportUpdateMode);
 VARIANT_ENUM_CAST(GaussianSplatNode3D::DebugDrawMode);
+VARIANT_ENUM_CAST(GaussianSplatNode3D::AntialiasingCompensation);
 
 #endif // GAUSSIAN_SPLAT_NODE_3D_H

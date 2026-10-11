@@ -8,6 +8,7 @@
 
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/io/config_file.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
@@ -203,6 +204,85 @@ bool write_staged_payload_fixture(const String &p_path, const Vector<Gaussian> &
 }
 
 } // namespace
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] source sidecars defer dispatch but never remap direct validation") {
+    const String path = _make_world_io_fixture_path("import_dispatch");
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussians(build_staged_payload_gaussians(4));
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(data);
+    ResourceFormatSaverGaussianSplatWorld saver;
+    const Error saved = saver.save(world, path);
+    CHECK(saved == OK);
+    if (saved != OK) {
+        return;
+    }
+    ResourceFormatLoaderGaussianSplatWorld loader;
+    ResourceFormatLoaderImportedGaussianSplatWorld dispatch;
+    CHECK(loader.recognize_path(path, "GaussianSplatWorld"));
+    CHECK_FALSE(loader.recognize_path(path, "Texture2D"));
+    CHECK_FALSE(dispatch.recognize_path(path, "GaussianSplatWorld"));
+    Ref<FileAccess> sidecar = FileAccess::open(path + ".import", FileAccess::WRITE);
+    CHECK(sidecar.is_valid());
+    if (sidecar.is_null()) {
+        _remove_world_io_fixture(path);
+        return;
+    }
+    // Deliberately malformed metadata must fail closed, not select the raw
+    // source as a fallback. Actual editor-generated remaps have a runtime test.
+    sidecar->store_string("invalid import metadata\n");
+    sidecar.unref();
+    ERR_PRINT_OFF;
+    const bool malformed_recognized = loader.recognize_path(path);
+    const bool malformed_typed_recognized = loader.recognize_path(path, "GaussianSplatWorld");
+    const bool malformed_dispatch_recognized = dispatch.recognize_path(path, "GaussianSplatWorld");
+    ERR_PRINT_ON;
+    CHECK_FALSE(malformed_recognized);
+    CHECK_FALSE(malformed_typed_recognized);
+    CHECK(malformed_dispatch_recognized);
+    CHECK(dispatch.is_imported(path));
+    CHECK(dispatch.has_custom_uid_support());
+    // A self-remap is a constructed dispatch control, not an editor fixture.
+    // It must select the raw loader rather than recursively reselect importer.
+    Ref<ConfigFile> self_remap;
+    self_remap.instantiate();
+    self_remap->set_value("remap", "type", "GaussianSplatWorld");
+    self_remap->set_value("remap", "path", path);
+    self_remap->set_value("remap", "valid", false);
+    CHECK(self_remap->save(path + ".import") == OK);
+    CHECK_FALSE(dispatch.is_import_valid(path));
+    CHECK(loader.recognize_path(path, "GaussianSplatWorld"));
+    CHECK_FALSE(dispatch.recognize_path(path, "GaussianSplatWorld"));
+    Error err = FAILED;
+    Ref<Resource> raw = loader.load(path, "", &err);
+    CHECK(raw.is_valid());
+    CHECK(err == OK);
+    Ref<GaussianSplatWorld> resident = loader.load_resident(path, &err);
+    CHECK(resident.is_valid());
+    CHECK(err == OK);
+    raw.unref();
+    resident.unref();
+    Ref<FileAccess> corrupt = FileAccess::open(path, FileAccess::READ_WRITE);
+    CHECK(corrupt.is_valid());
+    if (corrupt.is_valid()) {
+        corrupt->store_32(0); // Neither direct route may hide a corrupt source.
+        corrupt.unref();
+        ERR_PRINT_OFF;
+        raw = loader.load(path, "", &err);
+        ERR_PRINT_ON;
+        CHECK(raw.is_null());
+        CHECK(err != OK);
+        ERR_PRINT_OFF;
+        resident = loader.load_resident(path, &err);
+        ERR_PRINT_ON;
+        CHECK(resident.is_null());
+        CHECK(err != OK);
+    }
+    _remove_world_io_fixture(path + ".import");
+    _remove_world_io_fixture(path);
+}
 
 TEST_CASE("[GaussianSplatting][WorldIO] StagedFileChunkPayloadSource contiguous snapshot reads requested bytes") {
     const String path = _make_world_io_fixture_path("staged_contiguous");

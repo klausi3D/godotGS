@@ -108,6 +108,24 @@ protected:
 	mutable uint64_t bytes_read = 0;
 	mutable uint64_t file_open_count = 0;
 
+public:
+	// HLOD v2 worlds (ADR adr-hlod-streaming.md §6.2) store leaf positions relative to each
+	// leaf's cell centre. A frame maps the payload range [first, first + count) to its centre.
+	struct PositionFrame {
+		uint32_t first = 0u;
+		uint32_t count = 0u;
+		double center[3] = { 0.0, 0.0, 0.0 };
+	};
+
+protected:
+	// Sorted by `first`, tiling [0, splat_count) when non-empty. Written by configure-time
+	// set_position_frames() under file_mutex before the source is published, read-only after.
+	LocalVector<PositionFrame> position_frames;
+	// Adds each splat's frame centre so callers receive absolute positions (as for a v1 file).
+	// Fails closed if an index has no frame.
+	bool _apply_position_frames(const uint32_t *p_indices, uint32_t p_start, uint32_t p_count,
+			LocalVector<Gaussian> &r_gaussians) const;
+
 	// #714: registry of live file-backed sources, so a writer replacing an imported
 	// .gsplatworld can find the readers holding it open. Guarded by its own static
 	// mutex (see _registry_mutex()) because it is process-wide state, not per-source
@@ -193,6 +211,9 @@ public:
 			uint32_t p_sh_first_order,
 			uint32_t p_sh_high_order,
 			const AABB &p_bounds);
+
+	// Must tile [0, splat_count) in order; returns false (and installs nothing) otherwise.
+	bool set_position_frames(const LocalVector<PositionFrame> &p_frames);
 
 	bool capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
 			LocalVector<Gaussian> &r_gaussians,

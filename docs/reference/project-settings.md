@@ -92,8 +92,8 @@ A default is shown as the C++ expression passed at registration (for example a n
 
 | Coverage | Count |
 | --- | ---: |
-| Keys in the manifest | 193 |
-| Registered by the module at startup | 182 |
+| Keys in the manifest | 194 |
+| Registered by the module at startup | 183 |
 | Read by the module but not registered | 6 |
 | Deprecated aliases (read only, never registered) | 5 |
 
@@ -1053,8 +1053,13 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
   </thead>
   <tbody>
     <tr>
+      <td><pre><code>rendering/gaussian_splatting/rasterization/antialiasing_compensation</code></pre></td>
+      <td><pre><code>false</code></pre></td>
+      <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp</code></pre></td>
+    </tr>
+    <tr>
       <td><pre><code>rendering/gaussian_splatting/rasterization/low_pass_filter</code></pre></td>
-      <td><pre><code>0.05f</code></pre></td>
+      <td><pre><code>gs::RASTER_LOW_PASS_FILTER_DEFAULT</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/core/gaussian_splat_manager.cpp</code></pre></td>
     </tr>
   </tbody>
