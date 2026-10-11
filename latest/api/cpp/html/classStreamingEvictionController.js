@@ -20,5 +20,5 @@ var classStreamingEvictionController =
     [ "record_eviction_result", "classStreamingEvictionController.html#ab090afd141aca41ca52d024dd8b7eb45", null ],
     [ "record_total_eviction", "classStreamingEvictionController.html#a79be499b1bb13ae25b81bb44b48d736a", null ],
     [ "reset_per_frame_counters", "classStreamingEvictionController.html#adf423cc35ccbae209d5546f0151c781c", null ],
-    [ "touch_chunk_use", "classStreamingEvictionController.html#a71bdb1520b9340d56ad05df939a47925", null ]
+    [ "touch_chunk_use", "classStreamingEvictionController.html#a7d5375a3773381c32a780077f86e88a2", null ]
 ];

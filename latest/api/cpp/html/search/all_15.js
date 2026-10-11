@@ -294,7 +294,7 @@ var searchData=
   ['total_5fwarnings_291',['total_warnings',['../structGaussianRenderFrame_1_1RuntimeErrorStatistics.html#ae877f25349c1dfc2577cc2478251f202',1,'GaussianRenderFrame::RuntimeErrorStatistics']]],
   ['total_5fworkgroups_292',['total_workgroups',['../structGaussianSplatting_1_1TilePrefixParamsLayout.html#af3661363eaa74987c95581a33b31e89d',1,'GaussianSplatting::TilePrefixParamsLayout']]],
   ['totals_5fusec_293',['totals_usec',['../structGSStartupTraceSnapshot.html#ae4e74f2c143787f1a9eac5bc75001bae',1,'GSStartupTraceSnapshot']]],
-  ['touch_5fchunk_5fuse_294',['touch_chunk_use',['../classStreamingEvictionController.html#a71bdb1520b9340d56ad05df939a47925',1,'StreamingEvictionController']]],
+  ['touch_5fchunk_5fuse_294',['touch_chunk_use',['../classStreamingEvictionController.html#a7d5375a3773381c32a780077f86e88a2',1,'StreamingEvictionController']]],
   ['trace_295',['TRACE',['../namespacegs__logger.html#a5c03689bd70ca7bcaf021800181480eda2d3e4144aa384b18849ab9a8abad74d6',1,'gs_logger']]],
   ['track_5foutput_5fresources_296',['track_output_resources',['../classTileRasterizer.html#ad946caecfc42275efc0514dfd81d80d1',1,'TileRasterizer::track_output_resources()'],['../structGaussianSplatting_1_1TileResourceController.html#aae741a62633aab95f2fd318562f4eb8c',1,'GaussianSplatting::TileResourceController::track_output_resources()'],['../classTileRenderer.html#a70697028b53d7d23c235c32a34a59dc4',1,'TileRenderer::track_output_resources()']]],
   ['track_5fresource_297',['track_resource',['../classIRenderDeviceManager.html#a4a71d254508dd9b6f65c3a6a86a34f92',1,'IRenderDeviceManager::track_resource()'],['../classRenderDeviceManager.html#a0666ade88b36fe9e64f51bfaa55d6342',1,'RenderDeviceManager::track_resource()']]],

@@ -120,8 +120,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a91045dd61dc3fc84df9e52269342c80e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adf423cc35ccbae209d5546f0151c781c" id="r_adf423cc35ccbae209d5546f0151c781c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#adf423cc35ccbae209d5546f0151c781c">reset_per_frame_counters</a> ()</td></tr>
 <tr class="separator:adf423cc35ccbae209d5546f0151c781c"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a71bdb1520b9340d56ad05df939a47925" id="r_a71bdb1520b9340d56ad05df939a47925"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#a71bdb1520b9340d56ad05df939a47925">touch_chunk_use</a> (uint64_t &amp;r_last_used_frame)</td></tr>
-<tr class="separator:a71bdb1520b9340d56ad05df939a47925"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7d5375a3773381c32a780077f86e88a2" id="r_a7d5375a3773381c32a780077f86e88a2"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#a7d5375a3773381c32a780077f86e88a2">touch_chunk_use</a> (uint64_t &amp;r_last_used_frame, uint64_t p_frame_generation)</td></tr>
+<tr class="separator:a7d5375a3773381c32a780077f86e88a2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad2323572afb6bd042f09796db7703885" id="r_ad2323572afb6bd042f09796db7703885"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#ad2323572afb6bd042f09796db7703885">invalidate_candidate_cache</a> ()</td></tr>
 <tr class="separator:ad2323572afb6bd042f09796db7703885"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad63ed11b7a141ac117b47a2f6cdb19f9" id="r_ad63ed11b7a141ac117b47a2f6cdb19f9"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingEvictionController.html#ad63ed11b7a141ac117b47a2f6cdb19f9">invalidate_resident_tracking</a> ()</td></tr>
@@ -461,8 +461,8 @@ Public Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a71bdb1520b9340d56ad05df939a47925" name="a71bdb1520b9340d56ad05df939a47925"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a71bdb1520b9340d56ad05df939a47925">&#9670;&#160;</a></span>touch_chunk_use()</h2>
+<a id="a7d5375a3773381c32a780077f86e88a2" name="a7d5375a3773381c32a780077f86e88a2"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7d5375a3773381c32a780077f86e88a2">&#9670;&#160;</a></span>touch_chunk_use()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -471,8 +471,18 @@ Public Member Functions</h2></td></tr>
           <td class="memname">void StreamingEvictionController::touch_chunk_use </td>
           <td>(</td>
           <td class="paramtype">uint64_t &amp;&#160;</td>
-          <td class="paramname"><em>r_last_used_frame</em></td><td>)</td>
+          <td class="paramname"><em>r_last_used_frame</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
           <td></td>
+          <td class="paramtype">uint64_t&#160;</td>
+          <td class="paramname"><em>p_frame_generation</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
         </tr>
       </table>
 </div><div class="memdoc">
