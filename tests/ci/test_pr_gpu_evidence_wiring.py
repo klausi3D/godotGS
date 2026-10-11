@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -165,12 +166,29 @@ pulls: {get: async () => ({data: PULL})}}};
 (async () => { SCRIPT })().then(() => console.log(JSON.stringify({outputs})), error => console.log(JSON.stringify({outputs, error: String(error)})));
 """.replace("PAYLOAD", json.dumps(payload)).replace("PULL", json.dumps(pull)).replace("ASSOCIATED", str(associated)).replace("SCRIPT", script)
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "resolver.js"; path.write_text(harness)
-            result = subprocess.run([shutil.which("node"), str(path)], check=True, capture_output=True, encoding="utf-8", timeout=20, env={**os.environ, "RUNNER_TEMP": temp})
+            result = subprocess.run([shutil.which("node"), "--input-type=commonjs", "-"], input=harness,
+                                    check=True, capture_output=True, encoding="utf-8", timeout=20,
+                                    env={**os.environ, "RUNNER_TEMP": temp})
             state = json.loads(result.stdout.strip().splitlines()[-1])
             if "path" in state["outputs"]:
                 state["event"] = json.loads(Path(state["outputs"]["path"]).read_text())
             return state
+
+    def test_actual_resolver_uses_stdin_without_writing_executable_script(self):
+        with mock.patch.object(Path, "write_text", side_effect=AssertionError("Copied resolver script must not be stored")), \
+                mock.patch.object(subprocess, "run", wraps=subprocess.run) as run:
+            state = self.resolver()
+        self.assertNotIn("error", state)
+        self.assertEqual(state["event"]["trusted_base_sha"], "b" * 40)
+        self.assertEqual(run.call_count, 1)
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][1:], ["--input-type=commonjs", "-"])
+        actual_script = next(step for step in load(CONTROLLER)["jobs"]["trusted-gpu-controller"]["steps"]
+                             if step.get("id") == "event")["with"]["script"]
+        self.assertIn(actual_script, kwargs["input"])
+        self.assertTrue(kwargs["check"])
+        self.assertEqual(kwargs["timeout"], 20)
+        self.assertEqual(kwargs["encoding"], "utf-8")
 
     def test_actual_resolver_binds_live_default_not_stale_pr_base(self):
         state = self.resolver()
