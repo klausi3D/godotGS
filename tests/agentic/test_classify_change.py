@@ -62,6 +62,15 @@ class ClassifyChangeTest(unittest.TestCase):
         self.assertEqual(self._cls(["tests/ci/check_renderer_release_gates.py"]), "R3")
         self.assertEqual(self._cls(["tests/ci/run_gpu_harness.py"]), "R3")
 
+    def test_universal_gpu_enforcement_paths_are_individually_r3(self):
+        for path in (
+            "scripts/agentic/gpu_commit_policy.py",
+            "scripts/agentic/gpu_commit_policy.json",
+            "tests/ci/check_universal_gpu_evidence.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R3")
+
     def test_docs_is_r0(self):
         self.assertEqual(self._cls(["docs/governance/review-policy.md"]), "R0")
 
