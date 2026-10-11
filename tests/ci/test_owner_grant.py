@@ -23,8 +23,10 @@ spec.loader.exec_module(verifier)
 
 
 class PortableOwnerGrantTests(unittest.TestCase):
-    def test_shipped_unconfigured_profile_cannot_authorize_any_success(self):
-        bundle = {verifier.CONFIG_PATH: b"100644\0" + (ROOT / verifier.CONFIG_PATH).read_bytes()}
+    def test_explicit_unconfigured_profile_cannot_authorize_any_success(self):
+        profile = json.loads((ROOT / verifier.CONFIG_PATH).read_text())
+        profile.update(public_key=None, executable_sha256=None)
+        bundle = {verifier.CONFIG_PATH: b"100644\0" + json.dumps(profile).encode()}
         with self.assertRaisesRegex(ValueError, "NOT ACTIVE"):
             verifier.configured_profile(bundle)
 
@@ -160,7 +162,9 @@ class ActualOpenSSHOwnerGrantTests(unittest.TestCase):
             if endpoint.endswith("/branches/master"): return {"commit": {"sha": "a" * 40}}
             if endpoint.endswith("/variables"): return {"total_count": 0, "variables": []}
             raise AssertionError(endpoint)
-        null_bundle = {verifier.CONFIG_PATH: b"100644\0" + (ROOT / verifier.CONFIG_PATH).read_bytes()}
+        null_profile = json.loads((ROOT / verifier.CONFIG_PATH).read_text())
+        null_profile.update(public_key=None, executable_sha256=None)
+        null_bundle = {verifier.CONFIG_PATH: b"100644\0" + json.dumps(null_profile).encode()}
         with patch.dict(watcher.os.environ, {"GITHUB_REPOSITORY": verifier.REPOSITORY, "GS_PUBLISH_APP_ID": "701"}), \
              patch.object(watcher.checker, "git", return_value="a" * 40), \
              patch.object(watcher, "api", side_effect=api), \
