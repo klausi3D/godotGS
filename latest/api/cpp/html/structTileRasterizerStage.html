@@ -134,10 +134,12 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a513a98a1c0a4f7f937b27228f4420893"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a922c2f4691a13b8b899ea6b4a049ff05" id="r_a922c2f4691a13b8b899ea6b4a049ff05"><td class="memItemLeft" align="right" valign="top">RID&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#a922c2f4691a13b8b899ea6b4a049ff05">_ensure_scene_depth_fallback</a> (RenderingDevice *p_device)</td></tr>
 <tr class="separator:a922c2f4691a13b8b899ea6b4a049ff05"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a5ff99ce76fed4309c65a58a051005667" id="r_a5ff99ce76fed4309c65a58a051005667"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#a5ff99ce76fed4309c65a58a051005667">dispatch_tile_rasterizer_compute</a> (uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set, RID p_image_uniform_set, RenderingDevice *p_submission_device)</td></tr>
-<tr class="separator:a5ff99ce76fed4309c65a58a051005667"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:af51d2cf3adfc9c589ec3482b039614d5" id="r_af51d2cf3adfc9c589ec3482b039614d5"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#af51d2cf3adfc9c589ec3482b039614d5">dispatch_tile_rasterizer</a> (uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set, RenderingDevice *p_submission_device)</td></tr>
-<tr class="separator:af51d2cf3adfc9c589ec3482b039614d5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a8e9ff85bf276524ffdb4ef985680bfd3" id="r_a8e9ff85bf276524ffdb4ef985680bfd3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#a8e9ff85bf276524ffdb4ef985680bfd3">_raster_submission_valid</a> (RenderingDevice *p_device, RID p_buffer_uniform_set, RID p_param_uniform_set) const</td></tr>
+<tr class="separator:a8e9ff85bf276524ffdb4ef985680bfd3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a529fd425a69d6e23990d5253c97fd0ed" id="r_a529fd425a69d6e23990d5253c97fd0ed"><td class="memItemLeft" align="right" valign="top">RasterDispatchResult&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#a529fd425a69d6e23990d5253c97fd0ed">dispatch_tile_rasterizer_compute</a> (uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set, RID p_image_uniform_set, RenderingDevice *p_submission_device)</td></tr>
+<tr class="separator:a529fd425a69d6e23990d5253c97fd0ed"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adf10673bdc745cf473cb9e782bf445f4" id="r_adf10673bdc745cf473cb9e782bf445f4"><td class="memItemLeft" align="right" valign="top">RasterDispatchResult&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structTileRasterizerStage.html#adf10673bdc745cf473cb9e782bf445f4">dispatch_tile_rasterizer</a> (uint32_t p_gaussian_count, RID p_buffer_uniform_set, RID p_param_uniform_set, RenderingDevice *p_submission_device)</td></tr>
+<tr class="separator:adf10673bdc745cf473cb9e782bf445f4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-attribs" name="pub-attribs"></a>
 Public Attributes</h2></td></tr>
@@ -262,6 +264,40 @@ Public Attributes</h2></td></tr>
           <td class="paramtype">RenderingDevice *&#160;</td>
           <td class="paramname"><em>p_device</em></td><td>)</td>
           <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a8e9ff85bf276524ffdb4ef985680bfd3" name="a8e9ff85bf276524ffdb4ef985680bfd3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a8e9ff85bf276524ffdb4ef985680bfd3">&#9670;&#160;</a></span>_raster_submission_valid()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool TileRasterizerStage::_raster_submission_valid </td>
+          <td>(</td>
+          <td class="paramtype">RenderingDevice *&#160;</td>
+          <td class="paramname"><em>p_device</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RID&#160;</td>
+          <td class="paramname"><em>p_buffer_uniform_set</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">RID&#160;</td>
+          <td class="paramname"><em>p_param_uniform_set</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -428,14 +464,14 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="af51d2cf3adfc9c589ec3482b039614d5" name="af51d2cf3adfc9c589ec3482b039614d5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#af51d2cf3adfc9c589ec3482b039614d5">&#9670;&#160;</a></span>dispatch_tile_rasterizer()</h2>
+<a id="adf10673bdc745cf473cb9e782bf445f4" name="adf10673bdc745cf473cb9e782bf445f4"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adf10673bdc745cf473cb9e782bf445f4">&#9670;&#160;</a></span>dispatch_tile_rasterizer()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint64_t TileRasterizerStage::dispatch_tile_rasterizer </td>
+          <td class="memname">RasterDispatchResult TileRasterizerStage::dispatch_tile_rasterizer </td>
           <td>(</td>
           <td class="paramtype">uint32_t&#160;</td>
           <td class="paramname"><em>p_gaussian_count</em>, </td>
@@ -468,14 +504,14 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a5ff99ce76fed4309c65a58a051005667" name="a5ff99ce76fed4309c65a58a051005667"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a5ff99ce76fed4309c65a58a051005667">&#9670;&#160;</a></span>dispatch_tile_rasterizer_compute()</h2>
+<a id="a529fd425a69d6e23990d5253c97fd0ed" name="a529fd425a69d6e23990d5253c97fd0ed"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a529fd425a69d6e23990d5253c97fd0ed">&#9670;&#160;</a></span>dispatch_tile_rasterizer_compute()</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint64_t TileRasterizerStage::dispatch_tile_rasterizer_compute </td>
+          <td class="memname">RasterDispatchResult TileRasterizerStage::dispatch_tile_rasterizer_compute </td>
           <td>(</td>
           <td class="paramtype">uint32_t&#160;</td>
           <td class="paramname"><em>p_gaussian_count</em>, </td>
