@@ -525,8 +525,62 @@ prove AMD or Intel behavior.
 The inherited single-dimension dispatch limit remains a separate concern. At
 a 65,535-group X limit, 256 threads cover 16,776,960 records and 512 threads
 cover 33,553,920; explicit 128-thread configurations already have less
-headroom. This change does not introduce a count-aware multidimensional
-dispatch or alter capacity admission.
+headroom. The initial correction did not introduce count-aware dispatch or capacity
+admission. The following amendment addresses that admission gap.
 
 Rollback is to revert the radix preference and device-sizing change together
 with its new regression registration, then recompute the exact inventory.
+
+
+## Proposed amendment: radix dispatch-capacity admission (2026-10-11)
+
+- Status: Proposed for maintainer and CODEOWNER disposition.
+- Tracking: #539; portable radix workgroup sizing.
+- Scope: Capacity admission for the actual selected radix workgroup.
+
+### Context and decision
+
+Current-source review found that device adaptation admits 64- and 128-thread
+devices whose declared sort capacity can exceed their X-dimension dispatch
+limit. For example, 10,000,000 records at 128 threads require 78,125 groups,
+exceeding a 65,535-group limit even when the sort buffers fit. The exact
+128-thread capacity at that limit is 8,388,480 records. The previous default
+also lacked a general capacity check at 256 threads; newly admitted devices
+make the smaller-workgroup exposure part of this correction.
+
+After resolving the actual command-device workgroup size, radix initialization
+will compare the widened ceiling of declared capacity divided by that size
+against the same device's maximum X dispatch count. An unsupported capacity
+will return an explicit initialization error before variant creation or sort
+buffer allocation. It will not truncate records, clamp dispatch groups, raise
+the selected workgroup, or silently switch algorithms. Capacities at or below
+the device limit retain the existing sorting behavior.
+
+A scoped test-only count-X ceiling can only lower the actual device limit and
+restores the previous value on scope exit. A required GPU regression will
+exercise actual initialization and factory admission at the exact capacity
+boundary and one record beyond it, plus direct and indirect 64-bit sorted
+output at the supported boundary. Pure arithmetic checks are supplemental.
+Coverage registration will be recomputed additively; no exclusion, waiver,
+threshold, required batch or ratchet is relaxed.
+
+### Chronology, evidence and limits
+
+This amendment is recorded before the capacity-behavior implementation. Two
+independent source-design reviews support the bounded correction. A test-only
+pre-fix source commit will be preserved for the verifier's later actual native
+RED run, followed by the fixed source and check-removal/wiring mutations. The
+RED execution has not occurred at this decision point; source preparation must
+not be described as measured red-first evidence.
+
+The earlier permanent-record chronology gap remains subject to maintainer
+disposition. Original native orbit/content findings also remain open; this
+admission correction does not resolve or waive them. Final current-source
+GPU/runtime evidence and human/CODEOWNER approval remain required.
+
+The existing indirect protocol assumes the GPU-produced element count is no
+greater than the declared capacity. This amendment does not validate arbitrary
+GPU count-buffer contents or add multidimensional dispatch. Those inherited
+boundaries and other sorting algorithms remain separate. Rollback is to revert
+the capacity check and its additive regression registration together; reverting
+only the check reopens unsupported-capacity admission.
