@@ -43,3 +43,5 @@ rather than patching it by hand.
 - [Test quarantine manifest](adr-test-quarantine-manifest.md)
 - [The candidate gate must distinguish measured evidence from defaulted evidence](adr-open-world-proof-content-validation.md)
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)
+
+- [Original Editor tests borrow the genuine editor runtime](adr-editor-test-runtime.md)
