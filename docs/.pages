@@ -120,4 +120,3 @@ nav:
               - Test Quarantine Manifest: architecture/adr-test-quarantine-manifest.md
               - Alpha Envelope Widened to Streaming: architecture/adr-alpha-envelope-widened-to-streaming.md
               - Open-World Proof Content Validation: architecture/adr-open-world-proof-content-validation.md
-
