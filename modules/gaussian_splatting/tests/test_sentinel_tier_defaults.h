@@ -324,6 +324,8 @@ TEST_CASE("[GaussianSplatting][Config] Production streaming reload carries live 
 	ProjectSettingGuard bands(ps, SHConfig::BANDS_PATH);
 	ProjectSettingGuard tier(ps, "rendering/gaussian_splatting/quality/tier_preset");
 	ProjectSettingGuard lod_distance(ps, "rendering/gaussian_splatting/lod/max_distance");
+	ProjectSettingGuard lod_threshold(ps, "rendering/gaussian_splatting/lod/base_threshold");
+	ps->set_setting("rendering/gaussian_splatting/lod/base_threshold", 10.0);
 	const SHConfig saved = g_sh_config;
 	const LODConfig saved_lod = g_lod_config;
 	struct RestoreSH {
