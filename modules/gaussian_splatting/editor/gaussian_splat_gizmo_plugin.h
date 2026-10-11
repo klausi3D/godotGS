@@ -50,7 +50,16 @@ public:
     void draw_bounds(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node);
     void draw_lod_radius(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node);
     void draw_statistics(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node);
-    void draw_splat_preview(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node);
+    // Virtual so a test can observe whether redraw() reaches the preview.
+    virtual void draw_splat_preview(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node);
+
+    // #1220: the Wireframe/Points/Heatmap preview draws only while the node is
+    // selected, like the GeometryInstance3D and particle gizmos upstream.
+    static bool should_draw_splat_preview(const GaussianSplatNode3D *p_node, bool p_selected);
+    // #1220: half-arm of a Points/Heatmap preview cross. 1 % of the longest axis of
+    // the 5th-95th percentile box of the sampled points, never less than 0.01, so a
+    // few far floaters cannot inflate it the way they inflate the raw AABB.
+    static float compute_preview_cross_half_extent(const Vector<Vector3> &p_points);
 };
 
 #endif // TOOLS_ENABLED

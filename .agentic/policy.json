@@ -124,7 +124,25 @@
           "tests/ci/validate_automation.py",
           "tests/ci/run_gpu_harness.py",
           "tests/ci/check_project_settings_reference.py",
+          "tests/ci/check_overrides_no_inline_script.py",
           "tests/runtime/run_runtime_validation.py"
+        ]
+      },
+      {
+        "class": "R3",
+        "reason": "Docs dependency lock installed by docs-build and deploy",
+        "path_globs": [
+          "docs/requirements-lock.txt"
+        ]
+      },
+      {
+        "class": "R3",
+        "reason": "Docs-site code executed by the deploy job with a write token, or in readers' browsers",
+        "path_globs": [
+          "scripts/stage_public_docs.py",
+          "modules/gaussian_splatting/tests/check_project_settings_manifest.py",
+          "scripts/docs/redirect_cpp_api_to_latest.py",
+          "docs/assets/javascripts/**"
         ]
       },
       {
@@ -147,6 +165,17 @@
         "path_globs": [
           "modules/gaussian_splatting/**",
           "tests/**"
+        ]
+      },
+      {
+        "class": "R1",
+        "reason": "Docs-site build / publish tooling",
+        "path_globs": [
+          "mkdocs.yml",
+          "overrides/**",
+          "scripts/build_docs_site.py",
+          "scripts/docs/release_acceptance.py",
+          "docs/requirements*.txt"
         ]
       },
       {

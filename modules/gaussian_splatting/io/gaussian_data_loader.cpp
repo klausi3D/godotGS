@@ -26,6 +26,8 @@ Error load_gaussian_data_from_file(const String &p_path, GaussianDataLoadResult 
         if (gaussian_data.is_null() || gaussian_data->get_count() == 0) {
             return ERR_FILE_CORRUPT;
         }
+        // Header flag 0x1 is antialiased training semantics.
+        gaussian_data->set_antialiased((spz_loader->get_header().flags & SPZLoader::SPZ_FLAG_ANTIALIASED) != 0);
 
         r_result.data = gaussian_data;
         r_result.used_spz = true;

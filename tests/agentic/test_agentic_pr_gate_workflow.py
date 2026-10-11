@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pins the wiring of the required merge gate, `.github/workflows/agentic_pr_gate.yml`.
 
-`agentic-pr-gate` is the only required status check on `master`. The scripts it
+`agentic-pr-gate` is a required status check on `master`. The scripts it
 runs are unit-tested next door, but nothing asserted that the workflow actually
 *invokes* them in their enforcing form -- and it did not: `validate_repo_contract.py`
 ran without `--strict-hierarchy` (so the entire AGENTS.md / docs/governance
@@ -426,7 +426,7 @@ class RiskClassStepTest(WorkflowScan):
         queue, which is the original defect (the step used to be
         `if: github.event_name == 'pull_request'`).
 
-        A step of the only required gate must simply always run, so any `if:` on it
+        A step of a required gate must simply always run, so any `if:` on it
         is a failure and the reviewer decides deliberately.
         """
         conditions = [
@@ -727,7 +727,7 @@ class NoAdvisoryStepTest(WorkflowScan):
         asserted in its own negative control that `python x.py || echo failed` was
         safe. It is not: `||` returns the right-hand side's status, `echo`
         succeeds, and the step reports green while the validator failed. A blessed
-        false-GREEN on the only required check is worse than an uncovered one,
+        false-GREEN on a required check is worse than an uncovered one,
         because a test says it was considered.
         """
         offenders = [

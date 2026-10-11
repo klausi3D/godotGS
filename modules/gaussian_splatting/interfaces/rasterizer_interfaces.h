@@ -49,7 +49,7 @@ struct RasterParams {
     float cull_far_tolerance = 0.05f;
     float tiny_splat_screen_radius = 0.3f;  // Drop subpixel splats to prevent tile overflow (#797)
     float max_conic_aspect = 10.0f;
-    float low_pass_filter = 0.35f; // Minimum covariance variance added in projection (lower = sharper)
+    float low_pass_filter = gs::RASTER_LOW_PASS_FILTER_DEFAULT; // Screen-space low-pass added to cov2d in projection (px^2)
 
     // Opacity-aware bounding (FlashGS optimization)
     // When enabled, reduces tile-Gaussian pairs by ~94% using opacity-based radius calculation

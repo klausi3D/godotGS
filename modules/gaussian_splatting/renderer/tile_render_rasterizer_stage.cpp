@@ -155,17 +155,32 @@ RID TileRenderer::TileRasterizerStage::_resolve_scene_depth_binding(RenderingDev
 	return scene_depth;
 }
 
-uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
+bool TileRenderer::TileRasterizerStage::_raster_submission_valid(RenderingDevice *p_device, RID p_buffer_uniform_set, RID p_param_uniform_set) const {
+    if (!p_device || p_device != owner._get_resource_device() ||
+            owner.shader_resources.shader_device != p_device ||
+            owner.shader_resources.shader_device_instance != p_device->get_device_instance_id()) {
+        return false;
+    }
+    return p_buffer_uniform_set.is_valid() && p_param_uniform_set.is_valid() &&
+            p_device->uniform_set_is_valid(p_buffer_uniform_set) && p_device->uniform_set_is_valid(p_param_uniform_set);
+}
+
+TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
         RID p_param_uniform_set, RID p_image_uniform_set, RenderingDevice *p_submission_device) {
     if (!owner.shader_resources.tile_raster_compute_pipeline.is_valid() || owner.grid_state.tiles_x == 0 || owner.grid_state.tiles_y == 0) {
-        return 0;
+        return RasterDispatchResult::FAILED;
     }
     RenderingDevice *submission_device = p_submission_device;
-    if (!submission_device) {
-        return 0;
+    if (!_raster_submission_valid(submission_device, p_buffer_uniform_set, p_param_uniform_set) || !p_image_uniform_set.is_valid()) {
+        return RasterDispatchResult::FAILED;
     }
-    if (!p_buffer_uniform_set.is_valid() || !p_param_uniform_set.is_valid() || !p_image_uniform_set.is_valid()) {
-        return 0;
+
+    if (!submission_device->compute_pipeline_is_valid(owner.shader_resources.tile_raster_compute_pipeline) ||
+            !submission_device->uniform_set_is_valid(p_image_uniform_set) ||
+            !submission_device->texture_is_valid(owner.render_targets.output_texture) ||
+            !submission_device->texture_is_valid(owner.render_targets.depth_texture) ||
+            !submission_device->texture_is_valid(owner.render_targets.normal_texture)) {
+        return RasterDispatchResult::FAILED;
     }
 
     uint32_t dispatch_x = owner.grid_state.tiles_x;
@@ -192,7 +207,7 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uin
     RD::ComputeListID compute_list = submission_device->compute_list_begin();
     if (compute_list == RD::INVALID_ID) {
         ERR_PRINT_ONCE("[TileRenderer] Failed to begin compute raster list");
-        return 0;
+        return RasterDispatchResult::FAILED;
     }
 
     submission_device->compute_list_bind_compute_pipeline(compute_list, owner.shader_resources.tile_raster_compute_pipeline);
@@ -210,20 +225,26 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer_compute(uin
 
     owner._queue_submission(submission_device, false);
 
-    return 0;
+    return RasterDispatchResult::RECORDED;
 }
 
-uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
+TileRenderer::RasterDispatchResult TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_gaussian_count, RID p_buffer_uniform_set,
         RID p_param_uniform_set, RenderingDevice *p_submission_device) {
     if (!owner.shader_resources.tile_raster_shader.is_valid() || !owner.render_targets.tile_framebuffer.is_valid() || owner.grid_state.tiles_x == 0 || owner.grid_state.tiles_y == 0) {
-        return 0;
+        return RasterDispatchResult::FAILED;
     }
     RenderingDevice *submission_device = p_submission_device;
-    if (!submission_device) {
-        return 0;
+    if (!_raster_submission_valid(submission_device, p_buffer_uniform_set, p_param_uniform_set)) {
+        return RasterDispatchResult::FAILED;
     }
-    if (!p_buffer_uniform_set.is_valid() || !p_param_uniform_set.is_valid()) {
-        return 0;
+
+    if (!submission_device->framebuffer_is_valid(owner.render_targets.tile_framebuffer)) {
+        return RasterDispatchResult::FAILED;
+    }
+
+    if (owner.shader_resources.tile_raster_pipeline.is_valid() &&
+            !submission_device->render_pipeline_is_valid(owner.shader_resources.tile_raster_pipeline)) {
+        return RasterDispatchResult::FAILED;
     }
 
     // Cache-invalidation rule: a render_pipeline is bound to ONE framebuffer-format
@@ -299,7 +320,7 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_
         owner.shader_resources.tile_raster_pipeline = submission_device->render_pipeline_create(owner.shader_resources.tile_raster_shader,
                 owner.render_targets.tile_framebuffer_format, RD::INVALID_ID, RD::RENDER_PRIMITIVE_TRIANGLES, raster_state, ms_state,
                 depth_state, blend_state, 0);
-        ERR_FAIL_COND_V(!owner.shader_resources.tile_raster_pipeline.is_valid(), 0);
+        ERR_FAIL_COND_V(!owner.shader_resources.tile_raster_pipeline.is_valid(), RasterDispatchResult::FAILED);
         owner.shader_resources.cached_raster_framebuffer_format = owner.render_targets.tile_framebuffer_format;
     }
 
@@ -311,6 +332,11 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_
 
     RD::DrawListID draw_list = submission_device->draw_list_begin(owner.render_targets.tile_framebuffer, RD::DRAW_CLEAR_ALL,
             clear_colors, 1.0f, 0, viewport_rect);
+
+    if (draw_list == RD::INVALID_ID) {
+        ERR_PRINT_ONCE("[TileRenderer] Failed to begin fragment raster list");
+        return RasterDispatchResult::FAILED;
+    }
 
     submission_device->draw_list_bind_render_pipeline(draw_list, owner.shader_resources.tile_raster_pipeline);
     submission_device->draw_list_bind_uniform_set(draw_list, p_buffer_uniform_set, 0);
@@ -346,7 +372,7 @@ uint64_t TileRenderer::TileRasterizerStage::dispatch_tile_rasterizer(uint32_t p_
     owner.timing_state.raster_timestamp.end_index = timestamp_base + 1;
     owner.timing_state.raster_timestamp.label = raster_label;
 
-    return 0;
+    return RasterDispatchResult::RECORDED;
 }
 
 bool TileRenderer::TileRasterizerStage::prepare_compute_uniform_sets(RenderingDevice *p_device, const RID &p_state_uniform,
