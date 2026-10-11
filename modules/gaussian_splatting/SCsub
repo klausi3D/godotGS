@@ -15,6 +15,21 @@ env_gaussian_splatting = env_modules.Clone()
 
 module_sources = []
 
+# Pinned SPZ sources use the engine's existing compression dependencies.
+# Its extension registry needs RTTI locally; no engine-wide compiler change.
+env_spz = env_gaussian_splatting.Clone()
+env_spz.Append(CPPPATH=["#thirdparty/zlib", "#thirdparty/zstd"])
+env_spz.Append(CPPDEFINES=["SPZ_BUILD_EXTENSIONS", "SPZ_NO_PARALLEL_CODEC"])
+if getattr(env_spz, "msvc", False):
+    env_spz.Append(CCFLAGS=["/GR"])
+else:
+    env_spz.Append(CCFLAGS=["-frtti"])
+env_spz.add_source_files(module_sources, "thirdparty/spz/*.cc")
+# Public packed types include optional extension fields; all consumers use the
+# same type definition. Async codec policy only affects the library sources.
+env_gaussian_splatting.Append(CPPDEFINES=["SPZ_BUILD_EXTENSIONS"])
+
+
 # Core runtime systems and runtime integrations
 module_root = Path(Dir(".").abspath)
 # Optional: silence GS module logging for performance testing

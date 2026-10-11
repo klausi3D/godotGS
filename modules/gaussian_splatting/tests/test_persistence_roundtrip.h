@@ -4216,23 +4216,9 @@ LocalVector<TestGaussianSplatting::SyntheticSpzSplat> spz_aa_make_splats() {
     return splats;
 }
 
-// SPZ header byte 14 is the flags byte (bit 0x1 = antialiased training).
+// The official producer writes header flag 0x1 (antialiased training) itself.
 bool spz_aa_write(const String &p_path, bool p_antialiased) {
-    if (!TestGaussianSplatting::write_synthetic_spz(p_path, spz_aa_make_splats())) {
-        return false;
-    }
-    if (!p_antialiased) {
-        return true;
-    }
-    Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ_WRITE);
-    if (file.is_null() || file->get_length() < 16) {
-        return false;
-    }
-    file->seek(14);
-    const uint8_t flags = file->get_8();
-    file->seek(14);
-    file->store_8(flags | SPZLoader::SPZ_FLAG_ANTIALIASED);
-    return true;
+    return TestGaussianSplatting::write_synthetic_spz(p_path, spz_aa_make_splats(), 12, 4, 0, p_antialiased);
 }
 
 void spz_aa_check_gsf_roundtrip(const Ref<GaussianData> &p_source, bool p_antialiased, const String &p_prefix) {

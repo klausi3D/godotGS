@@ -1,84 +1,226 @@
 #include "spz_loader.h"
-#include "core/os/os.h"
 #include "../core/gs_vector_alloc.h"
 #include "../logger/gs_logger.h"
+#include "../thirdparty/spz/load-spz.h"
+#include "../thirdparty/spz/splat-extensions.h"
+#include "core/io/marshalls.h"
+#include "core/os/os.h"
 
 #include <cmath>
-#include <cstring>
-#include <limits>
+#include <istream>
+#include <streambuf>
+
+// Pinned upstream's legacy stream decoder. Godot bounds gzip expansion before
+// entering it; the public loadSpzPacked gzip path inflates without a caller cap.
+namespace spz {
+PackedGaussians deserializePackedGaussians(std::istream &p_stream);
+}
 
 namespace {
+constexpr uint64_t MAX_SPZ_COMPRESSED_BYTES = 512ull * 1024 * 1024;
+constexpr uint64_t MAX_SPZ_DECOMPRESSED_BYTES = 1024ull * 1024 * 1024;
+constexpr uint32_t MAX_SPZ_POINTS = 32u * 1024 * 1024;
+constexpr float SH_C0 = 0.28209479177387814f;
+constexpr uint8_t FLAG_EXTENSIONS = 2;
 
-// SH coefficient counts per degree
-static constexpr int SH_COEFFS_PER_DEGREE[] = { 0, 9, 24, 45 };
-
-// SH bits per band
-static constexpr uint8_t SH_BITS_DEGREE_0 = 5;
-static constexpr uint8_t SH_BITS_DEGREE_1_2 = 4;
-
-// Conversion constants
-static constexpr float LOG_SCALE_MIN = -10.0f;
-static constexpr float LOG_SCALE_MAX = 6.0f;
-static constexpr uint64_t MAX_SPZ_COMPRESSED_BYTES = 512ull * 1024ull * 1024ull; // 512 MiB
-static constexpr uint64_t MAX_SPZ_DECOMPRESSED_BYTES = 1024ull * 1024ull * 1024ull; // 1 GiB
-static constexpr uint32_t MAX_SPZ_POINTS = 32u * 1024u * 1024u; // 33,554,432 points
-
-static bool _offset_range_valid(uint32_t p_offset, uint64_t p_needed, uint32_t p_total_size) {
-    return uint64_t(p_offset) + p_needed <= uint64_t(p_total_size);
-}
-
-static bool _mul_u64_overflow(uint64_t p_a, uint64_t p_b, uint64_t &r_result) {
-    if (p_a != 0 && p_b > (std::numeric_limits<uint64_t>::max() / p_a)) {
-        return true;
+class SpzMemoryBuffer : public std::streambuf {
+public:
+    SpzMemoryBuffer(const PackedByteArray &p_bytes) {
+        char *begin = const_cast<char *>(reinterpret_cast<const char *>(p_bytes.ptr()));
+        setg(begin, begin, begin + p_bytes.size());
     }
-    r_result = p_a * p_b;
-    return false;
-}
-
-static bool _add_u64_overflow(uint64_t p_a, uint64_t p_b, uint64_t &r_result) {
-    if (p_b > (std::numeric_limits<uint64_t>::max() - p_a)) {
-        return true;
-    }
-    r_result = p_a + p_b;
-    return false;
-}
-
-static bool _compute_expected_payload_bytes(const SPZLoader::SPZHeader &p_header, uint64_t &r_expected_payload_bytes) {
-    if (p_header.version != SPZLoader::SPZ_VERSION_2 && p_header.version != SPZLoader::SPZ_VERSION_3) {
-        return false;
-    }
-    if (p_header.sh_degree > 3) {
-        return false;
-    }
-
-    const uint64_t rotation_stride = (p_header.version == SPZLoader::SPZ_VERSION_2) ? 3ull : 4ull;
-    uint64_t per_point_bytes = 9ull + 1ull + 3ull + 3ull + rotation_stride;
-    if (p_header.sh_degree > 0) {
-        uint64_t with_sh = 0;
-        if (_add_u64_overflow(per_point_bytes, uint64_t(SH_COEFFS_PER_DEGREE[p_header.sh_degree]), with_sh)) {
-            return false;
+protected:
+    pos_type seekoff(off_type p_offset, std::ios_base::seekdir p_dir, std::ios_base::openmode p_mode) override {
+        if (!(p_mode & std::ios_base::in)) {
+            return pos_type(off_type(-1));
         }
-        per_point_bytes = with_sh;
+        const off_type size = egptr() - eback();
+        const off_type base = p_dir == std::ios_base::beg ? 0 : p_dir == std::ios_base::cur ? gptr() - eback() : size;
+        if (p_offset < -base || p_offset > size - base) {
+            return pos_type(off_type(-1));
+        }
+        setg(eback(), eback() + base + p_offset, egptr());
+        return pos_type(base + p_offset);
     }
-
-    uint64_t payload_bytes = 0;
-    if (_mul_u64_overflow(uint64_t(p_header.num_points), per_point_bytes, payload_bytes)) {
-        return false;
+    pos_type seekpos(pos_type p_position, std::ios_base::openmode p_mode) override {
+        return seekoff(off_type(p_position), std::ios_base::beg, p_mode);
     }
+};
 
-    r_expected_payload_bytes = payload_bytes;
-    return true;
+struct SpzEnvelope {
+    SPZLoader::SPZHeader header{};
+    uint64_t attributes_bytes = 0;
+    uint64_t strides[6]{};
+    uint32_t toc_offset = 0;
+    uint8_t stream_count = 0;
+};
+
+uint64_t spz_working_memory_budget() {
+    uint64_t budget = 256ull * 1024 * 1024;
+    if (OS::get_singleton()) {
+        const Dictionary memory = OS::get_singleton()->get_memory_info();
+        const Variant available = memory.get("available", Variant());
+        if (available.get_type() == Variant::INT && int64_t(available) > 0) {
+            budget = MAX(budget, uint64_t(int64_t(available)) / 2);
+        }
+    }
+    return budget;
 }
 
-} // namespace
+Error spz_validate_extensions(const uint8_t *p_bytes, uint64_t p_size, bool p_declared) {
+    ERR_FAIL_COND_V(p_declared != (p_size > 0), ERR_FILE_CORRUPT);
+    uint64_t offset = 0;
+    uint32_t seen = 0;
+    while (offset < p_size) {
+        ERR_FAIL_COND_V(p_size - offset < 8, ERR_FILE_CORRUPT);
+        const uint32_t type = decode_uint32(p_bytes + offset);
+        const uint32_t length = decode_uint32(p_bytes + offset + 4);
+        offset += 8;
+        ERR_FAIL_COND_V(uint64_t(length) > p_size - offset, ERR_FILE_CORRUPT);
+        if (type == uint32_t(spz::SpzExtensionType::SPZ_ADOBE_coordinate_system)) {
+            ERR_FAIL_COND_V((seen & 1) || length != 4, ERR_FILE_CORRUPT);
+            ERR_FAIL_COND_V(decode_uint32(p_bytes + offset) > 16, ERR_FILE_CORRUPT);
+            seen |= 1;
+        } else if (type == uint32_t(spz::SpzExtensionType::SPZ_ADOBE_safe_orbit_camera)) {
+            ERR_FAIL_COND_V((seen & 2) || length != 12, ERR_FILE_CORRUPT);
+            for (int field = 0; field < 3; field++) {
+                ERR_FAIL_COND_V(!std::isfinite(decode_float(p_bytes + offset + field * 4)), ERR_FILE_CORRUPT);
+            }
+            seen |= 2;
+        } else {
+            ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "SPZ contains an unsupported extension; packing semantics cannot be guessed.");
+        }
+        offset += length;
+    }
+    return OK;
+}
+
+Error spz_parse_header(const PackedByteArray &p_bytes, SpzEnvelope &r_envelope, uint64_t p_input_bytes) {
+    ERR_FAIL_COND_V(p_bytes.size() < 16, ERR_FILE_CORRUPT);
+    const uint8_t *r = p_bytes.ptr();
+    SPZLoader::SPZHeader &header = r_envelope.header;
+    header.magic = decode_uint32(r);
+    ERR_FAIL_COND_V(header.magic != SPZLoader::SPZ_MAGIC, ERR_FILE_UNRECOGNIZED);
+    header.version = decode_uint32(r + 4);
+    ERR_FAIL_COND_V(header.version < 1 || header.version > 4, ERR_FILE_UNRECOGNIZED);
+    header.num_points = decode_uint32(r + 8);
+    header.sh_degree = r[12];
+    header.fractional_bits = r[13];
+    header.flags = r[14];
+    header.reserved = header.version < 4 ? r[15] : 0;
+    ERR_FAIL_COND_V(header.num_points == 0 || header.num_points > MAX_SPZ_POINTS, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(header.sh_degree > 4 || header.fractional_bits > 24, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V((header.flags & ~3u) != 0 || header.reserved != 0, ERR_FILE_CORRUPT);
+    const uint32_t sh_terms = (header.sh_degree + 1) * (header.sh_degree + 1) - 1;
+    r_envelope.strides[0] = header.version == 1 ? 6 : 9;
+    r_envelope.strides[1] = 1;
+    r_envelope.strides[2] = 3;
+    r_envelope.strides[3] = 3;
+    r_envelope.strides[4] = header.version >= 3 ? 4 : 3;
+    r_envelope.strides[5] = sh_terms * 3;
+    for (uint64_t stride : r_envelope.strides) {
+        r_envelope.attributes_bytes += uint64_t(header.num_points) * stride;
+    }
+    ERR_FAIL_COND_V(r_envelope.attributes_bytes > MAX_SPZ_DECOMPRESSED_BYTES, ERR_FILE_CORRUPT);
+    const uint64_t runtime_bytes = uint64_t(header.num_points) * (sizeof(Gaussian) + (sh_terms > 3 ? sh_terms - 3 : 0) * sizeof(Vector3));
+    // Packed buffers coexist with staging and its final resource copy. Budget
+    // the input/decode buffers too; genuine allocator exhaustion remains fatal.
+    const uint64_t working_bytes = p_input_bytes + uint64_t(p_bytes.size()) + r_envelope.attributes_bytes * 2 + runtime_bytes * 2;
+    ERR_FAIL_COND_V(working_bytes > spz_working_memory_budget(), ERR_FILE_CORRUPT);
+    return OK;
+}
+
+Error spz_validate_legacy(const PackedByteArray &p_bytes, const SpzEnvelope &p_envelope) {
+    const uint64_t payload_end = 16 + p_envelope.attributes_bytes;
+    ERR_FAIL_COND_V(payload_end > uint64_t(p_bytes.size()), ERR_FILE_CORRUPT);
+    return spz_validate_extensions(p_bytes.ptr() + payload_end, uint64_t(p_bytes.size()) - payload_end,
+            p_envelope.header.flags & FLAG_EXTENSIONS);
+}
+
+Error spz_validate_v4(const PackedByteArray &p_bytes, SpzEnvelope &r_envelope) {
+    ERR_FAIL_COND_V(p_bytes.size() < 32, ERR_FILE_CORRUPT);
+    const uint8_t *r = p_bytes.ptr();
+    for (uint32_t i = 20; i < 32; i++) {
+        ERR_FAIL_COND_V(r[i] != 0, ERR_FILE_CORRUPT);
+    }
+    r_envelope.stream_count = r[15];
+    r_envelope.toc_offset = decode_uint32(r + 16);
+    ERR_FAIL_COND_V(r_envelope.toc_offset < 32 || uint64_t(r_envelope.toc_offset) > uint64_t(p_bytes.size()), ERR_FILE_CORRUPT);
+    const Error extension_error = spz_validate_extensions(r + 32, r_envelope.toc_offset - 32, r_envelope.header.flags & FLAG_EXTENSIONS);
+    if (extension_error != OK) {
+        return extension_error;
+    }
+    const uint8_t expected_streams = r_envelope.header.sh_degree > 0 ? 6 : 5;
+    ERR_FAIL_COND_V(r_envelope.stream_count != expected_streams, ERR_FILE_CORRUPT);
+    uint64_t offset = uint64_t(r_envelope.toc_offset) + uint64_t(expected_streams) * 16;
+    ERR_FAIL_COND_V(offset > uint64_t(p_bytes.size()), ERR_FILE_CORRUPT);
+    for (uint32_t i = 0; i < expected_streams; i++) {
+        const uint8_t *entry = r + r_envelope.toc_offset + i * 16;
+        const uint64_t compressed_size = decode_uint64(entry);
+        const uint64_t decoded_size = decode_uint64(entry + 8);
+        const uint64_t expected_size = uint64_t(r_envelope.header.num_points) * r_envelope.strides[i];
+        ERR_FAIL_COND_V(decoded_size != expected_size || compressed_size == 0, ERR_FILE_CORRUPT);
+        ERR_FAIL_COND_V(compressed_size > uint64_t(p_bytes.size()) - offset, ERR_FILE_CORRUPT);
+        offset += compressed_size;
+    }
+    ERR_FAIL_COND_V(offset != uint64_t(p_bytes.size()), ERR_FILE_CORRUPT);
+    return OK;
+}
+
+Error spz_populate_runtime(const spz::PackedGaussians &p_packed, const SpzEnvelope &p_envelope, Ref<GaussianData> &r_data) {
+    const uint32_t count = p_envelope.header.num_points;
+    const uint32_t degree = p_envelope.header.sh_degree;
+    ERR_FAIL_COND_V(p_packed.numPoints != int32_t(count) || p_packed.shDegree != int32_t(degree), ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(p_packed.version != p_envelope.header.version || p_packed.fractionalBits != p_envelope.header.fractional_bits ||
+            p_packed.antialiased != bool(p_envelope.header.flags & SPZLoader::SPZ_FLAG_ANTIALIASED) || p_packed.hadSkippedExtensions, ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(p_packed.positions.size() != uint64_t(count) * p_envelope.strides[0] ||
+            p_packed.alphas.size() != uint64_t(count) * p_envelope.strides[1] ||
+            p_packed.colors.size() != uint64_t(count) * p_envelope.strides[2] ||
+            p_packed.scales.size() != uint64_t(count) * p_envelope.strides[3] ||
+            p_packed.rotations.size() != uint64_t(count) * p_envelope.strides[4] ||
+            p_packed.sh.size() != uint64_t(count) * p_envelope.strides[5], ERR_FILE_CORRUPT);
+    const uint32_t first = degree == 0 ? 0 : 3;
+    const uint32_t high = (degree + 1) * (degree + 1) - 1 - first;
+    const spz::CoordinateConverter converter = spz::coordinateConverter(spz::getPackedCoordinateSystem(p_packed.extensions), spz::CoordinateSystem::RUB, degree);
+    LocalVector<Gaussian> gaussians;
+    LocalVector<Vector3> sidecar;
+    gaussians.resize(count);
+    sidecar.resize(uint64_t(count) * high);
+    for (uint32_t i = 0; i < count; i++) {
+        const spz::UnpackedGaussian unpacked = p_packed.unpack(i, converter);
+        Gaussian &g = gaussians[i];
+        g.position = Vector3(unpacked.position[0], unpacked.position[1], unpacked.position[2]);
+        g.scale = Vector3(std::exp(unpacked.scale[0]), std::exp(unpacked.scale[1]), std::exp(unpacked.scale[2]));
+        g.opacity = 1.0f / (1.0f + std::exp(-unpacked.alpha));
+        g.rotation = Quaternion(unpacked.rotation[0], unpacked.rotation[1], unpacked.rotation[2], unpacked.rotation[3]);
+        ERR_FAIL_COND_V(!g.position.is_finite() || !g.scale.is_finite() || !g.rotation.is_finite() || g.rotation.length_squared() == 0, ERR_FILE_CORRUPT);
+        g.rotation.normalize();
+        g.sh_dc = Color(SH_C0 * unpacked.color[0], SH_C0 * unpacked.color[1], SH_C0 * unpacked.color[2], 1);
+        g.render_meta = gaussian_set_dc_encoding(g.render_meta, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+        g.normal = Vector3(0, 0, 1);
+        g.area = 1;
+        g.brush_axes = Vector2(1, 1);
+        for (uint32_t term = 0; term < first; term++) {
+            g.sh_1[term] = Vector3(unpacked.shR[term], unpacked.shG[term], unpacked.shB[term]);
+        }
+        for (uint32_t term = 0; term < high; term++) {
+            const uint32_t coefficient = first + term;
+            sidecar[i * high + term] = Vector3(unpacked.shR[coefficient], unpacked.shG[coefficient], unpacked.shB[coefficient]);
+        }
+    }
+    Ref<GaussianData> staged;
+    staged.instantiate();
+    staged->set_gaussian_payload(gaussians, sidecar, first, high, false, p_packed.antialiased);
+    r_data = staged;
+    return OK;
+}
+}
 
 SPZLoader::SPZLoader() {
     gaussian_data.instantiate();
     header = SPZHeader{};
 }
-
-SPZLoader::~SPZLoader() {
-}
+SPZLoader::~SPZLoader() {}
 
 void SPZLoader::_bind_methods() {
     ClassDB::bind_method(D_METHOD("load_file", "path"), &SPZLoader::load_file);
@@ -89,783 +231,111 @@ void SPZLoader::_bind_methods() {
 
 bool SPZLoader::is_spz_file(const String &p_path) {
     Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ);
-    if (file.is_null()) {
+    if (file.is_null() || file->get_length() < 16) {
         return false;
     }
-
-    if (file->get_length() < sizeof(SPZHeader)) {
-        return false;
-    }
-
-    // Check first bytes - could be raw SPZ or GZIP-wrapped
-    uint8_t first_bytes[4];
-    file->get_buffer(first_bytes, 4);
-
-    // Check for GZIP magic (0x1F 0x8B) - file is fully compressed SPZ
-    if (first_bytes[0] == 0x1F && first_bytes[1] == 0x8B) {
-        // Assume .spz extension means it's an SPZ file
-        return p_path.to_lower().ends_with(".spz");
-    }
-
-    // Check for raw SPZ magic
-    uint32_t magic = first_bytes[0] | (first_bytes[1] << 8) | (first_bytes[2] << 16) | (first_bytes[3] << 24);
-    return magic == SPZ_MAGIC;
-}
-
-Error SPZLoader::load_file(const String &p_path) {
-    GS_LOG_STREAMING_INFO(vformat("[SPZ-LOAD] START: %s", p_path));
-
-    Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ);
-    if (file.is_null()) {
-        GS_LOG_ERROR_DEFAULT("Failed to open SPZ file: " + p_path);
-        return ERR_FILE_NOT_FOUND;
-    }
-
-    // Higher-level loaders own begin_asset_open(); nesting it here would
-    // double-arm the trace counter and split a single asset open across
-    // multiple [StartupTrace] lines.
-
-    int64_t file_size = file->get_length();
-    GS_LOG_STREAMING_INFO(vformat("[SPZ-LOAD] File opened, size=%d MB", (int)(file_size / 1024 / 1024)));
-    if (file_size <= 0 || uint64_t(file_size) > MAX_SPZ_COMPRESSED_BYTES) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ file size exceeds safety cap (%d bytes)", (int64_t)MAX_SPZ_COMPRESSED_BYTES));
-        return ERR_FILE_CORRUPT;
-    }
-
-    uint64_t start_time = OS::get_singleton()->get_ticks_usec();
-
-    // Read header (16 bytes)
-    if (file_size < (int64_t)sizeof(SPZHeader)) {
-        GS_LOG_ERROR_DEFAULT("SPZ file too small: " + p_path);
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Check if entire file is GZIP compressed (starts with 0x1F 0x8B)
-    uint8_t first_bytes[2];
-    file->get_buffer(first_bytes, 2);
-    file->seek(0);
-    GS_LOG_STREAMING_DEBUG(vformat("[SPZ-LOAD] First bytes: 0x%02X 0x%02X (GZIP magic is 0x1F 0x8B)", first_bytes[0], first_bytes[1]));
-
-    PackedByteArray file_data;
-    if (first_bytes[0] == 0x1F && first_bytes[1] == 0x8B) {
-        // Entire file is GZIP compressed - decompress first
-        GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Detected GZIP, decompressing...");
-
-        PackedByteArray compressed_file;
-        compressed_file.resize(file_size);
-        file->get_buffer(compressed_file.ptrw(), file_size);
-
-        GS_LOG_STREAMING_DEBUG(vformat("[SPZ-LOAD] Calling decompress_data with %d bytes", (int)compressed_file.size()));
-        Error decomp_err = decompress_data(compressed_file, file_data, MAX_SPZ_DECOMPRESSED_BYTES);
-        if (decomp_err != OK) {
-            GS_LOG_ERROR_DEFAULT("Failed to decompress GZIP-wrapped SPZ file");
-            return decomp_err;
-        }
-
-        GS_LOG_STREAMING_DEBUG(vformat("[SPZ-LOAD] Decompressed to %d bytes", (int)file_data.size()));
-
-        if (file_data.size() < (int)sizeof(SPZHeader)) {
-            GS_LOG_ERROR_DEFAULT("Decompressed SPZ data too small");
-            return ERR_FILE_CORRUPT;
-        }
-
-        // Parse header from decompressed data
-        const uint8_t *hdr = file_data.ptr();
-        header.magic = hdr[0] | (hdr[1] << 8) | (hdr[2] << 16) | (hdr[3] << 24);
-        header.version = hdr[4] | (hdr[5] << 8) | (hdr[6] << 16) | (hdr[7] << 24);
-        header.num_points = hdr[8] | (hdr[9] << 8) | (hdr[10] << 16) | (hdr[11] << 24);
-        header.sh_degree = hdr[12];
-        header.fractional_bits = hdr[13];
-        header.flags = hdr[14];
-        header.reserved = hdr[15];
-
-        GS_LOG_STREAMING_DEBUG(vformat("[SPZ-LOAD] Header: magic=0x%08X version=%d points=%d sh=%d frac=%d",
-                header.magic, header.version, header.num_points, header.sh_degree, header.fractional_bits));
-    } else {
-        // Standard SPZ format - header is uncompressed
-        header.magic = file->get_32();
-        header.version = file->get_32();
-        header.num_points = file->get_32();
-        header.sh_degree = file->get_8();
-        header.fractional_bits = file->get_8();
-        header.flags = file->get_8();
-        header.reserved = file->get_8();
-    }
-
-    // Validate magic number
-    if (header.magic != SPZ_MAGIC) {
-        GS_LOG_ERROR_DEFAULT(vformat("Invalid SPZ magic number: 0x%08X (expected 0x%08X)", header.magic, SPZ_MAGIC));
-        return ERR_FILE_UNRECOGNIZED;
-    }
-
-    // Validate version
-    if (header.version != SPZ_VERSION_2 && header.version != SPZ_VERSION_3) {
-        GS_LOG_ERROR_DEFAULT(vformat("Unsupported SPZ version: %d (supported: 2, 3)", header.version));
-        return ERR_FILE_UNRECOGNIZED;
-    }
-
-    // Validate reserved field
-    if (header.reserved != 0) {
-        GS_LOG_STREAMING_WARN("SPZ reserved field is non-zero, file may be from a newer version");
-    }
-
-    // Validate SH degree
-    if (header.sh_degree > 3) {
-        GS_LOG_ERROR_DEFAULT(vformat("Invalid SPZ SH degree: %d (max: 3)", header.sh_degree));
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Validate fractional_bits. It is used as `1 << fractional_bits` in
-    // fixed_to_float(): a value >= 31 is C++ shift UB (the `1` is a 32-bit int),
-    // and a value > 24 is nonsensical for the 24-bit fixed-point positions
-    // (read_int24). An unvalidated byte here would either invoke UB or silently
-    // decode garbage geometry while the load still "succeeds". Reject as corrupt.
-    if (header.fractional_bits > 24) {
-        GS_LOG_ERROR_DEFAULT(vformat("Invalid SPZ fractional_bits: %d (max: 24)", header.fractional_bits));
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Validate point count
-    if (header.num_points == 0) {
-        GS_LOG_ERROR_DEFAULT("SPZ file contains no points");
-        return ERR_FILE_CORRUPT;
-    }
-    if (header.num_points > MAX_SPZ_POINTS) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ point count exceeds safety cap: %d", header.num_points));
-        return ERR_FILE_CORRUPT;
-    }
-
-    uint64_t expected_payload_bytes = 0;
-    if (!_compute_expected_payload_bytes(header, expected_payload_bytes)) {
-        GS_LOG_ERROR_DEFAULT("SPZ payload size computation overflow or invalid header");
-        return ERR_FILE_CORRUPT;
-    }
-    if (expected_payload_bytes == 0 || expected_payload_bytes > MAX_SPZ_DECOMPRESSED_BYTES) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ payload size exceeds safety cap: %d bytes", expected_payload_bytes));
-        return ERR_FILE_CORRUPT;
-    }
-    if (expected_payload_bytes > uint64_t(std::numeric_limits<uint32_t>::max())) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ payload size exceeds parser limits: %d bytes", expected_payload_bytes));
-        return ERR_FILE_CORRUPT;
-    }
-
-    GS_LOG_STREAMING_INFO(vformat("SPZ header: version=%d, points=%d, sh_degree=%d, fractional_bits=%d, flags=0x%02X",
-            header.version, header.num_points, header.sh_degree, header.fractional_bits, header.flags));
-
-    // Get the payload data (after header)
-    PackedByteArray decompressed_data;
-    const uint8_t *data = nullptr;
-    uint32_t data_size = 0;
-    uint32_t offset = 0;
-
-    if (file_data.size() > 0) {
-        // File was fully GZIP-compressed - payload is already decompressed after header
-        const uint64_t payload_size = uint64_t(file_data.size()) - uint64_t(sizeof(SPZHeader));
-        if (payload_size != expected_payload_bytes) {
-            GS_LOG_ERROR_DEFAULT(vformat("SPZ payload size mismatch: expected %d bytes, got %d bytes",
-                    expected_payload_bytes, payload_size));
-            return ERR_FILE_CORRUPT;
-        }
-        data = file_data.ptr() + sizeof(SPZHeader);
-        data_size = uint32_t(payload_size);
-        GS_LOG_STREAMING_INFO(vformat("SPZ using pre-decompressed data: %d bytes payload", data_size));
-    } else {
-        // Standard SPZ format - read and decompress the GZIP payload
-        uint64_t data_start = file->get_position();
-        uint64_t compressed_size = file->get_length() - data_start;
-
-        PackedByteArray compressed_data;
-        compressed_data.resize(compressed_size);
-        file->get_buffer(compressed_data.ptrw(), compressed_size);
-
-        // Decompress data using gzip
-        Error decomp_err = decompress_data(compressed_data, decompressed_data,
-                expected_payload_bytes, expected_payload_bytes);
-        if (decomp_err != OK) {
-            GS_LOG_ERROR_DEFAULT("Failed to decompress SPZ data");
-            return decomp_err;
-        }
-
-        GS_LOG_STREAMING_INFO(vformat("SPZ decompressed: %d bytes -> %d bytes (%.1fx)",
-                compressed_size, decompressed_data.size(),
-                (float)decompressed_data.size() / (float)compressed_size));
-
-        data = decompressed_data.ptr();
-        data_size = decompressed_data.size();
-    }
-
-    if (uint64_t(data_size) != expected_payload_bytes) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ payload size mismatch: expected %d bytes, got %d bytes",
-                expected_payload_bytes, data_size));
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Allocate storage
-    LocalVector<Vector3> positions;
-    LocalVector<float> alphas;
-    LocalVector<Color> colors;
-    LocalVector<Vector3> scales;
-    LocalVector<Quaternion> rotations;
-    LocalVector<float> sh_coeffs;
-    uint32_t sh_float_count_per_gaussian = 0;
-
-    positions.resize(header.num_points);
-    alphas.resize(header.num_points);
-    colors.resize(header.num_points);
-    scales.resize(header.num_points);
-    rotations.resize(header.num_points);
-
-    // Parse data in order: positions -> alphas -> colors -> scales -> rotations -> SH
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing positions...");
-    Error err = parse_positions(data, data_size, offset, positions);
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT("Failed to parse SPZ positions");
-        return err;
-    }
-
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing alphas...");
-    err = parse_alphas(data, data_size, offset, alphas);
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT("Failed to parse SPZ alphas");
-        return err;
-    }
-
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing colors...");
-    err = parse_colors(data, data_size, offset, colors);
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT("Failed to parse SPZ colors");
-        return err;
-    }
-
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing scales...");
-    err = parse_scales(data, data_size, offset, scales);
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT("Failed to parse SPZ scales");
-        return err;
-    }
-
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing rotations...");
-    if (header.version == SPZ_VERSION_2) {
-        err = parse_rotations_v2(data, data_size, offset, rotations);
-    } else {
-        err = parse_rotations_v3(data, data_size, offset, rotations);
-    }
-    if (err != OK) {
-        GS_LOG_ERROR_DEFAULT("Failed to parse SPZ rotations");
-        return err;
-    }
-
-    if (header.sh_degree > 0) {
-        GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Parsing SH...");
-        err = parse_spherical_harmonics(data, data_size, offset, sh_coeffs, sh_float_count_per_gaussian);
-        if (err != OK) {
-            GS_LOG_ERROR_DEFAULT("Failed to parse SPZ spherical harmonics");
-            return err;
-        }
-    }
-
-    GS_LOG_STREAMING_DEBUG("[SPZ-LOAD] Populating GaussianData...");
-    // Populate GaussianData
-    gaussian_data->resize(header.num_points);
-
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        Gaussian g;
-
-        // Position
-        g.position = positions[i];
-
-        // Opacity (alpha)
-        g.opacity = alphas[i];
-
-        // Color (stored in sh_dc for consistency with PLY loader)
-        g.sh_dc = colors[i];
-        g.render_meta = gaussian_set_dc_encoding(g.render_meta, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-
-        // Scale (already converted from log scale)
-        g.scale = scales[i];
-
-        // Rotation
-        g.rotation = rotations[i];
-        g.rotation.normalize();
-
-        // Initialize other fields
-        g.normal = Vector3(0, 0, 1);
-        g.area = 1.0f;
-        g.brush_axes = Vector2(1.0f, 1.0f);
-        g.stroke_age = 0.0f;
-        g.painterly_meta = gaussian_pack_painterly_meta(0);
-
-        // Initialize first-order SH to zero
-        for (int j = 0; j < 3; j++) {
-            g.sh_1[j] = Vector3();
-        }
-
-        gaussian_data->set_gaussian(i, g);
-
-        // Set spherical harmonics if available
-        if (sh_float_count_per_gaussian > 0) {
-            // Copy correct DC values into sh_coeffs (they were set to 0 as placeholder)
-            uint32_t base = i * sh_float_count_per_gaussian;
-            sh_coeffs[base + 0] = colors[i].r;
-            sh_coeffs[base + 1] = colors[i].g;
-            sh_coeffs[base + 2] = colors[i].b;
-
-            const float *sh_ptr = sh_coeffs.ptr() + base;
-            gaussian_data->set_spherical_harmonics(i, sh_ptr, sh_float_count_per_gaussian);
-        }
-    }
-
-    if (offset != data_size) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ payload parser did not consume all bytes (%d/%d)", offset, data_size));
-        return ERR_FILE_CORRUPT;
-    }
-
-    uint64_t load_time = OS::get_singleton()->get_ticks_usec() - start_time;
-    GS_LOG_STREAMING_INFO(vformat("SPZ loaded: %d splats in %.2f ms", header.num_points, load_time / 1000.0));
-
-    return OK;
+    const uint32_t magic = file->get_32();
+    return magic == SPZ_MAGIC || ((magic & 0xffff) == 0x8b1f && p_path.to_lower().ends_with(".spz"));
 }
 
 Error SPZLoader::decompress_data(const PackedByteArray &p_compressed, PackedByteArray &r_decompressed,
         uint64_t p_max_decompressed_bytes, uint64_t p_expected_decompressed_bytes) {
-    // SPZ uses gzip compression
-    // Godot's Compression class supports DEFLATE mode which is the core of gzip
-    if (p_compressed.is_empty() || uint64_t(p_compressed.size()) > MAX_SPZ_COMPRESSED_BYTES) {
-        GS_LOG_ERROR_DEFAULT("SPZ compressed payload exceeds safety caps");
-        return ERR_FILE_CORRUPT;
-    }
-    if (p_max_decompressed_bytes == 0 || p_max_decompressed_bytes > MAX_SPZ_DECOMPRESSED_BYTES) {
-        GS_LOG_ERROR_DEFAULT("SPZ decompression cap is invalid");
-        return ERR_FILE_CORRUPT;
-    }
-    if (p_expected_decompressed_bytes > 0 && p_expected_decompressed_bytes > p_max_decompressed_bytes) {
-        GS_LOG_ERROR_DEFAULT("SPZ expected decompressed size exceeds configured cap");
-        return ERR_FILE_CORRUPT;
-    }
-
-    // gzip format: 10-byte header + compressed data + 8-byte trailer
-    // The compressed data is DEFLATE format
-    // We need to strip the gzip header/trailer and decompress
-
-    const uint8_t *data = p_compressed.ptr();
-    int64_t data_size = p_compressed.size();
-
-    // Check gzip magic number
-    if (data_size < 18) { // Minimum gzip: 10 header + 0 data + 8 trailer
-        GS_LOG_ERROR_DEFAULT("SPZ compressed data too small for gzip format");
-        return ERR_FILE_CORRUPT;
-    }
-
-    if (data[0] != 0x1F || data[1] != 0x8B) {
-        GS_LOG_ERROR_DEFAULT(vformat("Invalid gzip magic: 0x%02X 0x%02X (expected 0x1F 0x8B)", data[0], data[1]));
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Check compression method (should be 8 = DEFLATE)
-    if (data[2] != 8) {
-        GS_LOG_ERROR_DEFAULT(vformat("Unsupported gzip compression method: %d", data[2]));
-        return ERR_FILE_CORRUPT;
-    }
-
-    uint8_t flags = data[3];
-    if ((flags & 0xE0) != 0) {
-        GS_LOG_ERROR_DEFAULT(vformat("Invalid gzip flags (reserved bits set): 0x%02X", flags));
-        return ERR_FILE_CORRUPT;
-    }
-    const int64_t trailer_start = data_size - 8;
-    int64_t header_end = 10;
-
-    // Skip extra field if present
-    if (flags & 0x04) {
-        if (header_end + 2 > trailer_start) {
-            return ERR_FILE_CORRUPT;
-        }
-        uint16_t extra_len = data[header_end] | (data[header_end + 1] << 8);
-        const int64_t extra_end = header_end + 2 + int64_t(extra_len);
-        if (extra_end > trailer_start) {
-            GS_LOG_ERROR_DEFAULT("Invalid gzip extra field length");
-            return ERR_FILE_CORRUPT;
-        }
-        header_end = extra_end;
-    }
-
-    // Skip filename if present (null-terminated)
-    if (flags & 0x08) {
-        while (header_end < trailer_start && data[header_end] != 0) {
-            header_end++;
-        }
-        if (header_end >= trailer_start) {
-            GS_LOG_ERROR_DEFAULT("Malformed gzip filename field (missing terminator)");
-            return ERR_FILE_CORRUPT;
-        }
-        header_end++; // Skip null terminator
-    }
-
-    // Skip comment if present (null-terminated)
-    if (flags & 0x10) {
-        while (header_end < trailer_start && data[header_end] != 0) {
-            header_end++;
-        }
-        if (header_end >= trailer_start) {
-            GS_LOG_ERROR_DEFAULT("Malformed gzip comment field (missing terminator)");
-            return ERR_FILE_CORRUPT;
-        }
-        header_end++; // Skip null terminator
-    }
-
-    // Skip CRC16 if present
-    if (flags & 0x02) {
-        if (header_end + 2 > trailer_start) {
-            GS_LOG_ERROR_DEFAULT("Malformed gzip header CRC field");
-            return ERR_FILE_CORRUPT;
-        }
-        header_end += 2;
-    }
-
-    if (header_end >= trailer_start) {
-        GS_LOG_ERROR_DEFAULT("Invalid gzip structure");
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Extract DEFLATE data (everything between header and 8-byte trailer)
-    int64_t deflate_size = trailer_start - header_end;
-    if (deflate_size <= 0) {
-        GS_LOG_ERROR_DEFAULT("No compressed data in gzip stream");
-        return ERR_FILE_CORRUPT;
-    }
-
-    // Read original size from gzip trailer (last 4 bytes, little-endian)
-    uint32_t original_size = data[data_size - 4] |
-            (data[data_size - 3] << 8) |
-            (data[data_size - 2] << 16) |
-            (data[data_size - 1] << 24);
-    const uint64_t declared_size = uint64_t(original_size);
-    if (declared_size == 0) {
-        GS_LOG_ERROR_DEFAULT("SPZ gzip trailer declares zero decompressed bytes");
-        return ERR_FILE_CORRUPT;
-    }
-    if (declared_size > p_max_decompressed_bytes || declared_size > MAX_SPZ_DECOMPRESSED_BYTES) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ declared decompressed size exceeds safety cap: %d bytes", declared_size));
-        return ERR_FILE_CORRUPT;
-    }
-    if (p_expected_decompressed_bytes > 0 && declared_size != p_expected_decompressed_bytes) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ gzip trailer size mismatch: expected %d bytes, got %d bytes",
-                p_expected_decompressed_bytes, declared_size));
-        return ERR_FILE_CORRUPT;
-    }
-    if (declared_size > uint64_t(std::numeric_limits<int>::max())) {
-        GS_LOG_ERROR_DEFAULT(vformat("SPZ declared decompressed size exceeds allocator limits: %d bytes",
-                declared_size));
-        return ERR_FILE_CORRUPT;
-    }
-    const int expected_size = int(declared_size);
-
-    GS_LOG_STREAMING_DEBUG(vformat("[SPZ-DECOMP] compressed=%d MB, deflate=%d MB, original_size=%d MB",
-            (int)(data_size / 1024 / 1024), (int)(deflate_size / 1024 / 1024), expected_size / 1024 / 1024));
-
-    // #798: expected_size comes from the SPZ header's DECLARED decompressed size, i.e.
-    // straight from file data (cf. #603), so this allocation is corruption-influenced and
-    // reachable without memory pressure. Compression::decompress() does not null-check
-    // p_dst -- it hands the pointer to the codec -- so a failed resize would be a wild
-    // write, with no CRASH_BAD_INDEX to name it. Fail closed with the allocation as the
-    // reported cause rather than a bogus "decompression failed".
-    if (!gs_resize_or_fail(r_decompressed, expected_size, "SPZLoader::decompress_data output")) {
+    ERR_FAIL_COND_V(p_compressed.size() < 18 || uint64_t(p_compressed.size()) > MAX_SPZ_COMPRESSED_BYTES, ERR_FILE_CORRUPT);
+    const uint8_t *r = p_compressed.ptr();
+    ERR_FAIL_COND_V(r[0] != 0x1f || r[1] != 0x8b || r[2] != 8 || (r[3] & 0xe0), ERR_FILE_CORRUPT);
+    const uint32_t bytes = decode_uint32(r + p_compressed.size() - 4);
+    ERR_FAIL_COND_V(bytes == 0 || bytes > p_max_decompressed_bytes || bytes > MAX_SPZ_DECOMPRESSED_BYTES || uint64_t(bytes) + uint64_t(p_compressed.size()) > spz_working_memory_budget(), ERR_FILE_CORRUPT);
+    ERR_FAIL_COND_V(p_expected_decompressed_bytes > 0 && bytes != p_expected_decompressed_bytes, ERR_FILE_CORRUPT);
+    if (!gs_resize_or_fail(r_decompressed, bytes, "SPZLoader::decompress_data output")) {
         return ERR_OUT_OF_MEMORY;
     }
-
-    // Strategy 1: let engine gzip mode handle complete stream.
-    int result = Compression::decompress(r_decompressed.ptrw(), expected_size,
-            p_compressed.ptr(), p_compressed.size(), Compression::MODE_GZIP);
-    if (result == expected_size) {
-        return OK;
-    }
-
-    // Strategy 2: strip gzip framing and decode raw DEFLATE.
-    PackedByteArray deflate_data;
-    // #798: deflate_size is likewise file-derived, and memcpy to a null ptrw() is UB.
-    if (!gs_resize_or_fail(deflate_data, int64_t(deflate_size), "SPZLoader::decompress_data deflate copy")) {
-        return ERR_OUT_OF_MEMORY;
-    }
-    memcpy(deflate_data.ptrw(), data + header_end, deflate_size);
-    result = Compression::decompress(r_decompressed.ptrw(), expected_size,
-            deflate_data.ptr(), deflate_size, Compression::MODE_DEFLATE);
-    if (result == expected_size) {
-        return OK;
-    }
-
-    GS_LOG_ERROR_DEFAULT(vformat("Failed to decompress SPZ payload deterministically (result=%d expected=%d)",
-            result, expected_size));
-    return ERR_FILE_CORRUPT;
-}
-
-Error SPZLoader::parse_positions(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Vector3> &r_positions) {
-    // Positions: 3 x 24-bit fixed-point signed integers per point
-    const uint64_t needed = uint64_t(header.num_points) * 9ull;
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        int32_t x = read_int24(p_data + r_offset);
-        int32_t y = read_int24(p_data + r_offset + 3);
-        int32_t z = read_int24(p_data + r_offset + 6);
-        r_offset += 9;
-
-        r_positions[i] = Vector3(
-                fixed_to_float(x, header.fractional_bits),
-                fixed_to_float(y, header.fractional_bits),
-                fixed_to_float(z, header.fractional_bits));
-    }
-
+    // Complete gzip decoding verifies its framing and CRC; a failed gzip must
+    // not be accepted by retrying raw DEFLATE while ignoring the failed CRC.
+    const int result = Compression::decompress(r_decompressed.ptrw(), bytes, r, p_compressed.size(), Compression::MODE_GZIP);
+    ERR_FAIL_COND_V(result != int(bytes), ERR_FILE_CORRUPT);
     return OK;
 }
 
-Error SPZLoader::parse_alphas(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<float> &r_alphas) {
-    // Alphas: 1 x 8-bit unsigned integer per point
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, header.num_points, p_data_size), ERR_FILE_CORRUPT);
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        r_alphas[i] = decode_alpha(p_data[r_offset++]);
-    }
-
-    return OK;
-}
-
-Error SPZLoader::parse_colors(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Color> &r_colors) {
-    // Colors: 3 x 8-bit unsigned integers (RGB) per point
-    // SPZ stores linear RGB [0-255] representing the DC contribution directly.
-    // Keep values in 0-1 space and do NOT divide by SH_C0 (that would yield coefficients).
-    const uint64_t needed = uint64_t(header.num_points) * 3ull;
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        // Read as linear RGB [0-1]
-        float r = p_data[r_offset++] / 255.0f;
-        float g = p_data[r_offset++] / 255.0f;
-        float b = p_data[r_offset++] / 255.0f;
-
-        r_colors[i] = Color(r, g, b, 1.0f);
-    }
-
-    return OK;
-}
-
-Error SPZLoader::parse_scales(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Vector3> &r_scales) {
-    // Scales: 3 x 8-bit log-encoded values per point
-    const uint64_t needed = uint64_t(header.num_points) * 3ull;
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        float sx = decode_scale(p_data[r_offset++]);
-        float sy = decode_scale(p_data[r_offset++]);
-        float sz = decode_scale(p_data[r_offset++]);
-        r_scales[i] = Vector3(sx, sy, sz);
-    }
-
-    return OK;
-}
-
-Error SPZLoader::parse_rotations_v2(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Quaternion> &r_rotations) {
-    // Version 2: (x, y, z) quaternion components as 8-bit signed integers
-    // w is computed from normalization
-    // SPZ uses RUB, Godot uses RUF - apply Z-flip transformation to quaternion
-    const uint64_t needed = uint64_t(header.num_points) * 3ull;
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        int8_t qx = (int8_t)p_data[r_offset++];
-        int8_t qy = (int8_t)p_data[r_offset++];
-        int8_t qz = (int8_t)p_data[r_offset++];
-
-        // Convert from [-127, 127] to [-1, 1]
-        float x = qx / 127.0f;
-        float y = qy / 127.0f;
-        float z = qz / 127.0f;
-
-        // Compute w (assume positive w)
-        float sum_sq = x * x + y * y + z * z;
-        float w = 1.0f;
-        if (sum_sq < 1.0f) {
-            w = sqrtf(1.0f - sum_sq);
-        } else {
-            // Normalize if sum exceeds 1
-            float scale = 1.0f / sqrtf(sum_sq);
-            x *= scale;
-            y *= scale;
-            z *= scale;
-            w = 0.0f;
-        }
-
-        r_rotations[i] = Quaternion(x, y, z, w);
-    }
-
-    return OK;
-}
-
-Error SPZLoader::parse_rotations_v3(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset, LocalVector<Quaternion> &r_rotations) {
-    // Version 3: Smallest-three encoding (matching Niantic's unpackQuaternionSmallestThree)
-    // Bit layout: [2-bit largest_idx][10-bit comp2][10-bit comp1][10-bit comp0]
-    // Each 10-bit component: 9-bit unsigned magnitude + 1 sign bit
-    const float sqrt1_2 = 0.7071067811865476f;
-    const uint32_t c_mask = (1u << 9u) - 1u;  // 9-bit magnitude mask = 511
-    const uint64_t needed = uint64_t(header.num_points) * 4ull;
-    ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        // Read 4 bytes as little-endian uint32
-        uint32_t comp = p_data[r_offset] |
-                (p_data[r_offset + 1] << 8) |
-                (p_data[r_offset + 2] << 16) |
-                (p_data[r_offset + 3] << 24);
-        r_offset += 4;
-
-        // Extract largest component index (bits 30-31)
-        int i_largest = comp >> 30;
-
-        // Extract the three smallest components (Niantic iterates i=3 down to 0)
-        float rotation[4] = { 0, 0, 0, 0 };
-        float sum_squares = 0;
-
-        for (int k = 3; k >= 0; --k) {
-            if (k != i_largest) {
-                uint32_t mag = comp & c_mask;        // 9-bit unsigned magnitude
-                uint32_t negbit = (comp >> 9u) & 0x1u;  // sign bit
-                comp = comp >> 10u;                   // shift to next component
-
-                rotation[k] = sqrt1_2 * ((float)mag) / (float)c_mask;
-                if (negbit == 1) {
-                    rotation[k] = -rotation[k];
-                }
-                sum_squares += rotation[k] * rotation[k];
-            }
-        }
-
-        // Reconstruct the largest component (always positive)
-        // Clamp to handle floating point precision issues
-        float largest_sq = MAX(0.0f, 1.0f - sum_squares);
-        rotation[i_largest] = sqrtf(largest_sq);
-
-        // rotation[0]=x, rotation[1]=y, rotation[2]=z, rotation[3]=w
-        Quaternion q(rotation[0], rotation[1], rotation[2], rotation[3]);
-        q.normalize();  // Ensure unit quaternion for numerical stability
-        r_rotations[i] = q;
-    }
-
-    return OK;
-}
-
-Error SPZLoader::parse_spherical_harmonics(const uint8_t *p_data, uint32_t p_data_size, uint32_t &r_offset,
-        LocalVector<float> &r_sh_coeffs, uint32_t &r_sh_float_count_per_gaussian) {
-    // SH coefficients are stored per-channel (RGB), with variable bit precision
-    // Degree 0: 3 coefficients per gaussian (DC term only) - but this is in colors
-    // Degree 1: 9 coefficients (3 per color channel, 3 directions)
-    // Degree 2: 24 coefficients
-    // Degree 3: 45 coefficients
-
-    if (header.sh_degree == 0) {
-        r_sh_float_count_per_gaussian = 3; // Just DC term (already in colors)
-        return OK;
-    }
-
-    // Number of SH coefficients per gaussian (excluding DC which is in colors)
-    uint32_t sh_count = SH_COEFFS_PER_DEGREE[header.sh_degree];
-    r_sh_float_count_per_gaussian = 3 + sh_count; // DC (3) + rest
-
-    const uint64_t total_coeffs = uint64_t(header.num_points) * uint64_t(r_sh_float_count_per_gaussian);
-    ERR_FAIL_COND_V(total_coeffs > uint64_t(std::numeric_limits<int>::max()), ERR_FILE_CORRUPT);
-    r_sh_coeffs.resize((int)total_coeffs);
-
-    // The SH data is organized with color channels as inner axis
-    // First degree 0 (DC) - already parsed in colors
-    // Then degree 1+ coefficients
-
-    for (uint32_t i = 0; i < header.num_points; i++) {
-        uint32_t out_base = i * r_sh_float_count_per_gaussian;
-
-        // DC term - placeholder (actual DC comes from colors)
-        r_sh_coeffs[out_base + 0] = 0.0f;
-        r_sh_coeffs[out_base + 1] = 0.0f;
-        r_sh_coeffs[out_base + 2] = 0.0f;
-    }
-
-    // Parse higher-order SH coefficients
-    // They're stored sequentially: all coeffs for point 0, then all for point 1, etc.
-    // Within each point: coefficients organized by band, then by color channel
-
-    uint32_t sh_rest_count = sh_count;
-    if (sh_rest_count > 0) {
-        const uint64_t needed = uint64_t(header.num_points) * uint64_t(sh_rest_count);
-        ERR_FAIL_COND_V(!_offset_range_valid(r_offset, needed, p_data_size), ERR_FILE_CORRUPT);
-        for (uint32_t i = 0; i < header.num_points; i++) {
-            uint32_t out_base = i * r_sh_float_count_per_gaussian + 3; // Skip DC
-
-            for (uint32_t j = 0; j < sh_rest_count; j++) {
-                uint8_t bits = (j < 9) ? SH_BITS_DEGREE_0 : SH_BITS_DEGREE_1_2;
-                uint8_t encoded = p_data[r_offset++];
-                r_sh_coeffs[out_base + j] = decode_sh_coefficient(encoded, bits);
-            }
+Error SPZLoader::load_file(const String &p_path) {
+    Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ);
+    ERR_FAIL_COND_V(file.is_null(), ERR_FILE_CANT_OPEN);
+    ERR_FAIL_COND_V(file->get_length() < 16 || file->get_length() > MAX_SPZ_COMPRESSED_BYTES, ERR_FILE_CORRUPT);
+    const PackedByteArray input = file->get_buffer(file->get_length());
+    ERR_FAIL_COND_V(uint64_t(input.size()) != file->get_length(), ERR_FILE_CORRUPT);
+    PackedByteArray bytes = input;
+    const bool whole_gzip = input[0] == 0x1f && input[1] == 0x8b;
+    if (whole_gzip) {
+        const Error decompressed = decompress_data(input, bytes, MAX_SPZ_DECOMPRESSED_BYTES);
+        if (decompressed != OK) {
+            return decompressed;
         }
     }
-
-    return OK;
-}
-
-float SPZLoader::fixed_to_float(int32_t p_fixed, uint8_t p_fractional_bits) const {
-    return (float)p_fixed / (float)(1 << p_fractional_bits);
-}
-
-int32_t SPZLoader::read_int24(const uint8_t *p_data) const {
-    // Read 24-bit little-endian signed integer
-    int32_t value = p_data[0] | (p_data[1] << 8) | (p_data[2] << 16);
-
-    // Sign extend if negative (bit 23 set)
-    if (value & 0x800000) {
-        value |= 0xFF000000; // Extend sign bit
+    SpzEnvelope envelope;
+    Error error = spz_parse_header(bytes, envelope, input.size());
+    if (error != OK) {
+        return error;
     }
-
-    return value;
-}
-
-float SPZLoader::decode_scale(uint8_t p_encoded) const {
-    // Scale is stored as log scale, quantized to 8 bits
-    // Niantic formula: log_scale = encoded/16.0 - 10.0
-    // Then we apply exp() to get linear scale (same as PLY loader)
-    float log_scale = p_encoded / 16.0f - 10.0f;
-    return expf(log_scale);
-}
-
-float SPZLoader::decode_alpha(uint8_t p_encoded) const {
-    // Alpha is stored as sigmoid, we need to apply inverse sigmoid
-    // But for SPZ, alpha appears to be direct [0, 255] -> [0, 1]
-    // Let's check if it needs logit conversion
-
-    // Based on research, SPZ stores alpha directly as linear [0, 255] -> [0, 1]
-    return p_encoded / 255.0f;
-}
-
-float SPZLoader::decode_sh_coefficient(uint8_t p_encoded, uint8_t /* p_bits */) const {
-    // SPZ stores SH coefficients as 8-bit values centered at 128
-    // This matches the official Niantic unquantizeSH() function:
-    //   float unquantizeSH(uint8_t x) { return (x - 128.0f) / 128.0f; }
-    // The p_bits parameter was incorrectly used before - SPZ always uses
-    // full 8-bit range with 128 as zero point, regardless of "bit precision"
-    // mentioned in the spec (which refers to internal quantization, not file format)
-    return (static_cast<float>(p_encoded) - 128.0f) / 128.0f;
+    const bool v4 = envelope.header.version == 4;
+    if (!v4 && !whole_gzip) {
+        // Historical GodotGS header+gzip wrapper, retained as an explicit legacy
+        // compatibility route rather than advertised as Niantic producer output.
+        PackedByteArray payload;
+        error = decompress_data(input.slice(16), payload, MAX_SPZ_DECOMPRESSED_BYTES, envelope.attributes_bytes);
+        if (error != OK) {
+            return error;
+        }
+        if (!gs_resize_or_fail(bytes, 16 + payload.size(), "SPZLoader::load_file legacy wrapper")) {
+            return ERR_OUT_OF_MEMORY;
+        }
+        memcpy(bytes.ptrw(), input.ptr(), 16);
+        memcpy(bytes.ptrw() + 16, payload.ptr(), payload.size());
+        envelope = SpzEnvelope{};
+        error = spz_parse_header(bytes, envelope, input.size());
+        if (error != OK) {
+            return error;
+        }
+    }
+    error = v4 ? spz_validate_v4(bytes, envelope) : spz_validate_legacy(bytes, envelope);
+    if (error != OK) {
+        return error;
+    }
+    spz::PackedGaussians packed;
+    if (v4) {
+        packed = spz::loadSpzPacked(bytes.ptr(), bytes.size());
+    } else {
+        SpzMemoryBuffer buffer(bytes);
+        std::istream stream(&buffer);
+        packed = spz::deserializePackedGaussians(stream);
+    }
+    Ref<GaussianData> staged;
+    error = spz_populate_runtime(packed, envelope, staged);
+    if (error != OK) {
+        return error;
+    }
+    gaussian_data = staged;
+    header = envelope.header;
+    container_stream_count = envelope.stream_count;
+    return OK;
 }
 
 int SPZLoader::get_splat_count() const {
     return gaussian_data.is_valid() ? gaussian_data->get_count() : 0;
 }
-
 Dictionary SPZLoader::get_load_statistics() const {
     Dictionary stats;
     stats["splat_count"] = get_splat_count();
     stats["format"] = "spz";
-    stats["version"] = (int)header.version;
-    stats["sh_degree"] = (int)header.sh_degree;
-    stats["fractional_bits"] = (int)header.fractional_bits;
-    stats["flags"] = (int)header.flags;
+    stats["version"] = int(header.version);
+    stats["sh_degree"] = int(header.sh_degree);
+    stats["fractional_bits"] = int(header.fractional_bits);
+    stats["flags"] = int(header.flags);
     stats["antialiased"] = (header.flags & SPZ_FLAG_ANTIALIASED) != 0;
-
+    stats["num_streams"] = int(container_stream_count);
+    stats["decoder_commit"] = "affd0ecea7fbb4c265ee119475af7ee5b2997482";
     if (gaussian_data.is_valid()) {
-        AABB aabb = gaussian_data->get_aabb();
-        stats["bounds_min"] = aabb.position;
-        stats["bounds_max"] = aabb.position + aabb.size;
+        const AABB bounds = gaussian_data->get_aabb();
+        stats["bounds_min"] = bounds.position;
+        stats["bounds_max"] = bounds.position + bounds.size;
     }
-
     return stats;
 }

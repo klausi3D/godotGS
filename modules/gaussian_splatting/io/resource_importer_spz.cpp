@@ -553,6 +553,7 @@ Error ResourceImporterSPZ::import(ResourceUID::ID p_source_id, const String &p_s
     import_metadata[StringName("spz_sh_degree")] = (int)spz_header.sh_degree;
     import_metadata[StringName("spz_fractional_bits")] = (int)spz_header.fractional_bits;
     import_metadata[StringName("spz_antialiased")] = (spz_header.flags & SPZLoader::SPZ_FLAG_ANTIALIASED) != 0;
+    import_metadata[StringName("gaussian_antialiased")] = gaussian_data->get_antialiased();
 
     if (include_stats) {
         import_metadata[StringName("loader_statistics")] = loader->get_load_statistics();

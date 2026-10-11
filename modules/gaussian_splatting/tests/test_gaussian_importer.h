@@ -1608,7 +1608,7 @@ TEST_CASE("[GaussianSplatting][Importer][MalformedCorpus] SPZ loader rejects tru
     _remove_user_file(source_path);
 }
 
-TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear RGB") {
+TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks the once-scaled DC contribution as linear RGB") {
     const String source_path = "user://gaussian_spz_linear_dc.spz";
 
     PackedByteArray payload = _make_spz_v2_single_point_payload(255, 64, 128, 255);
@@ -1634,9 +1634,12 @@ TEST_CASE("[GaussianSplatting][Importer] SPZ loader marks DC encoding as linear 
 
     const Gaussian g = data->get_gaussian(0);
     CHECK(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
-    CHECK(Math::is_equal_approx(g.sh_dc.r, 64.0f / 255.0f));
-    CHECK(Math::is_equal_approx(g.sh_dc.g, 128.0f / 255.0f));
-    CHECK(Math::is_equal_approx(g.sh_dc.b, 1.0f));
+    // Official packed color is a quantized SH-DC coefficient, not RGB.
+    // The raster route adds 0.5 after this once-only C0 scaling.
+    constexpr float c0 = 0.28209479177387814f;
+    CHECK(Math::is_equal_approx(g.sh_dc.r, c0 * ((64.0f / 255.0f - 0.5f) / 0.15f)));
+    CHECK(Math::is_equal_approx(g.sh_dc.g, c0 * ((128.0f / 255.0f - 0.5f) / 0.15f)));
+    CHECK(Math::is_equal_approx(g.sh_dc.b, c0 * (0.5f / 0.15f)));
 
     _remove_user_file(source_path);
 }
