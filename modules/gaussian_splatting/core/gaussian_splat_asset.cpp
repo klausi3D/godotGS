@@ -1800,6 +1800,9 @@ bool GaussianSplatAsset::populate_gaussian_data(Ref<::GaussianData> &r_data) con
     if (asset_metadata.has(StringName("gaussian_2d_mode"))) {
         staged->set_2d_mode((bool)asset_metadata[StringName("gaussian_2d_mode")]);
     }
+    if (asset_metadata.has(StringName("gaussian_antialiased"))) {
+        staged->set_antialiased((bool)asset_metadata[StringName("gaussian_antialiased")]);
+    }
     const GaussianDCEncoding staged_dc_encoding = _resolve_dc_encoding_from_metadata(asset_metadata);
     for (int i = 0; i < staged->get_count(); i++) {
         Gaussian g = staged->get_gaussian(i);

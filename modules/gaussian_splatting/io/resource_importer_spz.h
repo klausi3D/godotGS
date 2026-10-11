@@ -58,7 +58,9 @@ public:
     //       imported by v4-v7 from such an SPZ holds poisoned splats in its .res;
     //       bumping the format version makes Godot re-run import() automatically
     //       so it fails loudly instead of shipping the NaN to the GPU.
-    virtual int get_format_version() const override { return 8; }
+    //   v9: pinned official SPZ v1-4 decoding, corrected DC/rotations and
+    //       preserved SH4 and antialiased training metadata require reimport.
+    virtual int get_format_version() const override { return 9; }
 
     ResourceImporterSPZ();
 };

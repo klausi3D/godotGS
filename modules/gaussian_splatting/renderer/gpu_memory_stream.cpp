@@ -1,4 +1,5 @@
 #include "gpu_memory_stream.h"
+#include "gpu_record_sizes.h"
 #include "../core/gs_vector_alloc.h" // #798: gs_resize_or_fail() for resize-then-ptrw() outputs
 #include "core/error/error_macros.h"
 #include "core/math/math_funcs.h"
@@ -107,16 +108,17 @@ Error GaussianMemoryStream::initialize(RenderingDevice *p_rd, uint32_t p_max_gau
     ERR_FAIL_NULL_V_MSG(p_rd, ERR_INVALID_PARAMETER, "RenderingDevice is null");
     ERR_FAIL_COND_V_MSG(p_max_gaussians == 0, ERR_INVALID_PARAMETER, "Max gaussians must be > 0");
 
+    // Calculate buffer size
+    uint32_t gaussian_buffer_size = 0;
+    uint32_t aligned_total_buffer_size = 0;
+    ERR_FAIL_COND_V_MSG(!gs_gpu_record_buffer_size(p_max_gaussians, sizeof(PackedGaussian), 1, gaussian_buffer_size) ||
+            !gs_gpu_record_buffer_size(p_max_gaussians, sizeof(PackedGaussian) + sizeof(uint32_t),
+                    kUploadAlignmentBytes, aligned_total_buffer_size),
+            ERR_INVALID_PARAMETER, "Gaussian stream capacity exceeds addressable GPU buffer bytes");
+
     rd = p_rd;
     max_gaussians = p_max_gaussians;
     buffer_size_mb = p_buffer_size_mb;
-
-    // Calculate buffer size
-    uint32_t gaussian_buffer_size = max_gaussians * sizeof(PackedGaussian);
-    uint32_t sort_key_buffer_size = max_gaussians * sizeof(uint32_t);
-    uint32_t total_buffer_size = gaussian_buffer_size + sort_key_buffer_size;
-    uint32_t aligned_total_buffer_size =
-            (total_buffer_size + kUploadAlignmentBytes - 1) & ~(kUploadAlignmentBytes - 1);
 
     // Make pool sizing responsive to configured memory budget, while guaranteeing enough
     // space for the active triple-buffer footprint.
@@ -410,11 +412,16 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
     MutexLock lock(buffer_mutex);
     ERR_FAIL_NULL_V_MSG(rd, ERR_UNCONFIGURED, "RenderingDevice not initialized");
 
+    ERR_FAIL_COND_V_MSG(start > gaussians.size(), ERR_INVALID_PARAMETER, "Invalid start for streaming gaussians");
     if (count == UINT32_MAX) {
         count = gaussians.size() - start;
     }
 
-    ERR_FAIL_COND_V_MSG(start + count > gaussians.size(), ERR_INVALID_PARAMETER, "Invalid range for streaming gaussians");
+    ERR_FAIL_COND_V_MSG(count > gaussians.size() - start, ERR_INVALID_PARAMETER, "Invalid range for streaming gaussians");
+    uint32_t data_size = 0;
+    ERR_FAIL_COND_V_MSG(count > max_gaussians ||
+            !gs_gpu_record_buffer_size(count, sizeof(PackedGaussian), 1, data_size),
+            ERR_INVALID_PARAMETER, "Gaussian upload exceeds configured or addressable capacity");
 
     // #787: pack BEFORE claiming a stream buffer. _get_next_write_buffer() flips the slot from
     // BUFFER_FREE to BUFFER_UPLOADING, so returning early after that point would strand it in
@@ -463,7 +470,6 @@ Error GaussianMemoryStream::_stream_internal(const LocalVector<Gaussian> &gaussi
 
     StreamBuffer &buffer = buffers[buffer_idx];
 
-    uint32_t data_size = packed_gaussians.size() * sizeof(PackedGaussian);
     ERR_FAIL_COND_V_MSG(data_size > buffer.capacity, ERR_OUT_OF_MEMORY,
             vformat("Data size (%d bytes) exceeds buffer capacity (%d bytes)", data_size, buffer.capacity));
 
@@ -602,11 +608,10 @@ bool GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
         return true;
     }
 
-    uint32_t size = count * sizeof(PackedGaussian);
-
-    const uint32_t alignment = kUploadAlignmentBytes;
-
-    uint32_t aligned_size = (size + alignment - 1) & ~(alignment - 1);
+    uint32_t aligned_size = 0;
+    ERR_FAIL_COND_V_MSG(!gs_gpu_record_buffer_size(count, sizeof(PackedGaussian),
+                    kUploadAlignmentBytes, aligned_size),
+            false, "Gaussian upload exceeds addressable GPU buffer bytes");
 
     // #798 review: now that this function reports status, this pre-existing bail returns
     // false too, so the caller releases the claimed slot instead of stranding it in
@@ -616,11 +621,7 @@ bool GaussianMemoryStream::_upload_buffer_coalesced(int buffer_index, const Pack
     ERR_FAIL_COND_V_MSG(aligned_size > buffer.capacity, false,
             vformat("Upload size (%d) exceeds buffer capacity (%d)", aligned_size, buffer.capacity));
 
-    uint32_t aligned_count = aligned_size / sizeof(PackedGaussian);
-    if (aligned_count == 0) {
-        aligned_count = 1;
-        aligned_size = sizeof(PackedGaussian);
-    }
+    const uint32_t aligned_count = gs_gpu_upload_scratch_count(aligned_size, sizeof(PackedGaussian));
 
     uint32_t scratch_size = static_cast<uint32_t>(coalesced_upload_scratch.size());
     if (scratch_size < aligned_count) {

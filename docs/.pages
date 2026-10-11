@@ -107,6 +107,9 @@ nav:
               - Decompose the Streaming System: architecture/adr-decompose-streaming-system.md
               - Splat Colour Encoding: architecture/adr-splat-colour-encoding.md
               - Complete v1 Splat Data Contract: architecture/adr-v1-splat-data-contract.md
+              - SPZ v4 Reference Adapter: architecture/adr-spz-v4-reference-adapter.md
+              - SH Basis Evaluation: architecture/adr-sh-basis-evaluation.md
+              - Full SH GPU Storage: architecture/adr-full-sh-gpu-storage.md
               - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md
               - Import Importance Pruning: architecture/adr-import-importance-pruning.md
               - Import Input Hardening: architecture/adr-import-input-hardening.md
@@ -117,3 +120,4 @@ nav:
               - Test Quarantine Manifest: architecture/adr-test-quarantine-manifest.md
               - Alpha Envelope Widened to Streaming: architecture/adr-alpha-envelope-widened-to-streaming.md
               - Open-World Proof Content Validation: architecture/adr-open-world-proof-content-validation.md
+
