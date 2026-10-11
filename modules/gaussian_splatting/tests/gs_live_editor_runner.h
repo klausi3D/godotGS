@@ -41,8 +41,10 @@ class GSLiveEditorTestRunner : public RefCounted {
 	void _emit(Dictionary &p_data);
 	static void _error(void *p_userdata, const char *p_function, const char *p_file, int p_line,
 			const char *p_error, const char *p_message, bool p_notify, ErrorHandlerType p_type);
+
 protected:
 	static void _bind_methods();
+
 public:
 	bool arm();
 	static GSLiveEditorTestRunner *get_current() { return current; }

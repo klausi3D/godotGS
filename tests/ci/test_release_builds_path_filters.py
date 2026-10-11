@@ -583,38 +583,18 @@ def parse_event_paths(workflow_text: str) -> Dict[str, List[str]]:
     return result
 
 
-def event_has_no_ref_or_path_filters(workflow_text: str, event: str) -> bool:
-    """Exempt only modeled literal event mappings; unsupported YAML fails closed.
-
-    This portable guard has no YAML dependency. A false result keeps the actual
-    path-coverage assertion active, rather than inferring that unknown syntax
-    contains no filters. Quoted keys, merges and aliases cannot hide exclusions.
-    """
-    blocks = re.findall(r"(?ms)^(?:on|'on'|\"on\"):[ \t]*\n(.*?)(?=^[^\s#]|\Z)", workflow_text)
-    if len(blocks) != 1:
-        return False
-    lines = [line.split("#", 1)[0].rstrip() for line in blocks[0].splitlines()]
-    lines = [line for line in lines if line.strip()]
-    key_pattern = r"(?:([A-Za-z_][\w-]*)|\"([A-Za-z_][\w-]*)\"|'([A-Za-z_][\w-]*)'):[ \t]*(.*)"
+def _literal_event_entries(lines: list[str], key_pattern: str) -> list[tuple[int, str, str]] | None:
     entries = []
     for index, line in enumerate(lines):
         if line.startswith("  ") and not line.startswith("   "):
             match = re.fullmatch(key_pattern, line[2:])
             if not match:
-                return False
+                return None
             entries.append((index, next(key for key in match.groups()[:3] if key), match.group(4)))
-    matching = [(i, value) for i, key, value in entries if key == event]
-    if len(matching) != 1:
-        return False
-    start, value = matching[0]
-    if value not in ("", "{}", "null", "~"):
-        return False
-    end = next((i for i, _, _ in entries if i > start), len(lines))
-    body = lines[start + 1:end]
-    if not body:
-        return True
-    if value:
-        return False
+    return entries
+
+
+def _literal_event_types(body: list[str], key_pattern: str) -> bool:
     # `types` is the sole nonfilter option modeled here. Any new option requires
     # an explicit model before it can exempt the coverage assertion.
     first = re.fullmatch("    " + key_pattern, body[0])
@@ -633,6 +613,37 @@ def event_has_no_ref_or_path_filters(workflow_text: str, event: str) -> bool:
         return False
     literal_activity = r"(?:[A-Za-z_][\w-]*|'[A-Za-z_][\w-]*'|\"[A-Za-z_][\w-]*\")"
     return bool(tokens) and all(re.fullmatch(literal_activity, token) for token in tokens)
+
+
+def event_has_no_ref_or_path_filters(workflow_text: str, event: str) -> bool:
+    """Exempt only modeled literal event mappings; unsupported YAML fails closed.
+
+    This portable guard has no YAML dependency. A false result keeps the actual
+    path-coverage assertion active, rather than inferring that unknown syntax
+    contains no filters. Quoted keys, merges and aliases cannot hide exclusions.
+    """
+    blocks = re.findall(r"(?ms)^(?:on|'on'|\"on\"):[ \t]*\n(.*?)(?=^[^\s#]|\Z)", workflow_text)
+    if len(blocks) != 1:
+        return False
+    lines = [line.split("#", 1)[0].rstrip() for line in blocks[0].splitlines()]
+    lines = [line for line in lines if line.strip()]
+    key_pattern = r"(?:([A-Za-z_][\w-]*)|\"([A-Za-z_][\w-]*)\"|'([A-Za-z_][\w-]*)'):[ \t]*(.*)"
+    entries = _literal_event_entries(lines, key_pattern)
+    if entries is None:
+        return False
+    matching = [(i, value) for i, key, value in entries if key == event]
+    if len(matching) != 1:
+        return False
+    start, value = matching[0]
+    if value not in ("", "{}", "null", "~"):
+        return False
+    end = next((i for i, _, _ in entries if i > start), len(lines))
+    body = lines[start + 1:end]
+    if not body:
+        return True
+    if value:
+        return False
+    return _literal_event_types(body, key_pattern)
 
 
 def _normalise(token: str) -> str:

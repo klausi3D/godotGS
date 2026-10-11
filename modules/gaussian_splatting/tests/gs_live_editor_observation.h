@@ -151,6 +151,7 @@ inline void observe_consume(const char *where) {
 class PhaseScope {
 	Access access;
 	bool engaged = false;
+
 public:
 	PhaseScope(uint32_t ordinal, uint64_t generator, uint64_t asset, int size, int style, int splats) {
 		Observer *o = access.get();
@@ -180,6 +181,7 @@ public:
 class GenerateScope {
 	Access access;
 	Observer *observer = nullptr;
+
 public:
 	GenerateScope(uint64_t generator, uint64_t asset, int size, int style) {
 		Observer *o = access.get();

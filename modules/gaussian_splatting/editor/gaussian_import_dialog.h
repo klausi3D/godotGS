@@ -168,7 +168,7 @@ private:
 protected:
     static void _bind_methods();
 
-    virtual void ok_pressed() override;
+    void ok_pressed() override;
 
 public:
 #ifdef TESTS_ENABLED

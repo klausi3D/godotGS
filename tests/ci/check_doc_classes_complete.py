@@ -39,6 +39,31 @@ _CLASS_NAME_RE = re.compile(r'<class\s+name="([^"]+)"')
 _BRIEF_RE = re.compile(r"<brief_description>(.*?)</brief_description>", re.DOTALL)
 
 
+def _shipping_negate(value: bool | None) -> bool | None:
+    return None if value is None else not value
+
+
+def _shipping_combine(a: bool | None, b: bool | None, is_and: bool) -> bool | None:
+    if is_and:
+        return False if a is False or b is False else (True if a is True and b is True else None)
+    return True if a is True or b is True else (False if a is False and b is False else None)
+
+
+def _shipping_defined(parts: list[str], index: int) -> tuple[bool | None, int]:
+    parenthesized = index < len(parts) and parts[index] == "("
+    if parenthesized:
+        index += 1
+    if index >= len(parts) or not re.fullmatch(r"[A-Za-z_]\w*", parts[index]):
+        raise ValueError("missing defined identifier")
+    name = parts[index]
+    index += 1
+    if parenthesized:
+        if index >= len(parts) or parts[index] != ")":
+            raise ValueError("missing defined close")
+        index += 1
+    return (False if name == "TESTS_ENABLED" else None), index
+
+
 def _shipping_condition(text: str) -> bool | None:
     """Tiny tri-state grammar; unsupported CPP expressions remain unknown."""
     text = text.split("//", 1)[0].strip()
@@ -47,14 +72,6 @@ def _shipping_condition(text: str) -> bool | None:
         return None
     index = 0
 
-    def negate(value):
-        return None if value is None else not value
-
-    def combine(a, b, is_and):
-        if is_and:
-            return False if a is False or b is False else (True if a is True and b is True else None)
-        return True if a is True or b is True else (False if a is False and b is False else None)
-
     def atom():
         nonlocal index
         if index >= len(parts):
@@ -62,7 +79,7 @@ def _shipping_condition(text: str) -> bool | None:
         item = parts[index]
         index += 1
         if item == "!":
-            return negate(atom())
+            return _shipping_negate(atom())
         if item == "(":
             result = expression()
             if index >= len(parts) or parts[index] != ")":
@@ -70,18 +87,8 @@ def _shipping_condition(text: str) -> bool | None:
             index += 1
             return result
         if item == "defined":
-            parenthesized = index < len(parts) and parts[index] == "("
-            if parenthesized:
-                index += 1
-            if index >= len(parts) or not re.fullmatch(r"[A-Za-z_]\w*", parts[index]):
-                raise ValueError("missing defined identifier")
-            name = parts[index]
-            index += 1
-            if parenthesized:
-                if index >= len(parts) or parts[index] != ")":
-                    raise ValueError("missing defined close")
-                index += 1
-            return False if name == "TESTS_ENABLED" else None
+            value, index = _shipping_defined(parts, index)
+            return value
         if re.fullmatch(r"[A-Za-z_]\w*", item):
             return None
         raise ValueError("unsupported condition")
@@ -91,7 +98,7 @@ def _shipping_condition(text: str) -> bool | None:
         value = atom()
         while index < len(parts) and parts[index] == "&&":
             index += 1
-            value = combine(value, atom(), True)
+            value = _shipping_combine(value, atom(), True)
         return value
 
     def expression():
@@ -99,7 +106,7 @@ def _shipping_condition(text: str) -> bool | None:
         value = conjunction()
         while index < len(parts) and parts[index] == "||":
             index += 1
-            value = combine(value, conjunction(), False)
+            value = _shipping_combine(value, conjunction(), False)
         return value
 
     try:
