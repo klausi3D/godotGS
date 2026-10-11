@@ -42,3 +42,17 @@ workflow inventory and the runner trust policy.
 - **Any change that relaxes the trust boundary or downgrades a gate must be
   documented** here, in `README.md`, and in `docs/governance/review-policy.md`,
   and explicitly approved by a human maintainer.
+
+## Proposed universal evidence gate
+
+The reviewed R3 redesign in `pr_gpu_evidence_verdict.yml` uses full immutable
+commit/policy evidence for every supported same-repo/master PR, including docs,
+and permits SUCCESS only for canonical single-parent commits. It removes the
+former R0/R1 GPU exemption; classification remains informational. Mandatory
+module-GPU/runtime execution is unconditional and the runner fork guard remains
+required. Existing advisory batches and completion-marker severity are preserved.
+The default-code hosted publisher uses an exact master-only environment and a
+dedicated App; its Actions token has no statuses-write permission. Activation is
+pending owner approval and real hosted/native validation. Keep the acceptance and
+availability costs synchronized in this directory's README, the review policy and
+GitHub-settings checklist. A source change never installs protection by itself.

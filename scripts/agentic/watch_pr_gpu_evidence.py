@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trusted-base consumer for a PR's canonical GPU receipt. Never executes PR code."""
+"""Hosted trusted-policy consumer; universal gate is NOT ACTIVE without owner setup."""
 from __future__ import annotations
 
 import argparse
@@ -8,53 +8,65 @@ import io
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
+import sys
 import time
 from typing import NamedTuple
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("gpu_evidence", ROOT / "tests/ci/check_pr_gpu_evidence.py")
-checker = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(checker)
+
+
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+checker = load_module("gpu_evidence", ROOT / "tests/ci/check_universal_gpu_evidence.py")
+policy = load_module("gpu_commit_policy", ROOT / "scripts/agentic/gpu_commit_policy.py")
 JOB_STEPS = {
     "build": "Build Godot editor with tests",
+    "capture": "Capture measured commit and binary before runtime",
     "pipeline": "Run Gaussian pipeline smoke tests",
     "module": "Run module tests",
     "headless": "Run runtime validation harness (headless structural gate)",
     "streaming": "Run streaming GPU runtime gate (canonical blocking profile, windows-vulkan)",
     "postflight": "Postflight - GPU contention verdict (#875)",
+    "receipt": "Bind canonical GPU evidence to reviewed commit",
+    "upload": "Upload canonical PR GPU receipt",
 }
 MODULE_JOB = "Module Build + Runtime Harness (Windows Self-Hosted)"
 GUARD_JOB = "Guards (Render Path + Static Safety)"
-# The producer runs the PROPOSED tree, so its step labels and receipt prove
-# nothing if the PR rewrote what runs under them. These files define the
-# commands behind JOB_STEPS, the receipt, the contention verdict and the GPU
-# environment preflight; a PR that changes any of them cannot self-certify and
-# needs maintainer disposition. test_pr_gpu_evidence_wiring.py derives the
-# scripts the producer's preflight/postflight/receipt steps run and fails if one
-# is missing here.
-PRODUCER_DEFINITIONS = (
-    ".github/workflows/gaussian_production_gates.yml",
-    "tests/ci/check_pr_gpu_evidence.py",
-    "tests/ci/preflight_runner_gpu_environment.py",
-    "tests/ci/runner_gpu_contention.py",
-)
 
 
 class EvidenceOutcome(NamedTuple):
     exit_code: int
     description: str
+    verified_run: tuple[int, int] | None = None
+    measured_sha: str | None = None
+    policy_context: str | None = None
 
 
 def api(endpoint: str, *, raw: bool = False, payload: dict | None = None):
     argv = ["gh", "api", endpoint]
+    env = dict(os.environ)
+    if payload is not None:
+        credential = os.environ.get("GS_PUBLISH_TOKEN")
+    elif "/protection" in endpoint or "/environments/" in endpoint or endpoint.endswith("/rulesets"):
+        credential = os.environ.get("GS_PROTECTION_TOKEN")
+    else:
+        credential = os.environ.get("GH_TOKEN")
+    if not credential:
+        raise ValueError("Required scoped API credential is absent; no token fallback")
+    env["GH_TOKEN"] = credential
     data = None
     if payload is not None:
         argv.extend(["--method", "POST", "--input", "-"])
         data = json.dumps(payload).encode("utf-8")
-    result = subprocess.run(argv, input=data, check=True, capture_output=True, timeout=60)
+    result = subprocess.run(argv, input=data, check=True, capture_output=True, timeout=60, env=env)
     return result.stdout if raw else json.loads(result.stdout)
 
 
@@ -65,127 +77,103 @@ def pages(endpoint: str, key: str | None = None) -> list:
         separator = "&" if "?" in endpoint else "?"
         result = api(f"{endpoint}{separator}per_page=100&page={page}")
         batch = result[key] if key else result
+        if not isinstance(batch, list):
+            raise ValueError("Invalid paginated API response")
         items.extend(batch)
         if len(batch) < 100:
             return items
         page += 1
 
 
-def classify_paths(paths: list[str]) -> str:
-    # ROOT is the base checkout, never the proposed merge/head tree.
-    result = subprocess.run(["python", str(ROOT / "scripts/agentic/classify_change.py"),
-                             "--policy", str(ROOT / ".agentic/policy.json"),
-                             "--format", "json", "--paths", *paths],
-                            check=True, capture_output=True, encoding="utf-8")
-    risk = json.loads(result.stdout)["risk_class"]
-    if risk not in ("R0", "R1", "R2", "R3"):
-        raise ValueError("Unknown base policy risk class")
-    return risk
-
-
-def verify_jobs(jobs: list[dict]) -> dict[str, str]:
-    by_name = {job["name"]: job for job in jobs}
+def verify_jobs(jobs: list[dict]) -> None:
     for name in (GUARD_JOB, MODULE_JOB):
-        if name not in by_name or by_name[name].get("conclusion") != "success":
+        matching = [job for job in jobs if job.get("name") == name]
+        if len(matching) != 1 or matching[0].get("conclusion") != "success":
             raise ValueError(f"Missing or non-successful actual GitHub job: {name}")
-    steps = {step["name"]: step for step in by_name[MODULE_JOB].get("steps", [])}
-    for name in JOB_STEPS.values():
-        step = steps.get(name)
-        if not step or step.get("conclusion") != "success" or not step.get("started_at") or not step.get("completed_at"):
-            raise ValueError(f"Required actual GitHub step did not run successfully: {name}")
-    return {"pr-evidence-policy": "success", "guards": "success", "module-validation": "success"}
+        if name == MODULE_JOB:
+            for step_name in JOB_STEPS.values():
+                steps = [step for step in matching[0].get("steps", []) if step.get("name") == step_name]
+                if (len(steps) != 1 or steps[0].get("conclusion") != "success"
+                        or not steps[0].get("started_at") or not steps[0].get("completed_at")):
+                    raise ValueError(f"Required actual GitHub step did not run successfully: {step_name}")
 
 
-def read_receipt(data: bytes) -> dict:
+def read_receipt(data: bytes) -> tuple[dict, dict[str, bytes]]:
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = checker.UNIVERSAL_ARTIFACT_FILES
         entries = archive.infolist()
-        if len(entries) != 1 or entries[0].filename != "pr-gpu-evidence.json" or entries[0].file_size > 65536:
-            raise ValueError("Unexpected GPU receipt archive")
-        return json.loads(archive.read(entries[0]))
+        if (len(entries) != len(names) or {item.filename for item in entries} != set(names)
+                or any(item.file_size > 4 * 1024 * 1024 for item in entries)):
+            raise ValueError("Unexpected universal receipt archive")
+        files = {name: archive.read(name) for name in names}
+        receipt = json.loads(files.pop("pr-gpu-evidence.json"))
+        return receipt, files
 
 
-def event_bindings(event: dict) -> tuple:
+def event_head(event: dict) -> tuple[str, dict]:
     pull = event.get("pull_request")
-    group = event.get("merge_group")
-    if pull:
-        base = pull["base"]["sha"]
-        head = pull["head"]["sha"]
-        number = pull["number"]
-        source_event = "pull_request"
-    elif group:
-        base, head = group["base_sha"], group["head_sha"]
-        number = None
-        source_event = "merge_group"
-    else:
-        raise ValueError("Unsupported evidence event")
-    return pull, base, head, number, source_event
+    if not isinstance(pull, dict):
+        raise ValueError("Initial universal profile supports PRs targeting master only")
+    return policy.require_sha(pull.get("head", {}).get("sha")), pull
 
 
-def changed_paths(repo: str, pull: dict | None, base: str, head: str, number: int | None) -> list[str]:
-    if checker.git("rev-parse", "HEAD") != base:
-        raise ValueError("Trusted consumer must run from the immutable base checkout")
-    if pull:
-        current = api(f"repos/{repo}/pulls/{number}")
-        if current["head"]["sha"] != head or current["base"]["sha"] != base:
-            raise ValueError("PR changed before classification; event is stale")
-        files = pages(f"repos/{repo}/pulls/{number}/files")
-        if len(files) != pull["changed_files"]:
-            raise ValueError("Incomplete PR diff; refusing risk exemption")
-        paths = sorted({path for item in files for path in (item["filename"], item.get("previous_filename")) if path})
-    else:
-        # Fetch an object for data-only diff inspection; never check out or execute it.
-        subprocess.run(["git", "fetch", "--no-tags", "origin", head], cwd=ROOT,
-                       check=True, capture_output=True, timeout=60)
-        paths = checker.git("diff", "--name-only", "--no-renames", base, head).splitlines()
-    return paths
+def current_pull(repo: str, pull: dict, head: str) -> dict:
+    number = pull.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise ValueError("Missing current PR identity")
+    current = api(f"repos/{repo}/pulls/{number}")
+    if (current.get("state") != "open" or current.get("head", {}).get("sha") != head
+            or current.get("base", {}).get("ref") != policy.TARGET_BRANCH
+            or current.get("base", {}).get("repo", {}).get("full_name") != repo):
+        raise ValueError("Unsupported or changed PR head/target")
+    if current.get("head", {}).get("repo", {}).get("full_name") != repo:
+        raise ValueError("Fork requires an exact-S maintainer-owned validation branch; no self-hosted fork execution")
+    return current
 
 
-def require_trusted_producer(paths: list[str]) -> None:
-    changed = sorted(set(paths) & set(PRODUCER_DEFINITIONS))
-    if changed:
-        raise ValueError("PR changes the evidence producer (" + ", ".join(changed)
-                         + "); its own run cannot certify itself. Maintainer disposition required")
+def proof_settings(event: dict) -> tuple[dict[str, bytes], str, dict | None]:
+    trusted = policy.require_sha(event.get("trusted_base_sha"))
+    if checker.git("rev-parse", "HEAD") != trusted:
+        raise ValueError("Controller must execute only the selected immutable trusted default checkout")
+    bundle = policy.policy_bundle(trusted)
+    context = policy.context_for(bundle)
+    raw = os.environ.get("GS_CODE_EVIDENCE_BOOTSTRAP", "")
+    bootstrap = json.loads(raw) if raw else None
+    if bootstrap is not None and not isinstance(bootstrap, dict):
+        raise ValueError("Invalid owner bootstrap configuration")
+    return bundle, context, bootstrap
 
 
-def require_unshared_head(repo: str, number: int, head: str) -> None:
-    # The status context is keyed by SHA alone, so a verdict for one PR's base
-    # would also land on every other open PR with the same head.
-    pulls = pages(f"repos/{repo}/commits/{head}/pulls")
-    others = sorted(item["number"] for item in pulls
-                    if item.get("state") == "open" and item.get("head", {}).get("sha") == head
-                    and item.get("number") != number)
-    if others:
-        raise ValueError("Head SHA is shared with other open PRs " + ", ".join(f"#{n}" for n in others)
-                         + "; a SHA-keyed status cannot carry a base-specific verdict")
+def live_proof(repo: str, head: str, context: str, bootstrap: dict | None = None,
+               run: dict | None = None) -> str:
+    policy.eligible_commit(api, repo, head)
+    return policy.enforcement(api, repo, head, context, os.environ.get("GS_PUBLISH_APP_ID"),
+                              bootstrap=bootstrap, run_id=str(run["id"]) if run else None,
+                              run_attempt=str(run["run_attempt"]) if run else None)
 
 
-def run_verdict(repo: str, risk: str, run: dict, expected: dict) -> str:
+def latest_source_run(repo: str, head: str, event: dict) -> dict | None:
+    runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event=pull_request&head_sha={head}", "workflow_runs")
+    valid = [run for run in runs if run.get("head_sha") == head and run.get("event") == "pull_request"]
+    if not valid:
+        return None
+    latest = max(valid, key=lambda value: value["id"])
+    if event.get("source_run_id") is not None:
+        if latest["id"] < event["source_run_id"]:
+            return None
+    return latest
+
+
+def run_verdict(repo: str, run: dict, head: str, context: str) -> None:
     attempt = run["run_attempt"]
-    jobs = pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs")
-    outcomes = verify_jobs(jobs)
+    verify_jobs(pages(f"repos/{repo}/actions/runs/{run['id']}/attempts/{attempt}/jobs", "jobs"))
     artifacts = pages(f"repos/{repo}/actions/runs/{run['id']}/artifacts", "artifacts")
     matching = [item for item in artifacts if item["name"] == f"pr-gpu-evidence-{attempt}" and not item["expired"]]
-    if len(matching) != 1 or matching[0]["size_in_bytes"] > 131072:
-        raise ValueError("Exact-run receipt artifact is absent or ambiguous")
-    receipt = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
-    return checker.verdict(risk, outcomes, receipt, expected)
-
-
-def success_is_current(repo: str, source_event: str, run: dict, expected: dict, number: int | None) -> bool:
-    # Artifact/API reads can overlap a new run or rerun. A delayed lifecycle
-    # event must never republish a superseded success.
-    latest_runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={expected['head_sha']}", "workflow_runs")
-    if not latest_runs:
-        raise ValueError("Canonical run disappeared during validation")
-    latest = max(latest_runs, key=lambda value: value["id"])
-    if (latest["id"], latest["run_attempt"], latest["status"], latest["conclusion"]) != (run["id"], run["run_attempt"], "completed", "success"):
-        return False
-    if number is not None:
-        current = api(f"repos/{repo}/pulls/{number}")
-        if current["head"]["sha"] != expected["head_sha"] or current["base"]["sha"] != expected["base_sha"] or current["merge_commit_sha"] != expected["checkout_sha"]:
-            raise ValueError("PR changed while verifying receipt")
-        require_unshared_head(repo, number, expected["head_sha"])
-    return True
+    if len(matching) != 1 or matching[0]["size_in_bytes"] > 12 * 1024 * 1024:
+        raise ValueError("Exact-run universal receipt artifact is absent or ambiguous")
+    receipt, reports = read_receipt(api(f"repos/{repo}/actions/artifacts/{matching[0]['id']}/zip", raw=True))
+    checker.validate_universal_receipt(receipt, reports, head=head, context=context,
+                                       run_id=str(run["id"]), run_attempt=str(attempt))
 
 
 def main() -> EvidenceOutcome:
@@ -194,90 +182,92 @@ def main() -> EvidenceOutcome:
     args = parser.parse_args()
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repo = os.environ["GITHUB_REPOSITORY"]
-    pull, base, head, number, source_event = event_bindings(event)
-    paths = changed_paths(repo, pull, base, head, number)
-    if pull:
-        require_unshared_head(repo, number, head)
-    risk = classify_paths(paths)
-    if risk in ("R0", "R1"):
-        if pull:
-            # The exemption is published as a SHA-wide success, so recheck the
-            # bindings it was classified under right before returning it.
-            current = api(f"repos/{repo}/pulls/{number}")
-            if current["head"]["sha"] != head or current["base"]["sha"] != base:
-                raise ValueError("PR changed during classification; exemption is stale")
-            require_unshared_head(repo, number, head)
-        print(f"Base policy: {risk}; GPU evidence not required (not a GPU pass).")
-        return EvidenceOutcome(0, f"{risk}: GPU evidence not required (not a GPU pass)")
-    if pull and pull["head"]["repo"]["full_name"] != repo:
-        raise ValueError("R2/R3 fork requires a maintainer-owned validation branch; no fork code executed")
-    require_trusted_producer(paths)
-    return wait_for_evidence(repo, risk, event, pull, base, head, number, source_event, args.timeout_seconds)
-
-
-def current_checkout_sha(repo: str, pull: dict | None, base: str, head: str, number: int | None) -> str:
-    if not pull:
-        return head
-    current = api(f"repos/{repo}/pulls/{number}")
-    if current["head"]["sha"] != head or current["base"]["sha"] != base:
-        raise ValueError("PR head/base changed; this evidence attempt is stale")
-    return current["merge_commit_sha"]
-
-
-def latest_source_run(repo: str, event: dict, pull: dict | None, head: str, source_event: str) -> dict | None:
-    runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
-    # Lifecycle events revalidate the newest execution. A PR event must not
-    # accept a previous same-head execution while a new run is registering.
-    if not event.get("source_run_id") and pull and pull.get("updated_at"):
-        runs = [run for run in runs if run.get("created_at", "") >= pull["updated_at"]]
-    return max(runs, key=lambda value: value["id"]) if runs else None
-
-
-def wait_for_evidence(repo: str, risk: str, event: dict, pull: dict | None, base: str, head: str,
-                      number: int | None, source_event: str, timeout_seconds: int) -> EvidenceOutcome:
-    deadline = time.monotonic() + timeout_seconds
+    head, pull = event_head(event)
+    bundle, context, bootstrap = proof_settings(event)
+    current_pull(repo, pull, head)
+    policy.eligible_commit(api, repo, head)
+    policy.require_producer_pin(head, bundle)
+    deadline = time.monotonic() + args.timeout_seconds
     while time.monotonic() < deadline:
-        checkout_sha = current_checkout_sha(repo, pull, base, head, number)
-        run = latest_source_run(repo, event, pull, head, source_event)
-        if run and run["status"] == "completed":
-            if run["conclusion"] != "success":
-                if event.get("source_run_id"):
-                    raise ValueError(f"Canonical workflow did not pass: {run['html_url']}")
-                # A newly registered run or lifecycle trigger can replace it.
-                time.sleep(20)
-                continue
-            expected = dict(base_sha=base, head_sha=head, checkout_sha=checkout_sha,
-                            run_id=str(run["id"]), run_attempt=str(run["run_attempt"]))
-            verdict = run_verdict(repo, risk, run, expected)
-            if not success_is_current(repo, source_event, run, expected, number):
-                continue
-            print(verdict)
-            print(run["html_url"])
-            return EvidenceOutcome(0, "Trusted GPU evidence accepted")
-        time.sleep(20)
-    raise ValueError("Timed out waiting for exact-head canonical GPU evidence")
+        current_pull(repo, pull, head)
+        run = latest_source_run(repo, head, event)
+        if run and run.get("status") == "completed":
+            if run.get("conclusion") != "success":
+                raise ValueError("Newest canonical run is not successful")
+            live_proof(repo, head, context, bootstrap, run)
+            run_verdict(repo, run, head, context)
+            newest = latest_source_run(repo, head, event)
+            if newest is None or (newest["id"], newest["run_attempt"], newest["status"], newest["conclusion"]) != (run["id"], run["run_attempt"], "completed", "success"):
+                raise ValueError("Run changed during artifact verification")
+            current_pull(repo, pull, head)
+            live_proof(repo, head, context, bootstrap, run)
+            return EvidenceOutcome(0, "Exact commit full module/GPU/runtime evidence accepted",
+                                   (run["id"], run["run_attempt"]), head, context)
+        time.sleep(30)
+    raise ValueError("Timed out waiting for universal canonical evidence")
+
+
+def publish_status(repo: str, head: str, context: str, state: str, description: str,
+                   *, event: dict | None = None, proof: EvidenceOutcome | None = None) -> None:
+    if state == "success":
+        # Shared last boundary for EVERY success path, including owner bootstrap.
+        if event is None or proof is None or proof.measured_sha != head or proof.policy_context != context:
+            raise ValueError("SUCCESS has no trusted event binding")
+        bundle, exact_context, bootstrap = proof_settings(event)
+        if exact_context != context:
+            raise ValueError("Policy changed before SUCCESS publication")
+        policy.require_producer_pin(head, bundle)
+        current_pull(repo, event["pull_request"], head)
+        run = latest_source_run(repo, head, event)
+        if (not run or (run["id"], run["run_attempt"]) != proof.verified_run
+                or run.get("status") != "completed" or run.get("conclusion") != "success"):
+            raise ValueError("Canonical run changed before SUCCESS publication")
+        live_proof(repo, head, context, bootstrap, run)
+    api(f"repos/{repo}/statuses/{head}", payload={"context": context, "state": state,
+        "description": description, "target_url": f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"})
 
 
 def controller() -> int:
-    """Publish the status on the PROPOSED SHA, not pull_request_target's base SHA."""
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repo = os.environ["GITHUB_REPOSITORY"]
-    head = event["pull_request"]["head"]["sha"] if "pull_request" in event else event["merge_group"]["head_sha"]
-    if not re.fullmatch(r"[0-9a-f]{40}", head):
-        raise ValueError("Invalid proposed SHA")
-    endpoint = f"repos/{repo}/statuses/{head}"
-    common = dict(context="gpu-evidence-gate",
-                  target_url=f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}")
-    api(endpoint, payload={**common, "state": "pending", "description": "Waiting for trusted exact-head GPU evidence verdict"})
+    head, _ = event_head(event)
+    _, context, _ = proof_settings(event)
+    publish_status(repo, head, context, "pending", "Waiting for universal exact-commit evidence")
     try:
         result = main()
+        publish_status(repo, head, context, "success" if result.exit_code == 0 else "failure", result.description, event=event, proof=result)
+        return result.exit_code
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
-        print(f"Trusted GPU evidence verdict rejected: {error}")
-        result = EvidenceOutcome(1, "GPU evidence missing, stale, invalid or failed")
-    api(endpoint, payload={**common, "state": "success" if result.exit_code == 0 else "failure",
-                          "description": result.description})
-    return result.exit_code
+        print(f"Universal GPU evidence rejected: {error}")
+        publish_status(repo, head, context, "failure", "Full evidence absent, invalid, stale, or gate NOT ACTIVE")
+        return 1
+
+
+def cleanup() -> int:
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+    head, _ = event_head(event)
+    repo = os.environ["GITHUB_REPOSITORY"]
+    statuses = pages(f"repos/{repo}/commits/{head}/statuses")
+    expected_url = f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+    # Recover this run's immutable policy namespace even if master/policy moved
+    # after the controller began. No controller outputs are needed after timeout.
+    latest_by_context = {}
+    for status in statuses:
+        context = status.get("context", "")
+        suffix = context.removeprefix(policy.POLICY_VERSION + "-")
+        if len(suffix) != 64 or any(char not in "0123456789abcdef" for char in suffix):
+            continue
+        prior = latest_by_context.get(context)
+        if prior is None or status["id"] > prior["id"]:
+            latest_by_context[context] = status
+    for context, latest in latest_by_context.items():
+        if latest.get("state") == "pending" and latest.get("target_url") == expected_url:
+            # Read/write is not atomic; failure is conservative, never SUCCESS.
+            publish_status(repo, head, context, "failure", "Controller aborted before completing full evidence")
+    return 0
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--cleanup"]:
+        raise SystemExit(cleanup())
     raise SystemExit(controller())

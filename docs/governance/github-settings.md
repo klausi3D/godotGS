@@ -153,19 +153,69 @@ the Phase-2 settings-as-code item above.
   gate's workflow/job name changes, update the required-checks list here and in the
   ruleset.
 
-## Pending v1 GPU-evidence context
+## Universal commit GPU evidence activation (pending)
 
-After the [PR GPU evidence verdict](../architecture/adr-pr-gpu-evidence-verdict.md)
-is merged and `gpu-evidence-gate` has reported, add that job name to required
-checks alongside `agentic-pr-gate`. Do not activate a context that cannot yet
-report. The verdict requires actual same-run R2/R3 GPU execution; skipped,
-contention-invalid or missing evidence cannot be waived with the runner label.
-This section describes pending activation, not a claim that protection changed.
+The 2026-10-11 read-only audit still observed strict protection `false`, required
+`agentic-pr-gate`/`docs-build` with GitHub Actions App ID `15368`, and no rulesets.
+The new `gpu-code-evidence-v1-<policy_digest>` context is **NOT ACTIVE**. Do not
+require or treat the superseded `gpu-evidence-gate` as the new contract. Source
+preparation and local tests change no settings or credentials.
 
-### v1 GPU evidence activation prerequisite
+The [design record](../architecture/adr-pr-gpu-evidence-verdict.md#universal-commit-code-redesign-2026-10-11)
+defines a conservative same-repo/master, single-parent, full-evidence profile.
+Final owner approval applies to the concrete configuration below, after reviewable
+implementation and evidence are ready. This is an activation checklist, not an
+instruction for an agent to change settings.
 
-After merging the trusted evidence controller and observing its status, require
-`gpu-evidence-gate` alongside `agentic-pr-gate`. Enable strict up-to-date protection
-or an enforced merge queue in the same activation. Without this prerequisite,
-advancing the review base can retain a successful status from a completed older
-base. This is pending maintainer activation; it is not the live state above.
+1. Preserve the existing required checks and their App IDs. Enable actual strict
+   up-to-date protection, admin enforcement and blocked force pushes/deletions;
+   read them back. Other review/conversation settings stay as currently configured.
+2. Install a dedicated repository-scoped publisher GitHub App with **Commit
+   statuses: write** and Metadata: read. It must not receive content/settings write.
+   Provide a separate proof credential with Administration: read and Actions: read
+   for protection, rulesets, environment and deployment-branch-policy inspection.
+3. Create environment `trusted-gpu-verdict` with
+   `deployment_branch_policy = {"protected_branches": false,
+   "custom_branch_policies": true}` and exactly one custom policy
+   `{"name": "master", "type": "branch"}`. No tags, PR refs, wildcard or merely
+   all-protected-branches allowance. Store `GPU_CODE_EVIDENCE_APP_PRIVATE_KEY` and
+   `GPU_CODE_EVIDENCE_PROTECTION_READ_TOKEN` **only as environment secrets**, and
+   set environment variable `GPU_CODE_EVIDENCE_APP_ID` to the dedicated numeric
+   App ID. Remove ordinary repository-secret copies before activation. Environment
+   readback and the actual credentials' scope must be independently verified.
+4. Merge independently reviewed policy implementation under the existing gates;
+   its changed definitions cannot self-certify against the preceding trusted
+   bundle. On the resulting trusted default policy, identify a normal single-parent
+   validation commit containing the current target and matching all definitions.
+   Resolve its policy context with the trusted Python helper:
+
+   ```python
+   from scripts.agentic.gpu_commit_policy import context_for, policy_bundle
+   print(context_for(policy_bundle("<immutable-trusted-default-sha>")))
+   ```
+
+5. Approve one genuine complete producer run/attempt for that exact commit/context.
+   Set environment variable `GPU_CODE_EVIDENCE_BOOTSTRAP` to JSON containing only
+   `head_sha`, `context`, `run_id`, `run_attempt` (IDs are strings). The shared
+   success boundary still requires single-parent identity, full fresh receipt,
+   strict protection, current-base ancestry and environment/App proof. This
+   registers a real new context; it does not establish enforced protection.
+6. After that recent successful registration, update required-status-checks with
+   `strict: true` and append exactly `{"context": "<computed-policy-context>",
+   "app_id": <dedicated-App-id>}` to the existing `checks` list. Preserve both
+   existing contexts, App IDs and unrelated settings; never replace the list with
+   only the GPU context. GitHub requires a successful context within the previous
+   seven days to register it as required. Remove the one-shot bootstrap variable.
+7. Verify live strict/admin/append-only protection, exact context/App and environment
+   readback. Run actual hosted positive and negative cases: a complete eligible
+   receipt; missing GPU evidence; strict false/unavailable proof; wrong source App;
+   historical/synthetic two-parent heads; base advance; changed policy; and normal
+   required agentic/docs merge checks. Do not claim operational enforcement before
+   these produce the expected merge outcomes.
+
+A policy update changes the digest and requires another reviewed registration/
+activation while retaining the preceding required context until explicit owner
+migration. A missing/ineligible test-merge status may block through GitHub's
+selection precedence; this is an acknowledged fail-closed availability cost.
+Hosted tests, real GPU/runtime execution, credential installation and settings
+changes are **NOT_RUN** during local source preparation. Humans alone merge.

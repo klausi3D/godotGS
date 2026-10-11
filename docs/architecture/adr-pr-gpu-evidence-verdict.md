@@ -1,8 +1,9 @@
 # ADR: fail-closed GPU evidence verdict for pull requests
 
-- Status: historical v1 implementation; the universal commit-code redesign below is proposed and not activated.
+- Status: universal redesign prepared locally; implementation/evidence remain under review and owner activation is pending. Historical v1 sections below are superseded.
 - Risk: R3 (CI policy and the merge boundary).
-- Base: `ab74e332aa8264ab6d0bfb2dc45ee83778a9e293`.
+- Original v1 base: `ab74e332aa8264ab6d0bfb2dc45ee83778a9e293`.
+- Redesign integration base: `012960050d29427bd00a42e1cd86840806d6bf5c`.
 
 ## Historical v1 decision (superseded by the proposed redesign)
 
@@ -35,8 +36,9 @@ code by design, since they are the subject under test and are covered by review.
 
 The commit status is keyed by SHA alone. The verdict therefore also fails while the
 proposed head SHA is the head of another open PR, both before an R0/R1 exemption and
-again before publishing success. A verdict bound to one base can then never appear on a
-PR against another base. The SHA-keyed concurrency group is kept so pull-request and
+again before publishing success. The original design claimed that a verdict bound to one base could never appear
+on another PR/base. That claim was disproved by sequential reuse after closure
+and the non-atomic read/status boundary; this historical mechanism is superseded. The SHA-keyed concurrency group is kept so pull-request and
 lifecycle events for one head still supersede each other.
 
 R0/R1 changes report promptly that GPU evidence is not required; the hosted
@@ -131,14 +133,15 @@ design-change record has not been verified during this remediation. A human must
 provide that record or disposition the initial same-commit design/implementation
 gap. Current source checks do not establish retrospective process compliance.
 
-The SHA-wide status design still requires separate human disposition: a closed
+At the bounded P2 stage, the SHA-wide design remained unresolved: a closed
 PR's success can appear on a subsequent PR using the same head against another
 base before asynchronous revalidation starts. Final metadata reads and status
 publication are also separate API operations. Checking simultaneously open PRs
 does not eliminate these intervals. The earlier absolute claim about
 cross-base reuse and the strict-only activation alternative remain unresolved
-design findings; the bounded corrections do not authorize activation or imply
-atomic PR/base merge authorization.
+design findings. The universal redesign below replaces that acceptance contract;
+the bounded corrections alone never authorized activation or implied atomic
+PR/base merge authorization.
 
 ## Universal commit-code redesign (2026-10-11)
 
@@ -150,7 +153,7 @@ retroactively repair the initial ADR/implementation chronology described above.
 
 ### Acceptance contract
 
-A new, case-distinct policy context certifies unconditional full canonical
+A new context with a distinct name beyond case certifies unconditional full canonical
 build/module-GPU/runtime execution of the exact immutable commit `S` carrying
 its status, under a fixed trusted policy `P`. It never certifies a private PR
 number or mutable labels, paths or base-diff classification. Every accepted
@@ -197,9 +200,16 @@ build, pipeline, module-GPU, headless, streaming and contention postflight steps
 must actually succeed. Optional visual/export/performance/readiness lanes retain
 separate contracts; this context does not claim their completion.
 
+Existing advisory module batches and the runtime completion-marker observation
+ladder retain their established severity. This gate certifies required strict/GPU
+coverage and the canonical blocking profile, not every advisory scenario assertion
+or the legacy collector raw-log leak filter.
+
 The receipt binds `head_sha == checkout_sha == S`, policy identity, exact
 run/attempt and the actual binary selected by runtime commands. Hash the built
-binary before runtime and after postflight and reject changes. Remove stale
+binary before runtime and after postflight and reject changes. When commands use
+the Windows console launcher, bind its companion editor executable as well;
+hashing only the launcher would omit the engine actually running. Remove stale
 reports before capture. Include canonical report/ledger bytes in the exact-run
 artifact; the trusted consumer checks their hashes, required batch coverage,
 blocking verdicts and actual GitHub job/step outcomes. Well-formed hash strings
@@ -244,6 +254,11 @@ read/write operation. None of these failure/pending limits constitute success.
 
 Source preparation does not change GitHub settings or install a gate. Current
 observed strict protection is false and this context is **NOT ACTIVE**.
+
+The implementation migration must first enter trusted default code under the
+existing gates, after independent source/native review; changed policy definitions
+cannot self-certify against their preceding bundle. A matching single-parent
+candidate can then register the newly trusted context.
 
 1. Owner enables strict/admin enforcement while preserving required agentic/docs
    checks and reads it back.

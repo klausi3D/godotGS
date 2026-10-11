@@ -76,12 +76,13 @@ jobs:
       risk_class: ${{ steps.classify.outputs.risk_class }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
       - name: Classify against immutable base
@@ -100,11 +101,9 @@ jobs:
     # runner token from arbitrary code in `tests/ci/*.py`, `SConstruct`,
     # `methods.py`, or any `SCsub` checked out from a fork. (merge_group is
     # maintainer-gated — see the README runner trust boundary.)
-    # Only R0 (docs / agentic governance) PRs skip the Windows build and module
-    # tests; the hosted agentic-pr-gate runs their guards. R1 module/test changes
-    # still build and run module tests here, as under the old path filter. Only
-    # the GPU *evidence* requirement is exempted below R2.
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || (needs.pr-evidence-policy.result == 'success' && needs.pr-evidence-policy.outputs.risk_class != 'R0')) }}
+    # Universal code evidence requires the same full lane for every same-repo
+    # PR, including docs/governance. Risk classification is informational.
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && (inputs.run_openworld_proof_dev == true || inputs.run_openworld_proof_weekly == true)) && ((github.event_name != 'pull_request' && github.event_name != 'merge_group') || (needs.pr-evidence-policy.result == 'success')) }}
     runs-on: [self-hosted, Windows, X64, godotgs]
     timeout-minutes: 10
     defaults:
@@ -118,8 +117,9 @@ jobs:
           git config --global --add safe.directory '*'
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
           path: repo
           fetch-depth: 0
           submodules: recursive
@@ -157,7 +157,7 @@ jobs:
     steps:
       - name: Decide whether Windows GPU evidence is required
         id: decide
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
           script: |
             const fallbackLabel = "ci/gpu-runner-unavailable";
@@ -290,8 +290,9 @@ jobs:
           git config --global --add safe.directory '*'
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
           path: repo
           fetch-depth: 0
           submodules: recursive
@@ -319,7 +320,7 @@ jobs:
         run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC build env
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
 
       # GAP-403: this runner is the maintainer's workstation, so nothing is
       # installed into its global interpreter. SCons goes into a per-job venv
@@ -369,6 +370,15 @@ jobs:
           Write-Host "Resolved Godot binary: $resolved"
           "path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      - name: Capture measured commit and binary before runtime
+        id: capture
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        env:
+          GS_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
+        shell: pwsh
+        run: python tests/ci/check_universal_gpu_evidence.py --start-measurement artifacts/gpu-measurement.json --binary "$env:GODOT_BINARY"
+
       - name: Run Gaussian pipeline smoke tests
         id: pipeline
         env:
@@ -398,7 +408,11 @@ jobs:
                 || github.event.pull_request.base.sha }}
         shell: pwsh
         run: |
-          python tests/ci/run_module_tests.py --godot-binary "$env:GODOT_BINARY"
+          if ("${{ github.event_name }}" -in @("pull_request", "merge_group")) {
+            python tests/ci/run_module_tests.py --godot-binary "$env:GODOT_BINARY" --gpu --lane-report artifacts/module-lanes.json
+          } else {
+            python tests/ci/run_module_tests.py --godot-binary "$env:GODOT_BINARY"
+          }
 
       # T3 (#891, ADR section 4.6): the two invocations below write DISTINCT
       # report paths. They used to share the default
@@ -436,7 +450,7 @@ jobs:
 
       - name: Upload runtime validation reports
         if: ${{ always() && steps.godot_bin.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: runtime-validation-report
           # if-no-files-found stays fail-loud: a soak that reads a silently
@@ -468,7 +482,7 @@ jobs:
 
       - name: Upload evidence artifact
         if: ${{ always() && needs.gpu-evidence-requirement.outputs.run_windows_gpu == 'true' && steps.evidence.outputs.dir != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-gpu-production-evidence
           path: ${{ steps.evidence.outputs.dir }}
@@ -507,12 +521,9 @@ jobs:
       - name: Bind canonical GPU evidence to reviewed commit
         if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         env:
-          GS_EVIDENCE_CHECKOUT_SHA: ${{ github.sha }}
           GS_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          GS_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          GS_EVIDENCE_RUN_ID: ${{ github.run_id }}
-          GS_EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
           GS_STEP_BUILD: ${{ steps.build.outcome }}
+          GS_STEP_CAPTURE: ${{ steps.capture.outcome }}
           GS_STEP_PIPELINE: ${{ steps.pipeline.outcome }}
           GS_STEP_MODULE: ${{ steps.module.outcome }}
           GS_STEP_HEADLESS: ${{ steps.headless.outcome }}
@@ -520,14 +531,14 @@ jobs:
           GS_STEP_POSTFLIGHT: ${{ steps.postflight.outcome }}
           GODOT_BINARY: ${{ steps.godot_bin.outputs.path }}
         shell: pwsh
-        run: python tests/ci/check_pr_gpu_evidence.py --write-receipt artifacts/pr-gpu-evidence.json --binary "$env:GODOT_BINARY"
+        run: python tests/ci/check_universal_gpu_evidence.py --write-receipt artifacts/universal-gpu --measurement artifacts/gpu-measurement.json --binary "$env:GODOT_BINARY"
 
       - name: Upload canonical PR GPU receipt
         if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: pr-gpu-evidence-${{ github.run_attempt }}
-          path: repo/artifacts/pr-gpu-evidence.json
+          path: repo/artifacts/universal-gpu/
           if-no-files-found: error
 
   canonical-gpu-receipt:
@@ -538,31 +549,25 @@ jobs:
     needs: [pr-evidence-policy, guards, module-validation]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
       - name: Download exact-run GPU receipt
-        if: ${{ needs.module-validation.result == 'success' && (needs.pr-evidence-policy.outputs.risk_class == 'R2' || needs.pr-evidence-policy.outputs.risk_class == 'R3') }}
-        uses: actions/download-artifact@v4
+        if: ${{ needs.module-validation.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: pr-gpu-evidence-${{ github.run_attempt }}
           path: pr-evidence
       - name: Verify required evidence actually ran
         env:
-          GS_EVIDENCE_RISK_CLASS: ${{ needs.pr-evidence-policy.outputs.risk_class }}
-          GS_JOB_POLICY: ${{ needs.pr-evidence-policy.result }}
-          GS_JOB_GUARDS: ${{ needs.guards.result }}
-          GS_JOB_MODULE: ${{ needs.module-validation.result }}
-          GS_EVIDENCE_CHECKOUT_SHA: ${{ github.sha }}
           GS_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          GS_EVIDENCE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          GS_EVIDENCE_RUN_ID: ${{ github.run_id }}
-          GS_EVIDENCE_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: python tests/ci/check_pr_gpu_evidence.py --verify --receipt pr-evidence/pr-gpu-evidence.json
+        run: python tests/ci/check_universal_gpu_evidence.py --verify pr-evidence
 
   openworld-proof-evidence:
     name: Open-World Proof Evidence (non-blocking)
@@ -601,8 +606,9 @@ jobs:
           git config --global --add safe.directory '*'
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
           path: repo
           fetch-depth: 0
           submodules: recursive
@@ -630,7 +636,7 @@ jobs:
         run: python tests/ci/preflight_runner_gpu_environment.py
 
       - name: Set up MSVC build env
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
 
       # GAP-403: this runner is the maintainer's workstation, so nothing is
       # installed into its global interpreter. SCons goes into a per-job venv
@@ -768,7 +774,7 @@ jobs:
 
       - name: Upload openworld-proof-dev evidence artifact
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_dev == true)) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: openworld-proof-dev-evidence
           path: repo/tests/output/benchmark_evidence/openworld-proof-dev
@@ -824,7 +830,7 @@ jobs:
 
       - name: Upload openworld-proof-weekly evidence artifact
         if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_openworld_proof_weekly == true)) }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: openworld-proof-weekly-evidence
           path: repo/tests/output/benchmark_evidence/openworld-proof-weekly

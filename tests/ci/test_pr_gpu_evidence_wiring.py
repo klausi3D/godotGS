@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Hosted-only YAML wiring tests; uses the pinned automation dependency."""
+"""Hosted real-YAML/JavaScript wiring controls for universal commit evidence."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -8,282 +9,181 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+
 import yaml
-from test_pr_gpu_evidence import checker, watcher
+
 ROOT = Path(__file__).resolve().parents[2]
+CONTROLLER = ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml"
+PRODUCER = ROOT / ".github/workflows/gaussian_production_gates.yml"
 
-class WorkflowWiringTests(unittest.TestCase):
-    def setUp(self):
-        self.text = (ROOT / ".github/workflows/gaussian_production_gates.yml").read_text(encoding="utf-8")
-        self.workflow = yaml.safe_load(self.text)
 
-    def test_all_prs_and_merge_queue_can_report(self):
-        events = self.workflow.get("on", self.workflow.get(True))
-        for event in ("pull_request", "merge_group"):
-            self.assertIn(event, events)
-            if event == "pull_request":
-                self.assertIn("edited", events[event]["types"])
-            for exclusion in ("branches", "branches-ignore", "paths", "paths-ignore"):
-                self.assertNotIn(exclusion, events[event])
-        gate = self.workflow["jobs"]["canonical-gpu-receipt"]
-        self.assertEqual(gate["runs-on"], "ubuntu-latest")
-        self.assertIn("always()", gate["if"])
-        self.assertEqual(set(gate["needs"]), {"pr-evidence-policy", "guards", "module-validation"})
+def load(path):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
-    def test_producer_follows_postflight_and_binds_step_outcomes(self):
-        steps = self.workflow["jobs"]["module-validation"]["steps"]
-        by_id = {step["id"]: step for step in steps if "id" in step}
-        self.assertTrue(set(checker.REQUIRED_STEPS) <= by_id.keys())
-        producer = next(step for step in steps if "--write-receipt" in step.get("run", ""))
-        self.assertGreater(steps.index(producer), steps.index(by_id["postflight"]))
-        self.assertIn("success()", producer["if"])
-        for name in checker.REQUIRED_STEPS:
-            self.assertEqual(producer["env"]["GS_STEP_" + name.upper()], "${{ steps." + name + ".outcome }}")
-        upload = next(step for step in steps if step.get("uses") == "actions/upload-artifact@v4"
-                      and step["with"]["name"].startswith("pr-gpu-evidence-"))
-        self.assertEqual(upload["with"]["if-no-files-found"], "error")
 
-    def test_every_producer_preflight_and_receipt_script_is_pinned(self):
-        # Derived from the real job, so a new preflight script cannot slip past
-        # the trusted consumer's self-certification check.
-        steps = self.workflow["jobs"]["module-validation"]["steps"]
-        producer = [step for step in steps if step.get("name", "").startswith(("Preflight", "Postflight"))
-                    or "--write-receipt" in step.get("run", "")]
-        scripts = {script for step in producer for script in re.findall(r"python\s+(\S+\.py)", step.get("run", ""))}
-        self.assertTrue({"tests/ci/preflight_runner_gpu_environment.py", "tests/ci/runner_gpu_contention.py",
-                         "tests/ci/check_pr_gpu_evidence.py"} <= scripts)
-        self.assertLessEqual(scripts, set(watcher.PRODUCER_DEFINITIONS))
-
-    def test_consumer_uses_current_run_artifact_and_dependency_outcomes(self):
-        steps = self.workflow["jobs"]["canonical-gpu-receipt"]["steps"]
-        download = next(step for step in steps if step.get("uses") == "actions/download-artifact@v4")
-        self.assertEqual(download["with"]["name"], "pr-gpu-evidence-${{ github.run_attempt }}")
-        self.assertNotIn("run-id", download["with"])
-        consumer = next(step for step in steps if "--verify" in step.get("run", ""))
-        self.assertEqual(consumer["env"]["GS_JOB_MODULE"], "${{ needs.module-validation.result }}")
-        self.assertEqual(consumer["env"]["GS_JOB_GUARDS"], "${{ needs.guards.result }}")
-        self.assertNotIn("if", consumer)
-
-    def test_test_is_wired_into_required_agentic_gate(self):
-        workflow = (ROOT / ".github/workflows/agentic_pr_gate.yml").read_text(encoding="utf-8")
-        self.assertIn("python tests/ci/test_pr_gpu_evidence.py", workflow)
-        self.assertIn("python tests/ci/test_pr_gpu_evidence_wiring.py", workflow)
-
+class UniversalWiringTests(unittest.TestCase):
     @staticmethod
-    def evaluate(condition, values):
-        # Minimal GitHub expression evaluator for the operators these conditions use.
-        expr = condition.strip()
-        if expr.startswith("${{"):
-            expr = expr[3:-2]
-        expr = expr.replace("always()", "True").replace("&&", " and ").replace("||", " or ")
-        expr = re.sub(r"!(?!=)", " not ", expr)
-        expr = re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", expr))
-        expr = re.sub(r"\b(?:github|needs|inputs)\.[A-Za-z0-9_.-]+",
-                      lambda match: repr(values.get(match.group(0), "")), expr)
-        return bool(eval("(" + expr + ")", {"__builtins__": {}}))  # noqa: S307 - test-only, repo-controlled input
-
-    def test_only_docs_prs_skip_the_windows_build_and_module_tests(self):
-        # Maintainer decision 2026-10-10: R1 module/test PRs still build and run
-        # module tests on Windows; only the GPU evidence requirement is exempted.
-        guards = self.workflow["jobs"]["guards"]
-        self.assertEqual(guards["needs"], "pr-evidence-policy")
-        module = self.workflow["jobs"]["module-validation"]
-        self.assertIn("guards", module["needs"])
-        repo = "owner/repo"
-        for event in ("pull_request", "merge_group"):
-            for risk, expected in (("R0", False), ("R1", True), ("R2", True), ("R3", True)):
-                values = {"github.event_name": event, "github.repository": repo,
-                          "github.event.pull_request.head.repo.full_name": repo,
-                          "needs.pr-evidence-policy.result": "success",
-                          "needs.pr-evidence-policy.outputs.risk_class": risk}
-                with self.subTest(event=event, risk=risk):
-                    self.assertEqual(self.evaluate(guards["if"], values), expected)
-                    self.assertTrue(self.evaluate(module["if"], values))
-            values = {"github.event_name": event, "github.repository": repo,
-                      "github.event.pull_request.head.repo.full_name": repo,
-                      "needs.pr-evidence-policy.result": "failure"}
-            self.assertFalse(self.evaluate(guards["if"], values))
-        fork = {"github.event_name": "pull_request", "github.repository": repo,
-                "github.event.pull_request.head.repo.full_name": "fork/repo",
-                "needs.pr-evidence-policy.result": "success",
-                "needs.pr-evidence-policy.outputs.risk_class": "R1"}
-        self.assertFalse(self.evaluate(guards["if"], fork))
-        self.assertFalse(self.evaluate(module["if"], fork))
-        self.assertTrue(self.evaluate(guards["if"], {"github.event_name": "push",
-                                                    "needs.pr-evidence-policy.result": "skipped"}))
-
-    def test_required_verdict_checks_out_only_the_trusted_base(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        events = workflow.get("on", workflow.get(True))
-        self.assertIn("pull_request_target", events)
-        self.assertIn("merge_group", events)
-        self.assertIn("edited", events["pull_request_target"]["types"])
-        self.assertEqual(events["workflow_run"]["types"], ["in_progress", "completed"])
-        self.assertEqual(events["workflow_run"]["workflows"], ["Gaussian Production Gates"])
-        self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read", "statuses": "write", "pull-requests": "read"})
-        job = workflow["jobs"]["trusted-gpu-controller"]
-        self.assertEqual(job["runs-on"], "ubuntu-latest")
-        checkout = next(step for step in job["steps"] if step.get("uses") == "actions/checkout@v4")
-        self.assertEqual(checkout["with"]["ref"], "${{ steps.event.outputs.base }}")
-        self.assertFalse(checkout["with"]["persist-credentials"])
-        resolver = next(step for step in job["steps"] if step.get("id") == "event")
-        self.assertIn("await status('pending')", resolver["with"]["script"])
-        self.assertIn("await status('failure')", resolver["with"]["script"])
-        self.assertIn("source_run_id: run.id", resolver["with"]["script"])
-        commands = [step["run"] for step in job["steps"] if "run" in step]
-        self.assertEqual(commands, ["python scripts/agentic/watch_pr_gpu_evidence.py"])
-
-    def test_timeout_cleanup_is_independent_of_the_controller_job(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        controller = workflow["jobs"]["trusted-gpu-controller"]
-        cleanup = workflow["jobs"]["trusted-gpu-cleanup"]
-        self.assertEqual(cleanup["needs"], "trusted-gpu-controller")
-        self.assertEqual(cleanup["runs-on"], "ubuntu-latest")
-        self.assertEqual(cleanup["permissions"], {"statuses": "write"})
-        self.assertGreater(cleanup["timeout-minutes"], 0)
-        self.assertIn("always()", cleanup["if"])
-        for result in ("success", "failure", "cancelled", "skipped"):
-            with self.subTest(result=result):
-                self.assertTrue(self.evaluate(cleanup["if"], {
-                    "github.event_name": "pull_request_target",
-                    "needs.trusted-gpu-controller.result": result,
-                    "needs.trusted-gpu-controller.outputs.sha": ""}))
-        self.assertTrue(self.evaluate(cleanup["if"], {"github.event_name": "merge_group"}))
-        for source in ("pull_request", "merge_group", "push", "schedule", "workflow_dispatch", ""):
-            with self.subTest(source=source):
-                values = {"github.event_name": "workflow_run",
-                          "github.event.workflow_run.name": "Gaussian Production Gates",
-                          "github.event.workflow_run.event": source}
-                self.assertEqual(self.evaluate(cleanup["if"], values),
-                                 source in ("pull_request", "merge_group"))
-                values["github.event.workflow_run.name"] = "Unrelated Workflow"
-                self.assertFalse(self.evaluate(cleanup["if"], values))
-        self.assertFalse(self.evaluate(cleanup["if"], {"github.event_name": "push"}))
-        verify = next(step for step in controller["steps"]
-                      if "watch_pr_gpu_evidence.py" in step.get("run", ""))
-        self.assertLess(verify["timeout-minutes"], controller["timeout-minutes"])
-        self.assertFalse(any(step.get("name") == "Publish failure if the controller aborted"
-                             for step in controller["steps"]))
-
-    def resolve_merge_queue_event(self, head_branch, merge_base):
-        # Executes the real resolver script under node with a stubbed API whose
-        # branch tip has moved past the group's base.
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        resolver = next(step for step in workflow["jobs"]["trusted-gpu-controller"]["steps"] if step.get("id") == "event")
+    def evaluate(expression, values):
+        expression = expression.removeprefix("${{").removesuffix("}}").strip()
+        expression = expression.replace("always()", "true")
+        for name in sorted(values, key=len, reverse=True):
+            expression = expression.replace(name, json.dumps(values[name]))
+        expression = re.sub(r"(?:github|needs|inputs)\.[A-Za-z0-9_.-]+", "''", expression)
         node = shutil.which("node")
-        self.assertIsNotNone(node, "node is required to execute the resolver script")
-        run = dict(event="merge_group", head_sha="b" * 40, head_branch=head_branch, id=7)
+        if not node:
+            raise AssertionError("Node is required for hosted expression wiring")
+        result = subprocess.run([node, "-e", "process.stdout.write(JSON.stringify(Boolean(" + expression + ")));"],
+                                capture_output=True, encoding="utf-8", timeout=20, check=True)
+        return json.loads(result.stdout)
+
+    def test_controller_is_hosted_pinned_trusted_default_without_github_token_write(self):
+        workflow = load(CONTROLLER)
+        events = workflow.get("on", workflow.get(True))
+        self.assertEqual(events["workflow_run"]["workflows"], ["Gaussian Production Gates"])
+        self.assertEqual(events["workflow_run"]["types"], ["in_progress", "completed"])
+        self.assertEqual(workflow["permissions"], {"contents": "read", "actions": "read", "pull-requests": "read"})
+        for job in workflow["jobs"].values():
+            self.assertEqual(job["runs-on"], "ubuntu-latest")
+            self.assertEqual(job["environment"], "trusted-gpu-verdict")
+            for step in job["steps"]:
+                if "uses" in step:
+                    self.assertRegex(step["uses"], r"^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+@[0-9a-f]{40}$")
+                if step.get("uses", "").startswith("actions/checkout@"):
+                    self.assertEqual(step["with"]["ref"], "${{ steps.event.outputs.base }}")
+                    self.assertFalse(step["with"]["persist-credentials"])
+                if "script" in step.get("with", {}):
+                    self.assertNotIn("createCommitStatus", step["with"]["script"])
+        run = next(step for step in workflow["jobs"]["trusted-gpu-controller"]["steps"] if "run" in step)
+        self.assertEqual(run["run"], "python scripts/agentic/watch_pr_gpu_evidence.py")
+        self.assertEqual(run["env"]["GS_PUBLISH_TOKEN"], "${{ steps.publisher.outputs.token }}")
+        self.assertEqual(run["env"]["GS_PROTECTION_TOKEN"], "${{ secrets.GPU_CODE_EVIDENCE_PROTECTION_READ_TOKEN }}")
+        publisher = next(step for step in workflow["jobs"]["trusted-gpu-controller"]["steps"] if step.get("id") == "publisher")
+        self.assertEqual(publisher["with"]["permission-statuses"], "write")
+        self.assertEqual(publisher["with"]["private-key"], "${{ secrets.GPU_CODE_EVIDENCE_APP_PRIVATE_KEY }}")
+        self.assertEqual(publisher["with"]["repositories"], "${{ github.event.repository.name }}")
+
+    def test_timeout_cleanup_is_independent_and_has_no_success_command(self):
+        workflow = load(CONTROLLER)
+        controller, cleanup = (workflow["jobs"][name] for name in ("trusted-gpu-controller", "trusted-gpu-cleanup"))
+        self.assertEqual(cleanup["needs"], "trusted-gpu-controller")
+        self.assertIn("always()", cleanup["if"])
+        self.assertEqual(cleanup["timeout-minutes"], 5)
+        verify = next(step for step in controller["steps"] if "run" in step)
+        self.assertLess(verify["timeout-minutes"], controller["timeout-minutes"])
+        final = next(step for step in cleanup["steps"] if "run" in step)
+        self.assertEqual(final["run"], "python scripts/agentic/watch_pr_gpu_evidence.py --cleanup")
+        resolver = next(step for step in cleanup["steps"] if step.get("id") == "event")
+        self.assertNotIn("needs.trusted-gpu-controller.outputs", resolver["with"]["script"])
+        self.assertIn("workflow_run?.head_sha", resolver["with"]["script"])
+        for result in ("success", "failure", "cancelled", "skipped"):
+            self.assertTrue(self.evaluate(cleanup["if"], {"github.event_name": "pull_request_target", "needs.trusted-gpu-controller.result": result}))
+        for event in ("pull_request", "merge_group", "push", "schedule", "workflow_dispatch", ""):
+            self.assertEqual(self.evaluate(cleanup["if"], {"github.event_name": "workflow_run", "github.event.workflow_run.name": "Gaussian Production Gates", "github.event.workflow_run.event": event}), event == "pull_request")
+        self.assertFalse(self.evaluate(cleanup["if"], {"github.event_name": "merge_group"}))
+        self.assertFalse(self.evaluate(cleanup["if"], {"github.event_name": "push"}))
+
+    def test_every_risk_and_metadata_variant_reaches_mandatory_same_repo_lane(self):
+        guards = load(PRODUCER)["jobs"]["guards"]
+        for risk in ("R0", "R1", "R2", "R3", ""):
+            self.assertTrue(self.evaluate(guards["if"], {
+                "github.event_name": "pull_request", "github.event.pull_request.head.repo.full_name": "o/r",
+                "github.repository": "o/r", "needs.pr-evidence-policy.result": "success",
+                "needs.pr-evidence-policy.outputs.risk_class": risk}))
+        self.assertFalse(self.evaluate(guards["if"], {"github.event_name": "pull_request",
+            "github.event.pull_request.head.repo.full_name": "fork/r", "github.repository": "o/r", "needs.pr-evidence-policy.result": "success"}))
+
+    def test_evidence_checkout_and_commands_bind_exact_head_and_full_gpu_profile(self):
+        workflow = load(PRODUCER)
+        expected = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}"
+        for job_id in ("pr-evidence-policy", "guards", "module-validation", "canonical-gpu-receipt"):
+            job = workflow["jobs"][job_id]
+            checkout = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+            self.assertEqual(checkout["with"]["ref"], expected)
+        steps = workflow["jobs"]["module-validation"]["steps"]
+        module = next(step for step in steps if step.get("id") == "module")
+        self.assertIn('--gpu --lane-report artifacts/module-lanes.json', module["run"])
+        self.assertIn('"pull_request", "merge_group"', module["run"])
+        capture = next(step for step in steps if step.get("id") == "capture")
+        self.assertIn("--start-measurement", capture["run"])
+        for step in (capture, next(s for s in steps if s["name"] == "Bind canonical GPU evidence to reviewed commit")):
+            self.assertEqual(step["env"]["GS_EVIDENCE_HEAD_SHA"], "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}")
+        order = {step["name"]: index for index, step in enumerate(steps)}
+        self.assertLess(order["Capture measured commit and binary before runtime"], order["Run Gaussian pipeline smoke tests"])
+        self.assertLess(order["Postflight - GPU contention verdict (#875)"], order["Bind canonical GPU evidence to reviewed commit"])
+        receipt = next(step for step in steps if step["name"] == "Bind canonical GPU evidence to reviewed commit")
+        self.assertIn("check_universal_gpu_evidence.py --write-receipt", receipt["run"])
+        self.assertIn("--measurement artifacts/gpu-measurement.json", receipt["run"])
+        artifact = next(step for step in steps if step["name"] == "Upload canonical PR GPU receipt")
+        self.assertEqual(artifact["with"]["path"], "repo/artifacts/universal-gpu/")
+        self.assertEqual(artifact["with"]["if-no-files-found"], "error")
+        download = next(step for step in workflow["jobs"]["canonical-gpu-receipt"]["steps"] if step.get("uses", "").startswith("actions/download-artifact@"))
+        self.assertNotIn("risk_class", download["if"])
+
+    def test_all_producer_enforcement_scripts_belong_to_digest_manifest(self):
+        manifest = json.loads((ROOT / "scripts/agentic/gpu_commit_policy.json").read_text())
+        covered = lambda path: path in manifest["files"] or any(path.startswith(prefix) for prefix in manifest["prefixes"])
+        commands = [step["run"] for job in load(PRODUCER)["jobs"].values() for step in job.get("steps", []) if "run" in step]
+        invoked = {path for command in commands for path in re.findall(r"python\s+([A-Za-z0-9_./-]+\.py)", command)}
+        self.assertTrue(invoked)
+        for path in invoked:
+            with self.subTest(path=path): self.assertTrue(covered(path), "Missing producer execution dependency: " + path)
+        for path in ("scripts/agentic/watch_pr_gpu_evidence.py", "scripts/agentic/gpu_commit_policy.py", "scripts/agentic/gpu_commit_policy.json", "tests/runtime/runtime_scenarios.json"):
+            self.assertTrue(covered(path))
+        for job in load(PRODUCER)["jobs"].values():
+            for step in job.get("steps", []):
+                if "uses" in step:
+                    self.assertRegex(step["uses"], r"@[0-9a-f]{40}$")
+
+    def resolver(self, *, cleanup=False, source=None, head=None, target="master", associated=1):
+        job = load(CONTROLLER)["jobs"]["trusted-gpu-cleanup" if cleanup else "trusted-gpu-controller"]
+        script = next(step for step in job["steps"] if step.get("id") == "event")["with"]["script"]
+        pull = {"number": 1, "state": "open", "head": {"sha": head or "a" * 40}, "base": {"ref": target}}
+        payload = {"pull_request": pull} if source is None else {"workflow_run": source}
         harness = """
-const outputs = {}, statuses = [];
-const context = {payload: {workflow_run: RUN}, eventName: 'workflow_run', repo: {owner: 'o', repo: 'r'}, runId: 1};
+const outputs = {};
+const context = {payload: PAYLOAD, repo: {owner: 'o', repo: 'r'}};
 const core = {setOutput: (key, value) => { outputs[key] = value; }};
-const github = {rest: {
-  repos: {createCommitStatus: async args => { statuses.push(args.state); },
-          listPullRequestsAssociatedWithCommit: async () => ({data: []}),
-          getBranch: async () => ({data: {commit: {sha: 'f'.repeat(40)}}}),
-          compareCommits: async () => ({data: {merge_base_commit: {sha: MERGE_BASE}}})},
-  pulls: {get: async () => { throw new Error('unexpected'); }}}};
-(async () => {
-SCRIPT
-})().then(() => console.log(JSON.stringify({outputs, statuses})),
-          error => console.log(JSON.stringify({outputs, statuses, error: String(error)})));
-""".replace("RUN", json.dumps(run)).replace("MERGE_BASE", json.dumps(merge_base)).replace("SCRIPT", resolver["with"]["script"])
+const github = {paginate: async () => Array.from({length: ASSOCIATED}, (_, i) => ({...PULL, number: i + 1})), rest: {
+repos: {get: async () => ({data: {default_branch: 'master'}}), getBranch: async () => ({data: {commit: {sha: 'b'.repeat(40)}}})},
+pulls: {get: async () => ({data: PULL})}}};
+(async () => { SCRIPT })().then(() => console.log(JSON.stringify({outputs})), error => console.log(JSON.stringify({outputs, error: String(error)})));
+""".replace("PAYLOAD", json.dumps(payload)).replace("PULL", json.dumps(pull)).replace("ASSOCIATED", str(associated)).replace("SCRIPT", script)
         with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "resolver.js"
-            path.write_text(harness, encoding="utf-8")
-            result = subprocess.run([node, str(path)], capture_output=True, encoding="utf-8", timeout=60,
-                                    env={**os.environ, "RUNNER_TEMP": temp}, check=True)
+            path = Path(temp) / "resolver.js"; path.write_text(harness)
+            result = subprocess.run([shutil.which("node"), str(path)], check=True, capture_output=True, encoding="utf-8", timeout=20, env={**os.environ, "RUNNER_TEMP": temp})
             state = json.loads(result.stdout.strip().splitlines()[-1])
             if "path" in state["outputs"]:
-                state["event"] = json.loads(Path(state["outputs"]["path"]).read_text(encoding="utf-8"))
+                state["event"] = json.loads(Path(state["outputs"]["path"]).read_text())
             return state
 
-    def run_abort_publisher(self, statuses, list_fails=False, proposed_sha="b" * 40):
-        # Executes the real final step under node against a stubbed status API.
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        publisher = workflow["jobs"]["trusted-gpu-cleanup"]["steps"][-1]
-        node = shutil.which("node")
-        self.assertIsNotNone(node, "node is required to execute the abort publisher")
-        harness = """
-const posted = [];
-const context = {repo: {owner: 'o', repo: 'r'}, runId: 1};
-const core = {info: () => {}, warning: () => {}};
-const github = {rest: {repos: {
-  listCommitStatusesForRef: async () => { if (LIST_FAILS) throw new Error('api down'); return {data: STATUSES}; },
-  createCommitStatus: async args => { posted.push(args); }}}};
-(async () => {
-SCRIPT
-})().then(() => console.log(JSON.stringify({posted})),
-          error => console.log(JSON.stringify({posted, error: String(error)})));
-""".replace("LIST_FAILS", json.dumps(list_fails)).replace("STATUSES", json.dumps(statuses)).replace("SCRIPT", publisher["with"]["script"])
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "publisher.js"
-            path.write_text(harness, encoding="utf-8")
-            result = subprocess.run([node, str(path)], capture_output=True, encoding="utf-8", timeout=60,
-                                    env={**os.environ, "GS_PROPOSED_SHA": proposed_sha}, check=True)
-            return json.loads(result.stdout.strip().splitlines()[-1])
+    def test_actual_resolver_binds_live_default_not_stale_pr_base(self):
+        state = self.resolver()
+        self.assertNotIn("error", state)
+        self.assertEqual(state["event"]["trusted_base_sha"], "b" * 40)
+        self.assertEqual(state["event"]["pull_request"]["head"]["sha"], "a" * 40)
 
-    def test_controller_abort_replaces_its_own_pending_status(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        steps = workflow["jobs"]["trusted-gpu-controller"]["steps"]
-        cleanup = workflow["jobs"]["trusted-gpu-cleanup"]
-        publisher = cleanup["steps"][-1]
-        # Independent event metadata survives missing controller job outputs.
-        # Whole-workflow cancellation/service failure still can prevent cleanup.
-        self.assertIn("always()", cleanup["if"])
-        self.assertEqual(publisher["env"]["GS_PROPOSED_SHA"],
-                         "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.workflow_run.head_sha }}")
-        resolver = next(step for step in steps if step.get("id") == "event")
-        self.assertLess(resolver["with"]["script"].index("core.setOutput('sha', sha)"),
-                        resolver["with"]["script"].index("await status('pending')"))
-        own = "https://github.com/o/r/actions/runs/1"
-        other = "https://github.com/o/r/actions/runs/2"
-        def status(state, url, context="gpu-evidence-gate"):
-            return {"context": context, "state": state, "target_url": url}
-        for statuses, list_fails, published in (
-                ([status("pending", own)], False, True),
-                ([status("success", "x", "other-context"), status("pending", own)], False, True),
-                ([], False, True),
-                ([], True, True),
-                ([status("success", own), status("pending", own)], False, False),
-                ([status("failure", own)], False, False),
-                ([status("pending", other), status("pending", own)], False, False)):
-            with self.subTest(statuses=statuses, list_fails=list_fails):
-                state = self.run_abort_publisher(statuses, list_fails)
-                self.assertNotIn("error", state)
-                if published:
-                    self.assertEqual(len(state["posted"]), 1)
-                    post = state["posted"][0]
-                    self.assertEqual((post["sha"], post["state"], post["context"], post["target_url"]),
-                                     ("b" * 40, "failure", "gpu-evidence-gate", own))
-                else:
-                    self.assertEqual(state["posted"], [])
+    def test_actual_resolver_allows_code_reuse_without_private_pr_ambiguity(self):
+        source = {"name": "Gaussian Production Gates", "event": "pull_request", "head_sha": "a" * 40, "id": 9}
+        state = self.resolver(source=source, associated=2)
+        self.assertNotIn("error", state)
+        self.assertEqual(state["event"]["source_run_id"], 9)
+        for event in ("merge_group", "push", "schedule", "workflow_dispatch"):
+            self.assertIn("error", self.resolver(source={**source, "event": event}))
+        self.assertIn("error", self.resolver(source=source, associated=0))
 
-    def test_cleanup_rejects_missing_or_malformed_event_sha(self):
-        for sha in ("", "b" * 39, "G" * 40, "b" * 40 + "/statuses"):
-            with self.subTest(sha=sha):
-                state = self.run_abort_publisher([], proposed_sha=sha)
-                self.assertIn("Missing proposed SHA", state["error"])
-                self.assertEqual(state["posted"], [])
+    def test_actual_cleanup_resolver_uses_event_when_controller_outputs_are_absent(self):
+        state = self.resolver(cleanup=True)
+        self.assertNotIn("error", state)
+        self.assertEqual(state["event"]["pull_request"]["head"]["sha"], "a" * 40)
+        self.assertIn("error", self.resolver(cleanup=True, head="malformed"))
 
-    def test_merge_queue_lifecycle_keeps_the_immutable_group_base(self):
-        base = "c" * 40
-        for branch in ("master", "release/v1.0"):
-            with self.subTest(branch=branch):
-                state = self.resolve_merge_queue_event(f"gh-readonly-queue/{branch}/pr-12-{base}", base)
-                self.assertNotIn("error", state)
-                self.assertEqual(state["outputs"]["base"], base)
-                self.assertEqual(state["event"]["merge_group"], {"base_sha": base, "head_sha": "b" * 40})
-        # A ref without the base suffix, or a suffix that is not the group's
-        # ancestor, fails closed instead of reading the moving branch tip.
-        for branch, merge_base in (("gh-readonly-queue/master/pr-12", base),
-                                   (f"gh-readonly-queue/master/pr-12-{base}", "d" * 40)):
-            with self.subTest(branch=branch, merge_base=merge_base):
-                state = self.resolve_merge_queue_event(branch, merge_base)
-                self.assertIn("error", state)
-                self.assertEqual(state["statuses"], ["pending", "failure"])
-                self.assertNotIn("base", state["outputs"])
+    def test_actual_resolver_rejects_unsupported_target_or_malformed_sha(self):
+        self.assertIn("error", self.resolver(target="other"))
+        self.assertIn("error", self.resolver(head="malformed"))
 
+    def test_required_hosted_lane_registers_this_actual_wiring_suite(self):
+        gate = (ROOT / ".github/workflows/agentic_pr_gate.yml").read_text()
+        self.assertIn("python tests/ci/test_pr_gpu_evidence_wiring.py", gate)
 
 
 if __name__ == "__main__":

@@ -85,3 +85,27 @@ or the review is dismissed, even with 0 required approvals; resolving its thread
 does not clear it. The repository owner is today the only collaborator and cannot
 request changes on a PR they authored, so on owner-authored PRs this second
 backstop cannot be triggered.
+
+## Proposed universal commit GPU evidence
+
+The [R3 redesign](../architecture/adr-pr-gpu-evidence-verdict.md#universal-commit-code-redesign-2026-10-11)
+adds a fixed-policy exact-commit evidence contract: every supported same-repo/master
+PR needs full build, selected strict/module-GPU batches and canonical runtime
+execution. R0/R1 paths and mutable labels cannot exempt this context. Existing
+advisory batch/completion-marker severity stays unchanged, and optional visual,
+export, performance and human acceptance remain separate obligations.
+
+Canonical GitHub commit data must establish exactly one parent on every SUCCESS
+and bootstrap path. Ordinary merge tips therefore need a normal final source
+commit or rebase and fresh proof; an ineligible test-merge status can safely block
+an eligible head through status precedence. Accepting those operational costs is
+an owner activation decision. The proposed gate uses a dedicated source App,
+master-only credential environment and actual strict/admin/append-only protection.
+It is **NOT ACTIVE** until the [activation checklist](github-settings.md#universal-commit-gpu-evidence-activation-pending)
+and real hosted/native positive/negative controls are complete. Local mocked tests
+and source review do not establish enforced GPU evidence.
+
+Two independent fixed-diff reviews and human/CODEOWNER disposition remain required.
+The first v1 ADR and implementation shared one commit; a prior approved design
+record has not been verified. A human must address that historical chronology gap;
+the separately committed redesign does not claim retrospective compliance.

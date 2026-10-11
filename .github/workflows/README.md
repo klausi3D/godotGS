@@ -14,7 +14,7 @@ GitHub's Actions tab can also show historical workflow names from past runs, dis
 | Gaussian Shader Validation | `gaussian_shader_validation.yml` | Validates shader compile matrix and host/shader contract checks. | Focused shader CI gate. |
 | Release Builds | `release_builds.yml` | Builds Linux and Windows editors for CI artifacts, nightly prereleases, and stable-tag publishes, plus the Linux and Windows `target=template_release` export templates. | Publishes Linux tarballs and Windows zips on the nightly schedule and on `v*` tag pushes. Whenever a Windows editor zip ships, the Windows export template zip ships with it: `release_candidate_gate` attests it and `publish_release` re-verifies it with `--require` (#994). The Windows editor is optimized (no `dev_build`) on every channel. The Linux nightly editor stays `dev_build=yes`. The `finite_math_guard` job blocks publication on every channel, and the `release_candidate_gate` job gates the stable/tag publish path (both-platform builds + `--mode candidate` validation, fail-closed); see below. The two export-template jobs (#825) are **no longer symmetric**, and the difference matters when diagnosing a blocked release. `build_linux_export_template` uploads its template as an **artifact only**: no job lists it under `needs:`, so it still gates nothing and its failure cannot stop a publish. `build_windows_export_template` is now **transitively gating**: `export_smoke_windows` lists it under `needs:`, and both `release_candidate_gate` and `publish_release` list *that* job and assert its result. So a failed Windows template build skips the smoke test, and a skipped smoke test blocks **every stable/tag publish**, and blocks a **nightly** whenever `build_windows` itself succeeded — the nightly's Windows-outage tolerance only covers the case where `build_windows` did not succeed and no Windows bytes ship at all. Nothing in either publication `if:` names the template job directly; the block runs entirely through `export_smoke_windows`, which is why a red Windows template build presents as a *skipped* smoke test rather than as a failed one. Kept honest by `tests/ci/test_release_publication_gating.py`, which derives the transitive `needs:` closure of the release-side-effect jobs and fails if this README or `release_builds.yml` still describes a job inside that closure as ungated. See [export templates](../../docs/development/export-templates.md). The `export_smoke_windows` job runs `tests/runtime/run_export_smoke.py` against the Windows template built by the same run — it exports the test project and launches the exported binary on the GPU runner, plus a negative control that requires an empty `custom_template/release` to be rejected for the missing-template reason specifically (a timeout, a crash or an unrelated error fails the control). It is blocking on the lanes it runs on (`push`/tag/schedule/dispatch), and it is the evidence that the template can actually ship a game. It is wired **into the publication dependency graph**, not beside it: `release_candidate_gate` and `publish_release` both list it under `needs:` (which is what makes publication wait for it) and both assert `result == 'success'` (which is what makes a failure block, since under `always()` a `needs:` entry alone gates nothing). A stable release always requires it; a nightly requires it whenever a Windows payload is actually published, and tolerates its absence only in the Windows-outage case where `build_windows` did not succeed and no Windows bytes ship. Kept honest by `tests/ci/test_release_publication_gating.py`, which evaluates both `if:` conditions over a truth table. |
 | Agentic PR Gate | `agentic_pr_gate.yml` | Fork-safe, always-on gate: validates every workflow plus the agentic control plane, runs the validator/agentic tests, the agentic/governance link check, and the GPU-free `--guard-only` lane. | GitHub-hosted (`ubuntu-latest`); installs its PyYAML parser from the version-and-hash-pinned `tests/ci/requirements-automation.txt`, runs on every PR and the merge queue. Required status check (job name): `agentic-pr-gate`. |
-| Trusted PR GPU Evidence Verdict | `pr_gpu_evidence_verdict.yml` | Base-only hosted consumer of exact-head canonical GPU receipts; R0/R1 exempt explicitly, R2/R3 fail closed. | Read-only `pull_request_target` and merge-group workflow; never executes proposed code. Pending required-context activation. |
+| Trusted PR GPU Evidence Verdict | `pr_gpu_evidence_verdict.yml` | Trusted default-code hosted consumer of unconditional exact-commit module/GPU/runtime receipts under an immutable policy context. | Same-repo master PRs only; canonical single-parent SUCCESS guard; dedicated environment-scoped App publication. Owner activation remains pending. |
 | Release-CI Runtime Evidence | `release_ci_runtime.yml` | Nightly + manual evidence lane for the canonical release-ready runtime profile `release-ci` (non-headless GDScript runtime suite + required renderer proof). | Self-hosted Windows GPU runner. **Not a required PR gate** — schedule + `workflow_dispatch` only. Runs `run_runtime_validation.py --profile release-ci --gd-mode windows-vulkan --skip-cpp`. |
 
 ## Required Checks
@@ -262,14 +262,16 @@ and were wrong:
 Adding a label to this list is the point at which a human asserts it is absent
 from the self-hosted runner inventory. Do not add one to make a check pass.
 
-`pull_request_target` is used by exactly one workflow, `pr_gpu_evidence_verdict.yml`,
-and only in a restricted form: a GitHub-hosted job checks out the immutable PR
-**base**, never the head or merge tree, with `persist-credentials: false`; it executes
-no PR or fork code and only reads GitHub metadata and artifacts. Its sole write scope
-is `statuses: write`, used to publish `gpu-evidence-gate` on the proposed head. See
-[PR GPU evidence verdict](#pr-gpu-evidence-verdict-v1-implementation). No workflow
-gives fork PRs a privileged checkout. A fork PR's GPU/Windows validation happens only
-after a maintainer reviews the change and moves it onto a same-repo branch.
+`pull_request_target` is used by exactly one workflow, `pr_gpu_evidence_verdict.yml`.
+Its GitHub-hosted controller checks out an immutable trusted **default-branch**
+commit with `persist-credentials: false`, executes no proposed/fork code, and
+reads metadata and receipt bytes. `GITHUB_TOKEN` has read-only permissions.
+A dedicated publisher App provides statuses-write through environment secrets
+restricted to the exact `master` branch type; it has no content-write permission.
+The producer receives neither that environment nor its credentials. See
+[universal GPU evidence](#universal-commit-gpu-evidence-pending-activation).
+Fork GPU/Windows validation requires a maintainer-owned same-repository branch;
+unsupported fork/queue/target cases cannot gain the new context.
 
 **Merge queue (`merge_group`).** These workflows also trigger on `merge_group`, where
 the self-hosted jobs run. Only users with write access can add a PR to the merge
@@ -582,66 +584,59 @@ Disabled workflows are stored in `../archived-workflows/`.
 - `test_gaussian_splatting.yml.disabled`
 - `test_phase4.yml.disabled`
 
-## PR GPU evidence verdict (v1 implementation)
+## Universal commit GPU evidence (pending activation)
 
-The Trusted PR GPU Evidence Verdict workflow reports `gpu-evidence-gate` on
-every `pull_request_target` and merge-group event. It checks out only the immutable
-base and executes no PR/fork code. Classification and verification both use that
-trusted implementation. GitHub API reads inspect the proposed diff and
-the actual canonical job/step results. Gaussian Production Gates separately
-reports `Canonical GPU Receipt Validation` without a PR branch/path filter. R2/R3 changes require successful guard and
-Windows module-validation jobs plus a same-run receipt produced after build,
-pipeline, module, headless/streaming runtime and GPU-contention postflight steps
-actually succeed. The receipt binds checkout/head/base SHAs, run ID/attempt and
-binary/report hashes. A skipped fork lane or unavailable GPU is not a passing
-measurement; fork changes need a maintainer-owned same-repo validation branch.
-R0/R1 results explicitly say that GPU evidence is not required, not that it passed.
-Only that evidence requirement is exempted (maintainer decision, 2026-10-10): R1
-module and test PRs still run the self-hosted `guards` and `module-validation` jobs
-(Windows build, module tests and runtime steps), as the earlier path filter did.
-Those jobs report as their own checks; the R1 verdict does not consume them. R0
-docs and governance PRs skip the self-hosted jobs; `agentic-pr-gate` runs their
-guards on a hosted runner.
+The hosted verdict consumes complete evidence for the exact immutable commit `S`
+carrying `gpu-code-evidence-v1-<policy_digest>`. Its acceptance depends on code and
+trusted policy, rather than a PR number, labels, path classification or former
+review base. Same-commit reuse is legitimate only under that same immutable
+policy and complete evidence. Every same-repository master PR, including R0/R1
+docs/governance changes, runs the full guard/build/module-GPU/runtime profile;
+classification stays informational. No runner-unavailability label creates success.
 
-The producer runs the proposed tree, so step labels and a well-formed receipt only
-mean something while the definitions behind them are the trusted ones. An R2/R3 PR
-that changes `gaussian_production_gates.yml`, `tests/ci/check_pr_gpu_evidence.py`,
-`tests/ci/runner_gpu_contention.py` or `tests/ci/preflight_runner_gpu_environment.py`
-fails the verdict: its own run cannot certify
-itself, so it needs maintainer disposition. The test harnesses those steps invoke
-are still the PR's own code; that is the subject under test, covered by review.
-Because a commit status is keyed by SHA alone, the verdict also fails while the head
-SHA is the head of another open PR. Otherwise the verdict for one base would also
-show on a PR against a different base.
+Producers explicitly check out the event head, capture the built binary before
+runtime, remove stale reports, run module tests with `--gpu --lane-report`, and
+package the fresh ledger plus both canonical runtime reports. The trusted
+consumer validates exact checkout/head, policy, run/attempt, unchanged binary (including the Windows launcher/editor pair),
+report bytes, selected strict/GPU batch coverage and actual GitHub job/step
+outcomes. Existing advisory module batches and completion-marker observations
+retain their established severity. This context certifies the blocking canonical
+profile; optional visual/export/performance/readiness work and human acceptance
+remain separate. It does not certify the legacy collector's raw-log leak filter.
+A partial rerun missing any required job/step is rejected.
 
-**Activation remains pending:** the existing required contexts (`agentic-pr-gate`,
-`docs-build`) remain the only required contexts until a maintainer merges this workflow, observes the new context report,
-and adds `gpu-evidence-gate` to protection without removing existing checks.
-Strict up-to-date protection or an enforced merge queue is required for activation.
-Producer in-progress/completed lifecycle events reset and revalidate the status,
-including reruns; PR base edits trigger reclassification. Merge-queue lifecycle
-events keep the group's immutable base (the `gh-readonly-queue` ref's SHA suffix),
-not the target branch's current tip.
-The verdict does not certify Linux, competitive performance, all visual modes,
-or the human release acceptance. Partial reruns that do not execute all required
-jobs in the current attempt are rejected; use a full rerun. The required context
-and its bootstrap workflow remain protected by human/CODEOWNER review. See the
-[design record](../../docs/architecture/adr-pr-gpu-evidence-verdict.md).
+All SUCCESS paths, including owner bootstrap, inspect canonical GitHub commit
+objects and require **exactly one parent**. A historical/synthetic merge cannot
+receive this context's success even if adopted as another PR's head. An ordinary
+merge tip needs a normal final source commit or rebase and its own full evidence.
+GitHub may prioritize a test-merge status; pending/failure on such an ineligible
+commit can safely block an eligible head, so head fallback is conditional.
 
-The controller publishes `gpu-evidence-gate` as a commit status on the proposed
-head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
-job alone is deliberately not the required context. `statuses: write` is the only
-write permission; repository content remains read-only. Failed or missing evidence
-publishes a failure. After the resolver publishes `pending`, a separate hosted
-cleanup job with an `always()` dependency replaces this run's own pending status
-with failure if checkout, Python setup or the controller aborts, including a
-controller job timeout. Verification has a 150-minute step budget inside the
-185-minute controller job; polling defaults to 9,000 seconds. Cleanup has its own
-five-minute job budget and reads the proposed SHA from the immutable event,
-independently of controller job outputs. It checks the latest status and its
-run URL before replacing a pending verdict; this read and the subsequent write
-are separate API operations, so a newer status can appear between them.
-Whole-workflow cancellation, service unavailability or an unsuccessful final API
-call can still leave a missing or pending context. These states are not passing evidence. No fork code is checked
-out or run. A successful R0/R1 status explicitly describes an exemption, not
-accepted GPU evidence.
+The dependency manifest pins executable producers, consumers, harness definitions,
+profiles, thresholds and action revisions. A policy change selects a new context;
+a proposed change to those definitions cannot certify itself against the old
+trusted policy. The trusted implementation must first enter the default branch
+through independently reviewed migration under the existing gates, then a
+single-parent candidate with matching definitions can register the new policy.
+This source change alone neither activates enforcement nor changes settings.
+
+Before success, the controller reads actual strict/admin/append-only protection,
+current-base ancestry, retained agentic/docs contexts, the expected publisher App
+and the exact master-only environment policy. Missing proof fails closed. Owner
+setup and staged registration are specified in
+[GitHub settings](../../docs/governance/github-settings.md#universal-commit-gpu-evidence-activation-pending).
+The last read and status POST are separate operations; GitHub strict protection
+must block a subsequent base advance outside the measured head.
+
+Polling has a 150-minute step budget inside the 185-minute hosted controller;
+independent cleanup has five minutes and derives its SHA from the event without
+controller outputs. It replaces only this run's latest pending policy status with
+failure. Whole-workflow cancellation, unavailable API and non-atomic status reads
+can still prevent terminal publication or conservatively replace a newer status.
+Missing/pending/failure is never accepted evidence.
+
+Human/CODEOWNER approval, native execution and actual hosted activation tests remain
+required. The initial ADR and producer shared commit `bc24d29`; prior approved
+design chronology was not verified and needs human disposition. The redesign was
+recorded separately before its production implementation. See the permanent
+[design record](../../docs/architecture/adr-pr-gpu-evidence-verdict.md#universal-commit-code-redesign-2026-10-11).
