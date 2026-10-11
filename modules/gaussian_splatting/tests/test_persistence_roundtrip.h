@@ -4048,7 +4048,9 @@ TEST_CASE("[GaussianSplatting][Persistence] Constructed legacy v1-v2 SH1 inferen
                         continue;
                     }
                     CHECK(target->get_sh_first_order_count() == (significant[sample] ? band + 1 : 0));
-                    CHECK(target->get_sh_degree() == (significant[sample] ? 1 : 0));
+                    // A partial first-order layout retains the old degree
+                    // calculation: degree 1 requires all three SH1 vectors.
+                    CHECK(target->get_sh_degree() == (significant[sample] && band == 2 ? 1 : 0));
                     CHECK(target->get_sh_high_order_count() == 0);
                     for (uint32_t i = 0; i < 2; i++) {
                         const Gaussian actual = target->get_gaussian(i);
