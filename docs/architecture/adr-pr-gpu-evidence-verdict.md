@@ -409,3 +409,16 @@ Primary authority contracts: [environment variables](https://docs.github.com/en/
 [environment configuration](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
 [environment variable API](https://docs.github.com/en/rest/actions/variables#get-an-environment-variable),
 and [comment editing](https://docs.github.com/en/communities/moderating-comments-and-conversations/managing-disruptive-comments).
+
+## 2026-10-11 isolated critical-file risk classification supplement
+
+The privileged owner/policy implementation (`scripts/agentic/gpu_commit_policy.py`),
+its dependency manifest (`scripts/agentic/gpu_commit_policy.json`) and the universal
+receipt validator (`tests/ci/check_universal_gpu_evidence.py`) each belong to the
+existing R3 critical CI gate machinery rule. Classifying the complete feature as
+R3 does not establish that future changes to any one of these files receive R3
+review and evidence obligations. The proposed correction adds these exact paths
+and tests each independently through the actual classifier. It preserves the
+other risk rules and changes no evidence threshold or activation requirement.
+This supplement is committed before that classification implementation; the
+original initial ADR chronology gap remains unchanged.
