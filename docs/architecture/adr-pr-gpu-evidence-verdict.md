@@ -422,3 +422,60 @@ and tests each independently through the actual classifier. It preserves the
 other risk rules and changes no evidence threshold or activation requirement.
 This supplement is committed before that classification implementation; the
 original initial ADR chronology gap remains unchanged.
+
+## 2026-10-11 signed owner-grant authority redesign (v9)
+
+This proposed correction supersedes the v7 claim that canonical environment JSON
+provides owner-only authority. Environment configuration and REST environment
+variable mutation have different documented access rules. A repository writer
+may edit an original owner comment without changing its original creator, so
+matching that creator and a changed body digest does not authenticate the payload.
+That source authority defect remains open until implementation, evidence and
+independent source review complete. The explored server-edit-history alternative
+(v8) was not implemented; this design relies on standard signatures.
+
+Both bootstrap and data-only migration require an exact owner-signed binding:
+version, distinct grant kind, canonical repository/owner/target, current trusted
+base B, policy B or separate reviewed T, measured S, policy context, publisher App,
+producer run/attempt and UTC expiry. Environment variables carry only the binding
+and public OpenSSH signature. No unsigned fallback, original-comment identity or
+mutable approval metadata supplies authority. Sorted compact UTF-8 binding bytes
+are signed and verified under namespace `godotgs-owner-grant-v1`.
+
+A fixed trusted-default verifier invokes standard `ssh-keygen -Y verify` with a
+fixed principal, allowed-signers content derived only from an immutable trusted
+Ed25519 public key, a pinned absolute executable path/hash and bounded execution.
+There is no custom cryptography or transport-supplied executable/key/options. The
+helper and key/tool configuration are fixed nondelegatable policy dependencies
+and R3 machinery. The owner private key stays offline and never enters CI, the
+repository or agent tools. Only temporary synthetic test keys are used locally.
+
+Initial configuration deliberately has no owner key or approved tool hash. All
+SUCCESS paths, including ordinary already-required same-policy execution, fail
+closed until a separately reviewed owner maintenance landing supplies actual
+public key/tool pins. Neither a placeholder key nor this source commit activates
+the gate. Hosted executable drift stops availability and requires reviewed
+nondelegatable maintenance with a fresh policy context; a signed data-only grant
+cannot update privileged code, keys or verifier pins. Linked libraries and the
+GitHub-hosted runtime remain the explicit external toolchain trust boundary.
+
+The same authority helper guards bootstrap, migration and final SUCCESS rechecks.
+Every success still requires real fresh full GPU/strict module/runtime receipt,
+canonical single-parent identity, immutable producer policy, current strict base
+ancestry, expected App and exact master-only credential environment. A signature
+authenticates approval and cannot substitute for execution. Changes after the
+final API read do not establish atomic revocation or a PR/base transaction.
+
+Actual synthetic Linux OpenSSH tests must distinguish valid proof from altered
+bytes/signatures, wrong keys/namespaces, replayed or mismatched bindings and expired
+grants. Independent removal of signature verification, shared bootstrap/migration
+checks and the final recheck must fail. Required hosted Linux coverage must execute
+real crypto; native Windows portable checks are reported separately. Initial
+activation still needs reviewed configured B, a meaningful same-policy one-parent
+PR S with genuine full native producer evidence, the owner's offline exact grant,
+then actual publisher registration and required-context/App/strict readback.
+Humans own source acceptance, the original pre-ADR chronology disposition, actual
+key/configuration approval and merge. Native/hosted activation remains NOT_RUN.
+
+This permanent design section is committed before the new authority behavior.
+The standard protocol is specified by the [OpenSSH ssh-keygen manual](https://man.openbsd.org/ssh-keygen).
