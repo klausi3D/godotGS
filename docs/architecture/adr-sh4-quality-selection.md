@@ -79,3 +79,39 @@ and the production basis with an independent Legendre recurrence. Require actual
 normal/quantized GPU colour readback in both directions, a mapping-only reverted
 mutation, full-prefix controls, logical-limit/metric checks and two independent
 reviews. Source or CPU proof does not substitute for GPU colour evidence.
+
+## Registered instance LOD and live SH reload qualification
+
+A registered non-primary chunk is shared by all instances of an asset. Its
+metadata therefore cannot carry an individual instance's SH selection. StageB
+uses the visible instance's resolved LOD and the effective configured maximum.
+Reduce one degree per LOD only when effective geometric LOD and SH reduction
+are enabled; otherwise preserve the maximum. Keep the available-degree cap in
+existing raster metadata. Do not change shared chunk content, basis, cache layout
+or physical atlas indices.
+
+The existing 464-byte depth parameter record carries maximum0–4 in the low three
+bits and enabled reduction in bit3 of its previously reserved
+cull_frustum_radius.w component, encoded as an exact small numeric float. Host
+and shader define the same policy and preserve all offsets, eight-byte visible
+references and their 29-bit physical atlas index. The instance lod.y dense
+generation field remains unchanged. Streamed overrides take precedence over
+global LOD configuration; resident callers use current LOD configuration.
+
+Runtime settings_changed marks both the existing full configuration dirty state
+and a separate SH-only dirty latch. The narrow SH refresh loads the effective SH
+configuration before streaming maximum synchronization, including failed-init
+early returns. Existing public full reload invokes the same SH refresh. Clean
+frames reuse the loaded SH configuration. The full loader remains behind the
+existing failed-init guard because its streaming tuning path can start/stop pack
+workers; SH refresh neither clears pending full dirty state nor creates workers
+or RD resources. Use the existing configuration ownership/callback lifecycle.
+
+Qualify with real settings signals and no manual global SH reload, initialized
+and failed-init paths, retained full-dirty/no-worker early-path controls, normal
+and quantized production StageB readback for registered non-primary assets and
+shared chunks at different instance LODs. Test expected degree with an independent
+explicit table. Require actual old-source RED, corrected GREEN, per-instance
+mapping reversion and host-policy wiring deletion, plus existing shader matrix,
+independent reviews, full/runtime/GPU evidence and human disposition. No threshold
+or format change follows from this correction.
