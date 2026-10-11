@@ -377,18 +377,21 @@ static ComputeCapabilityProbe _probe_compute_capabilities(RenderingDevice *rd) {
 static std::atomic<uint64_t> radix_test_size_x{ UINT64_MAX };
 static std::atomic<uint64_t> radix_test_invocations{ UINT64_MAX };
 static std::atomic<uint64_t> radix_test_shared_memory{ UINT64_MAX };
+static std::atomic<uint64_t> radix_test_count_x{ UINT64_MAX };
 
 RadixSort::ScopedDeviceLimitsForTesting::ScopedDeviceLimitsForTesting(
-        uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory) :
+        uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory, uint64_t p_count_x) :
         previous_size_x(radix_test_size_x.exchange(p_size_x)),
         previous_invocations(radix_test_invocations.exchange(p_invocations)),
-        previous_shared_memory(radix_test_shared_memory.exchange(p_shared_memory)) {
+        previous_shared_memory(radix_test_shared_memory.exchange(p_shared_memory)),
+        previous_count_x(radix_test_count_x.exchange(p_count_x)) {
 }
 
 RadixSort::ScopedDeviceLimitsForTesting::~ScopedDeviceLimitsForTesting() {
     radix_test_size_x.store(previous_size_x);
     radix_test_invocations.store(previous_invocations);
     radix_test_shared_memory.store(previous_shared_memory);
+    radix_test_count_x.store(previous_count_x);
 }
 #endif
 
@@ -398,6 +401,7 @@ static ComputeCapabilityProbe _probe_radix_compute_capabilities(RenderingDevice 
     probe.workgroup_size_x = MIN(probe.workgroup_size_x, radix_test_size_x.load());
     probe.workgroup_invocations = MIN(probe.workgroup_invocations, radix_test_invocations.load());
     probe.shared_memory_bytes = MIN(probe.shared_memory_bytes, radix_test_shared_memory.load());
+    probe.workgroup_count_x = MIN(probe.workgroup_count_x, radix_test_count_x.load());
 #endif
     return probe;
 }

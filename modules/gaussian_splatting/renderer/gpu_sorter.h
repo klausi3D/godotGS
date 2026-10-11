@@ -435,8 +435,10 @@ public:
         uint64_t previous_size_x;
         uint64_t previous_invocations;
         uint64_t previous_shared_memory;
+        uint64_t previous_count_x;
     public:
-        ScopedDeviceLimitsForTesting(uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory);
+        ScopedDeviceLimitsForTesting(uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory,
+                uint64_t p_count_x = UINT64_MAX);
         ~ScopedDeviceLimitsForTesting();
         ScopedDeviceLimitsForTesting(const ScopedDeviceLimitsForTesting &) = delete;
         ScopedDeviceLimitsForTesting &operator=(const ScopedDeviceLimitsForTesting &) = delete;

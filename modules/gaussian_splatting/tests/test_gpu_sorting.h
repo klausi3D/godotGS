@@ -1102,6 +1102,134 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation pre
 	if (sorter.is_valid()) { sorter->shutdown(); }
 }
 
+// Capacity admission must follow the actual selected workgroup and dispatch-X
+// limit. Use the real initialization/factory, not only an arithmetic helper.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix capacity respects dispatch X after device adaptation (#539)") {
+	struct ConfigRestore {
+		GPUSortingConfig previous = g_gpu_sorting_config;
+		~ConfigRestore() { g_gpu_sorting_config = previous; }
+	} config_restore;
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (!rd) {
+		FAIL("dispatch-capacity oracle requires the GPU harness RenderingDevice");
+		return;
+	}
+	ScopedGpuSortManagerDevice manager_device(rd);
+	g_gpu_sorting_config.reset_to_defaults();
+	g_gpu_sorting_config.workgroup_size = 128;
+	const uint64_t thread_limit = MIN(rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X),
+			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS));
+	const uint64_t shared_limit = rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE);
+	uint32_t expected_workgroup_size = 128;
+	while (expected_workgroup_size >= 64 && (expected_workgroup_size > thread_limit ||
+			GPUSortingConstants::radix_scatter_shared_memory_bytes(g_gpu_sorting_config.radix_bits,
+				expected_workgroup_size) > shared_limit)) {
+		expected_workgroup_size >>= 1;
+	}
+	if (expected_workgroup_size < 64 || rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X) < 2) {
+		FAIL("dispatch-capacity oracle requires 64-lane radix support and two dispatch groups");
+		return;
+	}
+	SortKeyConfig key_config;
+	key_config.key_bits = 64;
+	key_config.tile_bits = 32;
+	key_config.depth_bits = 32;
+	key_config.enable_tie_breaker = false;
+	const uint32_t capacity = 2 * expected_workgroup_size;
+
+	{
+		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 2);
+		Ref<RadixSort> rejected;
+		rejected.instantiate();
+		rejected->set_key_config(key_config);
+		const Error admission = rejected->initialize(rd, capacity + 1);
+		CHECK(admission == ERR_UNAVAILABLE);
+		CHECK(rejected->get_max_elements() == 0);
+		rejected->shutdown(); // Also frees resources on the deliberately unfixed RED source.
+		Ref<IGPUSorter> factory = GPUSorterFactory::create_sorter(
+				GPUSorterFactory::ALGORITHM_AUTO, rd, capacity + 1, key_config);
+		CHECK(factory.is_null());
+		if (factory.is_valid()) { factory->shutdown(); }
+	}
+	{
+		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 0);
+		Ref<RadixSort> rejected;
+		rejected.instantiate();
+		rejected->set_key_config(key_config);
+		const Error admission = rejected->initialize(rd, capacity);
+		CHECK(admission == ERR_UNAVAILABLE);
+		rejected->shutdown();
+	}
+
+	RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 2);
+	Ref<IGPUSorter> factory = GPUSorterFactory::create_sorter(
+			GPUSorterFactory::ALGORITHM_AUTO, rd, capacity, key_config);
+	if (factory.is_null()) {
+		FAIL("dispatch-capacity boundary factory must admit its supported capacity");
+		return;
+	}
+	Ref<RadixSort> boundary = factory;
+	if (boundary.is_null()) {
+		FAIL("dispatch-capacity boundary factory must select indirect64 RadixSort");
+		return;
+	}
+	CHECK(boundary->get_effective_workgroup_size_for_testing() == expected_workgroup_size);
+	CHECK(boundary->get_max_elements() == capacity);
+
+	// Both direct and GPU-count paths must sort every record at the legal boundary.
+	for (int mode = 0; mode < 2; ++mode) {
+		LocalVector<uint64_t> keys;
+		LocalVector<uint32_t> values;
+		for (uint32_t i = 0; i < capacity; ++i) {
+			keys.push_back((uint64_t((i * 11) % 37) << 32) | (capacity - i));
+			values.push_back(i);
+		}
+		LocalVector<uint64_t> expected = keys;
+		expected.sort();
+		GaussianSplatting::IndirectDispatchLayout header = {};
+		header.element_count = capacity;
+		Vector<uint8_t> count_bytes;
+		count_bytes.resize(sizeof(header));
+		memcpy(count_bytes.ptrw(), &header, sizeof(header));
+		struct Buffers {
+			RenderingDevice *rd;
+			RID keys;
+			RID values;
+			RID count;
+			~Buffers() {
+				if (keys.is_valid()) { rd->free(keys); }
+				if (values.is_valid()) { rd->free(values); }
+				if (count.is_valid()) { rd->free(count); }
+			}
+		} buffers = { rd, create_storage_buffer(rd, keys), create_storage_buffer(rd, values),
+			rd->storage_buffer_create(count_bytes.size(), count_bytes) };
+		if (!buffers.keys.is_valid() || !buffers.values.is_valid() || !buffers.count.is_valid()) {
+			FAIL("dispatch-capacity oracle could not create input buffers");
+			return;
+		}
+		const Error sort_error = mode == 0 ? boundary->sort(buffers.keys, buffers.values, capacity) :
+				boundary->sort_indirect(buffers.keys, buffers.values, buffers.count);
+		CHECK(sort_error == OK);
+		if (sort_error != OK) { return; }
+		const Vector<uint8_t> key_bytes = rd->buffer_get_data(buffers.keys);
+		const Vector<uint8_t> value_bytes = rd->buffer_get_data(buffers.values);
+		if (key_bytes.size() != capacity * sizeof(uint64_t) || value_bytes.size() != capacity * sizeof(uint32_t)) {
+			FAIL("dispatch-capacity readback has the wrong byte count");
+			return;
+		}
+		for (uint32_t i = 0; i < capacity; ++i) {
+			uint64_t actual;
+			uint32_t index;
+			memcpy(&actual, key_bytes.ptr() + i * sizeof(actual), sizeof(actual));
+			memcpy(&index, value_bytes.ptr() + i * sizeof(index), sizeof(index));
+			CHECK(actual == expected[i]);
+			const bool maps_back = index < capacity && keys[index] == actual;
+			CHECK(maps_back);
+		}
+	}
+	boundary->shutdown();
+}
+
 // Regression guard for the 8-bit radix path: with 256 histogram/scatter bins, the per-bin shader
 // loops must be STRIDED over WORKGROUP_SIZE. A naive `tid < RADIX_SIZE` guard only covers the first
 // WORKGROUP_SIZE bins, silently corrupting the sort at workgroup_size 64/128. This test sorts keys
