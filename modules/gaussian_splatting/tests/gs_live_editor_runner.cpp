@@ -42,10 +42,30 @@ static Vector<Object *> live_editor_objects() {
 	objects.push_back(EditorResourcePreview::get_singleton());
 	return objects;
 }
-void GSLiveEditorTestRunner::_emit(Dictionary data) const {
+bool GSLiveEditorTestRunner::_drain_on_time(uint64_t p_now) const {
+	return p_now >= drain_usec && p_now - drain_usec <= 45000000;
+}
+void GSLiveEditorTestRunner::_emit(Dictionary &data) {
 	data["token"] = token;
 	data["pid"] = OS::get_singleton()->get_process_id();
-	print_line("[GS-LIVE-EDITOR] " + JSON::stringify(data));
+	String payload = JSON::stringify(data);
+	// Formatting can itself consume the last part of the drain budget. Fence the
+	// actual PASS publication after that work, not only at frame entry.
+	if (data["kind"] == "final" && (!draining || !_drain_on_time(OS::get_singleton()->get_ticks_usec()))) {
+		invalid = true;
+		data["valid"] = false;
+		data["drained"] = false;
+		payload = JSON::stringify(data);
+	}
+	print_line("[GS-LIVE-EDITOR] " + payload);
+	// A blocked output sink cannot convert an overrun into authoritative PASS.
+	// The parent requires the whole output and native exit; latch before quit.
+	if (data["kind"] == "final" && (!draining || !_drain_on_time(OS::get_singleton()->get_ticks_usec()))) {
+		invalid = true;
+		data["valid"] = false;
+		data["drained"] = false;
+		print_line("[GS-LIVE-EDITOR INVALID] final publication exceeded drain budget");
+	}
 }
 bool GSLiveEditorTestRunner::_queues_safe() const {
 	CallQueue *q = MessageQueue::get_singleton();
@@ -303,12 +323,13 @@ void GSLiveEditorTestRunner::_process_frame() {
 		draining = true; drain_usec = OS::get_singleton()->get_ticks_usec();
 		return;
 	}
-	if (now - drain_usec > 45000000) { invalid = true; _finish(); return; }
+	if (!_drain_on_time(now)) { invalid = true; _finish(); return; }
 	_restore_logger();
 	if (!_identities_valid() || factory_armed || fixture.is_valid()) { invalid = true; }
 	MessageQueue::get_main_singleton()->flush();
 	if (MessageQueue::get_singleton() != MessageQueue::get_main_singleton()) { MessageQueue::get_singleton()->flush(); }
 	if (!_identities_valid()) { invalid = true; }
+	if (!_drain_on_time(OS::get_singleton()->get_ticks_usec())) { invalid = true; _finish(); return; }
 	if (!_all_deliveries_closed()) { stable_frames = 0; return; }
 	if (stable_frames++ >= 1) { _finish(); }
 }
@@ -347,11 +368,16 @@ void GSLiveEditorTestRunner::_finish() {
 			_emit(d);
 		}
 	}
-	Dictionary d; d["kind"] = "final"; d["valid"] = observer && !invalid && !context_result && case_count == 23 && !failed_assertions;
+	const uint64_t final_now = OS::get_singleton()->get_ticks_usec();
+	const bool final_on_time = draining && _drain_on_time(final_now);
+	if (!final_on_time) { invalid = true; }
+	Dictionary d; d["kind"] = "final";
+	d["drain_elapsed_usec"] = String::num_uint64(final_now >= drain_usec ? final_now - drain_usec : UINT64_MAX);
+	d["valid"] = observer && !invalid && !context_result && case_count == 23 && !failed_assertions;
 	d["cases"] = case_count; d["assertions"] = assertions; d["failed_assertions"] = failed_assertions;
 	d["created"] = created_total; d["closed"] = closed_total; d["logger_restored"] = CoreGlobals::print_error_enabled == logger_initial;
 	d["borrowed_ids"] = _borrowed_ids();
-	d["drained"] = draining && stable_frames >= 2 && _all_deliveries_closed(); d["borrowed_valid"] = observer && _identities_valid();
+	d["drained"] = final_on_time && stable_frames >= 2 && _all_deliveries_closed(); d["borrowed_valid"] = observer && _identities_valid();
 	_emit(d);
 	if (current == this) { current = nullptr; }
 	if (observer) { memdelete(observer); observer = nullptr; }

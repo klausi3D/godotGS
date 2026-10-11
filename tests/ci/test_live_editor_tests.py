@@ -136,7 +136,7 @@ class ProtocolCountermodels(unittest.TestCase):
         total = sum(c['assertions'] for c in records if c['kind'] == 'case')
         records.append({"kind": "final", "valid": True, "drained": True, "logger_restored": True, "borrowed_valid": True,
                         "borrowed_ids": records[0]['borrowed_ids'], "cases": 23, "assertions": total, "failed_assertions": 0,
-                        "created": 7, "closed": 7})
+                        "created": 7, "closed": 7, "drain_elapsed_usec": "44999000"})
         for row in records:
             row.update(token=self.token, pid=pid)
         return records
@@ -158,6 +158,8 @@ class ProtocolCountermodels(unittest.TestCase):
                    lambda r: r[1].update(assertions=0), lambda r: r[1].update(callback_closed=False),
                    lambda r: r[1].update(name=r[2]['name']), lambda r: r[-1].update(closed=6),
                    lambda r: r[-1].update(token="b" * 32),
+                   lambda r: r[-1].update(drain_elapsed_usec="46000000"),
+                   lambda r: r[-1].pop("drain_elapsed_usec"),
                    lambda r: next(c for c in r if c.get('kind') == 'case' and c.get('fixture_created') == 0).update(fixture_created=1, fixture_closed=1, fixture_parented=True)]
         for mutation in changes:
             with self.subTest(mutation=mutation):
@@ -183,7 +185,7 @@ class ProtocolCountermodels(unittest.TestCase):
 
     def test_actual_popen_stream_full_eof_rejects_trailing_error(self):
         # Fake OWN Python children, never a native Godot process or a lease/probe.
-        for trailing in ('', 'ERROR: unexpected teardown error\n'):
+        for trailing in ('', 'ERROR: unexpected teardown error\n', '[GS-LIVE-EDITOR INVALID] final publication exceeded drain budget\n'):
             with self.subTest(trailing=trailing), tempfile.TemporaryDirectory() as tmp:
                 d = Path(tmp)
                 rows = self.constructed_records(0)
@@ -202,6 +204,38 @@ class ProtocolCountermodels(unittest.TestCase):
             result = self.runtime.run("OWN_FAKE_NO_GODOT", [])
         self.assertFalse(result[0])
         popen.assert_not_called()
+
+
+
+class FinalSourceBoundaryControls(unittest.TestCase):
+    """Source/scalar controls only; no C++ compilation or native editor proof."""
+    def test_actual_drain_predicate_and_post_work_publish_fences(self):
+        source = (ROOT / 'modules/gaussian_splatting/tests/gs_live_editor_runner.cpp').read_text(encoding='utf-8')
+        predicate = "return p_now >= drain_usec && p_now - drain_usec <= 45000000;"
+        self.assertEqual(source.count(predicate), 1)
+        # Evaluate the actual bounded scalar expression, with an independent
+        # last-frame oracle. This does not execute the C++ owner runtime.
+        expression = predicate.removeprefix('return ').removesuffix(';').replace('&&', ' and ')
+        for elapsed, expected in ((44_999_000, True), (45_000_000, True), (46_000_000, False), (-1, False)):
+            with self.subTest(elapsed=elapsed):
+                self.assertEqual(eval(expression, {'__builtins__': {}}, {'drain_usec': 1_000_000, 'p_now': 1_000_000 + elapsed}), expected)
+        process = source.split('void GSLiveEditorTestRunner::_process_frame()', 1)[1].split('void GSLiveEditorTestRunner::_finish()', 1)[0]
+        self.assertLess(process.rfind('->flush();'), process.rfind('_drain_on_time('))
+        publish = source.split('void GSLiveEditorTestRunner::_emit(', 1)[1].split('bool GSLiveEditorTestRunner::_queues_safe()', 1)[0]
+        self.assertLess(publish.index('JSON::stringify'), publish.index('_drain_on_time('))
+        self.assertLess(publish.index('_drain_on_time('), publish.index('print_line('))
+        self.assertIn('data["valid"] = false', publish)
+        self.assertIn('data["drained"] = false', publish)
+        self.assertLess(publish.index('print_line("[GS-LIVE-EDITOR] " + payload)'), publish.rfind('_drain_on_time('))
+        self.assertIn('invalid = true', publish)
+
+    def test_all_actual_atomic_types_refuse_locking_fallback(self):
+        source = (ROOT / 'modules/gaussian_splatting/tests/gs_live_editor_observation.h').read_text(encoding='utf-8')
+        for name in ('bool', 'uint32_t', 'uint64_t', 'Observer *'):
+            assertion = 'static_assert(std::atomic<' + name + '>::is_always_lock_free'
+            with self.subTest(type=name):
+                self.assertIn(assertion, source)
+                self.assertLess(source.index(assertion), source.index('inline std::atomic<Observer *> active'))
 
 
 class ShippingRegistrationControls(unittest.TestCase):

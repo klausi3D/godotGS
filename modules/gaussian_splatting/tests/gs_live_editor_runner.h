@@ -37,7 +37,8 @@ class GSLiveEditorTestRunner : public RefCounted {
 	Array _borrowed_ids() const;
 	void _restore_logger();
 	void _restore_dialogs();
-	void _emit(Dictionary p_data) const;
+	bool _drain_on_time(uint64_t p_now) const;
+	void _emit(Dictionary &p_data);
 	static void _error(void *p_userdata, const char *p_function, const char *p_file, int p_line,
 			const char *p_error, const char *p_message, bool p_notify, ErrorHandlerType p_type);
 protected:

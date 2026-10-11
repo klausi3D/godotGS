@@ -74,6 +74,39 @@ class ClassifyChangeTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self._cls([path]), "R3")
 
+    LIVE_EDITOR_CRITICAL_PATHS = (
+        "tests/ci/run_live_editor_tests.py",
+        "tests/ci/test_live_editor_tests.py",
+        "modules/gaussian_splatting/tests/gs_live_editor_runner.cpp",
+        "modules/gaussian_splatting/tests/gs_live_editor_runner.h",
+        "modules/gaussian_splatting/tests/gs_live_editor_observation.h",
+    )
+
+    def test_live_editor_critical_paths_are_individually_r3(self):
+        for path in self.LIVE_EDITOR_CRITICAL_PATHS:
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R3")
+
+    def test_removing_only_each_live_editor_entry_is_discriminated(self):
+        for path in self.LIVE_EDITOR_CRITICAL_PATHS:
+            with self.subTest(path=path):
+                mutant = copy.deepcopy(POLICY)
+                occurrences = 0
+                for rule in mutant["classification"]["rules"]:
+                    occurrences += rule["path_globs"].count(path)
+                    rule["path_globs"] = [p for p in rule["path_globs"] if p != path]
+                self.assertEqual(occurrences, 1)
+                self.assertEqual(classify.classify_paths([path], mutant)[0], "R1")
+
+    def test_live_editor_exact_rules_preserve_ordinary_neighbours(self):
+        for path in (
+            "tests/ci/run_live_editor_tests.py.backup",
+            "modules/gaussian_splatting/tests/gs_live_editor_runner_other.h",
+            "modules/gaussian_splatting/tests/test_gaussian_importer.h",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R1")
+
     def test_docs_is_r0(self):
         self.assertEqual(self._cls(["docs/governance/review-policy.md"]), "R0")
 

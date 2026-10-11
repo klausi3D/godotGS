@@ -57,6 +57,8 @@ def _positive(value):
 
 def validate(output, *, token, pid, names, injection_line):
     """Reconcile complete real receipts; never infer delivery from cancellation."""
+    if '[GS-LIVE-EDITOR INVALID]' in output:
+        raise ValueError('Explicit invalid producer closure')
     records = []
     for line in output.splitlines():
         if PREFIX not in line:
@@ -156,6 +158,9 @@ def validate(output, *, token, pid, names, injection_line):
             raise ValueError('Actual worker/join/callback delivery mismatch')
     if any(e['event'] >= 6 and e.get('case') not in {c['ordinal'] for c in previews} for e in events):
         raise ValueError('Unknown late preview cohort')
+    elapsed = final.get('drain_elapsed_usec')
+    if not isinstance(elapsed, str) or not elapsed.isascii() or not elapsed.isdigit() or int(elapsed) > 45_000_000:
+        raise ValueError('Missing/late original final-drain budget')
     if (any(final.get(k) is not True for k in ('valid', 'drained', 'logger_restored', 'borrowed_valid'))
             or final.get('borrowed_ids') != ids or final.get('cases') != 23 or final.get('created') != 7 or final.get('closed') != 7
             or final.get('failed_assertions') != 0 or final.get('assertions') != sum(c['assertions'] for c in cases)):

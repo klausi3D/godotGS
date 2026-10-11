@@ -31,6 +31,13 @@ struct Observer {
 	uint64_t owner = 0;
 	Record records[CAPACITY];
 };
+// The core error handler executes under _global_lock. A locking atomic
+// implementation would violate its no-second-lock contract: refuse that target
+// at compile time, before any observer can be published or handler installed.
+static_assert(std::atomic<bool>::is_always_lock_free, "Live editor observer requires lock-free bool atomics");
+static_assert(std::atomic<uint32_t>::is_always_lock_free, "Live editor observer requires lock-free u32 atomics");
+static_assert(std::atomic<uint64_t>::is_always_lock_free, "Live editor observer requires lock-free u64 atomics");
+static_assert(std::atomic<Observer *>::is_always_lock_free, "Live editor observer requires lock-free pointer atomics");
 inline std::atomic<Observer *> active{ nullptr };
 // Increment BEFORE loading active. After disarm, zero readers proves no helper
 // can still dereference userdata; later readers see null. Core error callbacks
