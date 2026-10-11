@@ -107,6 +107,28 @@ class ClassifyChangeTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self._cls([path]), "R1")
 
+    def test_shipping_projection_dependency_is_individually_r3(self):
+        self.assertEqual(self._cls(["tests/ci/check_doc_classes_complete.py"]), "R3")
+
+    def test_shipping_projection_exact_entry_deletion_is_discriminated(self):
+        path = "tests/ci/check_doc_classes_complete.py"
+        mutant = copy.deepcopy(POLICY)
+        occurrences = 0
+        for rule in mutant["classification"]["rules"]:
+            occurrences += rule["path_globs"].count(path)
+            rule["path_globs"] = [p for p in rule["path_globs"] if p != path]
+        self.assertEqual(occurrences, 1)
+        self.assertEqual(classify.classify_paths([path], mutant)[0], "R1")
+
+    def test_shipping_projection_exact_rule_preserves_ordinary_neighbours(self):
+        for path in (
+            "tests/ci/check_doc_classes_complete.py.backup",
+            "tests/ci/check_doc_classes_other.py",
+            "tests/ci/test_check_doc_classes_complete.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self._cls([path]), "R1")
+
     def test_docs_is_r0(self):
         self.assertEqual(self._cls(["docs/governance/review-policy.md"]), "R0")
 

@@ -120,6 +120,7 @@
           "tests/ci/run_module_tests.py",
           "tests/ci/run_live_editor_tests.py",
           "tests/ci/test_live_editor_tests.py",
+          "tests/ci/check_doc_classes_complete.py",
           "modules/gaussian_splatting/tests/gs_live_editor_runner.cpp",
           "modules/gaussian_splatting/tests/gs_live_editor_runner.h",
           "modules/gaussian_splatting/tests/gs_live_editor_observation.h",
