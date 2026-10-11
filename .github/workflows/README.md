@@ -628,9 +628,16 @@ The controller publishes `gpu-evidence-gate` as a commit status on the proposed
 head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
 job alone is deliberately not the required context. `statuses: write` is the only
 write permission; repository content remains read-only. Failed or missing evidence
-publishes a failure. After the resolver publishes `pending`, a final always-run
-step replaces this run's own pending status with failure when checkout, Python
-setup or the controller aborts, or the job is cancelled or times out. It leaves a
-terminal verdict, or a newer run's status, untouched. A failure before `pending`,
-or of that final API call, leaves a missing or pending context, which does not
-satisfy required protection. No fork code is checked out or run.
+publishes a failure. After the resolver publishes `pending`, a separate hosted
+cleanup job with an `always()` dependency replaces this run's own pending status
+with failure if checkout, Python setup or the controller aborts, including a
+controller job timeout. Verification has a 150-minute step budget inside the
+185-minute controller job; polling defaults to 9,000 seconds. Cleanup has its own
+five-minute job budget and reads the proposed SHA from the immutable event,
+independently of controller job outputs. It checks the latest status and its
+run URL before replacing a pending verdict; this read and the subsequent write
+are separate API operations, so a newer status can appear between them.
+Whole-workflow cancellation, service unavailability or an unsuccessful final API
+call can still leave a missing or pending context. These states are not passing evidence. No fork code is checked
+out or run. A successful R0/R1 status explicitly describes an exemption, not
+accepted GPU evidence.

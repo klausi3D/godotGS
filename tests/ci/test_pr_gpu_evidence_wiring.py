@@ -80,7 +80,7 @@ class WorkflowWiringTests(unittest.TestCase):
         expr = re.sub(r"\btrue\b", "True", re.sub(r"\bfalse\b", "False", expr))
         expr = re.sub(r"\b(?:github|needs|inputs)\.[A-Za-z0-9_.-]+",
                       lambda match: repr(values.get(match.group(0), "")), expr)
-        return bool(eval(expr, {"__builtins__": {}}))  # noqa: S307 - test-only, repo-controlled input
+        return bool(eval("(" + expr + ")", {"__builtins__": {}}))  # noqa: S307 - test-only, repo-controlled input
 
     def test_only_docs_prs_skip_the_windows_build_and_module_tests(self):
         # Maintainer decision 2026-10-10: R1 module/test PRs still build and run
@@ -133,6 +133,38 @@ class WorkflowWiringTests(unittest.TestCase):
         commands = [step["run"] for step in job["steps"] if "run" in step]
         self.assertEqual(commands, ["python scripts/agentic/watch_pr_gpu_evidence.py"])
 
+    def test_timeout_cleanup_is_independent_of_the_controller_job(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
+        controller = workflow["jobs"]["trusted-gpu-controller"]
+        cleanup = workflow["jobs"]["trusted-gpu-cleanup"]
+        self.assertEqual(cleanup["needs"], "trusted-gpu-controller")
+        self.assertEqual(cleanup["runs-on"], "ubuntu-latest")
+        self.assertEqual(cleanup["permissions"], {"statuses": "write"})
+        self.assertGreater(cleanup["timeout-minutes"], 0)
+        self.assertIn("always()", cleanup["if"])
+        for result in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(result=result):
+                self.assertTrue(self.evaluate(cleanup["if"], {
+                    "github.event_name": "pull_request_target",
+                    "needs.trusted-gpu-controller.result": result,
+                    "needs.trusted-gpu-controller.outputs.sha": ""}))
+        self.assertTrue(self.evaluate(cleanup["if"], {"github.event_name": "merge_group"}))
+        for source in ("pull_request", "merge_group", "push", "schedule", "workflow_dispatch", ""):
+            with self.subTest(source=source):
+                values = {"github.event_name": "workflow_run",
+                          "github.event.workflow_run.name": "Gaussian Production Gates",
+                          "github.event.workflow_run.event": source}
+                self.assertEqual(self.evaluate(cleanup["if"], values),
+                                 source in ("pull_request", "merge_group"))
+                values["github.event.workflow_run.name"] = "Unrelated Workflow"
+                self.assertFalse(self.evaluate(cleanup["if"], values))
+        self.assertFalse(self.evaluate(cleanup["if"], {"github.event_name": "push"}))
+        verify = next(step for step in controller["steps"]
+                      if "watch_pr_gpu_evidence.py" in step.get("run", ""))
+        self.assertLess(verify["timeout-minutes"], controller["timeout-minutes"])
+        self.assertFalse(any(step.get("name") == "Publish failure if the controller aborted"
+                             for step in controller["steps"]))
+
     def resolve_merge_queue_event(self, head_branch, merge_base):
         # Executes the real resolver script under node with a stubbed API whose
         # branch tip has moved past the group's base.
@@ -166,10 +198,10 @@ SCRIPT
                 state["event"] = json.loads(Path(state["outputs"]["path"]).read_text(encoding="utf-8"))
             return state
 
-    def run_abort_publisher(self, statuses, list_fails=False):
+    def run_abort_publisher(self, statuses, list_fails=False, proposed_sha="b" * 40):
         # Executes the real final step under node against a stubbed status API.
         workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
-        publisher = workflow["jobs"]["trusted-gpu-controller"]["steps"][-1]
+        publisher = workflow["jobs"]["trusted-gpu-cleanup"]["steps"][-1]
         node = shutil.which("node")
         self.assertIsNotNone(node, "node is required to execute the abort publisher")
         harness = """
@@ -188,18 +220,19 @@ SCRIPT
             path = Path(temp) / "publisher.js"
             path.write_text(harness, encoding="utf-8")
             result = subprocess.run([node, str(path)], capture_output=True, encoding="utf-8", timeout=60,
-                                    env={**os.environ, "GS_PROPOSED_SHA": "b" * 40}, check=True)
+                                    env={**os.environ, "GS_PROPOSED_SHA": proposed_sha}, check=True)
             return json.loads(result.stdout.strip().splitlines()[-1])
 
     def test_controller_abort_replaces_its_own_pending_status(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/pr_gpu_evidence_verdict.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["trusted-gpu-controller"]["steps"]
-        publisher = steps[-1]
-        # Runs after a checkout/setup/controller failure, cancellation or
-        # timeout, whenever the resolver identified a proposed SHA.
-        self.assertIn("always()", publisher["if"])
-        self.assertIn("steps.event.outputs.sha != ''", publisher["if"])
-        self.assertEqual(publisher["env"]["GS_PROPOSED_SHA"], "${{ steps.event.outputs.sha }}")
+        cleanup = workflow["jobs"]["trusted-gpu-cleanup"]
+        publisher = cleanup["steps"][-1]
+        # Independent event metadata survives missing controller job outputs.
+        # Whole-workflow cancellation/service failure still can prevent cleanup.
+        self.assertIn("always()", cleanup["if"])
+        self.assertEqual(publisher["env"]["GS_PROPOSED_SHA"],
+                         "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.workflow_run.head_sha }}")
         resolver = next(step for step in steps if step.get("id") == "event")
         self.assertLess(resolver["with"]["script"].index("core.setOutput('sha', sha)"),
                         resolver["with"]["script"].index("await status('pending')"))
@@ -225,6 +258,13 @@ SCRIPT
                                      ("b" * 40, "failure", "gpu-evidence-gate", own))
                 else:
                     self.assertEqual(state["posted"], [])
+
+    def test_cleanup_rejects_missing_or_malformed_event_sha(self):
+        for sha in ("", "b" * 39, "G" * 40, "b" * 40 + "/statuses"):
+            with self.subTest(sha=sha):
+                state = self.run_abort_publisher([], proposed_sha=sha)
+                self.assertIn("Missing proposed SHA", state["error"])
+                self.assertEqual(state["posted"], [])
 
     def test_merge_queue_lifecycle_keeps_the_immutable_group_base(self):
         base = "c" * 40

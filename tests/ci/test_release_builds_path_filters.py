@@ -87,6 +87,7 @@ import re
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Sequence, Set
 
@@ -583,14 +584,55 @@ def parse_event_paths(workflow_text: str) -> Dict[str, List[str]]:
 
 
 def event_has_no_ref_or_path_filters(workflow_text: str, event: str) -> bool:
-    """Accept unrestricted event blocks, never missing or excluded triggers."""
-    on = re.search(r"(?ms)^on:\s*\n(.*?)(?=^\S|\Z)", workflow_text)
-    if not on:
+    """Exempt only modeled literal event mappings; unsupported YAML fails closed.
+
+    This portable guard has no YAML dependency. A false result keeps the actual
+    path-coverage assertion active, rather than inferring that unknown syntax
+    contains no filters. Quoted keys, merges and aliases cannot hide exclusions.
+    """
+    blocks = re.findall(r"(?ms)^(?:on|'on'|\"on\"):[ \t]*\n(.*?)(?=^[^\s#]|\Z)", workflow_text)
+    if len(blocks) != 1:
         return False
-    block = re.search(r"(?ms)^  " + re.escape(event) + r":\s*\n(.*?)(?=^  [^ ]|\Z)", on.group(1))
-    if not block:
+    lines = [line.split("#", 1)[0].rstrip() for line in blocks[0].splitlines()]
+    lines = [line for line in lines if line.strip()]
+    key_pattern = r"(?:([A-Za-z_][\w-]*)|\"([A-Za-z_][\w-]*)\"|'([A-Za-z_][\w-]*)'):[ \t]*(.*)"
+    entries = []
+    for index, line in enumerate(lines):
+        if line.startswith("  ") and not line.startswith("   "):
+            match = re.fullmatch(key_pattern, line[2:])
+            if not match:
+                return False
+            entries.append((index, next(key for key in match.groups()[:3] if key), match.group(4)))
+    matching = [(i, value) for i, key, value in entries if key == event]
+    if len(matching) != 1:
         return False
-    return not re.search(r"(?m)^    (?:branches|branches-ignore|paths|paths-ignore):", block.group(1))
+    start, value = matching[0]
+    if value not in ("", "{}", "null", "~"):
+        return False
+    end = next((i for i, _, _ in entries if i > start), len(lines))
+    body = lines[start + 1:end]
+    if not body:
+        return True
+    if value:
+        return False
+    # `types` is the sole nonfilter option modeled here. Any new option requires
+    # an explicit model before it can exempt the coverage assertion.
+    first = re.fullmatch("    " + key_pattern, body[0])
+    if not first or next(key for key in first.groups()[:3] if key) != "types":
+        return False
+    activities = first.group(4)
+    if activities.startswith("[") and activities.endswith("]"):
+        if len(body) != 1:
+            return False
+        tokens = [token.strip() for token in activities[1:-1].split(",")]
+    elif not activities:
+        if not all(line.startswith("      - ") for line in body[1:]):
+            return False
+        tokens = [line[8:].strip() for line in body[1:]]
+    else:
+        return False
+    literal_activity = r"(?:[A-Za-z_][\w-]*|'[A-Za-z_][\w-]*'|\"[A-Za-z_][\w-]*\")"
+    return bool(tokens) and all(re.fullmatch(literal_activity, token) for token in tokens)
 
 
 def _normalise(token: str) -> str:
@@ -1245,6 +1287,50 @@ class WholeProjectInputDispositionTests(unittest.TestCase):
         for key in ("branches", "branches-ignore", "paths", "paths-ignore"):
             narrowed = text.replace("    types:", "    " + key + ": [limited]\n    types:")
             self.assertFalse(event_has_no_ref_or_path_filters(narrowed, "pull_request"))
+
+    def test_quoted_or_unmodelled_trigger_options_cannot_exempt_coverage(self) -> None:
+        prefix = "on:\n  pull_request:\n"
+        suffix = "jobs:\n"
+        for key in ("branches", "branches-ignore", "paths", "paths-ignore", "tags", "tags-ignore"):
+            for quote in ("", "'", '"'):
+                option = f"    {quote}{key}{quote}: [limited]\n"
+                with self.subTest(option=option):
+                    self.assertFalse(event_has_no_ref_or_path_filters(prefix + option + suffix, "pull_request"))
+        for option in ("    <<: *filters\n", "    types: *activities\n",
+                       "    types: &activities [opened]\n", '    "branche\\u0073": [master]\n',
+                       "    types: [opened]\n    types: [synchronize]\n",
+                       "      branches: [master]\n"):
+            with self.subTest(option=option):
+                self.assertFalse(event_has_no_ref_or_path_filters(prefix + option + suffix, "pull_request"))
+        for event in ("  pull_request: {branches: [master]}\n",
+                      "  pull_request: *filtered\n",
+                      "  pull_request:\n  pull_request:\n"):
+            with self.subTest(event=event):
+                self.assertFalse(event_has_no_ref_or_path_filters("on:\n" + event + suffix, "pull_request"))
+
+    def test_literal_unrestricted_compensating_events_remain_accepted(self) -> None:
+        for header in ("pull_request", "'pull_request'", '"pull_request"'):
+            for options in ("", "    types: [opened, synchronize]\n",
+                            "    'types': ['opened', synchronize]\n",
+                            '    "types":\n      - opened\n      - "synchronize"\n'):
+                with self.subTest(header=header, options=options):
+                    self.assertTrue(event_has_no_ref_or_path_filters(
+                        "on:\n  " + header + ":\n" + options + "jobs:\n", "pull_request"))
+
+    def test_quoted_filter_cannot_bypass_the_actual_compensating_coverage_check(self) -> None:
+        state = project_input_disposition("push")
+        compensating = ROOT / state.compensating_workflow
+        real_text = compensating.read_text(encoding="utf-8")
+        narrowed = real_text.replace("  pull_request:\n", '  pull_request:\n    "branches": [master]\n', 1)
+        self.assertNotEqual(real_text, narrowed)
+        read_text = Path.read_text
+        def read_with_narrowed_trigger(path, *args, **kwargs):
+            if path == compensating:
+                return narrowed
+            return read_text(path, *args, **kwargs)
+        with patch.object(Path, "read_text", read_with_narrowed_trigger):
+            with self.assertRaises(AssertionError):
+                self.test_the_accepted_risk_names_a_compensating_lane_that_covers_it()
 
     def test_a_scheduled_run_bounds_how_long_an_untriggered_change_goes_unexecuted(self) -> None:
         # The other half of the bound: whatever a push skips, the nightly runs.

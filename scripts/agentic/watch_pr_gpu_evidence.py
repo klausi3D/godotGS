@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
+from typing import NamedTuple
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +41,11 @@ PRODUCER_DEFINITIONS = (
     "tests/ci/preflight_runner_gpu_environment.py",
     "tests/ci/runner_gpu_contention.py",
 )
+
+
+class EvidenceOutcome(NamedTuple):
+    exit_code: int
+    description: str
 
 
 def api(endpoint: str, *, raw: bool = False, payload: dict | None = None):
@@ -182,9 +188,9 @@ def success_is_current(repo: str, source_event: str, run: dict, expected: dict, 
     return True
 
 
-def main() -> int:
+def main() -> EvidenceOutcome:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--timeout-seconds", type=int, default=10800)
+    parser.add_argument("--timeout-seconds", type=int, default=9000)
     args = parser.parse_args()
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -202,43 +208,52 @@ def main() -> int:
                 raise ValueError("PR changed during classification; exemption is stale")
             require_unshared_head(repo, number, head)
         print(f"Base policy: {risk}; GPU evidence not required (not a GPU pass).")
-        return 0
+        return EvidenceOutcome(0, f"{risk}: GPU evidence not required (not a GPU pass)")
     if pull and pull["head"]["repo"]["full_name"] != repo:
         raise ValueError("R2/R3 fork requires a maintainer-owned validation branch; no fork code executed")
     require_trusted_producer(paths)
-    deadline = time.monotonic() + args.timeout_seconds
+    return wait_for_evidence(repo, risk, event, pull, base, head, number, source_event, args.timeout_seconds)
+
+
+def current_checkout_sha(repo: str, pull: dict | None, base: str, head: str, number: int | None) -> str:
+    if not pull:
+        return head
+    current = api(f"repos/{repo}/pulls/{number}")
+    if current["head"]["sha"] != head or current["base"]["sha"] != base:
+        raise ValueError("PR head/base changed; this evidence attempt is stale")
+    return current["merge_commit_sha"]
+
+
+def latest_source_run(repo: str, event: dict, pull: dict | None, head: str, source_event: str) -> dict | None:
+    runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
+    # Lifecycle events revalidate the newest execution. A PR event must not
+    # accept a previous same-head execution while a new run is registering.
+    if not event.get("source_run_id") and pull and pull.get("updated_at"):
+        runs = [run for run in runs if run.get("created_at", "") >= pull["updated_at"]]
+    return max(runs, key=lambda value: value["id"]) if runs else None
+
+
+def wait_for_evidence(repo: str, risk: str, event: dict, pull: dict | None, base: str, head: str,
+                      number: int | None, source_event: str, timeout_seconds: int) -> EvidenceOutcome:
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if pull:
-            current = api(f"repos/{repo}/pulls/{number}")
-            if current["head"]["sha"] != head or current["base"]["sha"] != base:
-                raise ValueError("PR head/base changed; this evidence attempt is stale")
-            checkout_sha = current["merge_commit_sha"]
-        else:
-            checkout_sha = head
-        runs = pages(f"repos/{repo}/actions/workflows/gaussian_production_gates.yml/runs?event={source_event}&head_sha={head}", "workflow_runs")
-        # Lifecycle events always revalidate the newest execution. PR events must not
-        # accept a previous same-head execution while a new run is registering.
-        source_id = event.get("source_run_id")
-        if not source_id and pull and pull.get("updated_at"):
-            runs = [run for run in runs if run.get("created_at", "") >= pull["updated_at"]]
-        if runs:
-            run = max(runs, key=lambda value: value["id"])
-            if run["status"] == "completed":
-                if run["conclusion"] != "success":
-                    if source_id:
-                        raise ValueError(f"Canonical workflow did not pass: {run['html_url']}")
-                    # A newly registered run or lifecycle trigger can replace it.
-                    time.sleep(20)
-                    continue
-                attempt = run["run_attempt"]
-                expected = dict(base_sha=base, head_sha=head, checkout_sha=checkout_sha,
-                                run_id=str(run["id"]), run_attempt=str(attempt))
-                verdict = run_verdict(repo, risk, run, expected)
-                if not success_is_current(repo, source_event, run, expected, number):
-                    continue
-                print(verdict)
-                print(run["html_url"])
-                return 0
+        checkout_sha = current_checkout_sha(repo, pull, base, head, number)
+        run = latest_source_run(repo, event, pull, head, source_event)
+        if run and run["status"] == "completed":
+            if run["conclusion"] != "success":
+                if event.get("source_run_id"):
+                    raise ValueError(f"Canonical workflow did not pass: {run['html_url']}")
+                # A newly registered run or lifecycle trigger can replace it.
+                time.sleep(20)
+                continue
+            expected = dict(base_sha=base, head_sha=head, checkout_sha=checkout_sha,
+                            run_id=str(run["id"]), run_attempt=str(run["run_attempt"]))
+            verdict = run_verdict(repo, risk, run, expected)
+            if not success_is_current(repo, source_event, run, expected, number):
+                continue
+            print(verdict)
+            print(run["html_url"])
+            return EvidenceOutcome(0, "Trusted GPU evidence accepted")
         time.sleep(20)
     raise ValueError("Timed out waiting for exact-head canonical GPU evidence")
 
@@ -258,10 +273,10 @@ def controller() -> int:
         result = main()
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
         print(f"Trusted GPU evidence verdict rejected: {error}")
-        result = 1
-    api(endpoint, payload={**common, "state": "success" if result == 0 else "failure",
-                          "description": "Trusted GPU evidence accepted" if result == 0 else "GPU evidence missing, stale, invalid or failed"})
-    return result
+        result = EvidenceOutcome(1, "GPU evidence missing, stale, invalid or failed")
+    api(endpoint, payload={**common, "state": "success" if result.exit_code == 0 else "failure",
+                          "description": result.description})
+    return result.exit_code
 
 
 if __name__ == "__main__":

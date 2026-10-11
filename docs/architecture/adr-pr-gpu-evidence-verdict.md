@@ -83,12 +83,20 @@ The controller publishes `gpu-evidence-gate` as a commit status on the proposed
 head SHA. Its Actions job runs on the base SHA for `pull_request_target`, so that
 job alone is deliberately not the required context. `statuses: write` is the only
 write permission; repository content remains read-only. Failed or missing evidence
-publishes a failure. After the resolver publishes `pending`, a final always-run
-step replaces this run's own pending status with failure when checkout, Python
-setup or the controller aborts, or the job is cancelled or times out. It leaves a
-terminal verdict, or a newer run's status, untouched. A failure before `pending`,
-or of that final API call, leaves a missing or pending context, which does not
-satisfy required protection. No fork code is checked out or run.
+publishes a failure. After the resolver publishes `pending`, a separate hosted
+cleanup job with an `always()` dependency replaces this run's own pending status
+with failure if checkout, Python setup or the controller aborts, including a
+controller job timeout. Verification has a 150-minute step budget inside the
+185-minute controller job; polling defaults to 9,000 seconds. Cleanup has its own
+five-minute job budget and derives the proposed SHA from the immutable event,
+independently of controller job outputs. It checks the latest status and its
+run URL before replacing a pending verdict; the read and subsequent write are
+separate API operations, so a newer status can appear between them.
+Whole-workflow cancellation, service unavailability or an unsuccessful final API
+call can still prevent publication.
+A missing or pending context is not passing evidence. No fork code is checked
+out or run. Successful R0/R1 statuses describe their exemption explicitly,
+separately from accepted R2/R3 evidence.
 
 Producer `workflow_run` in-progress and completed events reset and revalidate the
 proposed-head status, including reruns. PR base edits also reset the verdict.
@@ -106,3 +114,28 @@ lane with its existing pinned automation dependency.
 All PR edits trigger both producer and controller, including title/body edits.
 The consumer rechecks the newest run/attempt and PR bindings after receipt reads;
 a delayed lifecycle event cannot restore a superseded successful execution.
+
+## Remediation design and chronology (2026-10-11)
+
+The bounded timeout and exemption corrections above were specified before their
+remediation implementation. They preserve the hosted, immutable-base trust
+boundary and the evidence requirements. Regression tests inspect the actual
+published descriptions and execute the independent cleanup script; negative
+controls remove the cleanup dependency/event binding and the hosted test invocation.
+
+The first committed ADR and initial evidence producer/checker implementation
+share commit `bc24d29ccfab4d1f15100d9522ab98076edef6b5`. The hosted controller was
+added later in `0d589830253c32b8d8d7ad24ea31784abdb732e8`. The original acceptance
+statement cites a prior v1 implementation request; a linked prior approved
+design-change record has not been verified during this remediation. A human must
+provide that record or disposition the initial same-commit design/implementation
+gap. Current source checks do not establish retrospective process compliance.
+
+The SHA-wide status design still requires separate human disposition: a closed
+PR's success can appear on a subsequent PR using the same head against another
+base before asynchronous revalidation starts. Final metadata reads and status
+publication are also separate API operations. Checking simultaneously open PRs
+does not eliminate these intervals. The earlier absolute claim about
+cross-base reuse and the strict-only activation alternative remain unresolved
+design findings; the bounded corrections do not authorize activation or imply
+atomic PR/base merge authorization.

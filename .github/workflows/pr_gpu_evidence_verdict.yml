@@ -97,19 +97,30 @@ jobs:
           python-version: "3.11"
       - name: Verify exact-head evidence without executing PR code
         if: steps.event.outputs.relevant == 'true'
+        timeout-minutes: 150
         env:
           GITHUB_EVENT_PATH: ${{ steps.event.outputs.path }}
           GH_TOKEN: ${{ github.token }}
         run: python scripts/agentic/watch_pr_gpu_evidence.py
-      # The resolver has already published `pending`. If checkout, Python setup or
-      # the controller aborts (or the job is cancelled or times out) before a
-      # terminal verdict, replace THIS run's pending status with failure. A
-      # terminal verdict, or a newer run's status, is left untouched.
+  # A separate hosted job can run after the controller job times out. Whole
+  # workflow cancellation or service/API outage can still prevent publication.
+  trusted-gpu-cleanup:
+    name: Trusted GPU Evidence Cleanup
+    needs: trusted-gpu-controller
+    if: >-
+      ${{ always() &&
+          (github.event_name == 'pull_request_target' || github.event_name == 'merge_group' ||
+           (github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Gaussian Production Gates' &&
+            (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'merge_group'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
       - name: Publish failure if the controller aborted
-        if: ${{ always() && steps.event.outputs.sha != '' }}
         uses: actions/github-script@v7
         env:
-          GS_PROPOSED_SHA: ${{ steps.event.outputs.sha }}
+          GS_PROPOSED_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.workflow_run.head_sha }}
         with:
           script: |
             const sha = process.env.GS_PROPOSED_SHA;

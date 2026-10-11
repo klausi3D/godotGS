@@ -151,7 +151,8 @@ class TrustedConsumerTests(unittest.TestCase):
                 event_path.write_text(json.dumps(event))
                 env = dict(GITHUB_EVENT_PATH=str(event_path), GITHUB_REPOSITORY="owner/repo", GITHUB_RUN_ID="123")
                 for result in (0, 1):
-                    with patch.dict(os.environ, env), patch.object(watcher, "api") as publish, patch.object(watcher, "main", return_value=result):
+                    outcome = watcher.EvidenceOutcome(result, "accepted" if result == 0 else "rejected")
+                    with patch.dict(os.environ, env), patch.object(watcher, "api") as publish, patch.object(watcher, "main", return_value=outcome):
                         self.assertEqual(watcher.controller(), result)
                         calls = publish.call_args_list
                         self.assertEqual(len(calls), 2)
@@ -159,13 +160,14 @@ class TrustedConsumerTests(unittest.TestCase):
                             self.assertEqual(call.args[0], "repos/owner/repo/statuses/" + "a" * 40)
                         self.assertEqual(calls[0].kwargs["payload"]["state"], "pending")
                         self.assertEqual(calls[1].kwargs["payload"]["state"], "success" if result == 0 else "failure")
+                        self.assertEqual(calls[1].kwargs["payload"]["description"], outcome.description)
                 with patch.dict(os.environ, env), patch.object(watcher, "api") as publish, patch.object(watcher, "main", side_effect=ValueError("absent evidence")):
                     self.assertEqual(watcher.controller(), 1)
                     self.assertEqual(publish.call_args_list[-1].kwargs["payload"]["state"], "failure")
 
     def exercise_controller(self, runs, *, source_id=None, partial=False, stale=False,
                             files=("modules/gaussian_splatting/renderer/probe.cpp",), shared=(),
-                            risk="R2", base_moves_during_classification=False):
+                            risk="R2", base_moves_during_classification=False, descriptions=None):
         base, head, checkout = "c" * 40, "b" * 40, "a" * 40
         pull = dict(number=1, base={"sha": base}, head={"sha": head, "repo": {"full_name": "owner/repo"}},
                     changed_files=len(files), merge_commit_sha=checkout, updated_at="2026-10-06T12:00:00Z")
@@ -184,6 +186,8 @@ class TrustedConsumerTests(unittest.TestCase):
         def metadata(endpoint, **kwargs):
             if "payload" in kwargs:
                 states.append(kwargs["payload"]["state"])
+                if descriptions is not None:
+                    descriptions.append(kwargs["payload"]["description"])
                 return {}
             if endpoint.endswith("/pulls/1"):
                 return current
@@ -256,6 +260,24 @@ class TrustedConsumerTests(unittest.TestCase):
 
     def test_changed_base_rejects_stale_event_before_exemption(self):
         self.assertEqual(self.exercise_controller([], stale=True), (1, ["pending", "failure"]))
+
+    def test_published_exemption_is_distinct_from_accepted_evidence(self):
+        for risk in ("R0", "R1"):
+            descriptions = []
+            with self.subTest(risk=risk):
+                self.assertEqual(self.exercise_controller([], risk=risk, descriptions=descriptions),
+                                 (0, ["pending", "success"]))
+                self.assertIn(risk, descriptions[-1])
+                self.assertIn("not required", descriptions[-1])
+                self.assertIn("not a GPU pass", descriptions[-1])
+                self.assertNotIn("accepted", descriptions[-1])
+        for risk in ("R2", "R3"):
+            descriptions = []
+            with self.subTest(risk=risk):
+                self.assertEqual(self.exercise_controller([[self.source_run()]], source_id=9,
+                                                         risk=risk, descriptions=descriptions),
+                                 (0, ["pending", "success"]))
+                self.assertEqual(descriptions[-1], "Trusted GPU evidence accepted")
 
     def test_low_risk_exemption_is_revalidated_before_success(self):
         # R0/R1 publish a SHA-wide success without waiting for a run, so a base
