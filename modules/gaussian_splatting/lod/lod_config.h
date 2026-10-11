@@ -116,14 +116,15 @@ struct LODConfig {
     /**
      * @brief Get SH band level for a given LOD level.
      *
-     * Maps LOD level to SH band level (0-3):
-     *   LOD 0: SH3 (full quality)
+     * With reduction enabled and the default maximum of 3:
+     *   LOD 0: SH3
      *   LOD 1: SH2
      *   LOD 2: SH1
      *   LOD 3+: SH0 (DC only)
      *
      * @param lod_level The LOD level
-     * @return SH band level (0-3)
+     * @param max_band Maximum degree, clamped to 0-4 (default 3)
+     * @return SH band level (0-4); the maximum when reduction is disabled
      */
     int get_sh_band_for_lod(int lod_level, int max_band = 3) const;
 
