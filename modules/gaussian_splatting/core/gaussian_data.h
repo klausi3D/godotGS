@@ -722,6 +722,18 @@ public:
         const AABB &get_aabb() const { return bounds; }
     };
 
+#ifdef TESTS_ENABLED
+    // Configure only before worker start and clear after worker join. These
+    // instance-scoped observations never exist in non-test builds.
+    enum class SaveSnapshotTestCheckpoint {
+        CAPTURE_READ_LOCKED,
+        REPLACEMENT_ENTERED,
+    };
+    using SaveSnapshotTestHook = void (*)(void *, SaveSnapshotTestCheckpoint);
+    SaveSnapshotTestHook save_snapshot_test_hook = nullptr;
+    void *save_snapshot_test_userdata = nullptr;
+#endif
+
     // On failure, the previous caller-owned snapshot remains unchanged.
     Error capture_save_snapshot(SaveSnapshot &r_snapshot) const;
     // Reads the splat and SH sidecar extents a full save would capture, under one
