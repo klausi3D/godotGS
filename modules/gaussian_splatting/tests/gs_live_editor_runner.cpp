@@ -20,7 +20,7 @@
 #include "modules/gaussian_splatting/editor/gaussian_import_dialog.h"
 #include "modules/gaussian_splatting/editor/gaussian_import_settings_dialog.h"
 #include "scene/main/scene_tree.h"
-#include "servers/display/display_server.h"
+#include "servers/display_server.h"
 #include "servers/rendering_server.h"
 #include "tests/test_main.h"
 
