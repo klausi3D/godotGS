@@ -312,3 +312,118 @@ TEST_CASE("[GaussianSplatting][Config] Explicit SH0-4 settings preserve preceden
     system->update_streaming(Transform3D(), Projection());
     CHECK(system->get_global_sh_band_level() == 1);
 }
+
+TEST_CASE("[GaussianSplatting][Config] Production streaming reload carries live SH settings in the same update") {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!ps) {
+		FAIL("ProjectSettings unavailable for live SH reload premise");
+		return;
+	}
+	ProjectSettingGuard async_pack(ps, "rendering/gaussian_splatting/streaming/async_pack_enabled");
+	ps->set_setting("rendering/gaussian_splatting/streaming/async_pack_enabled", false);
+	ProjectSettingGuard bands(ps, SHConfig::BANDS_PATH);
+	ProjectSettingGuard tier(ps, "rendering/gaussian_splatting/quality/tier_preset");
+	ProjectSettingGuard lod_distance(ps, "rendering/gaussian_splatting/lod/max_distance");
+	const SHConfig saved = g_sh_config;
+	const LODConfig saved_lod = g_lod_config;
+	struct RestoreSH {
+		SHConfig value;
+		LODConfig lod;
+		~RestoreSH() {
+			g_sh_config = value;
+			g_lod_config = lod;
+		}
+	} restore{saved, saved_lod};
+	Ref<GaussianStreamingSystem> system;
+	system.instantiate();
+	if (system.is_null()) {
+		FAIL("Streaming system unavailable for real settings subscription");
+		return;
+	}
+	// Deliberately use the safe failed-init entry. No RD/native GPU premise.
+	// A pre-fix manual global SH reload would make this oracle meaningless.
+	g_sh_config.sh_bands = SH_BAND_4;
+	g_lod_config.max_distance = 73.0f;
+	ps->set_setting("rendering/gaussian_splatting/lod/max_distance", 137.0);
+	ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "steam_deck");
+	for (int degree = 0; degree <= 4; degree++) {
+		ps->set_setting(SHConfig::BANDS_PATH, degree);
+		ps->emit_signal("settings_changed");
+		system->update_streaming(Transform3D(), Projection());
+		CHECK(int(g_sh_config.sh_bands) == degree);
+		CHECK(g_sh_config.sh_bands_source == "project_override");
+		CHECK(system->get_global_sh_band_level() == degree);
+		CHECK(g_lod_config.max_distance == doctest::Approx(73.0f));
+	}
+	ps->set_setting(SHConfig::BANDS_PATH, -1);
+	ps->emit_signal("settings_changed");
+	system->reload_config_if_dirty();
+	CHECK(g_lod_config.max_distance == doctest::Approx(137.0f));
+	CHECK(g_sh_config.sh_bands == SH_BAND_1);
+	CHECK(g_sh_config.sh_bands_source == "tier_preset");
+	system->update_streaming(Transform3D(), Projection());
+	CHECK(system->get_global_sh_band_level() == 1);
+	ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "high");
+	ps->emit_signal("settings_changed");
+	system->update_streaming(Transform3D(), Projection());
+	// High has no SH recommendation: sentinel falls back to code default4.
+	CHECK(g_sh_config.sh_bands == SH_BAND_4);
+	CHECK(g_sh_config.sh_bands_source == "code_default");
+	CHECK(system->get_global_sh_band_level() == 4);
+}
+
+TEST_CASE("[GaussianSplatting][Config] SH-only failed-init refresh keeps full reload pending without pack workers") {
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!ps) {
+		FAIL("ProjectSettings unavailable for SH-only early-path premise");
+		return;
+	}
+	ProjectSettingGuard bands(ps, SHConfig::BANDS_PATH);
+	ProjectSettingGuard tier(ps, "rendering/gaussian_splatting/quality/tier_preset");
+	ProjectSettingGuard async_pack(ps, "rendering/gaussian_splatting/streaming/async_pack_enabled");
+	ProjectSettingGuard workers(ps, "rendering/gaussian_splatting/streaming/pack_worker_threads");
+	const SHConfig saved = g_sh_config;
+	const LODConfig saved_lod = g_lod_config;
+	struct RestoreConfig {
+		SHConfig sh;
+		LODConfig lod;
+		~RestoreConfig() {
+			g_sh_config = sh;
+			g_lod_config = lod;
+		}
+	} restore{saved, saved_lod};
+	ps->set_setting("rendering/gaussian_splatting/streaming/async_pack_enabled", true);
+	ps->set_setting("rendering/gaussian_splatting/streaming/pack_worker_threads", 1);
+	ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "custom");
+	Ref<GaussianStreamingSystem> system;
+	system.instantiate();
+	if (system.is_null()) {
+		FAIL("Streaming system unavailable for worker/full-dirty observation");
+		return;
+	}
+	CHECK_FALSE(system->_test_pack_threads_running());
+	CHECK(system->_test_full_config_dirty());
+	g_sh_config.sh_bands = SH_BAND_4;
+	ps->set_setting(SHConfig::BANDS_PATH, 0);
+	ps->emit_signal("settings_changed");
+	system->update_streaming(Transform3D(), Projection());
+	CHECK(g_sh_config.sh_bands == SH_BAND_0);
+	CHECK(system->get_global_sh_band_level() == 0);
+	CHECK_FALSE(system->_test_pack_threads_running());
+	CHECK(system->_test_full_config_dirty());
+
+	// ProjectSettings queues its ordinary changed signal; this CPU path does not
+	// pump the message queue. Until delivery, a clean SH latch must keep SH0.
+	ps->set_setting(SHConfig::BANDS_PATH, 2);
+	system->update_streaming(Transform3D(), Projection());
+	CHECK(g_sh_config.sh_bands == SH_BAND_0);
+	CHECK(system->get_global_sh_band_level() == 0);
+	CHECK_FALSE(system->_test_pack_threads_running());
+	CHECK(system->_test_full_config_dirty());
+	ps->emit_signal("settings_changed");
+	system->update_streaming(Transform3D(), Projection());
+	CHECK(g_sh_config.sh_bands == SH_BAND_2);
+	CHECK(system->get_global_sh_band_level() == 2);
+	CHECK_FALSE(system->_test_pack_threads_running());
+	CHECK(system->_test_full_config_dirty());
+}

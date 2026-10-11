@@ -377,6 +377,8 @@ public:
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
     void _test_force_next_chunk_upload_failure() { test_force_next_chunk_upload_failure = true; }
+    bool _test_pack_threads_running() const { return upload_pipeline.pack_thread_running.load(std::memory_order_acquire); }
+    bool _test_full_config_dirty() const { return config_dirty; }
 
     // Test-only access to atlas-state internals. Replaced the
     // `#define private public` macro that test_gpu_streaming.cpp used to reach
