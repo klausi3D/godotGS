@@ -162,7 +162,8 @@ class UniversalPolicyTests(unittest.TestCase):
             (root / policy.MANIFEST).write_text(json.dumps(manifest))
             dependency = root / "tests/runtime/profile.json"
             dependency.write_text('{"threshold": 1}')
-            git("add", "."); git("commit", "-qm", "trusted policy")
+            git("add", ".")
+            git("commit", "-qm", "trusted policy")
             base = git("rev-parse", "HEAD")
             with patch.object(policy, "ROOT", root):
                 bundle = policy.policy_bundle(base)
@@ -170,7 +171,8 @@ class UniversalPolicyTests(unittest.TestCase):
                 dependency.write_text('{"threshold": 0}')
                 (root / "tests/runtime/untracked.py").write_text("malicious local bytes")
                 self.assertEqual(policy.context_for(policy.policy_bundle(base)), context)
-                git("add", "."); git("commit", "-qm", "changed policy")
+                git("add", ".")
+                git("commit", "-qm", "changed policy")
                 self.assertNotEqual(policy.context_for(policy.policy_bundle()), context)
                 proposed = policy.policy_bundle()
                 with patch.object(policy, "_git", return_value=b"") as command:
@@ -271,7 +273,8 @@ class UniversalReceiptProducerTests(unittest.TestCase):
         self.env = {"GITHUB_RUN_ID": "9", "GITHUB_RUN_ATTEMPT": "1"}
         self.env.update({"GS_STEP_" + name.upper(): "success" for name in self.universal.REQUIRED_STEPS})
         self.identity = patch.object(self.universal, "current_identity", return_value=(self.head, self.context))
-        self.identity.start(); self.addCleanup(self.identity.stop)
+        self.identity.start()
+        self.addCleanup(self.identity.stop)
         # Temporary ROOT contains report bytes; production validation reads the
         # real fixed-policy source, never imports a downloaded artifact.
         with patch.object(self.universal, "ROOT", self.root):
@@ -349,20 +352,24 @@ class UniversalReceiptProducerTests(unittest.TestCase):
     def test_every_binding_step_and_report_digest_can_fail(self):
         receipt = self.write()
         for field in ("head_sha", "checkout_sha", "policy_context", "run_id", "run_attempt", "schema_version", "binary_before_sha256", "binary_path"):
-            changed = copy.deepcopy(receipt); changed[field] = "wrong"
+            changed = copy.deepcopy(receipt)
+            changed[field] = "wrong"
             with self.subTest(field=field), self.assertRaises(ValueError): self.validate(changed)
         for step in self.universal.REQUIRED_STEPS:
-            changed = copy.deepcopy(receipt); changed["steps"][step] = "skipped"
+            changed = copy.deepcopy(receipt)
+            changed["steps"][step] = "skipped"
             with self.subTest(step=step), self.assertRaises(ValueError): self.validate(changed)
         for name in self.reports:
-            changed = dict(self.reports); changed[name] = b"{}"
+            changed = dict(self.reports)
+            changed[name] = b"{}"
             with self.subTest(report=name), self.assertRaises(ValueError): self.validate(receipt, changed)
 
     def test_rebound_gpu_report_semantics_are_checked_by_real_receipt_and_artifact_consumer(self):
         receipt = self.write()
         gpu = json.loads(self.reports["gpu-harness-report.json"])
         gpu["supervisor_exit"] = 1
-        reports = dict(self.reports); reports["gpu-harness-report.json"] = json.dumps(gpu).encode()
+        reports = dict(self.reports)
+        reports["gpu-harness-report.json"] = json.dumps(gpu).encode()
         changed = copy.deepcopy(receipt)
         changed["sha256"]["gpu-harness-report.json"] = hashlib.sha256(reports["gpu-harness-report.json"]).hexdigest()
         with self.assertRaises(ValueError): self.validate(changed, reports)
@@ -390,7 +397,8 @@ class UniversalReceiptProducerTests(unittest.TestCase):
             if modification == "zero-coverage": report["lanes"][index]["passed_tests"] = 0
             if modification == "missing-summary": report["lanes"][index]["summary_reported"] = False
             if modification == "not-run": report["lanes"][index]["outcome"] = "NOT-RUN"
-            modified = dict(self.reports); modified["module-lanes.json"] = json.dumps(report).encode()
+            modified = dict(self.reports)
+            modified["module-lanes.json"] = json.dumps(report).encode()
             changed = copy.deepcopy(receipt)
             import hashlib
             changed["sha256"]["module-lanes.json"] = hashlib.sha256(modified["module-lanes.json"]).hexdigest()
@@ -399,8 +407,10 @@ class UniversalReceiptProducerTests(unittest.TestCase):
     def test_wrong_runtime_profile_missing_scenario_failed_or_skipped_never_validate(self):
         receipt = self.write()
         for field, value in (("profile", "other"), ("gd_mode", "headless"), ("failed", 1), ("skipped", 1), ("schema_valid", False), ("tests", [])):
-            report = json.loads(self.reports["streaming-report.json"]); report[field] = value
-            modified = dict(self.reports); modified["streaming-report.json"] = json.dumps(report).encode()
+            report = json.loads(self.reports["streaming-report.json"])
+            report[field] = value
+            modified = dict(self.reports)
+            modified["streaming-report.json"] = json.dumps(report).encode()
             changed = copy.deepcopy(receipt)
             import hashlib
             changed["sha256"]["streaming-report.json"] = hashlib.sha256(modified["streaming-report.json"]).hexdigest()
@@ -601,7 +611,8 @@ class UniversalPublicationTests(unittest.TestCase):
             self.states = []
             self.assertEqual(self.exercise(), 1)
             self.assertNotIn("success", [p["state"] for p in self.states])
-            self.pull.clear(); self.pull.update(original)
+            self.pull.clear()
+            self.pull.update(original)
 
     def test_timeout_failure_description_cannot_claim_gpu_acceptance(self):
         self.result = watcher.EvidenceOutcome(1, "Full evidence missing")
@@ -669,7 +680,8 @@ class CanonicalGpuReportTests(unittest.TestCase):
                      lambda r: r.update(baseline_mode="update"),
                      lambda r: r.update(godot_binary="C:/other/godot.exe")]
         for change in mutations:
-            report = copy.deepcopy(self.report); change(report)
+            report = copy.deepcopy(self.report)
+            change(report)
             with self.subTest(change=change), self.assertRaises(ValueError): self.validate(report)
 
     def test_required_row_fields_markers_hollow_lifetime_and_counters_cannot_be_laundered(self):
@@ -683,7 +695,8 @@ class CanonicalGpuReportTests(unittest.TestCase):
                      lambda row: row.update(rid_leak_bytes=4),
                      lambda row: row.update(cases_started=0)]
         for change in mutations:
-            report = copy.deepcopy(self.report); change(report["batches"][0])
+            report = copy.deepcopy(self.report)
+            change(report["batches"][0])
             with self.subTest(change=change), self.assertRaises(ValueError): self.validate(report)
         report = copy.deepcopy(self.report)
         report["totals"]["assertions_passed"] += 1
@@ -697,19 +710,23 @@ class DataOnlyMigrationTests(unittest.TestCase):
     """
     def setUp(self):
         self.policy = watcher.policy
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         def git(*args):
             return subprocess.run(["git", *args], cwd=self.root, check=True,
                                   capture_output=True, encoding="utf-8").stdout.strip()
         self.git = git
-        git("init", "-q"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid")
+        git("init", "-q")
+        git("config", "user.name", "Fixture")
+        git("config", "user.email", "fixture@example.invalid")
         self.oracle = "modules/gaussian_splatting/tests/test_fixture.h"
         paths = [self.policy.MANIFEST, self.policy.RUNTIME_CONFIG, self.policy.GPU_MANIFEST,
                  "scripts/agentic/privileged.py", self.oracle, "modules/SCsub", "thirdparty/doctest/doctest.h",
                  "tests/visual_baselines/composite_hazard_256x256.png"]
         for name in paths:
-            path = self.root / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixed execution\n")
         manifest = {"version": self.policy.POLICY_VERSION, "files": paths[:4] + [paths[-1]],
                     "prefixes": ["modules/gaussian_splatting/tests/"], "basenames": ["SCsub"],
@@ -717,16 +734,23 @@ class DataOnlyMigrationTests(unittest.TestCase):
         (self.root / self.policy.MANIFEST).write_text(json.dumps(manifest))
         for name in (self.policy.RUNTIME_CONFIG, self.policy.GPU_MANIFEST):
             (self.root / name).write_bytes((ROOT / name).read_bytes())
-        git("add", "."); git("commit", "-qm", "fixed fixture policy B"); self.base = git("rev-parse", "HEAD")
+        git("add", ".")
+        git("commit", "-qm", "fixed fixture policy B")
+        self.base = git("rev-parse", "HEAD")
         (self.root / self.oracle).write_text("reviewed new assertion\n")
-        git("add", "."); git("commit", "-qm", "oracle data T"); self.target = git("rev-parse", "HEAD")
+        git("add", ".")
+        git("commit", "-qm", "oracle data T")
+        self.target = git("rev-parse", "HEAD")
         git("checkout", "-q", self.base)
         (self.root / self.oracle).write_text("reviewed new assertion\n")
         (self.root / "production.cpp").write_text("candidate product code\n")
-        git("add", "."); git("commit", "-qm", "measured candidate S"); self.head = git("rev-parse", "HEAD")
+        git("add", ".")
+        git("commit", "-qm", "measured candidate S")
+        self.head = git("rev-parse", "HEAD")
         git("remote", "add", "origin", str(self.root))
         self.root_patch = patch.object(self.policy, "ROOT", self.root)
-        self.root_patch.start(); self.addCleanup(self.root_patch.stop)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
         self.trusted = self.policy.policy_bundle(self.base)
         self.proposed = self.policy.policy_bundle(self.target)
         self.binding = {"version": "gs-owner-grant-v1", "kind": "migration",
@@ -735,7 +759,9 @@ class DataOnlyMigrationTests(unittest.TestCase):
                         "context": self.policy.context_for(self.proposed), "app_id": 701,
                         "run_id": "9", "run_attempt": "1",
                         "expires_utc": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()}
-        self.present = True; self.unsigned = False; self.owner_type = "User"
+        self.present = True
+        self.unsigned = False
+        self.owner_type = "User"
         profile = {"repository": "klausi3D/godotGS", "owner_id": 103386187, "public_key": "synthetic portable composition only"}
         self.actual_run = subprocess.run
         def portable_run(argv, **kwargs):
@@ -745,7 +771,8 @@ class DataOnlyMigrationTests(unittest.TestCase):
             return self.actual_run(argv, **kwargs)
         for patcher in (patch.object(self.policy.owner_grants, "configured_profile", return_value=profile),
                         patch.object(self.policy.owner_grants.subprocess, "run", side_effect=portable_run)):
-            patcher.start(); self.addCleanup(patcher.stop)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.parent = self.base
 
     def api(self, endpoint):
@@ -766,7 +793,8 @@ class DataOnlyMigrationTests(unittest.TestCase):
     def test_real_data_only_policy_commit_and_candidate_pin(self):
         with self.assertRaises(ValueError): self.policy.require_producer_pin(self.head, self.trusted)
         bundle, allowance = self.effective()
-        self.assertEqual(bundle, self.proposed); self.assertEqual(allowance, self.binding)
+        self.assertEqual(bundle, self.proposed)
+        self.assertEqual(allowance, self.binding)
         self.policy.require_producer_pin(self.head, bundle)
         self.present = False
         self.assertEqual(self.effective(), (self.trusted, None))
@@ -775,23 +803,30 @@ class DataOnlyMigrationTests(unittest.TestCase):
         for field, value in (("base_sha", "a" * 40), ("head_sha", "b" * 40), ("policy_sha", self.head),
                              ("context", "wrong"), ("app_id", 702), ("run_attempt", ""),
                              ("expires_utc", "2000-01-01T00:00:00+00:00")):
-            original = self.binding[field]; self.binding[field] = value
+            original = self.binding[field]
+            self.binding[field] = value
             with self.subTest(field=field), self.assertRaises((ValueError, KeyError)): self.effective()
             self.binding[field] = original
         self.unsigned = True
         with self.assertRaises(ValueError): self.effective()
-        self.unsigned = False; self.owner_type = "Organization"
+        self.unsigned = False
+        self.owner_type = "Organization"
         with self.assertRaises(ValueError): self.effective()
-        self.owner_type = "User"; self.parent = "c" * 40
+        self.owner_type = "User"
+        self.parent = "c" * 40
         with self.assertRaises(ValueError): self.effective()
 
     def test_fixed_execution_production_selector_or_modes_cannot_delegate(self):
         for path in ("scripts/agentic/privileged.py", "modules/SCsub", "production.cpp", self.policy.MANIFEST,
                      "modules/gaussian_splatting/tests/test_macros.h"):
             self.git("checkout", "-q", self.base)
-            target = self.root / path; target.parent.mkdir(parents=True, exist_ok=True); target.write_text("changed execution\n")
-            self.git("add", "."); self.git("commit", "-qm", "forbidden policy T")
-            self.target = self.git("rev-parse", "HEAD"); self.binding["policy_sha"] = self.target
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("changed execution\n")
+            self.git("add", ".")
+            self.git("commit", "-qm", "forbidden policy T")
+            self.target = self.git("rev-parse", "HEAD")
+            self.binding["policy_sha"] = self.target
             if path != self.policy.MANIFEST:
                 self.binding["context"] = self.policy.context_for(self.policy.policy_bundle(self.target))
             with self.subTest(path=path), self.assertRaises(ValueError): self.effective()
@@ -803,7 +838,8 @@ class DataOnlyMigrationTests(unittest.TestCase):
             config["gpu_harness_policy"]["required_batches"][0][field] = value
             proposed[self.policy.GPU_MANIFEST] = b"100644\0" + json.dumps(config).encode()
             with self.subTest(field=field), self.assertRaises(ValueError): self.policy.require_data_invariants(self.trusted, proposed)
-        proposed = dict(self.proposed); config = self.policy.bundle_json(proposed, self.policy.RUNTIME_CONFIG)
+        proposed = dict(self.proposed)
+        config = self.policy.bundle_json(proposed, self.policy.RUNTIME_CONFIG)
         config["profiles"]["headless-ci"]["gd_tests"] = []
         proposed[self.policy.RUNTIME_CONFIG] = b"100644\0" + json.dumps(config).encode()
         with self.assertRaises(ValueError): self.policy.require_data_invariants(self.trusted, proposed)

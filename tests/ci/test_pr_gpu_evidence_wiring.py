@@ -133,7 +133,8 @@ class UniversalWiringTests(unittest.TestCase):
     def test_all_producer_enforcement_scripts_belong_to_digest_manifest(self):
         manifest = json.loads((ROOT / "scripts/agentic/gpu_commit_policy.json").read_text())
         spec = importlib.util.spec_from_file_location("wiring_policy", ROOT / "scripts/agentic/gpu_commit_policy.py")
-        policy = importlib.util.module_from_spec(spec); spec.loader.exec_module(policy)
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
         covered = lambda path: policy.selected_dependency(path, manifest)
         commands = [step["run"] for job in load(PRODUCER)["jobs"].values() for step in job.get("steps", []) if "run" in step]
         invoked = {path for command in commands for path in re.findall(r"python\s+([A-Za-z0-9_./-]+\.py)", command)}

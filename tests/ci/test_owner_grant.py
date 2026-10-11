@@ -88,7 +88,8 @@ class ActualOpenSSHOwnerGrantTests(unittest.TestCase):
         self.assertEqual(self.verify(self.sign(binding), kind="migration"), binding)
 
     def test_changed_bytes_wrong_key_namespace_and_signature_are_rejected(self):
-        changed = copy.deepcopy(self.envelope); changed["binding"]["run_attempt"] = "2"
+        changed = copy.deepcopy(self.envelope)
+        changed["binding"]["run_attempt"] = "2"
         bad_signature = copy.deepcopy(self.envelope)
         lines = bad_signature["signature"].splitlines()
         lines[1] = ("B" if lines[1][0] != "B" else "C") + lines[1][1:]
@@ -127,7 +128,8 @@ class ActualOpenSSHOwnerGrantTests(unittest.TestCase):
 
     def test_actual_shared_bootstrap_migration_and_fresh_transport_recheck(self):
         subject = importlib.util.spec_from_file_location("owner_grant_policy_subject", ROOT / "scripts/agentic/gpu_commit_policy.py")
-        policy = importlib.util.module_from_spec(subject); subject.loader.exec_module(policy)
+        policy = importlib.util.module_from_spec(subject)
+        subject.loader.exec_module(policy)
         record = self.envelope
         variable = policy.BOOTSTRAP_VARIABLE
         def api(endpoint):
@@ -152,7 +154,8 @@ class ActualOpenSSHOwnerGrantTests(unittest.TestCase):
 
     def test_actual_proof_settings_rejects_null_profile_in_ordinary_mode(self):
         subject = importlib.util.spec_from_file_location("owner_watcher_subject", ROOT / "scripts/agentic/watch_pr_gpu_evidence.py")
-        watcher = importlib.util.module_from_spec(subject); subject.loader.exec_module(watcher)
+        watcher = importlib.util.module_from_spec(subject)
+        subject.loader.exec_module(watcher)
         event = {"trusted_base_sha": "a" * 40, "pull_request": {"head": {"sha": "b" * 40}}}
         published = []
         def api(endpoint, **kwargs):
@@ -174,7 +177,8 @@ class ActualOpenSSHOwnerGrantTests(unittest.TestCase):
 
     def test_actual_watcher_bootstrap_reverifies_current_signed_transport(self):
         subject = importlib.util.spec_from_file_location("owner_watcher_live_subject", ROOT / "scripts/agentic/watch_pr_gpu_evidence.py")
-        watcher = importlib.util.module_from_spec(subject); subject.loader.exec_module(watcher)
+        watcher = importlib.util.module_from_spec(subject)
+        subject.loader.exec_module(watcher)
         context = watcher.policy.context_for(self.bundle)
         binding = {**self.binding, "context": context}
         record = self.sign(binding)

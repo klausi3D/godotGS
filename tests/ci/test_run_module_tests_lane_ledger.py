@@ -3937,7 +3937,8 @@ class UniversalEvidenceGuardLaunchTests(unittest.TestCase):
             with self.subTest(platform=platform), mock.patch.object(sys, "platform", platform), \
                     mock.patch.object(harness, "_run_command", side_effect=run):
                 ok, output = harness._run_pr_gpu_evidence_guard()
-            self.assertFalse(ok); self.assertIn("owner authority rejected", output)
+            self.assertFalse(ok)
+            self.assertIn("owner authority rejected", output)
             self.assertEqual(calls[-1][2:], [] if platform == "linux" else ["--portable"])
 
     def test_universal_checker_failure_propagates_and_stops_later_tests(self):
@@ -3947,7 +3948,8 @@ class UniversalEvidenceGuardLaunchTests(unittest.TestCase):
             return (1, "universal checker failed", "") if calls[-1] == "check_universal_gpu_evidence.py" else (0, "", "")
         with mock.patch.object(harness, "_run_command", side_effect=run):
             ok, output = harness._run_pr_gpu_evidence_guard()
-        self.assertFalse(ok); self.assertIn("universal checker failed", output)
+        self.assertFalse(ok)
+        self.assertIn("universal checker failed", output)
         self.assertNotIn("test_pr_gpu_evidence.py", calls)
 
 
