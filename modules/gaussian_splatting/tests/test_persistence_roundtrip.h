@@ -3982,6 +3982,87 @@ TEST_CASE("[GaussianSplatting][Persistence] Constructed GSF v1 envelope accepts 
     _remove_persistence_fixture(path);
 }
 
+TEST_CASE("[GaussianSplatting][Persistence] Constructed legacy v1-v2 SH1 inference preserves approximate-zero compatibility") {
+    // Constructed boundary inputs, derived from a copy of the uncompressed v2
+    // capture. The immutable producer captures above remain untouched.
+    const float coefficients[] = { 0.0f, float(CMP_EPSILON) * 0.5f, float(CMP_EPSILON), float(CMP_EPSILON) * 2.0f,
+        -float(CMP_EPSILON) * 0.5f, -float(CMP_EPSILON), -float(CMP_EPSILON) * 2.0f };
+    const bool significant[] = { false, false, true, true, false, true, true };
+    const uint32_t chunk_offset = GaussianSplatting::GSF_CHUNK_HEADER_SIZE + GaussianSplatting::SCENE_HEADER_PACKED_SIZE;
+    const uint32_t payload_offset = chunk_offset + GaussianSplatting::GSF_CHUNK_HEADER_SIZE;
+    const uint32_t record_offset = payload_offset + sizeof(uint32_t);
+    const String path = _make_persistence_fixture_path("gsf_legacy_sh1_boundary_constructed");
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint16_t version : { 1, 2 }) {
+        for (uint32_t band = 0; band < 3; band++) {
+            for (uint32_t axis = 0; axis < 3; axis++) {
+                for (uint32_t sample = 0; sample < sizeof(coefficients) / sizeof(coefficients[0]); sample++) {
+                    PackedByteArray bytes;
+                    bytes.resize(sizeof(GSF_V2_CODEC_0));
+                    memcpy(bytes.ptrw(), GSF_V2_CODEC_0, sizeof(GSF_V2_CODEC_0));
+                    const uint32_t payload_size = decode_uint32(bytes.ptr() + chunk_offset + 4);
+                    if (payload_size != sizeof(uint32_t) + 2 * sizeof(Gaussian) ||
+                            payload_offset + payload_size > uint32_t(bytes.size()) ||
+                            decode_uint32(bytes.ptr() + chunk_offset) != uint32_t(GaussianSplatting::ChunkType::GAUSSIAN_DATA)) {
+                        FAIL("Uncompressed legacy capture layout changed");
+                        return;
+                    }
+                    Gaussian expected[2];
+                    memcpy(expected, bytes.ptr() + record_offset, sizeof(expected));
+                    for (Gaussian &g : expected) {
+                        for (Vector3 &sh : g.sh_1) {
+                            sh = Vector3();
+                        }
+                    }
+                    expected[1].sh_1[band][axis] = coefficients[sample];
+                    memcpy(bytes.ptrw() + record_offset, expected, sizeof(expected));
+                    uint32_t checksum = 2166136261u;
+                    for (uint32_t i = payload_offset; i < payload_offset + payload_size; i++) {
+                        checksum = (checksum ^ bytes[i]) * 16777619u;
+                    }
+                    encode_uint32(checksum, bytes.ptrw() + chunk_offset + 8);
+                    if (version == 1) {
+                        // v1 omits the v2 minimum-reader field from HEAD.
+                        bytes.remove_at(75);
+                        bytes.remove_at(74);
+                        bytes.remove_at(73);
+                        bytes.remove_at(72);
+                        encode_uint32(56, bytes.ptrw() + 4);
+                        encode_uint16(1, bytes.ptrw() + 20);
+                        checksum = 2166136261u;
+                        for (uint32_t i = 16; i < 72; i++) {
+                            checksum = (checksum ^ bytes[i]) * 16777619u;
+                        }
+                        encode_uint32(checksum, bytes.ptrw() + 8);
+                    }
+                    if (!gsf_v3_write_bytes(path, bytes)) {
+                        FAIL("Constructed legacy boundary fixture could not be written");
+                        return;
+                    }
+                    Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+                    const Error loaded = serializer.load_scene(path, target.ptr());
+                    CHECK(loaded == OK);
+                    CHECK(target->get_count() == 2);
+                    if (loaded != OK || target->get_count() != 2) {
+                        _remove_persistence_fixture(path);
+                        continue;
+                    }
+                    CHECK(target->get_sh_first_order_count() == (significant[sample] ? band + 1 : 0));
+                    CHECK(target->get_sh_degree() == (significant[sample] ? 1 : 0));
+                    CHECK(target->get_sh_high_order_count() == 0);
+                    for (uint32_t i = 0; i < 2; i++) {
+                        const Gaussian actual = target->get_gaussian(i);
+                        for (uint32_t j = 0; j < 3; j++) {
+                            CHECK(actual.sh_1[j] == expected[i].sh_1[j]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _remove_persistence_fixture(path);
+}
+
 TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects invalid metadata without changing targets") {
     const String path = _make_persistence_fixture_path("gsf_v3_invalid_metadata");
     if (!_ensure_persistence_fixture_dir(path)) {
@@ -4249,6 +4330,33 @@ void spz_aa_check_gsf_roundtrip(const Ref<GaussianData> &p_source, bool p_antial
     _remove_persistence_fixture(path);
 }
 } // namespace
+
+TEST_CASE("[GaussianSplatting][Persistence] Bound SPZLoader API preserves antialiased flag on reuse and GSF v3 save") {
+    Ref<SPZLoader> loader;
+    loader.instantiate();
+    // Loading classic data after antialiased data must clear the old flag.
+    for (bool antialiased : { true, false, true }) {
+        const String path = _make_persistence_fixture_path("spz_aa_direct_reuse", ".spz");
+        if (!_ensure_persistence_fixture_dir(path) || !spz_aa_write(path, antialiased)) {
+            FAIL("SPZ direct API fixture unavailable");
+            return;
+        }
+        const Error loaded = Error(int(loader->call("load_file", path)));
+        CHECK(loaded == OK);
+        if (loaded != OK) {
+            _remove_persistence_fixture(path);
+            continue;
+        }
+        Ref<GaussianData> data = loader->call("get_gaussian_data");
+        CHECK(data.is_valid());
+        if (data.is_valid()) {
+            CHECK(data->get_count() == int(spz_aa_make_splats().size()));
+            CHECK(data->get_antialiased() == antialiased);
+            spz_aa_check_gsf_roundtrip(data, antialiased, "spz_aa_direct_gsf");
+        }
+        _remove_persistence_fixture(path);
+    }
+}
 
 TEST_CASE("[GaussianSplatting][Persistence] SPZ antialiased header flag reaches GaussianData on raw load routes and survives GSF v3") {
     for (bool antialiased : { false, true }) {
