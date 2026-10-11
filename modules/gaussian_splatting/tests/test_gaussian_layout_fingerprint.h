@@ -353,7 +353,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] staged captures refuse 
 	// A restored identity opens a new pool and supports both capture routes;
 	// no stale handle from the old configuration can satisfy this control.
 	source->configure(path, gaussian_offset, sh_offset, 2u, degree, sh_first, sh_high, world->get_bounds(), GAUSSIAN_STRUCT_LAYOUT_VERSION);
-	CHECK(source->is_valid());
+	if (!source->is_valid()) {
+		FAIL("restored staged identity must be valid before capture");
+		return;
+	}
 	if (!source->capture_chunk_snapshot(0u, 2u, captured, sh, first, high) || captured.size() != 2u) {
 		FAIL("restored staged identity must capture again");
 		return;
