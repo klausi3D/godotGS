@@ -24,7 +24,8 @@ public:
 
     void load_streaming_tuning_config_from_project_settings();
     void reset_per_frame_counters();
-    void touch_chunk_use(uint64_t &r_last_used_frame);
+    // Recency is a streaming-frame generation, independent of traversal order.
+    void touch_chunk_use(uint64_t &r_last_used_frame, uint64_t p_frame_generation);
     void invalidate_candidate_cache();
     void invalidate_resident_tracking();
     void note_chunk_loaded(uint32_t p_asset_id, uint32_t p_chunk_id);
@@ -51,7 +52,6 @@ private:
     static uint64_t make_chunk_key(uint32_t p_asset_id, uint32_t p_chunk_id);
     void ensure_resident_tracking(GaussianStreamingSystem &system);
 
-    uint64_t chunk_load_counter = 0;
     uint32_t eviction_hysteresis_frames = 5;
     uint32_t max_evictions_per_frame = 4;
     uint32_t chunks_evicted_this_frame = 0;
