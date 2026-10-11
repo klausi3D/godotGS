@@ -53,3 +53,29 @@ Synchronize the effective global SH config at the central production streaming
 update entry, including early-return paths. This reaches every active system.
 ProjectSettings changes still follow the existing config reload lifecycle; this
 change does not introduce a new live-setting subscription.
+
+## Partial authored SH qualification (before implementation)
+
+The accepted payload API and resident/streaming snapshots can carry zero, one or
+two first-order coefficients alongside higher-order coefficients. The normal
+record describes this compact prefix explicitly. The quantized record instead
+has a fixed first-order prefix at words 0–2 and higher-order words at 3–23;
+binning synthesizes that metadata. Compacting higher-order coefficients into a
+missing first-order slot changes the SH basis used for those coefficients.
+
+Keep the quantized 160-byte ABI and its existing shader metadata. Zero missing
+first-order slots and store higher-order terms from word 3, with at most 21 terms.
+Apply the coefficient limit to retained coefficients, including the supplied
+first-order prefix, rather than to the physical span containing zero holes.
+Compression metrics count retained coefficients; encoding scans the physical
+span and derives its scale only from selected values. The normal compact layout,
+file formats, DC encoding and SH normalization remain unchanged.
+
+For a discriminating fixture, first-order counts 0–2 plus eight higher-order
+slots derive degree 2. Set only the first higher-order coefficient nonzero. Its
+degree-2 basis is even under direction reversal; placing it in a first-order
+slot incorrectly produces an odd contribution. Compare actual native packing
+and the production basis with an independent Legendre recurrence. Require actual
+normal/quantized GPU colour readback in both directions, a mapping-only reverted
+mutation, full-prefix controls, logical-limit/metric checks and two independent
+reviews. Source or CPU proof does not substitute for GPU colour evidence.
