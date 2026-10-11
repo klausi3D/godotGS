@@ -275,6 +275,7 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 	sh_first_order = p_sh_first_order;
 	sh_high_order = p_sh_high_order;
 	bounds = p_bounds;
+	position_frames.clear();
 	cached_files.clear();
 	bytes_requested = 0;
 	bytes_read = 0;
@@ -386,6 +387,59 @@ void StagedFileChunkPayloadSource::reset_io_counters() {
 	file_open_count = 0;
 }
 
+bool StagedFileChunkPayloadSource::set_position_frames(const LocalVector<PositionFrame> &p_frames) {
+	uint64_t cursor = 0u;
+	for (uint32_t i = 0; i < p_frames.size(); i++) {
+		if (p_frames[i].first != cursor || p_frames[i].count == 0u) {
+			ERR_FAIL_V_MSG(false, "[StagedFileSource] Position frames do not tile the payload.");
+		}
+		for (int a = 0; a < 3; a++) {
+			ERR_FAIL_COND_V_MSG(!Math::is_finite(p_frames[i].center[a]), false, "[StagedFileSource] Non-finite position frame.");
+		}
+		cursor += p_frames[i].count;
+	}
+	ERR_FAIL_COND_V_MSG(!p_frames.is_empty() && cursor != splat_count, false,
+			"[StagedFileSource] Position frames do not cover the payload.");
+	MutexLock lock(file_mutex);
+	position_frames = p_frames;
+	return true;
+}
+
+bool StagedFileChunkPayloadSource::_apply_position_frames(const uint32_t *p_indices, uint32_t p_start, uint32_t p_count,
+		LocalVector<Gaussian> &r_gaussians) const {
+	if (position_frames.is_empty()) {
+		return true;
+	}
+	const PositionFrame *frames = position_frames.ptr();
+	const uint32_t frame_count = position_frames.size();
+	auto find = [frames, frame_count](uint32_t p_index) -> int64_t {
+		// Last frame with first <= p_index.
+		uint32_t lo = 0u, hi = frame_count;
+		while (hi - lo > 1u) {
+			const uint32_t mid = (lo + hi) / 2u;
+			if (frames[mid].first <= p_index) {
+				lo = mid;
+			} else {
+				hi = mid;
+			}
+		}
+		const PositionFrame &f = frames[lo];
+		return (p_index >= f.first && uint64_t(p_index) < uint64_t(f.first) + f.count) ? int64_t(lo) : -1;
+	};
+	for (uint32_t i = 0; i < p_count; i++) {
+		const uint32_t index = p_indices ? p_indices[i] : p_start + i;
+		const int64_t f = find(index);
+		if (f < 0) {
+			ERR_PRINT(vformat("[StagedFileSource] Splat %d has no position frame.", index));
+			return false;
+		}
+		Vector3 &p = r_gaussians[i].position;
+		const double *c = frames[f].center;
+		p = Vector3(real_t(c[0] + double(p.x)), real_t(c[1] + double(p.y)), real_t(c[2] + double(p.z)));
+	}
+	return true;
+}
+
 bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
 		LocalVector<Gaussian> &r_gaussians,
 		LocalVector<Vector3> &r_sh_high_order_out,
@@ -417,6 +471,9 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 	}
 	physical_bytes_read += got;
 	uint64_t logical_bytes_requested = gaussian_byte_count;
+	if (!_apply_position_frames(nullptr, p_start, p_count, r_gaussians)) {
+		return false;
+	}
 
 	// Read SH high-order coefficients if present.
 	r_sh_first_order_count = sh_first_order;
@@ -536,6 +593,9 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 			}
 			i = j;
 		}
+	}
+	if (!_apply_position_frames(p_indices, 0u, p_count, r_gaussians)) {
+		return false;
 	}
 
 	if (sh_high_order > 0 && sh_data_offset > 0) {

@@ -1,7 +1,7 @@
 {#-
   godotGS marketing landing — a full-bleed home page built on the design system.
   Replaces the normal content grid with the DS "editor-hero" landing: hero +
-  editor product-shot, trust strip, feature acts, measured stats, quickstart,
+  a real render (hero screenshot), trust strip, feature acts, measured stats, quickstart,
   CTA and a rich footer. The Material header (with the godotGS wordmark) stays as
   the nav; the Material prev/next+meta footer is suppressed here.
 -#}
@@ -21,80 +21,23 @@
         <span class="dollar">$</span><span>git clone https://github.com/klausi3D/godotGS.git</span>
       </div>
       <div class="gsm-cta">
-        <a href="https://github.com/klausi3D/godotGS/releases" class="gsm-btn gsm-btn-primary">Download nightly
+        <a href="{{ 'getting-started/downloads/' | url }}" class="gsm-btn gsm-btn-primary">Download nightly
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         </a>
-        <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Read the docs</a>
+        <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Your first splat</a>
       </div>
     </div>
 
-    <!-- EDITOR PRODUCT SHOT -->
-    <div class="gsm-stage">
+    <!-- HERO SCREENSHOT: a real render, not a mockup -->
+    <figure class="gsm-stage gsm-shot">
       <div class="gsm-glow"></div>
-      <div class="gsm-editor">
-        <div class="gsm-titlebar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="8" cy="15" r="2.2" fill="#54a9ec"/><circle cx="13" cy="10" r="1.7" fill="#82c4f7"/><circle cx="17" cy="13" r="1.3" fill="#cfe8fb"/></svg>
-          <div class="gsm-tabs">
-            <span class="gsm-tab on">splat_room.tscn</span>
-            <span class="gsm-tab">materials.gd</span>
-          </div>
-          <div class="gsm-transport">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
-            <span class="gsm-rd">Forward+ · Vulkan</span>
-          </div>
-        </div>
-        <div class="gsm-ebody">
-          <div class="gsm-dock left">
-            <div class="gsm-dock-h">Scene</div>
-            <div class="gsm-tree">
-              <div class="gsm-node"><span class="ic">▸</span> RoomCapture</div>
-              <div class="gsm-node sel ind"><span class="ic">◈</span> GaussianSplatNode3D</div>
-              <div class="gsm-node ind2"><span class="ic">▪</span> Camera3D</div>
-              <div class="gsm-node ind2"><span class="ic">▪</span> DirectionalLight3D</div>
-              <div class="gsm-node ind"><span class="ic">▪</span> WorldEnvironment</div>
-            </div>
-            <div class="gsm-dock-h" style="margin-top:14px;">FileSystem</div>
-            <div class="gsm-tree">
-              <div class="gsm-node"><span class="ic">▸</span> room.ply</div>
-              <div class="gsm-node"><span class="ic">▸</span> room.spz</div>
-              <div class="gsm-node"><span class="ic">▸</span> room.gsplatworld</div>
-            </div>
-          </div>
-          <div class="gsm-viewport">
-            <div class="gsm-vp-toolbar">
-              <div class="gsm-vp-tool on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4l7 16 2-6 6-2z"/></svg></div>
-              <div class="gsm-vp-tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9l-3 3 3 3M19 9l3 3-3 3"/></svg></div>
-              <div class="gsm-vp-tool"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v4h-4"/></svg></div>
-            </div>
-            <div class="gsm-vp-stats">
-              <div><b>Illustration</b></div>
-              <div>not a live render</div>
-              <div style="color:var(--faint)">measured numbers below</div>
-            </div>
-            <canvas id="gsm-splat" style="width:100%;height:100%;display:block;"></canvas>
-            <svg class="gsm-gizmo" width="52" height="52" viewBox="0 0 52 52">
-              <line x1="26" y1="26" x2="26" y2="8" stroke="#6bd18f" stroke-width="2"/><circle cx="26" cy="7" r="4" fill="#6bd18f"/><text x="26" y="10" font-size="6" text-anchor="middle" fill="#08110b" font-family="monospace">Y</text>
-              <line x1="26" y1="26" x2="44" y2="34" stroke="#ec5c6b" stroke-width="2"/><circle cx="45" cy="35" r="4" fill="#ec5c6b"/><text x="45" y="38" font-size="6" text-anchor="middle" fill="#1a0608" font-family="monospace">X</text>
-              <line x1="26" y1="26" x2="10" y2="34" stroke="#54a9ec" stroke-width="2"/><circle cx="9" cy="35" r="4" fill="#54a9ec"/><text x="9" y="38" font-size="6" text-anchor="middle" fill="#07131f" font-family="monospace">Z</text>
-            </svg>
-          </div>
-          <div class="gsm-dock right">
-            <div class="gsm-dock-h">Inspector · GaussianSplatNode3D</div>
-            <div class="gsm-prop"><div class="k">ASSET</div><div class="v"><span>Splat Asset</span><span class="num">room.ply</span></div></div>
-            <div class="gsm-prop"><div class="k">QUALITY</div><div class="v"><span>Lod Bias</span><span class="num">1.00</span></div><div class="gsm-slider sw62"></div></div>
-            <div class="gsm-prop"><div class="k">RENDERING</div><div class="v"><span>Opacity</span><span class="num">1.00</span></div><div class="gsm-slider sw78"></div></div>
-            <div class="gsm-prop"><div class="k">QUALITY</div><div class="v"><span>Preset</span><span class="num">Balanced</span></div></div>
-            <div class="gsm-prop"><div class="k">COLOR GRADING</div><div class="v"><span>Exposure</span><span class="num">+0.4</span></div><div class="gsm-slider sw40"></div></div>
-            <div class="gsm-prop"><div class="k">RENDERING</div><div class="v"><span>Frustum Culling</span><span style="color:var(--green)">on</span></div></div>
-          </div>
-        </div>
-        <div class="gsm-statusbar">
-          <span class="dot"></span> Ready
-          <span style="margin-left:auto;color:var(--muted)">mockup</span>
-        </div>
-      </div>
-    </div>
+      <img src="{{ 'assets/images/screenshots/hero-bicycle.webp' | url }}"
+           srcset="{{ 'assets/images/screenshots/hero-bicycle-800.webp' | url }} 800w, {{ 'assets/images/screenshots/hero-bicycle.webp' | url }} 1600w"
+           sizes="(max-width: 1176px) calc(100vw - 56px), 1120px"
+           width="1600" height="900" decoding="async" fetchpriority="high"
+           alt="A white bicycle leaning against a black park bench on a grass verge, with a path, bushes, trees and brick houses behind it: a captured real scene of about 6 million Gaussian splats, rendered by godotGS.">
+      <figcaption>A real render, not a mockup: the Mip-NeRF 360 &ldquo;bicycle&rdquo; scene (Barron et al., <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>), 6.08M splats trained by the godotGS project with gsplat, rendered at 1920&times;1080 by an optimized godotGS editor built from <a href="https://github.com/klausi3D/godotGS/pull/1226">PR #1226</a> (based on master <span class="mono">ab74e332</span>) on an RTX 3090 at about 21 FPS. Not the default settings: black background, scene lighting off, tile cap 65,536, Custom quality. <a href="{{ 'reference/#image-credits' | url }}">Image credits</a>.</figcaption>
+    </figure>
   </header>
 
   <!-- TRUST STRIP -->
@@ -138,7 +81,7 @@
       <div class="gsm-fcard">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg></div>
         <h3>Evidence-first</h3>
-        <p>GPU regression tests, runtime validation and reproducible benchmark lanes. We publish the harness and a dated benchmark snapshot, including the slow numbers.</p>
+        <p>GPU regression tests, runtime validation and reproducible benchmarks. We publish the harness and a dated benchmark snapshot, including the slow numbers.</p>
         <div class="meta">benchmark harness · visual baselines</div>
       </div>
     </div>
@@ -150,7 +93,7 @@
       <span class="gsm-eyebrow">Measured, not promised</span>
       <div class="gsm-stats">
         <div class="gsm-stat"><div class="n">12.3<span class="u"> fps</span></div><div class="l">Average frame rate · stress reference</div></div>
-        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time · same lane</div></div>
+        <div class="gsm-stat"><div class="n">87.47<span class="u"> ms</span></div><div class="l">P99 frame time · same test</div></div>
         <div class="gsm-stat"><div class="n">RTX 3090</div><div class="l">Ryzen 7 5800X · captured 2026-07-19</div></div>
         <div class="gsm-stat"><div class="n">MIT</div><div class="l">License · fully open</div></div>
       </div>
@@ -162,12 +105,12 @@
   <section class="gsm-feat gsm-wrap">
     <div class="gsm-qs">
       <div class="gsm-sec-head">
-        <span class="gsm-eyebrow">Build from source</span>
-        <h2>Your first splat, in three steps.</h2>
-        <p>From a clone of the repository, build the editor on Linux, Windows, or macOS, then open the sample project in the editor and press Play to see a small synthetic sample (1,024 splats). macOS needs a MoltenVK-capable Vulkan SDK.</p>
+        <span class="gsm-eyebrow">Or build from source</span>
+        <h2>Prefer to build the editor yourself?</h2>
+        <p>The quickest route is a nightly editor on Windows or Linux, and Your First Splat walks through it. Build the editor yourself on macOS, for full speed on Linux, or for a custom build: from a clone of the repository, build on Linux, Windows, or macOS, open the sample project in the editor and press Play to see a small synthetic sample (1,024 splats). macOS needs a MoltenVK-capable Vulkan SDK.</p>
         <div class="gsm-cta" style="margin-top:26px;">
           <a href="{{ 'BUILDING/' | url }}" class="gsm-btn gsm-btn-primary">Full build guide</a>
-          <a href="{{ 'reference/compatibility-matrix/' | url }}" class="gsm-btn gsm-btn-ghost">Compatibility matrix</a>
+          <a href="{{ 'getting-started/quick-start/' | url }}" class="gsm-btn gsm-btn-ghost">Your first splat</a>
         </div>
       </div>
       <div class="gsm-term">
@@ -178,7 +121,7 @@
 <span class="c"># 2 — open the sample project in the editor</span><br>
 ./bin/godot.linuxbsd.editor.x86_64 -e \<br>
 &nbsp;&nbsp;--path tests/examples/godot/test_project<br><br>
-<span class="c"># 3 — press Play (F5) to run the public evaluator scene</span>
+<span class="c"># 3 — press Play (F5) to run the sample scene</span>
         </div>
       </div>
     </div>
@@ -191,7 +134,7 @@
       <h2>Put captured reality in your game.</h2>
       <p>Open-source, MIT-licensed, and built in the open. Grab a nightly or build from source today.</p>
       <div class="gsm-cta">
-        <a href="https://github.com/klausi3D/godotGS/releases" class="gsm-btn gsm-btn-primary">Download nightly</a>
+        <a href="{{ 'getting-started/downloads/' | url }}" class="gsm-btn gsm-btn-primary">Download nightly</a>
         <a href="https://github.com/klausi3D/godotGS" class="gsm-btn gsm-btn-ghost">Star on GitHub</a>
       </div>
     </div>
@@ -234,67 +177,6 @@
 </div>
 </main>
 
-<script>
-// Signature splat viewport: a warm, depth-shaded point cloud of an interior
-// capture — sorted back-to-front, near points larger/brighter. Not neon.
-(function(){
-  function initSplat(){
-    var cv = document.getElementById('gsm-splat');
-    if (!cv || cv.dataset.init) return;
-    cv.dataset.init = '1';
-    var dpr = Math.min(window.devicePixelRatio||1, 2);
-    function size(){ var r=cv.getBoundingClientRect(); cv.width=Math.max(1,r.width*dpr); cv.height=Math.max(1,r.height*dpr); }
-    size();
-    var ctx = cv.getContext('2d');
-    var seed=99; var rnd=function(){ return (seed=(seed*1664525+1013904223)%4294967296)/4294967296; };
-    var pal=['#c9a87d','#b98a5c','#8f6b49','#d9c9a6','#e7d7b0','#6f8358','#5c6f45','#a9b8c8','#d8e2ee','#7a5f45','#3f342a'];
-    var pts=[];
-    function add(n, fx){ for(var i=0;i<n;i++){ pts.push(fx()); } }
-    add(340, function(){ var u=rnd(), v=rnd(); var z=0.2+v*0.8; var x=(u-0.5)*1.9*z; var y=0.42+(1-z)*0.02; return {x:x, y:y, z:z, c:pal[[0,1,2,10][Math.floor(rnd()*4)]], s:1}; });
-    add(240, function(){ var x=(rnd()-0.5)*1.5; var y=(rnd()*0.5)-0.1; return {x:x, y:y, z:0.95, c:pal[[3,4,7][Math.floor(rnd()*3)]], s:1}; });
-    add(120, function(){ var x=-0.55+rnd()*0.28; var y=-0.12+rnd()*0.36; return {x:x, y:y, z:0.9, c:pal[8], s:1.1}; });
-    add(260, function(){ var a=rnd()*6.28, r=rnd()*0.22; var x=0.12+Math.cos(a)*r; var y=0.16+Math.sin(a)*r*0.6; return {x:x, y:y, z:0.42+rnd()*0.12, c:pal[[1,2,9,7][Math.floor(rnd()*4)]], s:1}; });
-    add(180, function(){ var a=rnd()*6.28, r=rnd()*0.16; var x=0.5+Math.cos(a)*r*0.6; var y=-0.02+Math.sin(a)*r-0.05; return {x:x, y:y, z:0.5+rnd()*0.1, c:pal[[5,6][Math.floor(rnd()*2)]], s:1}; });
-    add(70, function(){ return {x:(rnd()-0.5)*1.8, y:(rnd()-0.5)*0.9, z:0.3+rnd()*0.6, c:pal[Math.floor(rnd()*pal.length)], s:.6}; });
-    function hexToRgb(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
-    var rgb = pts.map(function(p){return hexToRgb(p.c);});
-    function draw(){
-      var W=cv.width, H=cv.height; ctx.clearRect(0,0,W,H);
-      var order=pts.map(function(_,i){return i;}).sort(function(a,b){return pts[b].z-pts[a].z;});
-      var cx=W*0.5, cy=H*0.46;
-      for(var k=0;k<order.length;k++){
-        var p=pts[order[k]];
-        var persp = 0.62/(p.z*0.9+0.25);
-        var px = cx + p.x*W*0.44*persp;
-        var py = cy + p.y*H*0.9*persp;
-        var depth = 1-(p.z-0.2)/0.85;
-        var rad = (0.8 + depth*3.4)*p.s*dpr;
-        var c=rgb[order[k]];
-        var fog = 0.35 + depth*0.65;
-        var rr=Math.round(c[0]*fog+10*(1-fog)), gg=Math.round(c[1]*fog+14*(1-fog)), bb=Math.round(c[2]*fog+20*(1-fog));
-        ctx.globalAlpha = 0.5 + depth*0.45;
-        ctx.fillStyle='rgb('+rr+','+gg+','+bb+')';
-        ctx.beginPath(); ctx.arc(px,py,rad,0,7); ctx.fill();
-      }
-      ctx.globalAlpha=1;
-      var bx=cx+0.12*W*0.44*(0.62/(0.48*0.9+0.25)), by=cy+0.16*H*0.9*(0.62/(0.48*0.9+0.25));
-      ctx.strokeStyle='rgba(84,169,236,.9)'; ctx.lineWidth=1.2*dpr;
-      var w=W*0.16, h=H*0.26; ctx.strokeRect(bx-w/2, by-h/2, w, h);
-      ctx.fillStyle='rgba(84,169,236,.95)';
-      [[bx-w/2,by-h/2],[bx+w/2,by-h/2],[bx-w/2,by+h/2],[bx+w/2,by+h/2]].forEach(function(cc){ctx.fillRect(cc[0]-2*dpr,cc[1]-2*dpr,4*dpr,4*dpr);});
-    }
-    draw();
-    window.addEventListener('resize', function(){ size(); draw(); });
-  }
-  if (window.document$ && typeof window.document$.subscribe === 'function') {
-    window.document$.subscribe(function(){ initSplat(); });
-  } else if (document.readyState !== 'loading') {
-    initSplat();
-  } else {
-    document.addEventListener('DOMContentLoaded', initSplat);
-  }
-})();
-</script>
 {% endblock %}
 
 {% block footer %}{% endblock %}

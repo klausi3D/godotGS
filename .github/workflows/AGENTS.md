@@ -27,8 +27,9 @@ workflow inventory and the runner trust policy.
 - A required gate must **always report a terminal status** (no path filter that
   silently skips it into a missing-required-check state). The fork-safe required
   gate is `agentic_pr_gate.yml` (`ubuntu-latest`); its required status check is the
-  job name `agentic-pr-gate`, which `master` branch protection requires (see
-  `docs/governance/github-settings.md`). If you rename the job, update branch
+  job name `agentic-pr-gate`. The second required check is the `docs-build` job in
+  `docs_pages.yml`. `master` branch protection requires both (see
+  `docs/governance/github-settings.md`). If you rename either job, update branch
   protection in the same change, or every merge blocks on a check that never reports.
 - Do not weaken or remove an existing guard, runtime gate, or release gate to make
   a PR pass.

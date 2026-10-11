@@ -1053,21 +1053,28 @@ void GaussianSplatManager::initialize_module() {
     GLOBAL_DEF("rendering/gaussian_splatting/culling/octree_max_depth", 8);
     GLOBAL_DEF("rendering/gaussian_splatting/culling/min_gaussians_per_leaf", 32);
 
-    // Projection anti-aliasing floor (added to cov2d diagonal in tile binning).
-    // 0.05 matches the Inria 3DGS reference sharpness. The previous default of
-    // 0.35 was an over-aggressive Mip-Splatting-style dilation we ship without
-    // the matching alpha-rescale companion (alpha *= sqrt(det_orig/det_filtered)),
-    // which fattened thin splats by up to ~6x screen-space radius and produced
-    // a uniform soft / fuzzy halo on edges. The PROPERTY_HINT_RANGE floor
-    // matches the runtime clamp at painterly_renderer.cpp:1776 and
-    // tile_render_stages.cpp:252 so the editor UI cannot expose a value the
-    // runtime would clamp away.
+    // Projection low-pass (px^2 added to the cov2d diagonal in tile binning).
+    // 0.3 is the value Inria 3DGS, gsplat (`eps2d`, both rasterize modes) and
+    // aras-p add; classic-trained models were optimized against it (#1173).
+    // The PROPERTY_HINT_RANGE floor matches the runtime clamp in
+    // painterly_renderer.cpp and tile_render_stages.cpp so the editor UI cannot
+    // expose a value the runtime would clamp away.
     GLOBAL_DEF_RST(
             PropertyInfo(Variant::FLOAT,
                     "rendering/gaussian_splatting/rasterization/low_pass_filter",
                     PROPERTY_HINT_RANGE,
                     "0.05,1.0,0.01"),
-            0.05f);
+            gs::RASTER_LOW_PASS_FILTER_DEFAULT);
+
+    // Mip-Splatting opacity compensation (#1173): alpha *= sqrt(det(cov2d) /
+    // det(cov2d + low_pass)). Correct only for splats trained with antialiasing
+    // (Mip-Splatting, gsplat `antialiased`, SPZ flag 0x1). Off = classic 3DGS,
+    // which is how Inria and gsplat's default mode train and render. This is the
+    // project default for GaussianSplatNode3D.antialiasing_compensation = Auto
+    // when the asset does not record its training mode, and for nodeless
+    // (world-submission / bootstrap) instances.
+    // Restart-required: nodes resolve it when they register or change params.
+    GLOBAL_DEF_RST("rendering/gaussian_splatting/rasterization/antialiasing_compensation", false);
 
 	// Opacity-aware bounding (FlashGS optimization) - reduces tile-Gaussian pairs by ~94%
 	// When enabled, splat radii are calculated based on opacity: r = sqrt(2 * ln(alpha/tau) * lambda)

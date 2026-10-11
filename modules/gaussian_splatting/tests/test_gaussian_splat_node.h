@@ -12,15 +12,18 @@
 #include "../core/gaussian_splat_world.h"
 #include "../core/gaussian_splat_scene_director.h"
 #include "../core/gaussian_splat_source_path.h"
+#include "../core/gs_project_settings.h"
 // #798 round 3: the TESTS_ENABLED failure-injection seam used by the failed-set_splat_data
 // case below (gs_vector_alloc_force_failure_at / _is_armed / _clear).
 #include "../core/gs_vector_alloc.h"
+#include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/sh_config.h"
 #include "../resources/color_grading_resource.h"
 #ifdef TOOLS_ENABLED
 #include "../editor/gaussian_editor_services.h"
 #include "../editor/gaussian_inspector_plugins.h"
+#include "../editor/gaussian_splat_gizmo_plugin.h"
 #endif
 #include "core/math/math_funcs.h"
 #include "core/config/project_settings.h"
@@ -1072,6 +1075,25 @@ TEST_CASE("[GaussianSplatting][Node] Debug overlay toggles have correct defaults
     CHECK(node->is_showing_residency_hud());
 
     memdelete(node);
+}
+
+TEST_CASE("[GaussianSplatting][Node] Debug draw mode defaults to Off (#1220)") {
+    // The old Points default drew up to 1000 crosses over the splats of every
+    // node in the editor. Scene files store only values that differ from the
+    // ClassDB default, so check that default as well as a fresh node's value.
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    if (node == nullptr) {
+        FAIL("memnew(GaussianSplatNode3D) returned null");
+        return;
+    }
+    CHECK_EQ(node->get_debug_draw_mode(), GaussianSplatNode3D::DEBUG_DRAW_OFF);
+    memdelete(node);
+
+    bool valid = false;
+    const Variant saved_default = ClassDB::class_get_default_property_value(
+            StringName("GaussianSplatNode3D"), StringName("debug/debug_draw_mode"), &valid);
+    CHECK(valid);
+    CHECK_EQ(int(saved_default), int(GaussianSplatNode3D::DEBUG_DRAW_OFF));
 }
 
 TEST_CASE("[GaussianSplatting][Node] Legacy non-functional properties are not exposed but still deserialize") {
@@ -3281,6 +3303,121 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Shared renderer ins
     memdelete(node_a);
 }
 
+TEST_CASE("[GaussianSplatting][Node] Antialiasing compensation mode defaults to Auto and rejects out-of-range values") {
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    node->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    ERR_PRINT_OFF;
+    node->set_antialiasing_compensation((GaussianSplatNode3D::AntialiasingCompensation)7);
+    ERR_PRINT_ON;
+    CHECK_EQ(node->get_antialiasing_compensation(), GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    memdelete(node);
+
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (ps == nullptr) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    const StringName key("rendering/gaussian_splatting/rasterization/antialiasing_compensation");
+    CHECK_MESSAGE(ps->has_setting(key), "the project default must be registered");
+    // #1173: classic 3DGS (Inria, gsplat default) is the default training mode.
+    CHECK_FALSE((bool)ps->get_setting(key));
+    CHECK_FALSE(gs::settings::get_antialiasing_compensation_default(ps));
+    CHECK_FALSE(gs::settings::get_antialiasing_compensation_default(nullptr));
+}
+
+// #1173: the instance flag that turns on the Mip-Splatting opacity compensation in
+// tile_binning.glsl. Precedence: node mode, then the asset's spz_antialiased import
+// metadata, then the project setting.
+TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Instance buffer carries the antialiasing-compensation flag by node, asset and project precedence") {
+    SceneTree *tree = SceneTree::get_singleton();
+    Window *root = tree != nullptr ? tree->get_root() : nullptr;
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (root == nullptr || ps == nullptr) {
+        FAIL("SceneTree root and ProjectSettings are required");
+        return;
+    }
+    const StringName key("rendering/gaussian_splatting/rasterization/antialiasing_compensation");
+    const Variant saved_setting = ps->get_setting(key);
+    ps->set_setting(key, false);
+
+    const float node_a_x = 3331.0f;
+    const float node_b_x = 3332.0f;
+    GaussianSplatNode3D *node_a = memnew(GaussianSplatNode3D);
+    GaussianSplatNode3D *node_b = memnew(GaussianSplatNode3D);
+    node_a->set_splat_asset(make_single_splat_asset(node_a_x));
+    Ref<GaussianSplatAsset> asset_b = make_single_splat_asset(node_b_x);
+    Dictionary metadata_b = asset_b->get_import_metadata();
+    metadata_b[StringName("spz_antialiased")] = true;
+    asset_b->set_import_metadata(metadata_b);
+    node_b->set_splat_asset(asset_b);
+    node_a->set_position(Vector3(node_a_x, 0.0f, 0.0f));
+    node_b->set_position(Vector3(node_b_x, 0.0f, 0.0f));
+    root->add_child(node_a);
+    root->add_child(node_b);
+    tree->process(0.0);
+
+    auto cleanup = [&]() {
+        root->remove_child(node_b);
+        root->remove_child(node_a);
+        memdelete(node_b);
+        memdelete(node_a);
+        ps->set_setting(key, saved_setting);
+    };
+
+    Ref<GaussianSplatRenderer> renderer = node_a->get_renderer();
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    if (!renderer.is_valid() || director == nullptr || node_b->get_renderer() != renderer) {
+        // The GPU harness provides a renderer; its absence is a failure, not a skip.
+        FAIL("shared renderer or director unavailable");
+        cleanup();
+        return;
+    }
+
+    // Returns {flag on node_a, flag on node_b}; -1 when a row is missing.
+    auto read_flags = [&](int &r_a, int &r_b) {
+        LocalVector<InstanceDataGPU> instances;
+        director->build_instance_buffer_for_renderer(renderer.ptr(), instances);
+        const int ia = find_instance_index_by_translation_x(instances, node_a_x);
+        const int ib = find_instance_index_by_translation_x(instances, node_b_x);
+        r_a = ia < 0 ? -1 : int((instances[ia].ids[1] & GS_INSTANCE_FLAG_ANTIALIASED) != 0u);
+        r_b = ib < 0 ? -1 : int((instances[ib].ids[1] & GS_INSTANCE_FLAG_ANTIALIASED) != 0u);
+    };
+
+    int flag_a = -1;
+    int flag_b = -1;
+    // Auto: node_a has no recorded training mode -> project default (classic);
+    // node_b's asset records spz_antialiased = true.
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 0);
+    CHECK_EQ(flag_b, 1);
+
+    // The node mode overrides the asset and the project in both directions.
+    node_a->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_ON);
+    node_b->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_OFF);
+    tree->process(0.0);
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 1);
+    CHECK_EQ(flag_b, 0);
+
+    // Back to Auto with the project default on: node_a follows the project; node_b
+    // keeps its asset's recorded flag (true either way). Flip node_b's asset
+    // metadata to false to show the asset wins over the project.
+    ps->set_setting(key, true);
+    Dictionary metadata_b_classic = asset_b->get_import_metadata();
+    metadata_b_classic[StringName("spz_antialiased")] = false;
+    asset_b->set_import_metadata(metadata_b_classic);
+    node_a->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    node_b->set_antialiasing_compensation(GaussianSplatNode3D::ANTIALIASING_COMPENSATION_AUTO);
+    tree->process(0.0);
+    read_flags(flag_a, flag_b);
+    CHECK_EQ(flag_a, 1);
+    CHECK_EQ(flag_b, 0);
+
+    cleanup();
+}
+
 TEST_CASE("[GaussianSplatting][Node][SceneTree][RequiresGPU] Scene sphere effectors build per-instance selection masks") {
     SceneTree *tree = SceneTree::get_singleton();
     REQUIRE_MESSAGE(tree != nullptr, "SceneTree singleton required");
@@ -5199,6 +5336,55 @@ TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world applied while empty
     CHECK(after_fill.bounds == arrived->get_aabb());
 }
 
+// M3 -- the inverse of M2 (#1002): an applied, filled world emptied with
+// GaussianSplatWorld::clear(). Before clear() emitted `changed`, the director kept
+// the apply-time payload, so the old content stayed on screen.
+TEST_CASE("[GaussianSplatting][Node][SceneTree] #1002 Clearing an applied world republishes the empty world to the director") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (tree == nullptr) {
+        FAIL("SceneTree singleton required");
+        return;
+    }
+    Window *root = tree->get_root();
+    if (root == nullptr) {
+        FAIL("SceneTree root window required");
+        return;
+    }
+
+    Ref<GaussianSplatWorld> world_res;
+    world_res.instantiate();
+    world_res->set_gaussian_data(make_test_gaussian_data(3, 0.0f));
+
+    ScopedTestNode<GaussianSplatWorld3D> node(memnew(GaussianSplatWorld3D));
+    node->set_world(world_res);
+    root->add_child(node.get());
+    tree->process(0.0);
+
+    GaussianSplatSceneDirector::WorldSubmission at_apply;
+    if (!gs862_world_submission(node.get(), at_apply) || !gs862_record_has_resident_payload(at_apply)) {
+        FAIL("the world must be registered with a renderable payload before clear(), or an "
+             "empty record afterwards proves nothing");
+        return;
+    }
+    MessageQueue::get_singleton()->flush();
+
+    world_res->clear();
+    MessageQueue::get_singleton()->flush();
+
+    GaussianSplatSceneDirector::WorldSubmission after_clear;
+    if (!gs862_world_submission(node.get(), after_clear)) {
+        FAIL("clear() must republish the node's submission, not release it");
+        return;
+    }
+    CHECK_MESSAGE(after_clear.gaussian_data.is_null(),
+            "#1002: the director must drop the payload the cleared world no longer holds");
+    CHECK_MESSAGE(!gs862_record_has_resident_payload(after_clear),
+            "#1002: a cleared world must not look renderable to the route gate");
+    CHECK(after_clear.payload_source.is_null());
+    CHECK(after_clear.static_chunks.is_empty());
+    CHECK(after_clear.bounds == AABB());
+}
+
 // H1 -- a node that was never applied must stay unregistered. Blocks a fix that
 // resubmits unconditionally instead of honouring the "already registered" guard.
 TEST_CASE("[GaussianSplatting][Node][SceneTree] #862 A world that was never applied stays unregistered when its payload changes") {
@@ -5912,6 +6098,142 @@ TEST_CASE("[GaussianSplatting][Editor] Inspector suppresses a debug/ property on
 	memdelete(node);
 }
 
+#endif // TOOLS_ENABLED
+
+#ifdef TOOLS_ENABLED
+namespace {
+
+// Counts redraw()'s calls into the splat preview, so the case below asserts what
+// redraw() does rather than what its gate helper returns.
+class GS1220PreviewCountingGizmoPlugin : public GaussianSplatGizmoPlugin {
+public:
+    int preview_draws = 0;
+    void draw_splat_preview(EditorNode3DGizmo *p_gizmo, GaussianSplatNode3D *p_node) override {
+        preview_draws++;
+        GaussianSplatGizmoPlugin::draw_splat_preview(p_gizmo, p_node);
+    }
+};
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Editor] Gizmo draws the splat preview only while the node is selected (#1220)") {
+    // Splats are composited at the end of the frame, so preview lines always sit on
+    // top of them. Unselected nodes drew them too: 4.32 % of an editor frame on an
+    // 8M-splat scan with nothing selected.
+    GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+    if (node == nullptr) {
+        FAIL("memnew(GaussianSplatNode3D) returned null");
+        return;
+    }
+    node->set_splat_asset(make_single_splat_asset());
+    node->set_preview_enabled(true);
+
+    Ref<GS1220PreviewCountingGizmoPlugin> plugin;
+    plugin.instantiate();
+    Ref<EditorNode3DGizmo> gizmo;
+    gizmo.instantiate();
+    gizmo->set_node_3d(node);
+
+    const GaussianSplatNode3D::DebugDrawMode preview_modes[] = {
+        GaussianSplatNode3D::DEBUG_DRAW_WIREFRAME,
+        GaussianSplatNode3D::DEBUG_DRAW_POINTS,
+        GaussianSplatNode3D::DEBUG_DRAW_HEATMAP,
+    };
+    for (const GaussianSplatNode3D::DebugDrawMode mode : preview_modes) {
+        node->set_debug_draw_mode(mode);
+
+        gizmo->set_selected(false);
+        plugin->preview_draws = 0;
+        plugin->redraw(gizmo.ptr());
+        CHECK_MESSAGE(plugin->preview_draws == 0, "mode ", int(mode), ": an unselected node drew the preview");
+
+        gizmo->set_selected(true);
+        plugin->preview_draws = 0;
+        plugin->redraw(gizmo.ptr());
+        CHECK_MESSAGE(plugin->preview_draws == 1, "mode ", int(mode), ": a selected node did not draw the preview");
+    }
+
+    // Selected, but the preview is Off or disabled: nothing to draw.
+    node->set_debug_draw_mode(GaussianSplatNode3D::DEBUG_DRAW_OFF);
+    plugin->preview_draws = 0;
+    plugin->redraw(gizmo.ptr());
+    CHECK_EQ(plugin->preview_draws, 0);
+
+    node->set_debug_draw_mode(GaussianSplatNode3D::DEBUG_DRAW_POINTS);
+    node->set_preview_enabled(false);
+    plugin->preview_draws = 0;
+    plugin->redraw(gizmo.ptr());
+    CHECK_EQ(plugin->preview_draws, 0);
+
+    gizmo.unref();
+    plugin.unref();
+    memdelete(node);
+}
+
+TEST_CASE("[GaussianSplatting][Editor] Preview cross size ignores floaters (#1220)") {
+    // 990 points on a 2 m grid plus 10 floaters 5 km away: the AABB is ~5000 m long,
+    // which made every cross arm ~50 m. The percentile box is the 2 m core.
+    Vector<Vector3> points;
+    for (int i = 0; i < 990; i++) {
+        const float x = float(i % 10) / 9.0f * 2.0f - 1.0f;
+        const float y = float((i / 10) % 10) / 9.0f * 2.0f - 1.0f;
+        const float z = float(i / 100) / 9.0f * 2.0f - 1.0f;
+        points.push_back(Vector3(x, y, z));
+    }
+    for (int i = 0; i < 10; i++) {
+        points.push_back(Vector3(5000.0f + float(i), 0.0f, 0.0f));
+    }
+    const float with_floaters = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(points);
+    CHECK_MESSAGE(with_floaters < 0.05f, "half-arm ", with_floaters, " m follows the floaters");
+    CHECK(with_floaters >= 0.01f);
+
+    // The size still follows the content: the same grid scaled to 200 m.
+    Vector<Vector3> large;
+    for (int i = 0; i < 990; i++) {
+        large.push_back(points[i] * 100.0f);
+    }
+    const float scaled = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(large);
+    CHECK_MESSAGE(scaled > 1.5f, "half-arm ", scaled, " m did not scale with a 200 m cloud");
+    CHECK_MESSAGE(scaled < 2.5f, "half-arm ", scaled, " m exceeds 1 % of a 200 m cloud");
+
+    CHECK(Math::is_equal_approx(GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(Vector<Vector3>()), 0.01f));
+}
+
+TEST_CASE("[GaussianSplatting][Editor] Preview cross size trims exactly 5 % of floaters per side (#1226 review)") {
+    // Boundary of the 5th-95th percentile: 50 of 1000 samples are floaters on one
+    // side. Every one of them must be trimmed; keeping the first or last floater
+    // makes the box ~5000 m long and every cross arm ~50 m.
+    const auto grid_point = [](int i) {
+        const float x = float(i % 10) / 9.0f * 2.0f - 1.0f;
+        const float y = float((i / 10) % 10) / 9.0f * 2.0f - 1.0f;
+        const float z = float(i / 100) / 9.0f * 2.0f - 1.0f;
+        return Vector3(x, y, z);
+    };
+    const float floater_sides[] = { 5000.0f, -5000.0f };
+    for (const float side : floater_sides) {
+        Vector<Vector3> points;
+        for (int i = 0; i < 950; i++) {
+            points.push_back(grid_point(i));
+        }
+        for (int i = 0; i < 50; i++) {
+            points.push_back(Vector3(side + float(i), 0.0f, 0.0f));
+        }
+        const float half = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(points);
+        CHECK_MESSAGE(half < 0.05f, "floaters at ", side, " m: half-arm ", half, " m kept a floater");
+    }
+
+    // 50 floaters on each side of 900 inliers: both ends trimmed at once.
+    Vector<Vector3> both;
+    for (int i = 0; i < 900; i++) {
+        both.push_back(grid_point(i));
+    }
+    for (int i = 0; i < 50; i++) {
+        both.push_back(Vector3(5000.0f + float(i), 0.0f, 0.0f));
+        both.push_back(Vector3(-5000.0f - float(i), 0.0f, 0.0f));
+    }
+    const float half_both = GaussianSplatGizmoPlugin::compute_preview_cross_half_extent(both);
+    CHECK_MESSAGE(half_both < 0.05f, "floaters on both sides: half-arm ", half_both, " m kept a floater");
+}
 #endif // TOOLS_ENABLED
 
 // ── #806 review: the setup-failure exit must not strand a node in the tree ──────
