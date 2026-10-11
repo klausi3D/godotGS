@@ -761,9 +761,14 @@ TEST_CASE("[GaussianSplatting][Config] RadixSort scatter shared-memory product i
 		// (4, 512): 16 * (2 + 16) * 4 = 1152.
 		CHECK(radix_scatter_shared_memory_bytes(4, 512) == 1152u);
 		CHECK(radix_scatter_shared_memory_bytes(4, 512) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
-		// The shipped default (radix_bits=4, workgroup_size=256): 16 * 10 * 4 = 640.
+		// (4, 256), the default before #539: 16 * 10 * 4 = 640.
 		CHECK(radix_scatter_shared_memory_bytes(4, 256) == 640u);
 		CHECK(radix_scatter_shared_memory_bytes(4, 256) <= VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
+		// #539: the shipped default pair must fit the guaranteed floor.
+		CHECK(DEFAULT_WORKGROUP_SIZE == 256u);
+		CHECK(DEFAULT_RADIX_WORKGROUP_SIZE == 512u);
+		CHECK(radix_scatter_shared_memory_bytes(DEFAULT_RADIX_BITS, DEFAULT_RADIX_WORKGROUP_SIZE) <=
+				VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
 	}
 
 	SUBCASE("An unsupported radix width fails closed with the sentinel, never a small footprint") {
@@ -775,6 +780,36 @@ TEST_CASE("[GaussianSplatting][Config] RadixSort scatter shared-memory product i
 			CHECK(radix_scatter_shared_memory_bytes(radix, 256) > VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
 		}
 	}
+}
+
+TEST_CASE("[GaussianSplatting][Config] Radix default preserves fixed sorter capabilities (#539)") {
+	GPUSortingConfig config;
+	config.reset_to_defaults();
+	CHECK(config.workgroup_size == 512u);
+	CHECK(BitonicSort::get_capabilities().required_workgroup_size == 256u);
+	CHECK(OneSweepSort::get_capabilities().required_workgroup_size == 256u);
+}
+
+TEST_CASE("[GaussianSplatting][Config] Radix device sizing respects every limit (#539)") {
+	using namespace GPUSortingConstants;
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 49152, 4) == 512u);
+	CHECK(radix_workgroup_size_for_device(512, 1024, 256, 32768, 4) == 256u);
+	CHECK(radix_workgroup_size_for_device(512, 256, 1024, 32768, 4) == 256u);
+	CHECK(radix_workgroup_size_for_device(512, 384, 384, 32768, 4) == 256u);
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 16384, 8) == 256u);
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 500, 4) == 128u);
+	CHECK(radix_workgroup_size_for_device(128, 1024, 1024, 49152, 4) == 128u);
+	CHECK(radix_workgroup_size_for_device(0, 1024, 1024, 49152, 4) == DEFAULT_RADIX_WORKGROUP_SIZE);
+	CHECK(radix_workgroup_size_for_device(512, 32, 32, 49152, 4) == 0u);
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 255, 4) == 0u);
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 49152, 5) == 0u);
+	CHECK(radix_workgroup_size_for_device(384, 1024, 1024, 49152, 4) == 0u);
+	CHECK(radix_workgroup_size_for_device(512, 0, 1024, 49152, 4) == 0u);
+	// Allocation admission must use the reduced size too: smaller groups need
+	// more histogram entries, and the existing size guard must still reject them.
+	const uint32_t effective = radix_workgroup_size_for_device(512, 1024, 256, 16384, 8);
+	CHECK(sort_path_allocation_fits_device_size(200000000, 8, 512, 64));
+	CHECK_FALSE(sort_path_allocation_fits_device_size(200000000, 8, effective, 64));
 }
 
 // #634 (Codex P2): (radix_bits=8, workgroup_size=512) is a VALID config -- validate()
@@ -809,7 +844,8 @@ TEST_CASE("[GaussianSplatting][Config] get_portability_warnings flags the valid-
 	}
 
 	SUBCASE("Supported (radix, workgroup) products yield no portability warning") {
-		CHECK(config.get_portability_warnings().is_empty()); // (4, 256) shipped default
+		CHECK(config.workgroup_size == GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE);
+		CHECK(config.get_portability_warnings().is_empty()); // (4, 512) shipped default (#539)
 		config.radix_bits = 8;
 		config.workgroup_size = 256;
 		CHECK(config.get_portability_warnings().is_empty());

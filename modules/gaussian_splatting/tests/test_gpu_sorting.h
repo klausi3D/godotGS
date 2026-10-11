@@ -977,6 +977,131 @@ TEST_CASE("[GaussianSplatting][RequiresGPU] GPU Sorting Performance") {
 	}
 }
 
+// Exercise the real production probe/factory/init with smaller admission limits
+// on a real GPU. A pure sizing-helper test alone cannot detect missing wiring.
+TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation preserves indirect64 sorting (#539)") {
+	struct ConfigRestore {
+		GPUSortingConfig previous = g_gpu_sorting_config;
+		~ConfigRestore() { g_gpu_sorting_config = previous; }
+	} config_restore;
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (!rd) {
+		FAIL("device-adaptation oracle requires the GPU harness RenderingDevice");
+		return;
+	}
+	ScopedGpuSortManagerDevice manager_device(rd);
+	g_gpu_sorting_config.reset_to_defaults();
+	uint64_t size_x = 1024;
+	uint64_t invocations = 256;
+	uint64_t shared_memory = 16384;
+	SUBCASE("The default fits a 256-invocation device") {}
+	SUBCASE("The unlowered default fits the actual device") {
+		size_x = UINT64_MAX; invocations = UINT64_MAX; shared_memory = UINT64_MAX;
+	}
+	SUBCASE("An explicit smaller preference is preserved") { g_gpu_sorting_config.workgroup_size = 128; }
+	SUBCASE("The X dimension independently limits to 256") { size_x = 256; invocations = 1024; }
+	SUBCASE("A 384-invocation ceiling rounds down to 256") { invocations = 384; }
+	SUBCASE("8-bit radix fits 16 KB by lowering 512 to 256") {
+		invocations = 1024;
+		g_gpu_sorting_config.radix_bits = 8;
+	}
+	// Keep the artificial ceilings strict on this device, while accepting a
+	// genuinely smaller GPU's legal 64/128-lane path too.
+	const uint64_t thread_limit = MIN(MIN(size_x, invocations),
+			MIN(rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X),
+				rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS)));
+	const uint64_t shared_limit = MIN(shared_memory,
+			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE));
+	uint32_t expected_workgroup_size = g_gpu_sorting_config.workgroup_size;
+	while (expected_workgroup_size >= 64 && (expected_workgroup_size > thread_limit ||
+			GPUSortingConstants::radix_scatter_shared_memory_bytes(g_gpu_sorting_config.radix_bits,
+				expected_workgroup_size) > shared_limit)) {
+		expected_workgroup_size >>= 1;
+	}
+	if (expected_workgroup_size < 64) {
+		FAIL("device-adaptation oracle requires a device capable of 64-lane radix sorting");
+		return;
+	}
+	RadixSort::ScopedDeviceLimitsForTesting limits(size_x, invocations, shared_memory);
+	CHECK(RadixSort::is_supported(rd));
+	SortKeyConfig key_config;
+	key_config.key_bits = 64;
+	key_config.tile_bits = 32;
+	key_config.depth_bits = 32;
+	key_config.enable_tie_breaker = false;
+	const uint32_t count = 513; // Multiple 256-lane groups plus a partial tail.
+	Ref<IGPUSorter> sorter = GPUSorterFactory::create_sorter(
+			GPUSorterFactory::ALGORITHM_AUTO, rd, count, key_config);
+	CHECK(sorter.is_valid());
+	// Test direct initialization even when the factory rejected its probe: this
+	// independently catches deletion of initialize()'s adaptation wiring.
+	Ref<RadixSort> direct;
+	direct.instantiate();
+	direct->set_key_config(key_config);
+	const Error init_error = direct->initialize(rd, count);
+	CHECK(init_error == OK);
+	CHECK(direct->get_effective_workgroup_size_for_testing() == expected_workgroup_size);
+	if (sorter.is_valid()) {
+		CHECK(sorter->supports_indirect());
+		Ref<RadixSort> radix = sorter;
+		if (radix.is_null()) {
+			FAIL("the indirect64 factory must select RadixSort");
+			return;
+		}
+		CHECK(radix->get_effective_workgroup_size_for_testing() == expected_workgroup_size);
+	}
+	if (init_error != OK) {
+		return;
+	}
+	LocalVector<uint64_t> keys;
+	LocalVector<uint32_t> values;
+	for (uint32_t i = 0; i < count; ++i) {
+		keys.push_back((uint64_t((i * 11) % 37) << 32) | (count - i));
+		values.push_back(i);
+	}
+	LocalVector<uint64_t> expected = keys;
+	expected.sort();
+	GaussianSplatting::IndirectDispatchLayout count_header = {};
+	count_header.element_count = count;
+	Vector<uint8_t> count_bytes;
+	count_bytes.resize(sizeof(count_header));
+	memcpy(count_bytes.ptrw(), &count_header, sizeof(count_header));
+	struct Buffers {
+		RenderingDevice *rd;
+		RID keys;
+		RID values;
+		RID count;
+		~Buffers() {
+			if (keys.is_valid()) { rd->free(keys); }
+			if (values.is_valid()) { rd->free(values); }
+			if (count.is_valid()) { rd->free(count); }
+		}
+	} buffers = { rd, create_storage_buffer(rd, keys), create_storage_buffer(rd, values),
+		rd->storage_buffer_create(count_bytes.size(), count_bytes) };
+	if (!buffers.keys.is_valid() || !buffers.values.is_valid() || !buffers.count.is_valid()) {
+		FAIL("device-adaptation oracle could not create input buffers");
+		return;
+	}
+	const Error sort_error = direct->sort_indirect(buffers.keys, buffers.values, buffers.count);
+	CHECK(sort_error == OK);
+	if (sort_error != OK) { return; }
+	const Vector<uint8_t> key_bytes = rd->buffer_get_data(buffers.keys);
+	const Vector<uint8_t> value_bytes = rd->buffer_get_data(buffers.values);
+	if (key_bytes.size() != count * sizeof(uint64_t) || value_bytes.size() != count * sizeof(uint32_t)) {
+		FAIL("device-adaptation readback has the wrong byte count");
+		return;
+	}
+	const uint64_t *actual = reinterpret_cast<const uint64_t *>(key_bytes.ptr());
+	const uint32_t *indices = reinterpret_cast<const uint32_t *>(value_bytes.ptr());
+	for (uint32_t i = 0; i < count; ++i) {
+		CHECK(actual[i] == expected[i]);
+		const bool maps_back = indices[i] < count && keys[indices[i]] == actual[i];
+		CHECK(maps_back);
+	}
+	direct->shutdown();
+	if (sorter.is_valid()) { sorter->shutdown(); }
+}
+
 // Regression guard for the 8-bit radix path: with 256 histogram/scatter bins, the per-bin shader
 // loops must be STRIDED over WORKGROUP_SIZE. A naive `tid < RADIX_SIZE` guard only covers the first
 // WORKGROUP_SIZE bins, silently corrupting the sort at workgroup_size 64/128. This test sorts keys

@@ -130,7 +130,10 @@
   },
   "external_status_check_policy": {
     "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
+    "branch_protection_required_status_checks": [
+      "agentic-pr-gate",
+      "docs-build"
+    ],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -149,9 +152,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 173,
-    "sha256": "ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6",
-    "sha256_last_changed_by": "#1173 (the Mip-Splatting opacity compensation was applied to every asset): ADD 1, count 172 -> 173; in modules/gaussian_splatting/tests/test_gaussian_splat_node.h the case \"Instance buffer carries the antialiasing-compensation flag by node, asset and project precedence\", tagged [GaussianSplatting][Node][SceneTree][RequiresGPU], so it joins the NodeSceneTree batch. running_in_a_named_batch 106 -> 107, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest RECOMPUTED with the repo's own functions (check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary) on the branch based on ab74e332aa8. Never hand-edited. Previous pin, for audit: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172, #1137).",
+    "test_count": 174,
+    "sha256": "f6a856bbe8597e5396aa0f278e5ff9aa50e7f075fdbb331e22d06d2453bf1795",
+    "sha256_last_changed_by": "#539: add the Radix device adaptation preserves indirect64 sorting regression in the required GpuSorting batch. Recomputed source/name digest and coverage partition: 173 -> 174 cases; 107 -> 108 running; 3 deferred and 63 unbatched unchanged. Decision: docs/reference/renderer-release-gates.md#proposed-decision-radix-device-adaptation-and-coverage-inventory-2026-10-10. Previous digest: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6.",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -498,8 +501,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 173,
-      "running_in_a_named_batch": 107,
+      "requires_gpu_total": 174,
+      "running_in_a_named_batch": 108,
       "deferred_with_waiver": 3,
       "unbatched_backlog": 63
     },
