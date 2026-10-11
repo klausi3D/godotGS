@@ -269,7 +269,8 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 		uint32_t p_sh_degree,
 		uint32_t p_sh_first_order,
 		uint32_t p_sh_high_order,
-		const AABB &p_bounds) {
+		const AABB &p_bounds,
+		uint32_t p_gaussian_layout_version) {
 	MutexLock lock(file_mutex);
 	file_path = p_path;
 	gaussian_data_offset = p_gaussian_offset;
@@ -278,6 +279,7 @@ void StagedFileChunkPayloadSource::configure(const String &p_path,
 	sh_degree = p_sh_degree;
 	sh_first_order = p_sh_first_order;
 	sh_high_order = p_sh_high_order;
+	gaussian_layout_version = gaussian_resolve_persisted_layout_version(p_gaussian_layout_version);
 	bounds = p_bounds;
 	file_pool.clear(); // in-flight leases hold their own Ref and drop it on return
 	file_pool_epoch++;
@@ -487,6 +489,10 @@ bool StagedFileChunkPayloadSource::capture_chunk_snapshot(uint32_t p_start, uint
 		LocalVector<Vector3> &r_sh_high_order_out,
 		uint32_t &r_sh_first_order_count,
 		uint32_t &r_sh_high_order_count) const {
+	if (gaussian_layout_version != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT("[StagedFileSource] Gaussian struct layout mismatch; re-export the world from its source with this build.");
+		return false;
+	}
 	if (file_path.is_empty() || p_count == 0) {
 		return false;
 	}
@@ -552,6 +558,10 @@ bool StagedFileChunkPayloadSource::capture_indexed_chunk_snapshot(const uint32_t
 		LocalVector<Vector3> &r_sh_high_order_out,
 		uint32_t &r_sh_first_order_count,
 		uint32_t &r_sh_high_order_count) const {
+	if (gaussian_layout_version != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT("[StagedFileSource] Gaussian struct layout mismatch; re-export the world from its source with this build.");
+		return false;
+	}
 	if (file_path.is_empty() || p_count == 0 || p_indices == nullptr) {
 		return false;
 	}

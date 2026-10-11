@@ -94,6 +94,9 @@ protected:
 	uint32_t sh_degree = 0;
 	uint32_t sh_first_order = 0;
 	uint32_t sh_high_order = 0;
+	// Selected by the format loader before publication; raw callers default to
+	// this build's layout. Historical unrecorded layout zero resolves to layout1.
+	uint32_t gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION;
 	AABB bounds;
 	mutable Mutex file_mutex;
 	// #1179: bounded pool of open handles on file_path, guarded by file_mutex. A capture
@@ -239,7 +242,8 @@ public:
 			uint32_t p_sh_degree,
 			uint32_t p_sh_first_order,
 			uint32_t p_sh_high_order,
-			const AABB &p_bounds);
+			const AABB &p_bounds,
+			uint32_t p_gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION);
 
 	// Must tile [0, splat_count) in order; returns false (and installs nothing) otherwise.
 	bool set_position_frames(const LocalVector<PositionFrame> &p_frames);
@@ -259,7 +263,7 @@ public:
 	uint32_t get_count() const override { return splat_count; }
 	uint32_t get_sh_degree() const override { return sh_degree; }
 	AABB get_bounds() const override { return bounds; }
-	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0; }
+	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0 && gaussian_layout_version == GAUSSIAN_STRUCT_LAYOUT_VERSION; }
 
 	const String &get_file_path() const { return file_path; }
 	uint64_t get_bytes_requested() const;

@@ -15,6 +15,7 @@
 
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_world.h"
+#include "../core/streaming_chunk_payload_source.h"
 #include "../io/gaussian_splat_world_io.h"
 #include "../io/ply_loader.h"
 #ifdef TOOLS_ENABLED
@@ -298,6 +299,76 @@ TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] gsplatworld refuses a p
 	}
 	check_world_refused_for_layout(compressed_path);
 	remove_fixture(compressed_path);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][MalformedCorpus] staged captures refuse layout mismatches and reset cached handles on configure") {
+	using namespace TestGaussianLayoutFingerprint;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<GaussianData> expected = make_data();
+	const String path = fixture_path("world_staged_layout", ".gsplatworld");
+	if (saver.save(make_world(expected), path) != OK) {
+		FAIL("save the staged production control");
+		return;
+	}
+	Error err = ERR_BUG;
+	Ref<GaussianSplatWorld> world = loader.load(path, "", &err);
+	if (world.is_null() || err != OK) {
+		FAIL("load the staged production control");
+		return;
+	}
+	Ref<StagedFileChunkPayloadSource> source = world->get_chunk_payload_source();
+	if (source.is_null()) {
+		FAIL("production loader must publish the staged source");
+		return;
+	}
+	LocalVector<Gaussian> captured;
+	LocalVector<Vector3> sh;
+	uint32_t first = 0u, high = 0u;
+	const uint32_t reverse[] = {1u, 0u};
+	if (!source->capture_chunk_snapshot(0u, 2u, captured, sh, first, high) || captured.size() != 2u) {
+		FAIL("capture the staged control before invalidation");
+		return;
+	}
+	CHECK(captured[0].position.is_equal_approx(expected->get_gaussian(0).position));
+	CHECK_EQ(source->get_file_open_count(), 1u);
+	if (!source->capture_indexed_chunk_snapshot(reverse, 2u, captured, sh, first, high) || captured.size() != 2u) {
+		FAIL("indexed capture reuses the cached control handle");
+		return;
+	}
+	CHECK_EQ(source->get_file_open_count(), 1u);
+	CHECK(captured[0].position.is_equal_approx(expected->get_gaussian(1).position));
+	const uint64_t gaussian_offset = read_u64_at(path, 56u);
+	const uint64_t sh_offset = read_u64_at(path, 64u);
+	const uint32_t degree = read_u32_at(path, 16u);
+	const uint32_t sh_first = read_u32_at(path, 20u);
+	const uint32_t sh_high = read_u32_at(path, 24u);
+	source->configure(path, gaussian_offset, sh_offset, 2u, degree, sh_first, sh_high, world->get_bounds(), GAUSSIAN_STRUCT_LAYOUT_VERSION + 1u);
+	CHECK_FALSE(source->is_valid());
+	CHECK_FALSE(source->capture_chunk_snapshot(0u, 2u, captured, sh, first, high));
+	CHECK_FALSE(source->capture_indexed_chunk_snapshot(reverse, 2u, captured, sh, first, high));
+	CHECK_EQ(source->get_file_open_count(), 0u);
+	CHECK_EQ(source->get_bytes_read(), 0u);
+	CHECK_EQ(source->get_bytes_requested(), 0u);
+	// A restored identity opens a new pool and supports both capture routes;
+	// no stale handle from the old configuration can satisfy this control.
+	source->configure(path, gaussian_offset, sh_offset, 2u, degree, sh_first, sh_high, world->get_bounds(), GAUSSIAN_STRUCT_LAYOUT_VERSION);
+	CHECK(source->is_valid());
+	if (!source->capture_chunk_snapshot(0u, 2u, captured, sh, first, high) || captured.size() != 2u) {
+		FAIL("restored staged identity must capture again");
+		return;
+	}
+	CHECK_EQ(source->get_file_open_count(), 1u);
+	CHECK(captured[0].position.is_equal_approx(expected->get_gaussian(0).position));
+	if (!source->capture_indexed_chunk_snapshot(reverse, 2u, captured, sh, first, high) || captured.size() != 2u) {
+		FAIL("restored indexed staged capture");
+		return;
+	}
+	CHECK_EQ(source->get_file_open_count(), 1u);
+	CHECK(captured[0].position.is_equal_approx(expected->get_gaussian(1).position));
+	world.unref();
+	source.unref();
+	remove_fixture(path);
 }
 
 TEST_CASE("[GaussianSplatting][WorldIO] plain v3 empty exports load and import without an HLOD bake") {
