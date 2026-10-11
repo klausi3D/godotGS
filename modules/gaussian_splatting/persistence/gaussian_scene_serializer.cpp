@@ -809,9 +809,11 @@ Error GaussianSceneSerializer::_read_gaussian_data_chunk(Ref<FileAccess> file, c
     }
 
     // Legacy records embedded SH1 but carried no structural metadata.
+    // Match the historical set_gaussians() tolerance without changing the
+    // decoded coefficients themselves.
     for (uint32_t i = 0; i < r_gaussians.size(); i++) {
         for (uint32_t j = 0; j < 3; j++) {
-            if (r_gaussians[i].sh_1[j] != Vector3()) {
+            if (!r_gaussians[i].sh_1[j].is_zero_approx()) {
                 r_staging.first_order_count = MAX(r_staging.first_order_count, j + 1);
             }
         }
