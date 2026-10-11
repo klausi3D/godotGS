@@ -45,6 +45,7 @@ rather than patching it by hand.
 - [Widen the public-alpha envelope to streaming open worlds](adr-alpha-envelope-widened-to-streaming.md)
 
 - [Original Editor tests borrow the genuine editor runtime (2026-10-11)](#adr-original-editor-runtime-2026-10-11)
+- [Preserve behavior when extracting validation helpers (2026-10-12)](#adr-preserve-validation-helper-behavior-2026-10-12)
 
 ## ADR: Original Editor runtime (2026-10-11) {#adr-original-editor-runtime-2026-10-11}
 
@@ -102,3 +103,39 @@ thumbnail cache cleanup is confined to its owned project/user data. Borrowed
 preview workers are not stopped or replaced. No shipping ABI, format, shader,
 bootstrap or signed-policy semantics change. Two fixed source reviews and human
 maintainer disposition remain required before merge.
+
+## ADR: Preserve validation helper behavior (2026-10-12) {#adr-preserve-validation-helper-behavior-2026-10-12}
+
+Status: accepted design; helper implementation and qualification pending.
+Risk: R3 for critical evidence, owner enforcement, Editor lifetime and shipping paths.
+
+### Problem and decision
+
+Complex validation methods obscure the individual checks needed to reject invalid
+evidence. Extract small helpers from contiguous existing blocks, in separately
+reviewed units: pure Python guards first, TESTS-only Editor code next, and the
+shipping thumbnail cache last. Commit this decision before implementing helpers.
+
+Preserve predicates, strict types, cardinality, literals, failure messages,
+short-circuit and first-failure order, dependency calls and return values. Keep
+shipping registration rules conservative. Preserve original Editor assertions,
+filters, callback closure, queue checks, logging restoration, observer disposal
+and fresh deadline checks after work and publication. Thumbnail helpers retain
+the complete observation scope and existing cache order, counters and output.
+Owner signatures, activation, trust policy, thresholds and baselines are unchanged.
+
+### Task and acceptance
+
+Freeze each unit's base, patch and original source before review. Compare old and
+new actual Python functions on positive and adversarial inputs, including ordered
+dependency calls and exact failures; delete a required predicate or helper call
+and prove the independently wired consumer rejects it. Preserve C++ condition and
+action order and TESTS/TOOLS boundaries. Shipping helper extraction needs compiler,
+cache and image evidence; source-token equality cannot establish that behavior.
+
+Run the existing guards and fresh quality checks on each final head. Native Editor
+acceptance still requires all 23 original cases, positive assertions, zero skips,
+actual callback/error/lifetime receipts and complete EOF. Synthetic models and
+style-check success do not supply runtime evidence. Two independent reviews,
+upstream CODEOWNER and human disposition remain required; no suppression, guard
+relaxation, new owner authorization or runtime optimization is part of this task.
