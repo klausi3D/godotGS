@@ -249,15 +249,20 @@ class CollectorQAImports(unittest.TestCase):
             temp = Path(temporary)
             script = temp / "failure.ps1"
             result = temp / "result.json"
+            bad_image = temp / "not-a-native-image.exe"
+            bad_image.write_bytes(b"SYNTHETIC_INVALID_IMAGE_FOR_OS_LAUNCH_REJECTION")
             script.write_text(
                 'Set-StrictMode -Version Latest\n$ErrorActionPreference = "Stop"\n' + helper +
                 '\n$global:LASTEXITCODE = 0\n'
                 f'$missing = Invoke-LoggedCommand -Name qa_import -Command @("{temp / "missing.exe"}") '
                 f'-WorkingDirectory "{temp}" -LogPath "{temp / "import.log"}" -RequireNativeExit\n'
+                '$global:LASTEXITCODE = 0\n'
+                f'$badImage = Invoke-LoggedCommand -Name qa_import -Command @("{bad_image}") '
+                f'-WorkingDirectory "{temp}" -LogPath "{temp / "bad-image.log"}" -RequireNativeExit\n'
                 '$command = @($env:ComSpec, "/c", "echo ' + PRODUCER_MARKER + '")\n'
                 f'$healthy = Invoke-LoggedCommand -Name qa_import_verify -Command $command '
                 f'-WorkingDirectory "{temp}" -LogPath "{temp / "verify.log"}" -RequireNativeExit\n'
-                f'@($missing, $healthy) | ConvertTo-Json | Set-Content -Encoding UTF8 "{result}"\n'
+                f'@($missing, $badImage, $healthy) | ConvertTo-Json | Set-Content -Encoding UTF8 "{result}"\n'
             )
             process = subprocess.run(
                 [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -265,11 +270,12 @@ class CollectorQAImports(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
             records = json.loads(result.read_text(encoding="utf-8-sig"))
-            self.assertFalse(records[0]["passed"], "launch failure must not inherit native exit zero")
-            self.assertIsNotNone(records[0]["error"])
-            self.assertIsNone(records[0]["exit_code"], "no fabricated native completion code")
-            self.assertTrue(records[1]["passed"])
-            self.assertEqual(records[1]["exit_code"], 0)
+            for record in records[:2]:
+                self.assertFalse(record["passed"], "launch failure must not inherit native exit zero")
+                self.assertIsNotNone(record["error"])
+                self.assertIsNone(record["exit_code"], "no fabricated native completion code")
+            self.assertTrue(records[2]["passed"])
+            self.assertEqual(records[2]["exit_code"], 0)
             raw_log = (temp / "verify.log").read_bytes()
             decoded_log = raw_log.decode("utf-16" if raw_log.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
             self.assertIn(PRODUCER_MARKER, decoded_log)
