@@ -241,36 +241,25 @@ def effective_policy(api, repo: str, base: str, head: str, app_id: object) -> tu
     return proposed, binding
 
 
-def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
-                bootstrap: dict | None = None, run_id: str | None = None,
-                run_attempt: str | None = None) -> str:
-    """Proof of real owner settings; registration allowance never bypasses strict."""
-    require_sha(head)
-    app_id = positive_integer(app_id)
-    repository = api(f"repos/{repo}")
+def _validate_enforcement_repository(repository: dict, repo: str) -> None:
     owner = repository.get("owner", {})
     if (repository.get("default_branch") != TARGET_BRANCH or owner.get("type") != "User"
             or owner.get("login", "").casefold() != repo.split("/")[0].casefold()
             or type(owner.get("id")) is not int or owner["id"] <= 0):
         raise ValueError("Unsupported default/target branch")
-    rulesets = api(f"repos/{repo}/rulesets")
-    if not isinstance(rulesets, list) or rulesets:
-        raise ValueError("Unmodelled rulesets; effective enforcement is ambiguous")
-    branch = api(f"repos/{repo}/branches/{TARGET_BRANCH}")
-    if branch.get("protected") is not True:
-        raise ValueError("Target is not protected")
-    base = require_sha(branch.get("commit", {}).get("sha"))
-    compared = api(f"repos/{repo}/compare/{base}...{head}")
-    if compared.get("merge_base_commit", {}).get("sha") != base:
-        raise ValueError("Current target is not an ancestor of the proposed head")
-    protection = api(f"repos/{repo}/branches/{TARGET_BRANCH}/protection")
-    checks = protection.get("required_status_checks") or {}
+
+
+def _validate_enforcement_protection_flags(protection: dict, checks: dict) -> None:
     if (checks.get("strict") is not True
             or protection.get("enforce_admins", {}).get("enabled") is not True
             or protection.get("allow_force_pushes", {}).get("enabled") is not False
             or protection.get("allow_deletions", {}).get("enabled") is not False):
         raise ValueError("Strict/admin/append-only protection is not actually enabled")
-    required = checks.get("checks")
+
+
+def _validate_enforcement_required_checks(required: list, context: str, app_id: int,
+                                         head: str, bootstrap: dict | None,
+                                         run_id: str | None, run_attempt: str | None) -> None:
     if not isinstance(required, list):
         raise ValueError("Required source-App checks are missing")
     names = {item.get("context") for item in required}
@@ -287,12 +276,41 @@ def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
     elif bootstrap != {"head_sha": head, "context": context,
                        "run_id": run_id, "run_attempt": run_attempt}:
         raise ValueError("Universal context is NOT ACTIVE; no exact owner bootstrap binding")
-    environment = api(f"repos/{repo}/environments/{ENVIRONMENT}")
-    if environment.get("deployment_branch_policy") != {"protected_branches": False, "custom_branch_policies": True}:
-        raise ValueError("Credential environment must restrict explicit branch types")
-    policies = api(f"repos/{repo}/environments/{ENVIRONMENT}/deployment-branch-policies")
+
+
+def _validate_enforcement_deployment_branches(policies: dict) -> None:
     entries = policies.get("branch_policies")
     if (policies.get("total_count") != 1 or not isinstance(entries, list) or len(entries) != 1
             or entries[0].get("name") != TARGET_BRANCH or entries[0].get("type") != "branch"):
         raise ValueError("Credential environment must allow only master branch, never tags/PR refs")
+
+
+def enforcement(api, repo: str, head: str, context: str, app_id: object, *,
+                bootstrap: dict | None = None, run_id: str | None = None,
+                run_attempt: str | None = None) -> str:
+    """Proof of real owner settings; registration allowance never bypasses strict."""
+    require_sha(head)
+    app_id = positive_integer(app_id)
+    repository = api(f"repos/{repo}")
+    _validate_enforcement_repository(repository, repo)
+    rulesets = api(f"repos/{repo}/rulesets")
+    if not isinstance(rulesets, list) or rulesets:
+        raise ValueError("Unmodelled rulesets; effective enforcement is ambiguous")
+    branch = api(f"repos/{repo}/branches/{TARGET_BRANCH}")
+    if branch.get("protected") is not True:
+        raise ValueError("Target is not protected")
+    base = require_sha(branch.get("commit", {}).get("sha"))
+    compared = api(f"repos/{repo}/compare/{base}...{head}")
+    if compared.get("merge_base_commit", {}).get("sha") != base:
+        raise ValueError("Current target is not an ancestor of the proposed head")
+    protection = api(f"repos/{repo}/branches/{TARGET_BRANCH}/protection")
+    checks = protection.get("required_status_checks") or {}
+    _validate_enforcement_protection_flags(protection, checks)
+    required = checks.get("checks")
+    _validate_enforcement_required_checks(required, context, app_id, head, bootstrap, run_id, run_attempt)
+    environment = api(f"repos/{repo}/environments/{ENVIRONMENT}")
+    if environment.get("deployment_branch_policy") != {"protected_branches": False, "custom_branch_policies": True}:
+        raise ValueError("Credential environment must restrict explicit branch types")
+    policies = api(f"repos/{repo}/environments/{ENVIRONMENT}/deployment-branch-policies")
+    _validate_enforcement_deployment_branches(policies)
     return base
