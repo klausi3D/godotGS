@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import tempfile
 import types
@@ -98,6 +99,26 @@ class ProtocolCountermodels(unittest.TestCase):
         self.token = "a" * 32
         self.line = 157
 
+    def model_input_rows(self):
+        # Intentionally non-format bytes: semantic input model, never native producer proof.
+        return [{'path': name, 'format': name.rsplit('.', 1)[1], 'producer': producer,
+                 'bytes': len(self.model_input_bytes(name)), 'sha256': hashlib.sha256(self.model_input_bytes(name)).hexdigest(),
+                 'count': 3, 'loader_ok': True, 'values_ok': True}
+                for name, producer in zip(self.runtime.INPUT_NAMES, ('write_gaussian_ply', 'write_synthetic_spz'))]
+
+    def model_input_bytes(self, name):
+        return ('SOURCE_MODEL_NOT_NATIVE_FORMAT:' + name).encode('ascii')
+
+    def model_fingerprints(self):
+        return [{k: r[k] for k in ('path', 'bytes', 'sha256')} for r in self.model_input_rows()]
+
+    def prepare_model_project(self, directory):
+        project = directory / 'project'
+        project.mkdir()
+        for name in self.runtime.INPUT_NAMES:
+            (project / name).write_bytes(self.model_input_bytes(name))
+        return project
+
     def constructed_records(self, pid):
         records = [{"kind": "begin", "owner": "11", "borrowed_ids": [str(i) for i in range(100, 114)],
                     "logger_captured": True, "queues_not_flushing": True}]
@@ -137,7 +158,11 @@ class ProtocolCountermodels(unittest.TestCase):
         records.append({"kind": "final", "valid": True, "drained": True, "logger_restored": True, "borrowed_valid": True,
                         "borrowed_ids": records[0]['borrowed_ids'], "cases": 23, "assertions": total, "failed_assertions": 0,
                         "created": 7, "closed": 7, "drain_elapsed_usec": "44999000"})
+        rows = self.model_input_rows()
+        records.insert(1, {'kind': 'input-fixtures', 'recipe': self.runtime.INPUT_RECIPE, 'files': rows})
         for row in records:
+            if row['kind'] in ('case', 'final'):
+                row.update(inputs_valid=True, input_files=copy.deepcopy(rows))
             row.update(token=self.token, pid=pid)
         return records
 
@@ -147,7 +172,8 @@ class ProtocolCountermodels(unittest.TestCase):
                 ''.join(self.runtime.PREFIX + json.dumps(r) + '\n' for r in records))
 
     def validate(self, records):
-        return self.runtime.validate(self.text(records), token=self.token, pid=17, names=self.names, injection_line=self.line)
+        return self.runtime.validate(self.text(records), token=self.token, pid=17, names=self.names, injection_line=self.line,
+                                     input_fingerprints=self.model_fingerprints())
 
     def test_constructed_protocol_positive_only_not_native_format_certification(self):
         self.validate(self.constructed_records(17))
@@ -155,8 +181,9 @@ class ProtocolCountermodels(unittest.TestCase):
     def test_negative_identity_counts_and_ownership(self):
         changes = [lambda r: r[0].update(owner="0"), lambda r: r[-1].update(drained=False),
                    lambda r: r[-1].update(logger_restored=False), lambda r: r[-1].update(borrowed_ids=["0"] * 14),
-                   lambda r: r[1].update(assertions=0), lambda r: r[1].update(callback_closed=False),
-                   lambda r: r[1].update(name=r[2]['name']), lambda r: r[-1].update(closed=6),
+                   lambda r: next(c for c in r if c['kind'] == 'case').update(assertions=0),
+                   lambda r: next(c for c in r if c['kind'] == 'case').update(callback_closed=False),
+                   lambda r: next(c for c in r if c['kind'] == 'case').update(name=next(c for c in r if c.get('ordinal') == 2)['name']), lambda r: r[-1].update(closed=6),
                    lambda r: r[-1].update(token="b" * 32),
                    lambda r: r[-1].update(drain_elapsed_usec="46000000"),
                    lambda r: r[-1].pop("drain_elapsed_usec"),
@@ -192,6 +219,7 @@ class ProtocolCountermodels(unittest.TestCase):
         for trailing in ('', 'ERROR: unexpected teardown error\n', '[GS-LIVE-EDITOR INVALID] final publication exceeded drain budget\n'):
             with self.subTest(trailing=trailing), tempfile.TemporaryDirectory() as tmp:
                 d = Path(tmp)
+                self.prepare_model_project(d)
                 rows = self.constructed_records(0)
                 child = d / 'own_protocol_child.py'
                 child.write_text('import json,os\nr=' + repr(rows) + '\nfor x in r:x["pid"]=os.getpid()\n' +
@@ -206,6 +234,181 @@ class ProtocolCountermodels(unittest.TestCase):
                               else 'Raw error/skip/fatal after complete EOF')
                     self.assertIn(reason, output)
                 self.assertTrue((d / 'stdout.log').is_file())
+
+    def test_mandatory_preparation_actual_consumer_rejects_missing_duplicate_and_late(self):
+        for mode in ('missing', 'duplicate', 'late', 'wrongrecipe', 'wrongpath', 'wrongshape', 'wrongproducer', 'false_loader', 'false_values'):
+            with self.subTest(mode=mode):
+                rows = self.constructed_records(17)
+                stage = rows[1]
+                if mode == 'missing': rows.remove(stage)
+                elif mode == 'duplicate': rows.insert(2, copy.deepcopy(stage))
+                elif mode == 'late': rows.remove(stage); rows.insert(3, stage)
+                elif mode == 'wrongrecipe': stage['recipe'] = 'substituted'
+                else:
+                    key, value = {'wrongpath': ('path', '../other.ply'), 'wrongshape': ('count', 4),
+                                  'wrongproducer': ('producer', 'write_other'), 'false_loader': ('loader_ok', False),
+                                  'false_values': ('values_ok', False)}[mode]
+                    stage['files'][0][key] = value
+                with self.assertRaises(ValueError): self.validate(rows)
+
+    def test_mandatory_input_types_hashes_and_each_case_final_closure(self):
+        for key, value in (('bytes', True), ('bytes', 0), ('bytes', 65537), ('count', True), ('count', 3.0),
+                           ('sha256', 'A' * 64), ('sha256', '0' * 63), ('loader_ok', 1), ('values_ok', 1)):
+            with self.subTest(key=key, value=value):
+                rows = self.constructed_records(17)
+                rows[1]['files'][0][key] = value
+                with self.assertRaises(ValueError): self.validate(rows)
+        for ordinal in range(1, 24):
+            for mode in ('missing', 'changed', 'false'):
+                with self.subTest(ordinal=ordinal, mode=mode):
+                    rows = self.constructed_records(17)
+                    case = next(r for r in rows if r.get('ordinal') == ordinal)
+                    if mode == 'missing': case.pop('input_files')
+                    elif mode == 'changed': case['input_files'][0]['sha256'] = '0' * 64
+                    else: case['inputs_valid'] = False
+                    with self.assertRaises(ValueError): self.validate(rows)
+        for mode in ('missing', 'changed', 'false'):
+            rows = self.constructed_records(17)
+            if mode == 'missing': rows[-1].pop('input_files')
+            elif mode == 'changed': rows[-1]['input_files'][0]['sha256'] = '0' * 64
+            else: rows[-1]['inputs_valid'] = False
+            with self.subTest(final_mode=mode), self.assertRaises(ValueError): self.validate(rows)
+
+    def test_equal_but_wrong_typed_case_closure_is_rejected(self):
+        for ordinal in (1, 23, 'final'):
+            for key, value in (('count', 3.0), ('loader_ok', 1), ('values_ok', 1)):
+                with self.subTest(ordinal=ordinal, key=key):
+                    rows = self.constructed_records(17)
+                    row = rows[-1] if ordinal == 'final' else next(r for r in rows if r.get('ordinal') == ordinal)
+                    row['input_files'][0][key] = value
+                    self.assertEqual(row['input_files'], rows[1]['files'], 'Countermodel must preserve Python equality')
+                    with self.assertRaises(ValueError): self.validate(rows)
+
+    def test_parent_physical_reader_bounds_missing_substitution_link_and_changed_bytes(self):
+        for mode in ('positive', 'missing', 'substituted', 'oversize', 'empty', 'link', 'changed_identity'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                project = self.prepare_model_project(Path(tmp))
+                file = project / self.runtime.INPUT_NAMES[0]
+                if mode == 'missing': file.unlink()
+                elif mode == 'substituted': file.write_bytes(b'wrong source model')
+                elif mode == 'oversize': file.write_bytes(b'x' * 65537)
+                elif mode == 'empty': file.write_bytes(b'')
+                elif mode == 'link':
+                    file.unlink(); file.symlink_to(project / self.runtime.INPUT_NAMES[1])
+                if mode == 'changed_identity':
+                    changed = types.SimpleNamespace(st_mode=file.stat().st_mode, st_size=file.stat().st_size,
+                                                    st_mtime_ns=file.stat().st_mtime_ns + 1, st_ino=file.stat().st_ino,
+                                                    st_dev=file.stat().st_dev, st_ctime_ns=file.stat().st_ctime_ns)
+                    with mock.patch.object(self.runtime.os, 'fstat', return_value=changed), self.assertRaises(ValueError):
+                        self.runtime._physical_input_fingerprints(project)
+                elif mode == 'substituted':
+                    with self.assertRaises(ValueError):
+                        self.runtime.validate(self.text(self.constructed_records(17)), token=self.token, pid=17,
+                                              names=self.names, injection_line=self.line,
+                                              input_fingerprints=self.runtime._physical_input_fingerprints(project))
+                elif mode == 'positive':
+                    self.assertEqual(self.runtime._physical_input_fingerprints(project), self.model_fingerprints())
+                else:
+                    with self.assertRaises((ValueError, OSError)): self.runtime._physical_input_fingerprints(project)
+
+    def test_actual_parent_rejects_windows_non_symlink_ancestor_reparse_points(self):
+        # Actual consumer with Windows-metadata models only, no WinAPI/native exploit claim.
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            project = self.prepare_model_project(directory)
+            real_lstat = Path.lstat
+            for unsafe in (project, *project.parents):
+                original = real_lstat(unsafe)
+                changed = types.SimpleNamespace(st_mode=original.st_mode, st_file_attributes=0x400)
+                def lstat(path, *args, **kwargs):
+                    return changed if path == unsafe else real_lstat(path, *args, **kwargs)
+                with self.subTest(unsafe=str(unsafe)), mock.patch.object(Path, 'lstat', lstat):
+                    # The modeled entry is a directory, not a symbolic-link mode.
+                    self.assertFalse(self.runtime.stat.S_ISLNK(changed.st_mode))
+                    ok, output, code = self.runtime._reconcile_live_editor_output(self.text(self.constructed_records(17)),
+                                                                               {'stdout', 'stderr'}, '', [],
+                                                                               types.SimpleNamespace(returncode=0, pid=17),
+                                                                               self.token, self.names, self.line, directory)
+                    self.assertEqual(code, 0)
+                    self.assertFalse(ok, output)
+                    self.assertIn('Unsafe/missing owned input project', output)
+
+    def test_actual_native_branch_requires_integer_attribute_metadata(self):
+        # Execute actual parent with modeled Windows metadata, never change host os.name.
+        real_lstat, real_fstat = Path.lstat, self.runtime.os.fstat
+        for mode in ('positive', 'missing', 'null', 'bool', 'reparse'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                project = self.prepare_model_project(directory)
+                leaf = project / self.runtime.INPUT_NAMES[0]
+                def metadata(info, defective=False):
+                    row = types.SimpleNamespace(**{key: getattr(info, key) for key in
+                                                   ('st_mode', 'st_size', 'st_mtime_ns', 'st_ino', 'st_dev', 'st_ctime_ns')})
+                    row.st_file_attributes = 0
+                    if defective and mode == 'missing': del row.st_file_attributes
+                    elif defective and mode == 'null': row.st_file_attributes = None
+                    elif defective and mode == 'bool': row.st_file_attributes = False
+                    elif defective and mode == 'reparse': row.st_file_attributes = 0x400
+                    return row
+                def lstat(path, *args, **kwargs):
+                    return metadata(real_lstat(path, *args, **kwargs), path == leaf)
+                fake_os = types.SimpleNamespace(name='nt', fstat=lambda fd: metadata(real_fstat(fd)))
+                with mock.patch.object(Path, 'lstat', lstat), mock.patch.object(self.runtime, 'os', fake_os):
+                    ok, output, code = self.runtime._reconcile_live_editor_output(self.text(self.constructed_records(17)),
+                                                                               {'stdout', 'stderr'}, '', [],
+                                                                               types.SimpleNamespace(returncode=0, pid=17),
+                                                                               self.token, self.names, self.line, directory)
+                self.assertEqual(code, 0)
+                self.assertEqual(ok, mode == 'positive', output)
+
+    def test_actual_parent_rejects_leaf_reparse_device_and_ctime_drift(self):
+        real_lstat, real_fstat = Path.lstat, self.runtime.os.fstat
+        for view in ('before', 'opened', 'closed', 'after'):
+            for field in ('reparse', 'st_dev', 'st_ctime_ns'):
+                with self.subTest(view=view, field=field), tempfile.TemporaryDirectory() as tmp:
+                    directory = Path(tmp)
+                    project = self.prepare_model_project(directory)
+                    leaf = project / self.runtime.INPUT_NAMES[0]
+                    actual = real_lstat(leaf)
+                    changed = types.SimpleNamespace(**{key: getattr(actual, key) for key in
+                                                     ('st_mode', 'st_size', 'st_mtime_ns', 'st_ino', 'st_dev', 'st_ctime_ns')})
+                    changed.st_file_attributes = 0
+                    if field == 'reparse': changed.st_file_attributes = 0x400
+                    else: setattr(changed, field, getattr(changed, field) + 1)
+                    counts = {'path': 0, 'handle': 0}
+                    def lstat(path, *args, **kwargs):
+                        if path == leaf:
+                            counts['path'] += 1
+                            if (view == 'before' and counts['path'] == 1) or (view == 'after' and counts['path'] == 2):
+                                return changed
+                        return real_lstat(path, *args, **kwargs)
+                    def fstat(fd):
+                        counts['handle'] += 1
+                        if (view == 'opened' and counts['handle'] == 1) or (view == 'closed' and counts['handle'] == 2):
+                            return changed
+                        return real_fstat(fd)
+                    with mock.patch.object(Path, 'lstat', lstat), mock.patch.object(self.runtime.os, 'fstat', fstat):
+                        ok, output, code = self.runtime._reconcile_live_editor_output(self.text(self.constructed_records(17)),
+                                                                                   {'stdout', 'stderr'}, '', [],
+                                                                                   types.SimpleNamespace(returncode=0, pid=17),
+                                                                                   self.token, self.names, self.line, directory)
+                    self.assertEqual(code, 0)
+                    self.assertFalse(ok, output)
+                    self.assertIn('native input file', output)
+
+    def test_actual_reconciler_mandatory_parent_byte_check(self):
+        rows = self.constructed_records(17)
+        proc = types.SimpleNamespace(returncode=0, pid=17)
+        for mode in ('positive', 'absent', 'changed'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                project = self.prepare_model_project(directory)
+                if mode == 'absent': (project / self.runtime.INPUT_NAMES[0]).unlink()
+                elif mode == 'changed': (project / self.runtime.INPUT_NAMES[0]).write_bytes(b'changed')
+                ok, output, code = self.runtime._reconcile_live_editor_output(self.text(rows), {'stdout', 'stderr'}, '', [],
+                                                                           proc, self.token, self.names, self.line, directory)
+                self.assertEqual(code, 0)
+                self.assertEqual(ok, mode == 'positive', output)
 
     def test_direct_local_launch_refuses_before_any_probe_or_child(self):
         with mock.patch.dict(self.runtime.os.environ, {"GITHUB_ACTIONS": "false"}), mock.patch.object(self.runtime.subprocess, "Popen") as popen:
@@ -236,6 +439,31 @@ class FinalSourceBoundaryControls(unittest.TestCase):
         self.assertIn('data["drained"] = false', publish)
         self.assertLess(publish.index('print_line("[GS-LIVE-EDITOR] " + payload)'), publish.rfind('_drain_on_time('))
         self.assertIn('invalid = true', publish)
+
+    def test_actual_native_preparation_wiring_and_unchanged_case_fences(self):
+        source = (ROOT / 'modules/gaussian_splatting/tests/gs_live_editor_runner.cpp').read_text(encoding='utf-8')
+        stage = source.split('bool GSLiveEditorTestRunner::_prepare_input_fixtures()', 1)[1].split('bool GSLiveEditorTestRunner::_inputs_unchanged()', 1)[0]
+        self.assertIn('if (!_write_input_fixtures()) { return false; }', stage)
+        self.assertIn('!_fingerprint_input(path, input_files[i]) || !_load_input_fixture(i)', stage)
+        write = source.split('bool GSLiveEditorTestRunner::_write_input_fixtures()', 1)[1].split('bool GSLiveEditorTestRunner::_load_input_fixture(', 1)[0]
+        self.assertIn('write_gaussian_ply("res://test_splats.ply", ply, false, false)', write)
+        self.assertIn('write_synthetic_spz("res://test_splats.spz", spz, 12)', write)
+        load = source.split('bool GSLiveEditorTestRunner::_load_input_fixture(', 1)[1].split('bool GSLiveEditorTestRunner::_prepare_input_fixtures()', 1)[0]
+        for index in (0, 1):
+            self.assertIn(f'loader->load_file(input_files[{index}].path) == OK && _loader_values_valid(loader->get_gaussian_data())', load)
+        entry = source.split('void GSLiveEditorTestRunner::_start_test_context(', 1)[1].split('void GSLiveEditorTestRunner::_drain_test_context(', 1)[0]
+        self.assertIn('_prepare_input_fixtures()', entry)
+        self.assertLess(entry.index('add_error_handler'), entry.index('_prepare_input_fixtures()'))
+        self.assertLess(entry.index('_prepare_input_fixtures()'), entry.index('prepared_now - armed_usec > 120000000'))
+        self.assertLess(entry.index('prepared_now - armed_usec > 120000000'), entry.index('run_borrowed_editor_tests'))
+        self.assertIn('inputs["kind"] = "input-fixtures"', entry)
+        start = source.split('void GSLiveEditorTestRunner::_case_start(', 1)[1].split('void GSLiveEditorTestRunner::_case_end(', 1)[0]
+        end = source.split('void GSLiveEditorTestRunner::_case_end(', 1)[1].split('void GSLiveEditorTestRunner::_run_end(', 1)[0]
+        finish = source.split('void GSLiveEditorTestRunner::_finish()', 1)[1].split('bool GSLiveEditorTestRunner::_observer_final_state_invalid()', 1)[0]
+        self.assertIn('input_case_valid = _inputs_unchanged()', start)
+        self.assertIn('const bool inputs_valid = _inputs_unchanged() && input_case_valid', end)
+        self.assertLess(finish.index('_inputs_unchanged()'), finish.index('remove_error_handler'))
+        self.assertLess(finish.index('_inputs_unchanged()'), finish.index('final_now ='))
 
     def test_all_actual_atomic_types_refuse_locking_fallback(self):
         source = (ROOT / 'modules/gaussian_splatting/tests/gs_live_editor_observation.h').read_text(encoding='utf-8')

@@ -6,6 +6,13 @@
 #include "core/input/input.h"
 #include "core/input/input_map.h"
 #include "core/io/json.h"
+#include "core/io/file_access.h"
+#include "core/io/dir_access.h"
+#include "core/crypto/hashing_context.h"
+#include "synthetic_ply_writer.h"
+#include "synthetic_spz_writer.h"
+#include "modules/gaussian_splatting/io/ply_loader.h"
+#include "modules/gaussian_splatting/io/spz_loader.h"
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
@@ -27,6 +34,107 @@
 using namespace GSLiveEditorObservation;
 GSLiveEditorTestRunner *GSLiveEditorTestRunner::current = nullptr;
 Ref<GSLiveEditorTestRunner> GSLiveEditorTestRunner::running_owner;
+
+// Only this frozen native process produces these two fresh-project inputs.
+bool GSLiveEditorTestRunner::_fingerprint_input(const String &p_path, InputFingerprint &r_value) const {
+	Ref<DirAccess> directory = DirAccess::open("res://");
+	if (directory.is_null() || directory->is_link(p_path) || directory->dir_exists(p_path)) { return false; }
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ);
+	if (file.is_null()) { return false; }
+	const uint64_t size = file->get_length();
+	if (!size || size > 65536) { return false; }
+	PackedByteArray bytes;
+	if (bytes.resize(size) != OK || file->get_buffer(bytes.ptrw(), size) != size || file->get_length() != size || file->get_error() != OK) { return false; }
+	Ref<HashingContext> hash;
+	hash.instantiate();
+	if (hash.is_null() || hash->start(HashingContext::HASH_SHA256) != OK || hash->update(bytes) != OK) { return false; }
+	const PackedByteArray digest = hash->finish();
+	if (digest.size() != 32) { return false; }
+	r_value.path = p_path; r_value.bytes = size;
+	r_value.sha256 = String::hex_encode_buffer(digest.ptr(), digest.size());
+	return true;
+}
+bool GSLiveEditorTestRunner::_loader_values_valid(const Ref<GaussianData> &p_data) const {
+	if (p_data.is_null() || p_data->get_count() != 3) { return false; }
+	const Vector3 positions[3] = { Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(1, 0, 1) };
+	for (int i = 0; i < 3; ++i) {
+		const Gaussian g = p_data->get_gaussian(i);
+		if (g.position != positions[i]) { return false; }
+		for (real_t value : { real_t(g.opacity), real_t(g.sh_dc.r), real_t(g.sh_dc.g), real_t(g.sh_dc.b) }) {
+			if (!Math::is_finite(value) || Math::abs(value - real_t(128.0 / 255.0)) > 0.00001) { return false; }
+		}
+		for (real_t value : { g.scale.x, g.scale.y, g.scale.z, g.rotation.w }) {
+			if (!Math::is_finite(value) || Math::abs(value - 1) > 0.00001) { return false; }
+		}
+		for (real_t value : { g.rotation.x, g.rotation.y, g.rotation.z }) {
+			if (!Math::is_finite(value) || Math::abs(value) > 0.00001) { return false; }
+		}
+	}
+	return true;
+}
+bool GSLiveEditorTestRunner::_write_input_fixtures() const {
+	const Vector3 positions[3] = { Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(1, 0, 1) };
+	LocalVector<Gaussian> ply;
+	LocalVector<TestGaussianSplatting::SyntheticSpzSplat> spz;
+	for (int i = 0; i < 3; ++i) {
+		Gaussian g{};
+		g.position = positions[i]; g.opacity = 128.0f / 255.0f;
+		g.sh_dc = Color(128.0f / 255.0f, 128.0f / 255.0f, 128.0f / 255.0f, 1);
+		g.scale = Vector3(1, 1, 1); g.rotation = Quaternion();
+		ply.push_back(g);
+		TestGaussianSplatting::SyntheticSpzSplat s;
+		s.position = g.position; s.opacity = g.opacity; s.color = g.sh_dc; s.scale = g.scale; s.rotation = g.rotation;
+		spz.push_back(s);
+	}
+	return TestGaussianSplatting::write_gaussian_ply("res://test_splats.ply", ply, false, false) &&
+			TestGaussianSplatting::write_synthetic_spz("res://test_splats.spz", spz, 12);
+}
+bool GSLiveEditorTestRunner::_load_input_fixture(int p_index) const {
+	if (p_index == 0) {
+		Ref<PLYLoader> loader;
+		loader.instantiate();
+		return loader.is_valid() && loader->load_file(input_files[0].path) == OK && _loader_values_valid(loader->get_gaussian_data());
+	}
+	Ref<SPZLoader> loader;
+	loader.instantiate();
+	return loader.is_valid() && loader->load_file(input_files[1].path) == OK && _loader_values_valid(loader->get_gaussian_data());
+}
+bool GSLiveEditorTestRunner::_prepare_input_fixtures() {
+	Ref<DirAccess> directory = DirAccess::open("res://");
+	if (directory.is_null()) { return false; }
+	for (const String &path : { String("res://test_splats.ply"), String("res://test_splats.spz") }) {
+		if (directory->file_exists(path) || directory->dir_exists(path) || directory->is_link(path)) { return false; }
+	}
+	if (!_write_input_fixtures()) { return false; }
+	for (int i = 0; i < 2; ++i) {
+		const String path = i == 0 ? "res://test_splats.ply" : "res://test_splats.spz";
+		if (!_fingerprint_input(path, input_files[i]) || !_load_input_fixture(i)) { return false; }
+	}
+	inputs_ready = true;
+	return _inputs_unchanged();
+}
+bool GSLiveEditorTestRunner::_inputs_unchanged() const {
+	if (!inputs_ready) { return false; }
+	for (int i = 0; i < 2; ++i) {
+		InputFingerprint now;
+		if (!_fingerprint_input(input_files[i].path, now) || now.bytes != input_files[i].bytes || now.sha256 != input_files[i].sha256) { return false; }
+	}
+	return true;
+}
+Array GSLiveEditorTestRunner::_input_receipt_rows() const {
+	Array rows;
+	if (!inputs_ready) { return rows; }
+	for (int i = 0; i < 2; ++i) {
+		Dictionary row;
+		row["path"] = i == 0 ? "test_splats.ply" : "test_splats.spz";
+		row["format"] = i == 0 ? "ply" : "spz";
+		row["producer"] = i == 0 ? "write_gaussian_ply" : "write_synthetic_spz";
+		row["bytes"] = int64_t(input_files[i].bytes); row["sha256"] = input_files[i].sha256;
+		row["count"] = 3; row["loader_ok"] = true; row["values_ok"] = true;
+		rows.push_back(row);
+	}
+	return rows;
+}
 
 static Vector<Object *> live_editor_objects() {
 	Vector<Object *> objects;
@@ -115,6 +223,7 @@ void GSLiveEditorTestRunner::_encode_event(Dictionary &d, const Record &r) const
 
 void GSLiveEditorTestRunner::_encode_final(Dictionary &d, uint64_t final_now, bool final_on_time) const {
 	d["kind"] = "final";
+	d["inputs_valid"] = inputs_ready && !invalid; d["input_files"] = _input_receipt_rows();
 	d["drain_elapsed_usec"] = String::num_uint64(final_now >= drain_usec ? final_now - drain_usec : UINT64_MAX);
 	d["valid"] = observer && !invalid && !context_result && case_count == 23 && !failed_assertions;
 	d["cases"] = case_count; d["assertions"] = assertions; d["failed_assertions"] = failed_assertions;
@@ -286,6 +395,8 @@ Array GSLiveEditorTestRunner::_borrowed_ids() const {
 }
 void GSLiveEditorTestRunner::_case_start(const char *name) {
 	++case_count; case_name = String::utf8(name);
+	input_case_valid = _inputs_unchanged();
+	if (!input_case_valid) { invalid = true; }
 	if (!_identities_valid() || !_queues_safe() || case_count > 23) { invalid = true; }
 	_restore_logger();
 	created_case = 0; closed_case = 0; fixture_parented = false; fixture_pre_repair = true;
@@ -295,6 +406,8 @@ void GSLiveEditorTestRunner::_case_start(const char *name) {
 	observer->preview_generator.store(0, std::memory_order_release);
 }
 void GSLiveEditorTestRunner::_case_end(int count, int failed, bool success) {
+	const bool inputs_valid = _inputs_unchanged() && input_case_valid;
+	if (!inputs_valid) { invalid = true; }
 	const bool logger_before = CoreGlobals::print_error_enabled == logger_initial;
 	const bool identities_before = _identities_valid() && fixture_pre_repair;
 	const bool callback_closed = !observer->preview_case.load() || _preview_closed(case_count);
@@ -302,6 +415,7 @@ void GSLiveEditorTestRunner::_case_end(int count, int failed, bool success) {
 			created_case != closed_case || (created_case && !fixture_parented)) { invalid = true; }
 	_restore_logger(); end_fixture(); _restore_dialogs();
 	Dictionary d;
+	d["inputs_valid"] = inputs_valid; d["input_files"] = _input_receipt_rows();
 	d["kind"] = "case"; d["ordinal"] = case_count; d["name"] = case_name;
 	d["assertions"] = count; d["failed"] = failed; d["borrowed_valid"] = identities_before;
 	d["logger_before_restore"] = logger_before; d["callback_closed"] = callback_closed;
@@ -349,6 +463,11 @@ void GSLiveEditorTestRunner::_start_test_context(uint64_t now) {
 
 	begin["borrowed_ids"] = _borrowed_ids(); begin["logger_captured"] = logger_initial; begin["queues_not_flushing"] = true;
 	_emit(begin);
+	if (!_prepare_input_fixtures()) { invalid = true; _finish(); return; }
+	Dictionary inputs; inputs["kind"] = "input-fixtures"; inputs["recipe"] = "gs-live-editor-inputs-v1";
+	inputs["files"] = _input_receipt_rows(); _emit(inputs);
+	const uint64_t prepared_now = OS::get_singleton()->get_ticks_usec();
+	if (prepared_now < armed_usec || prepared_now - armed_usec > 120000000 || !_identities_valid() || !_queues_safe() || !CoreGlobals::print_error_enabled || observer->invalid.load(std::memory_order_acquire)) { invalid = true; _finish(); return; }
 	BorrowedEditorTestHooks hooks;
 	hooks.userdata = this;
 	hooks.case_start = [](void *u, const char *n) { static_cast<GSLiveEditorTestRunner *>(u)->_case_start(n); };
@@ -385,6 +504,7 @@ void GSLiveEditorTestRunner::_finish() {
 		if (!pending_reported) { Dictionary d; d["kind"] = "invalid_pending_delivery"; _emit(d); pending_reported = true; }
 		return;
 	}
+	if (!_inputs_unchanged()) { invalid = true; }
 	if (observer) {
 		Observer *expected_active = observer;
 		active.compare_exchange_strong(expected_active, nullptr, std::memory_order_seq_cst);

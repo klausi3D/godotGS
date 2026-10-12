@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import stat
 import subprocess
 import tempfile
 import threading
@@ -21,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 INCLUDE = '*GaussianSplatting*][Editor]*'
 EXCLUDE = '*][RequiresGPU]*'
 PREFIX = '[GS-LIVE-EDITOR] '
+INPUT_RECIPE = 'gs-live-editor-inputs-v1'
+INPUT_NAMES = ('test_splats.ply', 'test_splats.spz')
 RATIONALE = ('GaussianThumbnailGenerator::_project_to_canvas hits: injected allocation failure '
              '(test seam); leaving the output empty instead of writing out of bounds.')
 HEADERS = ('test_gaussian_importer.h', 'test_gaussian_splat_node.h', 'test_gaussian_thumbnail_generator.h')
@@ -49,6 +52,66 @@ def fixture_cases(root=ROOT):
     if len(fixtures) != 7 or not fixtures.issubset(set(selected_cases(root))):
         raise ValueError('Original seven dialog fixture consumers changed')
     return fixtures
+
+
+def _validate_input_rows(rows):
+    if not isinstance(rows, list) or len(rows) != 2:
+        raise ValueError('Missing/duplicate native input inventory')
+    for row, name, producer in zip(rows, INPUT_NAMES, ('write_gaussian_ply', 'write_synthetic_spz')):
+        if (not isinstance(row, dict) or set(row) != {'path', 'format', 'producer', 'bytes', 'sha256', 'count', 'loader_ok', 'values_ok'}
+                or row.get('path') != name or row.get('format') != name.rsplit('.', 1)[1] or row.get('producer') != producer
+                or type(row.get('bytes')) is not int or not 1 <= row['bytes'] <= 65536
+                or type(row.get('count')) is not int or row['count'] != 3
+                or row.get('loader_ok') is not True or row.get('values_ok') is not True
+                or not isinstance(row.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['sha256'])):
+            raise ValueError('Invalid native writer/loader input premise')
+    return rows
+
+
+def _input_path_is_plain(info):
+    attributes = getattr(info, 'st_file_attributes', None if os.name == 'nt' else 0)
+    return type(attributes) is int and not (attributes & 0x400) and not stat.S_ISLNK(info.st_mode)
+
+
+def _physical_input_fingerprints(project):
+    # Open only these parent-owned names, never a producer-supplied path.
+    project = Path(project)
+    for ancestor in (project, *project.parents):
+        info = ancestor.lstat()
+        if not _input_path_is_plain(info) or not stat.S_ISDIR(info.st_mode):
+            raise ValueError('Unsafe/missing owned input project')
+    fingerprints = []
+    for name in INPUT_NAMES:
+        path = project / name
+        before = path.lstat()
+        if not _input_path_is_plain(before) or not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= 65536:
+            raise ValueError('Unsafe/missing/bounded native input file')
+        with path.open('rb') as file:
+            opened = os.fstat(file.fileno())
+            data = file.read(65537)
+            closed = os.fstat(file.fileno())
+        after = path.lstat()
+        identities = [(x.st_size, x.st_mtime_ns, x.st_ino, x.st_dev, x.st_ctime_ns) for x in (before, opened, closed, after)]
+        if (any(not _input_path_is_plain(x) or not stat.S_ISREG(x.st_mode) for x in (opened, closed, after)) or any(x != identities[0] for x in identities)
+                or len(data) != before.st_size):
+            raise ValueError('Changed native input file during parent read')
+        fingerprints.append({'path': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+    return fingerprints
+
+
+def _validate_live_editor_inputs(records, cases, final, fingerprints):
+    stages = [x for x in records if x.get('kind') == 'input-fixtures']
+    if (len(stages) != 1 or len(records) < 3 or records[1] is not stages[0]
+            or set(stages[0]) != {'kind', 'recipe', 'files', 'token', 'pid'} or stages[0].get('recipe') != INPUT_RECIPE):
+        raise ValueError('Missing/duplicate/late native input preparation')
+    rows = _validate_input_rows(stages[0].get('files'))
+    expected = [{'path': r['path'], 'bytes': r['bytes'], 'sha256': r['sha256']} for r in rows]
+    if fingerprints != expected:
+        raise ValueError('Parent physical inputs differ from native preparation')
+    for closure in [*cases, final]:
+        if closure.get('inputs_valid') is not True or closure.get('input_files') != rows:
+            raise ValueError('Missing/changed native input case/final closure')
+        _validate_input_rows(closure['input_files'])
 
 
 def _positive(value):
@@ -196,19 +259,20 @@ def _collect_live_editor_output(q, proc, readers, directory, timeout):
     return text, ended, invalid
 
 
-def _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line):
+def _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line, directory):
     if invalid or len(ended) != 2 or any(r.is_alive() for r in readers):
         return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + (invalid or 'incomplete EOF'), proc.returncode
     try:
         if proc.returncode != 0:
             raise ValueError(f'Native child exit {proc.returncode}')
-        validate(text, token=token, pid=proc.pid, names=names, injection_line=injection_line)
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        validate(text, token=token, pid=proc.pid, names=names, injection_line=injection_line,
+                 input_fingerprints=_physical_input_fingerprints(directory / 'project'))
+    except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
         return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + str(exc), proc.returncode
     return True, text, proc.returncode
 
 
-def validate(output, *, token, pid, names, injection_line):
+def validate(output, *, token, pid, names, injection_line, input_fingerprints):
     """Reconcile complete real receipts; never infer delivery from cancellation."""
     if '[GS-LIVE-EDITOR INVALID]' in output:
         raise ValueError('Explicit invalid producer closure')
@@ -228,7 +292,7 @@ def validate(output, *, token, pid, names, injection_line):
     events = [x for x in records if x.get('kind') == 'event']
     if len(begins) != 1 or len(finals) != 1 or not records or records[0] != begins[0] or records[-1] != finals[0]:
         raise ValueError('Missing/duplicate/nonterminal closure')
-    if any(x.get('kind') not in ('begin', 'case', 'event', 'final') for x in records):
+    if any(x.get('kind') not in ('begin', 'input-fixtures', 'case', 'event', 'final') for x in records):
         raise ValueError('Unknown/invalid nonterminal receipt')
     begin, final = begins[0], finals[0]
     owner = begin.get('owner')
@@ -237,6 +301,7 @@ def validate(output, *, token, pid, names, injection_line):
         raise ValueError('Invalid owner/borrowed identities')
     if begin.get('logger_captured') is not True or begin.get('queues_not_flushing') is not True:
         raise ValueError('Unsafe entry/logger')
+    _validate_live_editor_inputs(records, cases, final, input_fingerprints)
     _validate_live_editor_cases(cases, names)
     _validate_live_editor_event_catalogue(events)
     _validate_live_editor_injection(events, cases, owner, injection_line)
@@ -265,7 +330,7 @@ def supervise(command, directory, token, names, injection_line, timeout=900):
         for reader in readers:
             reader.start()
         text, ended, invalid = _collect_live_editor_output(q, proc, readers, directory, timeout)
-        return _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line)
+        return _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line, directory)
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -302,9 +367,11 @@ def run(godot, original_args):
     (project / 'project.godot').write_text('[application]\nconfig/name="GodotGS isolated Editor test producer"\nconfig/use_custom_user_dir=true\nconfig/custom_user_dir_name="gs_live_editor_' + directory.name + '"\n[editor_plugins]\nenabled=PackedStringArray("res://addons/live_editor/plugin.cfg")\n', encoding='utf-8')
     (addon / 'plugin.cfg').write_text('[plugin]\nname="Live editor tests"\ndescription="Owned tests-only runtime"\nauthor="GodotGS"\nversion="1"\nscript="plugin.gd"\n', encoding='utf-8')
     (addon / 'plugin.gd').write_text('@tool\nextends EditorPlugin\nvar runner: RefCounted\nfunc _enter_tree():\n\tif not ClassDB.class_exists("GSLiveEditorTestRunner"):\n\t\tpush_error("TESTS+TOOLS live runner missing")\n\t\tget_tree().quit(1)\n\t\treturn\n\trunner = ClassDB.instantiate("GSLiveEditorTestRunner")\n\tif not runner or not runner.arm():\n\t\tpush_error("Live runner could not arm")\n\t\tget_tree().quit(1)\n', encoding='utf-8')
+    if any((project / name).exists() or (project / name).is_symlink() for name in INPUT_NAMES):
+        return False, '[GS-LIVE-EDITOR INVALID] input names are not fresh', None
     token = uuid.uuid4().hex
     command = [str(binary), '--editor', '--path', str(project), '--rendering-method', 'forward_plus', '--rendering-driver', 'vulkan', '--', '--gs-live-editor-tests', f'--test-case={INCLUDE}', f'--test-case-exclude={EXCLUDE}', f'--gs-live-editor-token={token}']
-    metadata = {'command': command, 'binary_sha256': before, 'parent_pid': os.getpid(), 'token': token, 'original_names': names, 'directory': str(directory), 'source_head': anchor}
+    metadata = {'command': command, 'binary_sha256': before, 'parent_pid': os.getpid(), 'token': token, 'original_names': names, 'directory': str(directory), 'source_head': anchor, 'input_recipe': INPUT_RECIPE, 'input_names': list(INPUT_NAMES)}
     (directory / 'invocation.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     record_dir = directory / 'contention'
     options = ['--record-dir', str(record_dir), '--job-root-pid', str(os.getpid())]

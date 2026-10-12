@@ -7,6 +7,7 @@
 #include "core/variant/dictionary.h"
 #include "scene/main/node.h"
 
+class GaussianData;
 class EditorNode;
 class Control;
 class GaussianImportDialog;
@@ -29,6 +30,20 @@ class GSLiveEditorTestRunner : public RefCounted {
 	uint32_t stable_frames = 0;
 	int context_result = 1, assertions = 0, failed_assertions = 0;
 	String token, case_name;
+	struct InputFingerprint {
+		String path, sha256;
+		uint64_t bytes = 0;
+	};
+	InputFingerprint input_files[2];
+	bool inputs_ready = false, input_case_valid = false;
+	bool _fingerprint_input(const String &p_path, InputFingerprint &r_value) const;
+	bool _loader_values_valid(const Ref<GaussianData> &p_data) const;
+	bool _write_input_fixtures() const;
+	bool _load_input_fixture(int p_index) const;
+	bool _prepare_input_fixtures();
+	bool _inputs_unchanged() const;
+	Array _input_receipt_rows() const;
+
 	bool _capture_context_ready(EditorNode *editor, Control *base, GaussianImportDialog *a, GaussianImportSettingsDialog *b) const;
 	bool _scheduled_delivery_closed(const GSLiveEditorObservation::Record &r, uint32_t count) const;
 	bool _parse_user_arguments(const List<String> &args, bool &mode, bool &include, bool &exclude);
