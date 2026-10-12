@@ -3013,6 +3013,130 @@ CANONICAL_MANIFEST_PATHS = (
 PUBLISHED_BASELINE_LANE_ID = "dense_resident_2m"
 
 
+class _WindowsManifestPath:
+    """Memory path whose text writer models Windows newline translation."""
+
+    def __init__(self, parts=(), writes=None, directories=None, fail_path=None):
+        self.parts = parts
+        self.writes = {} if writes is None else writes
+        self.directories = [] if directories is None else directories
+        self.fail_path = fail_path
+
+    def __truediv__(self, value):
+        return type(self)(
+            self.parts + tuple(str(value).split("/")),
+            self.writes,
+            self.directories,
+            self.fail_path,
+        )
+
+    def __str__(self):
+        return "/".join(self.parts)
+
+    @property
+    def parent(self):
+        return type(self)(self.parts[:-1], self.writes, self.directories, self.fail_path)
+
+    def mkdir(self, *, parents, exist_ok):
+        self.directories.append((str(self), parents, exist_ok))
+
+    def write_bytes(self, data):
+        if str(self) == self.fail_path:
+            raise OSError("injected manifest write failure")
+        self.writes[str(self)] = data
+        return len(data)
+
+    def write_text(self, text, *, encoding):
+        # Keep the old writer executable in the same model for regression proof.
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding=encoding, newline="\r\n")
+        try:
+            stream.write(text)
+            stream.flush()
+            self.write_bytes(raw.getvalue())
+        finally:
+            stream.detach()
+        return len(text)
+
+
+class GeneratedManifestCanonicalBytesTests(unittest.TestCase):
+    """Exercise the actual writers without generating the large PLY corpus."""
+
+    @staticmethod
+    def _stage_paths():
+        ladder = sys.modules[_prepare.write_stage_manifests.__module__]
+        return [
+            "/".join((ladder.MAIN_PROJECT_FIXTURE_ROOT, spec.asset_id,
+                      f"{spec.asset_id}{ladder.STAGE_MANIFEST_SUFFIX}"))
+            for spec in ladder.OPEN_WORLD_ASSET_SPECS
+        ]
+
+    def _expected(self):
+        paths = list(_prepare.CANONICAL_MANIFESTS) + self._stage_paths()
+        self.assertEqual(len(paths), 5)
+        self.assertEqual(len(set(paths)), len(paths))
+        return {path: (ROOT / path).read_bytes() for path in paths}
+
+    def test_combined_writer_matches_tracked_lf_bytes_on_windows_transport(self):
+        root = _WindowsManifestPath()
+        expected = self._expected()
+        _prepare._write_manifest(root)
+        self.assertEqual(list(root.writes), list(expected))
+        for path, reference in expected.items():
+            with self.subTest(path=path):
+                self.assertEqual(root.writes[path], reference)
+                self.assertNotIn(b"\r", root.writes[path])
+                self.assertTrue(root.writes[path].endswith(b"\n"))
+                self.assertEqual(json.loads(root.writes[path]), json.loads(reference))
+        self.assertEqual(
+            root.directories,
+            [(str(Path(path).parent).replace("\\", "/"), True, True) for path in expected],
+        )
+
+    def test_standalone_stage_writer_preserves_bytes_and_return_order(self):
+        root = _WindowsManifestPath()
+        stage_paths = self._stage_paths()
+        written = _prepare.write_stage_manifests(root / _prepare.MAIN_PROJECT_FIXTURE_ROOT)
+        self.assertEqual([str(path) for path in written], stage_paths)
+        self.assertEqual(list(root.writes), stage_paths)
+        for path in stage_paths:
+            with self.subTest(path=path):
+                self.assertEqual(root.writes[path], (ROOT / path).read_bytes())
+
+    def test_repeated_writes_preserve_all_five_payloads(self):
+        root = _WindowsManifestPath()
+        _prepare._write_manifest(root)
+        first = dict(root.writes)
+        _prepare._write_manifest(root)
+        self.assertEqual(root.writes, first)
+        self.assertEqual(root.writes, self._expected())
+
+    def test_combined_writer_propagates_canonical_and_stage_io_failures(self):
+        paths = list(self._expected())
+        for failing in (paths[0], self._stage_paths()[0]):
+            with self.subTest(path=failing):
+                root = _WindowsManifestPath(fail_path=failing)
+                with self.assertRaisesRegex(OSError, "injected manifest write failure"):
+                    _prepare._write_manifest(root)
+                self.assertEqual(list(root.writes), paths[:paths.index(failing)])
+
+    def test_standalone_stage_writer_stops_after_io_failure(self):
+        paths = self._stage_paths()
+        self.assertGreater(len(paths), 1)
+        root = _WindowsManifestPath(fail_path=paths[1])
+        with self.assertRaisesRegex(OSError, "injected manifest write failure"):
+            _prepare.write_stage_manifests(root / _prepare.MAIN_PROJECT_FIXTURE_ROOT)
+        self.assertEqual(list(root.writes), paths[:1])
+
+    def test_actual_filesystem_writes_match_tracked_lf_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _prepare._write_manifest(root)
+            for path, reference in self._expected().items():
+                with self.subTest(path=path):
+                    self.assertEqual((root / path).read_bytes(), reference)
+
+
 class PublishedBaselineContractTests(unittest.TestCase):
     """#790: the published figure must describe a workload the project ships.
 

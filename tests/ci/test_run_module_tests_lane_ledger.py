@@ -4326,6 +4326,11 @@ class GuardScriptWiringTests(unittest.TestCase):
         self.assertIn((ROOT / "tests/ci/test_live_editor_tests.py").resolve(), self._scripts_launched_by_optional_guards(),
                       "Canonical live Editor guard is read but not actually launched")
 
+    def test_benchmark_fixture_contract_tests_are_actually_launched(self) -> None:
+        tests = ROOT / "tests/ci/test_benchmark_fixture_contract.py"
+        self.assertIn(tests.resolve(), self._scripts_launched_by_optional_guards(),
+                      "Benchmark fixture contract tests are not launched by the guard lane")
+
     def test_doxygen_inventory_tests_are_actually_launched(self) -> None:
         tests = ROOT / "tests/ci/test_check_doxygen_output.py"
         self.assertTrue(tests.is_file())

@@ -1353,7 +1353,7 @@ def _write_manifest(repo_root: Path) -> None:
     for rel_path in CANONICAL_MANIFESTS:
         path = repo_root / rel_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(encoded, encoding="utf-8")
+        path.write_bytes(encoded.encode("utf-8"))
     write_stage_manifests(repo_root / MAIN_PROJECT_FIXTURE_ROOT)
 
 

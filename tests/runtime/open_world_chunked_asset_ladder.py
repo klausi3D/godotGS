@@ -160,7 +160,7 @@ def write_stage_manifests(output_root: Path) -> list[Path]:
         entry = _build_asset_entry(spec)
         manifest_path = output_root / spec.asset_id / f"{spec.asset_id}{STAGE_MANIFEST_SUFFIX}"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        manifest_path.write_bytes((json.dumps(entry, indent=2, sort_keys=True) + "\n").encode("utf-8"))
         written.append(manifest_path)
     return written
 
