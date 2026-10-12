@@ -86,6 +86,33 @@ qualify native editor/GPU execution or activate the universal evidence gate.
 
 For module-only build commands and SCons targets, see [Gaussian Splatting Build and Test Guide](../../modules/gaussian_splatting/docs/BUILD_AND_TEST.md). For test-runner overviews, see [Tests Overview](../../tests/README.md).
 
+### Decision: canonical bytes for generated fixture manifests
+
+The fixture-manifest writers must emit UTF-8 bytes with LF line endings, matching
+`.gitattributes`. Platform-default text writes can regenerate identical JSON with
+CRLF bytes on Windows and leave tracked fixtures modified before the Editor lane.
+Preserve the clean-HEAD refusal; correct the producer rather than exempting its
+outputs or refreshing the checkout/index to conceal the mismatch.
+
+The implementation task is limited to binary UTF-8 emission of the existing JSON
+serialization in `tests/runtime/prepare_synthetic_assets.py::_write_manifest` and
+`tests/runtime/open_world_chunked_asset_ladder.py::write_stage_manifests`, plus
+focused regressions in the existing fixture-contract suite. The two canonical
+`benchmark_asset_manifest.json` files and the three stage manifests for
+`open_world_corridor_20m`, `open_world_boundary_50m` and `open_world_city_100m`
+must regenerate byte-identically to their tracked LF references. Keep JSON
+content, serialization order, output paths, asset floors, producer provenance,
+preparation callers, thresholds and source/binary fences unchanged.
+
+Focused tests must exercise both actual writers, repeated writes and I/O failure,
+and prove that restoring either default-newline text emission fails the byte
+assertions. Verify the fixture-contract suite's mandatory canonical invocation
+with an independent delete-wiring control. Commit this decision before producer
+code, then require two fixed-diff source reviews. Native Windows byte/clean-source
+verification and genuine canonical Editor execution are separate acceptance
+steps under the existing CI ownership and resource controls; source-only tests
+do not qualify Editor execution or any runtime/GPU gate.
+
 ## Per-lane result ledger
 
 `tests/ci/run_module_tests.py` declares 29 doctest lanes in `MODULE_TEST_FILTERS`:
