@@ -190,15 +190,7 @@ def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate)
                 raise ValueError("Advisory case silently verified nothing without canonical allowance")
 
 
-def validate_gpu_report(report: dict, binary_path: str, manifest: dict | None = None) -> None:
-    harness = load_module("universal_gpu_harness", ROOT / "tests/ci/run_gpu_harness.py")
-    candidate = load_module("universal_renderer_candidate", ROOT / "tests/ci/check_renderer_release_gates.py")
-    if manifest is None:
-        manifest = json.loads((ROOT / policy.GPU_MANIFEST).read_text(encoding="utf-8"))
-    required_rows = manifest["gpu_harness_policy"]["required_batches"]
-    required = {row["name"]: row for row in required_rows}
-    if len(required) != len(required_rows) or set(required) != set(harness.REQUIRED_BATCHES):
-        raise ValueError("GPU manifest disagrees with authoritative required catalogue")
+def _validate_gpu_report_header(report: dict, binary_path: str, harness) -> None:
     if (report.get("schema_version") != harness.REPORT_SCHEMA_VERSION or report.get("baseline_mode") != "compare"
             or report.get("totals_authoritative") is not True
             or str(PureWindowsPath(report.get("godot_binary", ""))).casefold() != str(PureWindowsPath(binary_path)).casefold()):
@@ -212,9 +204,26 @@ def validate_gpu_report(report: dict, binary_path: str, manifest: dict | None = 
     for field in ("allowlisted_vacuous_cases", "env_skipped_advisory_cases"):
         if type(report.get(field)) is not list or any(not isinstance(item, str) for item in report[field]):
             raise ValueError("GPU advisory metadata missing or invalid")
+
+
+def _canonical_gpu_report_rows(report: dict, harness) -> list[dict]:
     rows = report.get("batches")
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows) or [row.get("name") for row in rows] != [spec.name for spec in harness.BATCHES]:
         raise ValueError("GPU report does not contain the full ordered canonical catalogue")
+    return rows
+
+
+def validate_gpu_report(report: dict, binary_path: str, manifest: dict | None = None) -> None:
+    harness = load_module("universal_gpu_harness", ROOT / "tests/ci/run_gpu_harness.py")
+    candidate = load_module("universal_renderer_candidate", ROOT / "tests/ci/check_renderer_release_gates.py")
+    if manifest is None:
+        manifest = json.loads((ROOT / policy.GPU_MANIFEST).read_text(encoding="utf-8"))
+    required_rows = manifest["gpu_harness_policy"]["required_batches"]
+    required = {row["name"]: row for row in required_rows}
+    if len(required) != len(required_rows) or set(required) != set(harness.REQUIRED_BATCHES):
+        raise ValueError("GPU manifest disagrees with authoritative required catalogue")
+    _validate_gpu_report_header(report, binary_path, harness)
+    rows = _canonical_gpu_report_rows(report, harness)
     failures = candidate._candidate_gpu_report_verdict_failures(report, "bound GPU report")
     if failures:
         raise ValueError("GPU supervisor verdict failed: " + "; ".join(failures))
