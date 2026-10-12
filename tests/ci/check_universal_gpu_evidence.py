@@ -253,9 +253,8 @@ def validate_gpu_report(report: dict, binary_path: str, manifest: dict | None = 
         raise ValueError("GPU aggregate counters contradict actual batch rows")
 
 
-def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head: str,
-                               context: str, run_id: str, run_attempt: str, bundle: dict[str, bytes] | None = None) -> None:
-    policy.require_sha(head)
+def _validate_universal_receipt_identity(receipt: dict, head: str, context: str,
+                                       run_id: str, run_attempt: str) -> None:
     if receipt.get("schema_version") != 2:
         raise ValueError("Universal evidence schema is required")
     expected = {"head_sha": head, "checkout_sha": head, "policy_context": context,
@@ -266,6 +265,9 @@ def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head
     for name in REQUIRED_STEPS:
         if receipt.get("steps", {}).get(name) != "success":
             raise ValueError(f"Actual required step is absent/non-successful: {name}")
+
+
+def _validate_universal_binary_binding(receipt: dict) -> tuple[dict, str]:
     hashes = receipt.get("sha256", {})
     if not re.fullmatch(r"[0-9a-f]{64}", hashes.get("binary", "")):
         raise ValueError("Missing measured binary hash")
@@ -283,17 +285,18 @@ def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head
             or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
                    for value in components.values())):
         raise ValueError("Actual launcher/editor components changed or are not completely bound")
+    return hashes, binary_path
+
+
+def _validate_universal_report_digests(reports: dict[str, bytes], hashes: dict) -> None:
     if set(reports) != set(REPORT_SOURCES):
         raise ValueError("Actual report/ledger bytes are absent")
     for name, content in reports.items():
         if hashlib.sha256(content).hexdigest() != hashes.get(name):
             raise ValueError("Report bytes do not match receipt digest")
-    validate_module_ledger(json.loads(reports["module-lanes.json"]))
-    config = policy.bundle_json(bundle, policy.RUNTIME_CONFIG) if bundle is not None else None
-    manifest = policy.bundle_json(bundle, policy.GPU_MANIFEST) if bundle is not None else None
-    validate_runtime_report(json.loads(reports["headless-report.json"]), "headless-ci", binary_path, config)
-    validate_runtime_report(json.loads(reports["streaming-report.json"]), "streaming-gpu-ci", binary_path, config)
-    validate_gpu_report(json.loads(reports["gpu-harness-report.json"]), binary_path, manifest)
+
+
+def _validate_universal_measurement_window(receipt: dict, reports: dict[str, bytes]) -> None:
     started = datetime.fromisoformat(receipt["measurement_started_utc"])
     ended = datetime.fromisoformat(receipt["measurement_finished_utc"])
     gpu = json.loads(reports["gpu-harness-report.json"])
@@ -302,6 +305,21 @@ def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head
     if (any(value.tzinfo is None for value in (started, ended, gpu_start, gpu_end))
             or not started <= gpu_start <= gpu_end <= ended <= datetime.now(timezone.utc)):
         raise ValueError("GPU report does not belong to this fresh measurement window")
+
+
+def validate_universal_receipt(receipt: dict, reports: dict[str, bytes], *, head: str,
+                               context: str, run_id: str, run_attempt: str, bundle: dict[str, bytes] | None = None) -> None:
+    policy.require_sha(head)
+    _validate_universal_receipt_identity(receipt, head, context, run_id, run_attempt)
+    hashes, binary_path = _validate_universal_binary_binding(receipt)
+    _validate_universal_report_digests(reports, hashes)
+    validate_module_ledger(json.loads(reports["module-lanes.json"]))
+    config = policy.bundle_json(bundle, policy.RUNTIME_CONFIG) if bundle is not None else None
+    manifest = policy.bundle_json(bundle, policy.GPU_MANIFEST) if bundle is not None else None
+    validate_runtime_report(json.loads(reports["headless-report.json"]), "headless-ci", binary_path, config)
+    validate_runtime_report(json.loads(reports["streaming-report.json"]), "streaming-gpu-ci", binary_path, config)
+    validate_gpu_report(json.loads(reports["gpu-harness-report.json"]), binary_path, manifest)
+    _validate_universal_measurement_window(receipt, reports)
 
 
 def write_receipt(directory: Path, binary: Path, measurement: Path) -> None:
