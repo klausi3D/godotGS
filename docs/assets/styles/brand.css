@@ -527,6 +527,11 @@ button {
 .md-nav__link .md-ellipsis {
   line-height: 1.6;
 }
+/* Material's focus-visible polyfill uses an outward 0.2rem offset. Drawer
+   links can span the full scrollport, so keep their focus ring inside it. */
+.md-sidebar--primary :is(:focus-visible, .focus-visible) {
+  outline-offset: -3px;
+}
 
 /* Left rail gets a hairline accent on the active leaf (primary sidebar) */
 @media screen and (min-width: 76.25em) {
