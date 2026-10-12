@@ -626,6 +626,7 @@ button {
 }
 .md-typeset__scrollwrap:focus-visible,
 .gs-table-scroll:focus-visible,
+.md-search__input:is(:focus-visible, .focus-visible),
 .md-typeset pre > code:focus-visible,
 .md-clipboard:focus-visible {
   outline-offset: -3px;
