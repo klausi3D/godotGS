@@ -87,17 +87,8 @@ def canonical_binding(binding: dict) -> bytes:
     return json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
 
 
-def verify_grant(envelope: dict, bundle: dict[str, bytes], *, kind: str,
-                 repo: str, owner: dict, base: str, head: str, app_id: int,
-                 context: str | None = None, now: datetime | None = None) -> dict:
-    profile = configured_profile(bundle)
-    if not isinstance(envelope, dict) or set(envelope) != {"binding", "signature"}:
-        raise ValueError("Unsigned or ambiguous owner grant envelope")
-    if len(json.dumps(envelope, ensure_ascii=True).encode()) > MAX_ENVELOPE:
-        raise ValueError("Owner grant envelope exceeds its bound")
-    binding, signature = envelope["binding"], envelope["signature"]
-    if not isinstance(binding, dict) or set(binding) != BINDING_KEYS:
-        raise ValueError("Owner grant requires exact complete bindings")
+def _validate_owner_grant_identity(binding, profile, kind, repo, owner,
+                                   base, head, app_id):
     if (kind not in {"bootstrap", "migration"} or binding["version"] != "gs-owner-grant-v1"
             or binding["kind"] != kind or repo != profile["repository"]
             or binding["repository"] != repo or binding["target_branch"] != "master"
@@ -108,6 +99,9 @@ def verify_grant(envelope: dict, bundle: dict[str, bytes], *, kind: str,
             or type(binding["app_id"]) is not int or binding["app_id"] != app_id
             or binding["base_sha"] != base or binding["head_sha"] != head):
         raise ValueError("Owner grant identity/kind/base/head/App changed")
+
+
+def _validate_owner_grant_claims(binding, kind, base, head, context):
     for key in ("base_sha", "policy_sha", "head_sha"):
         if not isinstance(binding[key], str) or not re.fullmatch(r"[0-9a-f]{40}", binding[key]):
             raise ValueError("Owner grant requires canonical immutable SHAs")
@@ -121,11 +115,30 @@ def verify_grant(envelope: dict, bundle: dict[str, bytes], *, kind: str,
     for key in ("run_id", "run_attempt"):
         if not isinstance(binding[key], str) or not re.fullmatch(r"[1-9][0-9]*", binding[key]):
             raise ValueError("Owner grant requires exact positive producer run/attempt strings")
+
+
+def _validate_owner_grant_expiry(binding, now):
     if not isinstance(binding["expires_utc"], str):
         raise ValueError("Owner grant expiry must be an explicit UTC timestamp")
     expiry = datetime.fromisoformat(binding["expires_utc"])
     if expiry.utcoffset() != timezone.utc.utcoffset(expiry) or expiry <= (now or datetime.now(timezone.utc)):
         raise ValueError("Owner grant expired or lacks an explicit UTC offset")
+
+
+def verify_grant(envelope: dict, bundle: dict[str, bytes], *, kind: str,
+                 repo: str, owner: dict, base: str, head: str, app_id: int,
+                 context: str | None = None, now: datetime | None = None) -> dict:
+    profile = configured_profile(bundle)
+    if not isinstance(envelope, dict) or set(envelope) != {"binding", "signature"}:
+        raise ValueError("Unsigned or ambiguous owner grant envelope")
+    if len(json.dumps(envelope, ensure_ascii=True).encode()) > MAX_ENVELOPE:
+        raise ValueError("Owner grant envelope exceeds its bound")
+    binding, signature = envelope["binding"], envelope["signature"]
+    if not isinstance(binding, dict) or set(binding) != BINDING_KEYS:
+        raise ValueError("Owner grant requires exact complete bindings")
+    _validate_owner_grant_identity(binding, profile, kind, repo, owner, base, head, app_id)
+    _validate_owner_grant_claims(binding, kind, base, head, context)
+    _validate_owner_grant_expiry(binding, now)
     if (not isinstance(signature, str) or len(signature) > 4096
             or not re.fullmatch(r"-----BEGIN SSH SIGNATURE-----\n[A-Za-z0-9+/=\n]+\n-----END SSH SIGNATURE-----\n?", signature)):
         raise ValueError("Owner grant requires bounded ASCII SSHSIG armor")
