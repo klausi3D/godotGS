@@ -526,6 +526,43 @@ Ref<Image> GaussianThumbnailGenerator::_generate_heatmap_thumbnail(const Gaussia
     return image;
 }
 
+void GaussianThumbnailGenerator::_generate_thumbnail_style(const GaussianSplatAsset::PayloadSnapshot &snapshot, int p_size,
+        ThumbnailStyle p_style, Ref<Image> &generated) const {
+    switch (p_style) {
+        case THUMBNAIL_STYLE_COLOR:
+            generated = _generate_color_thumbnail(snapshot, p_size);
+            break;
+        case THUMBNAIL_STYLE_DENSITY:
+            generated = _generate_density_thumbnail(snapshot, p_size);
+            break;
+        case THUMBNAIL_STYLE_NORMALS:
+            generated = _generate_normals_thumbnail(snapshot, p_size);
+            break;
+        case THUMBNAIL_STYLE_HEATMAP:
+            generated = _generate_heatmap_thumbnail(snapshot, p_size);
+            break;
+        default:
+            generated = _generate_color_thumbnail(snapshot, p_size);
+            break;
+    }
+}
+
+void GaussianThumbnailGenerator::_store_generated_thumbnail(const Ref<Image> &generated, const String &cache_key, uint64_t fingerprint,
+        int p_size, ThumbnailStyle p_style) const {
+    if (generated.is_valid()) {
+        if (!cache_key.is_empty()) {
+            thumbnail_cache[cache_key] = generated;
+            _touch_cache_key(cache_key);
+            _prune_cache_if_needed();
+        }
+
+        // Persist to disk cache for future editor sessions.
+        if (fingerprint != 0) {
+            _save_to_disk_cache(fingerprint, p_size, p_style, generated);
+        }
+    }
+}
+
 Ref<Image> GaussianThumbnailGenerator::generate_thumbnail_image(const Ref<GaussianSplatAsset> &p_asset, int p_size,
         ThumbnailStyle p_style) const {
 #if defined(TESTS_ENABLED) && defined(TOOLS_ENABLED)
@@ -567,36 +604,9 @@ Ref<Image> GaussianThumbnailGenerator::generate_thumbnail_image(const Ref<Gaussi
     cache_miss_count++;
     Ref<Image> generated;
 
-    switch (p_style) {
-        case THUMBNAIL_STYLE_COLOR:
-            generated = _generate_color_thumbnail(snapshot, p_size);
-            break;
-        case THUMBNAIL_STYLE_DENSITY:
-            generated = _generate_density_thumbnail(snapshot, p_size);
-            break;
-        case THUMBNAIL_STYLE_NORMALS:
-            generated = _generate_normals_thumbnail(snapshot, p_size);
-            break;
-        case THUMBNAIL_STYLE_HEATMAP:
-            generated = _generate_heatmap_thumbnail(snapshot, p_size);
-            break;
-        default:
-            generated = _generate_color_thumbnail(snapshot, p_size);
-            break;
-    }
+    _generate_thumbnail_style(snapshot, p_size, p_style, generated);
 
-    if (generated.is_valid()) {
-        if (!cache_key.is_empty()) {
-            thumbnail_cache[cache_key] = generated;
-            _touch_cache_key(cache_key);
-            _prune_cache_if_needed();
-        }
-
-        // Persist to disk cache for future editor sessions.
-        if (fingerprint != 0) {
-            _save_to_disk_cache(fingerprint, p_size, p_style, generated);
-        }
-    }
+    _store_generated_thumbnail(generated, cache_key, fingerprint, p_size, p_style);
 
     return generated;
 }
