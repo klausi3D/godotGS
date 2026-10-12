@@ -36,6 +36,8 @@ class GSLiveEditorTestRunner : public RefCounted {
 	void _drain_test_context(uint64_t now);
 	void _encode_event(Dictionary &d, const GSLiveEditorObservation::Record &r) const;
 	void _encode_final(Dictionary &d, uint64_t final_now, bool final_on_time) const;
+	bool _observer_final_state_invalid() const;
+	void _emit_observer_records(uint32_t count);
 	bool _capture();
 	bool _identities_valid() const;
 	bool _queues_safe() const;

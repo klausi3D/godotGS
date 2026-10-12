@@ -394,17 +394,12 @@ void GSLiveEditorTestRunner::_finish() {
 			return;
 		}
 		_restore_logger(); end_fixture(); _restore_dialogs();
-		if (!_identities_valid() || !_queues_safe() || created_total != 7 || closed_total != 7 || observer->arms.load() != 2 || observer->invocations.load() != 2) { invalid = true; }
+		if (_observer_final_state_invalid()) { invalid = true; }
 		if (handler_installed) { remove_error_handler(&handler); handler_installed = false; }
 		Observer *expected = observer; active.compare_exchange_strong(expected, nullptr);
 		invalid = invalid || observer->invalid.load(std::memory_order_acquire) || helper_overflow.load(std::memory_order_seq_cst);
 		const uint32_t count = observer->next.load(std::memory_order_acquire);
-		for (uint32_t i = 0; i < count && i < Observer::CAPACITY; ++i) {
-			const Record &r = observer->records[i];
-			if (!r.ready.load(std::memory_order_acquire)) { invalid = true; continue; }
-			Dictionary d; _encode_event(d, r);
-			_emit(d);
-		}
+		_emit_observer_records(count);
 	}
 	const uint64_t final_now = OS::get_singleton()->get_ticks_usec();
 	const bool final_on_time = draining && _drain_on_time(final_now);
@@ -421,6 +416,17 @@ void GSLiveEditorTestRunner::_finish() {
 	armed = false;
 	Ref<GSLiveEditorTestRunner> keepalive = running_owner;
 	running_owner.unref();
+}
+bool GSLiveEditorTestRunner::_observer_final_state_invalid() const {
+	return !_identities_valid() || !_queues_safe() || created_total != 7 || closed_total != 7 || observer->arms.load() != 2 || observer->invocations.load() != 2;
+}
+void GSLiveEditorTestRunner::_emit_observer_records(uint32_t count) {
+	for (uint32_t i = 0; i < count && i < Observer::CAPACITY; ++i) {
+		const Record &r = observer->records[i];
+		if (!r.ready.load(std::memory_order_acquire)) { invalid = true; continue; }
+		Dictionary d; _encode_event(d, r);
+		_emit(d);
+	}
 }
 GSLiveEditorTestRunner::~GSLiveEditorTestRunner() {
 	if (armed) { invalid = true; _finish(); }
