@@ -46,6 +46,7 @@ rather than patching it by hand.
 
 - [Original Editor tests borrow the genuine editor runtime (2026-10-11)](#adr-original-editor-runtime-2026-10-11)
 - [Preserve behavior when extracting validation helpers (2026-10-12)](#adr-preserve-validation-helper-behavior-2026-10-12)
+- [Real Editor test fixture inputs (2026-10-12)](#adr-real-editor-test-fixture-inputs-2026-10-12)
 
 ## ADR: Original Editor runtime (2026-10-11) {#adr-original-editor-runtime-2026-10-11}
 
@@ -139,3 +140,64 @@ actual callback/error/lifetime receipts and complete EOF. Synthetic models and
 style-check success do not supply runtime evidence. Two independent reviews,
 upstream CODEOWNER and human disposition remain required; no suppression, guard
 relaxation, new owner authorization or runtime optimization is part of this task.
+
+## ADR: Real Editor test fixture inputs (2026-10-12) {#adr-real-editor-test-fixture-inputs-2026-10-12}
+
+Status: proposed design; separate fixture implementation and native qualification pending.
+Risk: R3 for the canonical Editor evidence path.
+
+### Problem
+
+Godot `Dictionary` assignment shares its backing map. An Editor test that edits
+a refreshed option set must therefore create a distinct map before changing it,
+so the original option set still describes the first dialog state. The original
+assertions remain the behavioral oracle.
+
+Normal import-dialog previews read the source PLY or SPZ file even when the test
+provides an asset with baseline metadata. A disposable Editor project must
+supply valid source files at the original resource paths before these dialogs
+run. An asset object or option dictionary does not supply those file bytes.
+
+### Decision and implementation phases
+
+First, create the advanced import-settings test's refreshed option map with
+`initial_options.duplicate()`. Its current values are strings, integers and a
+boolean, so a shallow duplicate gives the required independent map. Keep the
+original dialog operations, asset and reimport overrides, expected values and
+assertions. This fixture correction requires its own fixed source review and
+native validation after this design is separately committed.
+
+Second, prepare exactly `res://test_splats.ply` and `res://test_splats.spz` in the
+fresh, owned disposable Editor project. Freeze the producer and staging design
+before implementing this phase. Use the existing native synthetic SPZ writer
+for SPZ and a bounded native PLY fixture producer. Retain the actual producer
+source and binary identity, input values, output paths, byte counts and hashes.
+Preserve the produced bytes when staging them; refuse missing, substituted,
+malformed or changed inputs. Native producer outputs are required before
+claiming that provenance. A constructed format model supplies no such claim.
+
+Validate the exact staged bytes with the real `PLYLoader` and `SPZLoader` from
+the same candidate binary. Require successful loads, nonempty Gaussian data and
+the producer's declared count and data shape. The input preparation must fail
+closed before running the original corpus when this prerequisite is missing.
+The native fixture producer, loader checks and launcher integration require a
+separate fixed source review; this decision leaves that implementation pending.
+
+### Acceptance and scope
+
+Retain the canonical case selection, every original action and assertion, and
+the strict unexpected-error verdict. Missing files are fixture failures. Keep
+the original Editor ownership, queue, callback, observer, allocation-injection,
+logging, lifetime and deadline requirements. Validate the entire original
+corpus on the actual candidate Editor, with positive assertions, no execution
+skips, full raw output and EOF, normal child exit and owned-process closure.
+
+Match native evidence to its source, binary and disposable project. Preserve
+the original failing evidence and record later validation separately. Source
+models, fixture metadata and loader success alone cannot qualify the full
+Editor row. Independent source reviews and human/CODEOWNER disposition remain
+required under the [review policy](../governance/review-policy.md).
+
+This maintenance decision preserves expected outcomes and the existing evidence
+classification and authorization contracts. Runtime warnings, environment
+failures and process contention retain their existing independent verdicts.
