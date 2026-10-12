@@ -69,6 +69,44 @@ the change. A UI label is checked against the property it shows (`ADD_GROUP` and
 | guard | An automated check of a repository invariant, such as a file format, a settings manifest or a layout mirror, that fails CI when the invariant breaks. Most are `check_*.py` scripts under `tests/ci/`; `tests/ci/run_module_tests.py --guard-only` runs the full set, including checks built into the runner and one that needs a Godot binary. |
 | gate | A required check that blocks a merge or a release, such as `agentic-pr-gate` or the renderer release gate. |
 
+## Layout and Components
+
+The Material theme uses the shared `--gs-*` tokens in
+`docs/assets/styles/brand.css` and component rules in
+`docs/assets/styles/components.css`. Keep the existing fonts, palettes and brand.
+Change a shared token or component rule before adding a page-specific override.
+
+- Normal documentation uses the body and H1–H3 tokens. Landing heroes own their
+  larger display scale. At Material's 20 px root, body copy is 17 px and normal
+  H1, H2 and H3 headings are 32, 25 and 21 px; these are CSS sizes before browser
+  zoom, not fixed device-pixel sizes.
+- Prose, lists, callouts, figures and code blocks stay within `--gs-measure`.
+  Reference tables may use the available article width between the navigation
+  rails. Keep guide lines short even when the page contains a wide inventory.
+- Use a small overview for navigation and put explanations in adjacent sections.
+  Reserve tables for information that readers compare across rows and columns.
+  Use navigation cards when their descriptions help readers choose a destination.
+- Table identifiers may wrap, but keep useful fragments with
+  `--gs-table-cell-measure`. Do not reduce table type to fit more columns, truncate
+  identifiers or apply `white-space: nowrap` to every code token. Keep code-block
+  whitespace intact and let long lines scroll within the block.
+- Dense inventories can still require horizontal scrolling inside Material's
+  `.gs-table-scroll` group supplied by `overrides/main.html`. It preserves
+  Material's content and adds keyboard access without page-specific markup or
+  JavaScript. Retain its edge shadows, scrollbar and inset keyboard-focus
+  outline. The five-column node Properties inventory and the generated Project
+  Settings inventories are expected examples; they must never widen the page.
+- Preserve source links, heading permalinks, search, code copy and keyboard
+  navigation. Check light/dark palettes, visible focus and reduced motion.
+
+Check the rendered site, not just the Markdown or a successful build. Use Your
+First Splat, Color Grading Quick Start, GaussianSplatNode3D, Project Settings,
+Architecture Overview and Troubleshooting as the layout pilot. Check desktop,
+narrow and mobile widths in both palettes, including 200% browser zoom; confirm
+that headings wrap, components do not overlap, focus is not clipped and only
+table/code containers scroll horizontally. Keep review captures and computed-size
+reports outside the repository unless they are requested publication assets.
+
 ## Before You Publish
 
 | Step | Action | Reference |
