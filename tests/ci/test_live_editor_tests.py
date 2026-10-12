@@ -185,6 +185,10 @@ class ProtocolCountermodels(unittest.TestCase):
 
     def test_actual_popen_stream_full_eof_rejects_trailing_error(self):
         # Fake OWN Python children, never a native Godot process or a lease/probe.
+        # A Windows venv redirector has a different PID from its Python child.
+        child_python = getattr(sys, "_base_executable", sys.executable)
+        self.assertIsInstance(child_python, str)
+        self.assertTrue(child_python, "Runtime has no direct base Python executable")
         for trailing in ('', 'ERROR: unexpected teardown error\n', '[GS-LIVE-EDITOR INVALID] final publication exceeded drain budget\n'):
             with self.subTest(trailing=trailing), tempfile.TemporaryDirectory() as tmp:
                 d = Path(tmp)
@@ -194,9 +198,13 @@ class ProtocolCountermodels(unittest.TestCase):
                                  'print(' + repr(self.text(rows).split(self.runtime.PREFIX, 1)[0]) + ',end="")\n' +
                                  'for x in r:print(' + repr(self.runtime.PREFIX) + '+json.dumps(x),flush=True)\n' +
                                  'print(' + repr(trailing) + ',end="",flush=True)\n', encoding='utf-8')
-                ok, output, code = self.runtime.supervise([sys.executable, str(child)], d, self.token, self.names, self.line, timeout=10)
-                self.assertEqual(code, 0)
-                self.assertEqual(ok, not trailing)
+                ok, output, code = self.runtime.supervise([child_python, str(child)], d, self.token, self.names, self.line, timeout=10)
+                self.assertEqual(code, 0, output)
+                self.assertEqual(ok, not trailing, output)
+                if trailing:
+                    reason = ('Explicit invalid producer closure' if trailing.startswith('[GS-LIVE-EDITOR INVALID]')
+                              else 'Raw error/skip/fatal after complete EOF')
+                    self.assertIn(reason, output)
                 self.assertTrue((d / 'stdout.log').is_file())
 
     def test_direct_local_launch_refuses_before_any_probe_or_child(self):
