@@ -242,7 +242,9 @@ class ProtocolCountermodels(unittest.TestCase):
                 stage = rows[1]
                 if mode == 'missing': rows.remove(stage)
                 elif mode == 'duplicate': rows.insert(2, copy.deepcopy(stage))
-                elif mode == 'late': rows.remove(stage); rows.insert(3, stage)
+                elif mode == 'late':
+                    rows.remove(stage)
+                    rows.insert(3, stage)
                 elif mode == 'wrongrecipe': stage['recipe'] = 'substituted'
                 else:
                     key, value = {'wrongpath': ('path', '../other.ply'), 'wrongshape': ('count', 4),
@@ -294,7 +296,8 @@ class ProtocolCountermodels(unittest.TestCase):
                 elif mode == 'oversize': file.write_bytes(b'x' * 65537)
                 elif mode == 'empty': file.write_bytes(b'')
                 elif mode == 'link':
-                    file.unlink(); file.symlink_to(project / self.runtime.INPUT_NAMES[1])
+                    file.unlink()
+                    file.symlink_to(project / self.runtime.INPUT_NAMES[1])
                 if mode == 'changed_identity':
                     changed = types.SimpleNamespace(st_mode=file.stat().st_mode, st_size=file.stat().st_size,
                                                     st_mtime_ns=file.stat().st_mtime_ns + 1, st_ino=file.stat().st_ino,
