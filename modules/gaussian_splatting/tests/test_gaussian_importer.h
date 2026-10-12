@@ -3203,7 +3203,7 @@ TEST_CASE("[GaussianSplatting][Editor] Advanced import settings reimport refresh
     initial_options[StringName("custom/preserve")] = String("alpha");
     initial_options[StringName("metadata/include_statistics")] = true;
 
-    Dictionary refreshed_options = initial_options;
+    Dictionary refreshed_options = initial_options.duplicate();
     refreshed_options[StringName("quality/preset")] = String("ultra");
     refreshed_options[StringName("quality/max_splats")] = 54321;
     refreshed_options[StringName("custom/preserve")] = String("beta");
