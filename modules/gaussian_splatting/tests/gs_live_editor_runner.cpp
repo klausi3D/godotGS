@@ -73,6 +73,56 @@ bool GSLiveEditorTestRunner::_queues_safe() const {
 	return q && m && !q->is_flushing() && !m->is_flushing() &&
 			(!queue || queue == reinterpret_cast<uintptr_t>(q)) && (!main_queue || main_queue == reinterpret_cast<uintptr_t>(m));
 }
+bool GSLiveEditorTestRunner::_capture_context_ready(EditorNode *editor, Control *base, GaussianImportDialog *a, GaussianImportSettingsDialog *b) const {
+	if (!base || !base->is_inside_tree() || !editor->is_inside_tree() || !a || !b ||
+			!a->is_inside_tree() || !b->is_inside_tree() || !a->get_parent() || a->get_parent() != b->get_parent() ||
+			!Object::cast_to<GaussianEditorPlugin>(a->get_parent()) || EditorFileSystem::get_singleton()->is_scanning()) { return false; }
+	return true;
+}
+
+bool GSLiveEditorTestRunner::_scheduled_delivery_closed(const Record &r, uint32_t count) const {
+	uint32_t entries = 0, completions = 0;
+	for (uint32_t j = 0; j < count; ++j) {
+		const Record &c = observer->records[j];
+		if (!c.ready.load(std::memory_order_acquire)) { return false; }
+		if (c.case_id != r.case_id || c.generator != r.generator || c.token != r.token) { continue; }
+		if (c.kind == PREVIEW_ENTRY) { ++entries; }
+		if (c.kind == PREVIEW_COMPLETE) { ++completions; }
+	}
+	if (entries != 1 || completions != 1) { return false; }
+	return true;
+}
+
+bool GSLiveEditorTestRunner::_parse_user_arguments(const List<String> &args, bool &mode, bool &include, bool &exclude) {
+	for (const String &arg : args) {
+		if (arg == "--gs-live-editor-tests") { mode = true; }
+		else if (arg == "--test-case=*GaussianSplatting*][Editor]*") { include = true; }
+		else if (arg == "--test-case-exclude=*][RequiresGPU]*") { exclude = true; }
+		else if (arg.begins_with("--gs-live-editor-token=")) { token = arg.trim_prefix("--gs-live-editor-token="); }
+		else { return false; }
+	}
+	return true;
+}
+
+void GSLiveEditorTestRunner::_encode_event(Dictionary &d, const Record &r) const {
+	d["kind"] = "event"; d["sequence"] = r.sequence; d["event"] = r.kind;
+	d["case"] = r.case_id; d["thread"] = String::num_uint64(r.thread); d["phase"] = r.phase;
+	d["generator"] = String::num_uint64(r.generator); d["asset"] = String::num_uint64(r.asset);
+	d["token_id"] = String::num_uint64(r.token); d["arm"] = String::num_uint64(r.arm);
+	d["value"] = r.value; d["expected"] = r.expected; d["notify"] = r.notify;
+	d["function"] = r.function; d["file"] = r.file; d["line"] = r.line; d["error"] = r.error; d["message"] = r.message;
+}
+
+void GSLiveEditorTestRunner::_encode_final(Dictionary &d, uint64_t final_now, bool final_on_time) const {
+	d["kind"] = "final";
+	d["drain_elapsed_usec"] = String::num_uint64(final_now >= drain_usec ? final_now - drain_usec : UINT64_MAX);
+	d["valid"] = observer && !invalid && !context_result && case_count == 23 && !failed_assertions;
+	d["cases"] = case_count; d["assertions"] = assertions; d["failed_assertions"] = failed_assertions;
+	d["created"] = created_total; d["closed"] = closed_total; d["logger_restored"] = CoreGlobals::print_error_enabled == logger_initial;
+	d["borrowed_ids"] = _borrowed_ids();
+	d["drained"] = final_on_time && stable_frames >= 2 && _all_deliveries_closed(); d["borrowed_valid"] = observer && _identities_valid();
+}
+
 bool GSLiveEditorTestRunner::_capture() {
 	if (!Thread::is_main_thread() || !Engine::get_singleton()->is_editor_hint() || !_queues_safe() || !CoreGlobals::print_error_enabled) { return false; }
 	Vector<Object *> objects = live_editor_objects();
@@ -81,9 +131,7 @@ bool GSLiveEditorTestRunner::_capture() {
 	Control *base = editor->get_gui_base();
 	GaussianImportDialog *a = GaussianImportDialog::get_singleton();
 	GaussianImportSettingsDialog *b = GaussianImportSettingsDialog::get_singleton();
-	if (!base || !base->is_inside_tree() || !editor->is_inside_tree() || !a || !b ||
-			!a->is_inside_tree() || !b->is_inside_tree() || !a->get_parent() || a->get_parent() != b->get_parent() ||
-			!Object::cast_to<GaussianEditorPlugin>(a->get_parent()) || EditorFileSystem::get_singleton()->is_scanning()) { return false; }
+	if (!_capture_context_ready(editor, base, a, b)) { return false; }
 	borrowed.clear();
 	for (Object *object : objects) { borrowed.push_back(object->get_instance_id()); }
 	gui = base->get_instance_id(); plain = a->get_instance_id(); advanced = b->get_instance_id();
@@ -223,15 +271,7 @@ bool GSLiveEditorTestRunner::_all_deliveries_closed() const {
 		const Record &r = observer->records[i];
 		if (!r.ready.load(std::memory_order_acquire)) { return false; }
 		if (r.kind != PREVIEW_SCHEDULE || r.value != OK) { continue; }
-		uint32_t entries = 0, completions = 0;
-		for (uint32_t j = 0; j < count; ++j) {
-			const Record &c = observer->records[j];
-			if (!c.ready.load(std::memory_order_acquire)) { return false; }
-			if (c.case_id != r.case_id || c.generator != r.generator || c.token != r.token) { continue; }
-			if (c.kind == PREVIEW_ENTRY) { ++entries; }
-			if (c.kind == PREVIEW_COMPLETE) { ++completions; }
-		}
-		if (entries != 1 || completions != 1) { return false; }
+		if (!_scheduled_delivery_closed(r, count)) { return false; }
 	}
 	return true;
 }
@@ -277,13 +317,7 @@ bool GSLiveEditorTestRunner::arm() {
 	if (!Thread::is_main_thread() || armed || running_owner.is_valid() || current || active.load()) { return false; }
 	const List<String> &args = OS::get_singleton()->get_cmdline_user_args();
 	bool mode = false, include = false, exclude = false;
-	for (const String &arg : args) {
-		if (arg == "--gs-live-editor-tests") { mode = true; }
-		else if (arg == "--test-case=*GaussianSplatting*][Editor]*") { include = true; }
-		else if (arg == "--test-case-exclude=*][RequiresGPU]*") { exclude = true; }
-		else if (arg.begins_with("--gs-live-editor-token=")) { token = arg.trim_prefix("--gs-live-editor-token="); }
-		else { return false; }
-	}
+	if (!_parse_user_arguments(args, mode, include, exclude)) { return false; }
 	if (!mode || !include || !exclude || token.length() != 32 || !token.is_valid_hex_number(false) || !SceneTree::get_singleton()) { return false; }
 	if (SceneTree::get_singleton()->connect("process_frame", callable_mp(this, &GSLiveEditorTestRunner::_process_frame)) != OK) { return false; }
 	armed = true; armed_usec = OS::get_singleton()->get_ticks_usec();
@@ -294,35 +328,43 @@ void GSLiveEditorTestRunner::_process_frame() {
 	const uint64_t now = OS::get_singleton()->get_ticks_usec();
 	if (!Thread::is_main_thread() || !_queues_safe()) { invalid = true; _finish(); return; }
 	if (!draining) {
-		if (!CoreGlobals::print_error_enabled) { invalid = true; _finish(); return; }
-		if (now - armed_usec > 120000000) { invalid = true; _finish(); return; }
-		if (!_capture()) { return; }
-		observer = memnew(Observer);
-		if (!observer) { invalid = true; _finish(); return; }
-		observer->owner = Thread::get_caller_id();
-		Observer *zero = nullptr;
-		if (!active.compare_exchange_strong(zero, observer)) { invalid = true; _finish(); return; }
-		current = this;
-		handler.userdata = observer; handler.errfunc = _error;
-		add_error_handler(&handler); handler_installed = true;
-		Dictionary begin; begin["kind"] = "begin"; begin["owner"] = String::num_uint64(observer->owner);
-
-		begin["borrowed_ids"] = _borrowed_ids(); begin["logger_captured"] = logger_initial; begin["queues_not_flushing"] = true;
-		_emit(begin);
-		BorrowedEditorTestHooks hooks;
-		hooks.userdata = this;
-		hooks.case_start = [](void *u, const char *n) { static_cast<GSLiveEditorTestRunner *>(u)->_case_start(n); };
-		hooks.case_end = [](void *u, int a, int f, bool s) { static_cast<GSLiveEditorTestRunner *>(u)->_case_end(a, f, s); };
-		hooks.run_end = [](void *u, unsigned c, unsigned f, int a, int e) { static_cast<GSLiveEditorTestRunner *>(u)->_run_end(c, f, a, e); };
-		Vector<String> test_args;
-		test_args.push_back("live-editor");
-		test_args.push_back("--test-case=*GaussianSplatting*][Editor]*");
-		test_args.push_back("--test-case-exclude=*][RequiresGPU]*");
-		context_result = run_borrowed_editor_tests(hooks, test_args);
-		_restore_logger(); end_fixture(); _restore_dialogs();
-		draining = true; drain_usec = OS::get_singleton()->get_ticks_usec();
+		_start_test_context(now);
 		return;
 	}
+	_drain_test_context(now);
+}
+void GSLiveEditorTestRunner::_start_test_context(uint64_t now) {
+	if (!CoreGlobals::print_error_enabled) { invalid = true; _finish(); return; }
+	if (now - armed_usec > 120000000) { invalid = true; _finish(); return; }
+	if (!_capture()) { return; }
+	observer = memnew(Observer);
+	if (!observer) { invalid = true; _finish(); return; }
+	observer->owner = Thread::get_caller_id();
+	Observer *zero = nullptr;
+	if (!active.compare_exchange_strong(zero, observer)) { invalid = true; _finish(); return; }
+	current = this;
+	handler.userdata = observer; handler.errfunc = _error;
+	add_error_handler(&handler); handler_installed = true;
+	Dictionary begin; begin["kind"] = "begin"; begin["owner"] = String::num_uint64(observer->owner);
+
+	begin["borrowed_ids"] = _borrowed_ids(); begin["logger_captured"] = logger_initial; begin["queues_not_flushing"] = true;
+	_emit(begin);
+	BorrowedEditorTestHooks hooks;
+	hooks.userdata = this;
+	hooks.case_start = [](void *u, const char *n) { static_cast<GSLiveEditorTestRunner *>(u)->_case_start(n); };
+	hooks.case_end = [](void *u, int a, int f, bool s) { static_cast<GSLiveEditorTestRunner *>(u)->_case_end(a, f, s); };
+	hooks.run_end = [](void *u, unsigned c, unsigned f, int a, int e) { static_cast<GSLiveEditorTestRunner *>(u)->_run_end(c, f, a, e); };
+	Vector<String> test_args;
+	test_args.push_back("live-editor");
+	test_args.push_back("--test-case=*GaussianSplatting*][Editor]*");
+	test_args.push_back("--test-case-exclude=*][RequiresGPU]*");
+	context_result = run_borrowed_editor_tests(hooks, test_args);
+	_restore_logger(); end_fixture(); _restore_dialogs();
+	draining = true; drain_usec = OS::get_singleton()->get_ticks_usec();
+	return;
+}
+
+void GSLiveEditorTestRunner::_drain_test_context(uint64_t now) {
 	if (!_drain_on_time(now)) { invalid = true; _finish(); return; }
 	_restore_logger();
 	if (!_identities_valid() || factory_armed || fixture.is_valid()) { invalid = true; }
@@ -333,6 +375,7 @@ void GSLiveEditorTestRunner::_process_frame() {
 	if (!_all_deliveries_closed()) { stable_frames = 0; return; }
 	if (stable_frames++ >= 1) { _finish(); }
 }
+
 void GSLiveEditorTestRunner::_finish() {
 	if (!armed) { return; }
 	if (!_all_deliveries_closed()) {
@@ -359,25 +402,14 @@ void GSLiveEditorTestRunner::_finish() {
 		for (uint32_t i = 0; i < count && i < Observer::CAPACITY; ++i) {
 			const Record &r = observer->records[i];
 			if (!r.ready.load(std::memory_order_acquire)) { invalid = true; continue; }
-			Dictionary d; d["kind"] = "event"; d["sequence"] = r.sequence; d["event"] = r.kind;
-			d["case"] = r.case_id; d["thread"] = String::num_uint64(r.thread); d["phase"] = r.phase;
-			d["generator"] = String::num_uint64(r.generator); d["asset"] = String::num_uint64(r.asset);
-			d["token_id"] = String::num_uint64(r.token); d["arm"] = String::num_uint64(r.arm);
-			d["value"] = r.value; d["expected"] = r.expected; d["notify"] = r.notify;
-			d["function"] = r.function; d["file"] = r.file; d["line"] = r.line; d["error"] = r.error; d["message"] = r.message;
+			Dictionary d; _encode_event(d, r);
 			_emit(d);
 		}
 	}
 	const uint64_t final_now = OS::get_singleton()->get_ticks_usec();
 	const bool final_on_time = draining && _drain_on_time(final_now);
 	if (!final_on_time) { invalid = true; }
-	Dictionary d; d["kind"] = "final";
-	d["drain_elapsed_usec"] = String::num_uint64(final_now >= drain_usec ? final_now - drain_usec : UINT64_MAX);
-	d["valid"] = observer && !invalid && !context_result && case_count == 23 && !failed_assertions;
-	d["cases"] = case_count; d["assertions"] = assertions; d["failed_assertions"] = failed_assertions;
-	d["created"] = created_total; d["closed"] = closed_total; d["logger_restored"] = CoreGlobals::print_error_enabled == logger_initial;
-	d["borrowed_ids"] = _borrowed_ids();
-	d["drained"] = final_on_time && stable_frames >= 2 && _all_deliveries_closed(); d["borrowed_valid"] = observer && _identities_valid();
+	Dictionary d; _encode_final(d, final_now, final_on_time);
 	_emit(d);
 	if (current == this) { current = nullptr; }
 	if (observer) { memdelete(observer); observer = nullptr; }

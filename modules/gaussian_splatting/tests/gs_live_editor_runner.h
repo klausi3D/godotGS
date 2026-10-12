@@ -7,6 +7,11 @@
 #include "core/variant/dictionary.h"
 #include "scene/main/node.h"
 
+class EditorNode;
+class Control;
+class GaussianImportDialog;
+class GaussianImportSettingsDialog;
+
 class GSLiveEditorTestRunner : public RefCounted {
 	GDCLASS(GSLiveEditorTestRunner, RefCounted);
 	static GSLiveEditorTestRunner *current;
@@ -24,6 +29,13 @@ class GSLiveEditorTestRunner : public RefCounted {
 	uint32_t stable_frames = 0;
 	int context_result = 1, assertions = 0, failed_assertions = 0;
 	String token, case_name;
+	bool _capture_context_ready(EditorNode *editor, Control *base, GaussianImportDialog *a, GaussianImportSettingsDialog *b) const;
+	bool _scheduled_delivery_closed(const GSLiveEditorObservation::Record &r, uint32_t count) const;
+	bool _parse_user_arguments(const List<String> &args, bool &mode, bool &include, bool &exclude);
+	void _start_test_context(uint64_t now);
+	void _drain_test_context(uint64_t now);
+	void _encode_event(Dictionary &d, const GSLiveEditorObservation::Record &r) const;
+	void _encode_final(Dictionary &d, uint64_t final_now, bool final_on_time) const;
 	bool _capture();
 	bool _identities_valid() const;
 	bool _queues_safe() const;
