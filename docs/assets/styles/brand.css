@@ -464,6 +464,9 @@ button {
   .md-header__title {
     display: none;
   }
+  .md-sidebar--primary {
+    width: min(12.1rem, 100vw);
+  }
 }
 
 /* --------------------------------------------------------------------------
