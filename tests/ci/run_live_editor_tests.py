@@ -55,35 +55,7 @@ def _positive(value):
     return isinstance(value, str) and value.isascii() and value.isdigit() and int(value) > 0
 
 
-def validate(output, *, token, pid, names, injection_line):
-    """Reconcile complete real receipts; never infer delivery from cancellation."""
-    if '[GS-LIVE-EDITOR INVALID]' in output:
-        raise ValueError('Explicit invalid producer closure')
-    records = []
-    for line in output.splitlines():
-        if PREFIX not in line:
-            continue
-        if not line.startswith(PREFIX):
-            raise ValueError('Malformed receipt prefix')
-        data = json.loads(line[len(PREFIX):])
-        if data.get('token') != token or data.get('pid') != pid:
-            raise ValueError('Wrong child/token receipt')
-        records.append(data)
-    begins = [x for x in records if x.get('kind') == 'begin']
-    finals = [x for x in records if x.get('kind') == 'final']
-    cases = [x for x in records if x.get('kind') == 'case']
-    events = [x for x in records if x.get('kind') == 'event']
-    if len(begins) != 1 or len(finals) != 1 or not records or records[0] != begins[0] or records[-1] != finals[0]:
-        raise ValueError('Missing/duplicate/nonterminal closure')
-    if any(x.get('kind') not in ('begin', 'case', 'event', 'final') for x in records):
-        raise ValueError('Unknown/invalid nonterminal receipt')
-    begin, final = begins[0], finals[0]
-    owner = begin.get('owner')
-    ids = begin.get('borrowed_ids')
-    if not _positive(owner) or not isinstance(ids, list) or len(ids) != 14 or not all(map(_positive, ids)) or len(set(ids)) != 14:
-        raise ValueError('Invalid owner/borrowed identities')
-    if begin.get('logger_captured') is not True or begin.get('queues_not_flushing') is not True:
-        raise ValueError('Unsafe entry/logger')
+def _validate_live_editor_cases(cases, names):
     if len(cases) != 23 or set(x.get('name') for x in cases) != set(names) or [x.get('ordinal') for x in cases] != list(range(1, 24)):
         raise ValueError('Missing/duplicate/original case coverage')
     expected_fixtures = fixture_cases()
@@ -97,6 +69,9 @@ def validate(output, *, token, pid, names, injection_line):
             raise ValueError('Unclosed/unparented fixture')
     if sum(x['fixture_created'] for x in cases) != 7:
         raise ValueError('Seven original fixtures not proven')
+
+
+def _validate_live_editor_event_catalogue(events):
     if [x.get('sequence') for x in events] != list(range(1, len(events) + 1)):
         raise ValueError('Dropped/duplicate/reset records')
     for event in events:
@@ -106,6 +81,9 @@ def validate(output, *, token, pid, names, injection_line):
             raise ValueError('Unexpected core error, including suppressed worker error')
     if any(sum(e['event'] == kind for e in events) != 2 for kind in range(2, 10)):
         raise ValueError('Unexpected/reset/missing source-scoped cohort count')
+
+
+def _validate_live_editor_injection(events, cases, owner, injection_line):
     thumbnail = [c for c in cases if 'A failed thumbnail canvas allocation' in c['name']]
     if len(thumbnail) != 1:
         raise ValueError('Original injection case missing')
@@ -138,6 +116,9 @@ def validate(output, *, token, pid, names, injection_line):
                 or not str(error.get('file', '')).replace('\\', '/').endswith('modules/gaussian_splatting/core/gs_vector_alloc.h')
                 or error.get('error') != 'Method/function failed. Returning: false' or error.get('message') != RATIONALE):
             raise ValueError('Original source-derived error identity mismatch')
+
+
+def _validate_live_editor_previews(cases, events, owner):
     previews = [c for c in cases if '(#592)' in c['name']]
     if len(previews) != 2:
         raise ValueError('Original preview cases absent')
@@ -158,6 +139,9 @@ def validate(output, *, token, pid, names, injection_line):
             raise ValueError('Actual worker/join/callback delivery mismatch')
     if any(e['event'] >= 6 and e.get('case') not in {c['ordinal'] for c in previews} for e in events):
         raise ValueError('Unknown late preview cohort')
+
+
+def _validate_live_editor_final(output, final, ids, cases):
     elapsed = final.get('drain_elapsed_usec')
     if not isinstance(elapsed, str) or not elapsed.isascii() or not elapsed.isdigit() or int(elapsed) > 45_000_000:
         raise ValueError('Missing/late original final-drain budget')
@@ -172,6 +156,92 @@ def validate(output, *, token, pid, names, injection_line):
         raise ValueError('Actual doctest summary does not reconcile')
     if re.search(r'(?im)(?:^|\s)(?:ERROR:|SCRIPT ERROR:|SHADER ERROR:|FATAL:|Skipping\b|Segmentation fault|recursive error)', output):
         raise ValueError('Raw error/skip/fatal after complete EOF')
+
+
+def _collect_live_editor_output(q, proc, readers, directory, timeout):
+    deadline = time.monotonic() + timeout
+    ended = set()
+    output = []
+    invalid = ''
+    with (directory / 'stdout.log').open('w', encoding='utf-8') as stdout, (directory / 'stderr.log').open('w', encoding='utf-8') as stderr:
+        while len(ended) != 2 or proc.poll() is None:
+            if time.monotonic() >= deadline:
+                invalid = 'Owned Editor watchdog expired; no lifetime/semantic proof'
+                proc.kill()  # Only the exact Popen-owned child; never a foreign PID.
+                break
+            try:
+                label, line = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if label == 'invalid':
+                invalid = line
+                continue
+            if line is None:
+                ended.add(label)
+            else:
+                (stdout if label == 'stdout' else stderr).write(line)
+                output.append(line)
+        proc.wait(timeout=10)
+        for reader in readers:
+            reader.join(timeout=10)
+        # Retain all bytes already read after termination; incomplete pipe closure is INVALID.
+        while not q.empty():
+            label, line = q.get_nowait()
+            if label == 'invalid': invalid = line
+            elif line is None: ended.add(label)
+            else:
+                (stdout if label == 'stdout' else stderr).write(line)
+                output.append(line)
+    text = ''.join(output)
+    return text, ended, invalid
+
+
+def _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line):
+    if invalid or len(ended) != 2 or any(r.is_alive() for r in readers):
+        return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + (invalid or 'incomplete EOF'), proc.returncode
+    try:
+        if proc.returncode != 0:
+            raise ValueError(f'Native child exit {proc.returncode}')
+        validate(text, token=token, pid=proc.pid, names=names, injection_line=injection_line)
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + str(exc), proc.returncode
+    return True, text, proc.returncode
+
+
+def validate(output, *, token, pid, names, injection_line):
+    """Reconcile complete real receipts; never infer delivery from cancellation."""
+    if '[GS-LIVE-EDITOR INVALID]' in output:
+        raise ValueError('Explicit invalid producer closure')
+    records = []
+    for line in output.splitlines():
+        if PREFIX not in line:
+            continue
+        if not line.startswith(PREFIX):
+            raise ValueError('Malformed receipt prefix')
+        data = json.loads(line[len(PREFIX):])
+        if data.get('token') != token or data.get('pid') != pid:
+            raise ValueError('Wrong child/token receipt')
+        records.append(data)
+    begins = [x for x in records if x.get('kind') == 'begin']
+    finals = [x for x in records if x.get('kind') == 'final']
+    cases = [x for x in records if x.get('kind') == 'case']
+    events = [x for x in records if x.get('kind') == 'event']
+    if len(begins) != 1 or len(finals) != 1 or not records or records[0] != begins[0] or records[-1] != finals[0]:
+        raise ValueError('Missing/duplicate/nonterminal closure')
+    if any(x.get('kind') not in ('begin', 'case', 'event', 'final') for x in records):
+        raise ValueError('Unknown/invalid nonterminal receipt')
+    begin, final = begins[0], finals[0]
+    owner = begin.get('owner')
+    ids = begin.get('borrowed_ids')
+    if not _positive(owner) or not isinstance(ids, list) or len(ids) != 14 or not all(map(_positive, ids)) or len(set(ids)) != 14:
+        raise ValueError('Invalid owner/borrowed identities')
+    if begin.get('logger_captured') is not True or begin.get('queues_not_flushing') is not True:
+        raise ValueError('Unsafe entry/logger')
+    _validate_live_editor_cases(cases, names)
+    _validate_live_editor_event_catalogue(events)
+    _validate_live_editor_injection(events, cases, owner, injection_line)
+    _validate_live_editor_previews(cases, events, owner)
+    _validate_live_editor_final(output, final, ids, cases)
     return final
 
 
@@ -194,49 +264,8 @@ def supervise(command, directory, token, names, injection_line, timeout=900):
                    threading.Thread(target=pump, args=(proc.stderr, 'stderr'), daemon=True)]
         for reader in readers:
             reader.start()
-        deadline = time.monotonic() + timeout
-        ended = set()
-        output = []
-        invalid = ''
-        with (directory / 'stdout.log').open('w', encoding='utf-8') as stdout, (directory / 'stderr.log').open('w', encoding='utf-8') as stderr:
-            while len(ended) != 2 or proc.poll() is None:
-                if time.monotonic() >= deadline:
-                    invalid = 'Owned Editor watchdog expired; no lifetime/semantic proof'
-                    proc.kill()  # Only the exact Popen-owned child; never a foreign PID.
-                    break
-                try:
-                    label, line = q.get(timeout=0.1)
-                except queue.Empty:
-                    continue
-                if label == 'invalid':
-                    invalid = line
-                    continue
-                if line is None:
-                    ended.add(label)
-                else:
-                    (stdout if label == 'stdout' else stderr).write(line)
-                    output.append(line)
-            proc.wait(timeout=10)
-            for reader in readers:
-                reader.join(timeout=10)
-            # Retain all bytes already read after termination; incomplete pipe closure is INVALID.
-            while not q.empty():
-                label, line = q.get_nowait()
-                if label == 'invalid': invalid = line
-                elif line is None: ended.add(label)
-                else:
-                    (stdout if label == 'stdout' else stderr).write(line)
-                    output.append(line)
-        text = ''.join(output)
-        if invalid or len(ended) != 2 or any(r.is_alive() for r in readers):
-            return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + (invalid or 'incomplete EOF'), proc.returncode
-        try:
-            if proc.returncode != 0:
-                raise ValueError(f'Native child exit {proc.returncode}')
-            validate(text, token=token, pid=proc.pid, names=names, injection_line=injection_line)
-        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            return False, text + '\n[GS-LIVE-EDITOR INVALID] ' + str(exc), proc.returncode
-        return True, text, proc.returncode
+        text, ended, invalid = _collect_live_editor_output(q, proc, readers, directory, timeout)
+        return _reconcile_live_editor_output(text, ended, invalid, readers, proc, token, names, injection_line)
     finally:
         if proc.poll() is None:
             proc.kill()
