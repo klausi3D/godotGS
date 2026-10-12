@@ -137,7 +137,7 @@ def nonnegative_integer(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate) -> None:
+def _validate_gpu_row_identity(row: dict, spec, harness) -> None:
     shape = harness.BatchResult(spec.name, spec.filters, spec.excludes).to_dict()
     if set(shape) - set(row):
         raise ValueError("GPU batch fields were removed")
@@ -148,6 +148,9 @@ def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate)
             raise ValueError("GPU row flag has invalid type")
     if type(row["rc"]) is not int or row["rc"] != 0 or row["timed_out"]:
         raise ValueError("GPU batch failed or timed out")
+
+
+def _validate_gpu_row_audit_fields(row: dict) -> None:
     for key in ("rid_leak_bytes", "cases_started", "zero_assert_reported"):
         if not nonnegative_integer(row[key]):
             raise ValueError("GPU audit/leak counter has invalid type")
@@ -159,6 +162,9 @@ def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate)
             raise ValueError("GPU per-case audit has invalid type")
     if not isinstance(row["wall_seconds"], (int, float)) or isinstance(row["wall_seconds"], bool) or not math.isfinite(row["wall_seconds"]) or row["wall_seconds"] < 0:
         raise ValueError("GPU batch duration has invalid type")
+
+
+def _validate_gpu_row_counts(row: dict) -> None:
     for key, fields in (("test_cases", ("total", "passed", "failed", "skipped")), ("assertions", ("total", "passed", "failed"))):
         counts = row[key]
         if not isinstance(counts, dict) or set(counts) != set(fields) or any(not nonnegative_integer(counts[field]) for field in fields):
@@ -167,6 +173,9 @@ def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate)
             raise ValueError("GPU summary counters contradict success")
     if row["rid_leak_bytes"]:
         raise ValueError("GPU batch leaked RID bytes")
+
+
+def _reconcile_gpu_row_stdout(row: dict, spec, harness) -> None:
     # Reparse all rows; required rows additionally obey assertive minimum/no-skip rules.
     parsed = harness.BatchResult(spec.name, spec.filters, spec.excludes)
     harness._parse_summary(row["stdout_tail"], parsed)
@@ -176,6 +185,13 @@ def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate)
               "cases_started", "zero_assert_reported", "env_skipped_cases")
     if any(actual[key] != row[key] for key in fields):
         raise ValueError("GPU row contradicts canonical stdout parser/audit")
+
+
+def validate_gpu_row(row: dict, spec, required: dict | None, harness, candidate) -> None:
+    _validate_gpu_row_identity(row, spec, harness)
+    _validate_gpu_row_audit_fields(row)
+    _validate_gpu_row_counts(row)
+    _reconcile_gpu_row_stdout(row, spec, harness)
     if required is not None:
         failures = candidate._validate_candidate_gpu_batch(spec.name, row, required)
         if (failures or row["status"] != "SUCCESS" or row["cases_started"] != row["test_cases"]["total"]
