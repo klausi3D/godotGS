@@ -18,6 +18,51 @@ scons platform=<platform> target=editor dev_build=yes tests=yes -j<jobs>
 > For example, Windows produces `bin/godot.windows.editor.dev.x86_64.exe`
 > (not `bin/godot.windows.editor.x86_64.exe`).
 
+### Doxygen shipping registration inventory — 2026-10-12
+
+**Status:** Proposed R3 design; implementation and validation pending.
+
+The published C++ API documents the shipping module. `docs/Doxyfile` excludes
+module test sources. A class registered only when `TESTS_ENABLED` is defined
+belongs to a test-enabled build, and does not require a public shipping API page.
+The existing class-XML and snippet guards already use this boundary. The Doxygen
+checker currently scans every preprocessor branch and incorrectly requires the
+TESTS-only `GSLiveEditorTestRunner` page.
+
+Reuse the existing conservative shipping-source projection in
+`tests/ci/check_doc_classes_complete.py`. The Doxygen checker applies its original
+comment stripping, then `_shipping_registration_source`, then its original
+registration regex. Keep qualified names and every originally recognized
+registration macro; `_registered_classes` is unsuitable here because it converts
+qualified C++ names to the leaf names used by ClassDB XML. Do not duplicate the
+preprocessor grammar or exclude a class by name.
+
+Only branches proved impossible when `TESTS_ENABLED` is absent may be omitted.
+`TOOLS_ENABLED`, unknown conditions, ambiguous expressions and possible shipping
+else branches remain conservative candidates. The shared projection is loaded
+from a fixed repository-relative path. Missing or invalid projection/source and
+malformed nesting fail; there is no empty inventory or unprojected fallback.
+
+Every derived shipping registration still needs a real Doxygen class page. Keep
+the existing empty-inventory refusal, output-directory check, title matching and
+`--newer-than` freshness requirement. Change no Doxygen input/exclusion/macro
+configuration, C++ registration, class XML, threshold or baseline. Observed class
+counts are evidence for a fixed source, and are never a hard-coded coverage gate.
+
+Focused standard-library tests must prove TESTS-only omission and preserve
+ordinary, TOOLS, unknown/else, namespace and broad registration coverage, plus
+malformed/missing-input refusal. They run mandatorily with the doc-class guard in
+`--guard-only`; independent missing/failed test and delete-wiring controls must
+reject. Missing ordinary pages and stale/empty output remain failures. Fixtures
+that exercise Doxygen page format must come from actual Doxygen output; semantic
+class-set models certify only inventory/predicate behavior. Actual canonical
+Doxygen/stage/strict docs checks remain required under normal resource controls.
+
+This consumer change is R3. This design must be recorded before production code,
+followed by two immutable source reviews and human/CODEOWNER disposition. It
+changes the required inventory to the existing shipping contract; it does not
+qualify native editor/GPU execution or activate the universal evidence gate.
+
 ## Test Runners
 
 - Baseline QA:
