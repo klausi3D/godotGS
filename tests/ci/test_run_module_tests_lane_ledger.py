@@ -4326,6 +4326,34 @@ class GuardScriptWiringTests(unittest.TestCase):
         self.assertIn((ROOT / "tests/ci/test_live_editor_tests.py").resolve(), self._scripts_launched_by_optional_guards(),
                       "Canonical live Editor guard is read but not actually launched")
 
+    def test_doxygen_inventory_tests_are_actually_launched(self) -> None:
+        tests = ROOT / "tests/ci/test_check_doxygen_output.py"
+        self.assertTrue(tests.is_file())
+        self.assertIn(tests.resolve(), self._scripts_launched_by_optional_guards(),
+                      "Doxygen inventory tests are not launched by the guard lane")
+
+    def test_failed_doxygen_inventory_tests_fail_the_doc_guard(self) -> None:
+        tests = ROOT / "tests/ci/test_check_doxygen_output.py"
+        commands = []
+
+        def fail_tests(argv):
+            commands.append(argv)
+            return (1, "inventory self-test failed", "") if Path(argv[1]) == tests else (0, "", "")
+
+        with mock.patch.object(harness, "_run_command", side_effect=fail_tests):
+            passed, output = harness._run_doc_classes_guard()
+        self.assertFalse(passed)
+        self.assertEqual(output, ["inventory self-test failed"])
+        self.assertEqual([Path(command[1]) for command in commands], [tests])
+
+    def test_missing_doxygen_inventory_tests_fail_the_doc_guard(self) -> None:
+        with mock.patch.object(harness, "DOXYGEN_OUTPUT_TEST_SCRIPT", ROOT / "missing_inventory_test.py"), \
+                mock.patch.object(harness, "_run_command", return_value=(0, "", "")) as run:
+            passed, output = harness._run_doc_classes_guard()
+        self.assertFalse(passed)
+        self.assertIn("Missing Doxygen shipping inventory unit test", output[0])
+        run.assert_not_called()
+
     def test_this_files_own_runner_is_wired(self) -> None:
         """The contract above is only worth anything while this file still runs."""
         reached = self._scripts_reached_by_wired_runners()

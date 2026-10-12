@@ -38,6 +38,7 @@ CULL_SIGNATURE_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_cull_signature_
 METRIC_RESET_PARITY_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_metric_reset_parity.py"
 METRIC_RESET_PARITY_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_metric_reset_parity.py"
 DOC_CLASSES_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
+DOXYGEN_OUTPUT_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_doxygen_output.py"
 DOC_SNIPPETS_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_doc_snippets.py"
 DOC_SNIPPETS_TEST_SCRIPT = ROOT / "tests" / "ci" / "test_check_doc_snippets.py"
 TEST_LINKAGE_GUARD_SCRIPT = ROOT / "tests" / "ci" / "check_test_linkage.py"
@@ -920,18 +921,19 @@ def _run_project_settings_reference_guard() -> tuple[bool, list[str]]:
 
 
 def _run_doc_classes_guard() -> tuple[bool, list[str]]:
-    if not DOC_CLASSES_GUARD_SCRIPT.is_file():
-        return False, [
-            f"Missing doc_classes completeness guard script: {DOC_CLASSES_GUARD_SCRIPT.relative_to(ROOT)}"
-        ]
-
-    code, out, err = _run_command([sys.executable, str(DOC_CLASSES_GUARD_SCRIPT)])
-    output_lines = [line for line in (out + err).splitlines() if line.strip()]
-
-    if code != 0:
-        if not output_lines:
-            output_lines = [f"doc_classes completeness guard failed with exit code {code}."]
-        return False, output_lines
+    output_lines: list[str] = []
+    for label, script in (
+        ("Doxygen shipping inventory unit test", DOXYGEN_OUTPUT_TEST_SCRIPT),
+        ("doc_classes completeness guard", DOC_CLASSES_GUARD_SCRIPT),
+    ):
+        if not script.is_file():
+            return False, [f"Missing {label} script: {script.relative_to(ROOT)}"]
+        code, out, err = _run_command([sys.executable, str(script)])
+        output_lines.extend(line for line in (out + err).splitlines() if line.strip())
+        if code != 0:
+            if not output_lines:
+                output_lines = [f"{label} failed with exit code {code}."]
+            return False, output_lines
 
     return True, output_lines
 

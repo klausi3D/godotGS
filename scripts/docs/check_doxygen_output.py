@@ -4,8 +4,8 @@
 Doxygen still writes html/index.html when its INPUT is missing or matches no
 file (that only produces warnings), so "the output exists" proves nothing. This
 check derives the expected classes from the module itself: every class that
-`modules/gaussian_splatting/register_types.cpp` registers with
-GDREGISTER_*CLASS(...) must have a Doxygen class page, identified by the page
+`modules/gaussian_splatting/register_types.cpp` registers in a possible shipping
+branch with GDREGISTER_*CLASS(...) must have a Doxygen class page, identified by the page
 title "<Name> Class Reference" (independent of Doxygen's file-naming scheme).
 
 With --newer-than EPOCH, a page only counts if it was written at or after that
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTER_TYPES = REPO_ROOT / "modules" / "gaussian_splatting" / "register_types.cpp"
 HTML_DIR = REPO_ROOT / "docs" / "api" / "cpp" / "html"
+SHIPPING_PROJECTION = REPO_ROOT / "tests" / "ci" / "check_doc_classes_complete.py"
 
 REGISTER_RE = re.compile(r"\bGDREGISTER_(?:[A-Z]+_)*CLASS\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)")
 TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
@@ -36,7 +38,21 @@ def _strip_comments(text: str) -> str:
 
 
 def expected_classes(register_types_text: str) -> list[str]:
-    return sorted(set(REGISTER_RE.findall(_strip_comments(register_types_text))))
+    try:
+        spec = importlib.util.spec_from_file_location("doxygen_shipping_inventory", SHIPPING_PROJECTION)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("shipping registration projection is unavailable")
+        shipping = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shipping)
+        project = shipping._shipping_registration_source
+        if not callable(project):
+            raise RuntimeError("shipping registration projection is not callable")
+    except Exception as exc:
+        raise RuntimeError(f"Cannot load shipping registration projection: {exc}") from exc
+    source = project(_strip_comments(register_types_text))
+    if not isinstance(source, str):
+        raise RuntimeError("shipping registration projection returned invalid source")
+    return sorted(set(REGISTER_RE.findall(source)))
 
 
 def documented_classes(html_dir: Path, newer_than: float | None = None) -> set[str]:
@@ -68,7 +84,7 @@ def main(argv: list[str]) -> int:
 
     try:
         expected = expected_classes(REGISTER_TYPES.read_text(encoding="utf-8"))
-    except OSError as exc:
+    except (OSError, UnicodeError, ValueError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     if not args.html_dir.is_dir():
