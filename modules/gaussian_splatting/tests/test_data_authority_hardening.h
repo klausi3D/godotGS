@@ -858,6 +858,64 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A NaN splat installed in a Gaussia
     CHECK(quantized[2].opacity == splats[2].opacity);
 }
 
+// #1175 (Codex review): the pack gate checked only the Gaussian struct. A NaN in a
+// splat's sidecar higher-order SH block was zeroed by the SNORM10 encoder and the splat
+// stayed opaque and uncounted, although the file-load validator
+// (GaussianData::all_render_fields_finite) rejects the same payload.
+TEST_CASE("[GaussianSplatting][DataAuthority] A NaN in a splat's higher-order SH sidecar rejects that splat at the GPU pack boundary (#1175)") {
+    LocalVector<Gaussian> splats;
+    splats.push_back(gs1175_make_splat(Vector3(1.0f, 2.0f, 3.0f), 0.8f));
+    splats.push_back(gs1175_make_splat(Vector3(0.0f, 1.0f, 0.0f), 0.9f));
+    splats.push_back(gs1175_make_splat(Vector3(-4.0f, 5.0f, -6.0f), 0.7f));
+    constexpr uint32_t HIGH_PER_SPLAT = 5; // degree 2
+    Vector3 high[3 * HIGH_PER_SPLAT];
+    for (uint32_t i = 0; i < 3 * HIGH_PER_SPLAT; i++) {
+        high[i] = Vector3(0.01f * float(i + 1), -0.02f, 0.005f);
+    }
+    high[1 * HIGH_PER_SPLAT + 3].y = std::numeric_limits<float>::quiet_NaN(); // splat 1 only
+
+    Vector<PackedGaussian> packed;
+    SHCompressionMetrics metrics;
+    {
+        ERR_PRINT_OFF;
+        const bool ok = pack_gaussians_range(splats, 0, splats.size(), packed, metrics, high, 3, HIGH_PER_SPLAT);
+        ERR_PRINT_ON;
+        CHECK(ok);
+    }
+    if (packed.size() != 3) {
+        FAIL("pack_gaussians_range must emit one record per splat, got ", packed.size());
+        return;
+    }
+    CHECK(metrics.non_finite_rejected == 1u);
+    CHECK(packed[1].opacity == 0.0f);
+    CHECK(gs1175_packed_all_finite(packed[1]));
+    CHECK(packed[0].opacity == splats[0].opacity);
+    CHECK(packed[2].opacity == splats[2].opacity);
+
+    ChunkQuantizationInfo chunk;
+    chunk.position_min = Vector3(-10.0f, -10.0f, -10.0f);
+    chunk.position_max = Vector3(10.0f, 10.0f, 10.0f);
+    chunk.position_range = chunk.position_max - chunk.position_min;
+    chunk.scale_min = Vector3(0.01f, 0.01f, 0.01f);
+    chunk.scale_max = Vector3(1.0f, 1.0f, 1.0f);
+    chunk.scale_range = chunk.scale_max - chunk.scale_min;
+    chunk.position_bits = 16;
+    chunk.scale_bits = 12;
+    chunk.scales_quantized = true;
+    PackedGaussianQuantized quantized[3];
+    SHCompressionMetrics quantized_metrics;
+    {
+        ERR_PRINT_OFF;
+        pack_gaussians_range_quantized(splats, 0, splats.size(), chunk, 0, quantized, quantized_metrics,
+                high, 3, HIGH_PER_SPLAT);
+        ERR_PRINT_ON;
+    }
+    CHECK(quantized_metrics.non_finite_rejected == 1u);
+    CHECK(quantized[1].opacity == 0.0f);
+    CHECK(quantized[0].opacity == splats[0].opacity);
+    CHECK(quantized[2].opacity == splats[2].opacity);
+}
+
 TEST_CASE("[GaussianSplatting][DataAuthority] Raw storage accessors compile-survivable and main-thread safe") {
     // This test merely exercises the accessor to confirm the debug diagnostic
     // is a no-op on the main thread (fires at most once off-main-thread in
