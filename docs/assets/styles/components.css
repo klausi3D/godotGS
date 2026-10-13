@@ -190,6 +190,7 @@
   margin: 0.9rem 0;
 }
 .md-typeset .gs-download-card {
+  --gs-download-focus-clearance: calc(var(--md-header-height, 4.8rem) + 5rem);
   min-width: 0;
   padding: 0.85rem;
   border: 1px solid var(--gs-line-strong);
@@ -210,6 +211,11 @@
 .md-typeset .gs-download-card code {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+/* Native keyboard scrolling must clear the wrapped mobile header and Material's
+   floating back-to-top control at 200% zoom, including backward Tab. */
+.md-typeset .gs-download-card a {
+  scroll-margin-block-start: var(--gs-download-focus-clearance);
 }
 .md-typeset .gs-download-flavor {
   border-left: 2px solid var(--gs-warning);
