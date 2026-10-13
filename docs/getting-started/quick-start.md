@@ -86,7 +86,7 @@ Copy a `.ply` or `.spz` source file into your project's folder. The editor impor
 - [Export Templates](../development/export-templates.md): before you export a game.
 - [Compatibility Matrix](../reference/compatibility-matrix.md): what is tested on which platform.
 
-## Optional: Check an Editor You Built
+## Optional: Check an Editor You Built {#flow-reference}
 
 Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.
 
@@ -97,7 +97,3 @@ $GODOT_BINARY --headless --path tests/examples/godot/test_project --quit
 ```powershell
 & $env:GODOT_BINARY --headless --path .\tests\examples\godot\test_project --quit
 ```
-
-## Ready to Continue {#flow-reference}
-
-You are ready to import your own capture when the sample renders and the camera controls work.

@@ -89,7 +89,7 @@ Use this section when you need exact names, settings, compatibility evidence, or
 
 ## Image Credits
 
-The screenshots on the homepage and in the guides show real captured scenes rendered by godotGS. The scans are third-party work, used under their licences:
+Apart from the two [First Splat captures](#first-splat-captures) of the bundled synthetic sample, the screenshots on the homepage and in the guides show real captured scenes rendered by godotGS. The scans are third-party work, used under their licences:
 
 - **Mip-NeRF 360 "bicycle" and "garden"** by Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan and Peter Hedman ("Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields", CVPR 2022), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The godotGS project trained the splats from the published photos with gsplat 1.4.0 (`simple_trainer`, default settings, 30,000 steps, quarter-resolution images): 6,076,956 splats for "bicycle" and 5,824,664 for "garden".
     - "bicycle" is on the homepage and in [Runtime Behavior](../user/manual/runtime-behavior.md).
@@ -105,8 +105,6 @@ How the images were made:
 - **Project:** made from the repository's project template, `templates/gaussian_splat_template`, with the scene's directional light and ground hidden.
 - **Settings that differ from the defaults:** a black background with fog off; `rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile` 65,536 (default 0, auto); `rendering/gaussian_splatting/lighting/direct_light_scale` and `rendering/gaussian_splatting/lighting/shadow_strength` 0; `rendering/gaussian_splatting/lod/min_screen_size_pixels` 0; and on the splat node, Quality preset Custom with LOD bias 0.1, maximum render distance 100,000 m and maximum splat count 100,000,000. Imports used the default `ultra` preset, which keeps every splat.
 
-</div>
-
 ### First Splat Captures
 
 `first-splat-editor-tree.webp` and `first-splat-runtime.webp` are real Windows captures taken on 13 October 2026. They show the versioned `res://scenes/public_evaluator.tscn` sample and its 1,024-splat `test_splats.gsplatworld` fixture.
@@ -118,4 +116,6 @@ How the images were made:
 - **Editor state:** open `public_evaluator.tscn`, no node selected. The capture shows the Scene dock hierarchy before Play.
 - **Runtime state:** launch the project with its authored settings and fixed initial camera pose: position `(0, 10, 20)`, rotation `(-20°, 0°, 0°)`. No movement or tuning before capture. The overlay reports `1.0K` source splats.
 
-The garden screenshot later in the tutorial shows importing a real scan. They do not depict this synthetic fixture.
+The garden screenshot later in Your First Splat shows a real imported scan, not this synthetic fixture.
+
+</div>

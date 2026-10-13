@@ -2,7 +2,6 @@
 
 This page describes what lighting usually looks like on splats and which controls give the safest, fastest results.
 
-
 ## What You Should Expect Visually
 
 - Splats react to direct lights, but shading is not identical to mesh materials.
