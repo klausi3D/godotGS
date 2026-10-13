@@ -464,6 +464,7 @@
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--gs-muted);
+  opacity: 1; /* Material dims small text; keep the token's accessible contrast. */
 }
 .md-typeset .gs-flow small code {
   font-size: 1em;
