@@ -308,7 +308,7 @@
     box.appendChild(grid);
     var status = el("p", fromCache
       ? "Using the release list cached in this browser session (up to 10 minutes old)."
-      : "Checked the 20 most recent published releases. Each button downloads the newest available editor for that platform.");
+      : "Checked the " + releases.length + " most recent published releases. Each button downloads the newest available editor for that platform.");
     status.className = "gs-download-meta";
     box.appendChild(status);
     container.replaceChildren(box);
