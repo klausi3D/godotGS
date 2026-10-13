@@ -106,3 +106,16 @@ How the images were made:
 - **Settings that differ from the defaults:** a black background with fog off; `rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile` 65,536 (default 0, auto); `rendering/gaussian_splatting/lighting/direct_light_scale` and `rendering/gaussian_splatting/lighting/shadow_strength` 0; `rendering/gaussian_splatting/lod/min_screen_size_pixels` 0; and on the splat node, Quality preset Custom with LOD bias 0.1, maximum render distance 100,000 m and maximum splat count 100,000,000. Imports used the default `ultra` preset, which keeps every splat.
 
 </div>
+
+### First Splat Captures
+
+`first-splat-editor-tree.webp` and `first-splat-runtime.webp` are real Windows captures taken on 13 October 2026. They show the versioned `res://scenes/public_evaluator.tscn` sample and its 1,024-splat `test_splats.gsplatworld` fixture.
+
+- **Project:** [commit 3d38249](https://github.com/klausi3D/godotGS/commit/3d38249ce3a269a272ad2308231dc60ecd4f3471). The capture used an isolated project containing the unchanged project settings, scene, camera script and world fixture from that commit.
+- **Engine:** godotGS [commit 0981c0a](https://github.com/klausi3D/godotGS/commit/0981c0a2149c06eb8928ca2050b6adba689e8574), an older native Windows build. Build flags were not recorded; these images illustrate the tutorial rather than validate the latest engine build or performance targets.
+- **Hardware:** NVIDIA GeForce RTX 3090, Windows driver version `32.0.15.9186`.
+- **Capture:** direct capture of the Godot client window at 1920×1080, default editor theme, English UI, 100% editor scale. The Scene dock image is a 280×300 region from the top-left of that client; WebP encoding is lossless.
+- **Editor state:** open `public_evaluator.tscn`, no node selected. The capture shows the Scene dock hierarchy before Play.
+- **Runtime state:** launch the project with its authored settings and fixed initial camera pose: position `(0, 10, 20)`, rotation `(-20°, 0°, 0°)`. No movement or tuning before capture. The overlay reports `1.0K` source splats.
+
+The garden screenshot later in the tutorial shows importing a real scan. They do not depict this synthetic fixture.

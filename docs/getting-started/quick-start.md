@@ -4,7 +4,7 @@
 
 **At the end:** you have the sample project open in a godotGS editor, a splat on screen, and you know where to go to bring in your own capture.
 
-It takes four steps: get an editor, get the sample project, open it, press Play. A diagram of the flow is at the end of the page.
+Follow the four steps below. First run the supplied sample, then import your own capture.
 
 ## 1. Get an Editor
 
@@ -45,15 +45,12 @@ The sample project opens in the editor. Keep the `-e` flag: without it, `--path`
 
 You can also start the editor normally and import `tests/examples/godot/test_project` from the Project Manager.
 
-Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.
+In the FileSystem dock, expand `scenes` and open `public_evaluator.tscn`. The Scene dock should show `PublicEvaluator`, with `PerformanceOverlay`, `DemoSplat`, `Camera3D` and `DirectionalLight3D` underneath it.
 
-```bash
-$GODOT_BINARY --headless --path tests/examples/godot/test_project --quit
-```
-
-```powershell
-& $env:GODOT_BINARY --headless --path .\tests\examples\godot\test_project --quit
-```
+<figure class="gs-tutorial-shot" markdown="1">
+![The Scene dock with public_evaluator open: PublicEvaluator contains PerformanceOverlay, DemoSplat, Camera3D and DirectionalLight3D.](../assets/images/screenshots/first-splat-editor-tree.webp){ .gs-shot .gs-shot--natural width="280" height="300" loading="lazy" }
+<figcaption markdown="span">The sample scene open in the editor. Check these node names before pressing Play. [Capture details](../reference/index.md#first-splat-captures).</figcaption>
+</figure>
 
 ## 4. Press Play
 
@@ -65,6 +62,11 @@ You should see:
 - a performance overlay with frame rate and timings (F3 hides it).
 
 The camera is a fly camera: the mouse looks around, `W` `A` `S` `D` move, `E` or `Space` goes up, `Q` goes down, and `Shift` moves faster. `Esc` quits.
+
+<figure class="gs-tutorial-shot" markdown="1">
+![The running public evaluator: a small colored synthetic splat cloud at the centre, with the performance overlay on the left showing 1.0K source splats and F3 to hide it.](../assets/images/screenshots/first-splat-runtime.webp){ .gs-shot width="1920" height="1080" loading="lazy" }
+<figcaption markdown="span">The supplied 1,024-splat fixture after pressing Play. The timing overlay belongs to this tiny sample; use the [Performance Dashboard](../performance/index.md) for benchmark results. [Capture details](../reference/index.md#first-splat-captures).</figcaption>
+</figure>
 
 If nothing appears, or the splats are black, go to [Troubleshooting](../troubleshooting/index.md).
 
@@ -84,9 +86,18 @@ Copy a `.ply` or `.spz` source file into your project's folder. The editor impor
 - [Export Templates](../development/export-templates.md): before you export a game.
 - [Compatibility Matrix](../reference/compatibility-matrix.md): what is tested on which platform.
 
-## Flow Reference
+## Optional: Check an Editor You Built
 
-<figure markdown="1">
-![Your First Splat in four steps: get an editor built from this fork, get the sample project, open it in the editor, and press Play to see splats in the sample scene](../assets/images/first-run-editor-path.svg){ .gs-diagram }
-<figcaption>Your First Splat is a short proof loop: get an editor and the sample project, open the project, and confirm visible splats in the sample scene.</figcaption>
-</figure>
+Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.
+
+```bash
+$GODOT_BINARY --headless --path tests/examples/godot/test_project --quit
+```
+
+```powershell
+& $env:GODOT_BINARY --headless --path .\tests\examples\godot\test_project --quit
+```
+
+## Ready to Continue {#flow-reference}
+
+You are ready to import your own capture when the sample renders and the camera controls work.

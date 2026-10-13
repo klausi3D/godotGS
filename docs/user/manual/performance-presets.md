@@ -40,21 +40,11 @@ These expectations cover the splat system only. The engine, the scene, and any o
 
 ## Choosing a Preset
 
-```mermaid
-flowchart TD
-    Start([Start]) --> Stable{Need the safest first result?}
-    Stable -- Yes --> Balanced[Use Balanced]
-    Stable -- No --> Headroom{GPU headroom available?}
-    Headroom -- No --> Performance[Use Performance]
-    Headroom -- Yes --> Fidelity{Need higher fidelity than Balanced gives you?}
-    Fidelity -- No --> Balanced
-    Fidelity -- Yes --> Quality[Use Quality]
-    Balanced --> CustomCheck{Need targeted tuning after this?}
-    Performance --> CustomCheck
-    Quality --> CustomCheck
-    CustomCheck -- Yes --> Custom[Switch to Custom]
-    CustomCheck -- No --> Keep[Keep the preset]
-```
+Start with **Balanced**. Change only when the result gives you a reason:
+
+- Unstable frame rate: try **Performance**.
+- Insufficient detail, with GPU headroom: try **Quality**.
+- A specific control still needs adjustment: switch to **Custom** and tune one setting at a time.
 
 ## When to Use Custom
 

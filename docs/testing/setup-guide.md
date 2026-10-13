@@ -133,8 +133,3 @@ Route a recurring renderer or build symptom into the matching validation lane fi
 | **Module build path mismatch:** module classes missing at runtime; link errors around module symbols; tests failing because a stock Godot binary was used | Confirm the binary was built from this fork's root and comes from `bin/`; confirm the test runner points at the module-built binary (`--godot` / `--godot-binary`) | Rebuild per the [Build / Test / CI Command Reference](../reference/build-test-ci.md); rerun with an explicit binary path: `python3 tests/ci/run_baseline_qa.py --godot <path-to-module-built-editor>` |
 
 When you report one of these, include the exact command, platform, GPU and driver version, the failing log excerpts and the JSON artifacts produced, and whether the binary came from this fork's `bin/` output or a stock Godot build.
-
-<figure markdown="1">
-![Diagram of the troubleshooting flow from symptom to validation lane, artifacts, and targeted fix](../assets/images/troubleshooting-diagnostics-flow.svg){ .gs-diagram }
-<figcaption>Recurring issues should route into the matching validation lane first so logs, JSON outputs, and capture artifacts point at the real failing layer before any fix attempt.</figcaption>
-</figure>
