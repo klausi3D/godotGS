@@ -38,7 +38,7 @@
       label: "Linux editor",
       // This picker renders above the page's build-flavor warning, and the
       // static download-flavor guard (tests/ci/check_download_build_flavor_warning.py)
-      // cannot see JS-built links, so the row carries its own -O0 marker.
+      // cannot see JS-built links, so the card carries its own -O0 marker.
       flavor: "dev_build=yes, -O0: do not benchmark",
       flavorHref: "#linux-nightly-speed",
       pattern: /^godotgs-linux-x86_64-.+\.tar\.xz$/,
@@ -321,6 +321,10 @@
       if (p.release && isSafeDownloadUrl(p.asset.url, repo)) {
         exportLink.appendChild(link(p.asset.url, "Download Windows export template", p.asset.name));
         exportLink.appendChild(document.createTextNode(" · " + p.release.tag));
+        if (p.sidecar && isSafeDownloadUrl(p.sidecar.url, repo)) {
+          exportLink.appendChild(document.createTextNode(" · "));
+          exportLink.appendChild(link(p.sidecar.url, "SHA-256 checksum", p.sidecar.name));
+        }
       } else {
         exportLink.appendChild(link(releasesPageUrl(repo), "Find Windows export templates in release assets"));
       }

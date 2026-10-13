@@ -28,6 +28,7 @@ complete is already broken — if it drifts again, generate it from `docs/archit
 rather than patching it by hand.
 
 - [Advisory lane result ledger](adr-advisory-lane-ledger.md)
+- [Direct editor downloads](adr-editor-download-picker.md)
 - [Decompose GaussianSplatNode3D](adr-decompose-node3d.md)
 - [Decompose the renderer facade into owned sub-contexts](adr-decompose-renderer-facade.md)
 - [Decompose the scene director](adr-decompose-scene-director.md)
