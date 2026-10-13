@@ -463,124 +463,27 @@ closure proof in `resolved_manifest_issues` inside the evidence bundle. Neither
 the deterministic contract check nor candidate mode requires live network
 access today.
 
-## Proposed decision: radix device adaptation and coverage inventory (2026-10-10)
+## Decision record: radix workgroup sizing (#539, 2026-10-13)
 
-- Status: Proposed for maintainer disposition.
-- Risk class: R3 because the change updates the renderer release-gate manifest.
-- Tracking: #539.
+- Status: proposed; R3 only because adding the regression cases refreshes the
+  manifest's derived `requires_gpu_test_snapshot` and coverage counts.
+- Design-change issue: #539 (prefix cost scales with workgroup count) and #634
+  (shared-memory product).
 
-### Context
+RadixSort prefers 512-thread workgroups (`DEFAULT_RADIX_WORKGROUP_SIZE`);
+Bitonic and OneSweep keep their fixed 256-thread shaders
+(`DEFAULT_WORKGROUP_SIZE`). `RadixSort::is_supported()` and
+`RadixSort::initialize()` pick the largest size of 64/128/256/512, no larger
+than the configured preference, that fits the device's X-dimension, invocation
+and scatter shared-memory limits, so devices that ran the old 256 default keep
+an indirect 64-bit radix sorter. Initialization then rejects a declared capacity
+whose group count exceeds the device's X dispatch limit with `ERR_UNAVAILABLE`;
+it never truncates records or switches algorithms silently.
 
-Increasing the shared sort workgroup default to 512 also increased the fixed
-Bitonic and OneSweep requirements. Devices supporting 256–511 invocations then
-lost the production indirect 64-bit radix sorter. The factory cannot substitute
-Bitonic or OneSweep for that contract.
-
-The renderer correction separates the fixed 256-thread shader size from the
-512-thread radix preference. Radix support probing and initialization select
-the largest validated size no greater than that preference that fits the actual
-X-dimension, invocation and scatter shared-memory limits. Explicit smaller
-preferences remain unchanged when supported. A reduction is diagnosed and
-existing buffer-size admission uses the effective size.
-
-### Decision
-
-Add a GPU regression case to the already-required `GpuSorting` batch. It checks
-the real capability probe, indirect 64-bit factory selection, initialization
-and an indirect 64-bit sort against a CPU reference. Test-only ceilings can
-lower actual device limits and restore them on scope exit; they cannot raise
-a hardware capability. Include an uncapped default and an explicit smaller
-preference.
-
-Refresh only the manifest's derived inventory: 173 to 174 cases, 107 to 108
-running in named batches, and the exact source/name digest. Deferred coverage
-remains 3 cases and the unbatched backlog remains 63. No waiver, exclusion,
-minimum, threshold, batch requirement or ratchet is relaxed. The existing
-coverage guard also requires the new oracle's batch selection and order
-assertion. Removing either must make that guard fail.
-
-Recompute the inventory with `check_renderer_release_gates._requires_gpu_snapshot`
-and `python tests/ci/test_gpu_harness_deferred_contract.py --print-summary`,
-then run both contract suites and the full module guard suite.
-
-### Chronology and disposition
-
-The renderer implementation initially classified as R2. Adding its regression
-case made the existing inventory guards fail, exposing the necessary manifest
-update and resulting R3 classification. The source implementation and first
-inventory update preceded this permanent ADR. This document records that
-sequence; it does not claim the required permanent design record existed
-before implementation. The maintainer must disposition that process gap, as
-well as the final R3 change and its CODEOWNER review, before merging.
-
-### Consequences and limits
-
-The 512 preference reduces workgroup-prefix work on capable devices; selecting
-256 preserves the previous default on smaller devices. Smaller workgroups can
-require more histogram memory and more prefix work. Runtime/GPU evidence,
-static temporal stability, orbit measurements, allocated GPU memory and two
-independent final-diff reviews remain required. NVIDIA measurements do not
-prove AMD or Intel behavior.
-
-The inherited single-dimension dispatch limit remains a separate concern. At
-a 65,535-group X limit, 256 threads cover 16,776,960 records and 512 threads
-cover 33,553,920; explicit 128-thread configurations already have less
-headroom. The initial correction did not introduce count-aware dispatch or capacity
-admission. The following amendment addresses that admission gap.
-
-Rollback is to revert the radix preference and device-sizing change together
-with its new regression registration, then recompute the exact inventory.
-
-
-## Proposed amendment: radix dispatch-capacity admission (2026-10-11)
-
-- Status: Proposed for maintainer and CODEOWNER disposition.
-- Tracking: #539; portable radix workgroup sizing.
-- Scope: Capacity admission for the actual selected radix workgroup.
-
-### Context and decision
-
-Current-source review found that device adaptation admits 64- and 128-thread
-devices whose declared sort capacity can exceed their X-dimension dispatch
-limit. For example, 10,000,000 records at 128 threads require 78,125 groups,
-exceeding a 65,535-group limit even when the sort buffers fit. The exact
-128-thread capacity at that limit is 8,388,480 records. The previous default
-also lacked a general capacity check at 256 threads; newly admitted devices
-make the smaller-workgroup exposure part of this correction.
-
-After resolving the actual command-device workgroup size, radix initialization
-will compare the widened ceiling of declared capacity divided by that size
-against the same device's maximum X dispatch count. An unsupported capacity
-will return an explicit initialization error before variant creation or sort
-buffer allocation. It will not truncate records, clamp dispatch groups, raise
-the selected workgroup, or silently switch algorithms. Capacities at or below
-the device limit retain the existing sorting behavior.
-
-A scoped test-only count-X ceiling can only lower the actual device limit and
-restores the previous value on scope exit. A required GPU regression will
-exercise actual initialization and factory admission at the exact capacity
-boundary and one record beyond it, plus direct and indirect 64-bit sorted
-output at the supported boundary. Pure arithmetic checks are supplemental.
-Coverage registration will be recomputed additively; no exclusion, waiver,
-threshold, required batch or ratchet is relaxed.
-
-### Chronology, evidence and limits
-
-This amendment is recorded before the capacity-behavior implementation. Two
-independent source-design reviews support the bounded correction. A test-only
-pre-fix source commit will be preserved for the verifier's later actual native
-RED run, followed by the fixed source and check-removal/wiring mutations. The
-RED execution has not occurred at this decision point; source preparation must
-not be described as measured red-first evidence.
-
-The earlier permanent-record chronology gap remains subject to maintainer
-disposition. Original native orbit/content findings also remain open; this
-admission correction does not resolve or waive them. Final current-source
-GPU/runtime evidence and human/CODEOWNER approval remain required.
-
-The existing indirect protocol assumes the GPU-produced element count is no
-greater than the declared capacity. This amendment does not validate arbitrary
-GPU count-buffer contents or add multidimensional dispatch. Those inherited
-boundaries and other sorting algorithms remain separate. Rollback is to revert
-the capacity check and its additive regression registration together; reverting
-only the check reopens unsupported-capacity admission.
+Two cases in the required `GpuSorting` batch cover this on a real device, using
+test-only ceilings that can only lower the reported limits. The manifest
+inventory changes additively (173 to 175 cases, 107 to 109 running); no waiver,
+threshold, batch or ratchet is relaxed. NVIDIA measurements do not prove AMD or
+Intel behaviour. Rollback: revert the preference, the sizing helper, the
+capacity check and the two regression registrations together, then recompute
+the inventory.

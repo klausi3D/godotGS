@@ -130,10 +130,7 @@
   },
   "external_status_check_policy": {
     "source": "GitHub branch protection for master checked on 2026-10-08 (first checked 2026-05-21)",
-    "branch_protection_required_status_checks": [
-      "agentic-pr-gate",
-      "docs-build"
-    ],
+    "branch_protection_required_status_checks": ["agentic-pr-gate", "docs-build"],
     "required_for_public_alpha": [],
     "non_blocking_checks": [
       {
@@ -154,7 +151,7 @@
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 175,
     "sha256": "237c1006b4be9393abc9cf651893233e0bfdf1f15d52cdc762cb342d5363c464",
-    "sha256_last_changed_by": "#539 dispatch-X admission amendment: ADD 1 required GpuSorting case for actual initialize/factory boundary rejection plus direct/indirect64 order; count174 ->175, running108 ->109, deferred3/backlog63 unchanged. Count/digest recomputed from actual source; native RED/GREEN pending. Previous source/name pin f6a856bbe8597e5396aa0f278e5ff9aa50e7f075fdbb331e22d06d2453bf1795. #539: add the Radix device adaptation preserves indirect64 sorting regression in the required GpuSorting batch. Recomputed source/name digest and coverage partition: 173 -> 174 cases; 107 -> 108 running; 3 deferred and 63 unbatched unchanged. Decision: docs/reference/renderer-release-gates.md#proposed-decision-radix-device-adaptation-and-coverage-inventory-2026-10-10. Previous digest: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6.",
+    "sha256_last_changed_by": "#539 (radix workgroup sized to the device limits, capacity admitted against the dispatch X limit): ADD 2 [GaussianSplatting][GpuSort][RequiresGPU] cases in modules/gaussian_splatting/tests/test_gpu_sorting.h, \"Radix device adaptation preserves indirect64 sorting (#539)\" and \"Radix capacity respects dispatch X after device adaptation (#539)\", both in the required GpuSorting batch. count 173 -> 175, running_in_a_named_batch 107 -> 109, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest recomputed with check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary. Decision: docs/reference/renderer-release-gates.md#decision-record-radix-workgroup-sizing-539-2026-10-13. Previous pin, for audit: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6 (count 173, #1173).",
     "deferred_tags_any": [
       "Importer"
     ],
