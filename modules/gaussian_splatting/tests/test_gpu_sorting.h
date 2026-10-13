@@ -33,6 +33,11 @@
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/render_sorting_orchestrator.h"
 
+// PR #1205 review: per-instance SH limit for shared registered chunks.
+#include "../compute/depth_compute.glsl.gen.h"
+#include "../renderer/sorting_contract.h"
+#include "../renderer/splat_ref_encoding.h"
+
 namespace TestGaussianSplatting {
 
 // Helper to create storage buffer from typed data
@@ -1545,6 +1550,234 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Sorter init failure backoff
 	if (owns_local_device) {
 		memdelete(rd);
 	}
+}
+
+// PR #1205 review: registered chunks are shared by every instance of an asset, so the
+// chunk's sh_limit cannot carry a per-instance LOD. The REAL depth_compute shader must
+// derive each splat reference's SH limit from the visible instance's resolved LOD
+// (InstanceDataGPU.lod[0]) and the host policy word, capped by the chunk limit.
+// Pre-fix both instances of the one shared chunk received chunk.sh_limit (4, 4).
+static inline RID gs_compile_depth_compute_shader(RenderingDevice *p_rd) {
+	DepthComputeShaderRD source;
+	Vector<String> versions;
+	versions.push_back("");
+	source.initialize(versions);
+	RID version = source.version_create();
+	if (!version.is_valid()) {
+		return RID();
+	}
+	RS::ShaderNativeSourceCode native = source.version_get_native_source_code(version);
+	source.version_free(version);
+	if (native.versions.is_empty()) {
+		return RID();
+	}
+	String compute_source;
+	for (int i = 0; i < native.versions[0].stages.size(); i++) {
+		if (native.versions[0].stages[i].name == "compute") {
+			compute_source = native.versions[0].stages[i].code;
+			break;
+		}
+	}
+	const int version_pos = compute_source.find("#version");
+	const int newline_pos = version_pos < 0 ? -1 : compute_source.find("\n", version_pos);
+	if (newline_pos < 0) {
+		return RID();
+	}
+	// Same preamble the production pipeline injects (gpu_sorting_pipeline.cpp).
+	compute_source = compute_source.substr(0, newline_pos + 1) + "#define GS_SORT_PAD_DEPTH_VALUE " +
+			String::num_scientific(GaussianSplatting::kSortPadDepth) + "\n" + compute_source.substr(newline_pos + 1);
+	RID shader;
+	GaussianSplatting::ComputeInfrastructure::StageResult result =
+			GaussianSplatting::ComputeInfrastructure::compile_compute_shader_from_source(
+					p_rd, "Test.InstanceDepth", compute_source, "TestInstanceDepth", shader);
+	return result.ok() ? shader : RID();
+}
+
+TEST_CASE("[GaussianSplatting][GPUSortPipeline][RequiresGPU] Instance depth pass gives each instance of a shared chunk its own LOD SH limit") {
+	RenderingDevice *rd = RenderingDevice::get_singleton();
+	if (rd == nullptr) {
+		FAIL("RenderingDevice unavailable in a [RequiresGPU] case");
+		return;
+	}
+	RID shader = gs_compile_depth_compute_shader(rd);
+	if (!shader.is_valid()) {
+		FAIL("Failed to compile depth_compute shader");
+		return;
+	}
+	RID pipeline = rd->compute_pipeline_create(shader);
+
+	// One gaussian in one chunk, visible to two instances at different resolved LODs.
+	Vector<uint8_t> atlas_bytes;
+	atlas_bytes.resize(sizeof(PackedGaussian));
+	atlas_bytes.fill(0);
+	PackedGaussian *gaussian = reinterpret_cast<PackedGaussian *>(atlas_bytes.ptrw());
+	gaussian->position[2] = -5.0f;
+	gaussian->opacity = 1.0f;
+	gaussian->scale[0] = 0.1f;
+	gaussian->scale[1] = 0.1f;
+	gaussian->scale[2] = 0.1f;
+	gaussian->rotation[3] = 1.0f;
+
+	const uint32_t instance_lods[2] = { 0u, 2u };
+	Vector<uint8_t> instance_bytes;
+	instance_bytes.resize(2 * sizeof(InstanceDataGPU));
+	instance_bytes.fill(0);
+	InstanceDataGPU *instances = reinterpret_cast<InstanceDataGPU *>(instance_bytes.ptrw());
+	for (uint32_t i = 0; i < 2; i++) {
+		instances[i].rotation[3] = 1.0f;
+		instances[i].inv_rotation[3] = 1.0f;
+		instances[i].translation_scale[3] = 1.0f;
+		instances[i].params[0] = 1.0f;
+		instances[i].params[1] = 1.0f;
+		instances[i].ids[1] = GS_INSTANCE_FLAG_ROTATION_IDENTITY | GS_INSTANCE_FLAG_SCALE_IDENTITY |
+				GS_INSTANCE_FLAG_TRANSLATION_ZERO;
+		instances[i].lod[0] = instance_lods[i];
+	}
+
+	Vector<uint8_t> chunk_bytes;
+	chunk_bytes.resize(sizeof(ChunkMetaGPU));
+	chunk_bytes.fill(0);
+	ChunkMetaGPU *chunk = reinterpret_cast<ChunkMetaGPU *>(chunk_bytes.ptrw());
+	chunk->splat_count = 1;
+	chunk->bounds_radius_local = 1.0f;
+
+	Vector<uint8_t> visible_bytes;
+	visible_bytes.resize(2 * sizeof(VisibleChunkRefGPU));
+	VisibleChunkRefGPU *visible = reinterpret_cast<VisibleChunkRefGPU *>(visible_bytes.ptrw());
+	visible[0].instance_id = 0u;
+	visible[0].chunk_id = 0u;
+	visible[1].instance_id = 1u;
+	visible[1].chunk_id = 0u;
+
+	// Four slots each: splat refs and sort keys are 8 bytes, sort values 4 bytes.
+	Vector<uint8_t> zero_refs;
+	zero_refs.resize(4 * sizeof(SplatRefGPU));
+	zero_refs.fill(0);
+	Vector<uint8_t> zero_values;
+	zero_values.resize(4 * sizeof(uint32_t));
+	zero_values.fill(0);
+	Vector<uint8_t> zero_counter;
+	zero_counter.resize(2 * sizeof(uint32_t));
+	zero_counter.fill(0);
+	Vector<uint8_t> params_bytes;
+	params_bytes.resize(sizeof(InstanceDepthParamsGPU));
+	params_bytes.fill(0);
+
+	RID atlas_buffer = rd->storage_buffer_create(atlas_bytes.size(), atlas_bytes);
+	RID instance_buffer = rd->storage_buffer_create(instance_bytes.size(), instance_bytes);
+	RID chunk_buffer = rd->storage_buffer_create(chunk_bytes.size(), chunk_bytes);
+	RID visible_buffer = rd->storage_buffer_create(visible_bytes.size(), visible_bytes);
+	RID ref_buffer = rd->storage_buffer_create(zero_refs.size(), zero_refs);
+	RID key_buffer = rd->storage_buffer_create(zero_refs.size(), zero_refs);
+	RID value_buffer = rd->storage_buffer_create(zero_values.size(), zero_values);
+	RID counter_buffer = rd->storage_buffer_create(zero_counter.size(), zero_counter);
+	RID params_buffer = rd->uniform_buffer_create(params_bytes.size(), params_bytes);
+
+	Vector<RD::Uniform> uniforms;
+	const RID storage[] = { atlas_buffer, RID(), instance_buffer, chunk_buffer, visible_buffer, ref_buffer,
+		key_buffer, value_buffer, counter_buffer };
+	for (uint32_t binding = 0; binding < 9; binding++) {
+		if (!storage[binding].is_valid()) {
+			continue; // binding 1 exists only in the quantized variant
+		}
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		u.binding = binding;
+		u.append_id(storage[binding]);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		u.binding = 9;
+		u.append_id(params_buffer);
+		uniforms.push_back(u);
+	}
+	RID uniform_set = pipeline.is_valid() ? rd->uniform_set_create(uniforms, shader, 0) : RID();
+
+	// Decodes the SH limit written for each instance id (UINT32_MAX = no reference).
+	auto run = [&](uint32_t p_chunk_limit, uint32_t p_policy, uint32_t (&r_limits)[2]) -> bool {
+		r_limits[0] = UINT32_MAX;
+		r_limits[1] = UINT32_MAX;
+		chunk->sh_limit = p_chunk_limit;
+		rd->buffer_update(chunk_buffer, 0, chunk_bytes.size(), chunk_bytes.ptr());
+		rd->buffer_update(counter_buffer, 0, zero_counter.size(), zero_counter.ptr());
+		rd->buffer_update(ref_buffer, 0, zero_refs.size(), zero_refs.ptr());
+		InstanceDepthParamsGPU *params = reinterpret_cast<InstanceDepthParamsGPU *>(params_bytes.ptrw());
+		params->view_matrix[0] = 1.0f;
+		params->view_matrix[5] = 1.0f;
+		params->view_matrix[10] = 1.0f;
+		params->view_matrix[15] = 1.0f;
+		params->visible_chunk_count = 2;
+		params->max_visible_splats = 4;
+		params->cull_frustum_radius[0] = 1.0f;
+		params->cull_frustum_radius[1] = 1.0f;
+		params->cull_frustum_radius[3] = float(p_policy);
+		rd->buffer_update(params_buffer, 0, params_bytes.size(), params_bytes.ptr());
+		int64_t list = rd->compute_list_begin();
+		rd->compute_list_bind_compute_pipeline(list, pipeline);
+		rd->compute_list_bind_uniform_set(list, uniform_set, 0);
+		rd->compute_list_dispatch(list, 1, 2, 1);
+		rd->compute_list_end();
+		const Vector<uint8_t> counter = rd->buffer_get_data(counter_buffer);
+		const Vector<uint8_t> refs = rd->buffer_get_data(ref_buffer);
+		if (counter.size() < 8 || refs.size() < int(2 * sizeof(SplatRefGPU))) {
+			return false;
+		}
+		uint32_t written = 0;
+		std::memcpy(&written, counter.ptr(), sizeof(uint32_t));
+		if (written != 2u) {
+			return false;
+		}
+		const SplatRefGPU *out = reinterpret_cast<const SplatRefGPU *>(refs.ptr());
+		for (uint32_t i = 0; i < 2; i++) {
+			if (out[i].instance_id > 1u || gs_splat_ref::gs_splat_ref_atlas_index(out[i].atlas_index) != 0u) {
+				return false;
+			}
+			r_limits[out[i].instance_id] = gs_splat_ref::gs_splat_ref_sh_limit(out[i].atlas_index);
+		}
+		return true;
+	};
+
+	if (!uniform_set.is_valid()) {
+		FAIL("Failed to create depth_compute pipeline or uniform set");
+	} else {
+		using gs_splat_ref::gs_pack_instance_sh_policy;
+		uint32_t limits[2];
+		// SH4 maximum, reduction on: LOD0 keeps SH4, LOD2 drops two degrees (pre-fix: 4, 4).
+		CHECK(run(4u, gs_pack_instance_sh_policy(4u, true), limits));
+		CHECK(limits[0] == 4u);
+		CHECK(limits[1] == 2u);
+		// Configured SH1 maximum: LOD0 -> SH1, LOD2 -> SH0.
+		CHECK(run(4u, gs_pack_instance_sh_policy(1u, true), limits));
+		CHECK(limits[0] == 1u);
+		CHECK(limits[1] == 0u);
+		// Reduction disabled preserves the maximum for every instance.
+		CHECK(run(4u, gs_pack_instance_sh_policy(3u, false), limits));
+		CHECK(limits[0] == 3u);
+		CHECK(limits[1] == 3u);
+		// The chunk limit (available degree) still caps both instances.
+		CHECK(run(1u, gs_pack_instance_sh_policy(4u, true), limits));
+		CHECK(limits[0] == 1u);
+		CHECK(limits[1] == 1u);
+		// The host default (no streaming policy) leaves the chunk limit authoritative.
+		CHECK(run(3u, GPUSortingPipeline::InstancePipelineInputs().sh_lod_policy, limits));
+		CHECK(limits[0] == 3u);
+		CHECK(limits[1] == 3u);
+	}
+
+	if (uniform_set.is_valid()) {
+		rd->free(uniform_set);
+	}
+	const RID owned[] = { params_buffer, counter_buffer, value_buffer, key_buffer, ref_buffer, visible_buffer,
+		chunk_buffer, instance_buffer, atlas_buffer };
+	for (const RID &rid : owned) {
+		rd->free(rid);
+	}
+	if (pipeline.is_valid()) {
+		rd->free(pipeline);
+	}
+	rd->free(shader);
 }
 
 } // namespace TestGaussianSplatting

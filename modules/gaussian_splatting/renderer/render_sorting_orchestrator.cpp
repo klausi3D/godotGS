@@ -113,6 +113,9 @@ static void _set_instance_sort_inputs(const GaussianSplatRenderer::InstancePipel
 	instance_inputs.max_visible_splats = p_buffers.max_visible_splats;
 	instance_inputs.max_chunk_splats = p_buffers.max_chunk_splats;
 	instance_inputs.world_submission_active = p_buffers.world_submission_active;
+	if (p_renderer && p_renderer->get_streaming_state().current_streaming_system.is_valid()) {
+		instance_inputs.sh_lod_policy = p_renderer->get_streaming_state().current_streaming_system->get_instance_sh_policy();
+	}
 	instance_inputs.owner_renderer = p_renderer;
 	instance_inputs.device = p_render_device;
 	p_sorting_pipeline->set_instance_pipeline_inputs(instance_inputs);
@@ -912,6 +915,12 @@ GaussianRenderState::SortStageSummary RenderSortingOrchestrator::sort_gaussians_
 	bool instance_camera_valid = false;
 	if (instance_pipeline_buffers_valid) {
 		instance_content_generation = renderer->get_instance_pipeline_content_generation();
+		// The depth pass writes the instance SH policy into every splat ref, so a policy
+		// change (SH setting or LOD reduction) must miss the static instance sort cache.
+		if (renderer->get_streaming_state().current_streaming_system.is_valid()) {
+			instance_content_generation = _mix_sort_buffer_generation(instance_content_generation,
+					renderer->get_streaming_state().current_streaming_system->get_instance_sh_policy());
+		}
 		instance_max_visible_splats = renderer->get_instance_pipeline_buffers().max_visible_splats;
 		instance_max_chunk_splats = renderer->get_instance_pipeline_buffers().max_chunk_splats;
 	}

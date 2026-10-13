@@ -37,6 +37,9 @@ public:
         uint32_t max_visible_splats = 0;
         uint32_t max_chunk_splats = 0;
         bool world_submission_active = false;
+        // gs_pack_instance_sh_policy() word; the default (SH4, no per-LOD reduction)
+        // leaves the per-chunk sh_limit authoritative.
+        uint32_t sh_lod_policy = 4u;
         const GaussianSplatRenderer *owner_renderer = nullptr;
     };
 

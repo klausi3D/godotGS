@@ -297,19 +297,21 @@ TEST_CASE("[GaussianSplatting][Config] Explicit SH0-4 settings preserve preceden
     Ref<GaussianStreamingSystem> system;
     system.instantiate();
     ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "steam_deck");
+    // No manual g_sh_config reload: the settings signal and the production update must
+    // carry each value (a manual reload here hid the missing reload, PR #1205 review).
     for (int degree = 0; degree <= 4; degree++) {
         ps->set_setting(SHConfig::BANDS_PATH, degree);
-        g_sh_config.load_from_project_settings();
+        ps->emit_signal("settings_changed");
+        system->update_streaming(Transform3D(), Projection());
         CHECK(int(g_sh_config.sh_bands) == degree);
         CHECK(g_sh_config.sh_bands_source == "project_override");
-        system->update_streaming(Transform3D(), Projection());
         CHECK(system->get_global_sh_band_level() == degree);
     }
     ps->set_setting(SHConfig::BANDS_PATH, -1);
-    g_sh_config.load_from_project_settings();
+    ps->emit_signal("settings_changed");
+    system->update_streaming(Transform3D(), Projection());
     CHECK(g_sh_config.sh_bands == SH_BAND_1);
     CHECK(g_sh_config.sh_bands_source == "tier_preset");
-    system->update_streaming(Transform3D(), Projection());
     CHECK(system->get_global_sh_band_level() == 1);
 }
 

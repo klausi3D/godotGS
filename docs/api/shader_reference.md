@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `186` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `188` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -1000,6 +1000,32 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
 </table>
 
 
+## gs_splat_ref_encoding.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_splat_ref_encoding.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_pack_instance_sh_policy(uint max_degree, bool reduce_per_lod)</code></pre></td>
+      <td>Instance SH policy word (InstanceDepthParamsGPU.cull_frustum_radius.w as an exact small float): bits 0-2 configured maximum degree, bit 3 reduces one degree per resolved instance LOD. Mirrors LODConfig::get_sh_band_for_lod() for shared registered chunks.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_instance_sh_limit(uint policy, uint lod_level)</code></pre></td>
+      <td>SH limit for one instance: the policy maximum, less one degree per resolved LOD when enabled.</td>
+    </tr>
+  </tbody>
+</table>
+
+
 ## gs_srgb.glsl
 
 `modules/gaussian_splatting/shaders/includes/gs_srgb.glsl`
@@ -1874,7 +1900,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>cull_frustum_radius</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = reserved</td>
+      <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy</td>
     </tr>
   </tbody>
 </table>

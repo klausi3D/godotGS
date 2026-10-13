@@ -1,4 +1,5 @@
 #include "../renderer/sh_config.h"
+#include "../renderer/splat_ref_encoding.h"
 #include "gaussian_streaming.h"
 #include "../io/streaming_chunk_bake.h"
 #include "gs_project_settings.h"
@@ -297,6 +298,7 @@ void GaussianStreamingSystem::_connect_project_settings() {
 
 void GaussianStreamingSystem::_on_project_settings_changed() {
     config_dirty = true;
+    sh_config_dirty = true;
 }
 
 GaussianStreamingSystem::~GaussianStreamingSystem() {
@@ -2476,6 +2478,7 @@ void GaussianStreamingSystem::set_chunk_radius_multiplier(float p_multiplier) {
 void GaussianStreamingSystem::update_streaming(const Transform3D &camera_transform, const Projection &projection, float frame_delta_seconds) {
     // Synchronize effective renderer quality before every production update,
     // including early-return paths and all registered asset instances.
+    _reload_sh_config_if_dirty();
     set_global_sh_band_level(int(g_sh_config.sh_bands));
     // PR #352: short-circuit when initialize() previously failed. Without this
     // guard, every frame re-entered the full pipeline below, the runtime
@@ -2683,7 +2686,24 @@ void GaussianStreamingSystem::_run_streaming_frame_pipeline(const Transform3D &c
     global_atlas_registry.sync_to_gpu(*this, rd);
 }
 
+uint32_t GaussianStreamingSystem::get_instance_sh_policy() const {
+    const LODConfig &lod_config = _get_lod_config();
+    return gs_splat_ref::gs_pack_instance_sh_policy(uint32_t(get_global_sh_band_level()),
+            lod_config.enabled && lod_config.sh_reduction_enabled);
+}
+
+// The global SH config is shared with the raster params; only a real settings change
+// reloads it, so values set directly in code survive until the next change.
+void GaussianStreamingSystem::_reload_sh_config_if_dirty() {
+    if (!sh_config_dirty) {
+        return;
+    }
+    sh_config_dirty = false;
+    g_sh_config.load_from_project_settings();
+}
+
 void GaussianStreamingSystem::_reload_config_if_dirty() {
+    _reload_sh_config_if_dirty();
     if (!config_dirty) {
         return;
     }

@@ -128,7 +128,9 @@ class SHSelectionWiringTests(unittest.TestCase):
         module = ROOT / "modules" / "gaussian_splatting"
         stage_b = (module / "compute/depth_compute.glsl").read_text(encoding="utf-8")
         binning = (module / "shaders/tile_binning.glsl").read_text(encoding="utf-8")
-        self.assertRegex(stage_b, r"\.atlas_index\s*=\s*gs_pack_splat_ref_atlas_index\(atlas_index,\s*chunk\.sh_limit\)")
+        # Shared registered chunks: the per-instance LOD policy is capped by the chunk limit.
+        self.assertRegex(stage_b, r"instance_sh_limit\s*=\s*gs_instance_sh_limit\(uint\(params\.cull_frustum_radius\.w\s*\+\s*0\.5\),\s*instance\.lod\.x\)")
+        self.assertRegex(stage_b, r"\.atlas_index\s*=\s*gs_pack_splat_ref_atlas_index\(atlas_index,\s*min\(chunk\.sh_limit,\s*instance_sh_limit\)\)")
         start = binning.index("SplatRefGPU splat_ref =")
         end = binning.index("#if defined(USE_QUANTIZED_GAUSSIANS)", start)
         common = binning[start:end]
@@ -140,7 +142,7 @@ class SHSelectionWiringTests(unittest.TestCase):
         source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")
         start = source.index("void GaussianStreamingSystem::update_streaming(")
         prefix = source[start:source.index("\n    if (", start)]
-        self.assertRegex(prefix, r"set_global_sh_band_level\(int\(g_sh_config\.sh_bands\)\)")
+        self.assertRegex(prefix, r"_reload_sh_config_if_dirty\(\);\s*set_global_sh_band_level\(int\(g_sh_config\.sh_bands\)\)")
 
 
 if __name__ == "__main__":

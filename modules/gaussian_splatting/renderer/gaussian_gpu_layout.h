@@ -598,7 +598,7 @@ struct alignas(16) InstanceDepthParamsGPU {
     float frustum_planes[InstanceCullParamsGPU::kFrustumPlaneCount][4];
     float camera_position_ortho[4]; // xyz = camera position, w = orthographic flag (1.0 or 0.0)
     float cull_screen_distance[4]; // x = pixel_scale_y, y = tiny_splat_radius_px, z = min_screen_threshold_px, w = max_distance_sq
-    float cull_frustum_radius[4]; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = reserved
+    float cull_frustum_radius[4]; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy (gs_pack_instance_sh_policy)
 };
 
 static_assert(alignof(InstanceDepthParamsGPU) == 16, "InstanceDepthParamsGPU must be 16-byte aligned");

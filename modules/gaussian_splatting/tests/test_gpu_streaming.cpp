@@ -4,6 +4,7 @@
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/resource_owner_mismatch_contract.h"
 #include "../renderer/quantization_config.h"
+#include "../renderer/splat_ref_encoding.h"
 #include "../core/gaussian_data.h"
 #include "../core/residency_budget_controller.h"
 #include "../core/gaussian_splat_manager.h"
@@ -4069,5 +4070,37 @@ TEST_CASE("[Streaming Pipeline] Global SH4 changes refresh cached LOD parameters
         const Dictionary stats = system->get_lod_debug_stats();
         const Array distribution = stats.get("sh_band_distribution", Array());
         CHECK(distribution.size() == 5);
+    }
+}
+
+TEST_CASE("[Streaming Pipeline] Instance SH policy reduces per resolved instance LOD like shared chunk LOD") {
+    // Registered chunks are shared by every instance, so the depth pass derives each
+    // instance's SH limit from this policy word (PR #1205 review). Expected values come
+    // from an explicit table, then match the primary-chunk policy where LOD is enabled.
+    Ref<GaussianStreamingSystem> system;
+    system.instantiate();
+    for (bool lod_enabled : { false, true }) {
+        for (bool reduction : { false, true }) {
+            GaussianStreamingSystem::ConfigOverrides overrides;
+            overrides.override_lod_config = true;
+            overrides.lod_config.enabled = lod_enabled;
+            overrides.lod_config.sh_reduction_enabled = reduction;
+            system->set_config_overrides(overrides);
+            for (int maximum = 0; maximum <= 4; maximum++) {
+                system->set_global_sh_band_level(maximum);
+                const uint32_t policy = system->get_instance_sh_policy();
+                // Transported as a float: must stay an exact small integer.
+                CHECK(policy < 16u);
+                CHECK(uint32_t(float(policy)) == policy);
+                for (uint32_t lod = 0; lod < 8; lod++) {
+                    const int reduced = maximum - int(lod);
+                    const uint32_t expected = uint32_t(lod_enabled && reduction ? (reduced < 0 ? 0 : reduced) : maximum);
+                    CHECK(gs_splat_ref::gs_instance_sh_limit(policy, lod) == expected);
+                    if (lod_enabled) {
+                        CHECK(int(expected) == overrides.lod_config.get_sh_band_for_lod(int(lod), maximum));
+                    }
+                }
+            }
+        }
     }
 }

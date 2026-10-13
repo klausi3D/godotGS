@@ -120,6 +120,9 @@ private:
     static constexpr double USEC_PER_MS = 1000.0;
     uint64_t last_config_reload_frame = 0;
     bool config_dirty = true;  // Force initial load
+    // settings_changed also reloads the global SH config before the per-update
+    // quality sync, including failed-init early returns (the full reload stays gated).
+    bool sh_config_dirty = false;
     bool project_settings_connected = false;
     bool streaming_initialized = false;
 
@@ -322,6 +325,9 @@ public:
     // SH band level and visibility change tracking
     int get_global_sh_band_level() const { return visibility.global_sh_band_level; }
     void set_global_sh_band_level(int p_level) { visibility.global_sh_band_level = CLAMP(p_level, 0, 4); }
+    // Instance depth-pass SH policy word (gs_pack_instance_sh_policy): the effective
+    // maximum plus whether resolved instance LODs reduce it, for shared registered chunks.
+    uint32_t get_instance_sh_policy() const;
     float get_visible_count_change_ratio() const;
 
     // Streaming change tracking
@@ -578,6 +584,7 @@ private:
     uint64_t _make_chunk_key(uint32_t asset_id, uint32_t chunk_id) const;
     void _update_chunk_visibility(const Transform3D &camera_transform, const Projection &projection);
     void _log_streaming_telemetry();
+    void _reload_sh_config_if_dirty();
     void _reload_config_if_dirty();
     float _resolve_frame_delta_seconds(float p_frame_delta_seconds);
     // #1088: capacity in atlas PAGES (allocator capacity bounded by the live buffer size).

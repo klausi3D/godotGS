@@ -2623,7 +2623,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         params.cull_frustum_radius[0] = radius_multiplier;
         params.cull_frustum_radius[1] = frustum_plane_slack;
         params.cull_frustum_radius[2] = 0.0f; // Disable per-splat frustum — chunk-level cull suffices
-        params.cull_frustum_radius[3] = 0.0f;
+        params.cull_frustum_radius[3] = float(inputs.sh_lod_policy);
     } else {
         params.cull_screen_distance[1] = tiny_splat_screen_radius;
         params.cull_screen_distance[2] = min_screen_threshold;
@@ -2631,7 +2631,7 @@ bool GPUSortingPipeline::_sort_instance_pipeline(const Transform3D &p_cam_transf
         params.cull_frustum_radius[0] = radius_multiplier;
         params.cull_frustum_radius[1] = frustum_plane_slack;
         params.cull_frustum_radius[2] = enable_frustum;
-        params.cull_frustum_radius[3] = 0.0f;
+        params.cull_frustum_radius[3] = float(inputs.sh_lod_policy);
     }
 
     Vector<uint8_t> param_bytes;

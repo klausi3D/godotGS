@@ -19,4 +19,17 @@ GS_REF_INLINE uint gs_splat_ref_sh_limit(uint encoded) {
     uint degree = encoded >> 29u;
     return degree > 4u ? 4u : degree;
 }
+// Instance SH policy word (InstanceDepthParamsGPU.cull_frustum_radius.w as an exact small
+// float): bits 0-2 configured maximum degree, bit 3 reduces one degree per resolved
+// instance LOD. Mirrors LODConfig::get_sh_band_for_lod() for shared registered chunks.
+GS_REF_INLINE uint gs_pack_instance_sh_policy(uint max_degree, bool reduce_per_lod) {
+    return (max_degree > 4u ? 4u : max_degree) | (reduce_per_lod ? 8u : 0u);
+}
+// SH limit for one instance: the policy maximum, less one degree per resolved LOD when enabled.
+GS_REF_INLINE uint gs_instance_sh_limit(uint policy, uint lod_level) {
+    uint maximum = policy & 7u;
+    maximum = maximum > 4u ? 4u : maximum;
+    if ((policy & 8u) == 0u) return maximum;
+    return lod_level >= maximum ? 0u : maximum - lod_level;
+}
 #endif
