@@ -90,7 +90,7 @@ Change a shared token or component rule before adding a page-specific override.
   `--gs-table-cell-measure`. Do not reduce table type to fit more columns, truncate
   identifiers or apply `white-space: nowrap` to every code token. Keep code-block
   whitespace intact and let long lines scroll within the block.
-- Dense inventories can still require horizontal scrolling inside Material's
+- Dense inventories can still require horizontal scrolling inside the
   `.gs-table-scroll` group supplied by `overrides/main.html`. It preserves
   Material's content and adds keyboard access without page-specific markup or
   JavaScript. Retain its edge shadows, scrollbar and inset keyboard-focus
