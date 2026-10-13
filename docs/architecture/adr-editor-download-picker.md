@@ -34,6 +34,10 @@ download-URL restriction and create API-derived text with `textContent`, never
 HTML. Render no actionable archive link for a rejected URL. A cached list is
 identified as cached. Missing platforms, newer releases without their binaries,
 API failure and disabled JavaScript retain explicit manual-download guidance.
+Validate the parsed, decoded path as well as the literal repository prefix:
+the existing prefix-only check accepts dot-segment paths that a browser resolves
+outside the repository. Reject traversal, ambiguous encoded separators and
+malformed escapes before rendering any editor, checksum or template link.
 Do not redirect based on OS detection or use GitHub's latest-release shortcut,
 which excludes the nightly prereleases.
 
