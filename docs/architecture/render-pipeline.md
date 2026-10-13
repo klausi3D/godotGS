@@ -22,19 +22,19 @@ The renderer tests resident preference first. Only its **No** branch continues t
     <li>
       <strong>Prefer resident?</strong>
       <ul class="gs-flow__branches">
-        <li><small>Yes: <a href="#resident-preferred">resident attempt</a><br>Accepted: shared stages<br>Rejected: typed skip</small></li>
+        <li><small>Yes: resident attempt<br>Accepted: shared stages<br>Rejected: typed skip</small></li>
         <li><small>No: check the streaming request</small></li>
       </ul>
     </li>
     <li>
       <strong>Streaming requested?</strong>
       <ul class="gs-flow__branches">
-        <li><small>Yes: <a href="#streaming-requested">streaming readiness</a><br>Ready: shared stages<br>Not ready: typed skip</small></li>
-        <li><small>No: <a href="#resident-explicit">explicit resident attempt</a><br>Accepted: shared stages<br>Rejected: no typed skip</small></li>
+        <li><small>Yes: streaming readiness<br>Ready: shared stages<br>Not ready: typed skip</small></li>
+        <li><small>No: explicit resident attempt<br>Accepted: shared stages<br>Rejected: no frame, no typed skip</small></li>
       </ul>
     </li>
   </ol>
-  <figcaption>A rejected preferred-resident attempt or an unavailable/rejected streaming path ends this frame. Neither falls back to the other backend in the same frame.</figcaption>
+  <figcaption>A rejected preferred-resident attempt or an unavailable/rejected streaming path ends this frame. Neither falls back to the other backend in the same frame. See <a href="#execution-details">Execution Details</a> for the calls and diagnostics.</figcaption>
 </figure>
 
 ### Shared Stages
@@ -52,12 +52,11 @@ The renderer tests resident preference first. Only its **No** branch continues t
 
 1. `GaussianSplatRenderer::render_scene_instance` initializes per-frame state and camera/view context.
 2. The renderer builds the frame's backend plan (`build_frame_backend_plan`) and picks exactly one route:
-   - <span id="resident-preferred"></span> **Resident, tried first** when `FrameBackendPlan::prefer_resident_backend` is set. `_try_render_resident_frame` publishes the resident instance contract (`_publish_resident_direct_data_contract`, backed by `ResidentInstanceContractPublisher`), then calls `render_instanced`. If the contract cannot be published, the frame is skipped with a typed `resident_not_feasible` route. Streaming is not tried on the same frame.
-   - <span id="streaming-requested"></span> **Streaming** when streaming is requested and ready. `RenderStreamingOrchestrator::render_streaming_frame` publishes the streaming instance contract, checks readiness, and then runs `_run_cull_sort_pipeline_frame`, which enters `RenderPipelineStages::execute_frame_entry`. If streaming was requested but is not ready, or the orchestrator rejects the frame, the frame is skipped with a typed streaming-not-ready route. It never falls through to the resident route.
-   - <span id="resident-explicit"></span> **Resident, explicit policy**: if streaming was not requested at all, the renderer calls `_render_resident_frame`, which runs the same resident attempt but discards its result. If that attempt fails, the frame is not rendered, but no typed skip route is published: there is no route decision, no `publish_route_skip_stage_metrics` call, and `route_uid` stays at the frame-start `COMMON.UNSET.ROUTE`. Only a failed contract publish records a reason, through the instance-backend diagnostics.
+   - **Resident, tried first** when `FrameBackendPlan::prefer_resident_backend` is set. `_try_render_resident_frame` publishes the resident instance contract (`_publish_resident_direct_data_contract`, backed by `ResidentInstanceContractPublisher`), then calls `render_instanced`. If the contract cannot be published, the frame is skipped with a typed `resident_not_feasible` route. Streaming is not tried on the same frame.
+   - **Streaming** when streaming is requested and ready. `RenderStreamingOrchestrator::render_streaming_frame` publishes the streaming instance contract, checks readiness, and then runs `_run_cull_sort_pipeline_frame`, which enters `RenderPipelineStages::execute_frame_entry`. If streaming was requested but is not ready, or the orchestrator rejects the frame, the frame is skipped with a typed streaming-not-ready route. It never falls through to the resident route.
+   - **Resident, explicit policy**: if streaming was not requested at all, the renderer calls `_render_resident_frame`, which runs the same resident attempt but discards its result. If that attempt fails, the frame is not rendered, but no typed skip route is published: there is no route decision, no `publish_route_skip_stage_metrics` call, and `route_uid` stays at the frame-start `COMMON.UNSET.ROUTE`. Only a failed contract publish records a reason, through the instance-backend diagnostics.
 3. `RenderPipelineStages` runs the same stage sequence on both routes: cull (`execute_cull_stage`), sort (`execute_sort_stage`), then raster/composite (`render_sorted_splats_with_context`). The resident route drives it per instance pass from `RenderInstancingOrchestrator::render_instanced`. The streaming route drives it once from `execute_frame_entry`.
 4. Output and diagnostics are finalized.
-
 
 ## Backend Route Policy (Resident vs Streaming)
 
