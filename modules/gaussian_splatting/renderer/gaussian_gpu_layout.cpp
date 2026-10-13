@@ -52,6 +52,21 @@ static inline Vector3 _finite_vec3_or(const Vector3 &p_value, const Vector3 &p_f
             _finite_or(p_value.z, p_fallback.z));
 }
 
+// #1175: the splat's sidecar higher-order SH block is part of its render payload, as in
+// GaussianData::all_render_fields_finite(). Without this, a NaN there was silently zeroed
+// by the SNORM10 encoder: an unreported colour change instead of a counted rejection.
+static inline bool _sh_block_finite(const Vector3 *p_coeffs, uint32_t p_count) {
+    if (!p_coeffs) {
+        return true;
+    }
+    for (uint32_t i = 0; i < p_count; i++) {
+        if (!Math::is_finite(p_coeffs[i].x) || !Math::is_finite(p_coeffs[i].y) || !Math::is_finite(p_coeffs[i].z)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // #1054: SH coefficients are signed (trained SH has zero mean). They used to be stored as
 // unsigned RGB9E5, which clamped every negative channel to zero on every GPU path. They are
 // now stored as signed 10-bit integers scaled by one per-splat magnitude (see
@@ -222,7 +237,8 @@ void pack_gaussian(const Gaussian &src,
         uint32_t first_order_count,
         uint32_t higher_order_count,
         uint32_t coefficient_limit) {
-    const bool render_fields_finite = gaussian_render_fields_finite(src);
+    const bool render_fields_finite = gaussian_render_fields_finite(src) &&
+            _sh_block_finite(higher_order_coeffs, higher_order_count);
     const bool normal_finite = Math::is_finite(src.normal.x) && Math::is_finite(src.normal.y) &&
             Math::is_finite(src.normal.z);
     if (render_fields_finite && normal_finite) {
@@ -352,7 +368,7 @@ void pack_gaussian_quantized(const Gaussian &src,
     // #1175: flooring alone left a NaN-position splat visible at the chunk's min
     // corner. A non-finite render-critical field rejects the splat, exactly as
     // pack_gaussian() does: every lane stays floored and finite, opacity is 0.
-    if (!gaussian_render_fields_finite(src)) {
+    if (!gaussian_render_fields_finite(src) || !_sh_block_finite(higher_order_coeffs, higher_order_count)) {
         dst.opacity = 0.0f;
         _record_non_finite_rejection(metrics, "pack_gaussian_quantized");
     }
