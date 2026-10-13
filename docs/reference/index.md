@@ -111,7 +111,7 @@ How the images were made:
 
 `first-splat-editor-tree.webp` and `first-splat-runtime.webp` are real Windows captures taken on 13 October 2026. They show the versioned `res://scenes/public_evaluator.tscn` sample and its 1,024-splat `test_splats.gsplatworld` fixture.
 
-- **Project:** [commit 3d38249](https://github.com/klausi3D/godotGS/commit/3d38249ce3a269a272ad2308231dc60ecd4f3471). The capture used an isolated project containing the unchanged project settings, scene, camera script and world fixture from that commit.
+- **Project:** [commit 3d38249](https://github.com/klausi3D/godotGS/commit/3d38249ce3a269a272ad2308231dc60ecd4f3471). The capture used an isolated copy of the project settings, scene, camera script and world fixture from that commit. The scene, script and fixture remained byte-identical. The editor resaved `project.godot`, reordering settings and omitting the default sorting values `key_bits=64`, `tile_bits=32` and `depth_bits=32`; no manual tuning was applied.
 - **Engine:** godotGS [commit 0981c0a](https://github.com/klausi3D/godotGS/commit/0981c0a2149c06eb8928ca2050b6adba689e8574), an older native Windows build. Build flags were not recorded; these images illustrate the tutorial rather than validate the latest engine build or performance targets.
 - **Hardware:** NVIDIA GeForce RTX 3090, Windows driver version `32.0.15.9186`.
 - **Capture:** direct capture of the Godot client window at 1920×1080, default editor theme, English UI, 100% editor scale. The Scene dock image is a 280×300 region from the top-left of that client; WebP encoding is lossless.
