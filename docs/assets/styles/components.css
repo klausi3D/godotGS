@@ -180,6 +180,54 @@
 }
 
 /* --------------------------------------------------------------------------
+   Editor downloads — platform choice, direct archive action and build context.
+   The grid becomes one column before its contents need horizontal scrolling.
+   -------------------------------------------------------------------------- */
+.md-typeset .gs-download-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.8rem;
+  margin: 0.9rem 0;
+}
+.md-typeset .gs-download-card {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--gs-line-strong);
+  border-radius: var(--gs-radius-md);
+  background: var(--gs-surface);
+  overflow-wrap: anywhere;
+}
+.md-typeset .gs-download-card h3 {
+  margin: 0 0 0.4rem;
+}
+.md-typeset .gs-download-card p {
+  margin: 0.5rem 0;
+}
+.md-typeset .gs-download-meta {
+  color: var(--gs-muted);
+  font-size: var(--gs-text-table);
+}
+.md-typeset .gs-download-card code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.md-typeset .gs-download-flavor {
+  border-left: 2px solid var(--gs-warning);
+  padding-left: 0.5rem;
+}
+.md-typeset .gs-download-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  width: 100%;
+  margin: 0.75rem 0;
+  padding: 0.6em 0.8em;
+  font-size: var(--gs-text-body);
+  text-align: center;
+}
+
+/* --------------------------------------------------------------------------
    Tables — the compatibility / status matrix. Cells are transparent so the
    scroll-edge shadows on the wrapper (below) show through them.
    -------------------------------------------------------------------------- */
