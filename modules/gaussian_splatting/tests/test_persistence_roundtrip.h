@@ -3724,7 +3724,7 @@ void full_snapshot_replace_worker(void *p_userdata) {
         processed = token;
     }
 }
-bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &serializer, GaussianData *data, const String &path) {
+bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &serializer, GaussianData *data, const String &path, bool p_expect_first) {
     const Error save = serializer.save_scene(path, data);
     CHECK(save == OK);
     if (save != OK) {
@@ -3749,6 +3749,11 @@ bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
     const bool first = snapshot.get_gaussians().size() == 4096;
     const bool valid_generation = first || snapshot.get_gaussians().size() == 3072;
     CHECK(valid_generation);
+    // The replacement entered set_gaussians() while capture held the read lock,
+    // so it completes only after capture. The file must hold the captured
+    // generation; a writer reading live storage persists the replacement.
+    const bool captured_generation = first == p_expect_first;
+    CHECK(captured_generation);
     const Vector3 position = first ? Vector3(11, 12, 13) : Vector3(-21, -22, -23);
     bool coherent = true;
     for (int64_t i = 0; i < snapshot.get_gaussians().size(); ++i) {
@@ -3774,7 +3779,7 @@ bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
             header_coherent = header_coherent && matches;
         }
     }
-    return validated == OK && valid_generation && coherent && header_coherent;
+    return validated == OK && valid_generation && captured_generation && coherent && header_coherent;
 }
 }
 TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during concurrent structural replacement") {
@@ -3821,7 +3826,8 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
     GaussianSplatting::GaussianSceneSerializer serializer;
     for (uint32_t token = 1; token <= 20; ++token) {
         ctx.armed_token.store(token, std::memory_order_release);
-        if (full_snapshot_check_roundtrip(serializer, data.ptr(), path)) {
+        // Odd tokens replace first with second; even tokens replace second with first.
+        if (full_snapshot_check_roundtrip(serializer, data.ptr(), path, (token & 1u) != 0)) {
             ++successful_roundtrips;
         }
         const bool capture_seen = ctx.captured_token.load(std::memory_order_acquire) == token;
