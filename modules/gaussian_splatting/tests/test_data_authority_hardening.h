@@ -787,7 +787,12 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A NaN splat installed in a Gaussia
     REQUIRE(first_bad == 1);
 
     const LocalVector<Gaussian> &storage = data->get_gaussian_storage();
-    REQUIRE(storage.size() == 3u);
+    // REQUIRE does not abort in this build, and both packers below index fixed
+    // three-record destinations by storage.size(): guard the cardinality explicitly.
+    if (storage.size() != 3u) {
+        FAIL("set_gaussians() must store one record per input splat, got ", storage.size());
+        return;
+    }
     const uint64_t global_before = gs_get_non_finite_pack_rejection_count();
 
     // Control: a clean payload packs with zero rejections, so the count below is not

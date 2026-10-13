@@ -1309,6 +1309,65 @@ TEST_CASE("[Streaming Pipeline] Predictive prefetch never queues a chunk past th
     CHECK_FALSE(far_queued);
 }
 
+TEST_CASE("[Streaming Pipeline] Backed-off chunks do not take the predictive prefetch shortlist (#1178)") {
+    // Two slots (available_slots = load_budget = 2). The two chunks nearest the predicted
+    // position are in payload-read backoff, so the enqueue refuses both; a healthy chunk
+    // slightly farther away must still be prefetched instead of waiting out the backoff.
+    const uint32_t chunk_count = 16;
+    const Vector3 predicted(0.0f, 0.0f, -2000.0f);
+    const uint32_t backed_off_a = 0;
+    const uint32_t backed_off_b = 1;
+    const uint32_t healthy = 2;
+    for (int route = 0; route < 2; route++) {
+        const bool async_route = route == 1;
+        CAPTURE(async_route);
+        Ref<GaussianStreamingSystem> system;
+        system.instantiate();
+        _setup_load_distance_chunks(*system.ptr(), chunk_count, 100.0f); // all far from the origin
+        LocalVector<GaussianStreamingTypes::StreamingChunk> &chunks = system->_test_get_primary_chunks();
+        const Vector3 half(LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT, LOAD_DISTANCE_TEST_HALF_EXTENT);
+        const float offsets[3] = { 1.0f, 2.0f, 4.0f };
+        for (uint32_t i = 0; i < 3; i++) {
+            chunks[i].center = predicted + Vector3(offsets[i], 0.0f, 0.0f);
+            chunks[i].bounds = AABB(chunks[i].center - half, half * 2.0f);
+        }
+        chunks[backed_off_a].retry_after_frame = 1000000;
+        chunks[backed_off_b].retry_after_frame = 1000000;
+        LocalVector<Gaussian> gaussians;
+        gaussians.resize(chunk_count);
+        for (uint32_t i = 0; i < chunk_count; i++) {
+            gaussians[i].position = chunks[i].center;
+            gaussians[i].scale = Vector3(0.05f, 0.05f, 0.05f);
+            gaussians[i].rotation = Quaternion();
+            gaussians[i].opacity = 1.0f;
+        }
+        Ref<GaussianData> data;
+        data.instantiate();
+        data->set_gaussians(gaussians);
+        system->_test_begin_device_free_load_scan(data, 32);
+        if (async_route) {
+            system->_internal_get_upload_pipeline()._test_set_async_pack_queue_owner(true);
+        }
+
+        StreamingVisibilityController &visibility = system->_test_get_visibility_controller();
+        // Prefetch needs a moving camera.
+        visibility.update_camera_tracking(Vector3(0.0f, 0.0f, 0.0f), 0.1f);
+        visibility.update_camera_tracking(Vector3(0.0f, 0.0f, -5.0f), 0.1f);
+        const uint32_t queued = visibility.prefetch_chunks_at_predicted_position(*system.ptr(), predicted, 2, 2, UINT32_MAX);
+        const bool healthy_queued = async_route ? chunks[healthy].upload_pending
+                                                : system->_test_sync_fallback_queued(0u, healthy);
+        const bool a_queued = async_route ? chunks[backed_off_a].upload_pending
+                                          : system->_test_sync_fallback_queued(0u, backed_off_a);
+        const bool b_queued = async_route ? chunks[backed_off_b].upload_pending
+                                          : system->_test_sync_fallback_queued(0u, backed_off_b);
+        system->_test_end_device_free_load_scan();
+        CHECK(queued == 1);
+        CHECK(healthy_queued);
+        CHECK_FALSE(a_queued);
+        CHECK_FALSE(b_queued);
+    }
+}
+
 TEST_CASE("[Streaming Pipeline] Load scan and sync drain never queue a chunk past the load distance limit (#1087)") {
     // The visibility pass is not the only gate: the load scan and the sync-fallback
     // drain apply the same bound themselves. Here visibility ran unbounded, so the far
