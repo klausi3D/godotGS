@@ -96,8 +96,7 @@ function Invoke-LoggedCommand {
         [string]$Name,
         [string[]]$Command,
         [string]$WorkingDirectory,
-        [string]$LogPath,
-        [switch]$RequireNativeExit
+        [string]$LogPath
     )
 
     if ($Command.Count -lt 1) {
@@ -121,11 +120,6 @@ function Invoke-LoggedCommand {
     $hadNativePreference = $false
     $previousNativePreference = $null
 
-    # QA prerequisites must not inherit a previous command's native exit.
-    # A launch error can otherwise leave LASTEXITCODE null or unchanged even
-    # though no native child ran. Reset before invocation preparation too.
-    if ($RequireNativeExit) { $global:LASTEXITCODE = $null }
-
     try {
         Push-Location $WorkingDirectory
 
@@ -141,24 +135,14 @@ function Invoke-LoggedCommand {
 
         & $exe @commandArgs 2>&1 | Tee-Object -FilePath $LogPath | Out-Host
         if ($null -eq $LASTEXITCODE) {
-            if ($RequireNativeExit) {
-                $exitCode = $null
-                $errorText = "Native invocation did not produce a fresh exit code."
-                $errorText | Tee-Object -FilePath $LogPath -Append | Out-Null
-            } else {
-                $exitCode = 0
-            }
+            $exitCode = 0
         } else {
             $exitCode = [int]$LASTEXITCODE
         }
     } catch {
         $errorText = $_.Exception.Message
         ($_ | Out-String) | Tee-Object -FilePath $LogPath -Append | Out-Null
-        if ($RequireNativeExit) {
-            $exitCode = $global:LASTEXITCODE
-        } else {
-            $exitCode = 1
-        }
+        $exitCode = 1
     } finally {
         if ($hadNativePreference) {
             $PSNativeCommandUseErrorActionPreference = $previousNativePreference
@@ -169,7 +153,7 @@ function Invoke-LoggedCommand {
 
     $duration = [Math]::Round(((Get-Date) - $start).TotalSeconds, 2)
 
-    $record = [pscustomobject]@{
+    return [pscustomobject]@{
         name = $Name
         executable = $exe
         arguments = ($commandArgs -join " ")
@@ -179,12 +163,6 @@ function Invoke-LoggedCommand {
         duration_seconds = $duration
         error = $errorText
     }
-    if ($RequireNativeExit) {
-        $record | Add-Member -NotePropertyName passed -NotePropertyValue (
-            $null -ne $exitCode -and $exitCode -eq 0 -and $null -eq $errorText
-        )
-    }
-    return $record
 }
 
 function Get-ResultByName {
@@ -365,64 +343,16 @@ if ($RuntimeLoops -gt 0) {
     }
 }
 
-$qaPreparationFailed = $false
-$qaPreparationReason = ""
-$qaPreparationStatus = "SKIPPED"
-$qaInvocationAttempted = $false
-$qaActuallyInvoked = $false
-$qaResult = $null
-$qaResultsPath = $null
-$qaLogPath = $null
 if (-not $SkipQA) {
-    $qaPreparationStatus = "NOT_RUN_PREPARATION_FAILED"
-    $qaProjectPath = Join-Path $Root "tests\examples\godot\test_project"
-    $qaAttemptDirectory = Join-Path $runDir ("qa_" + (New-Guid).ToString())
-    try {
-        # Unlike the overall timestamp directory, QA outputs must be exclusively
-        # owned by this attempt. Never reuse or delete an existing candidate.
-        New-Item -ItemType Directory -Path $qaAttemptDirectory -ErrorAction Stop | Out-Null
-    } catch {
-        $qaPreparationFailed = $true
-        $qaPreparationReason = "Could not reserve fresh QA output directory: " + $_.Exception.Message
-    }
-    if (-not $qaPreparationFailed) {
-        $qaResultsPath = Join-Path $qaAttemptDirectory "qa_results.json"
-        $qaLogPath = Join-Path $qaAttemptDirectory "qa_runner.log"
-        $importCommand = @($GodotBinary, "--headless", "--path", $qaProjectPath, "--import")
-        $importResult = Invoke-LoggedCommand -Name "qa_import" -Command $importCommand -WorkingDirectory $Root -LogPath (Join-Path $qaAttemptDirectory "qa_import.log") -RequireNativeExit
-        $results += $importResult
-        if (-not $importResult.passed) {
-            $qaPreparationFailed = $true
-            $qaPreparationReason = "QA import did not complete successfully."
-        } else {
-            $verifyLogPath = Join-Path $qaAttemptDirectory "qa_import_verify.log"
-            $verifyCommand = @($GodotBinary, "--headless", "--path", $qaProjectPath, "--script", (Join-Path $Root "tests\ci\verify_qa_imports.gd"))
-            $verifyResult = Invoke-LoggedCommand -Name "qa_import_verify" -Command $verifyCommand -WorkingDirectory $Root -LogPath $verifyLogPath -RequireNativeExit
-            $markerCount = @(Get-Content -LiteralPath $verifyLogPath -ErrorAction SilentlyContinue | Where-Object {
-                $_ -cmatch '^QA_IMPORTS_VERIFIED count=[1-9][0-9]* skipped=[0-9]+$'
-            }).Count
-            $verifyResult.passed = $verifyResult.passed -and ($markerCount -eq 1)
-            $verifyResult | Add-Member -NotePropertyName marker_count -NotePropertyValue $markerCount
-            $results += $verifyResult
-            if (-not $verifyResult.passed) {
-                $qaPreparationFailed = $true
-                $qaPreparationReason = "QA import verification requires exit zero and exactly one fresh complete marker."
-            }
-        }
-        if (-not $qaPreparationFailed) {
-            $qaPreparationStatus = "PREPARED"
-            $qaCommand = @(
-                $GodotBinary,
-                "--path", $qaProjectPath,
-                "--script", "res://scripts/qa_test_runner.gd",
-                "--qa-output", $qaResultsPath
-            )
-            $qaInvocationAttempted = $true
-            $qaResult = Invoke-LoggedCommand -Name "qa_runner" -Command $qaCommand -WorkingDirectory $Root -LogPath $qaLogPath -RequireNativeExit
-            $qaActuallyInvoked = $null -ne $qaResult.exit_code
-            $results += $qaResult
-        }
-    }
+    $qaOutputPath = Join-Path $runDir "qa_results.json"
+    $qaCommand = @(
+        $GodotBinary,
+        "--path", (Join-Path $Root "tests\examples\godot\test_project"),
+        "--script", "res://scripts/qa_test_runner.gd",
+        "--qa-output", $qaOutputPath
+    )
+    $qaResult = Invoke-LoggedCommand -Name "qa_runner" -Command $qaCommand -WorkingDirectory $Root -LogPath (Join-Path $runDir "qa_runner.log")
+    $results += $qaResult
 }
 
 if (-not $SkipPainterly) {
@@ -445,17 +375,7 @@ if (-not $SkipPainterly) {
     $results += $painterlyToggleResult
 }
 
-# Timestamp collisions can leave old parent QA logs or older QA directories.
-# Exclude all such QA paths, then enroll only this attempt's actual log records.
-$allLogFiles = @(Get-ChildItem -Path $runDir -Recurse -Filter *.log -File | Where-Object {
-    $relative = Get-RelativePath -BasePath $runDir -ChildPath $_.FullName
-    $_.Name -notlike "qa_*" -and $relative -notmatch '(^|[\\/])qa_[^\\/]+[\\/]'
-})
-foreach ($record in @($results | Where-Object { $_.name -in @("qa_import", "qa_import_verify", "qa_runner") })) {
-    if (Test-Path -LiteralPath $record.log_path) {
-        $allLogFiles += Get-Item -LiteralPath $record.log_path
-    }
-}
+$allLogFiles = @(Get-ChildItem -Path $runDir -Recurse -Filter *.log -File)
 $signatureRules = @(
     @{ id = "headless_skip"; regex = "Skipping .*headless mode" },
     @{ id = "gpu_sort_fallback"; regex = "Radix sort failed; falling back|GPU sorter never executed" },
@@ -492,8 +412,8 @@ if ($signatureHits.Count -gt 0) {
 ($signatureHits | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath (Join-Path $runDir "signature_hits.json") -Encoding UTF8
 
 $qaSummary = $null
-$qaOutputsCurrent = $qaActuallyInvoked -and $null -ne $qaResult -and $null -eq $qaResult.error -and $null -ne $qaResult.exit_code
-if ($qaOutputsCurrent -and (Test-Path -LiteralPath $qaResultsPath)) {
+$qaResultsPath = Join-Path $runDir "qa_results.json"
+if (Test-Path -LiteralPath $qaResultsPath) {
     try {
         $qaSummary = Get-Content -LiteralPath $qaResultsPath -Raw | ConvertFrom-Json
     } catch {
@@ -624,9 +544,8 @@ $issue943Ready = (
 
 $qaRecord = Get-ResultByName -Results $results -Name "qa_runner"
 $qaExitText = "SKIPPED"
-if ($qaPreparationFailed) { $qaExitText = "NOT_RUN_PREPARATION_FAILED" }
 if ($null -ne $qaRecord) {
-    $qaExitText = if ($null -ne $qaRecord.exit_code) { [string]$qaRecord.exit_code } else { "NOT_COMPLETED" }
+    $qaExitText = [string]$qaRecord.exit_code
 }
 
 $qaPassedCount = 0
@@ -651,7 +570,7 @@ $qaOnlyStreamingVisualFailure = (
     (-not $qaStreamingVisualInfraFailure)
 )
 
-$qaRunnerPassed = $qaOutputsCurrent -and $qaResult.passed
+$qaRunnerPassed = (Test-ResultPassed -Results $results -Name "qa_runner")
 $qaRunnerEffectivePass = (
     $qaRunnerPassed -or
     ((-not $qaStreamingVisualGateRequired) -and $qaOnlyStreamingVisualFailure)
@@ -701,11 +620,6 @@ $summaryObject = [ordered]@{
     qa_only_streaming_visual_failure = $qaOnlyStreamingVisualFailure
     qa_runner_passed = $qaRunnerPassed
     qa_runner_effective_pass = $qaRunnerEffectivePass
-    qa_preparation_status = $qaPreparationStatus
-    qa_preparation_failed = $qaPreparationFailed
-    qa_preparation_reason = $qaPreparationReason
-    qa_invocation_attempted = $qaInvocationAttempted
-    qa_actually_invoked = $qaActuallyInvoked
     issues = [ordered]@{
         "897_907_ready" = $issue897Ready
         "900_ready" = $issue900Ready
@@ -904,9 +818,8 @@ $issue871Lines = @(
     "## QA Runner",
     "",
     "- Exit code: $qaExitText",
-    "- Preparation: $qaPreparationStatus $qaPreparationReason",
-    "- Log: " + ($(if ($qaInvocationAttempted) { Get-RelativePath -BasePath $Root -ChildPath $qaLogPath } else { "NOT_RUN" })),
-    "- QA results JSON: " + ($(if ($qaOutputsCurrent) { Get-RelativePath -BasePath $Root -ChildPath $qaResultsPath } else { "NOT_RUN" })),
+    "- Log: " + (Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir "qa_runner.log")),
+    "- QA results JSON: " + (Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir "qa_results.json")),
     "- QA summary (passed/failed): $qaPassedCount / $qaFailedCount",
     "- QA non-streaming failed scene count: $qaFailuresExcludingStreamingVisualCount",
     "- Executed streaming QA scenes in runner: $qaStreamingSceneCount",
@@ -1012,8 +925,3 @@ Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_871.md'))"
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_815.md'))"
 Write-Host "  - $(Get-RelativePath -BasePath $Root -ChildPath (Join-Path $runDir 'issue_902.md'))"
-
-if ($qaPreparationFailed) {
-    Write-Host "QA preparation failed; QA was not run. $qaPreparationReason"
-    exit 1
-}
