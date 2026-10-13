@@ -65,10 +65,26 @@
   }
 
   function isSafeDownloadUrl(url, repo) {
-    return (
-      typeof url === "string" &&
-      url.indexOf("https://github.com/" + repo + "/releases/download/") === 0
-    );
+    var pathPrefix = "/" + repo + "/releases/download/";
+    if (typeof url !== "string" || url.indexOf("https://github.com" + pathPrefix) !== 0) {
+      return false;
+    }
+    try {
+      // Browsers normalize literal and percent-encoded dot segments. A raw
+      // prefix alone can therefore admit a link to another repository.
+      var parsed = new URL(url);
+      var decodedPath = decodeURIComponent(parsed.pathname);
+      return parsed.origin === "https://github.com" &&
+        parsed.pathname.indexOf(pathPrefix) === 0 &&
+        decodedPath.indexOf(pathPrefix) === 0 &&
+        !/%(?:2f|5c)/i.test(parsed.pathname) &&
+        decodedPath.indexOf("%") === -1 &&
+        !decodedPath.split("/").some(function (part) {
+          return part === "." || part === ".." || part.indexOf("\\") !== -1;
+        });
+    } catch (e) {
+      return false; // malformed URL or percent escape
+    }
   }
 
   /* Reduce the API payload to the fields this page uses (also what is cached). */
