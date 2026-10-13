@@ -797,8 +797,12 @@ TEST_CASE("[GaussianSplatting][Config] Radix device sizing respects every limit 
 	CHECK(radix_workgroup_size_for_device(512, 256, 1024, 32768, 4) == 256u);
 	CHECK(radix_workgroup_size_for_device(512, 384, 384, 32768, 4) == 256u);
 	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 16384, 8) == 256u);
-	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 500, 4) == 128u);
+	// The automatic fallback stops at 256: the production gate needs 256-wide compute.
+	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 500, 4) == 0u);
+	CHECK(radix_workgroup_size_for_device(512, 128, 128, 49152, 4) == 0u);
+	// An explicit smaller preference is kept when it fits, and never lowered further.
 	CHECK(radix_workgroup_size_for_device(128, 1024, 1024, 49152, 4) == 128u);
+	CHECK(radix_workgroup_size_for_device(128, 64, 64, 49152, 4) == 0u);
 	CHECK(radix_workgroup_size_for_device(0, 1024, 1024, 49152, 4) == DEFAULT_RADIX_WORKGROUP_SIZE);
 	CHECK(radix_workgroup_size_for_device(512, 32, 32, 49152, 4) == 0u);
 	CHECK(radix_workgroup_size_for_device(512, 1024, 1024, 255, 4) == 0u);

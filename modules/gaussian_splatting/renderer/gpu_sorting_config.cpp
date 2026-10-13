@@ -364,9 +364,8 @@ String GPUSortingConfig::get_portability_warnings() const {
     // scatter kernel's shared-memory footprint is a function of their PRODUCT. (8, 512)
     // needs 18432 bytes > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees, so the
     // configured footprint does not fit devices at that floor. RadixSort's probe
-    // and initialization lower the workgroup size to fit the actual device while
-    // retaining radix/key precision; smaller groups can cost more prefix work.
-    // An unsupported
+    // and initialization then fall back to workgroup_size 256 while retaining
+    // radix/key precision; smaller groups cost more prefix work. An unsupported
     // radix_bits returns the fail-closed sentinel: that is a hard validation error
     // (reported by get_validation_errors + reset to defaults), not a portability issue,
     // so it produces no warning here.
@@ -377,8 +376,8 @@ String GPUSortingConfig::get_portability_warnings() const {
         warnings += vformat(
                 "radix_bits=%d x workgroup_size=%d needs %d bytes of compute shared memory, "
                 "exceeding the %d-byte (16 KB) minimum guaranteed by Vulkan 1.1 (common Intel/AMD "
-                "limit). RadixSort automatically reduces workgroup_size to fit the actual device; "
-                "smaller workgroups can increase sort time. Radix width and key precision are retained.\n",
+                "limit). On such devices RadixSort falls back to workgroup_size 256, "
+                "which can increase sort time. Radix width and key precision are retained.\n",
                 radix_bits, workgroup_size, scatter_shared_bytes,
                 GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
     }

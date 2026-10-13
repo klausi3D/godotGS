@@ -473,10 +473,11 @@ access today.
 RadixSort prefers 512-thread workgroups (`DEFAULT_RADIX_WORKGROUP_SIZE`);
 Bitonic and OneSweep keep their fixed 256-thread shaders
 (`DEFAULT_WORKGROUP_SIZE`). `RadixSort::is_supported()` and
-`RadixSort::initialize()` pick the largest size of 64/128/256/512, no larger
-than the configured preference, that fits the device's X-dimension, invocation
-and scatter shared-memory limits, so devices that ran the old 256 default keep
-an indirect 64-bit radix sorter. Initialization then rejects a declared capacity
+`RadixSort::initialize()` use 512 and fall back to 256 when the device's
+X-dimension, invocation or scatter shared-memory limit requires it, so devices
+that ran the old 256 default keep an indirect 64-bit radix sorter. The fallback
+stops at 256 because `RenderSortingOrchestrator::initialize_sorting()` already
+requires 256-wide compute; an explicit 64 or 128 preference is kept as before. Initialization then rejects a declared capacity
 whose group count exceeds the device's X dispatch limit with `ERR_UNAVAILABLE`;
 it never truncates records or switches algorithms silently.
 

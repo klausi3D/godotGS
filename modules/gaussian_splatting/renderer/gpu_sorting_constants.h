@@ -8,8 +8,8 @@ namespace GPUSortingConstants {
 // Fixed shader workgroup size for BitonicSort and OneSweepSort.
 static constexpr uint32_t DEFAULT_WORKGROUP_SIZE = 256;
 // RadixSort uses fewer workgroups to reduce the serial per-workgroup prefix cost
-// on large overlap lists (#539). Probe and initialization reduce this preference
-// when the device's invocation, X-dimension or shared-memory limit requires it.
+// on large overlap lists (#539). Probe and initialization fall back to 256 when
+// the device's invocation, X-dimension or shared-memory limit requires it.
 static constexpr uint32_t DEFAULT_RADIX_WORKGROUP_SIZE = 512;
 // Radix-sort digit width PER PASS (4-bit = 16 passes for a 64-bit key, 8-bit = 8 passes). This is a
 // performance/mechanics knob ONLY — it does NOT change the sorted output or key precision (precision is
@@ -162,7 +162,7 @@ inline bool sort_path_allocation_fits_device_size(uint64_t p_max_elements, uint3
 // are each validated INDEPENDENTLY, but the constraint is on their PRODUCT: e.g.
 // (radix_bits=8, workgroup_size=512) needs 256*(2+16)*4 = 18432 bytes, which
 // exceeds the shared-memory budget of devices at the Vulkan floor. The runtime
-// sizing helper reduces the workgroup preference until this footprint fits.
+// sizing helper falls back from 512 to 256 when this footprint does not fit.
 // GPUSortingConfig::get_portability_warnings() reports the nonportable preference
 // at configuration time; RadixSort's probe and initialization check the actual
 // device limits with this same formula.
@@ -177,8 +177,8 @@ static constexpr uint32_t RADIX_SCATTER_SHARED_MEMORY_UNSUPPORTED = UINT32_MAX;
 // Vulkan 1.1 guarantees maxComputeSharedMemorySize >= 16384 bytes (16 KB) on every
 // conformant device (docs/PLATFORM_COMPATIBILITY.md requires Vulkan 1.1+); common
 // Intel/AMD parts sit exactly at this floor. A larger configured footprint is
-// valid but nonportable: the config-load warning names it, and RadixSort reduces
-// its workgroup preference on devices that cannot run the configured size.
+// valid but nonportable: the config-load warning names it, and RadixSort falls
+// back from 512 to 256 on devices that cannot run the configured size.
 static constexpr uint32_t VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES = 16384u;
 
 // Bytes of compute shared memory the RadixSort scatter kernel requires for a given
@@ -198,8 +198,12 @@ inline uint32_t radix_scatter_shared_memory_bytes(uint32_t p_radix_bits, uint32_
 }
 
 // Largest validated workgroup size <= the configured preference that fits the
-// device's actual scatter-kernel limits. Zero configuration uses the radix
-// default; zero result means no supported size (or invalid configuration).
+// device's actual scatter-kernel limits. The fallback stops at 256 (or at an
+// explicit smaller preference): RenderSortingOrchestrator::initialize_sorting()
+// already requires 256-wide compute for the fixed Bitonic/OneSweep shaders, so a
+// smaller automatic size could never be reached in production. Zero configuration
+// uses the radix default; zero result means no supported size (or invalid
+// configuration).
 inline uint32_t radix_workgroup_size_for_device(uint32_t p_configured, uint64_t p_max_workgroup_size_x,
 		uint64_t p_max_invocations, uint64_t p_max_shared_memory_bytes, uint32_t p_radix_bits) {
 	if (!is_supported_radix_bits(p_radix_bits)) {
@@ -209,7 +213,8 @@ inline uint32_t radix_workgroup_size_for_device(uint32_t p_configured, uint64_t 
 	if (configured != 64 && configured != 128 && configured != 256 && configured != 512) {
 		return 0;
 	}
-	for (uint32_t size = configured; size >= 64; size >>= 1) {
+	const uint32_t floor_size = configured < DEFAULT_WORKGROUP_SIZE ? configured : DEFAULT_WORKGROUP_SIZE;
+	for (uint32_t size = configured; size >= floor_size; size >>= 1) {
 		if (size <= p_max_workgroup_size_x && size <= p_max_invocations &&
 				radix_scatter_shared_memory_bytes(p_radix_bits, size) <= p_max_shared_memory_bytes) {
 			return size;

@@ -1005,21 +1005,22 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix device adaptation pre
 		invocations = 1024;
 		g_gpu_sorting_config.radix_bits = 8;
 	}
-	// Keep the artificial ceilings strict on this device, while accepting a
-	// genuinely smaller GPU's legal 64/128-lane path too.
+	// Keep the artificial ceilings strict on this device. The fallback stops at
+	// 256, or at an explicit smaller preference.
 	const uint64_t thread_limit = MIN(MIN(size_x, invocations),
 			MIN(rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X),
 				rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS)));
 	const uint64_t shared_limit = MIN(shared_memory,
 			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE));
+	const uint32_t floor_size = MIN(g_gpu_sorting_config.workgroup_size, 256u);
 	uint32_t expected_workgroup_size = g_gpu_sorting_config.workgroup_size;
-	while (expected_workgroup_size >= 64 && (expected_workgroup_size > thread_limit ||
+	while (expected_workgroup_size >= floor_size && (expected_workgroup_size > thread_limit ||
 			GPUSortingConstants::radix_scatter_shared_memory_bytes(g_gpu_sorting_config.radix_bits,
 				expected_workgroup_size) > shared_limit)) {
 		expected_workgroup_size >>= 1;
 	}
-	if (expected_workgroup_size < 64) {
-		FAIL("device-adaptation oracle requires a device capable of 64-lane radix sorting");
+	if (expected_workgroup_size < floor_size) {
+		FAIL("device-adaptation oracle requires a device capable of 256-lane radix sorting");
 		return;
 	}
 	RadixSort::ScopedDeviceLimitsForTesting limits(size_x, invocations, shared_memory);
@@ -1116,18 +1117,17 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix capacity respects dis
 	}
 	ScopedGpuSortManagerDevice manager_device(rd);
 	g_gpu_sorting_config.reset_to_defaults();
-	g_gpu_sorting_config.workgroup_size = 128;
+	// Default 512 preference under a 256-invocation ceiling: the fallback selects
+	// 256, so admission must use 256-thread groups, not the configured 512.
+	const uint32_t expected_workgroup_size = 256;
 	const uint64_t thread_limit = MIN(rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X),
 			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS));
 	const uint64_t shared_limit = rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE);
-	uint32_t expected_workgroup_size = 128;
-	while (expected_workgroup_size >= 64 && (expected_workgroup_size > thread_limit ||
+	if (thread_limit < expected_workgroup_size ||
 			GPUSortingConstants::radix_scatter_shared_memory_bytes(g_gpu_sorting_config.radix_bits,
-				expected_workgroup_size) > shared_limit)) {
-		expected_workgroup_size >>= 1;
-	}
-	if (expected_workgroup_size < 64 || rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X) < 2) {
-		FAIL("dispatch-capacity oracle requires 64-lane radix support and two dispatch groups");
+				expected_workgroup_size) > shared_limit ||
+			rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X) < 2) {
+		FAIL("dispatch-capacity oracle requires 256-lane radix support and two dispatch groups");
 		return;
 	}
 	SortKeyConfig key_config;
@@ -1138,7 +1138,7 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix capacity respects dis
 	const uint32_t capacity = 2 * expected_workgroup_size;
 
 	{
-		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 2);
+		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, 256, UINT64_MAX, 2);
 		Ref<RadixSort> rejected;
 		rejected.instantiate();
 		rejected->set_key_config(key_config);
@@ -1152,7 +1152,7 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix capacity respects dis
 		if (factory.is_valid()) { factory->shutdown(); }
 	}
 	{
-		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 0);
+		RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, 256, UINT64_MAX, 0);
 		Ref<RadixSort> rejected;
 		rejected.instantiate();
 		rejected->set_key_config(key_config);
@@ -1161,7 +1161,7 @@ TEST_CASE("[GaussianSplatting][GpuSort][RequiresGPU] Radix capacity respects dis
 		rejected->shutdown();
 	}
 
-	RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, UINT64_MAX, UINT64_MAX, 2);
+	RadixSort::ScopedDeviceLimitsForTesting limits(UINT64_MAX, 256, UINT64_MAX, 2);
 	Ref<IGPUSorter> factory = GPUSorterFactory::create_sorter(
 			GPUSorterFactory::ALGORITHM_AUTO, rd, capacity, key_config);
 	if (factory.is_null()) {

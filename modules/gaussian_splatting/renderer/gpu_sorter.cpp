@@ -3699,8 +3699,8 @@ bool RadixSort::is_supported(RenderingDevice *p_rd) {
 
 SorterCapabilities RadixSort::get_capabilities() {
     SorterCapabilities caps;
-    // Minimum supported size; the effective preference is resolved per device.
-    caps.required_workgroup_size = 64u;
+    // 512 is preferred; the per-device fallback stops at 256 (radix_workgroup_size_for_device).
+    caps.required_workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
     caps.max_supported_key_bits = 64;
     caps.supports_indirect = true;
     caps.supports_64bit_keys = true;
