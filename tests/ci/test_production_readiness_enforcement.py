@@ -27,9 +27,13 @@ How the cases below can fail:
 * The skip/pass marker patterns are taken from the script and matched against
   lines DERIVED from the producers (`gs_runtime_report.gd` and the four
   scenario scripts' own skip reasons), not hand-written marker lines.
-* The enforced key list is compared against the keys the script actually
-  writes under `issues`, so a new readiness boolean cannot be collected and
-  left unenforced.
+* The enforced and reported key lists are compared against the keys the
+  script actually writes under `issues`, so a new readiness boolean cannot be
+  collected and silently ignored. The reported-not-enforced set is a ratchet
+  (#1241): REPORTED_NOT_ENFORCED below is the policy ceiling, so it may shrink
+  but never grow. When PowerShell 7 is available, the enforce step's own script
+  is executed against crafted summary.json files: a false enforced key fails
+  it, a false reported key does not but is written to the step summary.
 
 Declared limits: most checks are structural. When PowerShell 7 is available,
 the native signature test executes the collector's actual scan and #900
@@ -39,14 +43,17 @@ process and does not replace self-hosted Production Gates runtime evidence.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "gaussian_production_gates.yml"
@@ -59,6 +66,12 @@ RUNTIME_REPORT = RUNTIME_DIR / "gs_runtime_report.gd"
 # hand-kept coverage list.
 ENFORCE_STEP_NAME = "Enforce readiness booleans"
 NON_DISPATCH_EVENTS = ("pull_request", "push", "merge_group")
+# Policy, not coverage (tests/AGENTS.md): the readiness keys that are reported
+# but not enforced, by maintainer decision 2026-10-13, until #1241 makes them
+# pass. They are false on master and on every PR (run 38131297064). This set
+# may only shrink; adding a key here weakens the gate and needs a new decision.
+REPORTED_NOT_ENFORCED = frozenset({"943_ready", "871_ready", "902_ready"})
+RATCHET_TRACKING_ISSUE = "#1241"
 
 
 # --------------------------------------------------------------------------
@@ -277,6 +290,32 @@ def _enforced_keys(text: str) -> List[str]:
     return re.findall(r'"([^"]+)"', match.group(1))
 
 
+def _reported_keys(text: str) -> List[str]:
+    block = "\n".join(_step_block(text, ENFORCE_STEP_NAME))
+    match = re.search(r"\$reported\s*=\s*@\(([^)]*)\)", block)
+    if match is None:
+        raise AssertionError("could not locate the $reported key list in the enforce step")
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def _enforce_step_script(text: str, evidence_dir: str) -> str:
+    """The enforce step's `run: |` body, dedented, with the evidence dir substituted."""
+    block = _step_block(text, ENFORCE_STEP_NAME)
+    starts = [i for i, line in enumerate(block) if line.strip() == "run: |"]
+    if len(starts) != 1:
+        raise AssertionError("the enforce step must have exactly one `run: |` block")
+    body = block[starts[0] + 1:]
+    indent = min(len(line) - len(line.lstrip()) for line in body if line.strip())
+    script = "\n".join(line[indent:] for line in body)
+    placeholder = "${{ steps.evidence.outputs.dir }}"
+    if placeholder not in script:
+        raise AssertionError("the enforce step no longer reads steps.evidence.outputs.dir")
+    script = script.replace(placeholder, evidence_dir)
+    if "${{" in script:
+        raise AssertionError("unexpected Actions expression left in the enforce step script")
+    return script
+
+
 def _script_issue_keys(script: str) -> List[str]:
     match = re.search(r"\bissues\s*=\s*\[ordered\]@\{(.*?)\n\s*\}", script, re.DOTALL)
     if match is None:
@@ -391,16 +430,34 @@ class ReadinessEnforcementWorkflowTests(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 self.assertFalse(_truthy(evaluate(self.condition, _context("push", **overrides))))
 
-    def test_every_collected_readiness_boolean_is_enforced(self) -> None:
+    def test_every_collected_readiness_boolean_is_enforced_or_reported(self) -> None:
         emitted = _script_issue_keys(_script_text())
         self.assertTrue(emitted, "the script's issues table is empty")
         enforced = _enforced_keys(self.text)
+        reported = _reported_keys(self.text)
+        self.assertTrue(enforced, "no readiness boolean is enforced")
+        self.assertEqual(sorted(set(enforced) & set(reported)), [], "a key is both enforced and reported")
         self.assertEqual(
-            sorted(set(emitted) - set(enforced)),
+            sorted(set(emitted) - set(enforced) - set(reported)),
             [],
-            "readiness booleans collected into summary.json but never enforced",
+            "readiness booleans collected into summary.json but neither enforced nor reported",
         )
-        self.assertEqual(sorted(set(enforced) - set(emitted)), [], "enforced keys the script never writes")
+        self.assertEqual(
+            sorted((set(enforced) | set(reported)) - set(emitted)), [], "enforce/report keys the script never writes"
+        )
+
+    def test_reported_not_enforced_set_only_shrinks(self) -> None:
+        """Ratchet (#1241): an enforced key can never be demoted to report-only."""
+        reported = set(_reported_keys(self.text))
+        self.assertEqual(
+            sorted(reported - REPORTED_NOT_ENFORCED),
+            [],
+            "readiness keys demoted to report-only beyond the 2026-10-13 decision",
+        )
+
+    def test_reported_keys_name_their_tracking_issue(self) -> None:
+        block = "\n".join(_step_block(self.text, ENFORCE_STEP_NAME))
+        self.assertIn(RATCHET_TRACKING_ISSUE, block, "the report-only output must point at its tracking issue")
 
     def test_evidence_step_fails_on_a_nonzero_script_exit(self) -> None:
         block = "\n".join(_step_block(self.text, "Collect production evidence"))
@@ -496,6 +553,66 @@ class CollectProductionEvidenceScriptTests(unittest.TestCase):
         self.assertIn("$failedCommands = @($results | Where-Object { -not [bool]$_.passed })", joined)
         self.assertRegex(joined, r"if \(\$failedCommands\.Count -gt 0\) \{(?:.|\n)*?\n\s+exit 1\n\}")
         self.assertEqual(tail[-1].strip(), "exit 0", "the script must end with an explicit exit")
+
+
+class EnforceStepBehaviourTests(unittest.TestCase):
+    """Executes the enforce step's own PowerShell against crafted summary.json files."""
+
+    def _run(self, issues: Dict[str, Any]) -> Tuple[int, str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            evidence = tmp_path / "evidence"
+            evidence.mkdir()
+            (evidence / "summary.json").write_text(json.dumps({"issues": issues}), encoding="utf-8")
+            script = tmp_path / "enforce.ps1"
+            script.write_text(_enforce_step_script(_workflow_text(), str(evidence)), encoding="utf-8")
+            step_summary = tmp_path / "step_summary.md"
+            env = dict(os.environ)
+            env["GITHUB_STEP_SUMMARY"] = str(step_summary)
+            result = subprocess.run(
+                [shutil.which("pwsh"), "-NoProfile", "-File", str(script)],
+                capture_output=True, text=True, timeout=60, env=env,
+            )
+            summary_text = step_summary.read_text(encoding="utf-8-sig") if step_summary.exists() else ""
+            return result.returncode, result.stdout + result.stderr, summary_text
+
+    def _all_true(self) -> Dict[str, Any]:
+        text = _workflow_text()
+        return {key: True for key in set(_enforced_keys(text)) | set(_reported_keys(text))}
+
+    @unittest.skipUnless(shutil.which("pwsh"), "executing the enforce step requires pwsh")
+    def test_all_true_passes(self) -> None:
+        rc, out, _ = self._run(self._all_true())
+        self.assertEqual(rc, 0, out)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "executing the enforce step requires pwsh")
+    def test_false_reported_keys_do_not_fail_but_are_reported(self) -> None:
+        issues = self._all_true()
+        reported = _reported_keys(_workflow_text())
+        self.assertTrue(reported, "no reported key to exercise")
+        for key in reported:
+            issues[key] = False
+        rc, out, step_summary = self._run(issues)
+        self.assertEqual(rc, 0, out)
+        for key in reported:
+            with self.subTest(key=key):
+                self.assertIn(f"{key}` = false (reported, not enforced", step_summary)
+                self.assertIn(f"{key} = false", out)
+        self.assertIn(RATCHET_TRACKING_ISSUE, step_summary)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "executing the enforce step requires pwsh")
+    def test_each_false_or_missing_enforced_key_fails(self) -> None:
+        for key in _enforced_keys(_workflow_text()):
+            for broken in ("false", "missing"):
+                with self.subTest(key=key, broken=broken):
+                    issues = self._all_true()
+                    if broken == "false":
+                        issues[key] = False
+                    else:
+                        del issues[key]
+                    rc, out, _ = self._run(issues)
+                    self.assertNotEqual(rc, 0, f"{key} {broken} did not fail the step: {out}")
+                    self.assertIn(key, out)
 
 
 class NativeProductionSignatureWiringTests(unittest.TestCase):

@@ -1859,7 +1859,8 @@ def _run_production_readiness_enforcement_guard() -> tuple[bool, list[str]]:
 
     Evaluates the Production Gates' "Enforce readiness booleans" condition per
     event (it used to run only on an opted-in workflow_dispatch), checks that
-    every readiness boolean collect_production_evidence.ps1 writes is enforced,
+    every readiness boolean collect_production_evidence.ps1 writes is enforced
+    or reported (the report-only set is a ratchet, #1241),
     and that the script classifies runtime scenarios by their real
     [RUNTIME_SKIP]/[RUNTIME_PASS] markers and exits non-zero on a failed
     sub-command. Static, headless, no GPU and no engine binary.

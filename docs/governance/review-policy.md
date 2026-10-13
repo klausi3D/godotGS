@@ -63,7 +63,10 @@ spots**. Each finding has a severity:
   `tests/ci/test_release_builds_runner_trust.py` (run by `--guard-only`) enforces
   this for `release_builds.yml` only; for the other workflows, check a new or changed
   self-hosted job at review time. Any change that relaxes a gate or the runner trust
-  boundary must be documented and human-approved.
+  boundary must be documented and human-approved. Recorded relaxation: Production
+  Gates readiness enforcement (#1164) enforces `897_907_ready`, `900_ready` and
+  `815_ready`; `943_ready`, `871_ready` and `902_ready` are reported, not enforced,
+  until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).
 
 ## Repository enforcement
 
