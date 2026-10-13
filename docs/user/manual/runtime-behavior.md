@@ -2,7 +2,6 @@
 
 This page explains what artists usually observe while navigating a splat scene, and which controls are safest to touch first.
 
-
 ## What You Should Expect Visually
 
 - First load can take longer while data streams and GPU resources warm up.
