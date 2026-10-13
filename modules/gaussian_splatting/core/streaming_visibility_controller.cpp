@@ -1074,6 +1074,11 @@ void StreamingVisibilityController::collect_prefetch_candidates(
             system.scheduler.last_prefetch_upload_pending_skip_count++;
             continue;
         }
+        // #1178: the enqueue refuses a chunk whose payload read failed recently, so it
+        // must not take one of the max_prefetch shortlist slots from a healthy chunk.
+        if (system._is_chunk_load_backing_off(chunk)) {
+            continue;
+        }
 
         float dist_sq = (predicted_pos - chunk.center).length_squared();
         if (dist_sq >= prefetch_threshold_sq) {
