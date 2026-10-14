@@ -158,13 +158,4 @@ A scene-authored `SphereEffector3D` node can displace splats (`affect_position`)
 
 </div>
 
-<div class="gs-section-shell gs-section-shell--compact" markdown>
-
-## Technical Flow Reference
-
-<figure markdown="1">
-![Diagram of the artist workflow handoff from the first splat to import, presets, iteration tools, and finishing tasks](../assets/images/artist-workflow-lane.svg){ .gs-diagram }
-<figcaption>The artist lane starts only after the first splat is visible, then moves through import, safe preset selection, iteration tools, and finishing tasks like bake or color grading.</figcaption>
-</figure>
-
-</div>
+<span id="technical-flow-reference"></span>

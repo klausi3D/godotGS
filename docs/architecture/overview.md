@@ -2,14 +2,14 @@
 
 This page is the canonical high-level architecture entrypoint.
 
-<figure markdown="1">
-![Diagram showing the high-level subsystem stack for the Gaussian Splatting module](../assets/images/architecture-overview-stack.svg){ .gs-diagram }
-<figcaption>The subsystem stack starts at registration and editor hooks, moves through import and asset ownership, and converges in the runtime and renderer core.</figcaption>
-</figure>
-
-<figure markdown="1">
-![Diagram showing the render and data flow from source assets through import, scene state, renderer stages, and viewport output](../assets/images/gaussian-pipeline.svg){ .gs-diagram }
-<figcaption>The render and data-flow view complements the subsystem stack by tracing how source assets become scene state, staged renderer work, viewport output, and diagnostics.</figcaption>
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Source assets to viewport">
+    <li><strong>Source files</strong><small>Import or load</small></li>
+    <li><strong>Scene state</strong><small>Nodes, assets and worlds</small></li>
+    <li><strong>Renderer</strong><small>Cull → sort → raster</small></li>
+    <li><strong>Viewport</strong><small>Composite the result</small></li>
+  </ol>
+  <figcaption>Assets enter scene state, then the renderer processes visible splats and composites them into the viewport.</figcaption>
 </figure>
 
 ## Subsystem Map

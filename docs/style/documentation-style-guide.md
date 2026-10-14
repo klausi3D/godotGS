@@ -96,6 +96,15 @@ Change a shared token or component rule before adding a page-specific override.
   JavaScript. Retain its edge shadows, scrollbar and inset keyboard-focus
   outline. The five-column node Properties inventory and the generated Project
   Settings inventories are expected examples; they must never widen the page.
+- Teach actions with numbered instructions, expected results and real screenshots
+  placed beside the action they explain. Do not add a flowchart that repeats the
+  steps. Keep screenshot scene/build provenance visible; an imported scan is not
+  a screenshot of the supplied synthetic sample.
+- Use diagrams for relationships, branching inputs/outputs and data flow. Prefer
+  the responsive `.gs-flow` component: live document text, short labels, thin
+  neutral connectors, no gradients, decorative badges or panel shadows. Keep
+  explanations in the page rather than inside the nodes. Retain a technical
+  Mermaid graph when its topology is useful; do not chart a short checklist.
 - Preserve source links, heading permalinks, search, code copy and keyboard
   navigation. Check light/dark palettes, visible focus and reduced motion.
 

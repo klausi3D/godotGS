@@ -58,9 +58,4 @@ To change how a file imports, select it in the FileSystem dock, open the Import 
 - [Gaussian Splat World Bake Workflow](GSPLATWORLD_BAKE.md)
 - [Recurring Issues](../troubleshooting/recurring-issues.md)
 
-## Technical Flow Reference
-
-<figure markdown="1">
-![Diagram of the canonical import path from PLY or SPZ sources into GaussianSplatAsset resources](../assets/images/import-workflow-lane.svg){ .gs-diagram }
-<figcaption>The import workflow has two entrypoints, but both collapse into the same GaussianSplatAsset type used by scenes, bake scripts, and runtime loads.</figcaption>
-</figure>
+<span id="technical-flow-reference"></span>
