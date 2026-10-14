@@ -64,7 +64,7 @@ static void build_dataset(Ref<::GaussianData> &p_data, const Vector<float> &p_sc
 			}
 		}
 	}
-	p_data->set_gaussian_payload(gaussians, sh_high_order, /*first_order*/ 0u, p_stride, /*2d*/ false);
+	p_data->set_gaussian_payload(gaussians, sh_high_order, /*first_order*/ 0u, p_stride, /*2d*/ false, false);
 }
 
 // Assert the kept payload matches exactly the expected ascending source indices, both

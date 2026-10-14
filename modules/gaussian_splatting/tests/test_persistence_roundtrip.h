@@ -588,7 +588,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF preserves high-order SH and 2D-m
     }
 
     // Partial authoring layouts must survive without inferred coefficient loss.
-    original_data->set_gaussian_payload(gaussians, high_order, 1, high_order_per_splat, true);
+    original_data->set_gaussian_payload(gaussians, high_order, 1, high_order_per_splat, true, false);
     CHECK_MESSAGE(original_data->get_sh_high_order_count() == high_order_per_splat,
             "Source data should carry high-order SH before save");
     CHECK_MESSAGE(original_data->get_2d_mode(),
@@ -657,7 +657,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF load clears pre-existing state o
     seed_gaussians.resize(5);
     LocalVector<Vector3> seed_high_order;
     seed_high_order.resize(seed_gaussians.size() * 3);
-    loaded_data->set_gaussian_payload(seed_gaussians, seed_high_order, 0, 3, false);
+    loaded_data->set_gaussian_payload(seed_gaussians, seed_high_order, 0, 3, false, false);
     loaded_data->set_runtime_position(0, Vector3(42.0f, 0.0f, 0.0f));
     CHECK_MESSAGE(loaded_data->has_modifications(),
             "Seeded data should carry a runtime overlay modification before load");
@@ -3547,7 +3547,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     for (uint32_t i = 0; i < high.size(); ++i) {
         high[i] = Vector3(float(i), 0.25f, -0.5f);
     }
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     GaussianData::SaveSnapshot snapshot;
     const Error capture = data->capture_save_snapshot(snapshot);
     CHECK(capture == OK);
@@ -3557,7 +3557,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     const uint64_t revision = data->get_content_revision();
     geometry.clear();
     high.clear();
-    data->set_gaussian_payload(geometry, high, 0, 0, false);
+    data->set_gaussian_payload(geometry, high, 0, 0, false, false);
     CHECK(snapshot.get_content_revision() == revision);
     CHECK(data->get_content_revision() != revision);
     CHECK(snapshot.get_sh_degree() == 3);
@@ -3591,7 +3591,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot follows resize se
     geometry.resize(2);
     high.resize(24);
     high[0] = Vector3(1, 2, 3);
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     GaussianData::SaveSnapshot snapshot;
     for (int count : {1, 0, 2}) {
         data->resize(count);
@@ -3606,7 +3606,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot follows resize se
         CHECK(snapshot.get_sh_high_order().is_empty());
         CHECK(snapshot.get_sh_high_order_count() == 0);
     }
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     const Error restored = data->capture_save_snapshot(snapshot);
     CHECK(restored == OK);
     if (restored != OK) {

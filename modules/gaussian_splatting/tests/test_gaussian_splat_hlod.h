@@ -218,7 +218,7 @@ inline Ref<GaussianSplatWorld> hlod_make_world(const LocalVector<Gaussian> &p_g)
 	Ref<GaussianData> data;
 	data.instantiate();
 	LocalVector<Vector3> no_sh;
-	data->set_gaussian_payload(p_g, no_sh, 0u, 0u, false);
+	data->set_gaussian_payload(p_g, no_sh, 0u, 0u, false, false);
 	Ref<GaussianSplatWorld> world;
 	world.instantiate();
 	world->set_gaussian_data(data);
@@ -1771,7 +1771,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 		v = Vector3(0.125f, -0.25f, 0.5f);
 	}
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
-	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false, false);
 	if (world->bake_hlod() != OK || world->get_hlod_tree().interior_splat_count == 0u) {
 		FAIL("producer must bake both leaf and interior payloads");
 		return;
@@ -2173,7 +2173,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overla
 		sh[i] = Vector3(0.125f, -0.25f, 0.5f);
 	}
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
-	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false, false);
 	Dictionary metadata;
 	metadata["note"] = "section extent control";
 	world->set_metadata(metadata);
@@ -2321,7 +2321,7 @@ struct HlodSnapshotEdit {
 			LocalVector<Vector3> sh;
 			uint32_t first = 0u, high = 0u;
 			if (p_data->capture_chunk_snapshot(0, p_data->get_count(), leaf, sh, first, high)) {
-				p_data->set_gaussian_payload(leaf, sh, 3u, 0u, true);
+				p_data->set_gaussian_payload(leaf, sh, 3u, 0u, true, false);
 			}
 		} else {
 			Gaussian edited = p_data->get_gaussian(0);
@@ -2655,7 +2655,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] replacing a resident payload inval
 	Ref<GaussianData> replacement;
 	replacement.instantiate();
 	LocalVector<Vector3> no_sh;
-	replacement->set_gaussian_payload(small, no_sh, 0u, 0u, false);
+	replacement->set_gaussian_payload(small, no_sh, 0u, 0u, false, false);
 
 	// Baked in memory.
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
@@ -3087,7 +3087,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a bake allocation failure returns 
 		v = Vector3(0.125f, -0.25f, 0.5f);
 	}
 	Ref<GaussianSplatWorld> world = hlod_make_world(g);
-	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false);
+	world->get_gaussian_data()->set_gaussian_payload(g, sh, 3u, 12u, false, false);
 	const Ref<GaussianData> original = world->get_gaussian_data();
 	const uint64_t revision = original->get_content_revision();
 	const int chunks = world->get_chunk_count();
@@ -3327,5 +3327,38 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds k
 		CHECK_FALSE(in_far(published));
 		loaded.unref();
 		DirAccess::remove_absolute(path);
+	}
+}
+
+// PR #1200 review: every payload clone states its antialiased-training semantics. bake_hlod()
+// used the defaulted setter argument and retagged antialiased worlds as classic, so a later
+// GSF v3 save wrote semantic bit 1 clear.
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake_hlod and world copies keep the antialiased training flag") {
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(6000u, 4000u, g);
+	for (bool antialiased : { false, true }) {
+		Ref<GaussianData> data;
+		data.instantiate();
+		LocalVector<Vector3> no_sh;
+		data->set_gaussian_payload(g, no_sh, 0u, 0u, false, antialiased);
+		Ref<GaussianSplatWorld> world;
+		world.instantiate();
+		world->set_gaussian_data(data);
+		CHECK(world->get_antialiased() == antialiased);
+		if (world->bake_hlod() != OK) {
+			FAIL("bake_hlod() failed");
+			return;
+		}
+		const Ref<GaussianData> baked = world->get_gaussian_data();
+		if (baked.is_null() || baked == data) {
+			FAIL("bake_hlod() did not publish a new payload");
+			return;
+		}
+		CHECK(baked->get_antialiased() == antialiased);
+		CHECK(world->get_antialiased() == antialiased);
+		Ref<GaussianSplatWorld> copy;
+		copy.instantiate();
+		CHECK(copy->copy_from(world) == OK);
+		CHECK(copy->get_antialiased() == antialiased);
 	}
 }
