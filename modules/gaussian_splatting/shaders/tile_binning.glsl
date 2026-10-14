@@ -1221,7 +1221,7 @@ void main() {
     uint sh_phase = gs_get_sh_amortization_phase();
     bool sh_force_update = gs_get_sh_amortization_force_update();
     vec3 sh_color = vec3(0.0);
-    bool use_cache = sh_divisor > 1u;
+    bool use_cache = sh_divisor > 1u && gs_sh_cache_allowed(chunk_sh_limit, gs_get_sh_band_level());
     bool update_sh = !use_cache || sh_force_update;
     uint cached_color = 0u;
     if (use_cache && !sh_force_update) {

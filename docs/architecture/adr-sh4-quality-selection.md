@@ -98,14 +98,19 @@ references and their 29-bit physical atlas index. The instance lod.y dense
 generation field remains unchanged. Streamed overrides take precedence over
 global LOD configuration; resident callers use current LOD configuration.
 
-Runtime settings_changed marks both the existing full configuration dirty state
-and a separate SH-only dirty latch. The narrow SH refresh loads the effective SH
-configuration before streaming maximum synchronization, including failed-init
-early returns. Existing public full reload invokes the same SH refresh. Clean
-frames reuse the loaded SH configuration. The full loader remains behind the
-existing failed-init guard because its streaming tuning path can start/stop pack
-workers; SH refresh neither clears pending full dirty state nor creates workers
-or RD resources. Use the existing configuration ownership/callback lifecycle.
+Runtime settings_changed marks the existing full streaming configuration dirty
+state and sets one process-wide SH reload latch (`sh_config_reload_if_settings_changed()`).
+The latch is consumed before streaming maximum synchronization, including
+failed-init early returns, and by the tile raster parameters, because the resident
+backend never runs a streaming update. Existing public full reload invokes the
+same SH refresh. Clean frames reuse the loaded SH configuration. The full loader
+remains behind the existing failed-init guard because its streaming tuning path
+can start/stop pack workers; SH refresh neither clears pending full dirty state
+nor creates workers or RD resources.
+
+The amortized SH colour cache is keyed per physical Gaussian and shared by every
+instance of an asset, so only references at the full configured degree read or
+write it; reduced per-instance limits evaluate fresh.
 
 Qualify with real settings signals and no manual global SH reload, initialized
 and failed-init paths, retained full-dirty/no-worker early-path controls, normal

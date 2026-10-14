@@ -431,3 +431,40 @@ TEST_CASE("[GaussianSplatting][Config] SH-only failed-init refresh keeps full re
 	CHECK_FALSE(system->_test_pack_threads_running());
 	CHECK(system->_test_full_config_dirty());
 }
+
+TEST_CASE("[GaussianSplatting][Config] Runtime SH settings change reloads without any streaming system (resident route)") {
+	// PR #1205 review: the resident backend never runs GaussianStreamingSystem::update_streaming(),
+	// so the reload is a process-wide latch that the tile raster params consume too.
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (!ps) {
+		FAIL("ProjectSettings unavailable for the resident SH reload premise");
+		return;
+	}
+	ProjectSettingGuard bands(ps, SHConfig::BANDS_PATH);
+	ProjectSettingGuard tier(ps, "rendering/gaussian_splatting/quality/tier_preset");
+	const SHConfig saved = g_sh_config;
+	struct RestoreSH {
+		SHConfig value;
+		~RestoreSH() { g_sh_config = value; }
+	} restore{ saved };
+	ps->set_setting("rendering/gaussian_splatting/quality/tier_preset", "custom");
+	sh_config_reload_if_settings_changed(); // drain any change left by earlier cases
+	g_sh_config.sh_bands = SH_BAND_4;
+	ps->set_setting(SHConfig::BANDS_PATH, 1);
+	// The changed signal is queued, not yet delivered: nothing reloads.
+	CHECK_FALSE(sh_config_reload_if_settings_changed());
+	CHECK(g_sh_config.sh_bands == SH_BAND_4);
+	ps->emit_signal("settings_changed");
+	CHECK(sh_config_reload_if_settings_changed());
+	CHECK(g_sh_config.sh_bands == SH_BAND_1);
+	CHECK(g_sh_config.sh_bands_source == "project_override");
+	// One reload per change.
+	g_sh_config.sh_bands = SH_BAND_3;
+	CHECK_FALSE(sh_config_reload_if_settings_changed());
+	CHECK(g_sh_config.sh_bands == SH_BAND_3);
+	ps->set_setting(SHConfig::BANDS_PATH, -1);
+	ps->emit_signal("settings_changed");
+	CHECK(sh_config_reload_if_settings_changed());
+	CHECK(g_sh_config.sh_bands == SH_BAND_4);
+	CHECK(g_sh_config.sh_bands_source == "code_default");
+}

@@ -307,7 +307,9 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	params.debug_overlay_flags[1] = p_params.debug_show_depth_visualization ? 1.0f : 0.0f;
 	params.debug_overlay_flags[2] = p_params.debug_show_projection_issues ? 1.0f : 0.0f;
 	params.debug_overlay_flags[3] = p_params.debug_show_white_albedo ? 1.0f : 0.0f;
-	// Set SH band configuration from global config
+	// Set SH band configuration from global config. The resident route never runs a
+	// streaming update, so pick up a runtime sh_bands/tier change here as well.
+	sh_config_reload_if_settings_changed();
 	params.sh_config[0] = static_cast<float>(g_sh_config.sh_bands);
 	uint32_t sh_divisor = owner.render_settings.enable_sh_amortization
 			? owner.render_settings.sh_amortization_divisor

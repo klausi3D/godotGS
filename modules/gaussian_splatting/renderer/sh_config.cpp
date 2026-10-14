@@ -6,11 +6,46 @@
 #include "../core/quality_tier_config.h"
 #include "../logger/gs_logger.h"
 
+#include <atomic>
+
 // Project settings paths
 const String SHConfig::BANDS_PATH = SH_CONFIG_BANDS_PATH;
 
 // Global instance
 SHConfig g_sh_config;
+
+namespace {
+std::atomic<bool> sh_config_reload_pending{ false };
+std::atomic<bool> sh_config_listener_connected{ false };
+
+void _sh_config_on_project_settings_changed() {
+    sh_config_reload_pending.store(true, std::memory_order_release);
+}
+
+void _sh_config_connect_settings_listener() {
+    if (sh_config_listener_connected.load(std::memory_order_acquire)) {
+        return;
+    }
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (!ps) {
+        return;
+    }
+    Callable callback = callable_mp_static(&_sh_config_on_project_settings_changed);
+    if (!ps->is_connected("settings_changed", callback)) {
+        ps->connect("settings_changed", callback);
+    }
+    sh_config_listener_connected.store(true, std::memory_order_release);
+}
+} // namespace
+
+bool sh_config_reload_if_settings_changed() {
+    _sh_config_connect_settings_listener();
+    if (!sh_config_reload_pending.exchange(false, std::memory_order_acq_rel)) {
+        return false;
+    }
+    g_sh_config.load_from_project_settings();
+    return true;
+}
 
 void SHConfig::load_from_project_settings() {
     ProjectSettings *ps = ProjectSettings::get_singleton();
@@ -149,8 +184,9 @@ void initialize_sh_config() {
         "Auto (Tier Default):-1,SH0 (DC Only):0,SH1 (1st Order):1,SH2 (2nd Order):2,SH3 (3rd Order):3,SH4 (4th Order):4"
     ));
 
-    // Load current settings
+    // Load current settings, then follow runtime changes on every render route.
     g_sh_config.load_from_project_settings();
+    _sh_config_connect_settings_listener();
 
     if (!g_sh_config.validate()) {
         GS_LOG_STREAMING_WARN(String("[SH Config] Invalid configuration detected, resetting to defaults"));

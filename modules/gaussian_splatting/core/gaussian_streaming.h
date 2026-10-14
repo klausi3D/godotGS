@@ -120,9 +120,6 @@ private:
     static constexpr double USEC_PER_MS = 1000.0;
     uint64_t last_config_reload_frame = 0;
     bool config_dirty = true;  // Force initial load
-    // settings_changed also reloads the global SH config before the per-update
-    // quality sync, including failed-init early returns (the full reload stays gated).
-    bool sh_config_dirty = false;
     bool project_settings_connected = false;
     bool streaming_initialized = false;
 

@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `188` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `189` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -1021,6 +1021,10 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_instance_sh_limit(uint policy, uint lod_level)</code></pre></td>
       <td>SH limit for one instance: the policy maximum, less one degree per resolved LOD when enabled.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_sh_cache_allowed(uint ref_sh_limit, uint band_level)</code></pre></td>
+      <td>The amortized SH colour cache is keyed per physical Gaussian, which every instance of an asset shares. Only references at the full configured degree may read or write it, so a reduced per-instance limit is never served (or overwrites) a colour of another degree.</td>
     </tr>
   </tbody>
 </table>

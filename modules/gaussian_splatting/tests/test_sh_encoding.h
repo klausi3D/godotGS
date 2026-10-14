@@ -178,6 +178,22 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Visible reference carries bounded per
     CHECK(gs_pack_splat_ref_atlas_index(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u, 4u) == UINT32_MAX);
 }
 
+TEST_CASE("[GaussianSplatting][SHEncoding] Amortized SH cache only serves references at the full configured degree") {
+    // PR #1205 review: the cache is keyed per physical Gaussian, shared by every instance.
+    // A reference whose per-instance limit is below the configured degree must bypass it.
+    using namespace gs_splat_ref;
+    for (uint32_t band = 0; band <= 4; band++) {
+        for (uint32_t limit = 0; limit <= 4; limit++) {
+            CHECK(gs_sh_cache_allowed(limit, band) == (limit >= band));
+        }
+    }
+    // Two instances of one Gaussian at LOD 0 and LOD 2 under SH3 with per-LOD reduction:
+    // only the LOD 0 reference may use the shared cache.
+    const uint32_t policy = gs_pack_instance_sh_policy(3u, true);
+    CHECK(gs_sh_cache_allowed(MIN(4u, gs_instance_sh_limit(policy, 0u)), 3u));
+    CHECK_FALSE(gs_sh_cache_allowed(MIN(4u, gs_instance_sh_limit(policy, 2u)), 3u));
+}
+
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).
 // SH coefficients are signed. Both GPU packers now store each coefficient triplet as three
 // 10-bit two's-complement integers scaled by one per-splat magnitude in the sh_dc.w lane.
@@ -304,7 +320,7 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Quantized partial prefixes retain the
         }
         Ref<GaussianData> payload;
         payload.instantiate();
-        payload->set_gaussian_payload(gaussians, higher_payload, first, 8, false);
+        payload->set_gaussian_payload(gaussians, higher_payload, first, 8, false, false);
         CHECK_EQ(payload->get_sh_degree(), 2u);
 
         PackedGaussian normal = {};

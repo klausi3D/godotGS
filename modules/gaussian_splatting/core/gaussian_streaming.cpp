@@ -298,7 +298,6 @@ void GaussianStreamingSystem::_connect_project_settings() {
 
 void GaussianStreamingSystem::_on_project_settings_changed() {
     config_dirty = true;
-    sh_config_dirty = true;
 }
 
 GaussianStreamingSystem::~GaussianStreamingSystem() {
@@ -2693,13 +2692,10 @@ uint32_t GaussianStreamingSystem::get_instance_sh_policy() const {
 }
 
 // The global SH config is shared with the raster params; only a real settings change
-// reloads it, so values set directly in code survive until the next change.
+// reloads it (one process-wide latch, also consumed by the resident raster route), so
+// values set directly in code survive until the next change.
 void GaussianStreamingSystem::_reload_sh_config_if_dirty() {
-    if (!sh_config_dirty) {
-        return;
-    }
-    sh_config_dirty = false;
-    g_sh_config.load_from_project_settings();
+    sh_config_reload_if_settings_changed();
 }
 
 void GaussianStreamingSystem::_reload_config_if_dirty() {

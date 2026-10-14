@@ -75,5 +75,9 @@ extern SHConfig g_sh_config;
 
 // Configuration management functions
 void initialize_sh_config();
+// Reloads g_sh_config once after any ProjectSettings settings_changed signal. Called by
+// every route that reads it (streaming update and the tile raster params), so a runtime
+// sh_bands/tier change also reaches the resident backend. Returns true when it reloaded.
+bool sh_config_reload_if_settings_changed();
 
 #endif // SH_CONFIG_H

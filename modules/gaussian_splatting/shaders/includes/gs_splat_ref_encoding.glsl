@@ -32,4 +32,10 @@ GS_REF_INLINE uint gs_instance_sh_limit(uint policy, uint lod_level) {
     if ((policy & 8u) == 0u) return maximum;
     return lod_level >= maximum ? 0u : maximum - lod_level;
 }
+// The amortized SH colour cache is keyed per physical Gaussian, which every instance of an
+// asset shares. Only references at the full configured degree may read or write it, so a
+// reduced per-instance limit is never served (or overwrites) a colour of another degree.
+GS_REF_INLINE bool gs_sh_cache_allowed(uint ref_sh_limit, uint band_level) {
+    return ref_sh_limit >= band_level;
+}
 #endif

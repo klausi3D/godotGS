@@ -137,6 +137,13 @@ class SHSelectionWiringTests(unittest.TestCase):
         self.assertRegex(common, r"gaussian_idx\s*=\s*gs_splat_ref_atlas_index\(splat_ref\.atlas_index\)")
         self.assertRegex(common, r"chunk_sh_limit\s*=\s*gs_splat_ref_sh_limit\(splat_ref\.atlas_index\)")
         self.assertRegex(binning, r"sh_band_level\s*=\s*min\(sh_band_level,\s*chunk_sh_limit\)")
+        # The per-Gaussian amortized SH cache is shared by every instance: reduced-limit
+        # references must bypass it (PR #1205 review).
+        self.assertRegex(binning, r"bool use_cache\s*=\s*sh_divisor\s*>\s*1u\s*&&\s*gs_sh_cache_allowed\(chunk_sh_limit,\s*gs_get_sh_band_level\(\)\);")
+
+    def test_resident_raster_params_reload_runtime_sh_settings(self) -> None:
+        source = (ROOT / "modules/gaussian_splatting/renderer/tile_render_stages.cpp").read_text(encoding="utf-8")
+        self.assertRegex(source, r"sh_config_reload_if_settings_changed\(\);\s*params\.sh_config\[0\]\s*=\s*static_cast<float>\(g_sh_config\.sh_bands\)")
 
     def test_effective_quality_is_synchronized_at_production_streaming_entry(self) -> None:
         source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")
