@@ -374,9 +374,13 @@ Generated artifacts:
 
 The public docs surface should prefer the snapshot table above for the current committed result and keep the charts focused on the exported lane data.
 
-<figure markdown="1">
-![Diagram showing how the benchmark runner produces reports, dashboards, charts, and optional capture outputs](../assets/images/benchmark-artifacts-map.svg){ .gs-diagram }
-<figcaption>The benchmark runner is one orchestrated entrypoint that fans out into JSON, dashboard HTML, SVG charts, and optional capture directories for visual proof.</figcaption>
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Benchmark output files">
+    <li><strong>Benchmark runner</strong><small>Select a profile</small></li>
+    <li><strong>Selected lanes</strong><small>Run their checks</small></li>
+    <li><ul class="gs-flow__branches"><li><strong>Reports</strong><small>JSON and logs</small></li><li><strong>Charts</strong><small>Dashboard and SVG</small></li><li><strong>Captures</strong><small>Optional visual output</small></li></ul></li>
+  </ol>
+  <figcaption>Selected lanes produce reports and charts; visual captures are optional.</figcaption>
 </figure>
 
 ## Interactive Performance Charts

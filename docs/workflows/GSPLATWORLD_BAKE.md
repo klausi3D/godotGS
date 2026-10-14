@@ -2,9 +2,13 @@
 
 Use this workflow when you want to merge multiple Gaussian splat assets into one `GaussianSplatWorld` resource for faster runtime loading.
 
-<figure markdown="1">
-![Diagram of the bake workflow joining scene mode and input-list mode into one GaussianSplatWorld output](../assets/images/bake-world-workflow.svg){ .gs-diagram }
-<figcaption>Scene mode preserves node transforms, while input-list mode does not. Both end in the same baked world resource.</figcaption>
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Two bake inputs, one world">
+    <li><ul class="gs-flow__branches"><li><strong>Scene mode</strong><small>Child transforms</small></li><li><strong>Input list</strong><small>Identity transforms</small></li></ul></li>
+    <li><strong>Merge and chunk</strong><small>Combine the input assets</small></li>
+    <li><strong>World file</strong><small><code>.gsplatworld</code></small></li>
+  </ol>
+  <figcaption>Choose one input mode. Both produce a baked world; their transform handling differs.</figcaption>
 </figure>
 
 ## Choose a Bake Mode

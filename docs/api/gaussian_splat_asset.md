@@ -201,7 +201,7 @@ Use `GaussianSplatAsset` to store, serialize, and exchange Gaussian splat data a
       <td><code>data/normals</code></td>
       <td><code>PackedFloat32Array</code></td>
       <td><code>set_normals</code>, <code>get_normals</code></td>
-      <td>Optional per-splat normals (3 floats per splat) for surfel mode.</td>
+      <td>Optional per-splat normals (3 floats per splat), used as shading normals.</td>
       <td><code>GaussianSplatAsset::set_normals</code></td>
     </tr>
     <tr>
@@ -272,8 +272,8 @@ Preview thumbnails are stored as `Image` data. `get_preview_texture()`, `get_thu
       <td><code>GaussianSplatAsset::load_from_file</code></td>
     </tr>
     <tr>
-      <td><code>save_to_file(path: String) -> Error</code></td>
-      <td>Converts the asset to a <code>GaussianData</code> instance and saves it to a PLY file. Returns <code>ERR_INVALID_DATA</code> if the conversion fails.</td>
+      <td><code>save_to_file(path: String, include_painterly_fields: bool = false) -> Error</code></td>
+      <td>Converts the asset to a <code>GaussianData</code> instance and saves it to a PLY file (same layout and options as <code>GaussianData::save_to_file</code>). Returns <code>ERR_INVALID_DATA</code> if the conversion fails.</td>
       <td><code>GaussianSplatAsset::save_to_file</code></td>
     </tr>
   </tbody>

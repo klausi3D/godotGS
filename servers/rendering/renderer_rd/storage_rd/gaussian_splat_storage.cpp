@@ -56,6 +56,20 @@ void GaussianSplatStorage::gaussian_initialize(RID p_rid) {
 }
 
 void GaussianSplatStorage::gaussian_free(RID p_rid) {
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+        // Dropped after the lock is released: ~GaussianSplatRenderer can block on a
+        // render-thread dispatch, and the render thread takes this lock in
+        // render_scene().
+        Ref<GaussianSplatRenderer> released;
+#endif
+        MutexLock lock(slot_mutex);
+#ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
+        GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
+        if (splat) {
+                released = splat->renderer;
+                splat->renderer.unref();
+        }
+#endif
         gaussian_owner.free(p_rid);
 }
 
@@ -65,15 +79,21 @@ bool GaussianSplatStorage::owns_gaussian(RID p_rid) const {
 
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
 void GaussianSplatStorage::gaussian_set_renderer(RID p_rid, const Ref<GaussianSplatRenderer> &p_renderer) {
+        const AABB renderer_aabb = p_renderer.is_valid() ? p_renderer->get_aabb() : AABB();
+        // Dropped after the lock is released, as in gaussian_free().
+        Ref<GaussianSplatRenderer> previous;
+        MutexLock lock(slot_mutex);
         GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
         ERR_FAIL_NULL(splat);
+        previous = splat->renderer;
         splat->renderer = p_renderer;
         if (p_renderer.is_valid()) {
-                splat->aabb = p_renderer->get_aabb();
+                splat->aabb = renderer_aabb;
         }
 }
 
 Ref<GaussianSplatRenderer> GaussianSplatStorage::gaussian_get_renderer(RID p_rid) const {
+        MutexLock lock(slot_mutex);
         const GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
         ERR_FAIL_NULL_V(splat, Ref<GaussianSplatRenderer>());
         return splat->renderer;
@@ -81,24 +101,28 @@ Ref<GaussianSplatRenderer> GaussianSplatStorage::gaussian_get_renderer(RID p_rid
 #endif
 
 void GaussianSplatStorage::gaussian_set_aabb(RID p_rid, const AABB &p_aabb) {
+        MutexLock lock(slot_mutex);
         GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
         ERR_FAIL_NULL(splat);
         splat->aabb = p_aabb;
 }
 
 AABB GaussianSplatStorage::gaussian_get_aabb(RID p_rid) const {
+	MutexLock lock(slot_mutex);
 	const GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
 	ERR_FAIL_NULL_V(splat, AABB());
 	return splat->aabb;
 }
 
 void GaussianSplatStorage::gaussian_set_casts_shadow(RID p_rid, bool p_casts_shadow) {
+	MutexLock lock(slot_mutex);
 	GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
 	ERR_FAIL_NULL(splat);
 	splat->casts_shadow = p_casts_shadow;
 }
 
 bool GaussianSplatStorage::gaussian_get_casts_shadow(RID p_rid) const {
+	MutexLock lock(slot_mutex);
 	const GaussianSplat *splat = gaussian_owner.get_or_null(p_rid);
 	ERR_FAIL_NULL_V(splat, false);
 	return splat->casts_shadow;

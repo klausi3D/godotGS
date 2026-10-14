@@ -48,8 +48,8 @@ spots**. Each finding has a severity:
   but may **not** silently drop or downgrade a blocker.
 - The risk class that sets the required review layers is **derived from the diff**
   by `scripts/agentic/classify_change.py`, which the required `agentic-pr-gate`
-  check runs against the PR's own changed paths and the **immutable base** copy of
-  `.agentic/policy.json`. An author's self-declared class is **not consumed by CI**:
+  check runs -- as the **immutable base** copy of the script (#1167) -- against the
+  PR's own changed paths and the base copy of `.agentic/policy.json`. An author's self-declared class is **not consumed by CI**:
   the higher-of-the-two cross-check exists in `check_pr_contract.py`, but that
   script only runs against the shipped fixture, because the repository has no
   per-PR contract source (Phase-2 contract-source ADR). Treat a declared class as a
@@ -63,7 +63,10 @@ spots**. Each finding has a severity:
   `tests/ci/test_release_builds_runner_trust.py` (run by `--guard-only`) enforces
   this for `release_builds.yml` only; for the other workflows, check a new or changed
   self-hosted job at review time. Any change that relaxes a gate or the runner trust
-  boundary must be documented and human-approved.
+  boundary must be documented and human-approved. Recorded relaxation: Production
+  Gates readiness enforcement (#1164) enforces `897_907_ready`, `900_ready` and
+  `815_ready`; `943_ready`, `871_ready` and `902_ready` are reported, not enforced,
+  until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).
 
 ## Repository enforcement
 

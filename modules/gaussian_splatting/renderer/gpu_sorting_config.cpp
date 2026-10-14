@@ -146,7 +146,7 @@ void GPUSortingConfig::load_from_project_settings() {
             max_sort_elements, max_overlap_records, int(has_elements), int(has_overlap)));
 
     radix_bits = ps->get_setting(RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
-    workgroup_size = ps->get_setting(WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+    workgroup_size = ps->get_setting(WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE);
     // Fallbacks MUST match the registered GLOBAL_DEF (and the shippable
     // contract): 64/32/32. The old 32/16/16 fallbacks were the known-bad
     // flicker config (GS-298) and would be silently selected by any read that
@@ -225,7 +225,7 @@ void GPUSortingConfig::reset_to_defaults() {
     max_overlap_records = 100000000;
     max_raster_splats_per_tile = 65536;
     radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS;
-    workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
+    workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE;
     // 64-bit keys (32 tile + 32 depth) are the only shippable layout; 32-bit (16 depth bits)
     // bands/flickers on real-scan content (GS-298). reset_to_defaults() is also the recovery
     // path used by initialize_gpu_sorting_config() after a validation failure, so it must NOT
@@ -363,10 +363,9 @@ String GPUSortingConfig::get_portability_warnings() const {
     // radix_bits and workgroup_size are each individually valid, but the RadixSort
     // scatter kernel's shared-memory footprint is a function of their PRODUCT. (8, 512)
     // needs 18432 bytes > the 16384-byte (16 KB) minimum Vulkan 1.1 guarantees, so the
-    // scatter pipeline is unbuildable on common Intel/AMD parts, so no GPU sorter can be
-    // built there: the instance sort route fails closed and the global composite rejects
-    // its translucent frames (#586) — splats are not drawn. Same single-source
-    // helper RadixSort::is_supported() probes the real device limit with. An unsupported
+    // configured footprint does not fit devices at that floor. RadixSort's probe
+    // and initialization then fall back to workgroup_size 256 while retaining
+    // radix/key precision; smaller groups cost more prefix work. An unsupported
     // radix_bits returns the fail-closed sentinel: that is a hard validation error
     // (reported by get_validation_errors + reset to defaults), not a portability issue,
     // so it produces no warning here.
@@ -377,10 +376,8 @@ String GPUSortingConfig::get_portability_warnings() const {
         warnings += vformat(
                 "radix_bits=%d x workgroup_size=%d needs %d bytes of compute shared memory, "
                 "exceeding the %d-byte (16 KB) minimum guaranteed by Vulkan 1.1 (common Intel/AMD "
-                "limit); the RadixSort scatter kernel will be unbuildable on such GPUs, so no GPU "
-                "sorter can be built there: the instance sort route fails closed and the global "
-                "composite rejects its translucent frames (nothing presented, #586). Lower "
-                "radix_bits or workgroup_size.\n",
+                "limit). On such devices RadixSort falls back to workgroup_size 256, "
+                "which can increase sort time. Radix width and key precision are retained.\n",
                 radix_bits, workgroup_size, scatter_shared_bytes,
                 GPUSortingConstants::VULKAN_MIN_COMPUTE_SHARED_MEMORY_BYTES);
     }
@@ -515,7 +512,7 @@ GPUSortingConfig GPUSortingConfig::preset_medium() {
 
     // Radix parameters - standard configuration
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower for our workload
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Standard workgroup size
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Standard workgroup size
 
     // Key layout - 64-bit for precision
     config.key_bits = 64;
@@ -549,7 +546,7 @@ GPUSortingConfig GPUSortingConfig::preset_high() {
 
     // Radix parameters - optimized for throughput
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower (larger histograms, lower occupancy)
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Standard workgroup size
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Standard workgroup size
 
     // Key layout - full precision
     config.key_bits = 64;
@@ -583,7 +580,7 @@ GPUSortingConfig GPUSortingConfig::preset_ultra() {
 
     // Radix parameters - maximum throughput
     config.radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // 4-bit radix (DEFAULT_RADIX_BITS); 8-bit measured slower for our workload
-    config.workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // Can try 512 on very high-end GPUs
+    config.workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Reduced to device-supported size at RadixSort init
 
     // Key layout - maximum precision with tie-breaker
     config.key_bits = 64;
@@ -720,7 +717,7 @@ void initialize_gpu_sorting_config() {
     // positive value is an explicit override that wins under a named preset too (#1137).
     GLOBAL_DEF(GPUSortingConfig::MAX_RASTER_SPLATS_PER_TILE_PATH, 0);
     GLOBAL_DEF(GPUSortingConfig::RADIX_BITS_PATH, GPUSortingConstants::DEFAULT_RADIX_BITS);
-    GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_WORKGROUP_SIZE);
+    GLOBAL_DEF(GPUSortingConfig::WORKGROUP_SIZE_PATH, GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE);
     GLOBAL_DEF(GPUSortingConfig::KEY_BITS_PATH, GPUSortingConstants::DEFAULT_KEY_BITS);
     GLOBAL_DEF(GPUSortingConfig::TILE_BITS_PATH, GPUSortingConstants::DEFAULT_TILE_BITS);
     GLOBAL_DEF(GPUSortingConfig::DEPTH_BITS_PATH, GPUSortingConstants::DEFAULT_DEPTH_BITS);

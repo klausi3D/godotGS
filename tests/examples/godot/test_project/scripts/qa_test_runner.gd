@@ -46,8 +46,9 @@ var test_scenes: Array[String] = [
 ## them here makes every exclusion show up in the suite summary and in
 ## qa_results.json, so the gap is counted rather than forgotten.
 ##
-## Removing an entry is the whole fix for that scene — it starts gating again
-## the moment the reason stops being true.
+## Activation requires a verified fix, adding the scene to test_scenes in the
+## appropriate order, and removing its quarantine entry. The quarantine table
+## reports exclusions; it does not schedule scenes for execution.
 const QUARANTINED_SCENES := {
 	"res://scenes/qa/qa_stream_visual_smoke.tscn":
 		"#786: streaming/visual readiness is never reached (luma variance 0.00009 vs the "

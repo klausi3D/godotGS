@@ -188,7 +188,7 @@
   border: 1px solid var(--gs-line);
   box-shadow: none;
   background: transparent;
-  font-size: 0.76rem;
+  font-size: var(--gs-text-table);
 }
 .md-typeset table:not([class]) th {
   background: color-mix(in srgb, var(--gs-text) 4%, transparent);
@@ -206,18 +206,29 @@
 .md-typeset table:not([class]) tr:hover td {
   background: color-mix(in srgb, var(--gs-accent-soft) 55%, transparent);
 }
-/* Keep inline code tokens whole so wide reference tables reach a real min-width
-   and scroll on narrow screens, instead of squishing each identifier down to a
-   1-character-per-line column. */
+/* Allow long API names and setting paths to wrap without forcing tiny columns.
+   The cell measure preserves a useful fragment; dense inventories still scroll
+   inside Material's wrapper rather than reducing their type size. */
+.md-typeset table:not([class]) :is(th, td) {
+  /* Material uses border-box cells with 1.25em padding on each side. Reserve
+     that padding in addition to the text measure, not inside it. */
+  min-width: calc(var(--gs-table-cell-measure) + 2.5em);
+  overflow-wrap: anywhere;
+}
 .md-typeset table:not([class]) code:not(pre code) {
-  white-space: nowrap;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.95em;
 }
 
 /* Horizontal-scroll affordance for tables wider than the column: scroll-edge
    shadows (visible only on the side that has more content — the page-coloured
    covers scroll with the content and hide a shadow once its edge is reached)
    plus an always-styled thin scrollbar. */
-.md-typeset__scrollwrap {
+.md-typeset__scrollwrap,
+.gs-table-scroll {
+  max-width: 100%;
   --gs-scroll-shadow: color-mix(in srgb, var(--gs-text) 16%, transparent);
   background:
     linear-gradient(to right, var(--gs-bg) 40%, transparent) left / 2.5rem 100% no-repeat local,
@@ -226,6 +237,20 @@
     linear-gradient(to left, var(--gs-scroll-shadow), transparent) right / 1.2rem 100% no-repeat scroll;
   scrollbar-width: thin;
   scrollbar-color: var(--gs-faint) transparent;
+}
+.gs-table-scroll {
+  margin: 1em 0;
+  overflow-x: auto;
+}
+/* Material adds its own table wrapper at runtime. The semantic outer group is
+   the only scroll owner; do not create nested horizontal scroll areas. */
+.gs-table-scroll .md-typeset__scrollwrap {
+  margin: 0;
+  overflow-x: visible;
+  background: none;
+}
+.gs-table-scroll .md-typeset__table {
+  padding: 0;
 }
 /* Material bleeds the scroll area 0.8rem past the column on each side. On
    phones that reaches the screen edge (kept); wider, it would overhang the
@@ -240,13 +265,16 @@
   }
 }
 /* Engines without scrollbar-color (Safari) keep a classic, visible thin bar. */
-.md-typeset__scrollwrap::-webkit-scrollbar {
+.md-typeset__scrollwrap::-webkit-scrollbar,
+.gs-table-scroll::-webkit-scrollbar {
   height: 8px;
 }
-.md-typeset__scrollwrap::-webkit-scrollbar-track {
+.md-typeset__scrollwrap::-webkit-scrollbar-track,
+.gs-table-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.md-typeset__scrollwrap::-webkit-scrollbar-thumb {
+.md-typeset__scrollwrap::-webkit-scrollbar-thumb,
+.gs-table-scroll::-webkit-scrollbar-thumb {
   background: var(--gs-faint);
   border-radius: var(--gs-radius-pill);
 }
@@ -357,8 +385,7 @@
 .md-typeset figure img,
 .md-typeset figure video,
 .md-typeset img.gs-shot,
-.md-typeset video.gs-shot,
-.md-typeset img.gs-diagram {
+.md-typeset video.gs-shot {
   display: block;
   width: 100%;
   border: 1px solid var(--gs-line);
@@ -381,11 +408,134 @@
   font-style: normal;
 }
 .md-typeset .mermaid {
-  border: 1px solid var(--gs-line);
-  border-radius: var(--gs-radius-lg);
-  background: var(--gs-surface);
-  box-shadow: var(--gs-shadow-sm);
-  padding: 1rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  overflow-x: auto;
+}
+
+/* Tutorial details can stay at native size; align them with the instruction. */
+.md-typeset figure.gs-tutorial-shot {
+  display: block;
+  text-align: left;
+}
+.md-typeset .gs-tutorial-shot img {
+  margin: 0;
+}
+
+/* Relationship diagrams use document text, not a fixed-size poster. Tutorials
+   use steps and real screenshots; these nodes are only for branches/data flow. */
+.md-typeset .gs-flow {
+  display: block;
+  width: 100%;
+  text-align: left;
+  container-type: inline-size;
+  color: var(--gs-prose);
+}
+.md-typeset .gs-flow .gs-flow__steps {
+  display: grid;
+  gap: 1.4rem;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.md-typeset .gs-flow .gs-flow__steps > li {
+  position: relative;
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem;
+  border: 1px solid var(--gs-line-strong);
+  border-radius: var(--gs-radius-xs);
+  overflow-wrap: anywhere;
+}
+.md-typeset .gs-flow strong {
+  display: block;
+  font-family: var(--gs-font-text);
+  font-size: var(--gs-text-body);
+  font-weight: var(--gs-weight-medium);
+  color: var(--gs-text);
+}
+.md-typeset .gs-flow small {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--gs-muted);
+}
+.md-typeset .gs-flow small code {
+  font-size: 1em;
+}
+/* Connectors are CSS strokes with no generated text in the accessibility tree. */
+.md-typeset .gs-flow .gs-flow__steps > li + li::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -1.2rem;
+  width: 0;
+  height: 0.9rem;
+  border-left: 1px solid var(--gs-faint);
+}
+.md-typeset .gs-flow .gs-flow__steps > li + li::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 0.125rem);
+  top: -0.5rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-right: 1px solid var(--gs-faint);
+  border-bottom: 1px solid var(--gs-faint);
+  transform: rotate(45deg);
+}
+.md-typeset .gs-flow .gs-flow__branches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.md-typeset .gs-flow .gs-flow__branches > li {
+  margin: 0;
+}
+.md-typeset .gs-flow .gs-flow__branches > li + li {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--gs-line);
+}
+@container (min-width: 28rem) {
+  .md-typeset .gs-flow .gs-flow__steps {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 1.2rem;
+  }
+  .md-typeset .gs-flow .gs-flow__steps > li + li::before {
+    left: -1.1rem;
+    top: 50%;
+    width: 0.8rem;
+    height: 0;
+    border-left: 0;
+    border-top: 1px solid var(--gs-faint);
+  }
+  .md-typeset .gs-flow .gs-flow__steps > li + li::after {
+    left: -0.5rem;
+    top: calc(50% - 0.125rem);
+    transform: rotate(-45deg);
+  }
+}
+/* Static SVG evidence snapshots have no viewBox: their text uses native CSS px
+   even at a narrow width. Keep them flat and monochrome in either palette. */
+.md-typeset img.gs-diagram {
+  display: block;
+  width: 100%;
+  max-width: 20rem;
+  height: 18rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+[data-md-color-scheme="slate"] .md-typeset img.gs-diagram {
+  filter: invert(1);
 }
 
 /* --------------------------------------------------------------------------
@@ -416,6 +566,16 @@
   opacity: 1; /* Material dims this label to 0.7; the muted token already is the secondary tone */
 }
 
+@media screen and (max-width: 20em) {
+  .md-footer__inner {
+    flex-direction: column;
+  }
+  .md-footer__link {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 /* Meta footer (copyright / generator line) */
 .md-footer-meta {
   background: var(--gs-bg-alt);
@@ -444,4 +604,12 @@
   box-shadow: none;
   color: var(--gs-text);
   font-size: 0.72em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .md-button:hover,
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid > .card:hover {
+    transform: none;
+  }
 }

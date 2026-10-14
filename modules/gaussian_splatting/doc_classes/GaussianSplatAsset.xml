@@ -119,7 +119,9 @@
 		<method name="save_to_file" qualifiers="const">
 			<return type="int" enum="Error" />
 			<param index="0" name="path" type="String" />
+			<param index="1" name="include_painterly_fields" type="bool" default="false" />
 			<description>
+				Saves the asset to a binary PLY file at [param path]. See [method GaussianData.save_to_file] for the layout and for [param include_painterly_fields].
 			</description>
 		</method>
 		<method name="set_brush_override_ids">

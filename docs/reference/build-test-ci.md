@@ -270,3 +270,33 @@ configuration. Treat qlty as a non-blocking signal unless branch protection or
 Use recurring fixes:
 
 - [Recurring issues](../troubleshooting/recurring-issues.md)
+
+## Decision record: QA import preconditions for production evidence
+
+Decision dated 2026-10-11. A clean checkout can remove the example project's
+imported resources before production evidence collection. Starting QA directly
+then fails to load world resources, and instance candidates correctly reject
+reference captures from another process. Baseline QA already prepares these
+resources through a headless import and `tests/ci/verify_qa_imports.gd`.
+
+The production collector must run that same import and unchanged verifier before
+QA, using the same binary and project. Require both real exit codes to be zero
+and exactly one fresh, complete positive verifier marker. Keep separate logs in
+an exclusively reserved QA attempt directory. A failed prerequisite prevents QA,
+preserves the actual exits and logs, and fails collection after writing its
+evidence. Read QA results and logs only from the current, actually invoked
+attempt; skipped or blocked QA supplies no results from an earlier attempt.
+
+This adds preparation work and makes missing-resource failures explicit. It
+preserves `SkipQA`, same-process capture checks, fixtures, quarantines,
+thresholds, other collection stages and readiness policy. Backports must retain
+their anchor's stronger failed-command propagation. The existing PowerShell
+invocation has no per-command timeout; the CI job's overall bound remains in
+effect. This decision adds no process-kill or timeout mechanism.
+
+The decision follows source and raw-log investigation and two independent
+design reviews, and precedes the collector correction. Mock PowerShell controls
+can prove orchestration only; native import, resource, image and GPU evidence
+require separate validation. Existing GPU, lifetime and visual acceptance
+findings remain open. Final source review, CODEOWNER and human merge disposition
+are still required.

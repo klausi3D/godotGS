@@ -61,7 +61,7 @@ struct GPUSortingConfig {
 
     // Radix parameters
     uint32_t radix_bits = GPUSortingConstants::DEFAULT_RADIX_BITS; // Primary radix sort bits (4 or 8)
-    uint32_t workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE; // GPU workgroup size
+    uint32_t workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE; // Radix preference, reduced at init to fit the device
 
     // Key layout
     uint32_t key_bits = 64;                  // Sort key width (32 or 64); 64 is the only shippable default (32-bit flickers on real scans, GS-298)
