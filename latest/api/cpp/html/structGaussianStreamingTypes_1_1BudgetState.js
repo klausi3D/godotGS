@@ -11,6 +11,8 @@ var structGaussianStreamingTypes_1_1BudgetState =
     [ "pending_upload_slots", "structGaussianStreamingTypes_1_1BudgetState.html#a20eb657ba203899a4dd40cc191a5e838", null ],
     [ "retired_upload_bytes_this_frame", "structGaussianStreamingTypes_1_1BudgetState.html#a9148c2c6fccbaf40dc6e1bc7eb06757b", null ],
     [ "retired_upload_slots_this_frame", "structGaussianStreamingTypes_1_1BudgetState.html#a4b847d54e81d9a0cffaf35c3ae2fdc51", null ],
+    [ "stale_sequence_dropped_upload_retirements", "structGaussianStreamingTypes_1_1BudgetState.html#a6343ea1f7243d03072802851a3bc4b4e", null ],
+    [ "stale_sequence_dropped_uploads", "structGaussianStreamingTypes_1_1BudgetState.html#ae05fb0675e7c59b8d4c69674d56a2107", null ],
     [ "stride_flip_dropped_prewrite_uploads", "structGaussianStreamingTypes_1_1BudgetState.html#a1b9baf54d86721ef8634511a7118be66", null ],
     [ "stride_flip_dropped_upload_retirements", "structGaussianStreamingTypes_1_1BudgetState.html#af0d046ed88c9db7bb15d0c1a6a570a7b", null ],
     [ "vram_chunk_cap_hit_this_frame", "structGaussianStreamingTypes_1_1BudgetState.html#ab1c7bb137cbf4481d93f9d7bf9c6d2ec", null ],

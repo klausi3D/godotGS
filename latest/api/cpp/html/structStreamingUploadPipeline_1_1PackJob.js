@@ -10,5 +10,6 @@ var structStreamingUploadPipeline_1_1PackJob =
     [ "enqueue_usec", "structStreamingUploadPipeline_1_1PackJob.html#af090eee4aa66515e9471c5fc66a082be", null ],
     [ "payload_source", "structStreamingUploadPipeline_1_1PackJob.html#a0fd22eb9d4e615326e636ece230abba1", null ],
     [ "source_indices", "structStreamingUploadPipeline_1_1PackJob.html#a2f6766a34ef1cc942852e772d22b954e", null ],
+    [ "upload_sequence", "structStreamingUploadPipeline_1_1PackJob.html#ae10960179591afb4710eac617509a979", null ],
     [ "uses_explicit_source_indices", "structStreamingUploadPipeline_1_1PackJob.html#a97b1e5102e427be9dcfd9bba4410b70c", null ]
 ];

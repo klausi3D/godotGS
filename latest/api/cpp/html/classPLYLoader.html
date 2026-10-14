@@ -163,7 +163,10 @@ Supported Properties</h2>
 <li>opacity: Logit-encoded opacity (float)</li>
 </ul>
 <p><b>Optional properties</b> (loaded if present):</p><ul>
-<li>nx, ny, nz: Surface normals for 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) mode</li>
+<li>nx, ny, nz: Per-splat surface normals (shading normals). They do NOT switch on 2D mode: stock 3DGS/INRIA PLYs carry them as zeros (#1185).</li>
+</ul>
+<p><b>Header declarations</b>:</p><ul>
+<li><code>comment gs_2d_mode</code>: sets the metadata-only <a class="el" href="classGaussianData.html" title="Resource class for storing and managing Gaussian splat data.">GaussianData</a> 2D (surfel) flag. <a class="el" href="classGaussianData.html#ab48440a6cf6bca72465a1116d08bcc71" title="Saves current Gaussian data to a binary PLY file.">GaussianData::save_to_file()</a> writes it for 2D-flagged data.</li>
 <li>f_rest_*: Higher-order spherical harmonic coefficients</li>
 </ul>
 <h2><a class="anchor" id="autotoc_md2"></a>

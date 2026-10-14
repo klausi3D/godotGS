@@ -149,17 +149,16 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 175,
-    "sha256": "237c1006b4be9393abc9cf651893233e0bfdf1f15d52cdc762cb342d5363c464",
-    "sha256_last_changed_by": "#539 (radix workgroup sized to the device limits, capacity admitted against the dispatch X limit): ADD 2 [GaussianSplatting][GpuSort][RequiresGPU] cases in modules/gaussian_splatting/tests/test_gpu_sorting.h, \"Radix device adaptation preserves indirect64 sorting (#539)\" and \"Radix capacity respects dispatch X after device adaptation (#539)\", both in the required GpuSorting batch. count 173 -> 175, running_in_a_named_batch 107 -> 109, deferred_count unchanged at 3, unbatched_backlog unchanged at 63. Counts and digest recomputed with check_renderer_release_gates._requires_gpu_snapshot and test_gpu_harness_deferred_contract --print-summary. Decision: docs/reference/renderer-release-gates.md#decision-record-radix-workgroup-sizing-539-2026-10-13. Previous pin, for audit: ad0e57c238b7bd765b954e292b95955e62b643f510e6fc1758d188e15fddc7f6 (count 173, #1173).",
+    "test_count": 212,
+    "sha256": "9bb024eb01b8df7aad74d054a2ed6b8c8113518ffbf025ff7d69625dffd039e0",
+    "sha256_last_changed_by": "Merge of master b46a9317fc5 into #1195: the union of #1195's inventory (count 210, digest 00c1239f8341c038fab2d065c7794ccd5e20f9048d18dbe86684f5fb4d57d2f3, named-batch 145, deferred 2) and master's #539 additions (2 [GaussianSplatting][GpuSort][RequiresGPU] cases in test_gpu_sorting.h, in the required GpuSorting batch; master pin 237c1006b4be9393abc9cf651893233e0bfdf1f15d52cdc762cb342d5363c464, count 175). Computed from the merged source with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot and test_gpu_harness_deferred_contract.py --print-summary: count 212, running_in_a_named_batch 147, deferred 2, unbatched_backlog 63, undeclared orphans 0. Source inventory only, not new runtime proof. #1195's own change: RETAG of 37 [Streaming Pipeline] cases as [RequiresGPU] (StreamingPipeline REQUIRED) plus the merged #1173 NodeSceneTree precedence test, corpus 172 -> 210; evidence limits in adr-advisory-lane-ledger.md. Previous #1195 pin before that: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172).",
     "deferred_tags_any": [
       "Importer"
     ],
-    "deferred_count": 3,
+    "deferred_count": 2,
     "new_or_missing_test_policy": "fail-contract-check",
     "closure_policy": "deferred RequiresGPU coverage blocks #350/#360 closure unless each remaining test has an explicit waiver below",
     "deferred_test_names_any": [
-      "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults",
       "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance"
     ],
     "deferral_model": "Deferred = (RequiresGPU tests tagged with any deferred_tags_any) UNION (RequiresGPU tests named in deferred_test_names_any). #329: [SceneTree] is no longer a deferred TAG -- that corpus runs in the NodeSceneTree/WorldSceneTree/SceneDirectorSceneTree batches; only the individually-broken cases listed above are still deferred."
@@ -172,26 +171,12 @@
       "source_path": "modules/gaussian_splatting/tests/test_gaussian_importer.h",
       "reason": "The [Importer] family needs full ResourceLoader/ResourceSaver setup including type registration for GaussianSplatAsset preview I/O; the harness's offscreen RD bootstrap is deliberately lighter weight and faults inside the resource roundtrip. Deferred by TAG (deferred_tags_any), not by name: no [Importer] GPU case runs here yet.",
       "risk": "low",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/329",
+      "issue_url": "https://github.com/klausi3D/godotGS/issues/910",
       "owner": "klausi3D",
       "expires_utc": "2026-10-31T00:00:00Z",
       "mitigation": "Excluded by the runner's default --test-case-exclude=*[Importer]* injection.",
       "docs_path": "docs/reference/renderer-release-gates.md",
       "base_sha_proven_failing": "9161d92f349326e2004088638a5ab43eb4773123"
-    },
-    {
-      "test_name": "[TileRenderer][RequiresGPU] Output format coercion keeps deterministic defaults",
-      "batch": "TileRenderer",
-      "exclude_pattern": "*Output format coercion keeps deterministic defaults*",
-      "source_path": "modules/gaussian_splatting/tests/test_tile_renderer.cpp",
-      "reason": "REPRODUCED 2026-07-19 on b15c6ddda46 (RTX 3090, Vulkan): the TileRenderer batch returns rc=1 with 6/7 cases and 66/67 assertions, failing at test_tile_renderer.cpp:52 -- CHECK(renderer->get_output_format() == RD::DATA_FORMAT_R8G8B8A8_SRGB) reports 232 (DATA_FORMAT_MAX) instead of 42 (SRGB). This is the PRODUCT bug tracked as #643: initialize() returns OK while create_output_textures() (renderer/tile_render_resources.cpp:474) fails to create an SRGB texture carrying TEXTURE_USAGE_STORAGE_BIT, which no driver allows, leaving the renderer with no output texture. The module already has _resolve_storage_compatible_color_format() (renderer/tile_renderer.cpp:104) for exactly this mapping but never calls it on the creation path. || The assertion is CORRECT and encodes the contract #643 must deliver; it must NOT be relaxed to match current behaviour. PR #646 added the [RequiresGPU] tag that routed this known-failing case into the default GPU harness, which is why the gate has been red. Excluding it restores an honest gate WITHOUT weakening the assertion: the case rejoins the batch automatically the moment this waiver is removed. || Origin: unresolved pre-merge review thread on PR #646 (https://github.com/klausi3D/godotGS/pull/646#discussion_r3608341129), which asked for exactly this and was never dispositioned before the admin merge.",
-      "risk": "low",
-      "issue_url": "https://github.com/klausi3D/godotGS/issues/643",
-      "owner": "klausi3D",
-      "expires_utc": "2026-10-31T00:00:00Z",
-      "mitigation": "TileRenderer is not a REQUIRED_BATCH, so no release-gate coverage claim depends on this case. The other 6 cases in the batch (including the sibling shader-compilation case on a real device) still run and still gate. #643 tracks deciding the contract (coerce SRGB->UNORM, or fail initialize()) and then removing this waiver.",
-      "docs_path": "docs/reference/renderer-release-gates.md",
-      "base_sha_proven_failing": "b15c6ddda46bf6f140b65a444c33fa6025ec7bf0"
     },
     {
       "test_name": "[GaussianSplatting][Streaming][RequiresGPU] GPU Memory Streaming Performance",
@@ -498,9 +483,9 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 175,
-      "running_in_a_named_batch": 109,
-      "deferred_with_waiver": 3,
+      "requires_gpu_total": 212,
+      "running_in_a_named_batch": 147,
+      "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },
     "by_source_file": {

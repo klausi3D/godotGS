@@ -104,8 +104,11 @@ $(document).ready(function(){initNavTree('gaussian__gpu__layout_8cpp.html',''); 
 <code>#include &quot;core/config/project_settings.h&quot;</code><br />
 <code>#include &quot;core/error/error_macros.h&quot;</code><br />
 <code>#include &quot;core/math/math_funcs.h&quot;</code><br />
+<code>#include &quot;core/os/mutex.h&quot;</code><br />
+<code>#include &quot;core/templates/hash_set.h&quot;</code><br />
 <code>#include &quot;core/variant/variant.h&quot;</code><br />
 <code>#include &lt;algorithm&gt;</code><br />
+<code>#include &lt;atomic&gt;</code><br />
 <code>#include &lt;cstring&gt;</code><br />
 </div><div class="textblock"><div class="dynheader">
 Include dependency graph for gaussian_gpu_layout.cpp:</div>
@@ -115,8 +118,16 @@ Include dependency graph for gaussian_gpu_layout.cpp:</div>
 </div><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="func-members" name="func-members"></a>
 Functions</h2></td></tr>
+<tr class="memitem:ae085573af4c2320e148f668b3079fe44" id="r_ae085573af4c2320e148f668b3079fe44"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#ae085573af4c2320e148f668b3079fe44">gs_get_non_finite_pack_rejection_count</a> ()</td></tr>
+<tr class="separator:ae085573af4c2320e148f668b3079fe44"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab23a830e3fd4cdde8de536b81bf038bb" id="r_ab23a830e3fd4cdde8de536b81bf038bb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#ab23a830e3fd4cdde8de536b81bf038bb">pack_gaussian</a> (const <a class="el" href="structGaussian.html">Gaussian</a> &amp;src, <a class="el" href="structPackedGaussian.html">PackedGaussian</a> &amp;dst, <a class="el" href="structSHCompressionMetrics.html">SHCompressionMetrics</a> &amp;metrics, const Vector3 *higher_order_coeffs, uint32_t first_order_count, uint32_t higher_order_count, uint32_t coefficient_limit)</td></tr>
 <tr class="separator:ab23a830e3fd4cdde8de536b81bf038bb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:afdce846213d95df791d219ac465cc808" id="r_afdce846213d95df791d219ac465cc808"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#afdce846213d95df791d219ac465cc808">gs_sh_layout_dropped_coefficients</a> (uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
+<tr class="separator:afdce846213d95df791d219ac465cc808"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad7d55777e7afe8b86865dc8d8f82ce7c" id="r_ad7d55777e7afe8b86865dc8d8f82ce7c"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#ad7d55777e7afe8b86865dc8d8f82ce7c">gs_warn_sh_layout_truncation_once</a> (uint64_t p_asset_key, const String &amp;p_asset_label, uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
+<tr class="separator:ad7d55777e7afe8b86865dc8d8f82ce7c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a207132aa2f88034dc8b8d02b97f9171b" id="r_a207132aa2f88034dc8b8d02b97f9171b"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#a207132aa2f88034dc8b8d02b97f9171b">gs_warn_sh_layout_truncation_once</a> (const <a class="el" href="classGaussianData.html">GaussianData</a> &amp;p_data, uint32_t p_first_order_count, uint32_t p_higher_order_count, bool p_quantized_layout)</td></tr>
+<tr class="separator:a207132aa2f88034dc8b8d02b97f9171b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aab4eb255b15552150f26952cdd7f26dc" id="r_aab4eb255b15552150f26952cdd7f26dc"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#aab4eb255b15552150f26952cdd7f26dc">pack_gaussian_quantized</a> (const <a class="el" href="structGaussian.html">Gaussian</a> &amp;src, const <a class="el" href="structChunkQuantizationInfo.html">ChunkQuantizationInfo</a> &amp;chunk_quant, uint16_t chunk_id, <a class="el" href="structPackedGaussianQuantized.html">PackedGaussianQuantized</a> &amp;dst, <a class="el" href="structSHCompressionMetrics.html">SHCompressionMetrics</a> &amp;metrics, const Vector3 *higher_order_coeffs, uint32_t first_order_count, uint32_t higher_order_count, uint32_t coefficient_limit)</td></tr>
 <tr class="separator:aab4eb255b15552150f26952cdd7f26dc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a73e1e162f15578d6f1d204de862db7d7" id="r_a73e1e162f15578d6f1d204de862db7d7"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="gaussian__gpu__layout_8cpp.html#a73e1e162f15578d6f1d204de862db7d7">pack_gaussians_range_quantized</a> (const LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;src, uint32_t start, uint32_t count, const <a class="el" href="structChunkQuantizationInfo.html">ChunkQuantizationInfo</a> &amp;chunk_quant, uint16_t chunk_id, <a class="el" href="structPackedGaussianQuantized.html">PackedGaussianQuantized</a> *dst, <a class="el" href="structSHCompressionMetrics.html">SHCompressionMetrics</a> &amp;metrics, const Vector3 *higher_order_coeffs, uint32_t first_order_count, uint32_t higher_order_count, uint32_t coefficient_limit)</td></tr>
@@ -131,6 +142,143 @@ Functions</h2></td></tr>
 <tr class="separator:a54f4877865c5e9e3dc121d8618f98744"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Function Documentation</h2>
+<a id="ae085573af4c2320e148f668b3079fe44" name="ae085573af4c2320e148f668b3079fe44"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae085573af4c2320e148f668b3079fe44">&#9670;&#160;</a></span>gs_get_non_finite_pack_rejection_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t gs_get_non_finite_pack_rejection_count </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="afdce846213d95df791d219ac465cc808" name="afdce846213d95df791d219ac465cc808"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#afdce846213d95df791d219ac465cc808">&#9670;&#160;</a></span>gs_sh_layout_dropped_coefficients()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t gs_sh_layout_dropped_coefficients </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_first_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_higher_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_quantized_layout</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a207132aa2f88034dc8b8d02b97f9171b" name="a207132aa2f88034dc8b8d02b97f9171b"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a207132aa2f88034dc8b8d02b97f9171b">&#9670;&#160;</a></span>gs_warn_sh_layout_truncation_once() <span class="overload">[1/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_warn_sh_layout_truncation_once </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianData.html">GaussianData</a> &amp;&#160;</td>
+          <td class="paramname"><em>p_data</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_first_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_higher_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_quantized_layout</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ad7d55777e7afe8b86865dc8d8f82ce7c" name="ad7d55777e7afe8b86865dc8d8f82ce7c"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad7d55777e7afe8b86865dc8d8f82ce7c">&#9670;&#160;</a></span>gs_warn_sh_layout_truncation_once() <span class="overload">[2/2]</span></h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool gs_warn_sh_layout_truncation_once </td>
+          <td>(</td>
+          <td class="paramtype">uint64_t&#160;</td>
+          <td class="paramname"><em>p_asset_key</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const String &amp;&#160;</td>
+          <td class="paramname"><em>p_asset_label</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_first_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_higher_order_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_quantized_layout</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="ab23a830e3fd4cdde8de536b81bf038bb" name="ab23a830e3fd4cdde8de536b81bf038bb"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab23a830e3fd4cdde8de536b81bf038bb">&#9670;&#160;</a></span>pack_gaussian()</h2>
 

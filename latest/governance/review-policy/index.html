@@ -4590,8 +4590,8 @@ spots</strong>. Each finding has a severity:</p>
   but may <strong>not</strong> silently drop or downgrade a blocker.</li>
 <li>The risk class that sets the required review layers is <strong>derived from the diff</strong>
   by <code>scripts/agentic/classify_change.py</code>, which the required <code>agentic-pr-gate</code>
-  check runs against the PR's own changed paths and the <strong>immutable base</strong> copy of
-  <code>.agentic/policy.json</code>. An author's self-declared class is <strong>not consumed by CI</strong>:
+  check runs -- as the <strong>immutable base</strong> copy of the script (#1167) -- against the
+  PR's own changed paths and the base copy of <code>.agentic/policy.json</code>. An author's self-declared class is <strong>not consumed by CI</strong>:
   the higher-of-the-two cross-check exists in <code>check_pr_contract.py</code>, but that
   script only runs against the shipped fixture, because the repository has no
   per-PR contract source (Phase-2 contract-source ADR). Treat a declared class as a
@@ -4605,7 +4605,10 @@ spots</strong>. Each finding has a severity:</p>
   <code>tests/ci/test_release_builds_runner_trust.py</code> (run by <code>--guard-only</code>) enforces
   this for <code>release_builds.yml</code> only; for the other workflows, check a new or changed
   self-hosted job at review time. Any change that relaxes a gate or the runner trust
-  boundary must be documented and human-approved.</li>
+  boundary must be documented and human-approved. Recorded relaxation: Production
+  Gates readiness enforcement (#1164) enforces <code>897_907_ready</code>, <code>900_ready</code> and
+  <code>815_ready</code>; <code>943_ready</code>, <code>871_ready</code> and <code>902_ready</code> are reported, not enforced,
+  until #1241 (maintainer decision 2026-10-13; the report-only set may only shrink).</li>
 </ul>
 <h2 id="repository-enforcement">Repository enforcement<a class="headerlink" href="#repository-enforcement" title="Permanent link">¶</a></h2>
 <p>The branch-protection and required-check settings that back this policy are listed
@@ -4646,7 +4649,7 @@ backstop cannot be triggered.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:42 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:56 UTC">October 14, 2026</span>
   </span>
 
     

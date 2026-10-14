@@ -88,4 +88,6 @@ digraph "gaussian_data_loader.h"
   Node30 [id="Node000030",label="cstdint",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node3 -> Node31 [id="edge53_Node000003_Node000031",color="steelblue1",style="solid",tooltip=" "];
   Node31 [id="Node000031",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node3 -> Node32 [id="edge54_Node000003_Node000032",color="steelblue1",style="solid",tooltip=" "];
+  Node32 [id="Node000032",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

@@ -181,19 +181,19 @@ Data Encoding</h2>
 <li>Decoded as: position = fixed_value / (1 &lt;&lt; fractional_bits)</li>
 </ul>
 <p><b>Scales</b>: 8-bit log-encoded values (3 per point)</p><ul>
-<li>Decoded as: scale = exp((encoded - 128) / 16.0)</li>
-<li>Range approximately [1e-5, 2e+4]</li>
+<li>Decoded as: scale = exp(encoded / 16.0 - 10.0)</li>
+<li>Range approximately [4.5e-5, 3.8e+2]</li>
 </ul>
-<p><b>Rotations</b>: Smallest-three quaternion encoding</p><ul>
-<li>Version 2: 3 bytes per rotation (8 bits per component)</li>
-<li>Version 3: 4 bytes per rotation (improved precision)</li>
-<li>Uses smallest-three encoding: store 3 smallest components, reconstruct 4th</li>
+<p><b>Rotations</b>: quaternions, normalised into the w &gt;= 0 hemisphere</p><ul>
+<li>Version 2: 3 bytes per rotation, (x, y, z) as UNSIGNED bytes with a 127.5 offset: decoded as c = (byte - 127.5) / 127.5, w = sqrt(max(0, 1 - |xyz|^2)) (Niantic packQuaternionFirstThree; byte 128 is a zero component)</li>
+<li>Version 3: 4 bytes per rotation, smallest-three encoding: a 2-bit index of the largest component plus three 10-bit (sign + 9-bit magnitude) components</li>
 </ul>
-<p><b>Alphas</b>: 8-bit unsigned integers</p><ul>
-<li>Decoded using inverse sigmoid: alpha = sigmoid((encoded - 128) / 32.0)</li>
+<p><b>Alphas</b>: 8-bit unsigned integers holding the activated opacity</p><ul>
+<li>Decoded as: alpha = encoded / 255.0</li>
 </ul>
-<p><b>Colors</b>: RGB as 8-bit unsigned integers</p><ul>
-<li>Direct byte values normalized to [0, 1]</li>
+<p><b>Colors</b>: RGB as 8-bit unsigned integers holding the SH DC coefficient</p><ul>
+<li>Packed by the reference as byte = 255 * (0.5 + 0.15 * f_dc)</li>
+<li>Decoded to the renderer's centred DC: sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15, tagged GAUSSIAN_DC_ENCODING_LINEAR_RGB (display colour = sh_dc + 0.5), the same space <a class="el" href="classPLYLoader.html" title="Loader for PLY (Polygon File Format) Gaussian Splatting data.">PLYLoader</a> produces from f_dc_*</li>
 </ul>
 <p><b>Spherical Harmonics</b>: Variable coefficients based on SH degree (0-3)</p><ul>
 <li>Stored as quantized values when sh_degree &gt; 0</li>

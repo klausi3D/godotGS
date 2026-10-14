@@ -87,7 +87,9 @@ digraph "gaussian_data_color_grading.cpp"
   Node30 [id="Node000030",label="cstdint",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node2 -> Node31 [id="edge52_Node000002_Node000031",color="steelblue1",style="solid",tooltip=" "];
   Node31 [id="Node000031",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node29 [id="edge53_Node000001_Node000029",color="steelblue1",style="solid",tooltip=" "];
-  Node1 -> Node32 [id="edge54_Node000001_Node000032",color="steelblue1",style="solid",tooltip=" "];
-  Node32 [id="Node000032",label="core/error/error_macros.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node2 -> Node32 [id="edge53_Node000002_Node000032",color="steelblue1",style="solid",tooltip=" "];
+  Node32 [id="Node000032",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node29 [id="edge54_Node000001_Node000029",color="steelblue1",style="solid",tooltip=" "];
+  Node1 -> Node33 [id="edge55_Node000001_Node000033",color="steelblue1",style="solid",tooltip=" "];
+  Node33 [id="Node000033",label="core/error/error_macros.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
 }

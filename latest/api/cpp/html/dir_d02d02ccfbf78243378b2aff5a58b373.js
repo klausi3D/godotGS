@@ -10,6 +10,7 @@ var dir_d02d02ccfbf78243378b2aff5a58b373 =
     [ "gaussian_data_io.cpp", "gaussian__data__io_8cpp.html", null ],
     [ "gaussian_data_octree.cpp", "gaussian__data__octree_8cpp.html", null ],
     [ "gaussian_importance.h", "gaussian__importance_8h.html", "gaussian__importance_8h" ],
+    [ "gaussian_sh_rotation.h", "gaussian__sh__rotation_8h.html", "gaussian__sh__rotation_8h" ],
     [ "gaussian_splat_asset.cpp", "gaussian__splat__asset_8cpp.html", "gaussian__splat__asset_8cpp" ],
     [ "gaussian_splat_asset.h", "gaussian__splat__asset_8h.html", "gaussian__splat__asset_8h" ],
     [ "gaussian_splat_config_registry.cpp", "gaussian__splat__config__registry_8cpp.html", null ],

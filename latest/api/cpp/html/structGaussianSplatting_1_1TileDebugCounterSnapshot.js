@@ -3,6 +3,7 @@ var structGaussianSplatting_1_1TileDebugCounterSnapshot =
     [ "bbox_integrity_reject", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#ad11b7dc30c0bda08961b51028b455a49", null ],
     [ "clip_bounds_reject", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#adc9ad257d9294894820532274b725173", null ],
     [ "clip_w_reject", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a4600fe6d1fa5087d112456f260eef926", null ],
+    [ "color_nonfinite_count", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a9239cb6e3b3f6e3802071569a2a3fb07", null ],
     [ "covariance_nan_reject", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a65cb242ea30cec0b43d8a9dd684fdbc8", null ],
     [ "depth_discrepancy_count", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#aa572be6bf24ab38d1d5b309e322b7e6f", null ],
     [ "depth_discrepancy_sum_q8", "structGaussianSplatting_1_1TileDebugCounterSnapshot.html#a7b0cf890363b6e28ba4205c0bf8c00d3", null ],

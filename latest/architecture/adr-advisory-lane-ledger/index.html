@@ -4787,7 +4787,150 @@ slice, not standing invariants — later changes may and do promote lanes. #846 
 unchanged at 6, so every conclusion this ADR draws about advisory-lane semantics still
 holds. This is the promotion the status note above anticipated ("flipping the six lanes to
 <code>strict</code> … is cheap for most of them"), done deliberately and one lane at a time.</p>
+<p><strong>Historical promotion record: <code>Streaming Pipeline</code> -&gt; strict (#1166).</strong> Prepared without a build;
+the evidence fields below are <strong>NOT_RUN</strong> and are to be filled from a <code>tests=yes</code> binary
+on the self-hosted runner before the change is merged. Counts after the flip (derived from
+<code>MODULE_TEST_FILTERS</code>): 29 lanes, 24 strict; the advisory set is down to
+<code>GaussianSplatting [Synthetic]</code>, <code>[untagged]</code>, <code>[Renderer]</code>, <code>TileRenderer</code> and
+<code>GPU Memory Stream</code> (plus the opt-in <code>[requires-RD]</code> catalogue, <code>REQUIRES_RD_TEST_FILTERS</code>),
+which stay advisory until their known failures and zero coverage are laned or quarantined.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Lane</td>
+<td><code>Streaming Pipeline</code> (<code>*[Streaming Pipeline]*</code>, no excludes)</td>
+</tr>
+<tr>
+<td>Why</td>
+<td>Holds every #1087 (distance bound) and #1088 (atlas pages, byte budget, evict-until-fit) host test; advisory, a failure printed "advisory lane, continuing"</td>
+</tr>
+<tr>
+<td>Corpus (derived, static)</td>
+<td>82 <code>[Streaming Pipeline]</code> cases in <code>test_gpu_streaming.cpp</code> (49) and <code>test_gaussian_streaming_lifecycle.cpp</code> (33)</td>
+</tr>
+<tr>
+<td>Held in place by</td>
+<td><code>StreamingPipelineStrictPromotionTests</code> in <code>tests/ci/test_check_test_lane_coverage.py</code> (a <code>STRICT_COVERAGE_CONTRACTS</code> entry cannot express it: both source files carry cases that belong to other lanes)</td>
+</tr>
+<tr>
+<td>Lane result on a current binary (<code>[module-tests][lane-result]</code>)</td>
+<td><strong>NOT_RUN</strong></td>
+</tr>
+<tr>
+<td><code>skipped_markers</code> on a current binary</td>
+<td><strong>NOT_RUN</strong> (38 when this ADR was measured)</td>
+</tr>
+<tr>
+<td>Repeated runs / flake check (the #846 bar)</td>
+<td><strong>NOT_RUN</strong></td>
+</tr>
+<tr>
+<td>Expected CI outcome until resolved</td>
+<td>The strict lane FAILS in CI on any skipped marker: <code>runtime_lane_allowance</code> has no entry for this lane (allowance 0), and that ratchet refuses a NEW lane entry against the review base. Resolve by giving the skipping cases real coverage (GPU harness, or the #595 <code>GS_ENV_SKIP</code> conversion), never by demoting the lane</td>
+</tr>
+</tbody>
+</table></div>
 </blockquote>
+<h3 id="device-dependent-streaming-pipeline-coverage-1195">Device-dependent Streaming Pipeline coverage (#1195)<a class="headerlink" href="#device-dependent-streaming-pipeline-coverage-1195" title="Permanent link">¶</a></h3>
+<p>The corpus contains CPU regressions and device-dependent tests. The latter
+cannot execute through the headless doctest bootstrap. They now execute in the
+<strong>REQUIRED</strong> <code>StreamingPipeline</code> GPU batch using the existing offscreen RenderingDevice;
+the three renderer tests additionally use the existing SceneTree listener
+and scoped manager device injection. Restore the manager's device slot before
+teardown so the manager cannot destroy the harness-owned device.</p>
+<p>Missing devices, unavailable async work and incomplete readiness are failures
+in these cases, rather than successful early returns. The CPU-only missing-buffer
+abort regressions remain in the headless lane and likewise fail if their required
+work was not observed. No skip allowance, threshold or guard baseline is raised.</p>
+<p>Required-batch promotion and the GPU exclusion from the still-strict headless
+lane are coupled. <code>StreamingPipelineStrictPromotionTests</code> derives every case and
+requires strict CPU <strong>or REQUIRED GPU</strong> coverage with actual exclude patterns.
+CPU deletion/demotion and GPU deletion/demotion/selector-retag/exclude-all
+mutations must expose uncovered cases. The independent lane-ledger wiring tests
+also require the coverage guard's discrimination tests to appear in launched
+Python argv; deleting their runner wiring cannot silently drop the contract.
+An advisory GPU route does not satisfy this promotion.</p>
+<p>The focused policy checks passed 84 Python tests. In-memory mutations of the
+real default contract went RED for CPU demotion/deletion (49 uncovered cases)
+and GPU deletion/demotion/selector-retag/exclude-all (37 uncovered cases).
+Removing the whole coverage-runner tuple and retaining its test-file check
+without launching the test each made the independent wiring check RED; both
+mutations were restored. These are guard-discrimination results, not GPU reruns.</p>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Measured Evidence / Current Policy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Runtime source</td>
+<td><code>2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca</code>, native Windows <code>tests=yes</code> binary</td>
+</tr>
+<tr>
+<td>Binary SHA-256</td>
+<td><code>2b736090a624d4c8dd4f7b6054db6900aa8b4c0a4b8a79cef71abc6fc833cc2b</code></td>
+</tr>
+<tr>
+<td>Run</td>
+<td>2026-10-05 16:41:58-16:42:37 UTC, <code>run_gpu_harness.py --batch StreamingPipeline --batch RendererSceneTree</code>, supervisor exit 0</td>
+</tr>
+<tr>
+<td>Streaming runtime</td>
+<td>37/37 cases, 5313/5313 assertions; 37 started, complete case audit, <code>zero_assertion_cases=[]</code>, no hollow cases</td>
+</tr>
+<tr>
+<td>Streaming time</td>
+<td>13.528 s / unchanged 60 s budget, about 4.44x headroom</td>
+</tr>
+<tr>
+<td>Companion shadow/SceneTree runtime</td>
+<td><code>RendererSceneTree</code>: 4/4 cases, 61/61 assertions, complete audit, 25.299 s / unchanged 180 s budget</td>
+</tr>
+<tr>
+<td>Lifetime</td>
+<td>Both batches report <code>rid_leak_bytes=0</code>; captured raw stdout/stderr tails have no driver RID-leak diagnostics</td>
+</tr>
+<tr>
+<td>Contention validity</td>
+<td>Clean preflight; no competing CI job, sampler errors or unresolved sampler PIDs; postflight exit 0 and <code>ci_idle_after=true</code></td>
+</tr>
+<tr>
+<td>Hardware scope</td>
+<td>Vulkan, NVIDIA GeForce RTX 3090. One green full run at this exact source; repeated-run flake and other-vendor coverage are <strong>NOT_RUN</strong></td>
+</tr>
+<tr>
+<td>Host lane</td>
+<td>Remains strict: <code>*[Streaming Pipeline]*</code>, excludes only <code>*][RequiresGPU]*</code>; 49 CPU cases derived from the current 86-case corpus</td>
+</tr>
+<tr>
+<td>GPU lane</td>
+<td>REQUIRED <code>StreamingPipeline</code>: <code>*[Streaming Pipeline]*[RequiresGPU]*</code>, no excludes; all 37 GPU cases derived from the same corpus</td>
+</tr>
+<tr>
+<td>Snapshot</td>
+<td><code>[RequiresGPU]</code> corpus remains 209; named-batch coverage 144, deferred 2, unbatched backlog 63; digest unchanged</td>
+</tr>
+</tbody>
+</table></div>
+<p>The runtime evidence predates this policy-only promotion, not its C++ repairs.
+It is not a claim that a new promotion-head binary or the newly separated CPU
+lane has already been run. The doctest <code>skipped</code> totals count non-selected cases,
+not environment self-skips or waived coverage. Synthetic streaming-stall and
+raster-overflow warnings remain visible in the report; this is functional and
+lifetime evidence, not a warning-free or visual-quality acceptance.</p>
+<p>The local evidence bundle is <code>review_1195_2a_streaming_shadow{.json,.log,_report.json}</code>
+plus <code>review_1195_2a_streaming_shadow_contention</code> under
+<code>C:/Projects/godotgs-handoff-tools</code>; these generated artifacts are not committed.
+Human review/disposition and subsequent CI remain separate from this measured
+runtime result.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">¶</a></h2>
 <ul>
 <li>The first honest, per-lane measurement of which advisory lanes are red becomes available
@@ -4829,7 +4972,7 @@ holds. This is the promotion the status note above anticipated ("flipping the si
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:30 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:44 UTC">October 14, 2026</span>
   </span>
 
     

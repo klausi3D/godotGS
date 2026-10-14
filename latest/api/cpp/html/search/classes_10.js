@@ -40,10 +40,12 @@ var searchData=
   ['plyproperty_37',['PLYProperty',['../structPLYLoader_1_1PLYProperty.html',1,'PLYLoader']]],
   ['policydecision_38',['PolicyDecision',['../structGPUSorterFactory_1_1PolicyDecision.html',1,'GPUSorterFactory']]],
   ['policyprobe_39',['PolicyProbe',['../structGPUSorterFactory_1_1PolicyProbe.html',1,'GPUSorterFactory']]],
-  ['positionframe_40',['PositionFrame',['../structStagedFileChunkPayloadSource_1_1PositionFrame.html',1,'StagedFileChunkPayloadSource']]],
-  ['prefixdispatchcontext_41',['PrefixDispatchContext',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html',1,'TilePrefixScanStage']]],
-  ['pressuresample_42',['PressureSample',['../structStreamingQueuePressureController_1_1PressureSample.html',1,'StreamingQueuePressureController']]],
-  ['pressuresummary_43',['PressureSummary',['../structStreamingQueuePressureController_1_1PressureSummary.html',1,'StreamingQueuePressureController']]],
-  ['primarychunklayoutmetrics_44',['PrimaryChunkLayoutMetrics',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html',1,'GaussianStreamingTypes']]],
-  ['publishedinstanceassetremap_45',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
+  ['pooledfile_40',['PooledFile',['../structStagedFileChunkPayloadSource_1_1PooledFile.html',1,'StagedFileChunkPayloadSource']]],
+  ['pooledfilelease_41',['PooledFileLease',['../classStagedFileChunkPayloadSource_1_1PooledFileLease.html',1,'StagedFileChunkPayloadSource']]],
+  ['positionframe_42',['PositionFrame',['../structStagedFileChunkPayloadSource_1_1PositionFrame.html',1,'StagedFileChunkPayloadSource']]],
+  ['prefixdispatchcontext_43',['PrefixDispatchContext',['../structTilePrefixScanStage_1_1PrefixDispatchContext.html',1,'TilePrefixScanStage']]],
+  ['pressuresample_44',['PressureSample',['../structStreamingQueuePressureController_1_1PressureSample.html',1,'StreamingQueuePressureController']]],
+  ['pressuresummary_45',['PressureSummary',['../structStreamingQueuePressureController_1_1PressureSummary.html',1,'StreamingQueuePressureController']]],
+  ['primarychunklayoutmetrics_46',['PrimaryChunkLayoutMetrics',['../structGaussianStreamingTypes_1_1PrimaryChunkLayoutMetrics.html',1,'GaussianStreamingTypes']]],
+  ['publishedinstanceassetremap_47',['PublishedInstanceAssetRemap',['../structGaussianRenderPipeline_1_1PublishedInstanceAssetRemap.html',1,'GaussianRenderPipeline']]]
 ];

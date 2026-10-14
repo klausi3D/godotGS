@@ -93,5 +93,7 @@ digraph "gaussian_scene_serializer.h"
   Node30 [id="Node000030",label="cstdint",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node8 -> Node31 [id="edge58_Node000008_Node000031",color="steelblue1",style="solid",tooltip=" "];
   Node31 [id="Node000031",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node23 [id="edge59_Node000001_Node000023",color="steelblue1",style="solid",tooltip=" "];
+  Node8 -> Node32 [id="edge59_Node000008_Node000032",color="steelblue1",style="solid",tooltip=" "];
+  Node32 [id="Node000032",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node23 [id="edge60_Node000001_Node000023",color="steelblue1",style="solid",tooltip=" "];
 }

@@ -11,6 +11,7 @@ var structOutputCompositor_1_1OutputCacheState =
     [ "cached_render_internal_size", "structOutputCompositor_1_1OutputCacheState.html#a0169cb4709b2ba87a0a8c8e4d567c3ef", null ],
     [ "cached_render_lighting_signature", "structOutputCompositor_1_1OutputCacheState.html#a0e8c1589e534bc1af6ee1c0e8ddf7550", null ],
     [ "cached_render_painterly", "structOutputCompositor_1_1OutputCacheState.html#abf0b9379b53b08aaaf2f39dea956f9e1", null ],
+    [ "cached_render_raster_params_signature", "structOutputCompositor_1_1OutputCacheState.html#a9fb8ec43d22be215801dc463af5a1243", null ],
     [ "cached_render_valid", "structOutputCompositor_1_1OutputCacheState.html#af17d4b901a94db9dac2cda63c448579b", null ],
     [ "cached_render_viewport_size", "structOutputCompositor_1_1OutputCacheState.html#aedde24aa24683e03c1777a42e4d33cf9", null ],
     [ "framebuffer_validation_cache", "structOutputCompositor_1_1OutputCacheState.html#a63d0cccd2fe6765f3283a3ccfde33fac", null ],

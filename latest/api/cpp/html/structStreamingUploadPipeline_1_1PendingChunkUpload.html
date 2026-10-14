@@ -113,6 +113,8 @@ Public Attributes</h2></td></tr>
 <tr class="separator:a72a6cea4ee07dfd967332f0ec0a5fb78"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aef403d1673fdda177bb93bef0c9947a0" id="r_aef403d1673fdda177bb93bef0c9947a0"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#aef403d1673fdda177bb93bef0c9947a0">asset_generation</a> = 0</td></tr>
 <tr class="separator:aef403d1673fdda177bb93bef0c9947a0"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acdfb8ffb85d2d4bef9d78740791bd5bc" id="r_acdfb8ffb85d2d4bef9d78740791bd5bc"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#acdfb8ffb85d2d4bef9d78740791bd5bc">upload_sequence</a> = 0</td></tr>
+<tr class="separator:acdfb8ffb85d2d4bef9d78740791bd5bc"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae7512dae3fb09c58163a44091f8068a4" id="r_ae7512dae3fb09c58163a44091f8068a4"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#ae7512dae3fb09c58163a44091f8068a4">enqueue_usec</a> = 0</td></tr>
 <tr class="separator:ae7512dae3fb09c58163a44091f8068a4"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a89cb359024b0fca6ecb533754d6c4b61" id="r_a89cb359024b0fca6ecb533754d6c4b61"><td class="memItemLeft" align="right" valign="top">Vector&lt; <a class="el" href="structPackedGaussian.html">PackedGaussian</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#a89cb359024b0fca6ecb533754d6c4b61">packed_data</a></td></tr>
@@ -123,6 +125,8 @@ Public Attributes</h2></td></tr>
 <tr class="separator:aa4dfc116e64243db5e353d6ec3116ed3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3eadd76bd26bf60ee63a3f1079197572" id="r_a3eadd76bd26bf60ee63a3f1079197572"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#a3eadd76bd26bf60ee63a3f1079197572">payload_checksum_valid</a> = false</td></tr>
 <tr class="separator:a3eadd76bd26bf60ee63a3f1079197572"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac801bdcfb477dc457189a8ce6bafb298" id="r_ac801bdcfb477dc457189a8ce6bafb298"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#ac801bdcfb477dc457189a8ce6bafb298">payload_read_failed</a> = false</td></tr>
+<tr class="separator:ac801bdcfb477dc457189a8ce6bafb298"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3e9b621b52143a301b16610d8106a09c" id="r_a3e9b621b52143a301b16610d8106a09c"><td class="memItemLeft" align="right" valign="top"><a class="el" href="structSHCompressionMetrics.html">SHCompressionMetrics</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#a3e9b621b52143a301b16610d8106a09c">metrics</a></td></tr>
 <tr class="separator:a3e9b621b52143a301b16610d8106a09c"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aba8725072f3c2896d2d0856390a6b976" id="r_aba8725072f3c2896d2d0856390a6b976"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStreamingUploadPipeline_1_1PendingChunkUpload.html#aba8725072f3c2896d2d0856390a6b976">bytes_uploaded</a> = 0</td></tr>
@@ -277,6 +281,34 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool StreamingUploadPipeline::PendingChunkUpload::payload_checksum_valid = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ac801bdcfb477dc457189a8ce6bafb298" name="ac801bdcfb477dc457189a8ce6bafb298"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac801bdcfb477dc457189a8ce6bafb298">&#9670;&#160;</a></span>payload_read_failed</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool StreamingUploadPipeline::PendingChunkUpload::payload_read_failed = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acdfb8ffb85d2d4bef9d78740791bd5bc" name="acdfb8ffb85d2d4bef9d78740791bd5bc"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acdfb8ffb85d2d4bef9d78740791bd5bc">&#9670;&#160;</a></span>upload_sequence</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StreamingUploadPipeline::PendingChunkUpload::upload_sequence = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

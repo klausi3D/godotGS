@@ -114,6 +114,10 @@ Collaboration diagram for StagedFileChunkPayloadSource:</div>
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStagedFileChunkPayloadSource_1_1PooledFile.html">PooledFile</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource_1_1PooledFileLease.html">PooledFileLease</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource_1_1ScopedReaderSuspend.html">ScopedReaderSuspend</a></td></tr>
@@ -125,8 +129,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:acf575483ba95ccdde36fc68c11899952"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a97e6848ce86f528622c871ba9a571bcc" id="r_a97e6848ce86f528622c871ba9a571bcc"><td class="memItemLeft" align="right" valign="top">&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc">~StagedFileChunkPayloadSource</a> () override</td></tr>
 <tr class="separator:a97e6848ce86f528622c871ba9a571bcc"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:ae9e5de5e6446c13dd3d10e3840cd7bbb" id="r_ae9e5de5e6446c13dd3d10e3840cd7bbb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ae9e5de5e6446c13dd3d10e3840cd7bbb">configure</a> (const String &amp;p_path, uint64_t p_gaussian_offset, uint64_t p_sh_offset, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order, const AABB &amp;p_bounds)</td></tr>
-<tr class="separator:ae9e5de5e6446c13dd3d10e3840cd7bbb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9890b88fb0e20cbcffb9a2ce748490dd" id="r_a9890b88fb0e20cbcffb9a2ce748490dd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a9890b88fb0e20cbcffb9a2ce748490dd">configure</a> (const String &amp;p_path, uint64_t p_gaussian_offset, uint64_t p_sh_offset, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order, const AABB &amp;p_bounds, uint32_t p_gaussian_layout_version=GAUSSIAN_STRUCT_LAYOUT_VERSION)</td></tr>
+<tr class="separator:a9890b88fb0e20cbcffb9a2ce748490dd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad73e7c70dbc587d22521a316ca4ed2e2" id="r_ad73e7c70dbc587d22521a316ca4ed2e2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ad73e7c70dbc587d22521a316ca4ed2e2">set_position_frames</a> (const LocalVector&lt; <a class="el" href="structStagedFileChunkPayloadSource_1_1PositionFrame.html">PositionFrame</a> &gt; &amp;p_frames)</td></tr>
 <tr class="separator:ad73e7c70dbc587d22521a316ca4ed2e2"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a53085fc916ab1f6a83f6ea169f4d6dc2" id="r_a53085fc916ab1f6a83f6ea169f4d6dc2"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a53085fc916ab1f6a83f6ea169f4d6dc2">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count) const override</td></tr>
@@ -159,8 +163,10 @@ Public Member Functions</h2></td></tr>
 Protected Member Functions</h2></td></tr>
 <tr class="memitem:aab84f5a0fddd4228cf1a203e367e14f1" id="r_aab84f5a0fddd4228cf1a203e367e14f1"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#aab84f5a0fddd4228cf1a203e367e14f1">_apply_position_frames</a> (const uint32_t *p_indices, uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians) const</td></tr>
 <tr class="separator:aab84f5a0fddd4228cf1a203e367e14f1"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3ebcc70ab0731c5d6617f6af9bb98ec6" id="r_a3ebcc70ab0731c5d6617f6af9bb98ec6"><td class="memItemLeft" align="right" valign="top">Ref&lt; FileAccess &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a3ebcc70ab0731c5d6617f6af9bb98ec6">_get_thread_file</a> () const</td></tr>
-<tr class="separator:a3ebcc70ab0731c5d6617f6af9bb98ec6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9bd99f272f7e5f34197f4d19ce7b6872" id="r_a9bd99f272f7e5f34197f4d19ce7b6872"><td class="memItemLeft" align="right" valign="top">Ref&lt; FileAccess &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a9bd99f272f7e5f34197f4d19ce7b6872">_acquire_pooled_file</a> (uint32_t &amp;r_slot, uint64_t &amp;r_epoch) const</td></tr>
+<tr class="separator:a9bd99f272f7e5f34197f4d19ce7b6872"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab4edd16d07edfc16415347629fa52304" id="r_ab4edd16d07edfc16415347629fa52304"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ab4edd16d07edfc16415347629fa52304">_release_pooled_file</a> (uint32_t p_slot, uint64_t p_epoch) const</td></tr>
+<tr class="separator:ab4edd16d07edfc16415347629fa52304"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a964f6cd8ded86d0cd1c7a975a73274e5" id="r_a964f6cd8ded86d0cd1c7a975a73274e5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a964f6cd8ded86d0cd1c7a975a73274e5">_read_exact</a> (FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read=nullptr) const</td></tr>
 <tr class="separator:a964f6cd8ded86d0cd1c7a975a73274e5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afa8ac443ce0e3483b018010518408b7d" id="r_afa8ac443ce0e3483b018010518408b7d"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#afa8ac443ce0e3483b018010518408b7d">_record_io_counters</a> (uint64_t p_bytes_requested, uint64_t p_bytes_read) const</td></tr>
@@ -192,12 +198,16 @@ Protected Attributes</h2></td></tr>
 <tr class="separator:a1dc8078df70cfbe07ab3e238db0fa671"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab2607b4313afa62f305ef7d6b24b6b1c" id="r_ab2607b4313afa62f305ef7d6b24b6b1c"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ab2607b4313afa62f305ef7d6b24b6b1c">sh_high_order</a> = 0</td></tr>
 <tr class="separator:ab2607b4313afa62f305ef7d6b24b6b1c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a56fd24edb5c341a5cea221c65261e169" id="r_a56fd24edb5c341a5cea221c65261e169"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a56fd24edb5c341a5cea221c65261e169">gaussian_layout_version</a> = GAUSSIAN_STRUCT_LAYOUT_VERSION</td></tr>
+<tr class="separator:a56fd24edb5c341a5cea221c65261e169"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1f6d1d6887adadd735da465b0767dd91" id="r_a1f6d1d6887adadd735da465b0767dd91"><td class="memItemLeft" align="right" valign="top">AABB&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a1f6d1d6887adadd735da465b0767dd91">bounds</a></td></tr>
 <tr class="separator:a1f6d1d6887adadd735da465b0767dd91"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6d5b7560f561217899be96a3a8a22f34" id="r_a6d5b7560f561217899be96a3a8a22f34"><td class="memItemLeft" align="right" valign="top">Mutex&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a6d5b7560f561217899be96a3a8a22f34">file_mutex</a></td></tr>
 <tr class="separator:a6d5b7560f561217899be96a3a8a22f34"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8a162a057584e8b68b1613c1bb62a4ab" id="r_a8a162a057584e8b68b1613c1bb62a4ab"><td class="memItemLeft" align="right" valign="top">HashMap&lt; Thread::ID, Ref&lt; FileAccess &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a8a162a057584e8b68b1613c1bb62a4ab">cached_files</a></td></tr>
-<tr class="separator:a8a162a057584e8b68b1613c1bb62a4ab"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:adab5b6430cae09a6609a976eaea14e35" id="r_adab5b6430cae09a6609a976eaea14e35"><td class="memItemLeft" align="right" valign="top">LocalVector&lt; <a class="el" href="structStagedFileChunkPayloadSource_1_1PooledFile.html">PooledFile</a> &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#adab5b6430cae09a6609a976eaea14e35">file_pool</a></td></tr>
+<tr class="separator:adab5b6430cae09a6609a976eaea14e35"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aa0bc81e26de48c64bc53192c1d4e6999" id="r_aa0bc81e26de48c64bc53192c1d4e6999"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#aa0bc81e26de48c64bc53192c1d4e6999">file_pool_epoch</a> = 0</td></tr>
+<tr class="separator:aa0bc81e26de48c64bc53192c1d4e6999"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0b50e749d6cd8de551b693803d447135" id="r_a0b50e749d6cd8de551b693803d447135"><td class="memItemLeft" align="right" valign="top">SafeFlag&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#a0b50e749d6cd8de551b693803d447135">suspend_opens</a></td></tr>
 <tr class="separator:a0b50e749d6cd8de551b693803d447135"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab5ef15273c169ddec02f3d481430cf4b" id="r_ab5ef15273c169ddec02f3d481430cf4b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStagedFileChunkPayloadSource.html#ab5ef15273c169ddec02f3d481430cf4b">bytes_requested</a> = 0</td></tr>
@@ -253,6 +263,42 @@ Protected Attributes</h2></td></tr>
 </div>
 </div>
 <h2 class="groupheader">Member Function Documentation</h2>
+<a id="a9bd99f272f7e5f34197f4d19ce7b6872" name="a9bd99f272f7e5f34197f4d19ce7b6872"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9bd99f272f7e5f34197f4d19ce7b6872">&#9670;&#160;</a></span>_acquire_pooled_file()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Ref&lt; FileAccess &gt; StagedFileChunkPayloadSource::_acquire_pooled_file </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t &amp;&#160;</td>
+          <td class="paramname"><em>r_slot</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t &amp;&#160;</td>
+          <td class="paramname"><em>r_epoch</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="aab84f5a0fddd4228cf1a203e367e14f1" name="aab84f5a0fddd4228cf1a203e367e14f1"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#aab84f5a0fddd4228cf1a203e367e14f1">&#9670;&#160;</a></span>_apply_position_frames()</h2>
 
@@ -320,31 +366,6 @@ Protected Attributes</h2></td></tr>
   </td>
   <td class="mlabels-right">
 <span class="mlabels"><span class="mlabel">static</span><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
-<a id="a3ebcc70ab0731c5d6617f6af9bb98ec6" name="a3ebcc70ab0731c5d6617f6af9bb98ec6"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a3ebcc70ab0731c5d6617f6af9bb98ec6">&#9670;&#160;</a></span>_get_thread_file()</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">Ref&lt; FileAccess &gt; StagedFileChunkPayloadSource::_get_thread_file </td>
-          <td>(</td>
-          <td class="paramname"></td><td>)</td>
-          <td> const</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
   </tr>
 </table>
 </div><div class="memdoc">
@@ -497,6 +518,42 @@ Protected Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="ab4edd16d07edfc16415347629fa52304" name="ab4edd16d07edfc16415347629fa52304"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab4edd16d07edfc16415347629fa52304">&#9670;&#160;</a></span>_release_pooled_file()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">void StagedFileChunkPayloadSource::_release_pooled_file </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_slot</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint64_t&#160;</td>
+          <td class="paramname"><em>p_epoch</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a53085fc916ab1f6a83f6ea169f4d6dc2" name="a53085fc916ab1f6a83f6ea169f4d6dc2"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a53085fc916ab1f6a83f6ea169f4d6dc2">&#9670;&#160;</a></span>capture_chunk_snapshot()</h2>
 
@@ -621,8 +678,8 @@ Protected Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="ae9e5de5e6446c13dd3d10e3840cd7bbb" name="ae9e5de5e6446c13dd3d10e3840cd7bbb"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#ae9e5de5e6446c13dd3d10e3840cd7bbb">&#9670;&#160;</a></span>configure()</h2>
+<a id="a9890b88fb0e20cbcffb9a2ce748490dd" name="a9890b88fb0e20cbcffb9a2ce748490dd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9890b88fb0e20cbcffb9a2ce748490dd">&#9670;&#160;</a></span>configure()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -673,7 +730,13 @@ Protected Attributes</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">const AABB &amp;&#160;</td>
-          <td class="paramname"><em>p_bounds</em>&#160;</td>
+          <td class="paramname"><em>p_bounds</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_gaussian_layout_version</em> = <code>GAUSSIAN_STRUCT_LAYOUT_VERSION</code>&#160;</td>
         </tr>
         <tr>
           <td></td>
@@ -971,28 +1034,6 @@ Protected Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a8a162a057584e8b68b1613c1bb62a4ab" name="a8a162a057584e8b68b1613c1bb62a4ab"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8a162a057584e8b68b1613c1bb62a4ab">&#9670;&#160;</a></span>cached_files</h2>
-
-<div class="memitem">
-<div class="memproto">
-<table class="mlabels">
-  <tr>
-  <td class="mlabels-left">
-      <table class="memname">
-        <tr>
-          <td class="memname">HashMap&lt;Thread::ID, Ref&lt;FileAccess&gt; &gt; StagedFileChunkPayloadSource::cached_files</td>
-        </tr>
-      </table>
-  </td>
-  <td class="mlabels-right">
-<span class="mlabels"><span class="mlabel">mutable</span><span class="mlabel">protected</span></span>  </td>
-  </tr>
-</table>
-</div><div class="memdoc">
-
-</div>
-</div>
 <a id="a6d5b7560f561217899be96a3a8a22f34" name="a6d5b7560f561217899be96a3a8a22f34"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6d5b7560f561217899be96a3a8a22f34">&#9670;&#160;</a></span>file_mutex</h2>
 
@@ -1037,6 +1078,50 @@ Protected Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="adab5b6430cae09a6609a976eaea14e35" name="adab5b6430cae09a6609a976eaea14e35"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#adab5b6430cae09a6609a976eaea14e35">&#9670;&#160;</a></span>file_pool</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">LocalVector&lt;<a class="el" href="structStagedFileChunkPayloadSource_1_1PooledFile.html">PooledFile</a>&gt; StagedFileChunkPayloadSource::file_pool</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aa0bc81e26de48c64bc53192c1d4e6999" name="aa0bc81e26de48c64bc53192c1d4e6999"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aa0bc81e26de48c64bc53192c1d4e6999">&#9670;&#160;</a></span>file_pool_epoch</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t StagedFileChunkPayloadSource::file_pool_epoch = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">mutable</span><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a9d00a29e1fd2e00ff0dc422d5c426918" name="a9d00a29e1fd2e00ff0dc422d5c426918"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a9d00a29e1fd2e00ff0dc422d5c426918">&#9670;&#160;</a></span>gaussian_data_offset</h2>
 
@@ -1048,6 +1133,28 @@ Protected Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t StagedFileChunkPayloadSource::gaussian_data_offset = 0</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">protected</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a56fd24edb5c341a5cea221c65261e169" name="a56fd24edb5c341a5cea221c65261e169"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a56fd24edb5c341a5cea221c65261e169">&#9670;&#160;</a></span>gaussian_layout_version</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t StagedFileChunkPayloadSource::gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION</td>
         </tr>
       </table>
   </td>

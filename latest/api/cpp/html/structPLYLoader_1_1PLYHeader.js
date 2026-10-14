@@ -1,5 +1,6 @@
 var structPLYLoader_1_1PLYHeader =
 [
+    [ "declares_2d_mode", "structPLYLoader_1_1PLYHeader.html#af23b74c6698f9c0139838b23aaef8916", null ],
     [ "header_size", "structPLYLoader_1_1PLYHeader.html#a8affbc43ce8835ab535ccd79a8e9bc5c", null ],
     [ "is_binary", "structPLYLoader_1_1PLYHeader.html#a41c568c83f8afbf47d0a7f6394c3bef5", null ],
     [ "is_little_endian", "structPLYLoader_1_1PLYHeader.html#a5f8cd45e3409324ea89c4beed7d2a4ed", null ],

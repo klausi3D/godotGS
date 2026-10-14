@@ -1,5 +1,6 @@
 var structResidencyBudgetController_1_1AdmissionPolicy =
 [
+    [ "allow_visible_eviction", "structResidencyBudgetController_1_1AdmissionPolicy.html#ab762e677273d0dd90ac4102f39909450", null ],
     [ "atlas_slots_full", "structResidencyBudgetController_1_1AdmissionPolicy.html#af7f76edb76fcd98a6d3c7b3ea31cf170", null ],
     [ "can_replace_without_eviction", "structResidencyBudgetController_1_1AdmissionPolicy.html#a789b39a6eec007450351caf4cc5b6c7c", null ],
     [ "enforce_vram_regulator_gate", "structResidencyBudgetController_1_1AdmissionPolicy.html#a15192a2a550304b15d569ab9ca7e72c0", null ],

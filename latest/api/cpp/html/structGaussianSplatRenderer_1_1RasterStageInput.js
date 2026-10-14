@@ -9,6 +9,7 @@ var structGaussianSplatRenderer_1_1RasterStageInput =
     [ "mutation_access", "structGaussianSplatRenderer_1_1RasterStageInput.html#a8880874bbf69b185fd48e1a399cbf62f", null ],
     [ "painterly_requested", "structGaussianSplatRenderer_1_1RasterStageInput.html#af5271e025bc2cee25cc3c16b40964e25", null ],
     [ "projection", "structGaussianSplatRenderer_1_1RasterStageInput.html#a8ce81e2a34290720d0ab426e4aaefb22", null ],
+    [ "raster_params_signature", "structGaussianSplatRenderer_1_1RasterStageInput.html#ab1188b5ba3bc84c2cdd6ca7d909673d1", null ],
     [ "render_data", "structGaussianSplatRenderer_1_1RasterStageInput.html#a5a99f46803db8cc2852dc88172bc234a", null ],
     [ "render_projection", "structGaussianSplatRenderer_1_1RasterStageInput.html#a4aa24e8848050caa70cb931b31a2d6d7", null ],
     [ "sort_time_ms", "structGaussianSplatRenderer_1_1RasterStageInput.html#a1d26780c4b0b0168b302b53f6281f8e9", null ],

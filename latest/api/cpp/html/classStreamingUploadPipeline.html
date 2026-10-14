@@ -136,8 +136,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a2b64ec44ba6311b128b2c4293f53bfbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:abf8fb88570a472ba526ce763e75736e8" id="r_abf8fb88570a472ba526ce763e75736e8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingUploadPipeline.html#abf8fb88570a472ba526ce763e75736e8">pack_thread_func</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t p_thread_index)</td></tr>
 <tr class="separator:abf8fb88570a472ba526ce763e75736e8"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a580c2b615c11397caf05531bd93fabc5" id="r_a580c2b615c11397caf05531bd93fabc5"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingUploadPipeline.html#a580c2b615c11397caf05531bd93fabc5">queue_chunk_load</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx)</td></tr>
-<tr class="separator:a580c2b615c11397caf05531bd93fabc5"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ac5b8a4f3e91ecfcf522adf2fee06c3ee" id="r_ac5b8a4f3e91ecfcf522adf2fee06c3ee"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingUploadPipeline.html#ac5b8a4f3e91ecfcf522adf2fee06c3ee">queue_chunk_load</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system, uint32_t asset_id, uint32_t chunk_idx, bool p_allow_visible_eviction=true)</td></tr>
+<tr class="separator:ac5b8a4f3e91ecfcf522adf2fee06c3ee"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6f9733a2eb96d31cd3b29fcc7f3d7bbe" id="r_a6f9733a2eb96d31cd3b29fcc7f3d7bbe"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingUploadPipeline.html#a6f9733a2eb96d31cd3b29fcc7f3d7bbe">process_upload_queue</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
 <tr class="separator:a6f9733a2eb96d31cd3b29fcc7f3d7bbe"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a823010cda18586dbb2cd613cb150f10c" id="r_a823010cda18586dbb2cd613cb150f10c"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classStreamingUploadPipeline.html#a823010cda18586dbb2cd613cb150f10c">clear_pending_uploads</a> (<a class="el" href="classGaussianStreamingSystem.html">GaussianStreamingSystem</a> &amp;system)</td></tr>
@@ -542,8 +542,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a580c2b615c11397caf05531bd93fabc5" name="a580c2b615c11397caf05531bd93fabc5"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a580c2b615c11397caf05531bd93fabc5">&#9670;&#160;</a></span>queue_chunk_load()</h2>
+<a id="ac5b8a4f3e91ecfcf522adf2fee06c3ee" name="ac5b8a4f3e91ecfcf522adf2fee06c3ee"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ac5b8a4f3e91ecfcf522adf2fee06c3ee">&#9670;&#160;</a></span>queue_chunk_load()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -564,7 +564,13 @@ Static Public Attributes</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">uint32_t&#160;</td>
-          <td class="paramname"><em>chunk_idx</em>&#160;</td>
+          <td class="paramname"><em>chunk_idx</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_allow_visible_eviction</em> = <code>true</code>&#160;</td>
         </tr>
         <tr>
           <td></td>

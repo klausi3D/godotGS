@@ -3404,10 +3404,10 @@ Basic Usage</h2>
     <tr><td class="paramname">p_spherical_harmonics</td><td>Optional packed SH coefficients. </td></tr>
     <tr><td class="paramname">p_palette_ids</td><td>Optional palette indices for painterly rendering. </td></tr>
     <tr><td class="paramname">p_painterly_flags</td><td>Optional painterly flag bitfields. </td></tr>
-    <tr><td class="paramname">p_normals</td><td>Optional surface normals for surfel mode. </td></tr>
+    <tr><td class="paramname">p_normals</td><td>Optional per-splat surface normals (shading normals). </td></tr>
     <tr><td class="paramname">p_brush_axes</td><td>Optional brush axis vectors. </td></tr>
     <tr><td class="paramname">p_stroke_ages</td><td>Optional stroke age values. </td></tr>
-    <tr><td class="paramname">p_is_2d_mode</td><td>When true, enables 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) mode. </td></tr>
+    <tr><td class="paramname">p_is_2d_mode</td><td>Sets the metadata-only 2D (surfel) flag; it does not change rendering and warns once when true (#1185). </td></tr>
   </table>
   </dd>
 </dl>

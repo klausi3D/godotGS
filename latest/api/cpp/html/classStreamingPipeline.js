@@ -9,6 +9,7 @@ var classStreamingPipeline =
     [ "get_current_lod", "classStreamingPipeline.html#afbc7a70fcdbd490b849edd9cc8d4fddf", null ],
     [ "get_streaming_stats", "classStreamingPipeline.html#a0498059e0b23b6cd04894ee4e90f2b06", null ],
     [ "initialize", "classStreamingPipeline.html#adae884ce752de45d3aca24923fc9e164", null ],
+    [ "process_uploads", "classStreamingPipeline.html#a909dadaed8e5fc52b794c7fd081a0f17", null ],
     [ "set_lod_level", "classStreamingPipeline.html#a8c3f3df8208e8d1cc55bf0dcbf110ed2", null ],
     [ "set_prefetch_distance", "classStreamingPipeline.html#a9dcc74644d0b5d2b314de434837b6bb9", null ],
     [ "shutdown", "classStreamingPipeline.html#aa4fb504e3fbb62d0de0a8a9ba154bd0e", null ],

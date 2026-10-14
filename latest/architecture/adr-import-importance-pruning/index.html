@@ -4861,7 +4861,7 @@
 <p>Splat count linearly drives our two measured cost centers: GPU sort time (13.5 ms at
 dense-2M) and VRAM (144 B/splat resident, or 80 B with the just-landed quantization).
 The importer today offers only <strong>uniform</strong> reduction — stride-based density subsampling
-(<code>resource_importer_ply.cpp:_compute_final_splat_count</code> / the <code>merge_density</code> stride) and
+(<code>resource_importer_ply.cpp:_compute_final_splat_count</code> / the <code>stride_subsample</code> stride, <code>merge_density</code> before #1155) and
 a <code>max_splats</code> cap. Neither is contribution-aware: they drop splats without regard to how
 much each one matters to the rendered image.</p>
 <p>The external literature (Speedy-Splat, LightGaussian) <strong>reports</strong> that 50–90 % of splats can be
@@ -4962,30 +4962,40 @@ whose ratio is set from the A/B evidence. <strong>Preset index 0 remains Ultra</
 today: <code>_compute_final_splat_count(original, max_splats, density)</code> folds the <code>max_splats</code>
 cap <strong>into</strong> the density-target count — it returns <code>min(original, max_splats, round(original ×
 density))</code>, clamped to ≥1 (<code>resource_importer_ply.cpp:95-102</code>).</p>
-<p><strong>How that count is <em>reached</em> depends on <code>density_multiplier</code>, and the two cases differ.</strong> The
-<code>merge_density</code> stride is gated on <code>density_multiplier &lt; 0.999</code>
-(<code>resource_importer_ply.cpp:338</code>):</p>
-<div class="highlight"><pre><span></span><code><span class="mi">338</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">merge_density</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">density_multiplier</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.999</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">final_count</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">original_count</span><span class="p">;</span>
-<span class="mi">339</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="kt">double</span><span class="w"> </span><span class="n">merge_stride</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge_density</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="kt">double</span><span class="p">(</span><span class="n">original_count</span><span class="p">)</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="kt">double</span><span class="p">(</span><span class="n">final_count</span><span class="p">)</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">;</span>
-<span class="p">...</span>
-<span class="mi">390</span><span class="w">     </span><span class="kt">int</span><span class="w"> </span><span class="n">start</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merge_density</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="kt">int</span><span class="p">(</span><span class="n">Math</span><span class="o">::</span><span class="n">floor</span><span class="p">(</span><span class="kt">double</span><span class="p">(</span><span class="n">i</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="n">merge_stride</span><span class="p">))</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="n">i</span><span class="p">;</span>
+<p><strong>How that count is reached: one uniform stride since #1155.</strong> Until #1155 the stride was gated
+on <code>density_multiplier &lt; 0.999</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">merge_density</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">density_multiplier</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="mf">0.999</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">final_count</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">original_count</span><span class="p">;</span>
 </code></pre></div>
-<p>So with density at <code>1.0</code> and only <code>max_splats</code> set, <code>merge_density</code> is <strong>false</strong>, <code>start = i</code>,
-and the loop simply keeps the <strong>first <code>N</code> entries of the index array</strong> — source order, or
-opacity-descending order when <code>processing/sort_by_opacity</code> is on (<code>:348-352</code>). Only when
-density &lt; 0.999 does the stride actually subsample uniformly and merge ranges via
-<code>_merge_gaussian_range</code>. SPZ is identical (<code>resource_importer_spz.cpp:297-299</code>, <code>:353-359</code>).</p>
-<p>"Density then max_splats" is therefore one count computation with <strong>two different
-materialization behaviors</strong>, not an orderable pipeline — and describing step 1 as a uniform
-stride would make pruning rank a different candidate set than the importer actually produces
-for <code>max_splats</code>-only imports, breaking the default/back-compat invariant.</p>
+<p>So with density at <code>1.0</code> and only <code>max_splats</code> set, the loop kept the <strong>first <code>N</code> entries of
+the index array</strong>: source order, or opacity-descending order when
+<code>processing/sort_by_opacity</code> is on. SPZ was identical. This document originally recorded that
+head-truncation as a back-compat invariant that pruning had to preserve. <strong>That invariant is
+withdrawn.</strong> 3DGS PLYs are not spatially shuffled (SfM seed points first, densification
+appended), so a file-order prefix is a spatial region plus the undensified base, not a
+thinning: the shipped "High Quality" preset (<code>max_splats = 1,000,000</code>, density <code>1.0</code>) kept the
+first 40 percent of a 2.5M-splat scan and logged success (#1155, audit record N-15).</p>
+<p>Both importers now gate the stride on the reduction alone
+(<code>io/resource_importer_ply.cpp</code> and <code>io/resource_importer_spz.cpp</code>, <code>stride_subsample</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="k">const</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">stride_subsample</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">final_count</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">original_count</span><span class="p">;</span>
+</code></pre></div>
+<p>Whichever limit sets the count, <code>max_splats</code> or <code>density_multiplier</code>, the set is reached by
+the same uniform stride over the index order, with one representative per range picked by
+<code>_merge_gaussian_range</code>, and the import log names the limit that applied. Imports with no
+reduction (<code>final_count == original_count</code>) and imports at density &lt; 0.999 produce the same
+output as before. Only <code>max_splats</code>-bound imports at density ≥ 0.999 change, which is why the
+change bumps the importer format versions (PLY 11 → 12, SPZ 10 → 11). With
+<code>sort_by_opacity</code> on, a <code>max_splats</code>-only cap now strides over the opacity-sorted order like
+the density path always did, instead of keeping the N most opaque splats. Importance-aware
+selection for <code>max_splats</code> (routing the cap through <code>select_top_k_indices()</code>) remains a
+possible follow-up; the stride is the smallest fix that removes the spatial prefix.</p>
+<p>"Density then max_splats" is therefore one count computation with <strong>one materialization
+behavior</strong>, and pruning ranks the set the stride produces.</p>
 <p>Importance pruning is inserted as a <strong>distinct, explicit stage</strong> with this normative order:</p>
 <ol>
 <li><strong>count computation (existing):</strong> <code>_compute_final_splat_count</code> yields the density/<code>max_splats</code>
-   target <code>N_density</code>, reached <strong>either</strong> by the uniform stride (<code>density_multiplier &lt; 0.999</code>)
-   <strong>or</strong> by head-truncation of the index array (<code>density_multiplier ≥ 0.999</code>, i.e. the
-   <code>max_splats</code>-only case) — see the two cases above. Pruning operates on whichever set that
-   produces.</li>
+   target <code>N_density</code>, reached by the uniform stride whenever it is below the source count
+   (see above; before #1155, <code>max_splats</code>-only imports head-truncated instead). Pruning
+   operates on the set the stride produces.</li>
 <li><strong>importance prune (this ADR):</strong> on the density-subsampled set, keep the
    <code>prune_ratio ∩ prune_importance_threshold</code> subset by importance → <code>N_pruned ≤ N_density</code>.</li>
 <li><strong>final cap:</strong> <code>max_splats</code> is already enforced by step 1 as a hard ceiling on the count. If a
@@ -5143,7 +5153,7 @@ including the real-scan A/B that sets the follow-up preset ratio.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:32 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:45 UTC">October 14, 2026</span>
   </span>
 
     

@@ -63,6 +63,9 @@ var annotated_dup =
       [ "SortStageSummary", "structGaussianRenderState_1_1SortStageSummary.html", "structGaussianRenderState_1_1SortStageSummary" ],
       [ "StreamingState", "structGaussianRenderState_1_1StreamingState.html", "structGaussianRenderState_1_1StreamingState" ]
     ] ],
+    [ "GaussianSHRotation", "namespaceGaussianSHRotation.html", [
+      [ "Rotation", "structGaussianSHRotation_1_1Rotation.html", "structGaussianSHRotation_1_1Rotation" ]
+    ] ],
     [ "GaussianSplatting", "namespaceGaussianSplatting.html", [
       [ "ComputeInfrastructure", "namespaceGaussianSplatting_1_1ComputeInfrastructure.html", [
         [ "CapabilityGatePolicy", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy.html", "structGaussianSplatting_1_1ComputeInfrastructure_1_1CapabilityGatePolicy" ],
@@ -187,6 +190,9 @@ var annotated_dup =
     ] ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", [
       [ "StreamingTierCapPolicy", "structgs__tier__cap_1_1StreamingTierCapPolicy.html", "structgs__tier__cap_1_1StreamingTierCapPolicy" ]
+    ] ],
+    [ "gs_world_format", "namespacegs__world__format.html", [
+      [ "HeaderLayout", "structgs__world__format_1_1HeaderLayout.html", "structgs__world__format_1_1HeaderLayout" ]
     ] ],
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]

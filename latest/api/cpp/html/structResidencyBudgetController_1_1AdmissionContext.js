@@ -1,5 +1,6 @@
 var structResidencyBudgetController_1_1AdmissionContext =
 [
+    [ "allow_visible_eviction", "structResidencyBudgetController_1_1AdmissionContext.html#a6b332713f74ce466e23ee0caf21e05a4", null ],
     [ "atlas_slots_full", "structResidencyBudgetController_1_1AdmissionContext.html#ad17e7dbe02c4e04f72b7cb7409ff1e7d", null ],
     [ "can_replace_without_eviction", "structResidencyBudgetController_1_1AdmissionContext.html#a1c6ce2f2f3049792b40b52058309188f", null ],
     [ "effective_max", "structResidencyBudgetController_1_1AdmissionContext.html#afaf132befb8956c0c29f65c2164992ab", null ],

@@ -22,6 +22,7 @@ var classGaussianMemoryStream =
     [ "get_sh_coefficient_limit", "classGaussianMemoryStream.html#a4442ff0ac143c15168e0e25461df32c3", null ],
     [ "get_stats", "classGaussianMemoryStream.html#a097a30befc5b23ee96f45e6817a59867", null ],
     [ "get_task_debug_state", "classGaussianMemoryStream.html#ada7ac69018e7b47a3b5ba858bf9d68ed", null ],
+    [ "get_upload_owner_thread", "classGaussianMemoryStream.html#a9963e4ec0766a63950129918bbd6d7f7", null ],
     [ "get_used_memory_mb", "classGaussianMemoryStream.html#a773fe51acdbf7579adc18d88444b99a5", null ],
     [ "initialize", "classGaussianMemoryStream.html#aff15e54a39ef08d80f39b4782b74ea94", null ],
     [ "is_upload_complete", "classGaussianMemoryStream.html#a300b4f6b53811a95b308b02c32c4ac2a", null ],

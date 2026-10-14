@@ -137,6 +137,12 @@ Public Attributes</h2></td></tr>
 <tr class="separator:a79ac586ce8ecefca752bd8a17163871e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1b51c18fe282d8416a67ed39f96e010b" id="r_a1b51c18fe282d8416a67ed39f96e010b"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#a1b51c18fe282d8416a67ed39f96e010b">upload_ticket_id</a> = 0</td></tr>
 <tr class="separator:a1b51c18fe282d8416a67ed39f96e010b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ae6b7347cbde609df50f0100bdb2a2420" id="r_ae6b7347cbde609df50f0100bdb2a2420"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#ae6b7347cbde609df50f0100bdb2a2420">upload_sequence</a> = 0</td></tr>
+<tr class="separator:ae6b7347cbde609df50f0100bdb2a2420"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a7f440cf81281fda377380c676a1acbc6" id="r_a7f440cf81281fda377380c676a1acbc6"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#a7f440cf81281fda377380c676a1acbc6">load_failures</a> = 0</td></tr>
+<tr class="separator:a7f440cf81281fda377380c676a1acbc6"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:af8c73ec4965b7117e41122ecea11d529" id="r_af8c73ec4965b7117e41122ecea11d529"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#af8c73ec4965b7117e41122ecea11d529">retry_after_frame</a> = 0</td></tr>
+<tr class="separator:af8c73ec4965b7117e41122ecea11d529"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1a0faaeab29ee57f50e93a8bdccfc796" id="r_a1a0faaeab29ee57f50e93a8bdccfc796"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#a1a0faaeab29ee57f50e93a8bdccfc796">upload_submit_frame</a> = 0</td></tr>
 <tr class="separator:a1a0faaeab29ee57f50e93a8bdccfc796"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a9f2281b55090dfd0507fa4a9c6e18eff" id="r_a9f2281b55090dfd0507fa4a9c6e18eff"><td class="memItemLeft" align="right" valign="top">uint64_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianStreamingTypes_1_1StreamingChunk.html#a9f2281b55090dfd0507fa4a9c6e18eff">upload_retire_frame</a> = 0</td></tr>
@@ -355,6 +361,20 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
+<a id="a7f440cf81281fda377380c676a1acbc6" name="a7f440cf81281fda377380c676a1acbc6"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a7f440cf81281fda377380c676a1acbc6">&#9670;&#160;</a></span>load_failures</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianStreamingTypes::StreamingChunk::load_failures = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a92bca92e32d31b5668295043a2f9cfa8" name="a92bca92e32d31b5668295043a2f9cfa8"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a92bca92e32d31b5668295043a2f9cfa8">&#9670;&#160;</a></span>lod_blend_factor</h2>
 
@@ -461,6 +481,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">bool GaussianStreamingTypes::StreamingChunk::quantization_computed = false</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="af8c73ec4965b7117e41122ecea11d529" name="af8c73ec4965b7117e41122ecea11d529"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#af8c73ec4965b7117e41122ecea11d529">&#9670;&#160;</a></span>retry_after_frame</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint64_t GaussianStreamingTypes::StreamingChunk::retry_after_frame = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -601,6 +635,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint64_t GaussianStreamingTypes::StreamingChunk::upload_retire_frame = 0</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="ae6b7347cbde609df50f0100bdb2a2420" name="ae6b7347cbde609df50f0100bdb2a2420"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ae6b7347cbde609df50f0100bdb2a2420">&#9670;&#160;</a></span>upload_sequence</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianStreamingTypes::StreamingChunk::upload_sequence = 0</td>
         </tr>
       </table>
 </div><div class="memdoc">

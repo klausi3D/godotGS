@@ -6,6 +6,7 @@ var gaussian__data_8h =
     [ "GaussianData", "classGaussianData.html", "classGaussianData" ],
     [ "GaussianData::SaveSnapshot", "classGaussianData_1_1SaveSnapshot.html", "classGaussianData_1_1SaveSnapshot" ],
     [ "GaussianData::ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a52cd70f12218c459c050e63b6c70798f", null ],
     [ "GaussianDCEncoding", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40", [
       [ "GAUSSIAN_DC_ENCODING_LEGACY_BIAS", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40ab520416b597f11a93b07cd92d0f2e612", null ],
       [ "GAUSSIAN_DC_ENCODING_LINEAR_RGB", "gaussian__data_8h.html#a7d43196e7d886b261b2e1e6f02485e40a50486bdfa7fcef022420f9336f15dc2c", null ]
@@ -15,8 +16,24 @@ var gaussian__data_8h =
     [ "gaussian_get_painterly_flags", "gaussian__data_8h.html#a6c610fcdc7353fcb730bbf1fe409c50f", null ],
     [ "gaussian_get_palette_id", "gaussian__data_8h.html#a77340cb095a494dccef69d438f26ee7f", null ],
     [ "gaussian_pack_painterly_meta", "gaussian__data_8h.html#aed5ddfceb9a408610783dab82a696bfb", null ],
+    [ "gaussian_render_fields_finite", "gaussian__data_8h.html#a6d919fdf3de80194a6ee188696112b55", null ],
+    [ "gaussian_resolve_persisted_layout_version", "gaussian__data_8h.html#a7d6a99be77503f63120a148ef821e348", null ],
     [ "gaussian_set_brush_override_id", "gaussian__data_8h.html#a39d04347ceffe6a99e729ca33297b947", null ],
     [ "gaussian_set_dc_encoding", "gaussian__data_8h.html#a69e24d569ea7bddb28c87ead23ef6dfb", null ],
     [ "gaussian_set_painterly_flags", "gaussian__data_8h.html#a89151c8be57b8b65b450def45fa1d2ef", null ],
-    [ "gaussian_set_palette_id", "gaussian__data_8h.html#ac93e1960ee838dccc59151e60e3710e4", null ]
+    [ "gaussian_set_palette_id", "gaussian__data_8h.html#ac93e1960ee838dccc59151e60e3710e4", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#aca7c9298bdf56e2dc1d4803fc128a176", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#ace336ddbda301dfca8280e261a814f1d", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a3a7c6d0cedbe6493dedf01cbf6cd8a72", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#aea2bef208caa46ae297294015df3f764", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a7ef90250ef64405b44fa2cd114bb614c", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a8d2972fb37dd30d97c6717ee4cf4bc12", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a83fdaa9fd0ec291ff497cb447031c52d", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a533a7806627468395bb5245da74e9770", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a82ba510852ed8dfb2c499357e09b2d25", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#acd613e95cf5f860185652837e280f877", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#af21cfad033b13505fe13a8b638f7ebf7", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#a5aa7d96484b5a14b81ce0ac62b842d79", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#aefe045cbb37a41f73c59628444ebb602", null ],
+    [ "GS_PIN_GAUSSIAN_FIELD", "gaussian__data_8h.html#ae86c982b9001bcf0b2d30ab524e3ac4a", null ]
 ];

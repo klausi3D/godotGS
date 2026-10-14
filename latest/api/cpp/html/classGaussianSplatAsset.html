@@ -277,8 +277,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a0e101acc2ac417a663e7735c54da2065"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ab40e687a1c0e4713c00ee756725c46fb" id="r_ab40e687a1c0e4713c00ee756725c46fb"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatAsset.html#ab40e687a1c0e4713c00ee756725c46fb">populate_from_gaussian_data</a> (const Ref&lt;<a class="el" href="classGaussianData.html">::GaussianData</a> &gt; &amp;p_gaussian_data)</td></tr>
 <tr class="separator:ab40e687a1c0e4713c00ee756725c46fb"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a900c17db68c89444d158f6d06b521295" id="r_a900c17db68c89444d158f6d06b521295"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatAsset.html#a900c17db68c89444d158f6d06b521295">save_to_file</a> (const String &amp;p_path) const</td></tr>
-<tr class="separator:a900c17db68c89444d158f6d06b521295"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a448924a710fa134ea79a4d8e1b8e8855" id="r_a448924a710fa134ea79a4d8e1b8e8855"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatAsset.html#a448924a710fa134ea79a4d8e1b8e8855">save_to_file</a> (const String &amp;p_path, bool p_include_painterly_fields=false) const</td></tr>
+<tr class="separator:a448924a710fa134ea79a4d8e1b8e8855"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:abd1496756fb47f009cdb2929f2cf9723" id="r_abd1496756fb47f009cdb2929f2cf9723"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatAsset.html#abd1496756fb47f009cdb2929f2cf9723">prune_by_importance</a> (double p_keep_ratio, float p_importance_threshold)</td></tr>
 <tr class="separator:abd1496756fb47f009cdb2929f2cf9723"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a25fbd577a76d796bfe0004c55250e663" id="r_a25fbd577a76d796bfe0004c55250e663"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatAsset.html#a25fbd577a76d796bfe0004c55250e663">set_streaming_chunk_records</a> (const PackedByteArray &amp;p_records)</td></tr>
@@ -1521,8 +1521,8 @@ Static Protected Member Functions</h2></td></tr>
 
 </div>
 </div>
-<a id="a900c17db68c89444d158f6d06b521295" name="a900c17db68c89444d158f6d06b521295"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a900c17db68c89444d158f6d06b521295">&#9670;&#160;</a></span>save_to_file()</h2>
+<a id="a448924a710fa134ea79a4d8e1b8e8855" name="a448924a710fa134ea79a4d8e1b8e8855"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a448924a710fa134ea79a4d8e1b8e8855">&#9670;&#160;</a></span>save_to_file()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -1531,8 +1531,18 @@ Static Protected Member Functions</h2></td></tr>
           <td class="memname">Error GaussianSplatAsset::save_to_file </td>
           <td>(</td>
           <td class="paramtype">const String &amp;&#160;</td>
-          <td class="paramname"><em>p_path</em></td><td>)</td>
-          <td> const</td>
+          <td class="paramname"><em>p_path</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_include_painterly_fields</em> = <code>false</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">

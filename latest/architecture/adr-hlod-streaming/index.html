@@ -5207,6 +5207,12 @@
   <code>docs/governance/agentic-engineering.md</code> requires before implementation, because the
   decision changes an on-disk format (<code>.gsplatworld</code>), importer format versions, the renderer
   and its shaders.</li>
+<li><strong>Format identity update (2026-10-11):</strong> The version assignments below record
+  the original HLOD decision. New exports use world v3 (plain112/HLOD192) and
+  importer version5 under the approved
+  <a href="../adr-import-input-hardening/#adr-world-layout-identity-and-hlod-version-compatibility-2026-10-11">world-layout compatibility decision</a>.
+  Released plain v1 and HLOD v2 remain readable; the unmerged plain-v2 prototype
+  requires re-export. HLOD node layout, bake semantics and geometry stay unchanged.</li>
 <li><strong>Tracking:</strong> Refs #1131 (non-deterministic truncation at <code>quality/max_splat_count</code>).
   Builds on #1088 / PR #1134 (atlas pages + byte budget) and #1087 / PR #1130 (distance-bounded
   demand). Related: #1053 (LOD prefix truncation holes), #1016 (streaming in the alpha
@@ -6239,7 +6245,9 @@ inconsistency. The #420 importance clamp is retired in the same slice.</p>
 <h2 id="7-format-and-version-bumps">7. Format and version bumps<a class="headerlink" href="#7-format-and-version-bumps" title="Permanent link">¶</a></h2>
 <ul>
 <li><strong><code>.gsplatworld</code> v2</strong> (<code>kWorldVersion</code> 1 → 2, <code>io/gaussian_splat_world_io.cpp:24</code>; the loader
-  rejects any other version at <code>:541</code>):</li>
+  rejects any other version at <code>:541</code>). Note (2026-10-05): v2 is now taken by #1172 (layout
+  fingerprint word in the header), so S1a bumps to the next free version and its reader must
+  accept every earlier one; re-read the live constants when implementing:</li>
 <li>header: flag <code>kFlagHasHlod</code> (next free bit after <code>kFlagResidentPayload</code>, <code>:38</code>); the
     lattice origin <code>O</code> (3 x float64, from the world frame); <code>bake_rule_version</code>;</li>
 <li>a <strong>node table</strong>, <strong>128 B per node</strong>: lattice address (edge exponent <code>e</code> as int8, signed
@@ -6749,7 +6757,7 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:31 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:45 UTC">October 14, 2026</span>
   </span>
 
     

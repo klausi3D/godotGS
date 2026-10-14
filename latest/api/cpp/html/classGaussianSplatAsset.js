@@ -68,7 +68,7 @@ var classGaussianSplatAsset =
     [ "populate_from_gaussian_data", "classGaussianSplatAsset.html#ab40e687a1c0e4713c00ee756725c46fb", null ],
     [ "populate_gaussian_data", "classGaussianSplatAsset.html#a7cf57e55795c88b127b040ca84eb9c37", null ],
     [ "prune_by_importance", "classGaussianSplatAsset.html#abd1496756fb47f009cdb2929f2cf9723", null ],
-    [ "save_to_file", "classGaussianSplatAsset.html#a900c17db68c89444d158f6d06b521295", null ],
+    [ "save_to_file", "classGaussianSplatAsset.html#a448924a710fa134ea79a4d8e1b8e8855", null ],
     [ "set_asset_type", "classGaussianSplatAsset.html#ae0625fc833726e7cc6e92571c2f57090", null ],
     [ "set_brush_axes", "classGaussianSplatAsset.html#a25054e742d133992636cdc33c480021a", null ],
     [ "set_brush_override_ids", "classGaussianSplatAsset.html#a6bb1b5b1218c5da659e7c0f81ea9189d", null ],

@@ -199,18 +199,26 @@ $(document).ready(function(){initNavTree('resource__importer__ply_8h_source.html
 <div class="line"><a id="l00100" name="l00100"></a><span class="lineno">  100</span>    <span class="comment">//       the GPU. No PLY_CACHE_VERSION bump is needed: the raw/runtime path is</span></div>
 <div class="line"><a id="l00101" name="l00101"></a><span class="lineno">  101</span>    <span class="comment">//       validated on every load via GaussianSplatAsset::load_from_file(),</span></div>
 <div class="line"><a id="l00102" name="l00102"></a><span class="lineno">  102</span>    <span class="comment">//       independent of the decode cache.</span></div>
-<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>    <span class="keyword">virtual</span> <span class="keywordtype">int</span> get_format_version()<span class="keyword"> const override </span>{ <span class="keywordflow">return</span> 11; }</div>
-<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span> </div>
-<div class="line"><a id="l00105" name="l00105"></a><span class="lineno">  105</span>    <span class="comment">// Validation helpers</span></div>
-<div class="line"><a id="l00106" name="l00106"></a><span class="lineno">  106</span>    Error validate_ply_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
-<div class="line"><a id="l00107" name="l00107"></a><span class="lineno">  107</span>    <span class="keywordtype">void</span> log_missing_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
-<div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span> </div>
-<div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>    ResourceImporterPLY();</div>
-<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>};</div>
-<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span> </div>
-<div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span><span class="preprocessor">#endif </span><span class="comment">// TOOLS_ENABLED</span></div>
-<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span> </div>
-<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span><span class="preprocessor">#endif </span><span class="comment">// RESOURCE_IMPORTER_PLY_H</span></div>
+<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>    <span class="comment">//   v12: a max_splats cap at density_multiplier 1.0 now thins the asset by</span></div>
+<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span>    <span class="comment">//       a uniform stride over the whole file instead of keeping the first</span></div>
+<div class="line"><a id="l00105" name="l00105"></a><span class="lineno">  105</span>    <span class="comment">//       max_splats splats in file order (issue #1155). An asset imported by</span></div>
+<div class="line"><a id="l00106" name="l00106"></a><span class="lineno">  106</span>    <span class="comment">//       v1-v11 under such a cap (e.g. the &quot;High Quality&quot; preset on a scan</span></div>
+<div class="line"><a id="l00107" name="l00107"></a><span class="lineno">  107</span>    <span class="comment">//       above 1,000,000 splats) holds only a spatial prefix of the source and</span></div>
+<div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span>    <span class="comment">//       must be re-imported. Imports below the cap, uncapped imports and</span></div>
+<div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>    <span class="comment">//       density &lt; 0.999 imports produce the same output as v11. No</span></div>
+<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>    <span class="comment">//       PLY_CACHE_VERSION bump: the selection runs after the raw decode.</span></div>
+<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>    <span class="keyword">virtual</span> <span class="keywordtype">int</span> get_format_version()<span class="keyword"> const override </span>{ <span class="keywordflow">return</span> 12; }</div>
+<div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span> </div>
+<div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>    <span class="comment">// Validation helpers</span></div>
+<div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>    Error validate_ply_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
+<div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>    <span class="keywordtype">void</span> log_missing_properties(<span class="keyword">const</span> Ref&lt;class PLYLoader&gt; &amp;p_loader) <span class="keyword">const</span>;</div>
+<div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span> </div>
+<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>    ResourceImporterPLY();</div>
+<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>};</div>
+<div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span> </div>
+<div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span><span class="preprocessor">#endif </span><span class="comment">// TOOLS_ENABLED</span></div>
+<div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span> </div>
+<div class="line"><a id="l00122" name="l00122"></a><span class="lineno">  122</span><span class="preprocessor">#endif </span><span class="comment">// RESOURCE_IMPORTER_PLY_H</span></div>
 </div><!-- fragment --></div><!-- contents -->
 </div><!-- doc-content -->
 <!-- start footer part -->

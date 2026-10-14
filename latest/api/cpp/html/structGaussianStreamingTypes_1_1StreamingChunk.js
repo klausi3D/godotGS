@@ -13,6 +13,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "is_visible", "structGaussianStreamingTypes_1_1StreamingChunk.html#a964a1bdc0efe34e0d6a6a53792e06436", null ],
     [ "last_loaded_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#a178d3296200985fc85b3cfcf553412f0", null ],
     [ "last_used_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#abd16fbf949c9d7dae7788db970215a93", null ],
+    [ "load_failures", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7f440cf81281fda377380c676a1acbc6", null ],
     [ "lod_blend_factor", "structGaussianStreamingTypes_1_1StreamingChunk.html#a92bca92e32d31b5668295043a2f9cfa8", null ],
     [ "max_radius", "structGaussianStreamingTypes_1_1StreamingChunk.html#abb759f2b9e4d56680bc87b4c40f84c7f", null ],
     [ "near_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#a69c4e1bab10aeacc7307b4303731c10d", null ],
@@ -21,6 +22,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "previous_distance", "structGaussianStreamingTypes_1_1StreamingChunk.html#ad9463a627702c637dfa5eee5b11aeda1", null ],
     [ "quantization", "structGaussianStreamingTypes_1_1StreamingChunk.html#a89ff588aabc57a1f9938e6a096ea5462", null ],
     [ "quantization_computed", "structGaussianStreamingTypes_1_1StreamingChunk.html#ab15d3a3bae8e3c5debf2e8a61d422ec1", null ],
+    [ "retry_after_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#af8c73ec4965b7117e41122ecea11d529", null ],
     [ "sh_band_level", "structGaussianStreamingTypes_1_1StreamingChunk.html#a40715c522b147302e6ff5909ad580b90", null ],
     [ "source_index_remapped", "structGaussianStreamingTypes_1_1StreamingChunk.html#aff5cc05be38c49107b6eafa1eb76ed08", null ],
     [ "splat_skip_factor", "structGaussianStreamingTypes_1_1StreamingChunk.html#a7525675ed0865ec85d9d9b0f40536269", null ],
@@ -31,6 +33,7 @@ var structGaussianStreamingTypes_1_1StreamingChunk =
     [ "upload_lifecycle_state", "structGaussianStreamingTypes_1_1StreamingChunk.html#a23e3ef346b348ccd6a675105fb87cd1b", null ],
     [ "upload_pending", "structGaussianStreamingTypes_1_1StreamingChunk.html#a34d3426d418ce3fe02278ef296742fa6", null ],
     [ "upload_retire_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#a9f2281b55090dfd0507fa4a9c6e18eff", null ],
+    [ "upload_sequence", "structGaussianStreamingTypes_1_1StreamingChunk.html#ae6b7347cbde609df50f0100bdb2a2420", null ],
     [ "upload_submit_frame", "structGaussianStreamingTypes_1_1StreamingChunk.html#a1a0faaeab29ee57f50e93a8bdccfc796", null ],
     [ "upload_ticket_id", "structGaussianStreamingTypes_1_1StreamingChunk.html#a1b51c18fe282d8416a67ed39f96e010b", null ]
 ];

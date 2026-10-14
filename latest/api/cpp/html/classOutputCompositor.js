@@ -7,7 +7,7 @@ var classOutputCompositor =
     [ "TextureFormatCallback", "classOutputCompositor.html#a10001f34d7acd9378aa35f636420f53a", null ],
     [ "OutputCompositor", "classOutputCompositor.html#a8588c840dff2ab5e0116a852e0300e54", null ],
     [ "~OutputCompositor", "classOutputCompositor.html#acea1013ed2521e301d2eaf34fddfb02c", null ],
-    [ "can_reuse_cached_render", "classOutputCompositor.html#a35f99eebbd0f1d3637016ff60f68b6fb", null ],
+    [ "can_reuse_cached_render", "classOutputCompositor.html#a91dc6317409c1f1c8c2689cedd31fc5c", null ],
     [ "clear_cached_framebuffers", "classOutputCompositor.html#a2c8d265c85695e1b95d2f1311262850f", null ],
     [ "clear_viewport_blit_resources", "classOutputCompositor.html#aa9cc96bc504782bc0458861ce997ab22", null ],
     [ "copy_to_framebuffer", "classOutputCompositor.html#aa43fe82e4fbd0904a3c12003ffd373ad", null ],
@@ -41,7 +41,7 @@ var classOutputCompositor =
     [ "shutdown", "classOutputCompositor.html#a83eadcf6af4288cc53b2c6ef3a454b54", null ],
     [ "test_force_insert_cached_framebuffer", "classOutputCompositor.html#a4b8a9cf63e3328b561fce22492f29b98", null ],
     [ "test_force_insert_framebuffer_validation", "classOutputCompositor.html#a519f0740b30856fe9d57e2bb2c95f1ce", null ],
-    [ "update_render_cache_signature", "classOutputCompositor.html#a1a0d84c6721776271021a11299a29646", null ],
+    [ "update_render_cache_signature", "classOutputCompositor.html#a1554aaf8db335331dfb5a482d36ec3fc", null ],
     [ "validate_framebuffer_attachments", "classOutputCompositor.html#a3f67fdd860eefd21f4d50f097c0bafeb", null ],
     [ "GaussianSplatRenderer", "classOutputCompositor.html#a980e260398de25c6fa3693dd78f1b12f", null ]
 ];

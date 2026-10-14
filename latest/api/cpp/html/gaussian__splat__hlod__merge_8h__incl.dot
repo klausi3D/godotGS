@@ -92,5 +92,7 @@ digraph "gaussian_splat_hlod_merge.h"
   Node31 [id="Node000031",label="cstdint",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node6 -> Node32 [id="edge56_Node000006_Node000032",color="steelblue1",style="solid",tooltip=" "];
   Node32 [id="Node000032",label="cstring",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
-  Node1 -> Node31 [id="edge57_Node000001_Node000031",color="steelblue1",style="solid",tooltip=" "];
+  Node6 -> Node33 [id="edge57_Node000006_Node000033",color="steelblue1",style="solid",tooltip=" "];
+  Node33 [id="Node000033",label="type_traits",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node31 [id="edge58_Node000001_Node000031",color="steelblue1",style="solid",tooltip=" "];
 }

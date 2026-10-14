@@ -5,5 +5,5 @@ digraph "Graphical Class Hierarchy"
   edge [fontname=Helvetica,fontsize=10,labelfontname=Helvetica,labelfontsize=10];
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   rankdir="LR";
-  Node0 [id="Node000000",label="GaussianSplatSceneDirector\l::SubmissionCounts",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianSplatSceneDirector_1_1SubmissionCounts.html",tooltip=" "];
+  Node0 [id="Node000000",label="GaussianSplatSceneDirector\l::SphereEffectorSelection",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$structGaussianSplatSceneDirector_1_1SphereEffectorSelection.html",tooltip=" "];
 }

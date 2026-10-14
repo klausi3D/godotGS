@@ -199,12 +199,12 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a43420ec15c15f1898ad7614dbf693b14"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr><td colspan="2"><div class="groupHeader">2D Gaussian (Surfel) Support</div></td></tr>
 <tr class="memitem:ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6" id="r_ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6">set_2d_mode</a> (bool p_enabled)</td></tr>
-<tr class="memdesc:ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Enables or disables 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) mode.  <br /></td></tr>
+<tr class="memdesc:ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets the 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) flag.  <br /></td></tr>
 <tr class="separator:ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a18ca3236a61c20f74d0b9f99fdc49596" id="r_a18ca3236a61c20f74d0b9f99fdc49596"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a18ca3236a61c20f74d0b9f99fdc49596">get_2d_mode</a> () const</td></tr>
 <tr class="separator:a18ca3236a61c20f74d0b9f99fdc49596"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a324983aab2d291f8a4c958ed59b9bdeb" id="r_a324983aab2d291f8a4c958ed59b9bdeb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a324983aab2d291f8a4c958ed59b9bdeb">set_normals</a> (const PackedVector3Array &amp;p_normals)</td></tr>
-<tr class="memdesc:a324983aab2d291f8a4c958ed59b9bdeb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets surface normals for 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) rendering.  <br /></td></tr>
+<tr class="memdesc:a324983aab2d291f8a4c958ed59b9bdeb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets per-splat surface normals (shading normals; they do not change the projected footprint, see <a class="el" href="classGaussianData.html#ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6" title="Sets the 2D Gaussian (surfel) flag.">set_2d_mode()</a>).  <br /></td></tr>
 <tr class="separator:a324983aab2d291f8a4c958ed59b9bdeb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr><td colspan="2"><div class="groupHeader">File I/O</div></td></tr>
 <tr class="memitem:aba63ee63bdbcb6cc8f8490496f785c2d" id="r_aba63ee63bdbcb6cc8f8490496f785c2d"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#aba63ee63bdbcb6cc8f8490496f785c2d">load_from_file</a> (const String &amp;p_path)</td></tr>
@@ -212,9 +212,9 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:aba63ee63bdbcb6cc8f8490496f785c2d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afdff5a1464d01d3ace46807bb189d4fe" id="r_afdff5a1464d01d3ace46807bb189d4fe"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#afdff5a1464d01d3ace46807bb189d4fe">populate_from_asset</a> (const Ref&lt; class <a class="el" href="classGaussianSplatAsset.html">GaussianSplatAsset</a> &gt; &amp;p_asset)</td></tr>
 <tr class="separator:afdff5a1464d01d3ace46807bb189d4fe"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8ad160adce838835dd9aa82397418467" id="r_a8ad160adce838835dd9aa82397418467"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a8ad160adce838835dd9aa82397418467">save_to_file</a> (const String &amp;p_path) const</td></tr>
-<tr class="memdesc:a8ad160adce838835dd9aa82397418467"><td class="mdescLeft">&#160;</td><td class="mdescRight">Saves current <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> data to a PLY file.  <br /></td></tr>
-<tr class="separator:a8ad160adce838835dd9aa82397418467"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ab48440a6cf6bca72465a1116d08bcc71" id="r_ab48440a6cf6bca72465a1116d08bcc71"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ab48440a6cf6bca72465a1116d08bcc71">save_to_file</a> (const String &amp;p_path, bool p_include_painterly_fields=false) const</td></tr>
+<tr class="memdesc:ab48440a6cf6bca72465a1116d08bcc71"><td class="mdescLeft">&#160;</td><td class="mdescRight">Saves current <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> data to a binary PLY file.  <br /></td></tr>
+<tr class="separator:ab48440a6cf6bca72465a1116d08bcc71"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr><td colspan="2"><div class="groupHeader">Streaming Chunk Bake (Phase B.1)</div></td></tr>
 <tr class="memitem:a64ae8fa19104a110eacc8c216def2a43" id="r_a64ae8fa19104a110eacc8c216def2a43"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a64ae8fa19104a110eacc8c216def2a43">set_streaming_chunk_bake</a> (const PackedByteArray &amp;p_records, const PackedInt32Array &amp;p_primary_indices, const PackedByteArray &amp;p_quantization, uint32_t p_chunk_size_used)</td></tr>
 <tr class="separator:a64ae8fa19104a110eacc8c216def2a43"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -2190,8 +2190,8 @@ Friends</h2></td></tr>
 
 </div>
 </div>
-<a id="a8ad160adce838835dd9aa82397418467" name="a8ad160adce838835dd9aa82397418467"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a8ad160adce838835dd9aa82397418467">&#9670;&#160;</a></span>save_to_file()</h2>
+<a id="ab48440a6cf6bca72465a1116d08bcc71" name="ab48440a6cf6bca72465a1116d08bcc71"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ab48440a6cf6bca72465a1116d08bcc71">&#9670;&#160;</a></span>save_to_file()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2200,16 +2200,28 @@ Friends</h2></td></tr>
           <td class="memname">Error GaussianData::save_to_file </td>
           <td>(</td>
           <td class="paramtype">const String &amp;&#160;</td>
-          <td class="paramname"><em>p_path</em></td><td>)</td>
-          <td> const</td>
+          <td class="paramname"><em>p_path</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_include_painterly_fields</em> = <code>false</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
-<p>Saves current <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> data to a PLY file. </p>
+<p>Saves current <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> data to a binary PLY file. </p>
+<p>The default output is the canonical Inria 3DGS layout: position, optional normals (2D mode), f_dc_0..2, f_rest_0..44 (channel-major, written when any band-1..3 SH is stored), opacity, scale and rotation. The payload is snapshotted under data_rwlock before any byte is written.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">p_path</td><td>Destination path. </td></tr>
+    <tr><td class="paramname">p_include_painterly_fields</td><td>Also write the GodotGS-only painterly columns (palette_id, brush_override_id, brush_axis_u/v, stroke_age). Off by default because third-party viewers expect the Inria layout. </td></tr>
   </table>
   </dd>
 </dl>
@@ -2233,10 +2245,11 @@ Friends</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Enables or disables 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) mode. </p>
-<dl class="params"><dt>Parameters</dt><dd>
+<p>Sets the 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) flag. </p>
+<p>METADATA ONLY (#1185).</p>
+<p>No renderer path reads the flag: splats are still projected as 3D ellipsoids. Its only effect is that <a class="el" href="classGaussianData.html#ab48440a6cf6bca72465a1116d08bcc71" title="Saves current Gaussian data to a binary PLY file.">save_to_file()</a> writes nx/ny/nz columns and declares the mode in the PLY header. Enabling it warns once. </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramname">p_enabled</td><td>When true, splats use normals for disc-like rendering. </td></tr>
+    <tr><td class="paramname">p_enabled</td><td>Flag value to store. </td></tr>
   </table>
   </dd>
 </dl>
@@ -2557,7 +2570,7 @@ Friends</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Sets surface normals for 2D <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> (surfel) rendering. </p>
+<p>Sets per-splat surface normals (shading normals; they do not change the projected footprint, see <a class="el" href="classGaussianData.html#ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6" title="Sets the 2D Gaussian (surfel) flag.">set_2d_mode()</a>). </p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">p_normals</td><td>Array of unit normal vectors (must match <a class="el" href="classGaussianData.html#adfcfa614bde920e0d1107afeeb6fd43a" title="Returns the number of Gaussians in this resource.">get_count()</a>). </td></tr>

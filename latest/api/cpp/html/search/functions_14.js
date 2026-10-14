@@ -63,7 +63,7 @@ var searchData=
   ['update_5fprimary_5fasset_5fdata_60',['update_primary_asset_data',['../classGaussianStreamingSystem.html#ad060f17c174ce0f4ad13c16cb62e25bd',1,'GaussianStreamingSystem']]],
   ['update_5fquality_5fsettings_61',['update_quality_settings',['../classGaussianSplatNodeQualityHelper.html#a94ac37b67305377d3c4ebb2350328795',1,'GaussianSplatNodeQualityHelper']]],
   ['update_5fraster_5fmetrics_62',['update_raster_metrics',['../classRenderDebugStateOrchestrator.html#af3a8e6c57f3d663902cc1b1bbafb4199',1,'RenderDebugStateOrchestrator']]],
-  ['update_5frender_5fcache_5fsignature_63',['update_render_cache_signature',['../classOutputCompositor.html#a1a0d84c6721776271021a11299a29646',1,'OutputCompositor']]],
+  ['update_5frender_5fcache_5fsignature_63',['update_render_cache_signature',['../classOutputCompositor.html#a1554aaf8db335331dfb5a482d36ec3fc',1,'OutputCompositor']]],
   ['update_5frenderer_5fstate_5funiforms_64',['update_renderer_state_uniforms',['../classInteractiveStateManager.html#abdcfa461f894cdfec1ed8ea7a69f2313',1,'InteractiveStateManager']]],
   ['update_5fresources_65',['update_resources',['../classIPainterlyMaterialManager.html#a7a12a55063ec183d2a56f4c5de6de8e7',1,'IPainterlyMaterialManager::update_resources()'],['../classPainterlyMaterialManager.html#ad7c822b821ef8279209964a0e4e455b5',1,'PainterlyMaterialManager::update_resources()']]],
   ['update_5fsphere_5feffector_66',['update_sphere_effector',['../classGaussianSplatSceneDirector.html#a9371a63414f131f899cc0696106125af',1,'GaussianSplatSceneDirector']]],

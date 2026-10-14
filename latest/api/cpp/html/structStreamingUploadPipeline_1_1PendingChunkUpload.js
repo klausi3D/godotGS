@@ -10,5 +10,7 @@ var structStreamingUploadPipeline_1_1PendingChunkUpload =
     [ "packed_data", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a89cb359024b0fca6ecb533754d6c4b61", null ],
     [ "packed_stride_bytes", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a82788b31a363e1e2ae638cb22d1fb4ba", null ],
     [ "payload_checksum", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#aa4dfc116e64243db5e353d6ec3116ed3", null ],
-    [ "payload_checksum_valid", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a3eadd76bd26bf60ee63a3f1079197572", null ]
+    [ "payload_checksum_valid", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#a3eadd76bd26bf60ee63a3f1079197572", null ],
+    [ "payload_read_failed", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#ac801bdcfb477dc457189a8ce6bafb298", null ],
+    [ "upload_sequence", "structStreamingUploadPipeline_1_1PendingChunkUpload.html#acdfb8ffb85d2d4bef9d78740791bd5bc", null ]
 ];

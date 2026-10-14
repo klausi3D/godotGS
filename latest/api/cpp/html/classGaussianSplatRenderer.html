@@ -408,6 +408,8 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:a6cdd25da093a33ac7cd828d9b894d4ce"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1395fc6458ca28d196e47e51eaf746b8" id="r_a1395fc6458ca28d196e47e51eaf746b8"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a1395fc6458ca28d196e47e51eaf746b8">_render_resident_frame</a> (RenderDataRD *p_render_data, const Transform3D &amp;p_world_to_camera_transform, const Projection &amp;p_projection, const Projection &amp;p_render_projection, RenderSceneBuffersRD *p_render_buffers)</td></tr>
 <tr class="separator:a1395fc6458ca28d196e47e51eaf746b8"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aeb7466e33a62fd872b54a19dec9bdf2e" id="r_aeb7466e33a62fd872b54a19dec9bdf2e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#aeb7466e33a62fd872b54a19dec9bdf2e">_finish_skipped_scene_instance_frame</a> (const <a class="el" href="classGaussianSplatRenderer.html#a6fd67817a61a753ef5db575293a067c9">StageMetrics</a> &amp;p_stage_metrics)</td></tr>
+<tr class="separator:aeb7466e33a62fd872b54a19dec9bdf2e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa57d5b5e7951f712f5ca84adade637cf" id="r_aa57d5b5e7951f712f5ca84adade637cf"><td class="memItemLeft" align="right" valign="top">const <a class="el" href="structGaussian.html">Gaussian</a> *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#aa57d5b5e7951f712f5ca84adade637cf">_get_streamed_gaussian</a> (uint32_t p_index) const</td></tr>
 <tr class="separator:aa57d5b5e7951f712f5ca84adade637cf"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a3eef318603c71fd3d871cdebc8334694" id="r_a3eef318603c71fd3d871cdebc8334694"><td class="memItemLeft" align="right" valign="top"><a class="el" href="classGaussianSplatRenderer.html#a5f3053e06a2a079ef05c50ac9f5b3510">SortStageSummary</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a3eef318603c71fd3d871cdebc8334694">sort_gaussians_for_view</a> (const Transform3D &amp;p_world_to_camera_transform, <a class="el" href="namespaceGaussianRenderState.html#ad57abd2c957c18ec4a26fa4e3a8525f8">IndexDomain</a> p_input_domain=IndexDomain::UNKNOWN)</td></tr>
@@ -1209,6 +1211,9 @@ Static Public Member Functions</h2></td></tr>
 <tr class="separator:a0dfcf412588e18f134d88caaa37bcbc5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a05c5f5ee42babd16e983a8452c32c2f1" id="r_a05c5f5ee42babd16e983a8452c32c2f1"><td class="memItemLeft" align="right" valign="top">static <a class="el" href="classGaussianSplatRenderer.html#a801ae6adf39543249a2030e377db80c5">RenderFramePlan</a>&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a05c5f5ee42babd16e983a8452c32c2f1">build_frame_plan</a> (const <a class="el" href="classGaussianSplatRenderer.html#ac6c1541c17e6ef15451ae8fcb1352c24">SceneState</a> &amp;p_scene_state, const <a class="el" href="classGaussianSplatRenderer.html#a77e030df89da188929152d8273219484">StreamingState</a> &amp;p_streaming_state, const <a class="el" href="classGaussianSplatRenderer.html#aeeb271ef355c93debc49811dc2b2f786">SortingState</a> &amp;p_sorting_state, const <a class="el" href="classGaussianSplatRenderer.html#a63e992c84a5ac8a74405a07b90fb4ab2">InstancePipelineBuffers</a> *p_instance_buffers, <a class="el" href="namespaceGaussianRenderPipeline.html#a4cc6fc4e7e3c1a4cebd403986a7dda57">InstanceBackendPolicy</a> p_instance_backend_policy, const <a class="el" href="classGaussianSplatRenderer.html#aa9bb289e882ae03936a4c382a019fb2d">ResourceState</a> &amp;p_resource_state, const <a class="el" href="classGaussianSplatRenderer.html#a72cbbf272514f115490e9a0c7a8013ad">SubsystemState</a> &amp;p_subsystem_state, const <a class="el" href="structPipelineFeatureSet.html">PipelineFeatureSet</a> *p_pipeline_features, bool p_has_render_data, const String &amp;p_cull_skip_reason, const String &amp;p_sort_skip_reason, <a class="el" href="namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27">RenderFallbackReason</a> p_cull_skip_reason_code, <a class="el" href="namespaceGaussianRenderPipeline.html#ac9ecc7299776a37b03192d26f3ad8a27">RenderFallbackReason</a> p_sort_skip_reason_code, bool p_set_skip_metrics, bool p_clear_cull_state_on_skip, const <a class="el" href="classGaussianSplatRenderer.html#abd468b36e1ee28088f5c9469dcb78d41">RenderRouteDecision</a> *p_authoritative_route_decision=nullptr)</td></tr>
 <tr class="separator:a05c5f5ee42babd16e983a8452c32c2f1"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a4c49c1884543c0125e9c0217a6b90cf3" id="r_a4c49c1884543c0125e9c0217a6b90cf3"><td class="memItemLeft" align="right" valign="top">static uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a4c49c1884543c0125e9c0217a6b90cf3">get_render_view_count</a> (const RenderDataRD *p_render_data)</td></tr>
+<tr class="memdesc:a4c49c1884543c0125e9c0217a6b90cf3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Number of views the engine is rendering this frame (#1160).  <br /></td></tr>
+<tr class="separator:a4c49c1884543c0125e9c0217a6b90cf3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a7ee470afe8efbde1b4cb87bf74786dc7" id="r_a7ee470afe8efbde1b4cb87bf74786dc7"><td class="memItemLeft" align="right" valign="top">static const char *&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a7ee470afe8efbde1b4cb87bf74786dc7">_shadow_failure_reason_label</a> (<a class="el" href="classGaussianSplatRenderer.html#ac53990eecb7f4716998bddf61df1f808">ShadowRenderFailureReason</a> p_reason)</td></tr>
 <tr class="separator:a7ee470afe8efbde1b4cb87bf74786dc7"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa3c2cdb0da74b2002e14f7d786f49215" id="r_aa3c2cdb0da74b2002e14f7d786f49215"><td class="memItemLeft" align="right" valign="top">static void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#aa3c2cdb0da74b2002e14f7d786f49215">test_reset_last_teardown_rdm_counts</a> ()</td></tr>
@@ -1332,6 +1337,9 @@ Friends</h2></td></tr>
 <tr class="heading"><td colspan="2"><h2 class="groupheader">Camera State</h2></td></tr>
 <tr><td class="ititle" colspan="2"><p>Camera state used by <a class="el" href="classGaussianSplatNode3D.html" title="3D scene node for displaying Gaussian splat content.">GaussianSplatNode3D</a> for render_scene_instance. </p>
 </td></tr>
+<tr class="memitem:a163caa5a5a541949e213c6e67d449ce8" id="r_a163caa5a5a541949e213c6e67d449ce8"><td class="memItemLeft" align="right" valign="top">static Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a163caa5a5a541949e213c6e67d449ce8">apply_flip_y</a> (const Projection &amp;p_projection, bool p_flip_y)</td></tr>
+<tr class="memdesc:a163caa5a5a541949e213c6e67d449ce8"><td class="mdescLeft">&#160;</td><td class="mdescRight">Applies the engine's clip-space Y flip to a projection (#1159).  <br /></td></tr>
+<tr class="separator:a163caa5a5a541949e213c6e67d449ce8"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a1c1785d7c8231aef96dfa4ac6a545581" id="r_a1c1785d7c8231aef96dfa4ac6a545581"><td class="memItemLeft" align="right" valign="top">static Projection&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianSplatRenderer.html#a1c1785d7c8231aef96dfa4ac6a545581">build_render_projection</a> (const Projection &amp;p_projection, bool p_flip_y, const Vector2 &amp;p_taa_jitter)</td></tr>
 <tr class="memdesc:a1c1785d7c8231aef96dfa4ac6a545581"><td class="mdescLeft">&#160;</td><td class="mdescRight">Builds the projection actually uploaded to the splat GPU pipeline.  <br /></td></tr>
 <tr class="separator:a1c1785d7c8231aef96dfa4ac6a545581"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -2547,6 +2555,24 @@ Usage</h2>
           <td>(</td>
           <td class="paramtype">const <a class="el" href="structGaussianSplatRenderer_1_1ShadowRenderResult.html">ShadowRenderResult</a> &amp;&#160;</td>
           <td class="paramname"><em>p_result</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="aeb7466e33a62fd872b54a19dec9bdf2e" name="aeb7466e33a62fd872b54a19dec9bdf2e"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aeb7466e33a62fd872b54a19dec9bdf2e">&#9670;&#160;</a></span>_finish_skipped_scene_instance_frame()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianSplatRenderer::_finish_skipped_scene_instance_frame </td>
+          <td>(</td>
+          <td class="paramtype">const <a class="el" href="classGaussianSplatRenderer.html#a6fd67817a61a753ef5db575293a067c9">StageMetrics</a> &amp;&#160;</td>
+          <td class="paramname"><em>p_stage_metrics</em></td><td>)</td>
           <td></td>
         </tr>
       </table>
@@ -3983,6 +4009,47 @@ Usage</h2>
 
 </div>
 </div>
+<a id="a163caa5a5a541949e213c6e67d449ce8" name="a163caa5a5a541949e213c6e67d449ce8"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a163caa5a5a541949e213c6e67d449ce8">&#9670;&#160;</a></span>apply_flip_y()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">Projection GaussianSplatRenderer::apply_flip_y </td>
+          <td>(</td>
+          <td class="paramtype">const Projection &amp;&#160;</td>
+          <td class="paramname"><em>p_projection</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_flip_y</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Applies the engine's clip-space Y flip to a projection (#1159). </p>
+<p>Returns <code>correction * p_projection</code> with <code>correction.set_depth_correction(p_flip_y, false, false)</code>: the same LEFT-multiplied correction <code>RenderSceneDataRD::get_cam_projection()</code> applies to ordinary geometry (<code>render_scene_data_rd.cpp:40-45</code>, <code>core/math/projection.cpp:787-801</code>), minus its reverse-Z/remap part, which the gaussian pipeline must not carry (it uses linear view-space depth). It negates the whole clip-Y ROW, <code>columns[j][1]</code> for every j.</p>
+<p>Until #1159 every GS path negated only <code>columns[1][1]</code>. The two agree exactly when <code>columns[0][1]</code>, <code>columns[2][1]</code> and <code>columns[3][1]</code> are zero (symmetric perspective, centred orthographic) and diverge otherwise: an off-axis <code>Projection::set_frustum()</code> (Camera3D <code>PROJECTION_FRUSTUM</code> with <code>frustum_offset.y != 0</code>, XR eye projections) writes <code>columns[2][1]</code>, a shifted <code>set_orthogonal()</code> writes <code>columns[3][1]</code>. There the old flip displaced splats vertically against meshes and mirrored the extracted top/bottom cull planes. <code>columns[0][0]</code> and <code>columns[1][1]</code> &ndash; the entries <code>shaders/tile_binning.glsl</code> derives focal_x/focal_y from &ndash; come out identical under both flips, and for p_flip_y == false (or a symmetric matrix) the result equals the old matrix exactly.</p>
+<p>Used by the render, cull and shadow projections alike, so the three can never disagree on the convention again. </p>
+
+</div>
+</div>
 <a id="ab57a33225397870f43dad6c28daffe0b" name="ab57a33225397870f43dad6c28daffe0b"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#ab57a33225397870f43dad6c28daffe0b">&#9670;&#160;</a></span>apply_world_submission_contract()</h2>
 
@@ -4295,8 +4362,8 @@ Usage</h2>
 <p>Builds the projection actually uploaded to the splat GPU pipeline. </p>
 <p>Two corrections, and deliberately not a third:</p>
 <ul>
-<li><code>p_flip_y</code> negates <code>columns[1][1]</code>, matching every other GS path's flip convention (see <code><a class="el" href="classGaussianSplatRenderer.html#ae09308cd5f59024f5ab57c5beb460014">build_cull_projection()</a></code>). NOTE, because the jitter comment below must not be read as covering it: this is the module's pre-existing single-entry flip, not the engine's. The engine's <code>Projection::set_depth_correction(flip_y)</code> negates the whole y ROW of the product, i.e. <code>columns[j][1]</code> for every j. The two coincide exactly for a symmetric perspective projection, where <code>columns[0][1]</code>, <code>columns[2][1]</code> and <code>columns[3][1]</code> are all zero, and diverge for an off-axis frustum (<code>Projection::set_frustum</code> writes a non-zero <code>columns[2][1]</code> when the vertical frustum offset is non-zero). That divergence predates #929 and is unchanged by it.</li>
-<li><code>p_taa_jitter</code> is the engine's per-frame temporal jitter, applied as the same left-multiplied translation <code>RenderSceneDataRD::get_cam_projection()</code> uses (<code>servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.cpp:40-45</code> -&gt; <code>Projection::add_jitter_offset()</code>, <code>core/math/projection.cpp:932-935</code>). The jitter TERM is the engine's exactly, for every projection type: the engine adds it to <code>columns[3][0]</code>/<code>[3][1]</code> of a correction matrix whose y entry is diagonal, so the contribution is <code>+jitter.x * columns[j][3]</code> and <code>+jitter.y * columns[j][3]</code> either way, independent of the flip. Ordinary geometry is rendered with that offset, and FSR2 is handed the same vector and <em>un-jitters</em> by it (<code>thirdparty/amd-fsr2/shaders/ ffx_fsr2_common.h:431-437</code>). Splats rendered without it are therefore reconstructed displaced by +jitter every frame &ndash; issue #929.</li>
+<li><code>p_flip_y</code> is the engine's whole-row clip-Y flip, applied through <code><a class="el" href="classGaussianSplatRenderer.html#a163caa5a5a541949e213c6e67d449ce8" title="Applies the engine&#39;s clip-space Y flip to a projection (#1159).">apply_flip_y()</a></code> exactly as <code><a class="el" href="classGaussianSplatRenderer.html#ae09308cd5f59024f5ab57c5beb460014">build_cull_projection()</a></code> and the shadow pass apply it: <code>correction * projection</code> with <code>set_depth_correction(flip_y, false, false)</code>, negating <code>columns[j][1]</code> for every j. Until #1159 this negated only <code>columns[1][1]</code>, which coincides with the engine for a symmetric perspective projection and diverged for an off-axis frustum (<code>Projection::set_frustum</code> writes a non-zero <code>columns[2][1]</code> when the vertical frustum offset is non-zero) and a shifted orthographic one (<code>columns[3][1]</code>).</li>
+<li><code>p_taa_jitter</code> is the engine's per-frame temporal jitter, applied as the same left-multiplied translation <code>RenderSceneDataRD::get_cam_projection()</code> uses (<code>servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.cpp:40-45</code> -&gt; <code>Projection::add_jitter_offset()</code>, <code>core/math/projection.cpp:932-935</code>). Composition order is <code>jitter * (flip * projection)</code>; the engine builds one correction holding both (<code>m[5] = -1</code> plus the jitter in <code>columns[3][0]</code>/<code>[3][1]</code>), and <code>jitter * flip</code> is exactly that matrix, so the whole render projection now equals the engine's <code>get_cam_projection()</code> minus its depth remap, for every projection type. Ordinary geometry is rendered with that offset, and FSR2 is handed the same vector and <em>un-jitters</em> by it (<code>thirdparty/amd-fsr2/shaders/ ffx_fsr2_common.h:431-437</code>). Splats rendered without it are therefore reconstructed displaced by +jitter every frame &ndash; issue #929.</li>
 <li>NOT the engine's reverse-Z/remap depth correction: the gaussian pipeline carries linear view-space depth, so <code>Projection::set_depth_correction()</code> must stay out of this matrix.</li>
 </ul>
 <p>Self-gating: <code>scene_data-&gt;taa_jitter</code> is exactly <code>(0,0)</code> unless a temporal stage is active (<code>servers/rendering/renderer_scene_cull.cpp:2681-2696</code> only assigns it when the viewport's jitter phase count is non-zero, and <code>servers/rendering/renderer_viewport.cpp:252-260</code> leaves that at 0 unless temporal upscaling or TAA is on), and a zero jitter returns the flipped matrix bit-identically &ndash; no matrix multiply is performed at all.</p>
@@ -7241,6 +7308,35 @@ Usage</h2>
 </div><div class="memdoc">
 
 <p>Returns the last frame's total render time in milliseconds. </p>
+
+</div>
+</div>
+<a id="a4c49c1884543c0125e9c0217a6b90cf3" name="a4c49c1884543c0125e9c0217a6b90cf3"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a4c49c1884543c0125e9c0217a6b90cf3">&#9670;&#160;</a></span>get_render_view_count()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t GaussianSplatRenderer::get_render_view_count </td>
+          <td>(</td>
+          <td class="paramtype">const RenderDataRD *&#160;</td>
+          <td class="paramname"><em>p_render_data</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+<p>Number of views the engine is rendering this frame (#1160). </p>
+<p>The larger of the render buffers' view count (the layer count of the target the composite writes) and the scene data's view count; 1 when neither is available (manual <a class="el" href="classGaussianSplatRenderer.html#a26c1e3f3502f533d7f460706910d9fc5" title="Renders splats for a specific camera view.">render_for_view()</a>, shadow passes). The splat pipeline renders exactly one view: for a multiview (XR/stereo) viewport <code>scene_data-&gt;cam_projection</code> is the engine's COMBINED frustum and the target is a 2-layer array the composite cannot address, so <a class="el" href="classGaussianSplatRenderer.html#a9135c858e7c512ce0e473f382aefcbeb" title="Renders Gaussian splats for a scene instance.">render_scene_instance()</a> refuses any value other than 1. </p>
 
 </div>
 </div>

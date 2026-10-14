@@ -21,6 +21,7 @@ var namespaces_dup =
       [ "format_sort_route_uid", "namespaceGaussianRenderRouteLabels.html#a0cd4a4ef871d0682d861f691be900941", null ]
     ] ],
     [ "GaussianRenderState", "namespaceGaussianRenderState.html", "namespaceGaussianRenderState" ],
+    [ "GaussianSHRotation", "namespaceGaussianSHRotation.html", "namespaceGaussianSHRotation" ],
     [ "GaussianSplatSourcePath", "namespaceGaussianSplatSourcePath.html", null ],
     [ "GaussianSplatting", "namespaceGaussianSplatting.html", "namespaceGaussianSplatting" ],
     [ "GaussianSplattingIO", "namespaceGaussianSplattingIO.html", [
@@ -59,6 +60,7 @@ var namespaces_dup =
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
+    [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
     [ "RenderingErrorCodes", "namespaceRenderingErrorCodes.html", [
       [ "command_buffer_synchronization_failed", "namespaceRenderingErrorCodes.html#a003f42775d3f6f37a81c8217cce029d9", null ],
       [ "compute_buffer_prepare_failed", "namespaceRenderingErrorCodes.html#a6b62149717dfad1543da0e764e4ff4f0", null ],
