@@ -119,6 +119,8 @@ Collaboration diagram for GaussianData:</div>
 Classes</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:"><td class="memItemLeft" align="right" valign="top">class &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData_1_1SaveSnapshot.html">SaveSnapshot</a></td></tr>
+<tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
@@ -402,6 +404,8 @@ Friends</h2></td></tr>
 <tr class="memitem:af4258510b2e000f2d26a2c6973df5848" id="r_af4258510b2e000f2d26a2c6973df5848"><td class="memItemLeft" align="right" valign="top">const LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#af4258510b2e000f2d26a2c6973df5848">get_gaussian_storage</a> () const</td></tr>
 <tr class="memdesc:af4258510b2e000f2d26a2c6973df5848"><td class="mdescLeft">&#160;</td><td class="mdescRight">Direct access to internal storage.  <br /></td></tr>
 <tr class="separator:af4258510b2e000f2d26a2c6973df5848"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a792691bd59209b0755c69211b5f7ef74" id="r_a792691bd59209b0755c69211b5f7ef74"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a792691bd59209b0755c69211b5f7ef74">capture_save_snapshot</a> (<a class="el" href="classGaussianData_1_1SaveSnapshot.html">SaveSnapshot</a> &amp;r_snapshot) const</td></tr>
+<tr class="separator:a792691bd59209b0755c69211b5f7ef74"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a69c889321e57cc38a5c3d3a1451712a3" id="r_a69c889321e57cc38a5c3d3a1451712a3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count, <a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a> *r_metadata=nullptr) const</td></tr>
 <tr class="memdesc:a69c889321e57cc38a5c3d3a1451712a3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Captures a coherent chunk snapshot for async pack jobs.  <br /></td></tr>
 <tr class="separator:a69c889321e57cc38a5c3d3a1451712a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -867,6 +871,24 @@ Friends</h2></td></tr>
           <td></td>
           <td>)</td>
           <td></td><td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a792691bd59209b0755c69211b5f7ef74" name="a792691bd59209b0755c69211b5f7ef74"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a792691bd59209b0755c69211b5f7ef74">&#9670;&#160;</a></span>capture_save_snapshot()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianData::capture_save_snapshot </td>
+          <td>(</td>
+          <td class="paramtype"><a class="el" href="classGaussianData_1_1SaveSnapshot.html">SaveSnapshot</a> &amp;&#160;</td>
+          <td class="paramname"><em>r_snapshot</em></td><td>)</td>
+          <td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">

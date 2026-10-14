@@ -439,6 +439,7 @@ var hierarchy =
     [ "RenderQualityOrchestrator::RuntimePorts", "structRenderQualityOrchestrator_1_1RuntimePorts.html", null ],
     [ "RenderResourceOrchestrator::RuntimePorts", "structRenderResourceOrchestrator_1_1RuntimePorts.html", null ],
     [ "RenderStreamingOrchestratorDependencies::RuntimePorts", "structRenderStreamingOrchestratorDependencies_1_1RuntimePorts.html", null ],
+    [ "GaussianData::SaveSnapshot", "classGaussianData_1_1SaveSnapshot.html", null ],
     [ "StreamingQueuePressureController::ScanBudgetInput", "structStreamingQueuePressureController_1_1ScanBudgetInput.html", null ],
     [ "StreamingQueuePressureController::ScanBudgetResult", "structStreamingQueuePressureController_1_1ScanBudgetResult.html", null ],
     [ "GaussianSplatting::SceneHeader", "structGaussianSplatting_1_1SceneHeader.html", null ],

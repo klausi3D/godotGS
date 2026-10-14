@@ -1,6 +1,7 @@
 var classGaussianData =
 [
     [ "ChunkSnapshotMetadata", "structGaussianData_1_1ChunkSnapshotMetadata.html", "structGaussianData_1_1ChunkSnapshotMetadata" ],
+    [ "SaveSnapshot", "classGaussianData_1_1SaveSnapshot.html", "classGaussianData_1_1SaveSnapshot" ],
     [ "GaussianData", "classGaussianData.html#ac8420d56586c93ffba97a98ff458bafb", null ],
     [ "~GaussianData", "classGaussianData.html#ab06af58eeeb7980227ee2639d6aabc11", null ],
     [ "all_render_fields_finite", "classGaussianData.html#a69b1c0bb4dfec56fb8c7bc9ee6163689", null ],
@@ -11,6 +12,7 @@ var classGaussianData =
     [ "capture_brush_affected_state", "classGaussianData.html#ac27d1689efa40d996bc2e098ccd383c3", null ],
     [ "capture_chunk_snapshot", "classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3", null ],
     [ "capture_indexed_chunk_snapshot", "classGaussianData.html#a44cfbd5eef347f191d4d3ac2318f4d4d", null ],
+    [ "capture_save_snapshot", "classGaussianData.html#a792691bd59209b0755c69211b5f7ef74", null ],
     [ "clear_brush_strokes", "classGaussianData.html#aa53d92472844d6fc19d4bb61e7c3609d", null ],
     [ "commit_runtime_changes", "classGaussianData.html#aa0ffffbc6805518ed386da30a1716215", null ],
     [ "compute_aabb", "classGaussianData.html#a2bdd3d2c4b5f0194bd403e1568222fcb", null ],

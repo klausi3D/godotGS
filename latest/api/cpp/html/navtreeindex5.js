@@ -1,5 +1,16 @@
 var NAVTREEINDEX5 =
 {
+"classGaussianSplatRenderer.html#a7e28468ac692b04b44c640bee234d19d":[1,0,83,178],
+"classGaussianSplatRenderer.html#a7f7587fb1edce941e9ee9c879687c70f":[1,0,83,462],
+"classGaussianSplatRenderer.html#a801ae6adf39543249a2030e377db80c5":[1,0,83,43],
+"classGaussianSplatRenderer.html#a80f207e71e3fa442bad497bf0678ca2b":[1,0,83,277],
+"classGaussianSplatRenderer.html#a81119d7ca7d201567155b8a5e0f4dc04":[1,0,83,389],
+"classGaussianSplatRenderer.html#a818d477c32d153fa78fcf15402bfd345":[1,0,83,381],
+"classGaussianSplatRenderer.html#a82043b6674be2ca71db7d68d2e135d9d":[1,0,83,315],
+"classGaussianSplatRenderer.html#a826747f519415fc704324577cbcf869a":[1,0,83,449],
+"classGaussianSplatRenderer.html#a8280c360b6d26ba191917d0a6bd54177":[1,0,83,467],
+"classGaussianSplatRenderer.html#a833a53f4ac05dc72899b196bbe31f694":[1,0,83,161],
+"classGaussianSplatRenderer.html#a83ef700b267504f4ad7dd90bdd3431c6":[1,0,83,338],
 "classGaussianSplatRenderer.html#a846699697d940e358bad0fb5cef4735a":[1,0,83,269],
 "classGaussianSplatRenderer.html#a850e05e36aa427ee0147488a340b1da9":[1,0,83,39],
 "classGaussianSplatRenderer.html#a853e8b9970dfeca59c412d092576bd3c":[1,0,83,403],
@@ -238,16 +249,5 @@ var NAVTREEINDEX5 =
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a0644f2079905dadd343c8c99900fc764":[1,0,83,3,2],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a0d8d2c9d622e39b714e8d056f32499b2":[1,0,83,3,16],
 "classGaussianSplatRenderer_1_1FrameStateProvider.html#a183240915fab8d22f7468a020f793a7a":[1,0,83,3,1],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a1bd3c9a473169b8068b39c0d02846137":[1,0,83,3,6],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a4032e8cf13432bf420e75d4a751fb5f0":[1,0,83,3,0],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a4820a145702dd311bc0a38fbf6b3b736":[1,0,83,3,4],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a52fdce47707c2ab8a86107f97a9214de":[1,0,83,3,11],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a5d1a149bf9c90c982a908cc3a9aa971f":[1,0,83,3,20],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a64eb6870011ec180bdc8f85cc08d1d4e":[1,0,83,3,12],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a780baef1d627dbdb27064a58bbb48ac1":[1,0,83,3,21],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a786cefdeb17fa16a3f20ad82763c4a69":[1,0,83,3,17],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a7d5ace7797b7ae1254bd31b6f5b7d245":[1,0,83,3,22],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a8071cb4ec959e133704bb620f8d142c4":[1,0,83,3,15],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a8591d45cd64042a4ade32a29f752d0ac":[1,0,83,3,19],
-"classGaussianSplatRenderer_1_1FrameStateProvider.html#a8fd2362746755f3bc194f7622cc9a013":[1,0,83,3,8]
+"classGaussianSplatRenderer_1_1FrameStateProvider.html#a1bd3c9a473169b8068b39c0d02846137":[1,0,83,3,6]
 };
