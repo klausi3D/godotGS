@@ -40,10 +40,6 @@
     "modules/gaussian_splatting/tests/test_gpu_sorting_pipeline_readback.h": [
       "sort_state.snapshot_indices|REQUIRE|6279d39faa"
     ],
-    "modules/gaussian_splatting/tests/test_gpu_streaming.cpp": [
-      "asset_chunks|REQUIRE|c450fe9c56",
-      "overlap_hints|REQUIRE|9ba8a3acba"
-    ],
     "modules/gaussian_splatting/tests/test_lod_system.cpp": [
       "first.lod_weights|CHECK|26dc9ddf35",
       "second.lod_weights|CHECK|26dc9ddf35",

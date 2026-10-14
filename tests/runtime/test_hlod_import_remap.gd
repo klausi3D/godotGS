@@ -4,7 +4,7 @@ extends SceneTree
 func _init() -> void:
 	var args := OS.get_cmdline_user_args()
 	if args.size() != 2:
-		push_error("Expected an editor-imported v1 source and its v2 artifact")
+		push_error("Expected an editor-imported plain source and its HLOD artifact")
 		quit(1)
 		return
 	var source := args[0]
@@ -38,7 +38,7 @@ func _init() -> void:
 	raw = null
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(raw_path))
 	if not raw_ok or FileAccess.get_sha256(source) != source_hash:
-		push_error("Raw-v1 loading or source preservation failed")
+		push_error("Raw plain loading or source preservation failed")
 		quit(1)
 		return
 	print("HLOD_IMPORT_REMAP_PASS ", JSON.stringify({"splats": resolved.get_splat_count(), "hlod": resolved.get_hlod_info()}))

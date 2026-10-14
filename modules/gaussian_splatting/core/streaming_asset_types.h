@@ -68,6 +68,17 @@ struct StreamingChunk {
     uint8_t upload_lifecycle_state = STREAMING_UPLOAD_STATE_NONE;
     uint8_t upload_completion_mode = STREAMING_UPLOAD_COMPLETION_NONE;
     uint64_t upload_ticket_id = 0;
+    // #1177: advanced by every _begin_chunk_upload() (never 0 once an upload began) and
+    // copied into that upload's PackJob, PendingChunkUpload and retirement ticket. A job or
+    // ticket whose sequence differs belongs to an upload that was cancelled after a worker
+    // had already dequeued it; it must neither stage nor roll back the chunk's current one.
+    // upload_ticket_id cannot serve: it is 0 until the retirement ticket is staged.
+    uint32_t upload_sequence = 0;
+    // #1178: per-chunk failure memo for payload reads that fail (truncated world file, short
+    // read). load_failures counts consecutive failed reads and resets on a successful load;
+    // no load of this chunk is queued while retry_after_frame is ahead of the frame counter.
+    uint32_t load_failures = 0;
+    uint64_t retry_after_frame = 0;
     uint64_t upload_submit_frame = 0;
     uint64_t upload_retire_frame = 0;
     uint64_t pending_upload_bytes = 0;

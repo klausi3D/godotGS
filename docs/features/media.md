@@ -11,9 +11,16 @@ Define how to include images and videos in docs content while keeping media arti
 | Images | `docs/assets/images/` |
 | Videos | `docs/assets/videos/` |
 
-## Example: Image
+## Example: Relationship Diagram {#example-image}
 
-![Gaussian pipeline preview](../assets/images/gaussian-pipeline.svg)
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Source to viewport">
+    <li><strong>Source</strong><small>Import or load</small></li>
+    <li><strong>Scene</strong><small>Assign the asset</small></li>
+    <li><strong>Viewport</strong><small>Render the splats</small></li>
+  </ol>
+  <figcaption>A diagram describes relationships. Use real editor captures to teach UI actions.</figcaption>
+</figure>
 
 ## Example: Video
 
@@ -30,7 +37,7 @@ Define how to include images and videos in docs content while keeping media arti
 - Use descriptive file names tied to feature/use case.
 - Give each image concise alt text and a caption that explains why the visual is on the page.
 - Let standard markdown images stay unwrapped so `glightbox` can provide click-to-expand behavior.
-- Prefer labeled diagrams or benchmark artifacts over fake editor UI when a real capture is not yet available.
+- Use real screenshots for UI actions. Use a diagram only when it clarifies a relationship, branch or data flow; never create a mock editor frame to fill a capture gap.
 - For large video files, use Git LFS tracking (`*.mp4`, `*.webm`).
 - Keep total media footprint within CI budget gates.
 - Follow the [screenshot capture process](../development/screenshot-capture-spec.md) for editor screenshots.

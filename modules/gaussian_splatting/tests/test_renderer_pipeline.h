@@ -9,6 +9,7 @@
 #include "test_macros.h"
 
 #include "gs_test_pump.h"
+#include "gs_test_setting_guard.h"
 
 #include <cstring>
 #include <cstddef>
@@ -943,6 +944,124 @@ TEST_CASE("[GaussianSplatting] Cull projection contract applies flip_y consisten
 
 	CHECK(!renderer->validate_cull_projection_contract(&render_data, projection, unflipped, "unit_test_mismatch"));
 	CHECK(renderer->get_performance_state().metrics.cull_projection_contract_mismatch_count == 1);
+}
+
+// #1159: under flip_y the cull projection must describe the camera's REAL
+// frustum for an off-axis projection. The engine's whole-row flip only swaps the
+// top and bottom planes Projection::get_projection_planes() extracts, so the
+// plane SET is the unflipped one. The pre-#1159 single-entry flip (columns[1][1]
+// only) produced the vertically mirrored frustum for Camera3D
+// PROJECTION_FRUSTUM with frustum_offset.y != 0, so visible splats were culled.
+static bool gs_test_plane_set_contains(const Vector<Plane> &p_planes, const Plane &p_plane) {
+	for (int i = 0; i < p_planes.size(); i++) {
+		if (p_planes[i].is_equal_approx(p_plane)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool gs_test_point_inside_planes(const Vector<Plane> &p_planes, const Vector3 &p_point) {
+	for (int i = 0; i < p_planes.size(); i++) {
+		if (p_planes[i].is_point_over(p_point)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+TEST_CASE("[GaussianSplatting] Cull projection under flip_y keeps the real off-axis frustum (#1159)") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	REQUIRE(renderer.is_valid());
+
+	// Camera3D PROJECTION_FRUSTUM: size 2, aspect 16:9, frustum_offset (0, 0.6),
+	// near 0.5. At the near plane y spans [-0.4, 1.6], so y / -z spans
+	// [-0.8, 3.2]; the mirrored frustum spans [-3.2, 0.8].
+	Projection projection;
+	projection.set_frustum(2.0f, 16.0f / 9.0f, Vector2(0.0f, 0.6f), 0.5f, 100.0f);
+	REQUIRE(projection.columns[2][1] != 0.0f);
+
+	RenderDataRD render_data;
+	RenderSceneDataRD scene_data;
+	render_data.scene_data = &scene_data;
+	scene_data.flip_y = true;
+	const Projection cull_projection = renderer->build_cull_projection(&render_data, projection);
+
+	const Transform3D camera; // identity: view space == world space
+	const Vector<Plane> real_planes = projection.get_projection_planes(camera);
+	const Vector<Plane> cull_planes = cull_projection.get_projection_planes(camera);
+	REQUIRE(real_planes.size() == 6);
+	REQUIRE(cull_planes.size() == 6);
+	for (int i = 0; i < real_planes.size(); i++) {
+		CHECK_MESSAGE(gs_test_plane_set_contains(cull_planes, real_planes[i]),
+				vformat("cull plane set is missing real frustum plane %d", i));
+	}
+
+	// A point in the upper part of the offset frustum (y / -z = 2): inside the
+	// real frustum and the cull frustum. The old single-entry flip mirrors the
+	// frustum about y = 0, which puts this point outside it -- proving the
+	// fixture can see the bug.
+	const Vector3 near_top(0.0f, 2.0f, -1.0f);
+	CHECK(gs_test_point_inside_planes(real_planes, near_top));
+	CHECK(gs_test_point_inside_planes(cull_planes, near_top));
+	Projection old_flip = projection;
+	old_flip.columns[1][1] = -old_flip.columns[1][1];
+	CHECK_FALSE(gs_test_point_inside_planes(old_flip.get_projection_planes(camera), near_top));
+
+	// The contract check accepts the engine-convention matrix and rejects the old one.
+	CHECK(renderer->validate_cull_projection_contract(&render_data, projection, cull_projection, "unit_test_1159"));
+	CHECK(!renderer->validate_cull_projection_contract(&render_data, projection, old_flip, "unit_test_1159_old"));
+}
+
+// #1160 step 1: a multiview (XR/stereo) viewport must be refused cleanly. Before
+// this, render_scene_instance() rendered the engine's COMBINED stereo frustum
+// with the full cull/sort/raster cost and then failed the composite into the
+// 2-layer target every frame, with nothing keyed on the view count. Now the
+// frame exits before any GPU work, says why in the route telemetry, and leaves
+// no visible splats behind.
+//
+// The view count is driven through scene_data here because the doctest harness
+// cannot configure an RD-backed RenderSceneBuffersRD (TextureStorage is null
+// under the dummy rasterizer; see #690). get_render_view_count() reads the
+// render buffers' view count by the same MAX, which only the central build's
+// XR/GPU runs exercise.
+TEST_CASE("[GaussianSplatting] Multiview viewports are refused with a skip route, not rendered (#1160)") {
+	Ref<GaussianSplatRenderer> renderer;
+	renderer.instantiate();
+	REQUIRE(renderer.is_valid());
+
+	CHECK(GaussianSplatRenderer::get_render_view_count(nullptr) == 1);
+
+	RenderSceneDataRD scene_data;
+	scene_data.cam_transform = Transform3D(Basis(), Vector3(0.0f, 0.0f, 5.0f));
+	scene_data.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+	scene_data.view_count = 1;
+
+	RenderDataRD render_data;
+	render_data.scene_data = &scene_data;
+	render_data.render_buffers = Ref<RenderSceneBuffersRD>();
+	CHECK(GaussianSplatRenderer::get_render_view_count(&render_data) == 1);
+
+	scene_data.view_count = 2;
+	CHECK(GaussianSplatRenderer::get_render_view_count(&render_data) == 2);
+
+	// Non-vacuity: the skip route must be written by THIS frame, not be left over.
+	REQUIRE(renderer->get_debug_state().route_uid != String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+
+	renderer->render_scene_instance(&render_data);
+
+	CHECK(renderer->get_debug_state().route_uid == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+	CHECK(renderer->get_debug_state().last_stage_metrics_valid);
+	CHECK(renderer->get_debug_state().last_stage_metrics.route_uid == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED));
+	CHECK(renderer->get_debug_state().last_stage_metrics.skip_cause_stage == String("view_count"));
+	CHECK(renderer->get_visible_splat_count() == 0);
+
+	// The reason reaches the existing stats surface the HUD and harness read.
+	const Dictionary stats = renderer->get_render_stats();
+	CHECK_MESSAGE(stats.get("route_uid", String()) == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED),
+			vformat("Expected the multiview skip route, got '%s'", String(stats.get("route_uid", String()))));
+	CHECK(String(stats.get("route_label", String())).contains("multiview"));
 }
 
 TEST_CASE("[GaussianSplatting] Instanced readiness gate requires quantization buffer when enabled") {
@@ -5452,6 +5571,99 @@ TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused when
             final_texture, 11, 19, 13, 17, false));
 
     rid_owner.free(final_texture);
+}
+
+// #1162: the reuse key must cover every raster input that render_tile_fallback() and the
+// painterly path push to the GPU. Painterly knobs other than `enabled` and the low-pass
+// filter project setting reached the GPU but no signature, and their setters never call
+// invalidate_cached_render(), so a static camera kept showing the previous parameters.
+// Tagged [ViewTransform] for the same reason as the jitter case above: the [Renderer]
+// lane is advisory, and a reuse-key proof that cannot fail CI is not a proof. No GPU:
+// the signature reads host-side config only, and the compositor is never initialize()d.
+namespace TestRasterParamsSignature {
+
+inline uint64_t signature_of(const Ref<GaussianSplatRenderer> &p_renderer) {
+    GaussianSplatRenderer::FrameStateProvider provider(p_renderer.ptr());
+    return RenderPipelineStages::compute_raster_params_signature(*p_renderer.ptr(), provider,
+            RD::DATA_FORMAT_R8G8B8A8_UNORM);
+}
+
+// Primes the cache with p_cached_signature and reports whether a frame carrying
+// p_frame_signature (everything else identical) would be served from it.
+inline bool reuse_granted(uint64_t p_cached_signature, uint64_t p_frame_signature) {
+    Ref<OutputCompositor> compositor;
+    compositor.instantiate();
+    struct RasterParamsRidTag {};
+    RID_Owner<RasterParamsRidTag> rid_owner;
+    const RID final_texture = rid_owner.make_rid();
+    const Transform3D view_transform(Basis(), Vector3(0.0f, 0.0f, 6.0f));
+    const Size2i resolution(16, 16);
+    Projection projection;
+    projection.set_perspective(65.0f, 1.0f, 0.1f, 200.0f);
+    const Projection gpu_projection = GaussianSplatRenderer::build_render_projection(projection, true, Vector2());
+    compositor->set_has_valid_render(true);
+    compositor->update_render_cache_signature(view_transform, projection, gpu_projection, resolution, false,
+            RID(), resolution, final_texture, 11, 19, 13, 17, false, p_cached_signature);
+    const bool granted = compositor->can_reuse_cached_render(view_transform, projection, gpu_projection, resolution,
+            false, final_texture, 11, 19, 13, 17, false, p_frame_signature);
+    rid_owner.free(final_texture);
+    return granted;
+}
+
+} // namespace TestRasterParamsSignature
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a painterly edge_threshold edit (#1162)") {
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    if (renderer.is_null()) {
+        FAIL("GaussianSplatRenderer must instantiate");
+        return;
+    }
+
+    const float original_threshold = renderer->get_painterly_edge_threshold();
+    const uint64_t before = TestRasterParamsSignature::signature_of(renderer);
+    // Deterministic for unchanged inputs: otherwise every refusal below is vacuous.
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), before);
+    CHECK(TestRasterParamsSignature::reuse_granted(before, before));
+
+    const float edited_threshold = original_threshold < 0.5f ? 0.75f : 0.1f;
+    renderer->set_painterly_edge_threshold(edited_threshold);
+    REQUIRE(renderer->get_painterly_edge_threshold() != original_threshold);
+    const uint64_t after = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_NE(after, before);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(before, after));
+
+    // Undoing the edit restores the key: the signature is a function of the inputs,
+    // not a counter that would refuse reuse forever.
+    renderer->set_painterly_edge_threshold(original_threshold);
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), before);
+}
+
+TEST_CASE("[GaussianSplatting][ViewTransform] Render cache reuse is refused after a low_pass_filter project-setting edit (#1162)") {
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (ps == nullptr) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    const String low_pass_path = "rendering/gaussian_splatting/rasterization/low_pass_filter";
+    ProjectSettingGuard low_pass_guard(ps, low_pass_path);
+
+    Ref<GaussianSplatRenderer> renderer;
+    renderer.instantiate();
+    if (renderer.is_null()) {
+        FAIL("GaussianSplatRenderer must instantiate");
+        return;
+    }
+
+    ps->set_setting(low_pass_path, 0.1);
+    const uint64_t sharp = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_EQ(TestRasterParamsSignature::signature_of(renderer), sharp);
+
+    ps->set_setting(low_pass_path, 0.6);
+    const uint64_t soft = TestRasterParamsSignature::signature_of(renderer);
+    CHECK_NE(soft, sharp);
+    CHECK_FALSE(TestRasterParamsSignature::reuse_granted(sharp, soft));
+    CHECK(TestRasterParamsSignature::reuse_granted(soft, soft));
 }
 
 TEST_CASE("[GaussianSplatting][RequiresGPU] Render-thread blocking dispatch times out when callback never signals completion") {

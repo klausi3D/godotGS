@@ -766,14 +766,21 @@ void GaussianSplatWorld3D::_release_gaussian_base() {
         return;
     }
 
+    // #1161: same order and routing as GaussianSplatNode3D::_release_gaussian_base
+    // (unset base -> clear renderer -> RenderingServer::free). This node used to
+    // free the slot while render_instance still named it as its base.
+    _set_instance_base(RID());
+
     RendererRD::GaussianSplatStorage *storage = RendererRD::GaussianSplatStorage::get_singleton();
     if (storage) {
 #ifdef MODULE_GAUSSIAN_SPLATTING_ENABLED
         storage->gaussian_set_renderer(gaussian_base, Ref<GaussianSplatRenderer>());
 #endif
-        storage->gaussian_set_aabb(gaussian_base, AABB());
-        storage->gaussian_set_casts_shadow(gaussian_base, false);
-        storage->gaussian_free(gaussian_base);
+        if (RenderingServer *rs = RS::get_singleton()) {
+            rs->free(gaussian_base);
+        } else {
+            storage->gaussian_free(gaussian_base);
+        }
     }
 
     gaussian_base = RID();

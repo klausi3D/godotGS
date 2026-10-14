@@ -1,6 +1,7 @@
 #include "synthetic_spz_writer.h"
 #include "../thirdparty/spz/load-spz.h"
 #include "../thirdparty/spz/coordinate-system-adobe.h"
+#include "core/io/compression.h"
 #include "core/io/file_access.h"
 #include <cmath>
 #include <limits>
@@ -52,5 +53,48 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
     }
     file->store_buffer(output.data(), output.size());
     return file->get_error() == OK;
+}
+
+// Historical GodotGS SPZ v2 wrapper: a 16-byte uncompressed header followed by a
+// gzip-compressed SoA payload built by the caller from reference bytes (#1154, #1056).
+// SPZLoader keeps this route as an explicit legacy compatibility path.
+bool write_spz_v2_payload(const String &p_path, uint32_t p_count, const LocalVector<uint8_t> &p_payload,
+        uint8_t p_fractional_bits) {
+    if (p_count == 0 || p_payload.is_empty()) {
+        return false;
+    }
+    // gzip-compress the payload. The loader validates the gzip trailer's ISIZE
+    // against num_points * 19, which Compression::MODE_GZIP writes correctly.
+    const int64_t payload_size = int64_t(p_payload.size());
+    const int64_t max_compressed = Compression::get_max_compressed_buffer_size(payload_size, Compression::MODE_GZIP);
+    if (max_compressed <= 0) {
+        return false;
+    }
+    LocalVector<uint8_t> compressed;
+    compressed.resize(uint32_t(max_compressed));
+    const int64_t compressed_size = Compression::compress(compressed.ptr(), p_payload.ptr(), payload_size, Compression::MODE_GZIP);
+    if (compressed_size <= 0) {
+        return false;
+    }
+
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    f->set_big_endian(false);
+
+    // 16-byte header (uncompressed). The first byte (0x4E) is NOT the GZIP magic
+    // 0x1F, so the loader takes the standard "header uncompressed, payload gzip"
+    // path rather than the fully-gzip-wrapped path.
+    f->store_32(0x5053474E); // "NGSP" little-endian
+    f->store_32(2);
+    f->store_32(p_count);
+    f->store_8(0); // sh_degree
+    f->store_8(p_fractional_bits);
+    f->store_8(0); // flags
+    f->store_8(0); // reserved
+
+    f->store_buffer(compressed.ptr(), compressed_size);
+    return true;
 }
 } // namespace TestGaussianSplatting

@@ -328,6 +328,83 @@ see the note below the list.
 > holds. This is the promotion the status note above anticipated ("flipping the six lanes to
 > `strict` … is cheap for most of them"), done deliberately and one lane at a time.
 
+> **Historical promotion record: `Streaming Pipeline` -> strict (#1166).** Prepared without a build;
+> the evidence fields below are **NOT_RUN** and are to be filled from a `tests=yes` binary
+> on the self-hosted runner before the change is merged. Counts after the flip (derived from
+> `MODULE_TEST_FILTERS`): 29 lanes, 24 strict; the advisory set is down to
+> `GaussianSplatting [Synthetic]`, `[untagged]`, `[Renderer]`, `TileRenderer` and
+> `GPU Memory Stream` (plus the opt-in `[requires-RD]` catalogue, `REQUIRES_RD_TEST_FILTERS`),
+> which stay advisory until their known failures and zero coverage are laned or quarantined.
+>
+> | Field | Value |
+> | --- | --- |
+> | Lane | `Streaming Pipeline` (`*[Streaming Pipeline]*`, no excludes) |
+> | Why | Holds every #1087 (distance bound) and #1088 (atlas pages, byte budget, evict-until-fit) host test; advisory, a failure printed "advisory lane, continuing" |
+> | Corpus (derived, static) | 82 `[Streaming Pipeline]` cases in `test_gpu_streaming.cpp` (49) and `test_gaussian_streaming_lifecycle.cpp` (33) |
+> | Held in place by | `StreamingPipelineStrictPromotionTests` in `tests/ci/test_check_test_lane_coverage.py` (a `STRICT_COVERAGE_CONTRACTS` entry cannot express it: both source files carry cases that belong to other lanes) |
+> | Lane result on a current binary (`[module-tests][lane-result]`) | **NOT_RUN** |
+> | `skipped_markers` on a current binary | **NOT_RUN** (38 when this ADR was measured) |
+> | Repeated runs / flake check (the #846 bar) | **NOT_RUN** |
+> | Expected CI outcome until resolved | The strict lane FAILS in CI on any skipped marker: `runtime_lane_allowance` has no entry for this lane (allowance 0), and that ratchet refuses a NEW lane entry against the review base. Resolve by giving the skipping cases real coverage (GPU harness, or the #595 `GS_ENV_SKIP` conversion), never by demoting the lane |
+
+### Device-dependent Streaming Pipeline coverage (#1195)
+
+The corpus contains CPU regressions and device-dependent tests. The latter
+cannot execute through the headless doctest bootstrap. They now execute in the
+**REQUIRED** `StreamingPipeline` GPU batch using the existing offscreen RenderingDevice;
+the three renderer tests additionally use the existing SceneTree listener
+and scoped manager device injection. Restore the manager's device slot before
+teardown so the manager cannot destroy the harness-owned device.
+
+Missing devices, unavailable async work and incomplete readiness are failures
+in these cases, rather than successful early returns. The CPU-only missing-buffer
+abort regressions remain in the headless lane and likewise fail if their required
+work was not observed. No skip allowance, threshold or guard baseline is raised.
+
+Required-batch promotion and the GPU exclusion from the still-strict headless
+lane are coupled. `StreamingPipelineStrictPromotionTests` derives every case and
+requires strict CPU **or REQUIRED GPU** coverage with actual exclude patterns.
+CPU deletion/demotion and GPU deletion/demotion/selector-retag/exclude-all
+mutations must expose uncovered cases. The independent lane-ledger wiring tests
+also require the coverage guard's discrimination tests to appear in launched
+Python argv; deleting their runner wiring cannot silently drop the contract.
+An advisory GPU route does not satisfy this promotion.
+
+The focused policy checks passed 84 Python tests. In-memory mutations of the
+real default contract went RED for CPU demotion/deletion (49 uncovered cases)
+and GPU deletion/demotion/selector-retag/exclude-all (37 uncovered cases).
+Removing the whole coverage-runner tuple and retaining its test-file check
+without launching the test each made the independent wiring check RED; both
+mutations were restored. These are guard-discrimination results, not GPU reruns.
+
+| Field | Measured Evidence / Current Policy |
+| --- | --- |
+| Runtime source | `2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca`, native Windows `tests=yes` binary |
+| Binary SHA-256 | `2b736090a624d4c8dd4f7b6054db6900aa8b4c0a4b8a79cef71abc6fc833cc2b` |
+| Run | 2026-10-05 16:41:58-16:42:37 UTC, `run_gpu_harness.py --batch StreamingPipeline --batch RendererSceneTree`, supervisor exit 0 |
+| Streaming runtime | 37/37 cases, 5313/5313 assertions; 37 started, complete case audit, `zero_assertion_cases=[]`, no hollow cases |
+| Streaming time | 13.528 s / unchanged 60 s budget, about 4.44x headroom |
+| Companion shadow/SceneTree runtime | `RendererSceneTree`: 4/4 cases, 61/61 assertions, complete audit, 25.299 s / unchanged 180 s budget |
+| Lifetime | Both batches report `rid_leak_bytes=0`; captured raw stdout/stderr tails have no driver RID-leak diagnostics |
+| Contention validity | Clean preflight; no competing CI job, sampler errors or unresolved sampler PIDs; postflight exit 0 and `ci_idle_after=true` |
+| Hardware scope | Vulkan, NVIDIA GeForce RTX 3090. One green full run at this exact source; repeated-run flake and other-vendor coverage are **NOT_RUN** |
+| Host lane | Remains strict: `*[Streaming Pipeline]*`, excludes only `*][RequiresGPU]*`; 49 CPU cases derived from the current 86-case corpus |
+| GPU lane | REQUIRED `StreamingPipeline`: `*[Streaming Pipeline]*[RequiresGPU]*`, no excludes; all 37 GPU cases derived from the same corpus |
+| Snapshot | `[RequiresGPU]` corpus remains 209; named-batch coverage 144, deferred 2, unbatched backlog 63; digest unchanged |
+
+The runtime evidence predates this policy-only promotion, not its C++ repairs.
+It is not a claim that a new promotion-head binary or the newly separated CPU
+lane has already been run. The doctest `skipped` totals count non-selected cases,
+not environment self-skips or waived coverage. Synthetic streaming-stall and
+raster-overflow warnings remain visible in the report; this is functional and
+lifetime evidence, not a warning-free or visual-quality acceptance.
+
+The local evidence bundle is `review_1195_2a_streaming_shadow{.json,.log,_report.json}`
+plus `review_1195_2a_streaming_shadow_contention` under
+`C:/Projects/godotgs-handoff-tools`; these generated artifacts are not committed.
+Human review/disposition and subsequent CI remain separate from this measured
+runtime result.
+
 ## Consequences
 
 - The first honest, per-lane measurement of which advisory lanes are red becomes available

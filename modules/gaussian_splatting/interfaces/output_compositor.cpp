@@ -143,6 +143,7 @@ void OutputCompositor::invalidate_cached_render() {
     output_cache.cached_render_cull_config_signature = 0;
     output_cache.cached_render_color_grading_signature = 0;
     output_cache.cached_render_lighting_signature = 0;
+    output_cache.cached_render_raster_params_signature = 0;
 }
 
 bool OutputCompositor::_is_depth_texture_valid(const RID &p_depth_texture) const {
@@ -161,7 +162,7 @@ bool OutputCompositor::can_reuse_cached_render(const Transform3D &p_world_to_cam
         uint64_t p_content_generation,
         uint64_t p_cull_config_signature,
         uint64_t p_color_grading_signature, uint64_t p_lighting_signature,
-        bool p_require_valid_depth) const {
+        bool p_require_valid_depth, uint64_t p_raster_params_signature) const {
     if (!cached_render_reuse_enabled) {
         return false;
     }
@@ -198,6 +199,9 @@ bool OutputCompositor::can_reuse_cached_render(const Transform3D &p_world_to_cam
     if (output_cache.cached_render_lighting_signature != p_lighting_signature) {
         return false;
     }
+    if (output_cache.cached_render_raster_params_signature != p_raster_params_signature) {
+        return false;
+    }
     if (p_require_valid_depth && !_is_depth_texture_valid(output_cache.cached_render_depth)) {
         return false;
     }
@@ -211,7 +215,7 @@ void OutputCompositor::update_render_cache_signature(const Transform3D &p_world_
         uint64_t p_content_generation,
         uint64_t p_cull_config_signature,
         uint64_t p_color_grading_signature, uint64_t p_lighting_signature,
-        bool p_require_valid_depth) {
+        bool p_require_valid_depth, uint64_t p_raster_params_signature) {
     const bool cached_depth_valid = _is_depth_texture_valid(p_cached_depth);
     output_cache.cached_render_camera_to_world_transform = p_world_to_camera_to_world_transform;
     output_cache.cached_render_camera_projection = p_projection;
@@ -225,6 +229,7 @@ void OutputCompositor::update_render_cache_signature(const Transform3D &p_world_
     output_cache.cached_render_cull_config_signature = p_cull_config_signature;
     output_cache.cached_render_color_grading_signature = p_color_grading_signature;
     output_cache.cached_render_lighting_signature = p_lighting_signature;
+    output_cache.cached_render_raster_params_signature = p_raster_params_signature;
 }
 
 void OutputCompositor::test_reset_last_viewport_copy_state() {

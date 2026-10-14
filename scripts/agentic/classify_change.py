@@ -15,11 +15,12 @@ classified as ``default_unclassified`` rather than as the lowest class
 Base-ref resolution fails closed for the same reason: an unresolvable base is an
 error, never a degraded diff and never an empty result.
 
-A diff that touches ``.agentic/policy.json`` is forced to the top class
-(``SELF_REFERENTIAL_PATHS``): the rules being edited are the ones that would
-otherwise grade the edit. Callers that classify a proposed change -- CI above all
--- should additionally pass the **immutable base** copy of the policy via
-``--policy``, so a PR cannot relax a rule and be graded by the relaxed rule.
+A diff that touches ``.agentic/policy.json`` or this classifier is forced to the
+top class (``SELF_REFERENTIAL_PATHS``): the rules (or the code) being edited are
+the ones that would otherwise grade the edit. Callers that classify a proposed
+change -- CI above all -- should additionally run the **immutable base** copy of
+this script with the base copy of the policy via ``--policy``, so a PR cannot
+relax a rule, or the classifier, and be graded by the relaxed version.
 
 Examples
 --------
@@ -54,7 +55,13 @@ DEFAULT_POLICY = ROOT / ".agentic" / "policy.json"
 # rules from being consulted at all. Either half alone leaves a hole: forcing
 # without the base policy still lets ``ordering`` itself be rewritten, and the base
 # policy alone still lets the *next* PR inherit a weakened rule silently.
-SELF_REFERENTIAL_PATHS = (".agentic/policy.json",)
+#
+# The classifier itself is the same kind of path (#1167): ``scripts/agentic/**`` is
+# R0, so a PR editing renderer code AND this file could be graded by the edited
+# copy. CI now executes the base copy of this script; listing it here means the
+# base copy also grades any edit to it at the top class, so the next PR cannot
+# inherit a quietly weakened classifier either.
+SELF_REFERENTIAL_PATHS = (".agentic/policy.json", "scripts/agentic/classify_change.py")
 
 _GLOB_REGEX_CACHE: dict[str, "re.Pattern[str]"] = {}
 
@@ -130,7 +137,7 @@ def classify_paths(paths: list[str], policy: dict[str, Any]) -> tuple[str, list[
             # Editing the risk policy is maximally sensitive by construction: the
             # rules being edited are the ones that would otherwise grade the edit.
             best = ordering[-1]
-            best_reason = "risk policy change (self-referential; forced to the top class)"
+            best_reason = "risk policy or classifier change (self-referential; forced to the top class)"
         per_path.append({"path": path, "class": best, "reason": best_reason})
         if overall is None or rank[best] > rank[overall]:
             overall = best
