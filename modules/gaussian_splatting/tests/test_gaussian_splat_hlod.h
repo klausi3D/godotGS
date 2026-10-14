@@ -3334,6 +3334,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds k
 // used the defaulted setter argument and retagged antialiased worlds as classic, so a later
 // GSF v3 save wrote semantic bit 1 clear.
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] bake_hlod and world copies keep the antialiased training flag") {
+	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	hlod_make_fixture(6000u, 4000u, g);
 	for (bool antialiased : { false, true }) {
