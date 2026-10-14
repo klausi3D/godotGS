@@ -6,6 +6,8 @@
 #include "../io/streaming_chunk_bake.h"
 #include "../core/gaussian_data.h"
 #include "../core/gaussian_splat_asset.h"
+#include "../io/ply_loader.h"
+#include "synthetic_ply_writer.h"
 #include "synthetic_spz_writer.h"
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
@@ -28,7 +30,7 @@ inline LocalVector<TestGaussianSplatting::SyntheticSpzSplat> _make_spz_splats(ui
         TestGaussianSplatting::SyntheticSpzSplat s;
         s.position = Vector3(float(i), 0.0f, 0.0f);
         s.opacity = 1.0f;
-        s.color = Color(0.5f, 0.5f, 0.5f, 1.0f);
+        s.f_dc = Color(0.0f, 0.0f, 0.0f, 1.0f); // mid-grey
         // Geometric scale spread guarantees strictly-increasing, distinct
         // log-encoded scale bytes -> strictly-increasing importance.
         const float v = 0.05f * Math::exp(0.3f * float(i));
@@ -73,6 +75,324 @@ TEST_CASE("[GaussianSplatting][SPZ] synthetic writer round-trips through SPZLoad
     }
 
     DirAccess::remove_absolute(path);
+}
+
+// ---------------------------------------------------------------------------
+// SPZ v2 rotation decode (#1154).
+//
+// The reference encoder (nianticlabs/spz load-spz.cc, packQuaternionFirstThree)
+// normalises the quaternion, multiplies it by -127.5 when w < 0 (moving it into
+// the w >= 0 hemisphere) or +127.5 otherwise, adds 127.5 and stores x, y, z as
+// UNSIGNED bytes via toUint8 (round half away from zero, clamp to 0..255). The
+// decode is (byte - 127.5) / 127.5 with w = sqrt(max(0, 1 - |xyz|^2)).
+// ---------------------------------------------------------------------------
+namespace TestGaussianSplattingSPZ {
+
+// A quaternion and its sign-flipped twin are the same rotation, so compare
+// through |dot|. 0.9995 allows the v2 quantisation step (1/127.5 per component;
+// the worst case among the inputs below is 0.99997) and rejects the pre-#1154
+// int8/127 decode by a wide margin (its best case among the inputs is 0.60).
+inline bool _spz_same_rotation(const Quaternion &p_a, const Quaternion &p_b) {
+    return Math::abs(p_a.normalized().dot(p_b.normalized())) >= 0.9995f;
+}
+
+} // namespace TestGaussianSplattingSPZ
+
+TEST_CASE("[GaussianSplatting][SPZ] v2 rotation bytes decode with the reference 127.5 offset (#1154)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    // Bytes pinned from the reference formula, independent of both the loader and
+    // write_synthetic_spz, so this fails if either side drifts from the format.
+    // Each row: source quaternion (x, y, z, w) -> the three bytes the reference
+    // encoder writes for it, e.g. 0.301511 * 127.5 + 127.5 = 165.94 -> 166.
+    struct PinnedRotation {
+        Quaternion source;
+        uint8_t bytes[3];
+    };
+    const PinnedRotation pinned[] = {
+        { Quaternion(0.0f, 0.0f, 0.0f, 1.0f), { 128, 128, 128 } }, // identity: 127.5 rounds to 128
+        { Quaternion(0.3f, -0.5f, 0.1f, 0.8f).normalized(), { 166, 63, 140 } },
+        // w < 0: the encoder negates the quaternion before packing.
+        { Quaternion(-0.6f, 0.2f, 0.4f, -0.66f).normalized(), { 204, 102, 76 } },
+        { Quaternion(0.7071068f, 0.0f, 0.0f, 0.7071068f), { 218, 128, 128 } }, // 90 degrees about X
+        { Quaternion(0.0f, 0.0f, 0.38268343f, 0.92387953f), { 128, 128, 176 } }, // 45 degrees about Z
+    };
+    const uint32_t count = sizeof(pinned) / sizeof(pinned[0]);
+
+    // SoA payload: positions (9 B, zero), alphas (255), colours (128), scales
+    // (160 -> exp(160 / 16 - 10) = 1), rotations (3 B).
+    LocalVector<uint8_t> payload;
+    for (uint32_t i = 0; i < count * 9; i++) {
+        payload.push_back(0);
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(255);
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(128);
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(160);
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(pinned[i].bytes[0]);
+        payload.push_back(pinned[i].bytes[1]);
+        payload.push_back(pinned[i].bytes[2]);
+    }
+    REQUIRE(payload.size() == count * 19);
+
+    const String path = _spz_fixture_path("v2_rotation_pinned");
+    REQUIRE(TestGaussianSplatting::write_spz_v2_payload(path, count, payload));
+
+    SPZLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("SPZLoader must produce GaussianData for a valid v2 file");
+        DirAccess::remove_absolute(path);
+        return;
+    }
+    if (data->get_count() != int(count)) {
+        FAIL(vformat("SPZLoader loaded %d splats, expected %d", data->get_count(), int(count)));
+        DirAccess::remove_absolute(path);
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const Quaternion loaded = data->get_gaussian(int(i)).rotation;
+        CHECK_MESSAGE(_spz_same_rotation(loaded, pinned[i].source),
+                vformat("splat %d: bytes (%d, %d, %d) decoded to %s, expected %s (sign-insensitive)",
+                        int(i), int(pinned[i].bytes[0]), int(pinned[i].bytes[1]), int(pinned[i].bytes[2]), loaded, pinned[i].source));
+    }
+
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ] synthetic writer round-trips non-identity v2 rotations (#1154)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    const Quaternion sources[] = {
+        Quaternion(),
+        Quaternion(Vector3(1, 0, 0), Math::deg_to_rad(90.0f)),
+        Quaternion(Vector3(0, 1, 0), Math::deg_to_rad(-60.0f)),
+        Quaternion(Vector3(0, 0, 1), Math::deg_to_rad(45.0f)),
+        Quaternion(Vector3(1, 2, -3).normalized(), Math::deg_to_rad(130.0f)),
+        Quaternion(-0.6f, 0.2f, 0.4f, -0.66f).normalized(), // w < 0
+    };
+    const uint32_t count = sizeof(sources) / sizeof(sources[0]);
+
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats = _make_spz_splats(count);
+    for (uint32_t i = 0; i < count; i++) {
+        splats[i].rotation = sources[i];
+    }
+
+    const String path = _spz_fixture_path("v2_rotation_roundtrip");
+    REQUIRE(TestGaussianSplatting::write_synthetic_spz(path, splats));
+
+    SPZLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null()) {
+        FAIL("SPZLoader must produce GaussianData for a valid v2 file");
+        DirAccess::remove_absolute(path);
+        return;
+    }
+    if (data->get_count() != int(count)) {
+        FAIL(vformat("SPZLoader loaded %d splats, expected %d", data->get_count(), int(count)));
+        DirAccess::remove_absolute(path);
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const Quaternion loaded = data->get_gaussian(int(i)).rotation;
+        CHECK_MESSAGE(_spz_same_rotation(loaded, sources[i]),
+                vformat("splat %d: wrote %s, loaded %s (sign-insensitive)", int(i), sources[i], loaded));
+    }
+
+    DirAccess::remove_absolute(path);
+}
+
+// ---------------------------------------------------------------------------
+// SPZ colour decode (#1056).
+//
+// The reference encoder (nianticlabs/spz splat-utils.h colorScale = 0.15;
+// load-spz.cc packs toUint8(f_dc * 0.15 * 255 + 0.5 * 255)) stores the SH DC
+// coefficient, and its display colour is 0.5 + SH_C0 * f_dc. The renderer's
+// contract for a LINEAR_RGB-tagged splat is sh_dc = SH_C0 * f_dc, displayed as
+// sh_dc + 0.5. Before #1056 SPZLoader stored byte / 255 under the same tag, so a
+// mid-grey byte of 128 rendered at about 1.0.
+// ---------------------------------------------------------------------------
+TEST_CASE("[GaussianSplatting][SPZ] colour bytes decode to the reference SH DC, byte 128 is mid-grey (#1056)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    static constexpr float kShC0 = 0.28209479177387814f;
+    // One splat per colour byte, the same byte on all three channels.
+    const uint8_t colour_bytes[3] = { 128, 255, 0 };
+    // byte 128: dc = 0 packs to 127.5, rounded to 128, so the decode is half a
+    // byte step off zero: SH_C0 * (128 / 255 - 0.5) / 0.15 = 0.003688.
+    // byte 255 / 0: +-SH_C0 * 0.5 / 0.15 = +-0.940316.
+    const float expected_sh_dc[3] = { 0.003688f, kShC0 * (0.5f / 0.15f), -kShC0 * (0.5f / 0.15f) };
+    const uint32_t count = 3;
+
+    LocalVector<uint8_t> payload;
+    for (uint32_t i = 0; i < count * 9; i++) {
+        payload.push_back(0); // positions
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(255); // alphas
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        payload.push_back(colour_bytes[i]);
+        payload.push_back(colour_bytes[i]);
+        payload.push_back(colour_bytes[i]);
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(160); // scales: exp(160 / 16 - 10) = 1
+    }
+    for (uint32_t i = 0; i < count * 3; i++) {
+        payload.push_back(128); // identity rotation
+    }
+    REQUIRE(payload.size() == count * 19);
+
+    const String path = _spz_fixture_path("dc_bytes");
+    REQUIRE(TestGaussianSplatting::write_spz_v2_payload(path, count, payload));
+
+    SPZLoader loader;
+    REQUIRE(loader.load_file(path) == OK);
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null() || data->get_count() != int(count)) {
+        FAIL("SPZLoader must produce the three fixture splats");
+        DirAccess::remove_absolute(path);
+        return;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        const Gaussian g = data->get_gaussian(int(i));
+        CHECK(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+        for (int c = 0; c < 3; c++) {
+            const float v = c == 0 ? g.sh_dc.r : (c == 1 ? g.sh_dc.g : g.sh_dc.b);
+            CHECK_MESSAGE(Math::abs(v - expected_sh_dc[i]) < 1e-4f,
+                    vformat("byte %d channel %d decoded to sh_dc %f, expected %f",
+                            int(colour_bytes[i]), c, v, expected_sh_dc[i]));
+        }
+    }
+
+    // The property users see: byte 128 displays as mid-grey (sh_dc + 0.5 within
+    // one 8-bit step of 0.5). The pre-#1056 decode displayed it at 1.002.
+    const Gaussian grey = data->get_gaussian(0);
+    CHECK(Math::abs((grey.sh_dc.r + 0.5f) - 0.5f) < 1.0f / 255.0f);
+
+    DirAccess::remove_absolute(path);
+}
+
+TEST_CASE("[GaussianSplatting][SPZ] same f_dc via SPZ and PLY loads to the same sh_dc (#1056)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    static constexpr float kShC0 = 0.28209479177387814f;
+    const float f_dc[4] = { 1.0f, -1.0f, 0.5f, -2.5f };
+    const uint32_t count = 4;
+
+    // SPZ: the writer packs f_dc exactly as the reference does.
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> spz_splats = _make_spz_splats(count);
+    // PLY: write_gaussian_ply stores sh_dc / SH_C0 as f_dc_*.
+    LocalVector<Gaussian> ply_splats;
+    ply_splats.resize(count);
+    for (uint32_t i = 0; i < count; i++) {
+        spz_splats[i].f_dc = Color(f_dc[i], f_dc[i], f_dc[i], 1.0f);
+        Gaussian g;
+        g.position = Vector3(float(i), 0.0f, 0.0f);
+        g.scale = Vector3(1.0f, 1.0f, 1.0f);
+        g.rotation = Quaternion();
+        g.sh_dc = Color(kShC0 * f_dc[i], kShC0 * f_dc[i], kShC0 * f_dc[i], 1.0f);
+        g.normal = Vector3(0.0f, 0.0f, 1.0f);
+        g.area = 1.0f;
+        g.opacity = 0.9f;
+        ply_splats[i] = g;
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String spz_path = "user://godotgs_spz_dc_twin_" + itos(ticks) + ".spz";
+    const String ply_path = "user://godotgs_spz_dc_twin_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_spz_dc_twin_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_synthetic_spz(spz_path, spz_splats));
+    REQUIRE(TestGaussianSplatting::write_gaussian_ply(ply_path, ply_splats, false, false));
+
+    auto cleanup = [&]() {
+        DirAccess::remove_absolute(spz_path);
+        DirAccess::remove_absolute(ply_path);
+        DirAccess::remove_absolute(ply_path.get_basename() + ".gsplatcache");
+        DirAccess::remove_absolute(save_base_path + ".res");
+    };
+
+    SPZLoader spz_loader;
+    REQUIRE(spz_loader.load_file(spz_path) == OK);
+    Ref<GaussianData> spz_data = spz_loader.get_gaussian_data();
+    PLYLoader ply_loader;
+    REQUIRE(ply_loader.load_file(ply_path) == OK);
+    Ref<GaussianData> ply_data = ply_loader.get_gaussian_data();
+    if (spz_data.is_null() || ply_data.is_null() || spz_data->get_count() != int(count) ||
+            ply_data->get_count() != int(count)) {
+        FAIL("both loaders must produce the four fixture splats");
+        cleanup();
+        return;
+    }
+
+    // SPZ quantises f_dc to 1 / (0.15 * 255) = 0.0261; half a step in sh_dc
+    // space is 0.0037. The pre-#1056 decode is off by 0.36 or more here.
+    const float tolerance = 0.004f;
+    for (uint32_t i = 0; i < count; i++) {
+        const Gaussian s = spz_data->get_gaussian(int(i));
+        const Gaussian p = ply_data->get_gaussian(int(i));
+        CHECK(gaussian_get_dc_encoding(s.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+        CHECK(gaussian_get_dc_encoding(p.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+        CHECK_MESSAGE(Math::abs(s.sh_dc.r - p.sh_dc.r) < tolerance,
+                vformat("f_dc %f: SPZ sh_dc %f, PLY sh_dc %f", f_dc[i], s.sh_dc.r, p.sh_dc.r));
+        CHECK(Math::abs(s.sh_dc.g - p.sh_dc.g) < tolerance);
+        CHECK(Math::abs(s.sh_dc.b - p.sh_dc.b) < tolerance);
+    }
+
+#ifdef TOOLS_ENABLED
+    // The SPZ importer copies the loader's sh_dc into the asset and tags the
+    // asset "linear_rgb", so the imported route must agree with the raw one.
+    {
+        Ref<ResourceImporterSPZ> importer;
+        importer.instantiate();
+        HashMap<StringName, Variant> options;
+        options.insert(StringName("quality/preset"), String("ultra"));
+        options.insert(StringName("quality/max_splats"), 0);
+        options.insert(StringName("quality/density_multiplier"), 1.0);
+        options.insert(StringName("processing/sort_by_opacity"), false);
+        options.insert(StringName("preview/generate_thumbnail"), false);
+        REQUIRE(importer->import(ResourceUID::INVALID_ID, spz_path, save_base_path, options,
+                        nullptr, nullptr, nullptr) == OK);
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterSPZ must write a loadable GaussianSplatAsset");
+            cleanup();
+            return;
+        }
+        Ref<GaussianData> imported;
+        imported.instantiate();
+        REQUIRE(imported->populate_from_asset(asset) == OK);
+        if (imported->get_count() != int(count)) {
+            FAIL("the imported SPZ asset must materialize the four fixture splats");
+            cleanup();
+            return;
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            const Gaussian g = imported->get_gaussian(int(i));
+            const Gaussian raw = spz_data->get_gaussian(int(i));
+            CHECK(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+            CHECK(Math::abs(g.sh_dc.r - raw.sh_dc.r) < 1e-6f);
+            CHECK(Math::abs(g.sh_dc.g - raw.sh_dc.g) < 1e-6f);
+            CHECK(Math::abs(g.sh_dc.b - raw.sh_dc.b) < 1e-6f);
+        }
+    }
+#else
+    MESSAGE("SPZ importer route not compiled (needs TOOLS_ENABLED); the raw routes above still ran.");
+#endif // TOOLS_ENABLED
+
+    cleanup();
 }
 
 TEST_CASE("[GaussianSplatting][SPZ] importer default options are a no-op (count unchanged)") {
@@ -200,6 +520,75 @@ TEST_CASE("[GaussianSplatting][SPZ] importer prune_ratio 0.5 drops half and keep
     DirAccess::remove_absolute(save_base_path + ".res");
 #endif // TOOLS_ENABLED
 }
+
+// Compiled only with TOOLS_ENABLED (the importer is editor-only): in other builds the case
+// does not exist rather than passing as an environment skip.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][SPZ] importer max_splats at density 1.0 spans the whole file, not a prefix (#1155)") {
+    using namespace TestGaussianSplattingSPZ;
+
+    // Same shape as the PLY case: the second half of the file lies in a
+    // distinct region, so a file-order prefix keeps none of it.
+    const uint32_t kCount = 16;
+    const int kCap = int(kCount / 2);
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats = _make_spz_splats(kCount);
+    for (uint32_t i = 0; i < kCount; i++) {
+        // Region A: x in [0, 8). Region B: x in [1000, 1008). Integers survive
+        // the 12-bit fixed-point position encoding exactly.
+        splats[i].position = Vector3(int(i) < kCap ? float(i) : 1000.0f + float(int(i) - kCap), 0.0f, 0.0f);
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_spz_cap_stride_" + itos(ticks) + ".spz";
+    const String save_base_path = "user://godotgs_spz_cap_stride_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_synthetic_spz(source_path, splats));
+
+    Ref<ResourceImporterSPZ> importer;
+    importer.instantiate();
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), kCap);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "SPZ import with max_splats = half should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterSPZ must write a loadable GaussianSplatAsset");
+        } else {
+            CHECK_EQ(int(asset->get_splat_count()), kCap);
+            const PackedFloat32Array positions = asset->get_positions();
+            int in_a = 0;
+            int in_b = 0;
+            for (int i = 0; i + 2 < positions.size(); i += 3) {
+                if (positions[i] < 500.0f) {
+                    in_a++;
+                } else {
+                    in_b++;
+                }
+            }
+            // Stride 2 keeps one representative per source pair: four from each
+            // half. The pre-#1155 prefix kept 8 / 0.
+            CHECK_MESSAGE(in_a == kCap / 2, vformat("region A kept %d splats, expected %d", in_a, kCap / 2));
+            CHECK_MESSAGE(in_b == kCap / 2, vformat("region B (second half of the file) kept %d splats, expected %d", in_b, kCap / 2));
+
+            const Dictionary md = metadata_variant;
+            const AABB bounds = md.get(StringName("bounds"), AABB());
+            CHECK_MESSAGE(bounds.position.x + bounds.size.x >= 1000.0f,
+                    vformat("asset bounds end at x = %f; region B starts at 1000", bounds.position.x + bounds.size.x));
+        }
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(save_base_path + ".res");
+}
+#endif // TOOLS_ENABLED
 
 // ---------------------------------------------------------------------------
 // Malformed-input corpus (G2, exit criterion; program ledger #458).

@@ -12,11 +12,13 @@
 
 namespace TestGaussianSplatting {
 
-// Keep these in lockstep with io/spz_loader.{h,cpp}. Duplicated here (rather than
-// including the loader) so the writer stays a self-contained fixture and cannot
-// silently "agree with itself" if the loader constants ever drift.
+// Encodings follow the Niantic reference encoder (nianticlabs/spz load-spz.cc),
+// not SPZLoader. Duplicated here (rather than including the loader) so the
+// writer stays a self-contained fixture and cannot silently "agree with itself"
+// if the loader's decode drifts from the format.
 static constexpr uint32_t SPZ_MAGIC = 0x5053474E; // "NGSP" little-endian
 static constexpr uint32_t SPZ_VERSION_2 = 2;
+static constexpr float SPZ_COLOR_SCALE = 0.15f; // splat-utils.h colorScale
 
 static void _append_u24_le_signed(LocalVector<uint8_t> &r_bytes, int32_t p_value) {
     // 24-bit little-endian; the loader sign-extends bit 23 on read.
@@ -32,10 +34,6 @@ static uint8_t _encode_alpha(float p_opacity) {
     return uint8_t(Math::round(a * 255.0f));
 }
 
-static uint8_t _encode_color_channel(float p_channel) {
-    const float c = CLAMP(p_channel, 0.0f, 1.0f);
-    return uint8_t(Math::round(c * 255.0f));
-}
 
 static uint8_t _encode_scale(float p_scale) {
     // Inverse of SPZLoader::decode_scale: scale = exp(byte/16 - 10)
@@ -46,10 +44,10 @@ static uint8_t _encode_scale(float p_scale) {
     return uint8_t(Math::round(clamped));
 }
 
-static int8_t _encode_quat_component(float p_value) {
-    const float v = CLAMP(p_value, -1.0f, 1.0f);
-    const float scaled = CLAMP(Math::round(v * 127.0f), -127.0f, 127.0f);
-    return int8_t(scaled);
+// Niantic reference toUint8 (nianticlabs/spz splat-utils): round half away from
+// zero, then clamp to a byte. Math::round is roundf, which rounds the same way.
+static uint8_t _to_uint8(float p_value) {
+    return uint8_t(CLAMP(Math::round(p_value), 0.0f, 255.0f));
 }
 
 bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSplat> &p_splats,
@@ -82,12 +80,14 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
         payload.push_back(_encode_alpha(p_splats[i].opacity));
     }
 
-    // Colors: 3 bytes (RGB) each.
+    // Colors: 3 bytes (RGB) each. The reference packs the SH DC coefficient as
+    // toUint8(f_dc * (0.15 * 255) + 0.5 * 255) (load-spz.cc, colorScale = 0.15),
+    // not a display colour (#1056).
     for (uint32_t i = 0; i < count; i++) {
-        const Color &c = p_splats[i].color;
-        payload.push_back(_encode_color_channel(c.r));
-        payload.push_back(_encode_color_channel(c.g));
-        payload.push_back(_encode_color_channel(c.b));
+        const Color &dc = p_splats[i].f_dc;
+        payload.push_back(_to_uint8(dc.r * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
+        payload.push_back(_to_uint8(dc.g * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
+        payload.push_back(_to_uint8(dc.b * (SPZ_COLOR_SCALE * 255.0f) + 0.5f * 255.0f));
     }
 
     // Scales: 3 log-encoded bytes each.
@@ -98,7 +98,12 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
         payload.push_back(_encode_scale(s.z));
     }
 
-    // Rotations (v2): 3 x int8 (x,y,z); the loader reconstructs w >= 0.
+    // Rotations (v2): the reference packQuaternionFirstThree (nianticlabs/spz
+    // load-spz.cc). Normalise, scale by -127.5 when w < 0 (which moves the
+    // quaternion into the w >= 0 hemisphere) or +127.5 otherwise, add 127.5 and
+    // store x, y, z as UNSIGNED bytes: a zero component is byte 128 (#1154).
+    // This is written from the reference, not as the inverse of SPZLoader, so a
+    // loader that misreads the bytes cannot agree with it.
     for (uint32_t i = 0; i < count; i++) {
         Quaternion q = p_splats[i].rotation;
         const real_t len = q.length();
@@ -107,26 +112,30 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
         } else {
             q = Quaternion(); // identity fallback
         }
-        // Store the hemisphere with w >= 0 so the loader's positive-w
-        // reconstruction recovers the same orientation.
-        if (q.w < 0) {
-            q = Quaternion(-q.x, -q.y, -q.z, -q.w);
-        }
-        payload.push_back(uint8_t(_encode_quat_component(float(q.x))));
-        payload.push_back(uint8_t(_encode_quat_component(float(q.y))));
-        payload.push_back(uint8_t(_encode_quat_component(float(q.z))));
+        const float sign_scale = q.w < 0 ? -127.5f : 127.5f;
+        payload.push_back(_to_uint8(float(q.x) * sign_scale + 127.5f));
+        payload.push_back(_to_uint8(float(q.y) * sign_scale + 127.5f));
+        payload.push_back(_to_uint8(float(q.z) * sign_scale + 127.5f));
     }
 
+    return write_spz_v2_payload(p_path, count, payload, p_fractional_bits);
+}
+
+bool write_spz_v2_payload(const String &p_path, uint32_t p_count, const LocalVector<uint8_t> &p_payload,
+        uint8_t p_fractional_bits) {
+    if (p_count == 0 || p_payload.is_empty()) {
+        return false;
+    }
     // gzip-compress the payload. The loader validates the gzip trailer's ISIZE
     // against num_points * 19, which Compression::MODE_GZIP writes correctly.
-    const int64_t payload_size = int64_t(payload.size());
+    const int64_t payload_size = int64_t(p_payload.size());
     const int64_t max_compressed = Compression::get_max_compressed_buffer_size(payload_size, Compression::MODE_GZIP);
     if (max_compressed <= 0) {
         return false;
     }
     LocalVector<uint8_t> compressed;
     compressed.resize(uint32_t(max_compressed));
-    const int64_t compressed_size = Compression::compress(compressed.ptr(), payload.ptr(), payload_size, Compression::MODE_GZIP);
+    const int64_t compressed_size = Compression::compress(compressed.ptr(), p_payload.ptr(), payload_size, Compression::MODE_GZIP);
     if (compressed_size <= 0) {
         return false;
     }
@@ -142,7 +151,7 @@ bool write_synthetic_spz(const String &p_path, const LocalVector<SyntheticSpzSpl
     // path rather than the fully-gzip-wrapped path.
     f->store_32(SPZ_MAGIC);
     f->store_32(SPZ_VERSION_2);
-    f->store_32(count);
+    f->store_32(p_count);
     f->store_8(0); // sh_degree
     f->store_8(p_fractional_bits);
     f->store_8(0); // flags

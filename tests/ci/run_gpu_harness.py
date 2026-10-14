@@ -98,21 +98,16 @@ BATCHES: tuple[BatchSpec, ...] = (
     # *][RequiresGPU]* and is where all 11 actually run today. Do not "restore" this
     # batch from the zero-match symptom; re-add it only when genuine GPU
     # compute-infrastructure cases exist for it to select.
-    # #643: "Output format coercion keeps deterministic defaults" asserts the
-    # DECIDED SRGB contract, which the renderer does not yet implement -- on a
-    # real device create_output_textures() cannot make an SRGB storage texture,
-    # so get_output_format() reports DATA_FORMAT_MAX (232) instead of
-    # DATA_FORMAT_R8G8B8A8_SRGB (42). Reproduced 2026-07-19 on b15c6ddda46
-    # (RTX 3090, Vulkan): batch rc=1, 6/7 cases, 66/67 assertions, failing at
-    # test_tile_renderer.cpp:52. The assertion is CORRECT and must NOT be
-    # relaxed; #643 owns fixing the renderer. Until then the case is excluded
-    # so it cannot red the default GPU harness, and it rejoins automatically
-    # when the waiver is removed.
-    BatchSpec(
-        "TileRenderer",
-        ("*TileRenderer*][RequiresGPU]*",),
-        excludes=("*Output format coercion keeps deterministic defaults*",),
-    ),
+    # #1165: the #643 exclusion of "Output format coercion keeps deterministic
+    # defaults" is RETIRED. #643 was closed 2026-07-25 by PR #776, which made
+    # create_output_textures() preserve an explicitly requested sRGB format
+    # (test_tile_renderer.cpp now reads "#643 CONTRACT (resolved)"), but neither
+    # this exclude nor its manifest waiver was removed, so the only sRGB
+    # regression case did not execute anywhere for ten weeks. The case now runs
+    # in this batch again. TileRenderer is still ADVISORY (not in
+    # REQUIRED_BATCHES): promotion needs the ADR adr-phase1-guard-hardening.md
+    # section 5.5 proven-green GPU run, which this change does not have.
+    BatchSpec("TileRenderer", ("*TileRenderer*][RequiresGPU]*",)),
     # #744: PROMOTED to REQUIRED_BATCHES (below). #622: the `*Sort*][RequiresGPU]*`
     # filter now matches FOUR linked cases in test_gpu_sorting.h:
     #   * the #508 [GPUSortPipeline][RequiresGPU] "Instance-count overflow_flag is sticky
@@ -160,9 +155,14 @@ BATCHES: tuple[BatchSpec, ...] = (
     # when the waiver is removed. Do NOT raise the budgets to re-include it.
     BatchSpec(
         "Streaming",
-        ("*Streaming*][RequiresGPU]*",),
+        ("*[Streaming][RequiresGPU]*",),
         excludes=("*GPU Memory Streaming Performance*",),
     ),
+    # #1195: REQUIRED, coupled with the strict headless lane's GPU exclusion.
+    # 2026-10-05, source 2a6929071d7: 37/37 cases, 5313/5313 assertions,
+    # complete per-case audit, no hollow cases or RID leaks; 13.528s / 60s.
+    # Exact binary and evidence limits: adr-advisory-lane-ledger.md (#1195).
+    BatchSpec("StreamingPipeline", ("*[Streaming Pipeline]*[RequiresGPU]*",)),
     # #641: the sync-policy device-contract tests in
     # modules/gaussian_splatting/tests/test_integration.cpp. They need a real
     # local RenderingDevice, which only this harness provides; before #641 they
@@ -493,6 +493,7 @@ REQUIRED_BATCHES: frozenset[str] = frozenset({
     "Lifetime",
     "OutputCompositor",
     "RendererSceneTree",
+    "StreamingPipeline",  # #1195: every device-dependent Streaming Pipeline case must execute
     "WorldSceneTree",
     "SceneDirectorSceneTree",
     "GpuSorting",  # #744: gates the #508 [GPUSortPipeline] overflow-sticky case (see BatchSpec note)

@@ -146,6 +146,131 @@ end_header
     _remove_ply_fixture(path);
 }
 
+// #1185: the loader set (metadata-only) 2D mode whenever nx/ny/nz columns existed. Stock
+// INRIA/3DGS PLYs carry those columns as zeros, so most imported scans were silently
+// flagged 2D. The mode is now set only when the header declares it.
+namespace {
+
+String _ply_2d_mode_ascii(bool p_declare_2d_mode) {
+    String text = "ply\nformat ascii 1.0\n";
+    if (p_declare_2d_mode) {
+        text += "comment gs_2d_mode\n";
+    }
+    text += "element vertex 1\n"
+            "property float x\nproperty float y\nproperty float z\n"
+            "property float nx\nproperty float ny\nproperty float nz\n"
+            "property float scale_0\nproperty float scale_1\nproperty float scale_2\n"
+            "property float rot_0\nproperty float rot_1\nproperty float rot_2\nproperty float rot_3\n"
+            "property float opacity\n"
+            "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n"
+            "end_header\n"
+            "0.5 0.5 0.5 0 0 0 1.0 1.0 1.0 1.0 0.0 0.0 0.0 0.8 0.5 0.5 0.5\n";
+    return text;
+}
+
+bool _load_ply_text(const String &p_path, const String &p_text, Ref<GaussianData> &r_data) {
+    Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+    if (f.is_null()) {
+        return false;
+    }
+    f->store_string(p_text);
+    f.unref();
+    PLYLoader loader;
+    if (loader.load_file(p_path) != OK) {
+        return false;
+    }
+    r_data = loader.get_gaussian_data();
+    return r_data.is_valid() && r_data->get_count() == 1;
+}
+
+} // namespace
+
+TEST_CASE("[GaussianSplatting][PLY] normal columns alone do not set 2D mode; a gs_2d_mode header comment does (#1185)") {
+    SUBCASE("ASCII PLY with zero nx/ny/nz and no declaration stays 3D") {
+        const String path = _make_ply_fixture_path("normals_undeclared");
+        Ref<GaussianData> data;
+        if (!_load_ply_text(path, _ply_2d_mode_ascii(false), data)) {
+            _remove_ply_fixture(path);
+            FAIL("ASCII PLY with undeclared normals must load one splat");
+            return;
+        }
+        CHECK_FALSE(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("ASCII PLY declaring gs_2d_mode is flagged 2D") {
+        const String path = _make_ply_fixture_path("normals_declared");
+        Ref<GaussianData> data;
+        if (!_load_ply_text(path, _ply_2d_mode_ascii(true), data)) {
+            _remove_ply_fixture(path);
+            FAIL("ASCII PLY declaring gs_2d_mode must load one splat");
+            return;
+        }
+        CHECK(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("binary PLY with nx/ny/nz and no declaration stays 3D") {
+        const String path = _make_ply_fixture_path("normals_binary");
+        Ref<FileAccess> f = FileAccess::open(path, FileAccess::WRITE);
+        if (f.is_null()) {
+            FAIL("cannot create the binary PLY fixture");
+            return;
+        }
+        f->store_string("ply\nformat binary_little_endian 1.0\nelement vertex 1\n"
+                        "property float x\nproperty float y\nproperty float z\n"
+                        "property float nx\nproperty float ny\nproperty float nz\n"
+                        "property float scale_0\nproperty float scale_1\nproperty float scale_2\n"
+                        "property float rot_0\nproperty float rot_1\nproperty float rot_2\nproperty float rot_3\n"
+                        "property float opacity\n"
+                        "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n"
+                        "end_header\n");
+        const float v[17] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+            1.0f, 1.0f, 0.0f, 0.0f };
+        f->store_buffer((const uint8_t *)v, sizeof(v));
+        f.unref();
+        PLYLoader loader;
+        REQUIRE(loader.load_file(path) == OK);
+        Ref<GaussianData> data = loader.get_gaussian_data();
+        if (data.is_null()) {
+            _remove_ply_fixture(path);
+            FAIL("binary PLY with undeclared normals must load");
+            return;
+        }
+        CHECK_FALSE(data->get_2d_mode());
+        _remove_ply_fixture(path);
+    }
+    SUBCASE("save_to_file declares the mode, so a 2D-flagged export round-trips") {
+        Ref<GaussianData> source;
+        source.instantiate();
+        LocalVector<Gaussian> gaussians;
+        gaussians.resize(1);
+        gaussians[0].position = Vector3(1.0f, 2.0f, 3.0f);
+        gaussians[0].scale = Vector3(0.1f, 0.1f, 0.1f);
+        gaussians[0].rotation = Quaternion();
+        gaussians[0].opacity = 0.5f;
+        gaussians[0].normal = Vector3(0.0f, 0.0f, 1.0f);
+        source->set_gaussians(gaussians);
+        for (const bool flagged : { true, false }) {
+            {
+                ERR_PRINT_OFF; // set_2d_mode(true) warns once that the flag is metadata-only.
+                source->set_2d_mode(flagged);
+                ERR_PRINT_ON;
+            }
+            const String path = _make_ply_fixture_path(flagged ? "export_2d" : "export_3d");
+            REQUIRE(source->save_to_file(path) == OK);
+            PLYLoader loader;
+            REQUIRE(loader.load_file(path) == OK);
+            Ref<GaussianData> loaded = loader.get_gaussian_data();
+            if (loaded.is_null()) {
+                _remove_ply_fixture(path);
+                FAIL("save_to_file() output must load back");
+                return;
+            }
+            CHECK(loaded->get_2d_mode() == flagged);
+            _remove_ply_fixture(path);
+        }
+    }
+}
+
 TEST_CASE("[GaussianSplatting][PLYLoader] Cache version mismatch forces re-parse") {
     // Write a minimal binary PLY fixture using the same pattern as other tests.
     const String ply_path = _make_ply_fixture_path("cache_version");
@@ -1399,6 +1524,199 @@ TEST_CASE("[GaussianSplatting][PLYLoader] Stale v1 cache is rejected after integ
     DirAccess::remove_absolute(cache_path);
 }
 
+// ---------------------------------------------------------------------------
+// DC colour contract (#1056, colour ADR adr-splat-colour-encoding.md section 3).
+// PLYLoader stores sh_dc = SH_C0 * f_dc. Before #1056 it left render_meta at 0
+// (LEGACY_BIAS), so every raw-loaded PLY was decoded with 1.5 * sigmoid(sh_dc)
+// - 0.25 while the same file imported through ResourceImporterPLY was decoded
+// as sh_dc + 0.5 (runtime probe on the issue: 0.600 against 0.779 for f_dc = +1).
+// ---------------------------------------------------------------------------
+TEST_CASE("[GaussianSplatting][PLY] raw load tags DC as linear RGB and matches the importer (#1056)") {
+    static constexpr float kShC0 = 0.28209479177387814f;
+    // f_dc = +1 and -1 on every channel. write_gaussian_ply stores sh_dc / SH_C0
+    // as f_dc_*, so sh_dc = +-SH_C0 writes exactly +-1.0.
+    const float expected_sh_dc[2] = { kShC0, -kShC0 };
+
+    LocalVector<Gaussian> splats;
+    splats.resize(2);
+    for (int i = 0; i < 2; i++) {
+        Gaussian g;
+        g.position = Vector3(float(i), 0.0f, 0.0f);
+        g.scale = Vector3(1.0f, 1.0f, 1.0f);
+        g.rotation = Quaternion();
+        const float dc = expected_sh_dc[i];
+        g.sh_dc = Color(dc, dc, dc, 1.0f);
+        g.normal = Vector3(0.0f, 0.0f, 1.0f);
+        g.area = 1.0f;
+        g.opacity = 0.9f;
+        splats[i] = g;
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_dc_contract_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_dc_contract_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_gaussian_ply(source_path, splats, false, false));
+
+    auto cleanup = [&]() {
+        DirAccess::remove_absolute(source_path);
+        DirAccess::remove_absolute(source_path.get_basename() + ".gsplatcache");
+        DirAccess::remove_absolute(save_base_path + ".res");
+    };
+
+    // Every splat must be tagged LINEAR_RGB and hold SH_C0 * f_dc.
+    auto check_dc = [&](const Ref<GaussianData> &p_data, const char *p_route) {
+        for (int i = 0; i < 2; i++) {
+            const Gaussian g = p_data->get_gaussian(i);
+            CHECK_MESSAGE(gaussian_get_dc_encoding(g.render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB,
+                    vformat("%s: splat %d is not tagged LINEAR_RGB (render_meta = %d)", p_route, i, int(g.render_meta)));
+            CHECK_MESSAGE(Math::abs(g.sh_dc.r - expected_sh_dc[i]) < 1e-5f,
+                    vformat("%s: splat %d sh_dc.r = %f, expected %f", p_route, i, g.sh_dc.r, expected_sh_dc[i]));
+            CHECK(Math::abs(g.sh_dc.g - expected_sh_dc[i]) < 1e-5f);
+            CHECK(Math::abs(g.sh_dc.b - expected_sh_dc[i]) < 1e-5f);
+        }
+    };
+
+    // Route 1: PLYLoader directly (GaussianData.load_from_file and the
+    // .gsplatcache writer consume exactly this output).
+    {
+        PLYLoader loader;
+        REQUIRE(loader.load_file(source_path) == OK);
+        Ref<GaussianData> data = loader.get_gaussian_data();
+        if (data.is_null() || data->get_count() != 2) {
+            FAIL("PLYLoader must produce the two fixture splats");
+            cleanup();
+            return;
+        }
+        check_dc(data, "PLYLoader");
+    }
+
+    // Route 2: GaussianSplatAsset.load_from_file, the raw route nodes take for a
+    // non-imported .ply. It derives import_metadata.dc_encoding from the splats'
+    // tags; before #1056 that came out "legacy_bias".
+    {
+        Ref<GaussianSplatAsset> raw_asset;
+        raw_asset.instantiate();
+        REQUIRE(raw_asset->load_from_file(source_path) == OK);
+        CHECK(String(raw_asset->get_import_metadata().get(StringName("dc_encoding"), String())) == String("linear_rgb"));
+        Ref<GaussianData> data = raw_asset->get_gaussian_data();
+        if (data.is_null() || data->get_count() != 2) {
+            FAIL("GaussianSplatAsset.load_from_file must materialize the two fixture splats");
+            cleanup();
+            return;
+        }
+        check_dc(data, "GaussianSplatAsset.load_from_file");
+    }
+
+#ifdef TOOLS_ENABLED
+    // Route 3: the editor importer. Same expectations, so the raw and imported
+    // routes agree on both the stored value and the tag.
+    {
+        Ref<ResourceImporterPLY> importer;
+        importer.instantiate();
+        HashMap<StringName, Variant> options;
+        options.insert(StringName("quality/preset"), String("ultra"));
+        options.insert(StringName("quality/max_splats"), 0);
+        options.insert(StringName("quality/density_multiplier"), 1.0);
+        options.insert(StringName("processing/sort_by_opacity"), false);
+        options.insert(StringName("preview/generate_thumbnail"), false);
+        REQUIRE(importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+                        nullptr, nullptr, nullptr) == OK);
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterPLY must write a loadable GaussianSplatAsset");
+            cleanup();
+            return;
+        }
+        Ref<GaussianData> data;
+        data.instantiate();
+        REQUIRE(data->populate_from_asset(asset) == OK);
+        if (data->get_count() != 2) {
+            FAIL("the imported asset must materialize the two fixture splats");
+            cleanup();
+            return;
+        }
+        check_dc(data, "ResourceImporterPLY");
+    }
+#else
+    MESSAGE("Importer route not compiled (needs TOOLS_ENABLED); the raw routes above still ran.");
+#endif // TOOLS_ENABLED
+
+    cleanup();
+}
+
+TEST_CASE("[GaussianSplatting][PLY] stale v3 cache of untagged splats is rejected (#1056)") {
+    // PLY_CACHE_VERSION 3 -> 4: a .gsplatcache stores render_meta verbatim, so a
+    // cache written before PLYLoader tagged its splats would keep serving
+    // LEGACY_BIAS splats. Build exactly such a cache (current loader output with
+    // the tag cleared, stamped version 3) and require a re-parse.
+    const String ply_path = _make_ply_fixture_path("stale_v3_dc_cache");
+    const String cache_path = ply_path.get_basename() + ".gsplatcache";
+    {
+        Ref<FileAccess> f = FileAccess::open(ply_path, FileAccess::WRITE);
+        if (f.is_null()) {
+            FAIL("could not create the test PLY file");
+            return;
+        }
+        f->store_string(MINIMAL_PLY_CONTENT);
+        float v0[14] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0 };
+        f->store_buffer((const uint8_t *)v0, sizeof(v0));
+        float v1[14] = { 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0 };
+        f->store_buffer((const uint8_t *)v1, sizeof(v1));
+    }
+
+    {
+        PLYLoader loader;
+        REQUIRE(loader.load_file(ply_path) == OK);
+    }
+    if (!FileAccess::exists(cache_path)) {
+        // Absence is not a pass: without a cache this test cannot see the path it guards.
+        FAIL("the first load must write a .gsplatcache (rendering/gaussian_splatting/import/use_gsplatworld_cache defaults to on)");
+        _remove_ply_fixture(ply_path);
+        return;
+    }
+
+    {
+        ResourceFormatLoaderGaussianSplatWorld format_loader;
+        Error load_err = OK;
+        Ref<GaussianSplatWorld> world = format_loader.load_resident(cache_path, &load_err);
+        Ref<GaussianData> cached = world.is_valid() ? world->get_gaussian_data() : Ref<GaussianData>();
+        if (cached.is_null() || cached->get_count() != 2) {
+            FAIL("the .gsplatcache must hold the two fixture splats");
+            _remove_ply_fixture(ply_path);
+            DirAccess::remove_absolute(cache_path);
+            return;
+        }
+        for (int i = 0; i < 2; i++) {
+            Gaussian g = cached->get_gaussian(i);
+            g.render_meta = gaussian_set_dc_encoding(g.render_meta, GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+            cached->set_gaussian(i, g);
+        }
+        Dictionary metadata = world->get_metadata();
+        metadata[StringName("cache_version")] = 3; // the last version before splats were tagged
+        world->set_metadata(metadata);
+        ResourceFormatSaverGaussianSplatWorld format_saver;
+        REQUIRE(format_saver.save(world, cache_path) == OK);
+    }
+
+    PLYLoader loader;
+    REQUIRE(loader.load_file(ply_path) == OK);
+    const Variant cache_hit = loader.get_load_statistics().get("cache_hit", Variant());
+    CHECK_MESSAGE((cache_hit.get_type() == Variant::BOOL && !bool(cache_hit)),
+            "a v3 cache must be rejected, not served");
+    Ref<GaussianData> data = loader.get_gaussian_data();
+    if (data.is_null() || data->get_count() != 2) {
+        FAIL("the re-parsed PLY must hold the two fixture splats");
+    } else {
+        for (int i = 0; i < 2; i++) {
+            CHECK_MESSAGE(gaussian_get_dc_encoding(data->get_gaussian(i).render_meta) == GAUSSIAN_DC_ENCODING_LINEAR_RGB,
+                    vformat("splat %d was served untagged from the stale cache", i));
+        }
+    }
+
+    _remove_ply_fixture(ply_path);
+    DirAccess::remove_absolute(cache_path);
+}
+
 TEST_CASE("[GaussianSplatting][PLY] opacity survives import - logit round-trip (regression: all-0.5 bug)") {
     // Regression guard for the pre-2026-05-03 importer bug where PLY imports
     // never wrote opacity_logits, so every splat read back as sigmoid(0)=0.5.
@@ -1564,6 +1882,87 @@ TEST_CASE("[GaussianSplatting][PLY] opacity survives ResourceImporterPLY -> asse
     DirAccess::remove_absolute(save_base_path + ".res");
 #endif // TOOLS_ENABLED
 }
+
+// ---------------------------------------------------------------------------
+// #1155: a max_splats cap at density 1.0 must thin the whole file, not keep a
+// file-order prefix. 3DGS PLYs are not spatially shuffled, so a prefix is a
+// spatial region. The fixture's second half lies in a distinct region; a prefix
+// cut keeps none of it.
+// ---------------------------------------------------------------------------
+// Compiled only with TOOLS_ENABLED (the importer is editor-only): in other builds the case
+// does not exist rather than passing as an environment skip.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][PLY] importer max_splats at density 1.0 spans the whole file, not a prefix (#1155)") {
+    const int kCount = 16;
+    const int kCap = kCount / 2;
+    LocalVector<Gaussian> splats;
+    splats.resize(kCount);
+    for (int i = 0; i < kCount; i++) {
+        Gaussian g;
+        // Region A: x in [0, 8). Region B: x in [1000, 1008).
+        g.position = Vector3(i < kCap ? float(i) : 1000.0f + float(i - kCap), 0.0f, 0.0f);
+        g.scale = Vector3(0.1f, 0.1f, 0.1f);
+        g.rotation = Quaternion();
+        g.sh_dc = Color(0.0f, 0.0f, 0.0f, 1.0f);
+        g.normal = Vector3(0.0f, 0.0f, 1.0f);
+        g.area = 1.0f;
+        g.opacity = 0.9f;
+        splats[i] = g;
+    }
+
+    const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+    const String source_path = "user://godotgs_cap_stride_" + itos(ticks) + ".ply";
+    const String save_base_path = "user://godotgs_cap_stride_" + itos(ticks) + "_asset";
+    REQUIRE(TestGaussianSplatting::write_gaussian_ply(source_path, splats, false, false));
+
+    Ref<ResourceImporterPLY> importer;
+    importer.instantiate();
+    HashMap<StringName, Variant> options;
+    options.insert(StringName("quality/preset"), String("ultra"));
+    options.insert(StringName("quality/max_splats"), kCap);
+    options.insert(StringName("quality/density_multiplier"), 1.0);
+    options.insert(StringName("processing/sort_by_opacity"), false);
+    options.insert(StringName("preview/generate_thumbnail"), false);
+
+    Variant metadata_variant;
+    const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+            nullptr, nullptr, &metadata_variant);
+    CHECK_MESSAGE(import_err == OK, "PLY import with max_splats = half should succeed");
+
+    if (import_err == OK) {
+        Ref<GaussianSplatAsset> asset = ResourceLoader::load(save_base_path + String(".res"));
+        if (asset.is_null()) {
+            FAIL("ResourceImporterPLY must write a loadable GaussianSplatAsset");
+        } else {
+            CHECK_EQ(int(asset->get_splat_count()), kCap);
+            const PackedFloat32Array positions = asset->get_positions();
+            int in_a = 0;
+            int in_b = 0;
+            for (int i = 0; i + 2 < positions.size(); i += 3) {
+                if (positions[i] < 500.0f) {
+                    in_a++;
+                } else {
+                    in_b++;
+                }
+            }
+            // Stride 2 over 16 source splats keeps one representative per pair,
+            // four from each half. The pre-#1155 prefix kept 8 / 0.
+            CHECK_MESSAGE(in_a == kCap / 2, vformat("region A kept %d splats, expected %d", in_a, kCap / 2));
+            CHECK_MESSAGE(in_b == kCap / 2, vformat("region B (second half of the file) kept %d splats, expected %d", in_b, kCap / 2));
+
+            // The saved bounds describe the kept splats, so they must reach region B.
+            const Dictionary md = metadata_variant;
+            const AABB bounds = md.get(StringName("bounds"), AABB());
+            CHECK_MESSAGE(bounds.position.x + bounds.size.x >= 1000.0f,
+                    vformat("asset bounds end at x = %f; region B starts at 1000", bounds.position.x + bounds.size.x));
+        }
+    }
+
+    DirAccess::remove_absolute(source_path);
+    DirAccess::remove_absolute(source_path.get_basename() + ".gsplatcache");
+    DirAccess::remove_absolute(save_base_path + ".res");
+}
+#endif // TOOLS_ENABLED
 
 // ---------------------------------------------------------------------------
 // GS-PERF-PRUNE slice 2b (issue #456): import-time importance pruning wiring.

@@ -16,7 +16,7 @@ is matched by the `TileRenderer` batch filter `*TileRenderer*][RequiresGPU]*` in
 `tests/ci/run_gpu_harness.py`.
 
 Nothing pinned that path. `TileRenderer` is an ADVISORY batch (it is not in
-`REQUIRED_BATCHES`, because of the unrelated #643 exclusion), and for advisory batches the
+`REQUIRED_BATCHES`; promotion is gated on ADR §5.5 runner evidence), and for advisory batches the
 harness deliberately treats `0 tests matched` as SUCCESS. So a retag of the case, a narrowing
 of the batch filter, a new `excludes` entry, or the batch's removal would leave the gate green
 with the overflow proof silently gone -- the exact "a check invoked by no lane" shape catalogued
@@ -56,7 +56,7 @@ in `docs/governance/evidence-integrity.md`.
 de-selected or hollowed case now reds the guard lane, which is required. It does not make a
 FAILING case red the GPU gate; that needs the batch promoted to `REQUIRED_BATCHES`, which ADR
 `docs/architecture/adr-phase1-guard-hardening.md` §5.5 gates on promotion evidence recorded on
-the runner, and which the #643 exclusion currently blocks for this batch as a whole. Stated
+the runner (the #643 exclusion that also blocked it was retired by #1165). Stated
 here rather than left implicit.
 
 ## Fail-closed posture

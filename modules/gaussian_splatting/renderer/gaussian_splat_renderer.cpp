@@ -587,24 +587,34 @@ GaussianSplatRenderer::RenderFramePlan GaussianSplatRenderer::build_frame_plan(c
             p_clear_cull_state_on_skip, p_authoritative_route_decision);
 }
 
-Projection GaussianSplatRenderer::build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const {
-	Projection cull_projection = p_projection;
-	if (p_render_data && p_render_data->scene_data && p_render_data->scene_data->flip_y) {
-		// Frustum plane extraction must use the same flip convention as cull/sort paths.
-		cull_projection.columns[1][1] = -cull_projection.columns[1][1];
+Projection GaussianSplatRenderer::apply_flip_y(const Projection &p_projection, bool p_flip_y) {
+	if (!p_flip_y) {
+		return p_projection;
 	}
-	return cull_projection;
+	// The engine's own flip (#1159): RenderSceneDataRD::get_cam_projection()
+	// left-multiplies set_depth_correction(flip_y), which negates the whole
+	// clip-space Y ROW -- columns[j][1] for every j -- not just columns[1][1].
+	// reverse_z/remap_z stay false: the gaussian pipeline carries linear
+	// view-space depth, so only the Y flip of that correction applies here.
+	Projection correction;
+	correction.set_depth_correction(true, false, false);
+	return correction * p_projection;
+}
+
+Projection GaussianSplatRenderer::build_cull_projection(RenderDataRD *p_render_data, const Projection &p_projection) const {
+	// Frustum plane extraction must use the same flip as the render path. A
+	// whole-row flip only swaps the top and bottom planes of the extracted set,
+	// so the cull volume is the camera's real frustum for every projection type.
+	return apply_flip_y(p_projection,
+			p_render_data && p_render_data->scene_data && p_render_data->scene_data->flip_y);
 }
 
 Projection GaussianSplatRenderer::build_render_projection(const Projection &p_projection, bool p_flip_y,
 		const Vector2 &p_taa_jitter) {
-	Projection render_projection = p_projection;
-	if (p_flip_y) {
-		// Same flip convention as build_cull_projection(); the gaussian pipeline
-		// deliberately skips the engine's depth correction because it carries
-		// linear view-space depth.
-		render_projection.columns[1][1] = -render_projection.columns[1][1];
-	}
+	// Same flip as build_cull_projection(); the gaussian pipeline deliberately
+	// skips the engine's reverse-Z/remap depth correction because it carries
+	// linear view-space depth.
+	const Projection render_projection = apply_flip_y(p_projection, p_flip_y);
 	if (p_taa_jitter == Vector2()) {
 		// The overwhelmingly common case (no temporal stage active). Returning
 		// here rather than multiplying by an identity keeps the non-temporal
@@ -2006,13 +2016,10 @@ bool GaussianSplatRenderer::render_shadow_depth_map(const Projection &p_light_pr
     shadow_pass.shadow_framebuffer = p_shadow_framebuffer;
     shadow_pass.flip_y = p_flip_y;
 
-    Projection projection = p_light_projection;
-    Projection render_projection = p_light_projection;
-    bool gs_flip_y = !p_flip_y;
-    if (gs_flip_y) {
-        projection.columns[1][1] = -projection.columns[1][1];
-        render_projection.columns[1][1] = -render_projection.columns[1][1];
-    }
+    // Whole-row flip, the engine's convention (#1159); see apply_flip_y().
+    const bool gs_flip_y = !p_flip_y;
+    const Projection projection = apply_flip_y(p_light_projection, gs_flip_y);
+    const Projection render_projection = projection;
 
     ScopedShadowPassState shadow_state_guard(*this, shadow_pass, shadow_output_compositor);
 
@@ -2356,6 +2363,46 @@ void GaussianSplatRenderer::_render_resident_frame(RenderDataRD *p_render_data, 
             p_render_projection, p_render_buffers, nullptr);
 }
 
+uint32_t GaussianSplatRenderer::get_render_view_count(const RenderDataRD *p_render_data) {
+    uint32_t view_count = 1;
+    if (!p_render_data) {
+        return view_count;
+    }
+    if (p_render_data->scene_data) {
+        view_count = MAX(view_count, p_render_data->scene_data->view_count);
+    }
+    if (p_render_data->render_buffers.is_valid()) {
+        const RenderSceneBuffersRD *render_buffers =
+                Object::cast_to<RenderSceneBuffersRD>(p_render_data->render_buffers.ptr());
+        if (render_buffers) {
+            view_count = MAX(view_count, render_buffers->get_view_count());
+        }
+    }
+    return view_count;
+}
+
+void GaussianSplatRenderer::_finish_skipped_scene_instance_frame(const StageMetrics &p_stage_metrics) {
+    get_frame_state().visible_splat_count.store(0, std::memory_order_release);
+    get_frame_state().render_time_ms = 0.0f;
+    get_frame_state().sort_time_ms = 0.0f;
+    get_sorting_state().sorted_splat_count = 0;
+    if (get_subsystem_state().gpu_culler.is_valid()) {
+        get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
+        get_subsystem_state().gpu_culler->get_state().culled_distances_sq.clear();
+        get_subsystem_state().gpu_culler->get_state().culled_importance_weights.clear();
+    }
+    pipeline_stages->reset_render_state_for_frame();
+    if (debug_state_orchestrator) {
+        debug_state_orchestrator->store_stage_metrics(p_stage_metrics);
+    }
+    if (get_streaming_state().memory_stream.is_valid()) {
+        get_streaming_state().memory_stream->end_frame();
+    }
+    if (get_streaming_state().current_streaming_system.is_valid()) {
+        get_streaming_state().current_streaming_system->end_frame();
+    }
+}
+
 void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
     // Render flow: render_scene_instance -> (streaming ? render_streaming_frame : render_resident_frame)
     // -> RenderPipelineStages::render_sorted_splats_with_context -> raster/composite.
@@ -2380,29 +2427,31 @@ void GaussianSplatRenderer::render_scene_instance(RenderDataRD *p_render_data) {
         output_cache.pending_painterly_commit = false;
     }
 
+    // #1160: refuse multiview (XR/stereo) viewports before any GPU work. The
+    // pipeline renders one view with scene_data->cam_projection, which for a
+    // multiview viewport is the engine's COMBINED frustum, and the composite
+    // cannot address the 2-layer array target, so rendering would pay the full
+    // cull/sort/raster cost, fail the composite every frame and show nothing.
+    // Per-eye rendering is tracked as step 2 of #1160.
+    const uint32_t render_view_count = get_render_view_count(p_render_data);
+    if (render_view_count != 1) {
+        WARN_PRINT_ONCE(vformat("[GaussianSplatRenderer] Gaussian splats are not rendered in this viewport: view_count=%d (multiview/XR) is not supported yet, only view_count=1 (#1160). Splats are skipped; meshes render normally.",
+                render_view_count));
+        if (debug_state_orchestrator) {
+            get_debug_state().route_uid = RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED;
+        }
+        StageMetrics skipped_metrics;
+        skipped_metrics.route_uid = RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED;
+        skipped_metrics.skip_cause_stage = "view_count";
+        _finish_skipped_scene_instance_frame(skipped_metrics);
+        return;
+    }
+
     if (!ensure_rendering_device("render_scene_instance")) {
         if (debug_state_orchestrator) {
             get_debug_state().route_uid = RenderRouteUID::COMMON_FAIL_NO_DEVICE;
         }
-        get_frame_state().visible_splat_count.store(0, std::memory_order_release);
-        get_frame_state().render_time_ms = 0.0f;
-        get_frame_state().sort_time_ms = 0.0f;
-        get_sorting_state().sorted_splat_count = 0;
-        if (get_subsystem_state().gpu_culler.is_valid()) {
-            get_subsystem_state().gpu_culler->get_state().culled_indices.clear();
-            get_subsystem_state().gpu_culler->get_state().culled_distances_sq.clear();
-            get_subsystem_state().gpu_culler->get_state().culled_importance_weights.clear();
-        }
-        pipeline_stages->reset_render_state_for_frame();
-        if (debug_state_orchestrator) {
-            debug_state_orchestrator->store_stage_metrics(StageMetrics());
-        }
-        if (get_streaming_state().memory_stream.is_valid()) {
-            get_streaming_state().memory_stream->end_frame();
-        }
-        if (get_streaming_state().current_streaming_system.is_valid()) {
-            get_streaming_state().current_streaming_system->end_frame();
-        }
+        _finish_skipped_scene_instance_frame(StageMetrics());
         return;
     }
 

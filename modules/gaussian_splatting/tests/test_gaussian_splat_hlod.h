@@ -1,7 +1,7 @@
 #pragma once
 
 // HLOD slice S1a (ADR docs/architecture/adr-hlod-streaming.md at 74bf3699702): the `sat` merge,
-// the world-aligned octree bake, the .gsplatworld v2 format and the importer bake (tests 3 and 4
+// the world-aligned octree bake, the .gsplatworld v3 format and the importer bake (tests 3 and 4
 // of the ADR's §8).
 //
 // The merge golden numbers come from the ADR's Python prototype (`hlod.merge_rep(rep, bmin, eps,
@@ -1192,10 +1192,10 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] node-table valida
 }
 
 // ------------------------------------------------------------------------------------------------
-// .gsplatworld v2 (§7): round trip, v1 compatibility, malformed files, importer
+// .gsplatworld v3 (§7): round trip, v1 compatibility, malformed files, importer
 // ------------------------------------------------------------------------------------------------
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, resident and compressed; tree-less worlds stay v1") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v3 round trip: streamable, resident and compressed; tree-less worlds use v3") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	// More than one default leaf, placed ~1 km from the origin: leaves sit in lattice cells whose
@@ -1212,7 +1212,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 	meta["note"] = "hlod round trip";
 	world->set_metadata(meta);
 
-	// A tree-less world keeps the v1 layout (version 1 on disk).
+	// A tree-less world uses the plain v3 layout (version 3 on disk).
 	const String v1_path = hlod_temp_path("v1");
 	ResourceFormatSaverGaussianSplatWorld saver;
 	if (!(saver.save(world, v1_path) == OK)) {
@@ -1226,7 +1226,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 			return;
 		}
 		f->seek(4);
-		CHECK_EQ(f->get_32(), 1u);
+		CHECK_EQ(f->get_32(), 3u);
 	}
 
 	if (!(world->bake_hlod() == OK)) {
@@ -1283,7 +1283,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 				return;
 			}
 			f->seek(4);
-			CHECK_EQ(f->get_32(), 2u);
+			CHECK_EQ(f->get_32(), 3u);
 		}
 		Error load_err = ERR_BUG;
 		Ref<GaussianSplatWorld> loaded = loader.load(path, "", &load_err);
@@ -1483,7 +1483,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] v2 round trip: streamable, residen
 	DirAccess::remove_absolute(flat_path);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects malformed or oversized files") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v3 loader rejects malformed or oversized files") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	// More than one default (16,384-splat) leaf, so the table has a root and children.
@@ -1500,8 +1500,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		return;
 	}
 	const PackedByteArray valid = hlod_read_file(valid_path);
-	if (!(valid.size() > 184)) {
-		FAIL("valid.size() > 184");
+	if (!(valid.size() > 192)) {
+		FAIL("valid.size() > 192");
 		return;
 	}
 
@@ -1528,8 +1528,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		memcpy(&v, p_b.ptr() + p_off, 8);
 		return v;
 	};
-	const uint64_t node_table = u64_at(valid, 136);
-	const uint32_t node_count = u32_at(valid, 144);
+	const uint64_t node_table = u64_at(valid, 144);
+	const uint32_t node_count = u32_at(valid, 152);
 	if (node_count < 3u || node_table + uint64_t(node_count) * 128u > uint64_t(valid.size())) {
 		FAIL("the fixture must bake to a root with children");
 		return;
@@ -1543,25 +1543,25 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		uint64_t value;
 	};
 	const Patch patches[] = {
-		{ "HLOD flag cleared", 8, 4, u32_at(valid, 8) & ~(1u << 6u) },
+		{ "v3 reserved layout word", 108, 4, 1u },
 		{ "unknown header flag", 8, 4, u32_at(valid, 8) | (1u << 20u) },
 		{ "v1 version with the HLOD flag", 4, 4, 1u },
-		{ "chunk count in a v2 file", 52, 4, 3u },
-		{ "chunk table offset in a v2 file", 72, 8, 200u },
+		{ "chunk count in a v3 file", 52, 4, 3u },
+		{ "chunk table offset in a v3 file", 72, 8, 200u },
 		{ "leaf count does not match the nodes", 12, 4, u32_at(valid, 12) - 1u },
-		{ "interior count overflows 32 bits", 132, 4, 0xFFFFFFF0u },
-		{ "interior count does not match", 132, 4, u32_at(valid, 132) + 1u },
-		{ "bake rule version 0", 128, 4, 0u },
-		{ "reserved header word", 172, 4, 1u },
-		{ "reserved header qword", 176, 8, 1u },
-		{ "node count 0", 144, 4, 0u },
-		{ "node count larger than the payload", 144, 4, 0x7FFFFFFFu },
-		{ "node table past the end", 136, 8, uint64_t(valid.size()) - 64u },
-		{ "node table inside the header", 136, 8, 16u },
-		{ "instance count without a table", 168, 4, 1u },
-		{ "top-level nodes without a table", 148, 4, 2u },
+		{ "interior count overflows 32 bits", 140, 4, 0xFFFFFFF0u },
+		{ "interior count does not match", 140, 4, u32_at(valid, 140) + 1u },
+		{ "bake rule version 0", 136, 4, 0u },
+		{ "reserved header word", 180, 4, 1u },
+		{ "reserved header qword", 184, 8, 1u },
+		{ "node count 0", 152, 4, 0u },
+		{ "node count larger than the payload", 152, 4, 0x7FFFFFFFu },
+		{ "node table past the end", 144, 8, uint64_t(valid.size()) - 64u },
+		{ "node table inside the header", 144, 8, 16u },
+		{ "instance count without a table", 176, 4, 1u },
+		{ "top-level nodes without a table", 156, 4, 2u },
 		{ "gaussian offset inside the header", 56, 8, 120u },
-		{ "origin is NaN", 104, 8, 0x7FF8000000000000ull },
+		{ "origin is NaN", 112, 8, 0x7FF8000000000000ull },
 		{ "node: cell exponent below 2^-16", node1 + 0, 1, uint64_t(uint8_t(int8_t(-17))) },
 		{ "node: nine children", int64_t(node_table) + 1, 1, 9u },
 		{ "node: unknown flag", node1 + 4, 4, 0x80u },
@@ -1594,7 +1594,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 		DirAccess::remove_absolute(path);
 	}
 	// Truncations anywhere in the tables or payload.
-	const int64_t cuts[] = { 150, 184 + 100, int64_t(node_table) + 50, int64_t(valid.size()) - 1 };
+	const int64_t cuts[] = { 150, 192 + 100, int64_t(node_table) + 50, int64_t(valid.size()) - 1 };
 	for (int64_t cut : cuts) {
 		PackedByteArray bytes = valid;
 		bytes.resize(cut);
@@ -1627,7 +1627,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 loader rejects
 	DirAccess::remove_absolute(valid_path);
 }
 
-// The v2 header AABB becomes the world's bounds and, through GaussianSplatWorld3D, the engine's
+// The v3 header AABB becomes the world's bounds and, through GaussianSplatWorld3D, the engine's
 // instance AABB. A finite header that is smaller than or disjoint from the validated root would
 // let frustum culling hide valid splats, so the saver widens it and the loader refuses it.
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r3 header world bounds must enclose the validated root") {
@@ -1695,8 +1695,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r3 header 
 		return;
 	}
 	const PackedByteArray valid = hlod_read_file(valid_path);
-	if (valid.size() < 184) {
-		FAIL("the needle mutation base is shorter than the v2 header");
+	if (valid.size() < 192) {
+		FAIL("the needle mutation base is shorter than the v3 header");
 		return;
 	}
 	float pos[3], size[3];
@@ -1854,7 +1854,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 					memcpy(bytes.ptrw() + offset + 8u, blob.ptr(), blob_size);
 					const uint64_t suffix = offset + 8u + old_blob_size;
 					memcpy(bytes.ptrw() + suffix + delta, valid.ptr() + suffix, valid.size() - suffix);
-					const int section_offsets[] = { 64, 72, 88, 136, 152, 160 };
+					const int section_offsets[] = { 64, 72, 88, 144, 160, 168 };
 					for (int header_offset : section_offsets) {
 						const uint64_t old_offset = u64_at(valid, header_offset);
 						if (old_offset >= suffix) {
@@ -1891,7 +1891,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 						FAIL("sphere mutation must retain a valid node table");
 						return;
 					}
-					memcpy(bytes.ptrw() + u64_at(bytes, 136) + uint64_t(node_index) * 128u + 56u, &node.radius, 4);
+					memcpy(bytes.ptrw() + u64_at(bytes, 144) + uint64_t(node_index) * 128u + 56u, &node.radius, 4);
 				}
 				if (!hlod_write_file(path, bytes)) {
 					FAIL("write mutated payload");
@@ -2078,7 +2078,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] review-r2 rejects
 	}
 	PackedByteArray bytes = hlod_read_file(path);
 	const double bad = DBL_MAX;
-	memcpy(bytes.ptrw() + 104, &bad, sizeof(bad));
+	memcpy(bytes.ptrw() + 112, &bad, sizeof(bad));
 	if (!hlod_write_file(path, bytes)) {
 		FAIL("write runtime coordinate mutation");
 		return;
@@ -2163,7 +2163,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 valid tight isotropic ro
 	}
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overlapping sections and preserves a prior import") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v3 rejects overlapping sections and preserves a prior import") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	hlod_make_fixture(3000u, 1000u, g);
@@ -2199,13 +2199,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overla
 			return;
 		}
 		const PackedByteArray valid = hlod_read_file(valid_path);
-		if (valid.size() <= 184) {
-			FAIL("complete producer-generated v2 header required");
+		if (valid.size() <= 192) {
+			FAIL("complete producer-generated v3 header required");
 			return;
 		}
 		const uint64_t gaussian_offset = u64_at(valid, 56);
 		const uint64_t sh_offset = u64_at(valid, 64);
-		const uint64_t node_offset = u64_at(valid, 136);
+		const uint64_t node_offset = u64_at(valid, 144);
 		const uint64_t metadata_offset = u64_at(valid, 88);
 		const uint64_t metadata_size = u64_at(valid, 96);
 		Error err = ERR_BUG;
@@ -2238,7 +2238,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overla
 		};
 		const Patch patches[] = {
 			{ "SH in header", 64, 0u },
-			{ "SH overlaps last header byte", 64, 183u },
+			{ "SH overlaps last header byte", 64, 191u },
 			{ "SH in Gaussian section", 64, gaussian_offset },
 			{ "SH overlaps last Gaussian byte", 64, sh_offset - 1u },
 			{ "SH overlaps first node byte", 64, sh_offset + 1u },
@@ -2275,13 +2275,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] v2 rejects overla
 			DirAccess::remove_absolute(bad_path);
 		}
 		// Ordering is not the contract: move metadata before the Gaussian section, disjointly.
-		PackedByteArray reordered = valid.slice(0, 184);
+		PackedByteArray reordered = valid.slice(0, 192);
 		reordered.append_array(valid.slice(metadata_offset, metadata_offset + metadata_size));
-		reordered.append_array(valid.slice(184, metadata_offset));
+		reordered.append_array(valid.slice(192, metadata_offset));
 		patch_u64(reordered, 56, gaussian_offset + metadata_size);
 		patch_u64(reordered, 64, sh_offset + metadata_size);
-		patch_u64(reordered, 136, node_offset + metadata_size);
-		patch_u64(reordered, 88, 184u);
+		patch_u64(reordered, 144, node_offset + metadata_size);
+		patch_u64(reordered, 88, 192u);
 		const String reordered_path = hlod_temp_path("section_reordered");
 		if (!hlod_write_file(reordered_path, reordered)) {
 			FAIL("write reordered control");
@@ -2668,7 +2668,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] replacing a resident payload inval
 	CHECK_EQ(world->get_chunk_count(), 0);
 	CHECK(world->get_gaussian_data() == replacement);
 
-	// Loaded resident from a v2 file.
+	// Loaded resident from a v3 file.
 	Ref<GaussianSplatWorld> baked = hlod_make_world(g);
 	ResourceFormatSaverGaussianSplatWorld saver;
 	const String path = hlod_temp_path("resident_replace");
@@ -2886,7 +2886,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r4 editor reimport reloads 
 }
 
 #ifdef TOOLS_ENABLED
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 producer rejects non-finite render extensions and preserves valid v1 fallback") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 producer rejects non-finite render extensions and preserves valid plain fallback") {
 	using namespace TestGaussianSplatHlod;
 	ResourceFormatSaverGaussianSplatWorld saver;
 	ResourceFormatLoaderGaussianSplatWorld loader;
@@ -2925,13 +2925,13 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 producer rejects non-fin
 			}
 			if (saver.save_with_payload_mode(hlod_make_world(bad), source_path,
 						ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
-				FAIL("save legal tree-less v1 source");
+				FAIL("save legal tree-less v3 source");
 				return;
 			}
 			const PackedByteArray source_bytes = hlod_read_file(source_path);
 			Error err = ERR_BUG;
 			if (loader.load(source_path, "", &err).is_null() || err != OK) {
-				FAIL("v1 remains legal input for the existing plain-copy fallback");
+				FAIL("plain v3 remains legal input for the existing plain-copy fallback");
 				return;
 			}
 			Variant metadata;
@@ -2952,14 +2952,14 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r2 producer rejects non-fin
 	}
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when the bake fails, and never replaces a good import with a corrupt v2 source") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain copy when the bake fails, and never replaces a good import with a corrupt v3 source") {
 	using namespace TestGaussianSplatHlod;
 	ResourceFormatSaverGaussianSplatWorld saver;
 	Ref<ResourceImporterGSplatWorld> importer;
 	importer.instantiate();
 	HashMap<StringName, Variant> options;
 
-	// A v1 source the bake refuses (non-finite opacity) still imports, tree-less, with a reason.
+	// A plain v3 source the bake refuses (non-finite opacity) still imports, tree-less, with a reason.
 	LocalVector<Gaussian> bad;
 	hlod_make_fixture(3000u, 1000u, bad);
 	bad[10].opacity = NAN;
@@ -2974,7 +2974,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	CHECK(String(Dictionary(bad_md)["hlod_skip_reason"]) == String("bake_failed"));
 	CHECK(hlod_read_file(bad_base + ".gsplatworld") == hlod_read_file(bad_source));
 
-	// A good import exists; re-importing a corrupt v2 source over it fails and leaves it intact.
+	// A good import exists; re-importing a corrupt v3 source over it fails and leaves it intact.
 	LocalVector<Gaussian> g;
 	hlod_make_fixture(24000u, 16000u, g);
 	const String good_source = hlod_temp_path("import_good_source");
@@ -2990,8 +2990,8 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	const PackedByteArray good_import = hlod_read_file(base + ".gsplatworld");
 	PackedByteArray corrupt = good_import;
 	const uint32_t zero = 0u;
-	memcpy(corrupt.ptrw() + 144, &zero, 4); // node_count = 0
-	const String corrupt_source = hlod_temp_path("import_corrupt_v2");
+	memcpy(corrupt.ptrw() + 152, &zero, 4); // node_count = 0
+	const String corrupt_source = hlod_temp_path("import_corrupt_v3");
 	if (!hlod_write_file(corrupt_source, corrupt)) {
 		FAIL("write corrupt source");
 		return;
@@ -2999,29 +2999,29 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_source, base, options, nullptr, nullptr, nullptr) != OK);
 	CHECK(hlod_read_file(base + ".gsplatworld") == good_import);
 
-	// A v1 header can pass the importer probe yet fail full SH validation.
+	// A plain header can pass the importer probe yet fail full SH validation.
 	// Neither the fallback nor an in-place import may publish/delete that source.
-	PackedByteArray corrupt_v1 = hlod_read_file(good_source);
-	if (corrupt_v1.size() < 104) {
-		FAIL("producer-generated v1 header required");
+	PackedByteArray corrupt_plain = hlod_read_file(good_source);
+	if (corrupt_plain.size() < 104) {
+		FAIL("producer-generated plain header required");
 		return;
 	}
 	const uint32_t high_order_without_flag = 1u;
-	memcpy(corrupt_v1.ptrw() + 24, &high_order_without_flag, 4);
-	const String corrupt_v1_source = hlod_temp_path("import_corrupt_v1");
-	if (!hlod_write_file(corrupt_v1_source, corrupt_v1)) {
+	memcpy(corrupt_plain.ptrw() + 24, &high_order_without_flag, 4);
+	const String corrupt_plain_source = hlod_temp_path("import_corrupt_plain");
+	if (!hlod_write_file(corrupt_plain_source, corrupt_plain)) {
 		FAIL("write corrupt v1 source");
 		return;
 	}
-	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_v1_source, base, options, nullptr, nullptr, nullptr) != OK);
+	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_plain_source, base, options, nullptr, nullptr, nullptr) != OK);
 	const bool retained_previous_import = hlod_read_file(base + ".gsplatworld") == good_import;
 	CHECK(retained_previous_import);
-	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_v1_source,
-			corrupt_v1_source.get_basename(), options, nullptr, nullptr, nullptr) != OK);
-	const bool retained_source = hlod_read_file(corrupt_v1_source) == corrupt_v1;
+	CHECK(importer->import(ResourceUID::INVALID_ID, corrupt_plain_source,
+			corrupt_plain_source.get_basename(), options, nullptr, nullptr, nullptr) != OK);
+	const bool retained_source = hlod_read_file(corrupt_plain_source) == corrupt_plain;
 	CHECK(retained_source);
 
-	DirAccess::remove_absolute(corrupt_v1_source);
+	DirAccess::remove_absolute(corrupt_plain_source);
 	DirAccess::remove_absolute(corrupt_source);
 	DirAccess::remove_absolute(base + ".gsplatworld");
 	DirAccess::remove_absolute(good_source);
@@ -3154,7 +3154,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 	DirAccess::remove_absolute(source);
 }
 
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a v2 copy; source untouched; same tree as bake_hlod()") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a plain v3 source into a v3 HLOD copy; source untouched; same tree as bake_hlod()") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	hlod_make_fixture(9000u, 6000u, g);
@@ -3174,12 +3174,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 			return;
 		}
 		f->seek(4);
-		CHECK_EQ(f->get_32(), 1u);
+		CHECK_EQ(f->get_32(), 3u);
 	}
 
 	Ref<ResourceImporterGSplatWorld> importer;
 	importer.instantiate();
-	CHECK_EQ(importer->get_format_version(), 4);
+	CHECK_EQ(importer->get_format_version(), 5);
 	const String save_base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_" + itos(OS::get_singleton()->get_ticks_usec()));
 	HashMap<StringName, Variant> options;
 	Variant metadata;
@@ -3191,7 +3191,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 
 	// The source is only read.
 	CHECK(hlod_read_file(source_path) == source_before);
-	// The imported copy is v2 with a tree.
+	// The imported copy is v3 with a tree.
 	{
 		Ref<FileAccess> f = FileAccess::open(imported_path, FileAccess::READ);
 		if (!(f.is_valid())) {
@@ -3199,7 +3199,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 			return;
 		}
 		f->seek(4);
-		CHECK_EQ(f->get_32(), 2u);
+		CHECK_EQ(f->get_32(), 3u);
 	}
 	if (!(metadata.get_type() == Variant::DICTIONARY)) {
 		FAIL("metadata.get_type() == Variant::DICTIONARY");
@@ -3240,7 +3240,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 	}
 	CHECK(same);
 
-	// Re-importing a v2 file copies it unchanged (no second bake).
+	// Re-importing a v3 file copies it unchanged (no second bake).
 	Variant metadata2;
 	const String save_base2 = save_base + "_again";
 	if (!(importer->import(ResourceUID::INVALID_ID, imported_path, save_base2, options, nullptr, nullptr, &metadata2) == OK)) {
@@ -3248,7 +3248,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 		return;
 	}
 	CHECK(hlod_read_file(save_base2 + ".gsplatworld") == hlod_read_file(imported_path));
-	CHECK(String(Dictionary(metadata2)["hlod_skip_reason"]) == String("source_already_v2"));
+	CHECK(String(Dictionary(metadata2)["hlod_skip_reason"]) == String("source_already_hlod"));
 
 	imported.unref();
 	DirAccess::remove_absolute(save_base2 + ".gsplatworld");
@@ -3264,7 +3264,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a v1 source into a 
 // misses. RendererSceneCull itself is not reachable here: under --gs-gpu-test the [SceneTree]
 // listener uses the dummy rasterizer, which creates no GaussianSplatStorage, so a world node's
 // instance never enters the scenario indexer.
-TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v2 world bounds keep valid splats inside a camera frustum") {
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] review-r3 loaded v3 world bounds keep valid splats inside a camera frustum") {
 	using namespace TestGaussianSplatHlod;
 	LocalVector<Gaussian> g;
 	hlod_make_needle_fixture(g);

@@ -1,0 +1,9 @@
+{
+  "line": "WARNING: 15 RIDs of type \"Compute\" were leaked.",
+  "provenance": {
+    "producer": "Godot native Windows GPU harness, TileRenderer stderr_tail",
+    "github_artifact_id": 11447593024,
+    "artifact_member": "ci/gpu_harness_report.json",
+    "capture_date": "2026-10-11"
+  }
+}

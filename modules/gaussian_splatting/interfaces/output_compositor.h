@@ -121,6 +121,11 @@ public:
         uint64_t cached_render_cull_config_signature = 0;
         uint64_t cached_render_color_grading_signature = 0;
         uint64_t cached_render_lighting_signature = 0;
+        // Raster inputs outside every other signature (#1162): painterly config,
+        // debug/preview toggles, pipeline features, low-pass filter, Jacobian
+        // diagnostics, interactive state. See
+        // RenderPipelineStages::compute_raster_params_signature().
+        uint64_t cached_render_raster_params_signature = 0;
         bool render_buffers_commit_pending = false;
         Size2i pending_render_buffers_size = Size2i();
         bool pending_painterly_commit = false;
@@ -150,7 +155,7 @@ public:
             uint64_t p_content_generation = 0,
             uint64_t p_cull_config_signature = 0,
             uint64_t p_color_grading_signature = 0, uint64_t p_lighting_signature = 0,
-            bool p_require_valid_depth = false) const;
+            bool p_require_valid_depth = false, uint64_t p_raster_params_signature = 0) const;
     void update_render_cache_signature(const Transform3D &p_view_transform, const Projection &p_projection,
             const Projection &p_gpu_projection,
             const Size2i &p_viewport_size, bool p_painterly_active, const RID &p_cached_depth,
@@ -158,7 +163,7 @@ public:
             uint64_t p_content_generation = 0,
             uint64_t p_cull_config_signature = 0,
             uint64_t p_color_grading_signature = 0, uint64_t p_lighting_signature = 0,
-            bool p_require_valid_depth = false);
+            bool p_require_valid_depth = false, uint64_t p_raster_params_signature = 0);
 
     // Integrate final output into the viewport or render target (moved from renderer)
     void integrate_final_output(GaussianSplatRenderer *p_renderer, RenderDataRD *p_render_data, RenderSceneBuffersRD *render_buffers_rd,

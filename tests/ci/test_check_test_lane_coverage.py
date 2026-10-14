@@ -26,6 +26,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 CI_DIR = Path(__file__).resolve().parent
@@ -549,6 +550,106 @@ class CorpusScope(unittest.TestCase):
 class GuardPasses(unittest.TestCase):
     def test_guard_passes_on_the_current_tree(self):
         self.assertEqual(GUARD.main(), 0)
+
+
+class StreamingPipelineStrictPromotionTests(unittest.TestCase):
+    """#1166/#1195: every case reaches strict CPU OR REQUIRED GPU coverage.
+
+    The lane holds every #1087/#1088 host test. It cannot be expressed as a
+    STRICT_COVERAGE_CONTRACTS entry: a contract protects the UNION of its source
+    files and its tag, both keys must be non-empty, and both source files carry
+    cases that legitimately live elsewhere (7 [GPU Memory Stream], 1 [Streaming
+    VRAM] in test_gpu_streaming.cpp; 1 [GaussianSplatting][Streaming] in
+    test_gaussian_streaming_lifecycle.cpp). So the tag half of the property is
+    asserted here directly, with derived inputs and doctest's actual include /
+    exclude semantics. Advisory GPU batches cannot replace either promise.
+    """
+
+    TAG = "*[Streaming Pipeline]*"
+    LANE = "Streaming Pipeline"
+    GPU_BATCH = "StreamingPipeline"
+
+    def setUp(self):
+        self.runner = GUARD._load_module("_rmt_sp", GUARD.CI_DIR / "run_module_tests.py")
+        self.harness = GUARD._load_module("_gpu_sp", GUARD.CI_DIR / "run_gpu_harness.py")
+        linkage = GUARD._load_module("_ctl_sp", GUARD.CI_DIR / "check_test_linkage.py")
+        self.cases, _ = GUARD._collect_corpus(linkage._strip_comments)
+        self.lanes = list(self.runner.MODULE_TEST_FILTERS)
+        self.batches = list(self.harness.BATCHES)
+        self.required = self.harness.REQUIRED_BATCHES
+        self.promoted = sorted(
+            {name for name, _ in self.cases if GUARD._doctest_wildcmp(name, self.TAG)}
+        )
+        self.device_cases = [name for name in self.promoted if GUARD._doctest_wildcmp(name, "*][RequiresGPU]*")]
+        self.host_cases = [name for name in self.promoted if name not in self.device_cases]
+
+    def _uncovered(self, lanes, batches=None, required=None):
+        batches = self.batches if batches is None else batches
+        required = self.required if required is None else required
+        strict = [(inc, exc) for _, inc, exc, is_strict in lanes if is_strict]
+        required_gpu = [batch for batch in batches if batch.name in required]
+        return [
+            name
+            for name in self.promoted
+            if not any(GUARD._lane_matches(name, inc, exc) for inc, exc in strict)
+            and not any(GUARD._lane_matches(name, batch.filters, batch.excludes) for batch in required_gpu)
+        ]
+
+    def test_the_corpus_is_not_empty(self):
+        """Non-vacuity. A floor, not an equality: adding a #1088 test must not red this."""
+        self.assertGreaterEqual(len(self.promoted), 50, len(self.promoted))
+        files = {file_name for name, file_name in self.cases if name in set(self.promoted)}
+        self.assertIn("test_gpu_streaming.cpp", files)
+        self.assertIn("test_gaussian_streaming_lifecycle.cpp", files)
+        self.assertTrue(self.host_cases, "strict CPU corpus is empty")
+        self.assertTrue(self.device_cases, "required GPU corpus is empty")
+
+    def test_every_streaming_pipeline_case_reaches_strict_cpu_or_required_gpu(self):
+        self.assertEqual([], self._uncovered(self.lanes))
+
+    def test_device_cases_are_excluded_from_the_strict_cpu_lane(self):
+        lanes = [lane for lane in self.lanes if lane[0] == self.LANE]
+        self.assertEqual(len(lanes), 1)
+        _, inc, exc, strict = lanes[0]
+        self.assertTrue(strict)
+        self.assertTrue(all(GUARD._lane_matches(name, inc, exc) for name in self.host_cases))
+        self.assertFalse(any(GUARD._lane_matches(name, inc, exc) for name in self.device_cases))
+
+    def test_demoting_the_lane_is_red(self):
+        demoted = [
+            (name, inc, exc, False if name == self.LANE else strict)
+            for name, inc, exc, strict in self.lanes
+        ]
+        self.assertTrue(any(name == self.LANE for name, *_ in self.lanes), "lane is gone")
+        self.assertEqual(self._uncovered(demoted), self.host_cases)
+
+    def test_deleting_the_lane_is_red(self):
+        deleted = [lane for lane in self.lanes if lane[0] != self.LANE]
+        self.assertEqual(self._uncovered(deleted), self.host_cases)
+
+    def test_deleting_the_gpu_batch_is_red(self):
+        deleted = [batch for batch in self.batches if batch.name != self.GPU_BATCH]
+        self.assertTrue(any(batch.name == self.GPU_BATCH for batch in self.batches), "GPU batch is gone")
+        self.assertEqual(self._uncovered(self.lanes, deleted), self.device_cases)
+
+    def test_demoting_the_gpu_batch_to_advisory_is_red(self):
+        self.assertIn(self.GPU_BATCH, self.required)
+        self.assertEqual(self._uncovered(self.lanes, required=self.required - {self.GPU_BATCH}), self.device_cases)
+
+    def test_retagging_the_gpu_selector_is_red(self):
+        retagged = [
+            replace(batch, filters=("*[Streaming Pipeline Wrong]*[RequiresGPU]*",))
+            if batch.name == self.GPU_BATCH else batch
+            for batch in self.batches
+        ]
+        self.assertEqual(self._uncovered(self.lanes, retagged), self.device_cases)
+
+    def test_excluding_the_gpu_corpus_is_red(self):
+        excluded = [
+            replace(batch, excludes=("*",)) if batch.name == self.GPU_BATCH else batch
+            for batch in self.batches
+        ]
+        self.assertEqual(self._uncovered(self.lanes, excluded), self.device_cases)
 
 
 if __name__ == "__main__":

@@ -509,10 +509,10 @@ Error ShaderCompilationManager::compile_raster_shaders(RenderingDevice *p_device
 	// Runtime check: verify shared memory requirement against device limit.
 	// tile_rasterizer_compute.glsl allocates:
 	//   SPLATS_PER_TILE * (sizeof(uint) + sizeof(ProjectedGaussian)) + 4 * sizeof(uint)
-	// ProjectedGaussian = 9 uints (36 bytes) unpacked, 8 uints (32 bytes) packed.
+	// ProjectedGaussian = TileProjectionLayout::Payload (40 bytes) unpacked, PackedPayload (36) packed.
 	{
 		const uint32_t splats_per_tile = TileRenderer::MAX_SPLATS_PER_TILE;
-		const uint32_t projected_gaussian_bytes = 9 * sizeof(uint32_t); // Conservative: unpacked layout
+		const uint32_t projected_gaussian_bytes = TileProjectionLayout::STRIDE_FULL; // Conservative: unpacked layout
 		const uint32_t shared_bytes_required = splats_per_tile * (sizeof(uint32_t) + projected_gaussian_bytes) + 4 * sizeof(uint32_t);
 		const uint64_t device_shared_memory = p_device->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_SHARED_MEMORY_SIZE);
 		if (device_shared_memory > 0 && shared_bytes_required > device_shared_memory) {

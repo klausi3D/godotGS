@@ -51,7 +51,15 @@ class GaussianSplatStorage {
 	};
 
         static GaussianSplatStorage *singleton;
-        mutable RID_Owner<GaussianSplat> gaussian_owner;
+        // #1161: slots are allocated on the scene thread and read and freed on the
+        // render thread (thread_model=2), so the owner must be thread-safe, like the
+        // FUNCRIDSPLIT owners in the other RD storages.
+        mutable RID_Owner<GaussianSplat, true> gaussian_owner;
+        // #1161: guards every read and write of a slot's fields and the slot free,
+        // so a scene-thread setter cannot tear the Ref that render_scene() copies on
+        // the render thread. Leaf lock: nothing is called out while it is held, and a
+        // replaced or freed renderer Ref is dropped only after it is released.
+        mutable Mutex slot_mutex;
 
 public:
         static GaussianSplatStorage *get_singleton();

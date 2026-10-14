@@ -28,7 +28,8 @@ public:
 	// every existing world re-imports once and gains a tree.
 	// 4: the v2 header world bounds must enclose the HLOD root (the loader refuses other bounds), so
 	// v2 copies baked at version 3 with the source's tighter bounds re-import.
-	int get_format_version() const override { return 4; }
+	// 5: new plain/HLOD exports use explicit-layout world v3; legacy v1/v2 remain readable.
+	int get_format_version() const override { return 5; }
 	virtual int get_preset_count() const override;
 	virtual String get_preset_name(int p_idx) const override;
 	virtual void get_import_options(const String &p_path, List<ImportOption> *r_options, int p_preset) const override;

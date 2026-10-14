@@ -49,6 +49,7 @@ ResidencyBudgetController::AdmissionGate ResidencyBudgetController::compute_admi
     gate.context.enforce_vram_regulator_gate = p_policy.enforce_vram_regulator_gate;
     gate.context.vram_regulator_allows_load = p_policy.vram_regulator_allows_load;
     gate.context.atlas_slots_full = p_policy.atlas_slots_full;
+    gate.context.allow_visible_eviction = p_policy.allow_visible_eviction;
     gate.decision = decide_admission(gate.context);
     if (!_admission_gate_invariant_holds(gate.context, gate.decision)) {
         ERR_PRINT("[Streaming][Invariant] Residency admission gate produced invalid decision; forcing Skip.");
@@ -67,12 +68,14 @@ void ResidencyBudgetController::note_blocked_eviction(AdmissionFrameBudget &p_fr
     p_frame_budget.eviction_blocked = true;
 }
 
-bool ResidencyBudgetController::should_attempt_visible_evict_fallback(const AdmissionGate &p_gate) {
-    if (p_gate.decision != AdmissionDecision::EvictThenLoad) {
+namespace {
+
+bool _visible_evict_fallback_pressure(const ResidencyBudgetController::AdmissionGate &p_gate) {
+    if (p_gate.decision != ResidencyBudgetController::AdmissionDecision::EvictThenLoad) {
         return false;
     }
 
-    const AdmissionContext &context = p_gate.context;
+    const ResidencyBudgetController::AdmissionContext &context = p_gate.context;
     if (!context.has_eviction_budget || context.eviction_blocked) {
         return false;
     }
@@ -81,6 +84,16 @@ bool ResidencyBudgetController::should_attempt_visible_evict_fallback(const Admi
     const bool regulator_gated =
             context.enforce_vram_regulator_gate && !context.vram_regulator_allows_load;
     return at_or_over_capacity || regulator_gated || context.atlas_slots_full;
+}
+
+} // namespace
+
+bool ResidencyBudgetController::should_attempt_visible_evict_fallback(const AdmissionGate &p_gate) {
+    return p_gate.context.allow_visible_eviction && _visible_evict_fallback_pressure(p_gate);
+}
+
+bool ResidencyBudgetController::is_visible_evict_fallback_refused_by_intent(const AdmissionGate &p_gate) {
+    return !p_gate.context.allow_visible_eviction && _visible_evict_fallback_pressure(p_gate);
 }
 
 ResidencyBudgetController::AdmissionDecision ResidencyBudgetController::decide_admission(

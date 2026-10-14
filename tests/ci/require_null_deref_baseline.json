@@ -156,8 +156,6 @@
     ],
     "modules/gaussian_splatting/tests/test_gaussian_streaming_lifecycle.cpp": [
       "asset|!= nullptr|1c7d5d3c5f",
-      "prepared_job|!= nullptr|00a6981ed7",
-      "prepared_job|!= nullptr|66f05a6864",
       "refreshed_asset|!= nullptr|12925b91f3"
     ],
     "modules/gaussian_splatting/tests/test_gpu_culler_hierarchy.h": [
@@ -166,9 +164,7 @@
       "state.hierarchical_structure|!= nullptr|f354f42a24"
     ],
     "modules/gaussian_splatting/tests/test_gpu_streaming.cpp": [
-      "asset|!= nullptr|93f8d97265",
-      "asset|!= nullptr|d7b1cbbb61",
-      "mixed_data|is_valid()|569ba86bf5"
+      "asset|!= nullptr|d7b1cbbb61"
     ],
     "modules/gaussian_splatting/tests/test_gpu_streaming.h": [
       "sys|is_valid()|90185f1f55"

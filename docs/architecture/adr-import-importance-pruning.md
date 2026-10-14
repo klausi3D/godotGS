@@ -48,7 +48,7 @@
 Splat count linearly drives our two measured cost centers: GPU sort time (13.5 ms at
 dense-2M) and VRAM (144 B/splat resident, or 80 B with the just-landed quantization).
 The importer today offers only **uniform** reduction — stride-based density subsampling
-(`resource_importer_ply.cpp:_compute_final_splat_count` / the `merge_density` stride) and
+(`resource_importer_ply.cpp:_compute_final_splat_count` / the `stride_subsample` stride, `merge_density` before #1155) and
 a `max_splats` cap. Neither is contribution-aware: they drop splats without regard to how
 much each one matters to the rendered image.
 
@@ -112,35 +112,49 @@ today: `_compute_final_splat_count(original, max_splats, density)` folds the `ma
 cap **into** the density-target count — it returns `min(original, max_splats, round(original ×
 density))`, clamped to ≥1 (`resource_importer_ply.cpp:95-102`).
 
-**How that count is *reached* depends on `density_multiplier`, and the two cases differ.** The
-`merge_density` stride is gated on `density_multiplier < 0.999`
-(`resource_importer_ply.cpp:338`):
+**How that count is reached: one uniform stride since #1155.** Until #1155 the stride was gated
+on `density_multiplier < 0.999`:
 
 ```cpp
-338	const bool merge_density = density_multiplier < 0.999 && final_count < original_count;
-339	const double merge_stride = merge_density ? double(original_count) / double(final_count) : 1.0;
-...
-390		int start = merge_density ? int(Math::floor(double(i) * merge_stride)) : i;
+const bool merge_density = density_multiplier < 0.999 && final_count < original_count;
 ```
 
-So with density at `1.0` and only `max_splats` set, `merge_density` is **false**, `start = i`,
-and the loop simply keeps the **first `N` entries of the index array** — source order, or
-opacity-descending order when `processing/sort_by_opacity` is on (`:348-352`). Only when
-density < 0.999 does the stride actually subsample uniformly and merge ranges via
-`_merge_gaussian_range`. SPZ is identical (`resource_importer_spz.cpp:297-299`, `:353-359`).
+So with density at `1.0` and only `max_splats` set, the loop kept the **first `N` entries of
+the index array**: source order, or opacity-descending order when
+`processing/sort_by_opacity` is on. SPZ was identical. This document originally recorded that
+head-truncation as a back-compat invariant that pruning had to preserve. **That invariant is
+withdrawn.** 3DGS PLYs are not spatially shuffled (SfM seed points first, densification
+appended), so a file-order prefix is a spatial region plus the undensified base, not a
+thinning: the shipped "High Quality" preset (`max_splats = 1,000,000`, density `1.0`) kept the
+first 40 percent of a 2.5M-splat scan and logged success (#1155, audit record N-15).
 
-"Density then max_splats" is therefore one count computation with **two different
-materialization behaviors**, not an orderable pipeline — and describing step 1 as a uniform
-stride would make pruning rank a different candidate set than the importer actually produces
-for `max_splats`-only imports, breaking the default/back-compat invariant.
+Both importers now gate the stride on the reduction alone
+(`io/resource_importer_ply.cpp` and `io/resource_importer_spz.cpp`, `stride_subsample`):
+
+```cpp
+const bool stride_subsample = final_count < original_count;
+```
+
+Whichever limit sets the count, `max_splats` or `density_multiplier`, the set is reached by
+the same uniform stride over the index order, with one representative per range picked by
+`_merge_gaussian_range`, and the import log names the limit that applied. Imports with no
+reduction (`final_count == original_count`) and imports at density < 0.999 produce the same
+output as before. Only `max_splats`-bound imports at density ≥ 0.999 change, which is why the
+change bumps the importer format versions (PLY 11 → 12, SPZ 10 → 11). With
+`sort_by_opacity` on, a `max_splats`-only cap now strides over the opacity-sorted order like
+the density path always did, instead of keeping the N most opaque splats. Importance-aware
+selection for `max_splats` (routing the cap through `select_top_k_indices()`) remains a
+possible follow-up; the stride is the smallest fix that removes the spatial prefix.
+
+"Density then max_splats" is therefore one count computation with **one materialization
+behavior**, and pruning ranks the set the stride produces.
 
 Importance pruning is inserted as a **distinct, explicit stage** with this normative order:
 
 1. **count computation (existing):** `_compute_final_splat_count` yields the density/`max_splats`
-   target `N_density`, reached **either** by the uniform stride (`density_multiplier < 0.999`)
-   **or** by head-truncation of the index array (`density_multiplier ≥ 0.999`, i.e. the
-   `max_splats`-only case) — see the two cases above. Pruning operates on whichever set that
-   produces.
+   target `N_density`, reached by the uniform stride whenever it is below the source count
+   (see above; before #1155, `max_splats`-only imports head-truncated instead). Pruning
+   operates on the set the stride produces.
 2. **importance prune (this ADR):** on the density-subsampled set, keep the
    `prune_ratio ∩ prune_importance_threshold` subset by importance → `N_pruned ≤ N_density`.
 3. **final cap:** `max_splats` is already enforced by step 1 as a hard ceiling on the count. If a

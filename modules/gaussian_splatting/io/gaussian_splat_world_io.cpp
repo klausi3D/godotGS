@@ -1,4 +1,5 @@
 #include "gaussian_splat_world_io.h"
+#include "gaussian_splat_world_format.h"
 
 #include "../core/gs_vector_alloc.h"
 
@@ -34,11 +35,9 @@ void *ResourceFormatSaverGaussianSplatWorld::hlod_snapshot_test_userdata = nullp
 namespace {
 
 static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
-// v2 = HLOD worlds (ADR adr-hlod-streaming.md §7). Worlds without a tree are still written as v1,
-// byte-identical to before (so .gsplatcache files and tree-less exports do not change), and v1
-// stays readable.
-static constexpr uint32_t kWorldVersion = 2;
-static constexpr uint32_t kWorldVersionV1 = 1;
+// v1 plain and v2 HLOD remain readable with their historical raw layout.
+// Both new plain and HLOD worlds use the explicit-layout v3 schema.
+static constexpr uint32_t kWorldVersion = gs_world_format::kVersion;
 static constexpr uint32_t kMaxShDegree = 3;
 // Gaussian.sh_1[3] holds at most 3 first-order coefficients on disk, and
 // GaussianData::set_gaussian_payload() clamps p_sh_first_order_count to 3, so
@@ -53,12 +52,10 @@ static constexpr uint32_t kFlagHasChunks = 1u << 2u;
 static constexpr uint32_t kFlagHasHighSh = 1u << 3u;
 static constexpr uint32_t kFlagCompressed = 1u << 4u;
 static constexpr uint32_t kFlagResidentPayload = 1u << 5u;
-static constexpr uint32_t kFlagHasHlod = 1u << 6u;
-static constexpr uint32_t kKnownFlagsV2 = kFlagHasMetadata | kFlagIs2D | kFlagHasChunks | kFlagHasHighSh | kFlagCompressed |
-		kFlagResidentPayload | kFlagHasHlod;
-static constexpr uint64_t kHeaderSizeBytes = 104u;
-// v1 header + the 80-byte HLOD extension.
-static constexpr uint64_t kHeaderSizeBytesV2 = 184u;
+static constexpr uint32_t kFlagHasHlod = gs_world_format::kFlagHasHlod;
+static constexpr uint64_t kHeaderSizeBytesV1 = gs_world_format::kLegacyPrefixBytes;
+static constexpr uint64_t kHeaderSizeBytes = gs_world_format::kPrefixBytes;
+static constexpr uint64_t kHlodHeaderSizeBytes = kHeaderSizeBytes + gs_world_format::kHlodExtensionBytes;
 
 // Bound on the *decompressed* resident gaussian payload for compressed worlds.
 // The uncompressed path is bounded structurally by `fits_within` (you cannot claim
@@ -389,7 +386,7 @@ static Error _write_world_save_header(const Ref<FileAccess> &p_file,
 		const GaussianSplatWorld *p_world,
 		const WorldSaveLayout &p_layout) {
 	p_file->store_32(kWorldMagic);
-	p_file->store_32(kWorldVersionV1);
+	p_file->store_32(kWorldVersion);
 	p_file->store_32(p_layout.flags);
 	p_file->store_32(p_layout.splat_count);
 	p_file->store_32(p_layout.sh_degree);
@@ -404,6 +401,8 @@ static Error _write_world_save_header(const Ref<FileAccess> &p_file,
 	p_file->store_64(p_layout.indices_offset);
 	p_file->store_64(p_layout.metadata_offset);
 	p_file->store_64(p_layout.metadata_size);
+	p_file->store_32(GAUSSIAN_STRUCT_LAYOUT_VERSION); // v3: gaussian_layout_version.
+	p_file->store_32(0u); // v3: reserved (must be zero).
 	return _ensure_file_write_ok(p_file, "save(header)");
 }
 
@@ -529,10 +528,11 @@ static Error _write_world_save_sections(const Ref<FileAccess> &p_file,
 }
 
 // ------------------------------------------------------------------------------------------------
-// .gsplatworld v2: HLOD worlds (ADR docs/architecture/adr-hlod-streaming.md §7, head 74bf3699702).
+// HLOD worlds: legacy v2 and explicit-layout v3 (ADR adr-hlod-streaming.md §7).
 //
-// Layout. The 104-byte v1 header (version = 2, chunk fields zero) is followed by an 80-byte
-// extension, then the sections:
+// Layout. Legacy v2 uses the 104-byte common prefix; v3 uses its 112-byte
+// explicit-layout prefix. Both zero the plain chunk fields and append the same
+// 80-byte HLOD extension before these sections:
 //   [gaussians: leaf payload | interior payload]  (total = splat_count + interior_splat_count;
 //                                                   gzip'd as one blob when kFlagCompressed)
 //   [high-order SH: same order]
@@ -881,11 +881,11 @@ static bool _decode_v2_metadata_json(const PackedByteArray &p_bytes, Dictionary 
 	return true;
 }
 
-static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
+static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const String &p_path, uint64_t p_file_len,
 		uint32_t p_flags, uint32_t p_splat_count, uint32_t p_sh_degree, uint32_t p_sh_first_order, uint32_t p_sh_high_order,
 		const Vector3 &p_bounds_pos, const Vector3 &p_bounds_size, uint32_t p_chunk_count, uint64_t p_gaussian_offset,
 		uint64_t p_sh_offset, uint64_t p_chunk_table_offset, uint64_t p_indices_offset, uint64_t p_metadata_offset,
-		uint64_t p_metadata_size, Error *r_error, float *r_progress, bool p_force_resident) {
+		uint64_t p_metadata_size, const gs_world_format::HeaderLayout &p_header, uint32_t p_recorded_layout, Error *r_error, float *r_progress, bool p_force_resident) {
 	auto refuse = [&](const String &p_why, Error p_err = ERR_FILE_CORRUPT) {
 		if (r_error) {
 			*r_error = p_err;
@@ -894,19 +894,10 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		return Ref<Resource>();
 	};
 
-	if (p_file_len < kHeaderSizeBytesV2) {
-		return refuse("truncated v2 header");
-	}
-	if ((p_flags & ~kKnownFlagsV2) != 0u) {
-		return refuse(vformat("unknown header flags 0x%x", p_flags & ~kKnownFlagsV2));
-	}
-	if ((p_flags & kFlagHasHlod) == 0u) {
-		return refuse("a v2 file must carry an HLOD tree");
-	}
 	if ((p_flags & kFlagHasChunks) != 0u || p_chunk_count != 0u || p_chunk_table_offset != 0u || p_indices_offset != 0u) {
-		return refuse("a v2 file declares v1 chunk index lists");
+		return refuse("an HLOD file declares plain chunk index lists");
 	}
-	p_file->seek(kHeaderSizeBytes);
+	p_file->seek(p_header.prefix_bytes);
 	const HlodHeaderExtension ext = _read_hlod_extension(p_file);
 	for (int a = 0; a < 3; a++) {
 		if (!Math::is_finite(ext.origin[a])) {
@@ -923,7 +914,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	if (ext.node_count == 0u || uint64_t(ext.node_count) > total) {
 		return refuse(vformat("node count %d for %s splats", ext.node_count, String::num_uint64(total)));
 	}
-	if (p_gaussian_offset < kHeaderSizeBytesV2 || p_gaussian_offset >= p_file_len) {
+	if (p_gaussian_offset < p_header.header_bytes || p_gaussian_offset >= p_file_len) {
 		return refuse("gaussian section offset out of range");
 	}
 	const uint64_t gaussian_bytes = total * sizeof(Gaussian);
@@ -963,7 +954,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		if (p_count == 0u) {
 			return p_offset == 0u;
 		}
-		return p_offset >= kHeaderSizeBytesV2 && fits_within(p_offset, uint64_t(p_count) * p_record, p_file_len);
+		return p_offset >= p_header.header_bytes && fits_within(p_offset, uint64_t(p_count) * p_record, p_file_len);
 	};
 	if (!table_fits(ext.node_table_offset, ext.node_count, gs_hlod::kNodeRecordBytes)) {
 		return refuse("node table out of range");
@@ -995,7 +986,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		if (first.bytes == 0u) {
 			continue;
 		}
-		if (first.offset < kHeaderSizeBytesV2) {
+		if (first.offset < p_header.header_bytes) {
 			return refuse(vformat("%s section overlaps the header", first.name));
 		}
 		for (size_t j = i + 1; j < std::size(sections); j++) {
@@ -1182,7 +1173,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 		Ref<StagedFileChunkPayloadSource> file_source;
 		file_source.instantiate();
 		file_source->configure(p_path, p_gaussian_offset, sh_count > 0u ? p_sh_offset : 0u, p_splat_count, p_sh_degree,
-				p_sh_first_order, p_sh_high_order, AABB(p_bounds_pos, p_bounds_size));
+				p_sh_first_order, p_sh_high_order, AABB(p_bounds_pos, p_bounds_size), p_recorded_layout);
 		if (!file_source->set_position_frames(frames)) {
 			return refuse("leaf position frames do not tile the payload");
 		}
@@ -1199,7 +1190,7 @@ static Ref<Resource> _load_gsplatworld_v2(const Ref<FileAccess> &p_file, const S
 	return world;
 }
 
-static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
+static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref<GaussianData> &p_gaussian_data,
 		const String &p_path, ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode p_mode) {
 	const GaussianSplatHlodTree &tree = p_world->get_hlod_tree();
 	ERR_FAIL_COND_V_MSG(!p_world->is_hlod_payload_current(), ERR_INVALID_DATA,
@@ -1309,7 +1300,7 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 	ext.node_count = tree.nodes.size();
 	ext.top_level_node_count = tree.top_level_nodes.size();
 	ext.instance_count = tree.instances.size();
-	const uint64_t gaussian_offset = kHeaderSizeBytesV2;
+	const uint64_t gaussian_offset = kHlodHeaderSizeBytes;
 	const uint64_t gaussian_stored = compressed_blob.is_empty() ? gaussian_bytes : 8u + uint64_t(compressed_blob.size());
 	const uint64_t sh_offset = gaussian_offset + gaussian_stored;
 	ext.node_table_offset = sh_offset + sh_bytes;
@@ -1337,34 +1328,36 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		file->store_32(sh_count_per);
 		_write_vec3(file, header_bounds.position);
 		_write_vec3(file, header_bounds.size);
-		file->store_32(0u); // chunk_count: v2 writes no chunk index lists
+		file->store_32(0u); // chunk_count: HLOD writes no chunk index lists
 		file->store_64(gaussian_offset);
 		file->store_64(sh_offset);
 		file->store_64(0u); // chunk_table_offset
 		file->store_64(0u); // indices_offset
 		file->store_64(metadata_offset);
 		file->store_64(metadata_bytes.size());
+		file->store_32(GAUSSIAN_STRUCT_LAYOUT_VERSION);
+		file->store_32(0u); // v3 reserved.
 		_write_hlod_extension(file, ext);
-		Error err = _ensure_file_write_ok(file, "save(v2 header)");
+		Error err = _ensure_file_write_ok(file, "save(v3 header)");
 		if (err != OK) {
 			return err;
 		}
 		if (!compressed_blob.is_empty()) {
 			file->store_64(compressed_blob.size());
-			err = _write_buffer_sliced(file, compressed_blob.ptr(), compressed_blob.size(), "save(v2 gaussians)");
+			err = _write_buffer_sliced(file, compressed_blob.ptr(), compressed_blob.size(), "save(v3 gaussians)");
 		} else {
-			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf.ptr()), uint64_t(leaf_count) * sizeof(Gaussian), "save(v2 leaves)");
+			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf.ptr()), uint64_t(leaf_count) * sizeof(Gaussian), "save(v3 leaves)");
 			if (err == OK && !interior.is_empty()) {
-				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior.ptr()), uint64_t(interior.size()) * sizeof(Gaussian), "save(v2 interior)");
+				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior.ptr()), uint64_t(interior.size()) * sizeof(Gaussian), "save(v3 interior)");
 			}
 		}
 		if (err != OK) {
 			return err;
 		}
 		if (sh_bytes > 0u) {
-			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf_sh.ptr()), uint64_t(leaf_sh.size()) * sizeof(Vector3), "save(v2 leaf SH)");
+			err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(leaf_sh.ptr()), uint64_t(leaf_sh.size()) * sizeof(Vector3), "save(v3 leaf SH)");
 			if (err == OK && !interior_sh.is_empty()) {
-				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior_sh.ptr()), uint64_t(interior_sh.size()) * sizeof(Vector3), "save(v2 interior SH)");
+				err = _write_buffer_sliced(file, reinterpret_cast<const uint8_t *>(interior_sh.ptr()), uint64_t(interior_sh.size()) * sizeof(Vector3), "save(v3 interior SH)");
 			}
 			if (err != OK) {
 				return err;
@@ -1379,14 +1372,14 @@ static Error _save_gsplatworld_v2(const GaussianSplatWorld *p_world, const Ref<G
 		for (uint32_t i = 0; i < tree.instances.size(); i++) {
 			_write_hlod_instance(file, tree.instances[i]);
 		}
-		err = _ensure_file_write_ok(file, "save(v2 tables)");
+		err = _ensure_file_write_ok(file, "save(v3 tables)");
 		if (err != OK) {
 			return err;
 		}
 		if (!metadata_bytes.is_empty()) {
 			file->store_buffer(metadata_bytes.ptr(), metadata_bytes.size());
 		}
-		return _ensure_file_write_ok(file, "save(v2 final)");
+		return _ensure_file_write_ok(file, "save(v3 final)");
 	});
 }
 
@@ -1411,7 +1404,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint64_t file_len = file->get_length();
-	if (file_len < kHeaderSizeBytes) {
+	if (file_len < kHeaderSizeBytesV1) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
@@ -1427,14 +1420,18 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != kWorldVersionV1 && version != kWorldVersion) {
+	const uint32_t flags = file->get_32();
+	gs_world_format::HeaderLayout header;
+	const Error header_error = gs_world_format::select_header(version, flags, file_len, header);
+	if (header_error != OK) {
+		if (version == gs_world_format::kVersionV2 && (flags & kFlagHasHlod) == 0u) {
+			ERR_PRINT(vformat("[GaussianSplatWorld] Refusing plain-v2 prototype %s. Re-export the world from its source with this build.", p_path));
+		}
 		if (r_error) {
-			*r_error = ERR_FILE_CORRUPT;
+			*r_error = header_error;
 		}
 		return Ref<Resource>();
 	}
-
-	const uint32_t flags = file->get_32();
 	const uint32_t splat_count = file->get_32();
 	const uint32_t sh_degree = file->get_32();
 	if (sh_degree > kMaxShDegree) {
@@ -1468,20 +1465,28 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	const uint64_t metadata_offset = file->get_64();
 	const uint64_t metadata_size = file->get_64();
 
-	if (version == kWorldVersion) {
-		return _load_gsplatworld_v2(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
-				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
-				metadata_offset, metadata_size, r_error, r_progress, p_force_resident);
+	// Legacy v1 and HLOD v2 use the historical layout. v3 records it explicitly.
+	const uint32_t recorded_layout = header.has_layout_word ? file->get_32() : GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED;
+	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT(vformat("[GaussianSplatWorld] Refusing to load %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
+				p_path, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
+		if (r_error) {
+			*r_error = ERR_FILE_UNRECOGNIZED;
+		}
+		return Ref<Resource>();
 	}
-	if ((flags & kFlagHasHlod) != 0u) {
-		// The HLOD flag is a v2 feature; a v1 file carrying it is corrupt or forged.
+	if (header.has_layout_word && file->get_32() != 0u) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
 		return Ref<Resource>();
 	}
-
-	if (gaussian_offset >= file_len || gaussian_offset < kHeaderSizeBytes) {
+	if (header.has_hlod) {
+		return _load_gsplatworld_hlod(file, p_path, file_len, flags, splat_count, sh_degree, sh_first_order, sh_high_order,
+				bounds_pos, bounds_size, chunk_count, gaussian_offset, sh_offset, chunk_table_offset, indices_offset,
+				metadata_offset, metadata_size, header, recorded_layout, r_error, r_progress, p_force_resident);
+	}
+	if (gaussian_offset > file_len || (splat_count > 0u && gaussian_offset == file_len) || gaussian_offset < header.header_bytes) {
 		if (r_error) {
 			*r_error = ERR_FILE_CORRUPT;
 		}
@@ -1569,7 +1574,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 					p_path, String::num_uint64(sh_count), splat_count, sh_high_order));
 			return Ref<Resource>();
 		}
-		if (!fits_within(sh_offset, sh_bytes, file_len)) {
+		if ((sh_bytes > 0u && sh_offset < header.header_bytes) || !fits_within(sh_offset, sh_bytes, file_len)) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
@@ -1579,13 +1584,13 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 
 	if ((flags & kFlagHasChunks) != 0 && chunk_count > 0) {
 		const uint64_t chunk_table_bytes = uint64_t(chunk_count) * 56u;
-		if (!fits_within(chunk_table_offset, chunk_table_bytes, file_len)) {
+		if (chunk_table_offset < header.header_bytes || !fits_within(chunk_table_offset, chunk_table_bytes, file_len)) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
 			return Ref<Resource>();
 		}
-		if (indices_offset >= file_len) {
+		if (indices_offset < header.header_bytes || indices_offset >= file_len) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
@@ -1594,7 +1599,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	}
 
 	if ((flags & kFlagHasMetadata) != 0 && metadata_size > 0) {
-		if (!fits_within(metadata_offset, metadata_size, file_len)) {
+		if (metadata_offset < header.header_bytes || !fits_within(metadata_offset, metadata_size, file_len)) {
 			if (r_error) {
 				*r_error = ERR_FILE_CORRUPT;
 			}
@@ -1838,7 +1843,7 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 		const uint64_t staged_sh_offset = ((flags & kFlagHasHighSh) != 0 && sh_high_order > 0) ? sh_offset : 0u;
 		file_source->configure(p_path, gaussian_offset, staged_sh_offset,
 				splat_count, sh_degree, sh_first_order, sh_high_order,
-				AABB(bounds_pos, bounds_size));
+				AABB(bounds_pos, bounds_size), recorded_layout);
 		world->set_chunk_payload_source(file_source);
 	}
 
@@ -1955,7 +1960,7 @@ Error ResourceFormatSaverGaussianSplatWorld::save_with_payload_mode(const Ref<Re
 	ERR_FAIL_COND_V_MSG(gaussian_data.is_null(), ERR_INVALID_DATA, "GaussianSplatWorld has no GaussianData.");
 
 	if (world->has_hlod_tree()) {
-		return _save_gsplatworld_v2(world, gaussian_data, p_path, p_mode);
+		return _save_gsplatworld_hlod(world, gaussian_data, p_path, p_mode);
 	}
 
 	const Vector<StaticChunk> &chunks = world->get_static_chunks();
