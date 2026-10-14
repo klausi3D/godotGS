@@ -4665,6 +4665,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4676,7 +4679,7 @@
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
 <p>Load and evict Gaussian splat chunks on demand so that datasets larger than available VRAM can be rendered without running out of memory. <code>GaussianStreamingSystem</code> manages an atlas of fixed-size GPU chunk slots, performing frustum culling, predictive prefetch, and distance-based LOD to keep the visible portion of a scene resident. The renderer creates and drives this system internally for <code>GaussianSplatWorld3D</code> submissions; scripts observe it through diagnostics (see <a href="#monitoring-streaming-performance">Monitoring</a>).</p>
 <h2 id="when-to-use-streaming">When to use streaming<a class="headerlink" href="#when-to-use-streaming" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Scenario</th>
@@ -4701,10 +4704,10 @@
 <td>Bake them into one <code>.gsplatworld</code> with the <a href="../../workflows/GSPLATWORLD_BAKE/">bake workflow</a> so one atlas shares VRAM across them.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="source-residency-model">Source residency model<a class="headerlink" href="#source-residency-model" title="Permanent link">¶</a></h2>
 <p>Streaming behavior depends on the format of the source asset:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Source</th>
@@ -4745,14 +4748,14 @@
 <td>Direct instance nodes always publish a resident submission hint.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>GaussianStreamingSystem</code> can run for any of these sources, but "streaming" usually means GPU residency and LOD management. Out-of-core source loading currently exists only for normal uncompressed <code>.gsplatworld</code> loads.</p>
 <p>Generic <code>ResourceSaver::save()</code> preserves streamability for source-backed worlds: a normal save/load/save round trip writes uncompressed <code>.gsplatworld</code> data and does not leave the in-memory resource materialized as resident <code>GaussianData</code>. Compressed output is a resident-only export choice because the current gzip payload has no random-access chunk blocks.</p>
 <p>Runtime diagnostics expose the actual payload mode separately from route policy. <code>GaussianSplatRenderer.get_render_stats()</code> (reach the renderer with <code>GaussianSplatWorld3D.get_renderer()</code>) includes <code>payload_mode</code>, <code>payload_streamable</code>, <code>payload_source_active</code>, <code>resident_payload_active</code>, and <code>payload_resident_only_reason</code>; a streaming route policy with a compressed world still reports <code>payload_mode = "resident_only"</code>.</p>
 <h2 id="upload-completion-contract">Upload completion contract<a class="headerlink" href="#upload-completion-contract" title="Permanent link">¶</a></h2>
 <p>Streaming chunks move through separate CPU and GPU states. A chunk may have a CPU-packed payload and an atlas slot reservation while <code>upload_pending=true</code>, but it is not renderable until the upload retirement ticket reaches <code>gpu_retired</code>. <code>is_loaded</code> and <code>gpu_resident</code> are the renderability signals; atlas metadata and visible buffer-space indices must ignore chunks that are still pending retirement.</p>
 <p>Completion modes are intentionally explicit:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Mode</th>
@@ -4773,7 +4776,7 @@
 <td>Reserved fallback name for paths where a timeline/fence API is not available and frame-delay retirement is used instead.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Pending uploads keep their atlas slots reserved until retirement or failure rollback. Diagnostics expose <code>pending_upload_reserved_bytes</code>, <code>pending_upload_reserved_slots</code>, <code>pending_upload_retirement_tickets</code>, <code>retired_upload_*_this_frame</code>, <code>failed_upload_retirements</code>, and <code>last_upload_completion_mode</code> so benchmark evidence cannot silently omit upload lifetime state.</p>
 <h2 id="enabling-streaming">Enabling streaming<a class="headerlink" href="#enabling-streaming" title="Permanent link">¶</a></h2>
 <p>There is <strong>no</strong> <code>streaming/enabled</code> project setting. An earlier revision of this page told
@@ -4786,7 +4789,7 @@ instruction could not be followed.</p>
 <code>rendering/gaussian_splatting/streaming/route_policy</code> selects the backend for <strong>world
 submissions only</strong>, and then only when the payload is actually streamable — see the
 residency table above.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Step</th>
@@ -4816,11 +4819,11 @@ residency table above.</p>
 <td><code>GaussianSplatRenderer::get_render_stats</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>You do not call <code>GaussianStreamingSystem.initialize()</code> or <code>update_streaming()</code> yourself: the renderer owns and drives the streaming system for world submissions. Those methods are bound, but a <code>GaussianStreamingSystem</code> you create with <code>.new()</code> is not connected to any renderer and draws nothing.</p>
 <h2 id="vram-budget-configuration">VRAM budget configuration<a class="headerlink" href="#vram-budget-configuration" title="Permanent link">¶</a></h2>
 <p>The streaming system keeps resident chunks in one GPU atlas buffer, allocated in pages of <code>ATLAS_PAGE_SPLATS</code> (1 024) splats. Each resident chunk owns one contiguous run of <code>ceil(count / 1024)</code> pages, so atlas memory follows the resident splats rather than the chunk count (a chunk holds at most <code>CHUNK_SIZE</code>, 65 536, splats). The atlas buffer, including its growth, is clamped to <code>rendering/gaussian_splatting/streaming/vram_budget_mb</code> in bytes. <code>max_chunks_in_vram</code> stays a resident-chunk-count backstop. When no free run fits an incoming chunk, admission evicts least-recently-used chunks until one does, at most <code>max_evictions_per_frame</code> per frame; a chunk that is on screen is only evicted when that eviction alone makes the incoming chunk fit. The VRAM regulator steers atlas occupancy to the atlas ceiling minus one full-size chunk of headroom, so the budget can actually be filled (#1088). Budget limits can be configured globally or per quality tier.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Project setting</th>
@@ -4861,11 +4864,11 @@ residency table above.</p>
 <td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 </tbody>
-</table>
-<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/012960050d29427bd00a42e1cd86840806d6bf5c/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
+</table></div>
+<p>Quality tier presets (<code>rendering/gaussian_splatting/quality/tier_preset</code>) override streaming budgets when <code>tier_apply_streaming_budgets</code> is enabled. See <a href="https://github.com/klausi3D/godotGS/blob/f251a5968e9fa83e061f29920f1b96369dc77ae1/modules/gaussian_splatting/core/quality_tier_config.h">quality_tier_config.h</a> for tier-specific values.</p>
 <h2 id="chunk-lod-behavior">Chunk LOD behavior<a class="headerlink" href="#chunk-lod-behavior" title="Permanent link">¶</a></h2>
 <p>Chunks transition between LOD levels based on distance from the camera. The system uses an Octree-GS-inspired approach that reduces the SH band level and raises the splat skip factor as distance grows. What the GPU draw path actually honours is listed per parameter below.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Per-chunk LOD parameter</th>
@@ -4895,12 +4898,12 @@ residency table above.</p>
 <td><code>StreamingVisibilityController::update_chunk_lod_parameters</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The strided variants <code>GaussianStreamingSystem::get_visible_gaussians()</code> and <code>get_visible_indices()</code> (every Nth splat, with opacity fade) exist in C++ but have no callers; they do not describe what is rendered.</p>
 <p>LOD blending is configured through project settings, read by <code>LODBlendConfig::load_from_project_settings</code> when the streaming configuration reloads: <code>rendering/gaussian_splatting/lod/blend_enabled</code> (default <code>true</code>) and <code>rendering/gaussian_splatting/lod/blend_distance</code> (default <code>5.0</code>). <code>GaussianStreamingSystem::set_lod_blend_enabled()</code> and <code>set_lod_blend_distance()</code> are inline C++ helpers only; they are not bound and cannot be called from GDScript.</p>
 <h2 id="predictive-prefetch">Predictive prefetch<a class="headerlink" href="#predictive-prefetch" title="Permanent link">¶</a></h2>
 <p>When the camera is in motion, the system predicts where the camera will be and begins loading chunks ahead of time.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Project setting</th>
@@ -4929,7 +4932,7 @@ residency table above.</p>
 <td><code>GaussianSplatManager::initialize_module</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="monitoring-streaming-performance">Monitoring streaming performance<a class="headerlink" href="#monitoring-streaming-performance" title="Permanent link">¶</a></h2>
 <h3 id="gdscript-queries">GDScript queries<a class="headerlink" href="#gdscript-queries" title="Permanent link">¶</a></h3>
 <p>No bound API returns the <code>GaussianStreamingSystem</code> that a renderer uses (there is no <code>get_streaming_system()</code>). Scripts read the live system through two bound surfaces:</p>
@@ -4974,7 +4977,7 @@ residency table above.</p>
 </code></pre></div>
 <h3 id="gaussianstreamingsystem-methods-standalone-instances-only"><code>GaussianStreamingSystem</code> methods (standalone instances only)<a class="headerlink" href="#gaussianstreamingsystem-methods-standalone-instances-only" title="Permanent link">¶</a></h3>
 <p>These methods are bound on <code>GaussianStreamingSystem</code>, but because no bound API hands out the renderer's instance, they only apply to an instance you create yourself. Such an instance is not connected to a renderer. For the live system, use the monitors above.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -5051,9 +5054,9 @@ residency table above.</p>
 <td><code>GaussianStreamingSystem::is_vram_budget_warning_active</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Symptom</th>
@@ -5100,7 +5103,7 @@ residency table above.</p>
 <td><code>LODBlendConfig::load_from_project_settings</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 
 
 
@@ -5121,7 +5124,7 @@ residency table above.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:22 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:24 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5135,6 +5138,8 @@ residency table above.</p>
 
 
                 
+  
+
               </article>
             </div>
           

@@ -4633,6 +4633,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4646,7 +4649,7 @@
 <p>The tables below are checked against the <code>GaussianSplatNode3D::_bind_methods()</code> bindings and <code>modules/gaussian_splatting/doc_classes/GaussianSplatNode3D.xml</code>; the generated <a href="../gdscript_reference/">GDScript reference</a> and the class reference in the editor are the authoritative member lists. Grouped property names such as <code>rendering/opacity</code> are single names that contain a <code>/</code>: set them with the listed setter or with <code>set("rendering/opacity", value)</code>, not with dot access.</p>
 <p>A <code>GaussianSplatNode3D</code> is always resident (it never streams; see <a href="../../features/streaming/#enabling-streaming">Streaming</a>). Nodes in the same <code>World3D</code> share one renderer; when a renderer is shared with other content, per-node painterly settings are not applied (<code>_is_renderer_shared_with_other_content()</code> in <code>modules/gaussian_splatting/nodes/gaussian_splat_node_3d.cpp</code>).</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Task</th>
@@ -4681,11 +4684,11 @@
       <td><code>GaussianSplatNode3D::get_visible_splat_count</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <h3 id="enums">Enums<a class="headerlink" href="#enums" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Enum</th>
@@ -4710,10 +4713,10 @@
       <td><code>GaussianSplatNode3D::DebugDrawMode</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 <h3 id="properties">Properties<a class="headerlink" href="#properties" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Inspector path</th>
@@ -4998,7 +5001,7 @@
       <td><code>GaussianSplatNodeDebugHelper::set_show_residency_hud</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 <h2 id="runtime-effect-workflow">Runtime Effect Workflow<a class="headerlink" href="#runtime-effect-workflow" title="Permanent link">¶</a></h2>
 <p>The current branch exposes a scene-driven-plus-per-node workflow for gameplay effects:</p>
@@ -5035,7 +5038,7 @@
 </ul>
 <p>See also: <a href="../sphere_effector_workflow/">Sphere Effector Workflow</a>.</p>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Method</th>
@@ -5155,10 +5158,10 @@
       <td><code>GaussianSplatNode3D::set_use_occlusion_culling</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 <h3 id="signals">Signals<a class="headerlink" href="#signals" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Signal</th>
@@ -5183,7 +5186,7 @@
       <td><code>GaussianSplatNode3D::_bind_methods</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
 <p>Both examples expect a <code>GaussianSplatNode3D</code> child named <code>GaussianSplatNode3D</code>. The first one loads an imported asset: <code>load()</code> on a <code>.ply</code> returns the <code>GaussianSplatAsset</code> that the editor import produced.</p>
@@ -5212,7 +5215,7 @@
 <span class="w">    </span><span class="n">splat</span><span class="o">.</span><span class="n">update_splats</span><span class="p">()</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
   <thead>
     <tr>
       <th>Problem</th>
@@ -5232,7 +5235,7 @@
       <td><code>GaussianSplatNode3D::set_splat_data</code></td>
     </tr>
   </tbody>
-</table>
+</table></div>
 
 
 
@@ -5253,7 +5256,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:12 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:15 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5267,6 +5270,8 @@
 
 
                 
+  
+
               </article>
             </div>
           

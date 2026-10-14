@@ -3244,6 +3244,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#layout-and-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout and Components
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#before-you-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4458,6 +4469,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#layout-and-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout and Components
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#before-you-publish" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4574,6 +4596,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4592,7 +4617,7 @@ how the page names things in the code. The home page, <code>docs/index.md</code>
 Get Started row. Any other page missing from <code>docs/.pages</code>, such as the internal
 pages under <code>not_in_nav</code> in <code>mkdocs.yml</code> (for example <code>docs/architecture/</code> specs
 and <code>docs/programs/</code>), follows the Contributing row unless it is a report.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Tab</th>
@@ -4622,7 +4647,7 @@ and <code>docs/programs/</code>), follows the Contributing row unless it is a re
 <td><code>file:line</code> pinned to a commit SHA, such as <code>modules/gaussian_splatting/register_types.cpp:93</code> at <code>dbc0f49aa8b</code>.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Line numbers change on unrelated edits, so a <code>file:line</code> on a published page goes
 stale without anyone touching the page.</p>
 <p>Every claim is checked against the code in your change's resulting tree, whatever
@@ -4662,7 +4687,7 @@ the change. A UI label is checked against the property it shows (<code>ADD_GROUP
 <li><strong>Keep internal vocabulary on Contributing pages and in reports.</strong> On other
     pages, name the thing itself: "the Windows build", not "the Windows lane".</li>
 </ol>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Term</th>
@@ -4687,9 +4712,45 @@ the change. A UI label is checked against the property it shows (<code>ADD_GROUP
 <td>A required check that blocks a merge or a release, such as <code>agentic-pr-gate</code> or the renderer release gate.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
+<h2 id="layout-and-components">Layout and Components<a class="headerlink" href="#layout-and-components" title="Permanent link">¶</a></h2>
+<p>The Material theme uses the shared <code>--gs-*</code> tokens in
+<code>docs/assets/styles/brand.css</code> and component rules in
+<code>docs/assets/styles/components.css</code>. Keep the existing fonts, palettes and brand.
+Change a shared token or component rule before adding a page-specific override.</p>
+<ul>
+<li>Normal documentation uses the body and H1–H3 tokens. Landing heroes own their
+  larger display scale. At Material's 20 px root, body copy is 17 px and normal
+  H1, H2 and H3 headings are 32, 25 and 21 px; these are CSS sizes before browser
+  zoom, not fixed device-pixel sizes.</li>
+<li>Prose, lists, callouts, figures and code blocks stay within <code>--gs-measure</code>.
+  Reference tables may use the available article width between the navigation
+  rails. Keep guide lines short even when the page contains a wide inventory.</li>
+<li>Use a small overview for navigation and put explanations in adjacent sections.
+  Reserve tables for information that readers compare across rows and columns.
+  Use navigation cards when their descriptions help readers choose a destination.</li>
+<li>Table identifiers may wrap, but keep useful fragments with
+  <code>--gs-table-cell-measure</code>. Do not reduce table type to fit more columns, truncate
+  identifiers or apply <code>white-space: nowrap</code> to every code token. Keep code-block
+  whitespace intact and let long lines scroll within the block.</li>
+<li>Dense inventories can still require horizontal scrolling inside the
+  <code>.gs-table-scroll</code> group supplied by <code>overrides/main.html</code>. It preserves
+  Material's content and adds keyboard access without page-specific markup or
+  JavaScript. Retain its edge shadows, scrollbar and inset keyboard-focus
+  outline. The five-column node Properties inventory and the generated Project
+  Settings inventories are expected examples; they must never widen the page.</li>
+<li>Preserve source links, heading permalinks, search, code copy and keyboard
+  navigation. Check light/dark palettes, visible focus and reduced motion.</li>
+</ul>
+<p>Check the rendered site, not just the Markdown or a successful build. Use Your
+First Splat, Color Grading Quick Start, GaussianSplatNode3D, Project Settings,
+Architecture Overview and Troubleshooting as the layout pilot. Check desktop,
+narrow and mobile widths in both palettes, including 200% browser zoom; confirm
+that headings wrap, components do not overlap, focus is not clipped and only
+table/code containers scroll horizontally. Keep review captures and computed-size
+reports outside the repository unless they are requested publication assets.</p>
 <h2 id="before-you-publish">Before You Publish<a class="headerlink" href="#before-you-publish" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Step</th>
@@ -4719,9 +4780,9 @@ the change. A UI label is checked against the property it shows (<code>ADD_GROUP
 <td><code>docs/development/docs-site.md</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Rule area</th>
@@ -4766,7 +4827,7 @@ the change. A UI label is checked against the property it shows (<code>ADD_GROUP
 <td><code>validate_link()</code> in <code>scripts/docs/check_links.py</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="checked-examples-and-api-references">Checked Examples and API References<a class="headerlink" href="#checked-examples-and-api-references" title="Permanent link">¶</a></h2>
 <p><code>tests/ci/check_doc_snippets.py</code> runs on every pull request and checks <code>docs/</code> against the module's ClassDB bindings (<code>_bind_*</code> bodies and <code>register_types.cpp</code>):</p>
 <ul>
@@ -4787,7 +4848,7 @@ rg<span class="w"> </span>-n<span class="w"> </span><span class="s2">"GDREGISTER
 python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </span>docs<span class="w"> </span>README.md<span class="w"> </span>BUILDING.md<span class="w"> </span>CONTRIBUTING.md<span class="w"> </span>AGENTS.md<span class="w"> </span>CLAUDE.md
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Symptom</th>
@@ -4827,7 +4888,7 @@ python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </spa
 <td>Run <code>python3 scripts/build_documentation.py --all --no-engine-patch</code> and commit the files the <code>docs-build</code> log lists as stale.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 
 
 
@@ -4848,7 +4909,7 @@ python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </spa
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:28 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:28 UTC">October 14, 2026</span>
   </span>
 
     
@@ -4862,6 +4923,8 @@ python3<span class="w"> </span>scripts/docs/check_links.py<span class="w"> </spa
 
 
                 
+  
+
               </article>
             </div>
           

@@ -4664,6 +4664,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4696,7 +4699,7 @@ threshold was lowered</strong>; the scope moved to meet the gate.</p>
 <p>This sets the height of everything else. Where a decision below looks expensive,
 that is the intent being honoured, not scope creep.</p>
 <h2 id="2-supported-platforms">2. Supported platforms<a class="headerlink" href="#2-supported-platforms" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Platform</th>
@@ -4721,7 +4724,7 @@ that is the intent being honoured, not scope creep.</p>
 <td>Explicitly disclosed as unvalidated.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Rungs are the ladder in
 <a href="../../reference/compatibility-matrix/"><code>docs/reference/compatibility-matrix.md</code></a>.</p>
 <p>Linux at <code>editor-tested</code> is <strong>not</strong> satisfied by the current CI: the Linux lane
@@ -4886,7 +4889,7 @@ envelope and <em>is</em> reproduced engages that rule head-on, and may stand onl
 the narrow exception §10.1 states, with all four of its conditions met. Such a
 row must say so in its <code>Why it does not block</code> cell, so the two sections cannot
 drift apart. Exactly one row does that today: <code>#929 residual</code>.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Issue</th>
@@ -4921,7 +4924,7 @@ drift apart. Exactly one row does that today: <code>#929 residual</code>.</p>
 <td><code>use_taa = false</code> — Godot's own default — for content with a moving camera. <strong>FSR2 needs no workaround at either scale</strong>, and neither does a still camera.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Holding an issue open for a defect we do not own would put it in the §4 blocker
 query, which would block the release on someone else's repository. That is why</p>
 <h1 id="928-was-closed-by-988-with-the-boundary-stated-in-both-directions-rather-than">928 was closed by #988 with the boundary stated in both directions rather than<a class="headerlink" href="#928-was-closed-by-988-with-the-boundary-stated-in-both-directions-rather-than" title="Permanent link">¶</a></h1>
@@ -4957,7 +4960,7 @@ separately (<code>--candidate-evidence</code>, <code>--issues-json</code>) and t
 are the same file: "an issue snapshot embedded in the candidate evidence cannot certify
 its own blocker set".</p>
 <p><strong>Top-level fields of the evidence bundle:</strong></p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Field</th>
@@ -5002,7 +5005,7 @@ its own blocker set".</p>
 <td>proof rows for manifest-tracked blockers that are now closed</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Ten artifact groups</strong>, each requiring <code>path</code>, <code>sha256</code>, <code>godot_binary_commit</code> and
 <code>godot_binary_mtime_utc</code>: <code>linux_release_archive</code>, <code>windows_release_archive</code>,
 <code>runtime_validation_report</code>, <code>gpu_harness_report</code>, <code>production_evidence_summary</code>,
@@ -5106,7 +5109,7 @@ that is easiest to get wrong, so it is stated as the validator behaves rather th
 field names suggest. The population is every <strong>open</strong> issue carrying <code>priority:P0</code>,
 <code>priority:P1</code> or <code>release blocker</code> (<code>classification_labels_any</code>, manifest <code>:26-30</code>). For
 each, exactly one outcome passes:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Classification</th>
@@ -5131,7 +5134,7 @@ each, exactly one outcome passes:</p>
 <td>passes, if it carries a non-empty <code>evidence_required</code>, and for an accepted limitation a <code>docs_path</code> string-equal to <code>known_limitations_page</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>So <code>issue_classifications</code> in the bundle cannot admit anything the manifest has not already
 admitted. <strong>The only two passing routes for an open relevant issue are: close it, or add it
 to the manifest ledger — an R3 edit needing an ADR, two reviews and CODEOWNER approval.</strong></p>
@@ -5184,7 +5187,7 @@ what §11 says it means. #1025 was in this list until 2026-09-19, when it was gi
 <h2 id="10-public-alpha-the-reduced-bar">10. Public Alpha — the reduced bar<a class="headerlink" href="#10-public-alpha-the-reduced-bar" title="Permanent link">¶</a></h2>
 <p>The alpha exists so that design errors are found early by users rather than late
 by us, while the v1.0 program is still being built.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th></th>
@@ -5229,7 +5232,7 @@ by us, while the v1.0 program is still being built.</p>
 <td>—</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The real-scan visual pass is required at <strong>both</strong> stages. An alpha may ship with
 gaps; it may not ship with splats missing under its own default settings.</p>
 <p><strong>Two rows of that table changed on 2026-09-17 (#1016), and both were wrong before rather
@@ -5677,7 +5680,7 @@ re-triaged; they were v1.0 items that the envelope change brought inside §4.1. 
 listed unranked, in a table rather than continuing the numbering above, because their
 severity against items 1–10 has not been assessed — and because a continued ordered list
 renumbers itself from 1 on the docs site.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Item</th>
@@ -5702,7 +5705,7 @@ renumbers itself from 1 on the docs site.</p>
 <td>The <strong>50M chunked open-world asset</strong> must become a passing lane, not a contract.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Streaming's QA coverage is entirely switched off.</strong> All four streaming QA scenes are
 quarantined at <code>tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84</code>:
 <code>qa_stream_visual_smoke</code> (#786), <code>qa_stream_multi_asset</code> ("until the runtime surface can
@@ -5789,7 +5792,7 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:25 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:26 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5803,6 +5806,8 @@ under §8 a doc asserting behaviour the code no longer has is itself a defect.</
 
 
                 
+  
+
               </article>
             </div>
           

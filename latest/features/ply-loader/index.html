@@ -4454,6 +4454,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4471,7 +4474,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
 <p>Load and inspect Gaussian PLY data with <code>PLYLoader</code>, or load and save PLY through <code>GaussianData</code>.</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Step</th>
@@ -4501,10 +4504,10 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>ResourceImporterPLY::get_importer_name</code>, <code>ResourceImporterPLY::get_resource_type</code>, <code>ResourceImporterPLY::get_save_extension</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">¶</a></h2>
 <p>Only the methods below are callable from GDScript. <code>PLYLoader::get_property_deficiencies()</code> and <code>PLYLoader::get_property_summary()</code> exist in C++ but are <strong>not</strong> bound; from a script, use <code>has_property()</code> and <code>get_property_names()</code> instead (see the example below).</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>API</th>
@@ -4557,8 +4560,8 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>PLYLoader::get_splat_count</code>, <code>PLYLoader::get_gaussian_data</code></td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>PLY property set</th>
@@ -4617,8 +4620,8 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>PLYLoader::assemble_sh_coefficients</code></td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Format path</th>
@@ -4647,8 +4650,8 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>PLYLoader::parse_header</code>, <code>PLYLoader::read_float_property</code></td>
 </tr>
 </tbody>
-</table>
-<table>
+</table></div>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Import option</th>
@@ -4695,7 +4698,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>ResourceImporterPLY::import</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">¶</a></h2>
 <p>Both examples are complete scripts. Attach one to a <code>Node</code> and point the path at a PLY in your project.</p>
 <div class="highlight"><pre><span></span><code><span class="k">extends</span><span class="w"> </span><span class="n">Node</span>
@@ -4749,7 +4752,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"Has normals (2D mode): "</span><span class="p">,</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"nx"</span><span class="p">)</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"ny"</span><span class="p">)</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">loader</span><span class="o">.</span><span class="n">has_property</span><span class="p">(</span><span class="s2">"nz"</span><span class="p">))</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Symptom</th>
@@ -4790,7 +4793,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 <td><code>_is_ply_cache_enabled()</code> in <code>modules/gaussian_splatting/io/ply_loader.cpp</code>, <code>PLYLoader::try_load_cache</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 
 
 
@@ -4811,7 +4814,7 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:22 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:24 UTC">October 14, 2026</span>
   </span>
 
     
@@ -4825,6 +4828,8 @@ It complements the canonical <a href="../../workflows/importing/">Gaussian Splat
 
 
                 
+  
+
               </article>
             </div>
           

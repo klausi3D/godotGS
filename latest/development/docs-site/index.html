@@ -4696,6 +4696,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4707,7 +4710,7 @@
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">¶</a></h2>
 <p>Define the GitHub Pages publication pipeline for versioned Gaussian Splatting documentation.</p>
 <h2 id="stack">Stack<a class="headerlink" href="#stack" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Component</th>
@@ -4740,10 +4743,10 @@
 <td><code>docs/.pages</code> via <code>mkdocs-awesome-nav</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Canonical site URL defaults to <code>https://klausi3d.github.io/godotGS/</code> and can be overridden for forks or custom domains with <code>DOCS_SITE_URL</code>.</p>
 <h2 id="versioning-model">Versioning Model<a class="headerlink" href="#versioning-model" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Source ref</th>
@@ -4760,7 +4763,7 @@
 <td><code>/&lt;tag&gt;/</code> (for example <code>/v1.2.0/</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Default root points to <code>latest</code> via <code>mike set-default latest</code>.</p>
 <p>Repository setting requirement:</p>
 <ul>
@@ -4914,7 +4917,7 @@ staged copy, so it is neither published nor searchable. The list is
 <code>DEFAULT_EXCLUSIONS</code> in that script, with the reason for each entry next to it.
 Patterns are paths relative to <code>docs/</code>, matched on whole path components: a
 directory excludes everything beneath it, and a <code>**/</code> prefix matches at any depth.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Excluded</th>
@@ -4963,7 +4966,7 @@ directory excludes everything beneath it, and a <code>**/</code> prefix matches 
 <td>Unimplemented spec; no cluster-culling code exists.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The files stay in the repository. Excluding at stage time, and not with the MkDocs
 <code>exclude_docs</code> option, keeps inbound links working: a relative link from a
 published page to a file that was not staged is rewritten to a GitHub <code>blob</code>/<code>tree</code>
@@ -5010,7 +5013,7 @@ installed locally, <code>build_documentation.py</code> skips this step.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:21 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:22 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5024,6 +5027,8 @@ installed locally, <code>build_documentation.py</code> skips this step.</p>
 
 
                 
+  
+
               </article>
             </div>
           

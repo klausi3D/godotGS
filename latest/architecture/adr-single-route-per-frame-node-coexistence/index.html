@@ -4496,6 +4496,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4629,7 +4632,7 @@ log most users never open" is not a diagnosable outcome.</p>
 <h2 id="2-citation-audit-what-had-drifted">2. Citation audit — what had drifted<a class="headerlink" href="#2-citation-audit-what-had-drifted" title="Permanent link">¶</a></h2>
 <p>The issue's mechanism paragraph was written against an earlier tree. Re-checked at
 <code>a04472a82cf</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Claim in #788</th>
@@ -4670,7 +4673,7 @@ log most users never open" is not a diagnosable outcome.</p>
 <td><strong>both confirmed verbatim</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>One claim is <strong>not</strong> merely drifted but <strong>imprecise</strong>, and the correction changes what a fix
 has to handle — see §3.2.</p>
 <h3 id="21-pr-854-issue-785-open-at-the-anchor-merged-at-current-master">2.1 PR #854 (issue #785) — open at the anchor, merged at current master<a class="headerlink" href="#21-pr-854-issue-785-open-at-the-anchor-merged-at-current-master" title="Permanent link">¶</a></h3>
@@ -4977,7 +4980,7 @@ warn on N       ≡   WOULD_STEER(N)
   re-deriving §6.4 in full</strong> — see the rules under "The table is coupled to the predicate".</p>
 <p>Every conjunct is a mirror of a guard on the path that actually produces the submission, and
   is listed here with that guard. Nothing is in the predicate that is not:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Conjunct</th>
@@ -5012,7 +5015,7 @@ warn on N       ≡   WOULD_STEER(N)
 <td><strong>constant true</strong> — the class has no apply gate (below)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong><code>registered_scenario(N)</code> (S) is the scenario the node last registered into, not the one it
   resolves now — and that distinction is the round-4 correction.</strong> It is the node's existing
   <code>last_known_scenario</code> cache (<code>nodes/gaussian_splat_world_3d.h:27</code>,
@@ -5038,7 +5041,7 @@ warn on N       ≡   WOULD_STEER(N)
   <code>last_known_scenario</code> is "written only inside <code>_register_shared_renderer()</code>". That is
   <strong>false on the world node</strong>, and the omission invalidated two rows of §6.4. The complete
   list, read at <code>c73570c840f</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Class</th>
@@ -5067,7 +5070,7 @@ warn on N       ≡   WOULD_STEER(N)
 <td><code>_notification_enter_world()</code> <code>:383</code> → <code>_register_shared_renderer()</code> <code>:2903</code>, and only past that function's own no-data early-return at <code>:2897-2901</code> and this one's asset-null early-return at <code>:2607-2609</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Both classes clear it only at <code>NOTIFICATION_PREDELETE</code>
   (<code>nodes/gaussian_splat_world_3d.cpp:186</code>, <code>nodes/gaussian_splat_node_3d.cpp:519</code>).</p>
 <p><strong>S is never stale in the direction that produces a false positive <em>except</em> in the one state
@@ -5362,7 +5365,7 @@ time, changes the key.</p>
 <p><strong>Why the text no longer prescribes a repair procedure at all — the round-11 decision.</strong> Three
 successive revisions of this section each named a workaround, each verified it by reading the
 path before writing it, and each was found incomplete by the next round of review:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Round</th>
@@ -5387,7 +5390,7 @@ path before writing it, and each was found incomplete by the next round of revie
 <td>The re-apply migrates the submission and <strong>not</strong> the node's renderer, so the warning clears while the node still draws nothing (#870)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The round-6 verification was not wrong, and it is kept here because #863's entry in §9 depends
 on it: <code>apply_world()</code> (<code>:301</code>) → <code>_apply_world_internal()</code> (<code>:417</code>) →
 <code>_register_shared_renderer()</code> (<code>:452</code>) resolves the <strong>new</strong> scenario at <code>:488</code> and republishes
@@ -5569,7 +5572,7 @@ writes a conjunct of §6.1's predicate.</strong></p>
 </blockquote>
 <p>Where the rule binds, derived by intersecting each site's statements with §6.1's enumerated
 conjunct write sites (rule 5 of §6.4) rather than judged site by site:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Trigger site</th>
@@ -5614,7 +5617,7 @@ conjunct write sites (rule 5 of §6.4) rather than judged site by site:</p>
 <td>Already discharged above: P reads the <em>resource</em>, which the emitter updates before emitting (<code>core/gaussian_splat_world.cpp:108</code> → <code>:120</code>), and the S rewrite is to the value S already holds in every state §6.4 constructs</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Why one rule and not four widened RED sets.</strong> A widened RED set records an ambiguity; a stated
 placement removes it. Each of the four binding rows above is an attribution that held only under
 a placement this section never stated, so widening would have meant four rows carrying REDs an
@@ -5622,7 +5625,7 @@ implementer avoids entirely by writing the call one line lower. The rule also di
 question for trigger sites this ADR has not thought of yet, which a list of REDs cannot.</p>
 <p>Call the helper, plus a deferred <code>update_configuration_warnings()</code> on self, from — and, per
 "Triggers deliberately omitted" below, <strong>only</strong> from:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Trigger</th>
@@ -5651,7 +5654,7 @@ question for trigger sites this ADR has not thought of yet, which a list of REDs
 <td>already covered on self: <code>set_splat_asset()</code> connects the asset's <code>changed</code> (<code>:730-733</code>) and <code>_on_asset_changed()</code> calls <code>update_configuration_warnings()</code> (<code>:2969</code>) — add the <em>peer</em> notification there. <code>GaussianSplatAsset::set_positions()</code> (<code>core/gaussian_splat_asset.cpp:876</code>) sets <code>splat_count</code> at <code>:885</code> and emits <code>changed</code> at <code>:895</code>; <code>set_splat_count()</code> (<code>:308</code>) emits at <code>:326</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The last row exists <strong>because</strong> the predicate reads a count (P, §6.1) rather than a
 non-null <code>Ref</code>. A resource that is assigned while empty and populated later — an import that
 completes, a <code>set_positions()</code> call, a streamed world payload — flips the answer with no
@@ -5780,7 +5783,7 @@ contains all three of <code>"GaussianSplatWorld3D"</code>, <code>"GaussianSplatN
 otherwise the pre-existing "No Gaussian splat asset..." warning could satisfy it.</p>
 <p>Every case below names the mutation that must turn it RED. A control whose mutation is not
 recorded is not a control — it is a case that happens to be green.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -5960,7 +5963,7 @@ recorded is not a control — it is a case that happens to be green.</p>
 <td>(a) <strong>omitting the peer notification added at <code>:827</code></strong> — the world-node entry disappears; (b) <strong>dropping conjunct P entirely</strong> — <code>_unregister_shared_renderer()</code> does not clear <code>last_known_scenario</code> (it moves only at <code>:2624</code> and <code>:519</code>), so after the failure the instance node is R1 ✓ R2 ✓ S ✓ I ✓ P ✗, and the mutant keeps it qualifying where T18 requires the warning gone. <strong>GREEN under "weaken P on the instance side to <code>splat_asset.is_valid()</code>":</strong> the failure branch's <code>_reset_manual_splat_state()</code> has already unref'd <code>splat_asset</code>, so the mutant agrees with the real answer by accident. <strong>Lane constraint:</strong> as T17</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>T9, T9b, T10, T10b, T11, T12, T13, T14, T15, T16, T17 and T18 need a signal observer, not a
 getter.</strong>
 <code>get_configuration_warnings()</code> recomputes from the groups and from the live resources on every
@@ -6446,7 +6449,7 @@ see rule 4 above. <code>T1 GREEN</code> is implied by every row except the first
 where the mutation could plausibly take it down. <strong>The first row is the one deliberate
 exception:</strong> it is a broad, Run-A-class mutation kept because T2 and T3 have no narrow kill, and
 it attributes nothing on its own.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Mutation</th>
@@ -6601,7 +6604,7 @@ it attributes nothing on its own.</p>
 <td>T18 is the only case that drives that branch, and no other refresh covers it: the branch returns at <code>:828</code> before <code>:1063</code>, and <code>_on_asset_changed()</code> is not on this path. T17 stays GREEN for the mirror reason</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Deliberately unkilled — cases no single-conjunct mutation reaches, and mandated wiring no case
 can observe.</strong> Listing them is a result, not an omission (rule 4 above):</p>
 <ul>
@@ -6999,7 +7002,7 @@ revision deletes the claim instead of replacing it.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:16 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:19 UTC">October 14, 2026</span>
   </span>
 
     
@@ -7013,6 +7016,8 @@ revision deletes the claim instead of replacing it.</p>
 
 
                 
+  
+
               </article>
             </div>
           

@@ -4711,6 +4711,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4732,7 +4735,7 @@
 </div>
 <h2 id="animation-system-overview">Animation system overview<a class="headerlink" href="#animation-system-overview" title="Permanent link">¶</a></h2>
 <p><code>GaussianAnimationStateMachine</code> is a <code>Resource</code>-derived class that holds animation clips, tracks, and keyframes. Each clip contains one or more tracks, and each track targets a specific <code>AnimationProperty</code>. Keyframes store timed values with an interpolation type. A keyframe value is either one value for every splat, or a packed array with one entry per splat (for example a <code>PackedVector3Array</code> for positions).</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Concept</th>
@@ -4767,7 +4770,7 @@
 <td><code>GaussianSplatting::KeyframeInterpolator</code>, <code>GaussianSplatting::InterpolationType</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="setting-up-animation-clips">Setting up animation clips<a class="headerlink" href="#setting-up-animation-clips" title="Permanent link">¶</a></h2>
 <h3 id="create-a-clip-and-add-tracks">Create a clip and add tracks<a class="headerlink" href="#create-a-clip-and-add-tracks" title="Permanent link">¶</a></h3>
 <p>This is a complete script. Attach it to a <code>Node</code> and point the path at a PLY in your project.</p>
@@ -4819,7 +4822,7 @@
 <span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="n">Engine</span><span class="o">.</span><span class="n">get_process_frames</span><span class="p">()</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">60</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="p">:</span>
 <span class="w">        </span><span class="nb">print</span><span class="p">(</span><span class="s2">"t=</span><span class="si">%.2f</span><span class="s2"> splat0 position=</span><span class="si">%s</span><span class="s2"> opacity=</span><span class="si">%.2f</span><span class="s2">"</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="p">[</span><span class="n">anim</span><span class="o">.</span><span class="n">get_current_time</span><span class="p">(),</span><span class="w"> </span><span class="n">pos</span><span class="p">,</span><span class="w"> </span><span class="n">opacity</span><span class="p">])</span>
 </code></pre></div>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -4864,9 +4867,9 @@
 <td><code>GaussianAnimationStateMachine::set_splat_count</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h3 id="keyframes">Keyframes<a class="headerlink" href="#keyframes" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -4906,10 +4909,10 @@
 <td><code>GaussianAnimationStateMachine::get_keyframe_value</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h3 id="interpolation-types">Interpolation types<a class="headerlink" href="#interpolation-types" title="Permanent link">¶</a></h3>
 <p>Keyframe interpolation is determined by the <code>InterpolationType</code> stored with each keyframe. From GDScript only <code>LINEAR</code> (<code>add_keyframe()</code>) and <code>CUBIC_BEZIER</code> (<code>add_keyframe_bezier()</code>) can be created; the other types are reachable from C++ only.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Type</th>
@@ -4944,10 +4947,10 @@
 <td><code>KeyframeInterpolator::smoother_step</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="playback-and-blending">Playback and blending<a class="headerlink" href="#playback-and-blending" title="Permanent link">¶</a></h2>
 <h3 id="playback-control">Playback control<a class="headerlink" href="#playback-control" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -4997,14 +5000,14 @@
 <td><code>GaussianAnimationStateMachine::get_current_time</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>GaussianData.update_animation(delta)</code> forwards to <code>update(delta)</code> when an animation is attached and animation is enabled on the <code>GaussianData</code> (<code>animation_enabled</code>, default <code>true</code>; turn it off with <code>set_animation_enabled(false)</code>).</p>
 <h4 id="non-finite-playback-values-are-rejected">Non-finite playback values are rejected<a class="headerlink" href="#non-finite-playback-values-are-rejected" title="Permanent link">¶</a></h4>
 <p><code>NAN</code>, <code>INF</code> and <code>-INF</code> are rejected at the point they enter the state machine,
 because a non-finite time or speed makes <em>every</em> later comparison against it
 false (<code>NaN &lt; x</code>, <code>NaN &gt; x</code> and <code>NaN == x</code> are all false). Playback would then
 never wrap and never stop: it freezes silently, with no crash and no error.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Input</th>
@@ -5029,7 +5032,7 @@ never wrap and never stop: it freezes silently, with no crash and no error.</p>
 <td>Warns, substitutes <code>0</code> / <code>1.0</code>. Applies to loading a corrupt or hand-edited save.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>play()</code> deliberately does <strong>not</strong> reset the current time, so a <code>seek()</code> is
 honoured by a following <code>play()</code>; <code>stop()</code> is what resets to <code>0</code>.</p>
 <p>A finite <em>negative</em> <code>set_playback_speed()</code> is accepted, but true reverse
@@ -5055,7 +5058,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <span class="c1"># Switch to "idle" after 0.5 seconds (delayed hard cut, not a cross-fade).</span>
 <span class="n">anim</span><span class="o">.</span><span class="n">switch_to_clip_delayed</span><span class="p">(</span><span class="n">idle_idx</span><span class="p">,</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
 </code></pre></div>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -5085,10 +5088,10 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <td><code>GaussianAnimationStateMachine::get_clip_weight</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h3 id="sampling">Sampling<a class="headerlink" href="#sampling" title="Permanent link">¶</a></h3>
 <p>Sample animated property values of the <strong>current clip</strong> at the current playback time (pass <code>time = -1</code>, the default) or at an explicit time. When the splat index is out of range, no clip is current, or the track is missing or empty, the sampler returns a fallback: <code>Vector3.ZERO</code> for position, <code>Color()</code> for color, <code>1.0</code> for opacity, <code>Vector3.ONE</code> for scale.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Method</th>
@@ -5129,7 +5132,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <td><code>GaussianAnimationStateMachine::sample_rotation</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>GaussianData.get_animated_position(index, time)</code> (and <code>_color</code>, <code>_opacity</code>, <code>_scale</code>, <code>_rotation</code>) samples the attached state machine through the <code>GaussianData</code> instead.</p>
 <h3 id="saving-and-loading">Saving and loading<a class="headerlink" href="#saving-and-loading" title="Permanent link">¶</a></h3>
 <p><code>GaussianAnimationStateMachine::to_dict()</code> and <code>from_dict()</code> exist in C++ only; they are not bound, so <code>anim.to_dict()</code> fails in GDScript. The class also exposes no stored properties, so <code>ResourceSaver.save()</code> on a state machine does not keep its clips.</p>
@@ -5148,7 +5151,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <span class="w">    </span><span class="nb">print</span><span class="p">(</span><span class="s2">"clips restored: "</span><span class="p">,</span><span class="w"> </span><span class="n">loaded_anim</span><span class="o">.</span><span class="n">get_clip_count</span><span class="p">())</span>
 </code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Symptom</th>
@@ -5195,7 +5198,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 <td><code>GaussianAnimationStateMachine::sample_position</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 
 
 
@@ -5216,7 +5219,7 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:21 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:23 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5230,6 +5233,8 @@ weighted cross-fade sampling is tracked as a follow-up (godotGS issue #614).</p>
 
 
                 
+  
+
               </article>
             </div>
           

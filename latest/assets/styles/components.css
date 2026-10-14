@@ -188,7 +188,7 @@
   border: 1px solid var(--gs-line);
   box-shadow: none;
   background: transparent;
-  font-size: 0.76rem;
+  font-size: var(--gs-text-table);
 }
 .md-typeset table:not([class]) th {
   background: color-mix(in srgb, var(--gs-text) 4%, transparent);
@@ -206,18 +206,29 @@
 .md-typeset table:not([class]) tr:hover td {
   background: color-mix(in srgb, var(--gs-accent-soft) 55%, transparent);
 }
-/* Keep inline code tokens whole so wide reference tables reach a real min-width
-   and scroll on narrow screens, instead of squishing each identifier down to a
-   1-character-per-line column. */
+/* Allow long API names and setting paths to wrap without forcing tiny columns.
+   The cell measure preserves a useful fragment; dense inventories still scroll
+   inside Material's wrapper rather than reducing their type size. */
+.md-typeset table:not([class]) :is(th, td) {
+  /* Material uses border-box cells with 1.25em padding on each side. Reserve
+     that padding in addition to the text measure, not inside it. */
+  min-width: calc(var(--gs-table-cell-measure) + 2.5em);
+  overflow-wrap: anywhere;
+}
 .md-typeset table:not([class]) code:not(pre code) {
-  white-space: nowrap;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.95em;
 }
 
 /* Horizontal-scroll affordance for tables wider than the column: scroll-edge
    shadows (visible only on the side that has more content — the page-coloured
    covers scroll with the content and hide a shadow once its edge is reached)
    plus an always-styled thin scrollbar. */
-.md-typeset__scrollwrap {
+.md-typeset__scrollwrap,
+.gs-table-scroll {
+  max-width: 100%;
   --gs-scroll-shadow: color-mix(in srgb, var(--gs-text) 16%, transparent);
   background:
     linear-gradient(to right, var(--gs-bg) 40%, transparent) left / 2.5rem 100% no-repeat local,
@@ -226,6 +237,20 @@
     linear-gradient(to left, var(--gs-scroll-shadow), transparent) right / 1.2rem 100% no-repeat scroll;
   scrollbar-width: thin;
   scrollbar-color: var(--gs-faint) transparent;
+}
+.gs-table-scroll {
+  margin: 1em 0;
+  overflow-x: auto;
+}
+/* Material adds its own table wrapper at runtime. The semantic outer group is
+   the only scroll owner; do not create nested horizontal scroll areas. */
+.gs-table-scroll .md-typeset__scrollwrap {
+  margin: 0;
+  overflow-x: visible;
+  background: none;
+}
+.gs-table-scroll .md-typeset__table {
+  padding: 0;
 }
 /* Material bleeds the scroll area 0.8rem past the column on each side. On
    phones that reaches the screen edge (kept); wider, it would overhang the
@@ -240,13 +265,16 @@
   }
 }
 /* Engines without scrollbar-color (Safari) keep a classic, visible thin bar. */
-.md-typeset__scrollwrap::-webkit-scrollbar {
+.md-typeset__scrollwrap::-webkit-scrollbar,
+.gs-table-scroll::-webkit-scrollbar {
   height: 8px;
 }
-.md-typeset__scrollwrap::-webkit-scrollbar-track {
+.md-typeset__scrollwrap::-webkit-scrollbar-track,
+.gs-table-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.md-typeset__scrollwrap::-webkit-scrollbar-thumb {
+.md-typeset__scrollwrap::-webkit-scrollbar-thumb,
+.gs-table-scroll::-webkit-scrollbar-thumb {
   background: var(--gs-faint);
   border-radius: var(--gs-radius-pill);
 }
@@ -416,6 +444,16 @@
   opacity: 1; /* Material dims this label to 0.7; the muted token already is the secondary tone */
 }
 
+@media screen and (max-width: 20em) {
+  .md-footer__inner {
+    flex-direction: column;
+  }
+  .md-footer__link {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 /* Meta footer (copyright / generator line) */
 .md-footer-meta {
   background: var(--gs-bg-alt);
@@ -444,4 +482,12 @@
   box-shadow: none;
   color: var(--gs-text);
   font-size: 0.72em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .md-button:hover,
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid > .card:hover {
+    transform: none;
+  }
 }

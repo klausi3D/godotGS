@@ -4684,6 +4684,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4768,7 +4771,7 @@ all operating on one nested state blob, <code>SharedWorld</code>
 (<code>gaussian_splat_scene_director.h:376-421</code>), behind a <strong>single coarse mutex</strong>
 (<code>gaussian_splat_scene_director.h:425</code>). <code>SharedWorld</code> fuses at least seven
 independent responsibilities under that one lock:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -4821,7 +4824,7 @@ independent responsibilities under that one lock:</p>
 <td><code>build_instance_buffer_for_renderer</code> (<code>:1411</code>), <code>build_instance_grading_buffer_for_renderer</code> (<code>:1633</code>), <code>build_sphere_effector_payload_for_renderer</code> (<code>scene_director_sphere_effectors.cpp:154</code>), <code>collect_*_assets_for_renderer</code> (<code>:2373</code>,<code>:2415</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>modules/gaussian_splatting/docs/CODEBASE_ASSESSMENT_REPORT.md:55</code> also records the
 <strong>circular dependency</strong> <code>gaussian_splat_scene_director.h:20</code> → renderer while the
 renderer depends back on core — a layering inversion this decomposition must not deepen.</p>
@@ -4955,7 +4958,7 @@ ends up with no reviewable content.</p>
 <h4 id="still-live-the-timeout-guarded-stall-paths">Still live — the timeout-guarded stall paths<a class="headerlink" href="#still-live-the-timeout-guarded-stall-paths" title="Permanent link">¶</a></h4>
 <p>The lock-order inversion itself still exists on the world-submission and <code>initialize()</code> paths.
 Verified against base <code>384c2c6ad8d</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Hop</th>
@@ -4992,7 +4995,7 @@ Verified against base <code>384c2c6ad8d</code>:</p>
 <td><code>render_quality_orchestrator.cpp:507</code>; <code>render_data_orchestrator.cpp:509</code>, <code>:557</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Meanwhile the render thread needs the <em>same</em> mutex in the <code>*_for_renderer</code> readers:
 <code>build_instance_buffer_for_renderer</code> (<code>MutexLock</code> at <code>:1414</code>),
 <code>has_world_submission_for_renderer</code> (<code>:2265</code>), and
@@ -5007,7 +5010,7 @@ So the failure mode is <strong>not</strong> a permanent hang. It is:</p>
 <li>the renderer mutation is then <strong>not applied locally</strong> — the code deliberately skips the
    "unsafe local fallback" — and what happens next differs per setter:</li>
 </ol>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Setter</th>
@@ -5027,7 +5030,7 @@ So the failure mode is <strong>not</strong> a permanent hang. It is:</p>
 <td><strong>Not</strong> silently dropped: <code>_apply_world_submission_to_renderer</code> sees <code>err != OK</code>, logs <code>GS_LOG_RENDERER_ERROR</code>, returns <code>false</code> (<code>:721-725</code>); <code>submit_world_submission</code> then calls <code>_restore_world_submission_renderer</code> and returns <code>false</code> (<code>:2088-2091</code>) — the submission is <em>rejected and rolled back</em>.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>So the honest statement is: <strong>a multi-second render-thread stall, after which <code>max_splats</code> is
 silently lost and the world submission is rejected with a logged error.</strong> That is a real defect
 worth fixing — a user-visible stall plus a partially-applied contract — but it is recoverable,
@@ -5195,7 +5198,7 @@ freed receives none of these events.</strong> There is no timer, no per-frame sw
 notices. Moving it to a main-thread method without a trigger would mean nothing notices.</p>
 <p><strong>Decision — the trigger set.</strong> <code>SphereEffectorStore::revalidate_scope_roots()</code> is invoked
 from exactly these places, all on the main thread, all in the director facade:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -5230,7 +5233,7 @@ from exactly these places, all on the main thread, all in the director facade:</
 <td><strong>This is the trigger that replaces the render-path check.</strong> T1–T3 are all <em>mutation-driven</em>; none of them fires when a scope-root node is freed while nothing else changes — which is precisely the case the render-path check was added to catch. Without T4 the decomposition regresses behavior.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Resolution protocol (normative — required by D7).</strong> <code>revalidate_scope_roots()</code> resolves
 <code>ObjectID</code>s through <code>ObjectDB</code>/<code>Node</code> (the cost note below budgets one
 <code>ObjectDB::get_instance</code> per non-WORLD-scoped effector), so it <strong>never runs under the store
@@ -5322,7 +5325,7 @@ read-only.</p>
 <strong>signatures / remembered-config comparisons</strong>, and <strong>dirty flags + dirty-index lists</strong>.
 The director today uses only generation counters plus one memoization signature; the target
 keeps that protocol but gives each counter a single writing owner.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>State</th>
@@ -5399,7 +5402,7 @@ keeps that protocol but gives each counter a single writing owner.</p>
 <td>refreshed on the main thread via <code>update_instance_scene_effector_filter</code> (<code>:990</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Two invariants the decomposition makes explicit:</p>
 <ol>
 <li><strong>Generation counters are the sole cross-store invalidation currency</strong>, each with a single
@@ -5561,7 +5564,7 @@ merge until Steps 1–5 have de-risked the boundaries.</p>
   boundaries, not just file count.</li>
 </ul>
 <h3 id="issue-closure-mapping">Issue-closure mapping<a class="headerlink" href="#issue-closure-mapping" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Step</th>
@@ -5594,7 +5597,7 @@ merge until Steps 1–5 have de-risked the boundaries.</p>
 <td>#356 (coarse-lock contention); unblocks perf work; adjacent relief for #606 (fewer unsynchronized readers)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="exit-check">Exit check<a class="headerlink" href="#exit-check" title="Permanent link">¶</a></h2>
 <p>The decomposition is complete when: (1) <code>SharedWorld</code>/<code>WorldContext</code> no longer exposes a raw mutable
 blob — each field is owned by exactly one store; (2) no <code>const</code> method mutates state or a generation
@@ -5606,7 +5609,7 @@ fails to compile (#545).</p>
 <h2 id="invariant-list-what-every-step-is-graded-against">Invariant list — what every step is graded against<a class="headerlink" href="#invariant-list-what-every-step-is-graded-against" title="Permanent link">¶</a></h2>
 <p>Checkable. A step that violates one is rejected even with green CI. "Exit check" above is
 the end-state; this is the per-step contract.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -5686,7 +5689,7 @@ the end-state; this is the per-step contract.</p>
 <td>Diff review in Step 3-pre (docs) and Steps 2/3 (helpers). Grep: zero remaining claims that a node's PREDELETE calls <code>teardown_world_for_scenario</code>.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Naming note.</strong> This table's rows and the "Decisions the owner needs to make" list below both
 use <code>D</code> prefixes, so <strong>invariant D5</strong> (the <code>scope_root_valid</code> re-point latch) and <strong>decision D5</strong>
@@ -5697,7 +5700,7 @@ corrected separately below. Treat the invariant rows as <code>D1–D14</code> an
 The round-1 text called the <code>update_sphere_effector</code> latch-reset gap (<code>:1972-1975</code>) a live bug.
 Verified against base <code>384c2c6ad8d</code>, it is not. <code>scope_root_valid</code> has an extremely narrow
 footprint — the <strong>complete</strong> set of references in the module is:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Reference</th>
@@ -5718,7 +5721,7 @@ footprint — the <strong>complete</strong> set of references in the module is:<
 <td><code>scene_director_sphere_effectors.cpp:107</code>, <code>:114</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>All four live inside <code>_build_sorted_sphere_effector_payload</code>, and <strong>nothing else in the module
 reads the latch</strong> — not eligibility, not the layer mask, not payload construction, not the debug
 surface. The keep/drop decision at <code>:105-111</code> is made from <code>scope_alive</code>, which is recomputed
@@ -5792,7 +5795,7 @@ exactly</strong>, and the "dead-scoped effectors keep matching indefinitely" con
 only to a <em>third</em> option nobody is proposing (deleting the read-path liveness check
 outright). With that corrected, this is a genuine three-way choice.</p>
 </blockquote>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Option</th>
@@ -5821,7 +5824,7 @@ outright). With that corrected, this is a genuine three-way choice.</p>
 <td>Zero cost now; leaves a render-thread write to a counter the render thread reads to decide whether to rebuild — the §1d anti-pattern — and blocks the Step 6 read-only-snapshot goal. Viable only if Step 6 is abandoned.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>What the decision actually turns on:</strong> whether the owner wants the render path to become a
   pure snapshot consumer <em>in Step 2</em> (→ T1–T4) or is content to remove only the illegal write
   now and revisit the read-side <code>ObjectDB</code> call when Step 6 is scheduled (→ fallback). Both are
@@ -5855,7 +5858,7 @@ outright). With that corrected, this is a genuine three-way choice.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:15 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:17 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5869,6 +5872,8 @@ outright). With that corrected, this is a genuine three-way choice.</p>
 
 
                 
+  
+
               </article>
             </div>
           

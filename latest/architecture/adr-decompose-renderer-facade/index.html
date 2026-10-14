@@ -5004,6 +5004,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -5060,7 +5063,7 @@ plan in §4 is re-derived from it.</p>
 </blockquote>
 <p><strong>Verified ownership map</strong> (<code>GaussianSplatRenderer</code>, re-verified on master <code>9161d92f349</code> —
 every row below still holds, each owning declaration confirmed a <strong>by-value</strong> member):</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Bucket</th>
@@ -5191,7 +5194,7 @@ every row below still holds, each owning declaration confirmed a <strong>by-valu
 <td>—</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>So: <strong>twelve of the nineteen buckets are already owned by an orchestrator or by
 <code>frame_context_manager</code>, by value.</strong> Seven are direct facade members: the five at
 <code>h:604-765</code> (not <code>h:201-334</code>), plus <code>pipeline_features_effective</code> (<code>h:667</code>) and
@@ -5343,7 +5346,7 @@ planning any work here.</p>
 </blockquote>
 <p>The single shared <code>PerformanceMetrics</code> bundle was zeroed <strong>field-by-field</strong> at three
 independent sites, none generated from the struct:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Site</th>
@@ -5368,7 +5371,7 @@ independent sites, none generated from the struct:</p>
 <td><strong>all</strong> GPU timing groups + readback state; deliberately leaves the monotonic <code>raster_pipeline_reformats</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>A new <code>PerformanceMetrics</code> field added to the struct but missed at any one site
 silently reports <strong>the previous route's value</strong> — a stale-telemetry bug class (#528).
 The same hand-list pattern (no parity guard) recurs in the ~100-key diagnostics
@@ -5443,7 +5446,7 @@ advisory, contradicting the "no silent unsafe fallback" rule in
 <p><code>gpu_sorter.cpp</code> is one TU holding three sort algorithms plus a factory, <strong>and</strong> the
 full GLSL source for each, embedded as runtime <code>vformat(R"(</code> … newline … <code>#version 450</code> … <code>)")</code> strings
 (the raw-string opener and the <code>#version</code> directive are always on <strong>separate lines</strong> — see R11):</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Unit</th>
@@ -5473,7 +5476,7 @@ full GLSL source for each, embedded as runtime <code>vformat(R"(</code> … newl
 <td><code>2780, 2847, 2943, 3006</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>These strings are compiled at runtime via <code>create_compute_shader_from_spirv</code>
 (<code>gpu_sorter.cpp:138</code>). The C5 shader-permutation CI
 (<code>.github/workflows/gaussian_shader_validation.yml</code> → <code>shaders/compile_shaders.py</code>)
@@ -5576,7 +5579,7 @@ unenforceable. Deleting the copy constructor is the only step here that a compil
 <h3 id="22-unit-b-split-iframestateview-iframemutationaccess-into-per-stage-capability-views-fixes-11-12">2.2 Unit B — split <code>IFrameStateView</code> / <code>IFrameMutationAccess</code> into per-stage capability views (fixes 1.1, 1.2)<a class="headerlink" href="#22-unit-b-split-iframestateview-iframemutationaccess-into-per-stage-capability-views-fixes-11-12" title="Permanent link">¶</a></h3>
 <p>Replace the god-provider with small, stage-scoped interfaces resolved from an owned
 snapshot, not from the live renderer:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Capability port</th>
@@ -5617,7 +5620,7 @@ snapshot, not from the live renderer:</p>
 <td>resource orchestrator</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <ul>
 <li><strong>Kill the <code>static</code> fallbacks (§1.2) — all 40, at both levels.</strong> Capability ports take
   references to the <em>existing</em> orchestrator-owned buckets (resolved non-null once at frame
@@ -5755,7 +5758,7 @@ slices</strong>, and #356 must not be closed on their completion.</p>
 behavior-preservation proof appropriate to its risk. Ordering puts the
 lowest-risk/highest-safety folds first and the state-ownership cuts last, matching the
 inventory's W1→W2→W3 gate.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Slice</th>
@@ -5832,7 +5835,7 @@ inventory's W1→W2→W3 gate.</p>
 <td>Tile frame output + timing telemetry identical on GrandmasHouse; stage delegation unchanged; ships after facade+sorter</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Cross-cutting evidence rule (renderer = R2/R3):</strong> every slice that touches the
 render path provides runtime/GPU evidence measured against the immutable base — the
 production-gates runtime harness, GPU harness, and a visual gate on real-scan content
@@ -5851,7 +5854,7 @@ pin the route/stage/StageIO contracts — so the risky state-partition lands on 
 characterized, guard-protected base. S10 (tile) is optional and last.</p>
 <hr>
 <h2 id="5-issue-closure-mapping">5. Issue-closure mapping<a class="headerlink" href="#5-issue-closure-mapping" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Issue</th>
@@ -5910,7 +5913,7 @@ characterized, guard-protected base. S10 (tile) is optional and last.</p>
 <td>Separate lifetime bug (<code>gaussian_splat_renderer.cpp:1244-1247</code>); needs a bounded-timeout + synchronous-teardown fallback — recommend a standalone R2 PR, not folded into this decomposition. Noted so the mapping is honest.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p>Note on numbering: the task brief paired the gpu_sorter split with "#588 (embedded
 sorter GLSL outside compile CI)". The embedded-sorter-GLSL issue is actually <strong>#525</strong>
@@ -5921,7 +5924,7 @@ explicitly leaves #588 to a separate change.</p>
 <hr>
 <h2 id="invariant-list-what-every-slice-is-graded-against">Invariant list — what every slice is graded against<a class="headerlink" href="#invariant-list-what-every-slice-is-graded-against" title="Permanent link">¶</a></h2>
 <p>Checkable. A slice that violates one is rejected even with green CI.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -6001,7 +6004,7 @@ explicitly leaves #588 to a separate change.</p>
 <td>Diff review; guard files unmodified except to strengthen.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="evidence-a-slice-must-produce">Evidence a slice must produce<a class="headerlink" href="#evidence-a-slice-must-produce" title="Permanent link">¶</a></h2>
 <p>Renderer work is <strong>R2, escalating to R3</strong> for S5 (workflow edit) and any serialized/format
 contract. Every slice states which invariants it touches and attaches:</p>
@@ -6093,7 +6096,7 @@ ownership map (§1.1), all nine facade forwarders, the three <code>frame_plan</c
 <code>_finalize_stage_io</code> definition, <code>compile_shaders.py:142</code>/<code>:684</code>, the destructor dispatch, and
 both <code>stage-first-ownership-inventory.md</code> quotes are <strong>unchanged</strong>. The counts (11 headers,
 10 back-pointers, 78 provider constructions, 40 static fallbacks) all reproduce. Corrected:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Item</th>
@@ -6163,7 +6166,7 @@ both <code>stage-first-ownership-inventory.md</code> quotes are <strong>unchange
 <td><strong>147 of 275</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Stale anchors in the source itself</strong>, found during this pass and worth fixing independently
 of this ADR: <code>render_instancing_orchestrator.cpp:178</code> and <code>render_pipeline_stages.cpp:1171</code>
 both say <em>"<code>RenderFrameDeps::validate()</code> exempts <code>frame_plan</code> (see
@@ -6178,7 +6181,7 @@ but until then they misdirect.</p>
   contracts, fallback semantics.</li>
 <li><a href="../renderer-lifetime-ownership/">Renderer lifetime ownership</a> — per-owner
   create/destroy/idempotency/threading contracts at file:line precision.</li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/012960050d29427bd00a42e1cd86840806d6bf5c/modules/gaussian_splatting/ARCHITECTURE.md">Module architecture map</a>.</li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/f251a5968e9fa83e061f29920f1b96369dc77ae1/modules/gaussian_splatting/ARCHITECTURE.md">Module architecture map</a>.</li>
 </ul>
 
 
@@ -6200,7 +6203,7 @@ but until then they misdirect.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:14 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:17 UTC">October 14, 2026</span>
   </span>
 
     
@@ -6214,6 +6217,8 @@ but until then they misdirect.</p>
 
 
                 
+  
+
               </article>
             </div>
           

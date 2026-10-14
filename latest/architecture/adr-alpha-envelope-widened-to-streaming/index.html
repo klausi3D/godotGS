@@ -4462,6 +4462,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4522,7 +4525,7 @@ all ten artifact groups and all six lanes, once with exactly <code>open_world_pr
 repo with correct SHA-256 digests, commit and mtime metadata, so integrity validation
 passed rather than short-circuiting.</p>
 <p><strong>Result.</strong></p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Run</th>
@@ -4545,7 +4548,7 @@ passed rather than short-circuiting.</p>
 <td><strong>exactly three</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Run A's complete failure list:</p>
 <div class="highlight"><pre><span></span><code>candidate artifact group missing: open_world_proof
 candidate benchmark lane missing: streaming_corridor
@@ -4624,7 +4627,7 @@ are amended where the widening contradicts them. Those edits land with this ADR.
 Until this ADR they were required by the gate and disowned by the bar; now they are owned.
 <strong>What the machine actually verifies differs sharply between them, and an earlier revision
 of this ADR got that wrong by claiming all three must "run and pass".</strong></p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Requirement</th>
@@ -4653,7 +4656,7 @@ of this ADR got that wrong by claiming all three must "run and pass".</strong></
 <td><em>nominally</em> <code>lane_open_world_corridor_proof.tscn</code> / <code>benchmark_open_world_proof_lane.gd</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>_validate_candidate_artifact_group</code> (<code>tests/ci/check_renderer_release_gates.py:1050-1065</code>)
 calls only the required-field, integrity, commit and mtime checks; there is no content
 validator for any artifact group. The manifest states this about itself:
@@ -4677,7 +4680,7 @@ cheap half must not be recorded without the expensive half.</p>
 <h3 id="51-two-of-the-three-lanes-do-not-measure-what-the-widened-promise-claims">5.1 Two of the three lanes do not measure what the widened promise claims<a class="headerlink" href="#51-two-of-the-three-lanes-do-not-measure-what-the-widened-promise-claims" title="Permanent link">¶</a></h3>
 <p><code>tests/fixtures/benchmark_asset_manifest.json</code>, <code>lane_metadata</code>, records each lane's asset
 classification and says in its own <code>notes</code> what the lane is and is not:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Lane</th>
@@ -4702,7 +4705,7 @@ classification and says in its own <code>notes</code> what the lane is and is no
 <td>"honest large-world candidate evidence, but <strong>not yet promoted real_chunked proof</strong>"</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>docs/testing/benchmark-suite.md:306-310</code> states the rule directly: "No currently documented
 benchmark lane should be cited as representative chunked streaming evidence unless its
 manifest classification is upgraded to <code>real_chunked</code>." All three lanes are listed
@@ -4736,7 +4739,7 @@ weight.</p>
 <h3 id="52-streaming-has-no-passing-qa-scene-coverage-at-all">5.2 Streaming has no passing QA-scene coverage at all<a class="headerlink" href="#52-streaming-has-no-passing-qa-scene-coverage-at-all" title="Permanent link">¶</a></h3>
 <p>Every streaming QA scene in the project is quarantined
 (<code>tests/examples/godot/test_project/scripts/qa_test_runner.gd:51-84</code>):</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Scene</th>
@@ -4761,7 +4764,7 @@ weight.</p>
 <td>"streaming monitors not populated."</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>These are QA scenes, not the three benchmark lanes, so they do not block the gate directly.
 They are recorded because the alpha would now be promising a capability whose entire
 QA-scene coverage is switched off — including, in two cases, because the monitors that would
@@ -4770,7 +4773,7 @@ observe it are not populated.</p>
 <p>Bar §4.1 makes any defect reachable inside the supported envelope a blocker. Widening the
 envelope therefore moves work, and this is mechanical rather than a judgement. Issue
 states re-checked 2026-09-17 21:00 UTC:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Issue</th>
@@ -4810,7 +4813,7 @@ states re-checked 2026-09-17 21:00 UTC:</p>
 <td><strong>alpha</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>#318 is excluded because it CLOSED on 2026-09-17 at 20:42 UTC</strong>, while this ADR was
 being written — it had been open at the base commit and the bar still lists it. Four
 items move, not the five the bar's v1.0 list implies.</p>
@@ -4926,7 +4929,7 @@ open, not to quietly re-narrow the gate or mark a lane advisory.</p>
   to the stacked user-facing-docs PR, which is what makes that page real.</li>
 </ul>
 <h3 id="72-work-this-creates-or-re-prioritises">7.2 Work this creates or re-prioritises<a class="headerlink" href="#72-work-this-creates-or-re-prioritises" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Item</th>
@@ -4981,7 +4984,7 @@ open, not to quietly re-narrow the gate or mark a lane advisory.</p>
 <td>§5.2</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h3 id="73-the-alpha-relevant-label-is-still-inert">7.3 The <code>alpha-relevant</code> label is still inert<a class="headerlink" href="#73-the-alpha-relevant-label-is-still-inert" title="Permanent link">¶</a></h3>
 <p><code>public_alpha_predicate.required_issue_query.alpha_relevant_p1_labels_all</code> requires the labels
 <code>priority:P1</code> <strong>and</strong> <code>alpha-relevant</code> (<code>:35-38</code>). <strong><code>alpha-relevant</code> does not exist in this
@@ -5031,7 +5034,7 @@ not less — there are more in-envelope P1s now than there were.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:14 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:17 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5045,6 +5048,8 @@ not less — there are more in-envelope P1s now than there were.</p>
 
 
                 
+  
+
               </article>
             </div>
           

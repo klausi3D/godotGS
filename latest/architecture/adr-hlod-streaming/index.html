@@ -5158,6 +5158,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -5239,7 +5242,7 @@ the view distance. §5.3 shows the draw count of any flat scheme growing with wo
 <li><strong>Alpha scope.</strong> Stage 1 must be the smallest slice that meets 1–6.</li>
 </ol>
 <h2 id="3-current-state-what-the-design-reuses-or-replaces">3. Current state (what the design reuses or replaces)<a class="headerlink" href="#3-current-state-what-the-design-reuses-or-replaces" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Piece</th>
@@ -5294,7 +5297,7 @@ the view distance. §5.3 shows the draw count of any flat scheme growing with wo
 <td>Kept unchanged; nodes are allocations (§6.6)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="4-options">4. Options<a class="headerlink" href="#4-options" title="Permanent link">¶</a></h2>
 <ul>
 <li><strong>A — flat importance prefix (the coordinator's first proposal).</strong> Order splats inside each
@@ -5374,7 +5377,7 @@ in the row. <code>hyb</code> is <code>sat</code> plus "keep the most important c
 <code>mass</code> and <code>mm</code> were also run (<code>mm</code> was the worst merge everywhere and was dropped from the
 later runs); A-max (today's <code>gaussian_importance</code>) was 0.3–2.9 dB below A-area on every run that had it,
 which is why nodes are ordered by area, not by the largest axis.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Asset, view</th>
@@ -5511,7 +5514,7 @@ which is why nodes are ordered by area, not by the largest axis.</p>
 <td>32.2 / 0.953</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>What the table says:</p>
 <ol>
 <li><strong>Today's Morton prefix (M) is last or near last everywhere except inside the dense baum2
@@ -5546,7 +5549,7 @@ a model built from a real single-tile bake; at the one point where both exist (1
 nodes against the real 442. Model rows are therefore <strong>modelled lower bounds</strong>, and their node
 counts are not reported. With one comparison point, "likely under-predicts" is what the evidence
 supports; the lower-bound reading is an inference from that point, not a proof.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>World</th>
@@ -5599,7 +5602,7 @@ supports; the lower-bound reading is an inference from that point, not a proof.<
 <td>216 M</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Read this as follows:</p>
 <ul>
 <li>Flat schemes are <strong>quadratic</strong> in view distance. With a far plane they stop growing only
@@ -5622,7 +5625,7 @@ loading ancestors before descendants. <code>Residency</code> is resident needed 
 the definition PR #1112 gives the lane (not yet on <code>master</code>). For HLOD the needed units are the
 cut nodes. (Under §6.4's rule a node is refined only when its children are resident, so in
 the real design the drawn set is always resident; this simulation predates that rule.)</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Scheme</th>
@@ -5683,7 +5686,7 @@ the real design the drawn set is always resident; this simulation predates that 
 <td>1.000</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <ul>
 <li>These runs used the <code>mass</code> merge rule and count <strong>resident cut nodes</strong> only; they do not
   check whether a missing node's ancestor was resident (<code>residency_ratio_min</code> was ≤ 0.002 in
@@ -5701,7 +5704,7 @@ the real design the drawn set is always resident; this simulation predates that 
 <h3 id="55-bake-cost-and-size">5.5 Bake cost and size<a class="headerlink" href="#55-bake-cost-and-size" title="Permanent link">¶</a></h3>
 <p>Prototype bake (numpy, one core, leaves ≤ 16,384, 4:1 per level, <code>mass</code> rule; <code>sat</code>, <code>hyb</code>
 and <code>mm</code> are within ±10%):</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Content</th>
@@ -5766,7 +5769,7 @@ and <code>mm</code> are within ±10%):</p>
 <td>+11.9% to +18.0%</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <ul>
 <li><strong>Size: about +20%.</strong> A 4:1 reduction per level bounds the interior at 1/3 of the leaves
   in theory; real content lands at 18–22% because coarse levels stop shrinking once nodes are
@@ -5788,7 +5791,7 @@ switch is rendered as a hard switch and as three-step fades (t = 0.25, 0.5, 0.75
 keeps a hash-chosen fraction of each; <code>iprefix</code> keeps the most important fraction of each
 (the payload-prefix fade, which needs no shader change). Per-frame change is the worst single
 step.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Transition</th>
@@ -5818,7 +5821,7 @@ step.</p>
 <td>45.6 dB / 22</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <ul>
 <li><strong>Only the opacity cross-fade helps:</strong> about 9 dB better per step (part of that is simply
   three intermediate states against one hard step; test 9 also bounds the mid-fade state), and the largest pixel
@@ -5927,7 +5930,7 @@ independent review of <code>7fa337d4a41</code> (13 findings); §13 maps each fin
   extent</strong>. For orientation, with a 128 m leaf cell (an example, not a rule; sparse leaves can
   be larger):</li>
 </ul>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>World extent</th>
@@ -5956,7 +5959,7 @@ independent review of <code>7fa337d4a41</code> (13 findings); §13 maps each fin
 <td>same</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Absolute float32 is visible at 100 km for close-up detail and unusable at planetary scale.
   Quantized node-relative positions (the 80 B path) are a stage-2 compression on the same frame
   of reference.
@@ -6073,7 +6076,7 @@ ideal cut.</p>
 <h3 id="65-every-gpu-cap-and-never-truncate-findings-2-3-12">6.5 Every GPU cap, and never truncate (findings 2, 3, 12)<a class="headerlink" href="#65-every-gpu-cap-and-never-truncate-findings-2-3-12" title="Permanent link">¶</a></h3>
 <p>The drawn set must fit every capacity on the GPU path. Each is either <strong>bounded by the cut</strong>
 or a <strong>declared residual</strong> with an always-on counter that test 1 asserts is zero.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Capacity</th>
@@ -6103,7 +6106,7 @@ or a <strong>declared residual</strong> with an always-on counter that test 1 as
 <td><strong>Residual.</strong> It depends on depth complexity per tile, which node-level estimates cannot bound. HLOD lowers it where #1137 bites (far, dense content becomes fewer splats), but merged splats are larger, so S2a's evidence reports peak records per tile at the A/B views. Its drop must be counted and warned (#1137's fix); test 1 asserts it is zero.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <ul>
 <li><strong>Never an undrawn instance.</strong> Every instance's asset root node is pinned (§6.6), so a
   visible instance always has something to draw. If the visible instance roots alone exceed a
@@ -6385,7 +6388,7 @@ on one GPU.</p>
 <h2 id="9-staged-slice-plan">9. Staged slice plan<a class="headerlink" href="#9-staged-slice-plan" title="Permanent link">¶</a></h2>
 <p>One PR per slice, each against <code>master</code>, each stating its base SHA.</p>
 <h3 id="stage-1-the-alpha-eight-prs">Stage 1 — the alpha (eight PRs)<a class="headerlink" href="#stage-1-the-alpha-eight-prs" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Slice</th>
@@ -6444,7 +6447,7 @@ on one GPU.</p>
 <td>~800 + ~450</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Stage 1 is <strong>about 9,100 LOC of production code and 5,350 LOC of tests over eight PRs, seven
 of them R3.</strong> The growth since <code>a1da9be37bf</code> (~8,600 + 5,050 over seven PRs) is the
 camera-relative shader rewrite and the per-draw record (follow-up review R1), the top-level
@@ -6563,7 +6566,7 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 <li>NVIDIA RTX 3090 only.</li>
 </ul>
 <h2 id="13-review-response-independent-review-of-7fa337d4a41">13. Review response (independent review of <code>7fa337d4a41</code>)<a class="headerlink" href="#13-review-response-independent-review-of-7fa337d4a41" title="Permanent link">¶</a></h2>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -6638,9 +6641,9 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 <td>§12 extended; S1 split into S1a/S1b; test 12 uses a test-only cut writing a PLY</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Follow-up review of <code>a1da9be37bf</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -6695,7 +6698,7 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 <td>S2 split into S2a (closes #1131) and S2b (instance tree, camera-relative space)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 
 
 
@@ -6716,7 +6719,7 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:15 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:18 UTC">October 14, 2026</span>
   </span>
 
     
@@ -6730,6 +6733,8 @@ by about 50x and under the cut means "draw a coarse world"; S3's A/B data inform
 
 
                 
+  
+
               </article>
             </div>
           

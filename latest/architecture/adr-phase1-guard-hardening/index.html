@@ -4440,6 +4440,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4501,7 +4504,7 @@ principle was tested; both were settled by it, and Q1 was settled <em>against</e
 Read literally, each would need its own design record. They are one programme against one
 defect shape — a guard that reports green while observing nothing — so they get one record.
 The price of that economy is that the list is closed.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Task</th>
@@ -4618,7 +4621,7 @@ The price of that economy is that the list is closed.</p>
 <td>§9</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Deliberately <strong>not</strong> members, and not covered: <strong>T1</strong> (#887, #888, #889), which landed as
 <strong>#886</strong> with its own ADR; and <strong>T2</strong> (#890), in flight as <strong>PR #911</strong> with its own
 disposition. Both are cited here (§3, §10) but neither draws on this record.</p>
@@ -4671,7 +4674,7 @@ cannot be stretched.</p>
    guess that a reviewer has to re-derive. Twelve review rounds produced <strong>twenty-five</strong> findings
    against this document, and <strong>sixteen were the same defect</strong>: an instruction that would have
    failed the very consumer it was written to satisfy, because nobody had opened it.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Where</th>
@@ -4712,7 +4715,7 @@ cannot be stretched.</p>
 <td>a completeness invariant stated below the trigger filter that decides whether the workflow runs at all</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The other <strong>nine</strong> were genuine design gaps — a missing failure signature, a base-versus-head
    policy read, an under-specified membership check, the self-certification hole in §8.4, a
    completion marker never bound to the scenario that emitted it (§4.1), an allowlist offered as
@@ -5053,7 +5056,7 @@ level up.</p>
 <p><strong>Both halves measured at <code>adcd6916dbd</code></strong>, by reading <code>gd_tests</code> out of
 <code>tests/runtime/runtime_scenarios.json</code> and the registry out of <code>GDS_TESTS</code>
 (<code>run_runtime_validation.py:107-119</code>):</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Profile</th>
@@ -5083,7 +5086,7 @@ level up.</p>
 <td><strong>yes</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The union holds, but only just, and on one scenario: <strong><code>Streaming GPU Tier Budget
 Contract</code> is selected by <code>headless-ci</code> alone</strong> and is the single scenario <code>release-ci</code>
 omits. Drop <code>headless-ci</code> from the set, or edit its <code>gd_tests</code>, and the union silently
@@ -5164,7 +5167,7 @@ artifact name (<code>release_ci_runtime.yml:124-129</code>), so nothing overwrit
     path, which is the defect <code>TEST-007</code> describes.</p>
 <p><strong>Two states that an earlier revision of this bullet conflated, and they have different
 repairs:</strong></p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Observed</th>
@@ -5184,7 +5187,7 @@ repairs:</strong></p>
 <td><strong>Port it, or fix the path. Nothing else.</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>The §4.3 allowlist is not available for a missing marker, and the reason is structural
 rather than stylistic:</strong> §4.3 grants the exemption only when <em>"the scenario also </em><em>emits</em><em> a
 <code>no_assertions_reason</code> string"</em>. A scenario that emits nothing has no marker to carry the
@@ -5324,7 +5327,7 @@ hand-picked</strong>, and re-derivable by any reviewer with the same three input
 <li>14 batches, 8 required. <code>ComputeInfrastructure</code> and <code>Streaming</code> match <strong>0</strong> cases each.</li>
 </ul>
 <p>The 60 partition as follows:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Issue</th>
@@ -5365,7 +5368,7 @@ hand-picked</strong>, and re-derivable by any reviewer with the same three input
 <td><code>test_tile_renderer.cpp</code> — inside the <code>TileRenderer</code> filter, subtracted by the honored #643 <code>excludes</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>38 + 12 + 3 + 6 = <strong>59</strong>, exactly the count the wildcard declares <strong>today</strong>. This is the
 partition of the corpus as it stands <em>before</em> T4 acts; §5.2's retag then moves #908's three out
 of the stranded set entirely, so the manifest T4 <em>lands</em> declares 56 across three entries, not
@@ -5397,7 +5400,7 @@ batches included, not just <code>REQUIRED_BATCHES</code> — and a case with <co
 stranded (<code>:538-551</code>). The whole point of this retag is to make these three cases match the
 <code>Streaming</code> batch, so the retag <strong>un-strands them</strong>. Measured at <code>adcd6916dbd</code> by driving the
 guard's own <code>_doctest_wildcmp</code> against <code>BATCHES</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Case (post-retag name)</th>
@@ -5418,7 +5421,7 @@ guard's own <code>_doctest_wildcmp</code> against <code>BATCHES</code>:</p>
 <td><code>Streaming</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>All three match <code>Streaming</code>'s filter <code>*Streaming*][RequiresGPU]*</code> after the retag and none
 before. So the stranded <code>[RequiresGPU]</code> population drops <strong>59 → 56</strong> the moment the retag lands,
 and #908 needs <strong>no</strong> manifest declaration — see §5.4.</p>
@@ -5492,7 +5495,7 @@ one PR would mean requiring a batch nobody has yet watched run.</p>
 (<code>tests/examples/godot/test_project/project.godot</code>, <code>[rendering]</code>) while the shipped default is
 <code>true</code> (<code>gaussian_splat_manager.cpp:998</code>). Phase-0 runtime evidence, on a binary built from
 <code>55bd3953475</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Config</th>
@@ -5525,7 +5528,7 @@ one PR would mean requiring a batch nobody has yet watched run.</p>
 <td><strong>ABSENT</strong> (<code>GS-AUDIT-GPU-001</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h3 id="61-the-default-default-scene-lands-blocking-now">6.1 The default-default scene lands blocking, now<a class="headerlink" href="#61-the-default-default-scene-lands-blocking-now" title="Permanent link">¶</a></h3>
 <p><strong>Decision.</strong> scale 1.0 + <code>depth_test=true</code> is green today, so it joins <code>test_scenes</code> in
 <code>qa_test_runner.gd</code> with a captured baseline. No ladder, no advisory step — a scene that
@@ -5535,7 +5538,7 @@ single largest blind spot in the only per-PR pixel gate.</p>
 <p><strong>Decision.</strong> A new <code>EXPECTED_FAIL_SCENES</code> map beside <code>QUARANTINED_SCENES</code> in
 <code>qa_test_runner.gd</code>, carrying the same fields the quarantine manifest requires (reason, issue,
 owner, expiry) <strong>plus a required <code>expected_failure</code> set</strong>. Five behaviours, all pinned:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Observed</th>
@@ -5564,7 +5567,7 @@ owner, expiry) <strong>plus a required <code>expected_failure</code> set</strong
 <td>fails, matching the quarantine manifest's clock-checked expiry</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Why the signature is required, and not optional.</strong> Without it the table classifies <em>any</em> red
 as <code>expected_fail</code>, and the suite is then blind in the one direction that matters most: a scene
 that still exhibits GPU-001 <strong>and</strong> develops a second, unrelated regression looks exactly like a
@@ -5825,7 +5828,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
    199</strong> resolve, and of the QA project's 32 overrides <strong>14 do not resolve at all</strong> — including
    <strong>all three lighting keys</strong>, which is precisely the divergence <code>TEST-008</code> calls material. The
    forms actually present in the module:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Form</th>
@@ -5855,7 +5858,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
 <td><code>GLOBAL_DEF(GPUSortingConfig::MAX_ELEMENTS_PATH, …)</code> — <code>renderer/gpu_sorting_config.cpp:690</code>, key built at <code>:24</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>And the unresolved keys have two distinct causes, which matters because only one of them
    is about registration forms.</strong> Reading the actual sites:</p>
 <ul>
@@ -5930,7 +5933,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
 <p><strong>Which field is authoritative — measured, and the answer is "none of the existing ones."</strong>
    This is stated rather than resolved by picking the field that happens to work, because the
    measurement says picking one would silently break the guard:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Candidate</th>
@@ -5960,7 +5963,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
 <td>The <strong>only</strong> place the fact is actually recorded, and not machine-readable.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Choosing either plausible field would exempt <strong>two of the 32 QA overrides the guard exists to
    check</strong> — <code>debug/enable_frame_logging</code> and <code>debug/frame_log_frequency</code>, both registered, both
    overridden by the QA project — which is the "picked a field that works today" failure
@@ -5987,7 +5990,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
 <p><strong>Retiring a waiver is an atomic two-artifact change — §2 decision 10 applied to its first
    case after adoption.</strong> Requirements 2 and 3 fail in opposite directions, so <em>both</em>
    single-sided orders are red:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Single-sided step</th>
@@ -6004,7 +6007,7 @@ audit. The surface is larger than <code>depth_test</code>: the QA project carrie
 <td>An override with no waiver → <strong>RED</strong>, fails per requirement 3</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>So the exit is: <strong>delete the <code>gaussian_splatting/*</code> line from
    <code>tests/examples/godot/test_project/project.godot</code> and delete the waiver entry from the waiver
    list, in one change.</strong> Naming the two artifacts matters more than the word "atomic" — they
@@ -6198,7 +6201,7 @@ CI run. That is the "design follows class" inversion this ADR's programme princi
 committed entry carrying a <strong>reason</strong>, consistent with how this repo's other declared-exclusion
 mechanisms are shaped. Both existing precedents are per-entry field maps, and the new one
 follows them rather than inventing a shape:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Mechanism</th>
@@ -6219,7 +6222,7 @@ follows them rather than inventing a shape:</p>
 <td><code>path_glob</code>, <strong><code>matched_paths</code></strong> (see 2), <code>reason</code>, <code>issue_url</code>, <code>owner</code>, plus <code>expires_utc</code> — see below</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Four properties the list must have, each taken from a precedent rather than argued from
 scratch:</p>
 <ol>
@@ -6303,7 +6306,7 @@ is precisely why it is stated here as an invariant rather than patched as a four
 <p><strong>Invariant.</strong> <em>Every input to "which evidence does this change owe?" resolves in whichever
 direction can only </em><em>add</em><em> evidence.</em> Scoped to the merge-gating paths — <code>pull_request</code> and
 <code>merge_group</code> — for the reason and the exceptions in §8.4.3. Concretely, comparing base and head:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Input</th>
@@ -6333,7 +6336,7 @@ direction can only </em><em>add</em><em> evidence.</em> Scoped to the merge-gati
 <td>there is no base version to resolve against, so the binding must be constructed</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Intersection is the exclusion-side mirror of §8.2's union, and it closes both directions of the
 hole, not just the one Codex named:</p>
 <ul>
@@ -6410,7 +6413,7 @@ a higher class.</em> Never the reverse. This is the statement that has survived 
 finding changed how completeness must be achieved, none of them changed the requirement. An
 input that cannot be shown complete must arm the lane, not skip it.</p>
 <p><strong>Verified traps, all read at <code>adcd6916dbd</code>.</strong> Any mechanism must clear all four:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -6440,7 +6443,7 @@ input that cannot be shown complete must arm the lane, not skip it.</p>
 <td><code>baseline_qa.yml:443-462</code> detects <code>files.length &gt;= 300</code> and sets <code>runHarness = true</code>, <code>reason = "merge-group-file-list-truncated"</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Round 8's prescription is withdrawn.</strong> It required paginating the merge-group comparison —
 which trap 2 makes unimplementable on that endpoint, and which would likely break the step
 rather than fix it. It also assumed pagination solved the <code>pull_request</code> branch, which trap 3
@@ -6552,7 +6555,7 @@ discovered as a fourth finding.</p>
 without touching a committed artifact. They are <strong>operator-invoked bypasses</strong>, documented here so
 they are known rather than guarded, because a manual dispatch is a human deliberately asking for
 a non-default run:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Input</th>
@@ -6577,7 +6580,7 @@ a non-default run:</p>
 <td>Readiness <strong>enforcement</strong> is off unless explicitly requested, even when evidence was collected</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><strong>Requirement: a run produced under non-default dispatch inputs is marked as such in the evidence
 ledger.</strong> Same principle as the fallback label in §8.4.2 — an input whose purpose is to change
 what runs must leave a trace in the artifact people read as evidence. Concretely, such a run must
@@ -6883,7 +6886,7 @@ the failure this ADR is about, one level up.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:16 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:19 UTC">October 14, 2026</span>
   </span>
 
     
@@ -6897,6 +6900,8 @@ the failure this ADR is about, one level up.</p>
 
 
                 
+  
+
               </article>
             </div>
           

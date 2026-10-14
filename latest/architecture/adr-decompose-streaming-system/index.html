@@ -4518,6 +4518,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4551,7 +4554,7 @@
 sized <code>GaussianStreamingSystem</code> as "138 methods in one TU." It is <strong>166 out-of-line method
 definitions spread across five translation units</strong>, so every "one big file" intuition about
 the migration cost is wrong by a third:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>TU</th>
@@ -4591,7 +4594,7 @@ the migration cost is wrong by a third:</p>
 <td style="text-align: right;"><strong>6,406</strong> (+ 591 in <code>gaussian_streaming.h</code> = <strong>6,997</strong>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The two counts an earlier note gave — "138 in one TU" and "165 across 6" — are both wrong;
 the second is off by one on each axis. Recount before sizing any slice: the class surface
 is what S4/S5 must move, and four of the five TUs are already <em>satellite</em> TUs that reach
@@ -4601,7 +4604,7 @@ into the same private state (§1c), so the ownership move is wider than the LOC 
 (4,647 LOC; <code>gaussian_streaming.h</code> is 591 LOC). An earlier split (ISSUE-006, see the include block at
 <code>gaussian_streaming.h:15-26</code>) moved code into per-concern translation units and introduced
 seven "controller" types:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Unit</th>
@@ -4646,7 +4649,7 @@ seven "controller" types:</p>
 <td><strong>pure static, typed I/O — the good pattern</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The audit's finding is that <strong>decomposition moved code to TUs, not ownership</strong>. Four of the
 seven controllers reach back into <code>GaussianStreamingSystem</code>'s <em>private</em> state — either by
 taking <code>GaussianStreamingSystem &amp;system</code> and touching its members through friendship, or by
@@ -4689,7 +4692,7 @@ count of <code>is_loaded</code> chunks"</em> is maintained by convention across 
 <h3 id="1b-the-duplicated-slot-release-budget-decrement-loop-the-591-adjacent-dup">1b. The duplicated slot-release + budget-decrement loop (the #591-adjacent dup)<a class="headerlink" href="#1b-the-duplicated-slot-release-budget-decrement-loop-the-591-adjacent-dup" title="Permanent link">¶</a></h3>
 <p>The same "release the atlas slot, decrement <code>loaded_chunks_count</code>, subtract <code>vram_usage</code>,
 accumulate <code>evicted_bytes_total</code>" idiom is <strong>open-coded four times</strong>, near-identically:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Site</th>
@@ -4719,7 +4722,7 @@ accumulate <code>evicted_bytes_total</code>" idiom is <strong>open-coded four ti
 <td><strong>no — bare <code>budget.loaded_chunks_count--</code> at <code>:3873</code></strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>Correction (review round 2) — this is a style divergence, not a latent bug.</strong> An earlier
 revision called the unguarded <code>:3873</code> decrement "a concrete divergence the duplication
@@ -4795,7 +4798,7 @@ one copy only.</strong></p>
 built on it.</strong> The decomposition is still worth doing, but <em>how it can be validated</em> changes.</p>
 </blockquote>
 <p>Backend selection is <strong>world-scoped, and only one of the two node surfaces honours it</strong>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Surface</th>
@@ -4815,7 +4818,7 @@ built on it.</strong> The decomposition is still worth doing, but <em>how it can
 <td><strong>no</strong> — the in-code comment states route policy is <em>"deliberately ignored here to keep backend selection world-scoped"</em></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Consequences that this ADR's slices must respect:</p>
 <ol>
 <li><strong>A scene built from plain <code>GaussianSplatNode3D</code> nodes never enters the streaming system
@@ -4881,7 +4884,7 @@ become an owned store with typed lookups (<code>get_chunk(asset_id, chunk_id) -&
 iteration callbacks) instead of raw <code>LocalVector&lt;StreamingChunk&gt; &amp;</code> handed to friends. Eviction
 and the registry consume <code>ChunkRef</code> / a read cursor; they no longer take <code>&amp;system</code>.</p>
 <h3 id="2c-convert-the-four-system-controllers-to-typed-collaborators">2c. Convert the four <code>&amp;system</code> controllers to typed collaborators<a class="headerlink" href="#2c-convert-the-four-system-controllers-to-typed-collaborators" title="Permanent link">¶</a></h3>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Unit</th>
@@ -4906,7 +4909,7 @@ and the registry consume <code>ChunkRef</code> / a read cursor; they no longer t
 <td><code>build/sync</code> take a <code>ChunkResidencyStore</code> read view instead of <code>friend</code>.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Each conversion is a mechanical "replace member access <code>system.X</code> with a passed value or a
 ledger call," which keeps diffs reviewable and behavior byte-identical when the extracted
 methods are pure moves.</p>
@@ -4943,7 +4946,7 @@ deliberately disjoint, and a shared sizing source re-couples them.</p>
 <p><strong>Therefore:</strong> this ADR takes <strong>no dependency on #591</strong>, and S6 no longer lists "#591 shared
 helper" as a by-product. #591 remains open and is <strong>decidable independently</strong> of this
 decomposition, on these terms:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Option</th>
@@ -4968,7 +4971,7 @@ decomposition, on these terms:</p>
 <td><strong>Rejected above.</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Recommendation for the owner: <strong>B if #591 is to be actioned at all, otherwise A.</strong> Either way
 it is out of scope for S1–S6.</p>
 <h2 id="3-threading-model-per-api-contracts-not-a-blanket-render-thread-assertion">3. Threading model — per-API contracts, not a blanket render-thread assertion<a class="headerlink" href="#3-threading-model-per-api-contracts-not-a-blanket-render-thread-assertion" title="Permanent link">¶</a></h2>
@@ -5031,7 +5034,7 @@ what the design must encode.</p>
 <h3 id="3b-per-api-thread-contracts">3b. Per-API thread contracts<a class="headerlink" href="#3b-per-api-thread-contracts" title="Permanent link">¶</a></h3>
 <p>Every public entry point is assigned exactly one of three classes. This table is the
 contract; §6's invariant list is what a slice is graded against.</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Class</th>
@@ -5066,9 +5069,9 @@ contract; §6's invariant list is what a slice is graded against.</p>
 <td><strong>Open — D-READONLY.</strong></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>Assignment of the current public surface:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Entry point</th>
@@ -5133,7 +5136,7 @@ contract; §6's invariant list is what a slice is graded against.</p>
 <td>Bound to script; must stay callable from the main thread.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <blockquote>
 <p><strong>The table is a snapshot; S6 must not trust it as exhaustive.</strong> Three successive reviews
 have each found further unclassified mutators — <code>begin_frame</code>/<code>end_frame</code>, the five
@@ -5265,7 +5268,7 @@ is an accepted trade rather than an omission.</p>
 rather than a disclosure. It is a <code>Dictionary</code>, so a racing read is a refcount race on a
 non-atomic pointer (<code>core/variant/dictionary.cpp:43-44</code>), i.e. undefined behavior, not a
 torn view. The three dispositions:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Option</th>
@@ -5290,7 +5293,7 @@ torn view. The three dispositions:</p>
 <td>Free, and wrong: it is UB, and the current wording ("torn view") understates it. Listed for completeness only.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>This ADR does <strong>not</strong> pick one. Whichever is chosen must become an invariant so a slice can
 be graded on it; A is the only option that keeps the bound getter safe from script without a
 contract break.</p>
@@ -5307,7 +5310,7 @@ likely reaction would have been to weaken the guard rather than to fix the state
 </blockquote>
 <p>The streaming subsystem declares exactly two locks (plus one semaphore), verified by grep over
 <code>core/gaussian_streaming.*</code> and <code>core/streaming_*</code>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Lock</th>
@@ -5330,7 +5333,7 @@ likely reaction would have been to weaken the guard rather than to fix the state
 <td>serializes file I/O for payload reads; guards <strong>no</strong> render-facing state</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>They are disjoint by design: <code>file_mutex</code> protects an I/O-side cache inside the payload source
 and never touches <code>chunks</code>, <code>budget</code>, <code>atlas_allocator</code>, or <code>persistent_buffer</code>. <code>pack_semaphore</code>
 (<code>streaming_upload_pipeline.h:262</code>) is a worker wake signal, not a mutex.</p>
@@ -5350,7 +5353,7 @@ red on the base and would have been weakened rather than obeyed.)</p>
 <p><em>What is </em><em>not</em><em> true:</em> the streaming path <strong>does</strong> acquire <code>world_mutex</code>, indirectly, through
 the director's <code>*_for_renderer</code> API. <code>RenderStreamingOrchestrator</code> calls <strong>seven</strong> such methods, and
 <strong>all seven lock it</strong>:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Director method called from <code>render_streaming_orchestrator.cpp</code></th>
@@ -5387,7 +5390,7 @@ the director's <code>*_for_renderer</code> API. <code>RenderStreamingOrchestrato
 <td><code>scene_director_sphere_effectors.cpp:344</code></td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>A textual-grep guard over streaming TUs stays <strong>green</strong> through every one of these, so scoping
 I9 that way would have produced a guard that cannot detect the condition it exists to detect —
 the precise failure this ADR twice warns about elsewhere. I9 is therefore restated below
@@ -5481,7 +5484,7 @@ absorbing #513's budget half) → S2 → <strong>#222/S3</strong> → S4 (+ opti
 <p>These are checkable. A slice that violates one is rejected regardless of whether CI is green;
 a slice that cannot show the evidence in §7 for the invariants it touches is "not run", never
 "passed".</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>#</th>
@@ -5551,7 +5554,7 @@ a slice that cannot show the evidence in §7 for the invariants it touches is "n
 <td>Byte-identical <strong>residency/budget key subset</strong> of <code>get_streaming_analytics</code> / <code>get_vram_debug_stats</code> on a fixed scene before and after — <strong>not</strong> the whole snapshot, which embeds run-varying timing telemetry (see evidence item 4).</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <h2 id="7-evidence-a-slice-must-produce">7. Evidence a slice must produce<a class="headerlink" href="#7-evidence-a-slice-must-produce" title="Permanent link">¶</a></h2>
 <p>Every slice states which invariants it touches and attaches, at minimum:</p>
 <ol>
@@ -5612,7 +5615,7 @@ silently dropped.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:15 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:17 UTC">October 14, 2026</span>
   </span>
 
     
@@ -5626,6 +5629,8 @@ silently dropped.</p>
 
 
                 
+  
+
               </article>
             </div>
           

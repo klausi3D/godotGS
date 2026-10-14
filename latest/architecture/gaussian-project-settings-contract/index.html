@@ -4484,6 +4484,9 @@
               
               <article class="md-content__inner md-typeset">
                 
+  
+  
+    
                   
 
 
@@ -4504,7 +4507,7 @@ production C++ source must be listed in the manifest. Family defaults classify
 common prefixes, and per-key entries provide the effective-state field, coverage
 status, and notes for known gaps or cleanup candidates.</p>
 <p>Required resolved fields:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Field</th>
@@ -4541,7 +4544,7 @@ status, and notes for known gaps or cleanup candidates.</p>
 <td>Covered, partial, inventory-only, documented gap, needs behavior test, or test-only.</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The deterministic checker is
 <code>modules/gaussian_splatting/tests/check_project_settings_manifest.py</code>.
 It scans production Gaussian C++ source for literal settings and common static
@@ -4726,7 +4729,7 @@ general runtime controls.</p>
 keep <code>publicness: public</code> and express their debug/profiling nature via <code>scope</code> +
 notes, rather than <code>publicness: debug_only</code> (which would drop them out of the public
 surface and fail the baseline-alignment guard).</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -4797,14 +4800,14 @@ surface and fail the baseline-alignment guard).</p>
 <td>Editor-visible (labeled debug; NO_EDITOR not honored — #491)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p><code>import/ply_ascii_strict_parse</code> is listed in issue #173 but does <strong>not</strong> exist on
 <code>master</code> (0 references in module source); it is already-gone and required no code
 change.</p>
 <h2 id="known-registration-gaps">Known Registration Gaps<a class="headerlink" href="#known-registration-gaps" title="Permanent link">¶</a></h2>
 <p>The manifest records live runtime reads that need an ownership decision.
 Status, verified against the code on 2026-10-01:</p>
-<table>
+<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
 <thead>
 <tr>
 <th>Key</th>
@@ -4834,7 +4837,7 @@ Status, verified against the code on 2026-10-01:</p>
 <td><code>GPUCuller::update_culling_settings()</code> (<code>interfaces/gpu_culler.cpp</code>)</td>
 </tr>
 </tbody>
-</table>
+</table></div>
 <p>The one remaining gap, <code>cull/frustum_plane_slack</code>, needs the same decision:
 either register it with explicit public semantics and a behavior test, or
 internalize it so that it is not a user-facing <code>ProjectSettings</code> contract.</p>
@@ -4858,7 +4861,7 @@ internalize it so that it is not a user-facing <code>ProjectSettings</code> cont
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 11, 2026 07:55:17 UTC">October 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:13:19 UTC">October 14, 2026</span>
   </span>
 
     
@@ -4872,6 +4875,8 @@ internalize it so that it is not a user-facing <code>ProjectSettings</code> cont
 
 
                 
+  
+
               </article>
             </div>
           
