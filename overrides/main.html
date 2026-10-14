@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {# Keep Material's content (source links, headings, etc.). Its runtime table
+     wrapper has no tabindex, so provide a keyboard-accessible scroll owner. #}
+  {% filter replace('<table', '<div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table') | replace('</table>', '</table></div>') %}
+    {{ super() }}
+  {% endfilter %}
+{% endblock %}
