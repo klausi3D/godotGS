@@ -145,13 +145,13 @@ private:
     // Internal serialization methods
     Error _write_chunk_header(Ref<FileAccess> file, ChunkType type, uint32_t size, uint32_t flags = 0);
     Error _write_scene_header(Ref<FileAccess> file, const SceneHeader& header);
-    Error _write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData* gaussian_data);
+    Error _write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData::SaveSnapshot &snapshot);
     Error _write_animation_data_chunk(Ref<FileAccess> file, const GaussianAnimationStateMachine* animation);
     Error _write_metadata_chunk(Ref<FileAccess> file, const Dictionary& p_metadata);
     Error _write_asset_refs_chunk(Ref<FileAccess> file);
     // Streams the full scene to an already-open file. Invoked inside the atomic
     // write in save_scene() so a mid-write failure never truncates the target.
-    Error _write_scene_to_file(const Ref<FileAccess>& file, const ::GaussianData* gaussian_data,
+    Error _write_scene_to_file(const Ref<FileAccess>& file, const ::GaussianData::SaveSnapshot &snapshot,
             const GaussianAnimationStateMachine* animation, const Dictionary& p_metadata);
 
     Error _read_chunk_header(Ref<FileAccess> file, ChunkHeader& header) const;

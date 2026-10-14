@@ -521,10 +521,8 @@ bool GaussianSceneSerializer::_verify_checksum(const PackedByteArray &data, uint
     return _calculate_checksum(data) == expected_checksum;
 }
 
-Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData *gaussian_data) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-
-    const LocalVector<Gaussian> &storage = gaussian_data->get_gaussian_storage();
+Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData::SaveSnapshot &snapshot) {
+    const Vector<Gaussian> &storage = snapshot.get_gaussians();
     PackedByteArray payload;
     // #798: sized from the splat count, so this is the largest allocation the writer makes
     // (144 B/splat) and by far the likeliest to fail. Both memcpys go through the raw `w`
@@ -934,22 +932,28 @@ bool GaussianSceneSerializer::_is_asset_modified(const AssetReference &ref) cons
 Error GaussianSceneSerializer::save_scene(const String &file_path, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
 
+    ::GaussianData::SaveSnapshot snapshot;
+    const Error snapshot_error = gaussian_data->capture_save_snapshot(snapshot);
+    if (snapshot_error != OK) {
+        return snapshot_error;
+    }
+
     // Atomic write: a crash or write error mid-save must not truncate an existing
     // scene file (worst case the baseline the incremental system depends on).
     return gs_atomic_file_write(file_path, [&](const Ref<FileAccess> &file) -> Error {
-        return _write_scene_to_file(file, gaussian_data, animation, p_metadata);
+        return _write_scene_to_file(file, snapshot, animation, p_metadata);
     });
 }
 
-Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
+Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData::SaveSnapshot &snapshot, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     // Honest lossy-save warning (#600). The GAUSSIAN_DATA chunk persists only the
     // per-splat `Gaussian` struct bytes (which embed first-order SH). The
     // high-order SH sidecar and the 2D-mode flag are NOT part of the .gsf format
     // yet, so they will be dropped on load. Warn instead of losing data silently.
     // A lossless versioned schema is deferred to the ADR for #600.
-    if (gaussian_data != nullptr) {
-        const uint32_t dropped_sh_high_order = gaussian_data->get_sh_high_order_count();
-        const bool dropped_2d_mode = gaussian_data->get_2d_mode();
+    {
+        const uint32_t dropped_sh_high_order = snapshot.get_sh_high_order_count();
+        const bool dropped_2d_mode = snapshot.get_2d_mode();
         if (dropped_sh_high_order > 0 || dropped_2d_mode) {
             WARN_PRINT(vformat(
                     "GaussianSceneSerializer: the .gsf format does not persist high-order "
@@ -973,8 +977,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         header.flags |= SCENE_FLAG_CHECKSUM_ENABLED;
     }
     uint32_t chunk_count = 1; // Scene header chunk.
-    header.splat_count = gaussian_data->get_count();
-    AABB bounds = gaussian_data->get_aabb();
+    header.splat_count = snapshot.get_gaussians().size();
+    AABB bounds = snapshot.get_aabb();
     header.bounds_min[0] = bounds.position.x;
     header.bounds_min[1] = bounds.position.y;
     header.bounds_min[2] = bounds.position.z;
@@ -986,7 +990,7 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     header.creation_time = (uint64_t)now;
     header.modification_time = (uint64_t)now;
 
-    if (gaussian_data->get_count() > 0) {
+    if (snapshot.get_gaussians().size() > 0) {
         chunk_count++;
     }
     if (animation != nullptr && animation->get_clip_count() > 0) {
@@ -1007,8 +1011,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         return err;
     }
 
-    if (gaussian_data->get_count() > 0) {
-        err = _write_gaussian_data_chunk(file, gaussian_data);
+    if (snapshot.get_gaussians().size() > 0) {
+        err = _write_gaussian_data_chunk(file, snapshot);
         if (err != OK) {
             return err;
         }

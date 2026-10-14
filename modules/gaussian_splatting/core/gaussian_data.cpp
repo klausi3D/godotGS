@@ -300,6 +300,11 @@ void GaussianData::_on_gaussian_storage_changed_locked() {
 }
 
 void GaussianData::set_gaussians(const LocalVector<Gaussian> &p_gaussians) {
+#ifdef TESTS_ENABLED
+    if (save_snapshot_test_hook) {
+        save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::REPLACEMENT_ENTERED);
+    }
+#endif
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     // PERSIST-001: _on_gaussian_storage_changed_locked() fails the incremental saver
@@ -630,6 +635,57 @@ bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
 
 const Vector3 *GaussianData::get_sh_high_order_coefficients_ptr() const {
     return sh_high_order_coefficients.is_empty() ? nullptr : sh_high_order_coefficients.ptr();
+}
+
+Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
+    SaveSnapshot captured;
+    {
+        RWLockRead lock(data_rwlock);
+#ifdef TESTS_ENABLED
+        if (save_snapshot_test_hook) {
+            save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::CAPTURE_READ_LOCKED);
+        }
+#endif
+        const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
+        // resize() and coefficient setters may retain allocation slack. Only
+        // the active extent belongs to the immutable payload.
+        if (expected_high > uint64_t(sh_high_order_coefficients.size())) {
+            return ERR_INVALID_DATA;
+        }
+        if (!gs_resize_or_fail(captured.payload, gaussians.size(), "GaussianData::capture_save_snapshot geometry") ||
+                !gs_resize_or_fail(captured.high_order, expected_high, "GaussianData::capture_save_snapshot SH")) {
+            return ERR_OUT_OF_MEMORY;
+        }
+        for (uint32_t i = 0; i < gaussians.size(); ++i) {
+            captured.payload.write[i] = gaussians[i];
+        }
+        for (uint64_t i = 0; i < expected_high; ++i) {
+            captured.high_order.write[i] = sh_high_order_coefficients[i];
+        }
+        captured.degree = sh_degree;
+        captured.first_order_count = sh_first_order_count;
+        captured.high_order_count = sh_high_order_count;
+        captured.mode_2d = is_2d_mode;
+        captured.revision = content_revision.load(std::memory_order_relaxed);
+    }
+    // Bounds are derived from the owned geometry, never from a second live read.
+    if (!captured.payload.is_empty()) {
+        Vector3 min_pos, max_pos;
+        for (int64_t i = 0; i < captured.payload.size(); ++i) {
+            const Gaussian &g = captured.payload[i];
+            const Vector3 extent(Math::abs(g.scale.x) * 3.0f, Math::abs(g.scale.y) * 3.0f, Math::abs(g.scale.z) * 3.0f);
+            if (i == 0) {
+                min_pos = g.position - extent;
+                max_pos = g.position + extent;
+            } else {
+                min_pos = min_pos.min(g.position - extent);
+                max_pos = max_pos.max(g.position + extent);
+            }
+        }
+        captured.bounds = AABB(min_pos, max_pos - min_pos);
+    }
+    r_snapshot = std::move(captured);
+    return OK;
 }
 
 bool GaussianData::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
