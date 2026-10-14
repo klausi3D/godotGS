@@ -462,3 +462,29 @@ open-only, any manifest-tracked `blocking` issue omitted from it needs explicit
 closure proof in `resolved_manifest_issues` inside the evidence bundle. Neither
 the deterministic contract check nor candidate mode requires live network
 access today.
+
+## Decision record: radix workgroup sizing (#539, 2026-10-13)
+
+- Status: proposed; R3 only because adding the regression cases refreshes the
+  manifest's derived `requires_gpu_test_snapshot` and coverage counts.
+- Design-change issue: #539 (prefix cost scales with workgroup count) and #634
+  (shared-memory product).
+
+RadixSort prefers 512-thread workgroups (`DEFAULT_RADIX_WORKGROUP_SIZE`);
+Bitonic and OneSweep keep their fixed 256-thread shaders
+(`DEFAULT_WORKGROUP_SIZE`). `RadixSort::is_supported()` and
+`RadixSort::initialize()` use 512 and fall back to 256 when the device's
+X-dimension, invocation or scatter shared-memory limit requires it, so devices
+that ran the old 256 default keep an indirect 64-bit radix sorter. The fallback
+stops at 256 because `RenderSortingOrchestrator::initialize_sorting()` already
+requires 256-wide compute; an explicit 64 or 128 preference is kept as before. Initialization then rejects a declared capacity
+whose group count exceeds the device's X dispatch limit with `ERR_UNAVAILABLE`;
+it never truncates records or switches algorithms silently.
+
+Two cases in the required `GpuSorting` batch cover this on a real device, using
+test-only ceilings that can only lower the reported limits. The manifest
+inventory changes additively (173 to 175 cases, 107 to 109 running); no waiver,
+threshold, batch or ratchet is relaxed. NVIDIA measurements do not prove AMD or
+Intel behaviour. Rollback: revert the preference, the sizing helper, the
+capacity check and the two regression registrations together, then recompute
+the inventory.

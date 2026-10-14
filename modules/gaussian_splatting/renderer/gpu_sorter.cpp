@@ -373,6 +373,39 @@ static ComputeCapabilityProbe _probe_compute_capabilities(RenderingDevice *rd) {
     return probe;
 }
 
+#ifdef TESTS_ENABLED
+static std::atomic<uint64_t> radix_test_size_x{ UINT64_MAX };
+static std::atomic<uint64_t> radix_test_invocations{ UINT64_MAX };
+static std::atomic<uint64_t> radix_test_shared_memory{ UINT64_MAX };
+static std::atomic<uint64_t> radix_test_count_x{ UINT64_MAX };
+
+RadixSort::ScopedDeviceLimitsForTesting::ScopedDeviceLimitsForTesting(
+        uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory, uint64_t p_count_x) :
+        previous_size_x(radix_test_size_x.exchange(p_size_x)),
+        previous_invocations(radix_test_invocations.exchange(p_invocations)),
+        previous_shared_memory(radix_test_shared_memory.exchange(p_shared_memory)),
+        previous_count_x(radix_test_count_x.exchange(p_count_x)) {
+}
+
+RadixSort::ScopedDeviceLimitsForTesting::~ScopedDeviceLimitsForTesting() {
+    radix_test_size_x.store(previous_size_x);
+    radix_test_invocations.store(previous_invocations);
+    radix_test_shared_memory.store(previous_shared_memory);
+    radix_test_count_x.store(previous_count_x);
+}
+#endif
+
+static ComputeCapabilityProbe _probe_radix_compute_capabilities(RenderingDevice *p_rd) {
+    ComputeCapabilityProbe probe = _probe_compute_capabilities(p_rd);
+#ifdef TESTS_ENABLED
+    probe.workgroup_size_x = MIN(probe.workgroup_size_x, radix_test_size_x.load());
+    probe.workgroup_invocations = MIN(probe.workgroup_invocations, radix_test_invocations.load());
+    probe.shared_memory_bytes = MIN(probe.shared_memory_bytes, radix_test_shared_memory.load());
+    probe.workgroup_count_x = MIN(probe.workgroup_count_x, radix_test_count_x.load());
+#endif
+    return probe;
+}
+
 static bool _subgroup_prefix_forced_off() {
     return g_gpu_sorting_config.subgroup_prefix_mode == GPUSortingConfig::SUBGROUP_PREFIX_FORCE_OFF;
 }
@@ -2212,15 +2245,35 @@ Error RadixSort::initialize(RenderingDevice *p_rd, uint32_t p_max_elements) {
     RenderingDevice *command_rd = local_rd;
 
     const GPUSortingConfig &config = g_gpu_sorting_config;
-    workgroup_size = config.workgroup_size > 0 ? config.workgroup_size : GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
+    const uint32_t configured_workgroup_size = config.workgroup_size > 0 ? config.workgroup_size : GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE;
     primary_radix_bits = config.radix_bits;
     secondary_radix_bits = 0;
     secondary_threshold = 0;
 
-    if (!device_supports_workgroup(command_rd, workgroup_size)) {
-        GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] RadixSort unavailable on devices without %d-thread workgroups", workgroup_size));
+    // Use the same device sizing as is_supported(), before shader compilation or
+    // buffer sizing. Reduced workgroups require larger histogram allocations.
+    const ComputeCapabilityProbe probe = _probe_radix_compute_capabilities(command_rd);
+    workgroup_size = GPUSortingConstants::radix_workgroup_size_for_device(configured_workgroup_size,
+            probe.workgroup_size_x, probe.workgroup_invocations, probe.shared_memory_bytes, primary_radix_bits);
+    if (workgroup_size == 0 || !device_supports_workgroup(command_rd, workgroup_size)) {
+        GS_LOG_WARN_DEFAULT("[GPU Sort] RadixSort unavailable: no configured workgroup size fits this device's compute limits.");
         shutdown();
         return ERR_UNAVAILABLE;
+    }
+    // Capacity is known before variants or buffers are created. A smaller
+    // device-selected workgroup must not admit more X groups than the actual
+    // command device can dispatch; never truncate records to fit that limit.
+    const uint64_t required_groups = (uint64_t(max_elements) + workgroup_size - 1) / workgroup_size;
+    if (probe.workgroup_count_x == 0 || required_groups > probe.workgroup_count_x) {
+        GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] RadixSort capacity %d at workgroup_size %d requires %s X groups; device limit is %s.",
+                max_elements, workgroup_size, String::num_uint64(required_groups), String::num_uint64(probe.workgroup_count_x)));
+        max_elements = 0;
+        shutdown();
+        return ERR_UNAVAILABLE;
+    }
+    if (workgroup_size < configured_workgroup_size) {
+        GS_LOG_WARN_DEFAULT(vformat("[GPU Sort] RadixSort workgroup_size %d exceeds device compute limits; using %d.",
+                configured_workgroup_size, workgroup_size));
     }
 
     uint64_t subgroup_ops = command_rd->limit_get(RenderingDevice::LIMIT_SUBGROUP_OPERATIONS);
@@ -3614,7 +3667,7 @@ SorterCapabilities BitonicSort::get_capabilities() {
 // RadixSort capability probes
 bool RadixSort::is_supported(RenderingDevice *p_rd) {
     const GPUSortingConfig &config = g_gpu_sorting_config;
-    uint32_t required_workgroup_size = config.workgroup_size > 0 ? config.workgroup_size : GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
+    const uint32_t configured_workgroup_size = config.workgroup_size > 0 ? config.workgroup_size : GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE;
     // The scatter kernel is the shared-memory peak: local_bases[radix_size] + local_offsets[radix_size]
     // + bin_masks[radix_size * mask_words], where radix_size = 1<<radix_bits and mask_words = ceil(wg/32).
     // The old probe checked only the OneSweep RADIX_SIZE (256) words and ignored bin_masks entirely, so an
@@ -3633,17 +3686,21 @@ bool RadixSort::is_supported(RenderingDevice *p_rd) {
                 actual_radix_bits));
         return false;
     }
+    const ComputeCapabilityProbe probe = _probe_radix_compute_capabilities(p_rd);
+    const uint32_t required_workgroup_size = GPUSortingConstants::radix_workgroup_size_for_device(configured_workgroup_size,
+            probe.workgroup_size_x, probe.workgroup_invocations, probe.shared_memory_bytes, actual_radix_bits);
+    if (required_workgroup_size == 0) {
+        return false;
+    }
     const uint32_t required_shared_memory =
             GPUSortingConstants::radix_scatter_shared_memory_bytes(actual_radix_bits, required_workgroup_size);
-    const ComputeCapabilityProbe probe = _probe_compute_capabilities(p_rd);
     return _supports_compute_profile(probe, required_workgroup_size, MIN_STORAGE_BUFFERS_PER_SET, required_shared_memory);
 }
 
 SorterCapabilities RadixSort::get_capabilities() {
-    const GPUSortingConfig &config = g_gpu_sorting_config;
-    uint32_t required_workgroup_size = config.workgroup_size > 0 ? config.workgroup_size : GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
     SorterCapabilities caps;
-    caps.required_workgroup_size = required_workgroup_size;
+    // 512 is preferred; the per-device fallback stops at 256 (radix_workgroup_size_for_device).
+    caps.required_workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
     caps.max_supported_key_bits = 64;
     caps.supports_indirect = true;
     caps.supports_64bit_keys = true;

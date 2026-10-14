@@ -360,7 +360,7 @@ private:
     RenderingDevice *resource_device = nullptr;
     uint64_t resource_device_generation = 0; // ISSUE-010: device instance ID at time of assignment
 
-    uint32_t workgroup_size = GPUSortingConstants::DEFAULT_WORKGROUP_SIZE;
+    uint32_t workgroup_size = GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE;
     uint32_t histogram_stride = 0;
     uint32_t workgroup_stride = 0;
     uint32_t max_workgroups = 0;
@@ -427,6 +427,24 @@ public:
     LastSortGpuTimestamp get_last_sort_gpu_timestamp() const override { return last_sort_gpu_timestamp; }
 
     void set_key_config(const SortKeyConfig &p_cfg) { key_config = p_cfg; }
+
+#ifdef TESTS_ENABLED
+    // Serial GPU tests can lower admission limits on a real device. These ceilings
+    // never raise a hardware capability; the scoped fixture restores prior values.
+    class ScopedDeviceLimitsForTesting {
+        uint64_t previous_size_x;
+        uint64_t previous_invocations;
+        uint64_t previous_shared_memory;
+        uint64_t previous_count_x;
+    public:
+        ScopedDeviceLimitsForTesting(uint64_t p_size_x, uint64_t p_invocations, uint64_t p_shared_memory,
+                uint64_t p_count_x = UINT64_MAX);
+        ~ScopedDeviceLimitsForTesting();
+        ScopedDeviceLimitsForTesting(const ScopedDeviceLimitsForTesting &) = delete;
+        ScopedDeviceLimitsForTesting &operator=(const ScopedDeviceLimitsForTesting &) = delete;
+    };
+    uint32_t get_effective_workgroup_size_for_testing() const { return workgroup_size; }
+#endif
 
     // Static capability probe - check if algorithm is supported without instantiation
     static bool is_supported(RenderingDevice *p_rd);
