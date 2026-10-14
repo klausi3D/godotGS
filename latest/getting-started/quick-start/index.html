@@ -633,7 +633,7 @@
   <a href="#flow-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Flow Reference
+        Optional: Check an Editor You Built
       
     </span>
   </a>
@@ -4499,7 +4499,7 @@
   <a href="#flow-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Flow Reference
+        Optional: Check an Editor You Built
       
     </span>
   </a>
@@ -4538,7 +4538,7 @@
 <h1 id="your-first-splat">Your First Splat<a class="headerlink" href="#your-first-splat" title="Permanent link">¶</a></h1>
 <p><strong>For:</strong> Godot users trying godotGS for the first time.</p>
 <p><strong>At the end:</strong> you have the sample project open in a godotGS editor, a splat on screen, and you know where to go to bring in your own capture.</p>
-<p>It takes four steps: get an editor, get the sample project, open it, press Play. A diagram of the flow is at the end of the page.</p>
+<p>Follow the four steps below. First run the supplied sample, then import your own capture.</p>
 <h2 id="1-get-an-editor">1. Get an Editor<a class="headerlink" href="#1-get-an-editor" title="Permanent link">¶</a></h2>
 <p>A stock Godot editor does not work: you need an editor built from this fork.</p>
 <ul>
@@ -4563,11 +4563,11 @@
 </code></pre></div>
 <p>The sample project opens in the editor. Keep the <code>-e</code> flag: without it, <code>--path</code> runs the project's main scene directly instead of opening the editor.</p>
 <p>You can also start the editor normally and import <code>tests/examples/godot/test_project</code> from the Project Manager.</p>
-<p>Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.</p>
-<div class="highlight"><pre><span></span><code><span class="nv">$GODOT_BINARY</span><span class="w"> </span>--headless<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project<span class="w"> </span>--quit
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-headless</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span> <span class="p">-</span><span class="n">-quit</span>
-</code></pre></div>
+<p>In the FileSystem dock, expand <code>scenes</code> and open <code>public_evaluator.tscn</code>. The Scene dock should show <code>PublicEvaluator</code>, with <code>PerformanceOverlay</code>, <code>DemoSplat</code>, <code>Camera3D</code> and <code>DirectionalLight3D</code> underneath it.</p>
+<figure class="gs-tutorial-shot">
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/screenshots/first-splat-editor-tree.webp" data-desc-position="bottom"><img alt="The Scene dock with public_evaluator open: PublicEvaluator contains PerformanceOverlay, DemoSplat, Camera3D and DirectionalLight3D." class="gs-shot gs-shot--natural" height="300" loading="lazy" src="../../assets/images/screenshots/first-splat-editor-tree.webp" width="280"></a></p>
+<figcaption>The sample scene open in the editor. Check these node names before pressing Play. <a href="../../reference/#first-splat-captures">Capture details</a>.</figcaption>
+</figure>
 <h2 id="4-press-play">4. Press Play<a class="headerlink" href="#4-press-play" title="Permanent link">¶</a></h2>
 <p>Press Play (F5). The project's main scene, <code>res://scenes/public_evaluator.tscn</code>, shows a small synthetic sample: a 1,024-splat test fixture, not a real capture.</p>
 <p>You should see:</p>
@@ -4576,6 +4576,10 @@
 <li>a performance overlay with frame rate and timings (F3 hides it).</li>
 </ul>
 <p>The camera is a fly camera: the mouse looks around, <code>W</code> <code>A</code> <code>S</code> <code>D</code> move, <code>E</code> or <code>Space</code> goes up, <code>Q</code> goes down, and <code>Shift</code> moves faster. <code>Esc</code> quits.</p>
+<figure class="gs-tutorial-shot">
+<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/screenshots/first-splat-runtime.webp" data-desc-position="bottom"><img alt="The running public evaluator: a small colored synthetic splat cloud at the centre, with the performance overlay on the left showing 1.0K source splats and F3 to hide it." class="gs-shot" height="1080" loading="lazy" src="../../assets/images/screenshots/first-splat-runtime.webp" width="1920"></a></p>
+<figcaption>The supplied 1,024-splat fixture after pressing Play. The timing overlay belongs to this tiny sample; use the <a href="../../performance/">Performance Dashboard</a> for benchmark results. <a href="../../reference/#first-splat-captures">Capture details</a>.</figcaption>
+</figure>
 <p>If nothing appears, or the splats are black, go to <a href="../../troubleshooting/">Troubleshooting</a>.</p>
 <h2 id="next-import-your-own-capture">Next: Import Your Own Capture<a class="headerlink" href="#next-import-your-own-capture" title="Permanent link">¶</a></h2>
 <p>Copy a <code>.ply</code> or <code>.spz</code> source file into your project's folder. The editor imports it as a splat asset (<code>GaussianSplatAsset</code>). Drag that splat asset into the 3D viewport and the editor creates a <code>GaussianSplatNode3D</code> that draws it. The <a href="../../workflows/importing/">Import Workflow</a> covers the supported formats and what to do when an import fails.</p>
@@ -4590,11 +4594,12 @@
 <li><a href="../../development/export-templates/">Export Templates</a>: before you export a game.</li>
 <li><a href="../../reference/compatibility-matrix/">Compatibility Matrix</a>: what is tested on which platform.</li>
 </ul>
-<h2 id="flow-reference">Flow Reference<a class="headerlink" href="#flow-reference" title="Permanent link">¶</a></h2>
-<figure>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/first-run-editor-path.svg" data-desc-position="bottom"><img alt="Your First Splat in four steps: get an editor built from this fork, get the sample project, open it in the editor, and press Play to see splats in the sample scene" class="gs-diagram" src="../../assets/images/first-run-editor-path.svg"></a></p>
-<figcaption>Your First Splat is a short proof loop: get an editor and the sample project, open the project, and confirm visible splats in the sample scene.</figcaption>
-</figure>
+<h2 id="flow-reference">Optional: Check an Editor You Built<a class="headerlink" href="#flow-reference" title="Permanent link">¶</a></h2>
+<p>Optional check, useful for an editor you built yourself: open the project headlessly and quit. It should exit without errors.</p>
+<div class="highlight"><pre><span></span><code><span class="nv">$GODOT_BINARY</span><span class="w"> </span>--headless<span class="w"> </span>--path<span class="w"> </span>tests/examples/godot/test_project<span class="w"> </span>--quit
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="p">&amp;</span> <span class="nv">$env:GODOT_BINARY</span> <span class="p">-</span><span class="n">-headless</span> <span class="p">-</span><span class="n">-path</span> <span class="p">.\</span><span class="n">tests</span><span class="p">\</span><span class="n">examples</span><span class="p">\</span><span class="n">godot</span><span class="p">\</span><span class="n">test_project</span> <span class="p">-</span><span class="n">-quit</span>
+</code></pre></div>
 
 
 
@@ -4615,7 +4620,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:16:11 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:40 UTC">October 14, 2026</span>
   </span>
 
     

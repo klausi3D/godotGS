@@ -4343,6 +4343,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Image Credits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#first-splat-captures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First Splat Captures
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -4440,7 +4457,7 @@
 </div>
 <div class="gs-section-shell gs-section-shell--compact">
 <h2 id="image-credits">Image Credits<a class="headerlink" href="#image-credits" title="Permanent link">¶</a></h2>
-<p>The screenshots on the homepage and in the guides show real captured scenes rendered by godotGS. The scans are third-party work, used under their licences:</p>
+<p>Apart from the two <a href="#first-splat-captures">First Splat captures</a> of the bundled synthetic sample, the screenshots on the homepage and in the guides show real captured scenes rendered by godotGS. The scans are third-party work, used under their licences:</p>
 <ul>
 <li><strong>Mip-NeRF 360 "bicycle" and "garden"</strong> by Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan and Peter Hedman ("Mip-NeRF 360: Unbounded Anti-Aliased Neural Radiance Fields", CVPR 2022), licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. The godotGS project trained the splats from the published photos with gsplat 1.4.0 (<code>simple_trainer</code>, default settings, 30,000 steps, quarter-resolution images): 6,076,956 splats for "bicycle" and 5,824,664 for "garden".<ul>
 <li>"bicycle" is on the homepage and in <a href="../user/manual/runtime-behavior/">Runtime Behavior</a>.</li>
@@ -4457,6 +4474,17 @@
 <li><strong>Project:</strong> made from the repository's project template, <code>templates/gaussian_splat_template</code>, with the scene's directional light and ground hidden.</li>
 <li><strong>Settings that differ from the defaults:</strong> a black background with fog off; <code>rendering/gaussian_splatting/gpu_sorting/max_raster_splats_per_tile</code> 65,536 (default 0, auto); <code>rendering/gaussian_splatting/lighting/direct_light_scale</code> and <code>rendering/gaussian_splatting/lighting/shadow_strength</code> 0; <code>rendering/gaussian_splatting/lod/min_screen_size_pixels</code> 0; and on the splat node, Quality preset Custom with LOD bias 0.1, maximum render distance 100,000 m and maximum splat count 100,000,000. Imports used the default <code>ultra</code> preset, which keeps every splat.</li>
 </ul>
+<h3 id="first-splat-captures">First Splat Captures<a class="headerlink" href="#first-splat-captures" title="Permanent link">¶</a></h3>
+<p><code>first-splat-editor-tree.webp</code> and <code>first-splat-runtime.webp</code> are real Windows captures taken on 13 October 2026. They show the versioned <code>res://scenes/public_evaluator.tscn</code> sample and its 1,024-splat <code>test_splats.gsplatworld</code> fixture.</p>
+<ul>
+<li><strong>Project:</strong> <a href="https://github.com/klausi3D/godotGS/commit/3d38249ce3a269a272ad2308231dc60ecd4f3471">commit 3d38249</a>. The capture used an isolated copy of the project settings, scene, camera script and world fixture from that commit. The scene, script and fixture remained byte-identical. The editor resaved <code>project.godot</code>, reordering settings and omitting the default sorting values <code>key_bits=64</code>, <code>tile_bits=32</code> and <code>depth_bits=32</code>; no manual tuning was applied.</li>
+<li><strong>Engine:</strong> godotGS <a href="https://github.com/klausi3D/godotGS/commit/0981c0a2149c06eb8928ca2050b6adba689e8574">commit 0981c0a</a>, an older native Windows build. Build flags were not recorded; these images illustrate the tutorial rather than validate the latest engine build or performance targets.</li>
+<li><strong>Hardware:</strong> NVIDIA GeForce RTX 3090, Windows driver version <code>32.0.15.9186</code>.</li>
+<li><strong>Capture:</strong> direct capture of the Godot client window at 1920×1080, default editor theme, English UI, 100% editor scale. The Scene dock image is a 280×300 region from the top-left of that client; WebP encoding is lossless.</li>
+<li><strong>Editor state:</strong> open <code>public_evaluator.tscn</code>, no node selected. The capture shows the Scene dock hierarchy before Play.</li>
+<li><strong>Runtime state:</strong> launch the project with its authored settings and fixed initial camera pose: position <code>(0, 10, 20)</code>, rotation <code>(-20°, 0°, 0°)</code>. No movement or tuning before capture. The overlay reports <code>1.0K</code> source splats.</li>
+</ul>
+<p>The garden screenshot later in Your First Splat shows a real imported scan, not this synthetic fixture.</p>
 </div>
 
 
@@ -4478,7 +4506,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:16:14 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:43 UTC">October 14, 2026</span>
   </span>
 
     

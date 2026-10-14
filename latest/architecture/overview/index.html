@@ -4550,41 +4550,42 @@
 
 <h1 id="architecture-overview">Architecture Overview<a class="headerlink" href="#architecture-overview" title="Permanent link">¶</a></h1>
 <p>This page is the canonical high-level architecture entrypoint.</p>
-<figure>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/architecture-overview-stack.svg" data-desc-position="bottom"><img alt="Diagram showing the high-level subsystem stack for the Gaussian Splatting module" class="gs-diagram" src="../../assets/images/architecture-overview-stack.svg"></a></p>
-<figcaption>The subsystem stack starts at registration and editor hooks, moves through import and asset ownership, and converges in the runtime and renderer core.</figcaption>
-</figure>
-<figure>
-<p><a class="glightbox" data-type="image" data-width="auto" data-height="auto" href="../../assets/images/gaussian-pipeline.svg" data-desc-position="bottom"><img alt="Diagram showing the render and data flow from source assets through import, scene state, renderer stages, and viewport output" class="gs-diagram" src="../../assets/images/gaussian-pipeline.svg"></a></p>
-<figcaption>The render and data-flow view complements the subsystem stack by tracing how source assets become scene state, staged renderer work, viewport output, and diagnostics.</figcaption>
+<figure class="gs-flow">
+<ol aria-label="Source assets to viewport" class="gs-flow__steps">
+    <li><strong>Source files</strong><small>Import or load</small></li>
+    <li><strong>Scene state</strong><small>Nodes, assets and worlds</small></li>
+    <li><strong>Renderer</strong><small>Cull → sort → raster</small></li>
+    <li><strong>Viewport</strong><small>Composite the result</small></li>
+  </ol>
+<figcaption>Assets enter scene state, then the renderer processes visible splats and composites them into the viewport.</figcaption>
 </figure>
 <h2 id="subsystem-map">Subsystem Map<a class="headerlink" href="#subsystem-map" title="Permanent link">¶</a></h2>
 <p>The module is broader than the renderer-only path. The authoritative build list in
-<a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/SCsub">SCsub</a> currently compiles these module source
+<a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/SCsub">SCsub</a> currently compiles these module source
 directories for the normal module build:</p>
 <ul>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/animation">animation</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/asset_management">asset_management</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/compute">compute</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/core">core</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/interfaces">interfaces</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/io">io</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/lod">lod</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/logger">logger</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/nodes">nodes</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/painterly">painterly</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/persistence">persistence</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/resources">resources</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/renderer">renderer</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/animation">animation</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/asset_management">asset_management</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/compute">compute</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/core">core</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/interfaces">interfaces</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/io">io</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/lod">lod</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/logger">logger</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/nodes">nodes</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/painterly">painterly</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/persistence">persistence</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/resources">resources</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/renderer">renderer</a></li>
 </ul>
-<p>Editor builds also compile <a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/editor">editor</a>, test
-builds compile <a href="https://github.com/klausi3D/godotGS/tree/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/tests">tests</a>, and shader headers are
+<p>Editor builds also compile <a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/editor">editor</a>, test
+builds compile <a href="https://github.com/klausi3D/godotGS/tree/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/tests">tests</a>, and shader headers are
 generated from the compute/shader SCsubs before module objects are built.</p>
 <ul>
-<li>Registration/lifecycle: <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/register_types.cpp">../../modules/gaussian_splatting/register_types.cpp</a></li>
-<li>Build metadata consistency: <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/CMakeLists.txt">../../modules/gaussian_splatting/CMakeLists.txt</a>, <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/tests/check_build_metadata_consistency.py">../../modules/gaussian_splatting/tests/check_build_metadata_consistency.py</a></li>
-<li>Render stage contracts: <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/renderer/render_types/render_pipeline_io_types.h">../../modules/gaussian_splatting/renderer/render_types/render_pipeline_io_types.h</a>, <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
-<li>CI/release evidence: <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/.github/workflows/gaussian_production_gates.yml">../../.github/workflows/gaussian_production_gates.yml</a>, <a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/.github/workflows/release_builds.yml">../../.github/workflows/release_builds.yml</a></li>
+<li>Registration/lifecycle: <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/register_types.cpp">../../modules/gaussian_splatting/register_types.cpp</a></li>
+<li>Build metadata consistency: <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/CMakeLists.txt">../../modules/gaussian_splatting/CMakeLists.txt</a>, <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/tests/check_build_metadata_consistency.py">../../modules/gaussian_splatting/tests/check_build_metadata_consistency.py</a></li>
+<li>Render stage contracts: <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/renderer/render_types/render_pipeline_io_types.h">../../modules/gaussian_splatting/renderer/render_types/render_pipeline_io_types.h</a>, <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/renderer/render_pipeline_stages.cpp">../../modules/gaussian_splatting/renderer/render_pipeline_stages.cpp</a></li>
+<li>CI/release evidence: <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/.github/workflows/gaussian_production_gates.yml">../../.github/workflows/gaussian_production_gates.yml</a>, <a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/.github/workflows/release_builds.yml">../../.github/workflows/release_builds.yml</a></li>
 </ul>
 <h2 id="source-of-truth-hierarchy">Source-of-Truth Hierarchy<a class="headerlink" href="#source-of-truth-hierarchy" title="Permanent link">¶</a></h2>
 <p>When public architecture, compatibility, or release wording conflicts with implementation
@@ -4600,12 +4601,12 @@ or automation, trust the sources in this order:</p>
 <ul>
 <li><a href="../render-pipeline/">Render pipeline details</a></li>
 <li><a href="../lighting-system/">Lighting and shadows details</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/docs/architecture/gaussian-pipeline-unification-plan.md">Unified Gaussian pipeline refactor plan</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/docs/architecture/gaussian-pipeline-deprecation-deletion-plan.md">Gaussian pipeline deprecation and deletion plan</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/docs/architecture/refactor-phase-runner.md">Refactor phase runner</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/docs/architecture/gaussian-renderer-refactor-memory.md">Renderer refactor memory journal</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/ARCHITECTURE.md">Module-wide architecture map</a></li>
-<li><a href="https://github.com/klausi3D/godotGS/blob/b46a9317fc52a2105a3ee3445888492ce74d8e6f/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory and residency invariants</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/docs/architecture/gaussian-pipeline-unification-plan.md">Unified Gaussian pipeline refactor plan</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/docs/architecture/gaussian-pipeline-deprecation-deletion-plan.md">Gaussian pipeline deprecation and deletion plan</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/docs/architecture/refactor-phase-runner.md">Refactor phase runner</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/docs/architecture/gaussian-renderer-refactor-memory.md">Renderer refactor memory journal</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/ARCHITECTURE.md">Module-wide architecture map</a></li>
+<li><a href="https://github.com/klausi3D/godotGS/blob/9c76a5bced94af4cb32711900a6d61b6e622e4a7/modules/gaussian_splatting/MEMORY_SUBSYSTEM.md">Memory and residency invariants</a></li>
 </ul>
 <h2 id="data-flow-high-level">Data Flow (High Level)<a class="headerlink" href="#data-flow-high-level" title="Permanent link">¶</a></h2>
 <ol>
@@ -4639,7 +4640,7 @@ or automation, trust the sources in this order:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 05:16:05 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 10:17:34 UTC">October 14, 2026</span>
   </span>
 
     
