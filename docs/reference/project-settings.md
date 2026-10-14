@@ -735,7 +735,7 @@ Registered through `GLOBAL_DEF(...)`, `GLOBAL_DEF_RST(...)` or `ProjectSettings:
     </tr>
     <tr>
       <td><pre><code>rendering/gaussian_splatting/gpu_sorting/workgroup_size</code></pre></td>
-      <td><pre><code>GPUSortingConstants::DEFAULT_WORKGROUP_SIZE</code></pre></td>
+      <td><pre><code>GPUSortingConstants::DEFAULT_RADIX_WORKGROUP_SIZE</code></pre></td>
       <td><pre><code>modules/gaussian_splatting/renderer/gpu_sorting_config.cpp</code></pre></td>
     </tr>
   </tbody>

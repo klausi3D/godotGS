@@ -149,9 +149,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 210,
-    "sha256": "00c1239f8341c038fab2d065c7794ccd5e20f9048d18dbe86684f5fb4d57d2f3",
-    "sha256_last_changed_by": "#1195 StreamingPipeline route and coupled REQUIRED promotion: RETAG 37 existing [Streaming Pipeline] cases as [RequiresGPU] (29 in test_gpu_streaming.cpp, 8 in test_gaussian_streaming_lifecycle.cpp), including 3 [SceneTree] renderer cases. Corpus 172 -> 209, running_in_a_named_batch 107 -> 144, deferred_count remains 2, unbatched_backlog remains 63. Count and digest recomputed using check_renderer_release_gates._extract_requires_gpu_tests and _requires_gpu_snapshot, and test_gpu_harness_deferred_contract.py --print-summary. Real GPU source 2a6929071d7bf89ac7ce6ba905f5f945ffbe3fca: 37/37 cases, 5313/5313 assertions, complete per-case audit, zero hollow cases and RID leak bytes, 13.528s under unchanged 60s. StreamingPipeline is REQUIRED; the still-strict CPU lane excludes RequiresGPU, and every case must reach strict CPU or required GPU including excludes. Promotion changes policy, not this count/digest. Exact binary and evidence limits are recorded in adr-advisory-lane-ledger.md. Previous pin: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172). Current-master integration012960050 (including merged1199/1202; source inventory unchanged from8e3aa741) additionally preserves the merged#1173 NodeSceneTree antialias-compensation precedence test: computed corpus209 ->210, named-batch144 ->145, deferred2 and unbatched63 unchanged. Snapshot computed from the merged source using the same extraction/hash functions; this is a source inventory, not new runtime proof.",
+    "test_count": 212,
+    "sha256": "9bb024eb01b8df7aad74d054a2ed6b8c8113518ffbf025ff7d69625dffd039e0",
+    "sha256_last_changed_by": "Merge of master b46a9317fc5 into #1195: the union of #1195's inventory (count 210, digest 00c1239f8341c038fab2d065c7794ccd5e20f9048d18dbe86684f5fb4d57d2f3, named-batch 145, deferred 2) and master's #539 additions (2 [GaussianSplatting][GpuSort][RequiresGPU] cases in test_gpu_sorting.h, in the required GpuSorting batch; master pin 237c1006b4be9393abc9cf651893233e0bfdf1f15d52cdc762cb342d5363c464, count 175). Computed from the merged source with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot and test_gpu_harness_deferred_contract.py --print-summary: count 212, running_in_a_named_batch 147, deferred 2, unbatched_backlog 63, undeclared orphans 0. Source inventory only, not new runtime proof. #1195's own change: RETAG of 37 [Streaming Pipeline] cases as [RequiresGPU] (StreamingPipeline REQUIRED) plus the merged #1173 NodeSceneTree precedence test, corpus 172 -> 210; evidence limits in adr-advisory-lane-ledger.md. Previous #1195 pin before that: 97f509b9d60013d1d7ee32cc205db561540029e65d71dc41a83bf755935450c6 (count 172).",
     "deferred_tags_any": [
       "Importer"
     ],
@@ -483,8 +483,8 @@
     "note": "[RequiresGPU] test cases that match NO named batch in tests/ci/run_gpu_harness.py and therefore execute nowhere. These are NOT waivers: unlike deferred_requires_gpu_waivers (each proven failing, with an owner and an expiry) these cases have simply never been run, so nothing is known about them. Discovered while landing #329, which addressed only the 28 [SceneTree] cases; measuring the whole corpus with correct doctest semantics showed the gap is larger. Recorded explicitly so it is counted and cannot grow silently: tests/ci/test_gpu_harness_deferred_contract.py fails on any orphan NOT listed here, so this list is a ratchet that may only shrink.",
     "why_not_covered_by_headless_lanes": "Every lane in tests/ci/run_module_tests.py:MODULE_TEST_FILTERS carries the exclude '*][RequiresGPU]*', so zero [RequiresGPU] cases execute headless. The one lane that would match them, 'GaussianSplatting [requires-RD]', is catalogue-only, non-strict, runs solely under --run-gpu, and no workflow passes --run-gpu.",
     "coverage_snapshot": {
-      "requires_gpu_total": 210,
-      "running_in_a_named_batch": 145,
+      "requires_gpu_total": 212,
+      "running_in_a_named_batch": 147,
       "deferred_with_waiver": 2,
       "unbatched_backlog": 63
     },
