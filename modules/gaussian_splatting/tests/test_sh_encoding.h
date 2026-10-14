@@ -569,43 +569,43 @@ TEST_CASE("[GaussianSplatting][SHEncoding] All-zero and non-finite coefficients 
 	}
 }
 
-// #1158: a degree-3 splat carries 15 non-DC coefficients (3 band-1 + 5 band-2 + 7 band-3).
-// The 128-byte layout has 12 slots and the 80-byte quantized layout 6, so 3 and 9 are dropped.
-// The drop used to be invisible; the packers now count it in SHCompressionMetrics and the
-// asset-level callers warn once per asset and layout.
+// #1158: the drop used to be invisible; the packers count it in SHCompressionMetrics and the
+// asset-level callers warn once per asset and layout. Since the full SH0-4 storage (#1200)
+// both layouts hold 24 non-DC slots, so every supported payload (SH0-4: at most 3 + 21) fits
+// and only an over-capacity caller-supplied count is dropped.
 TEST_CASE("[GaussianSplatting][SHEncoding] Coefficients the GPU layout cannot store are counted and warned once per asset (#1158)") {
-	// Per-splat drop count: first-order clamped to 3, plus the higher-order count, minus slots.
-	CHECK(gs_sh_layout_dropped_coefficients(3, 12, false) == 3u); // degree 3, 128-byte layout
-	CHECK(gs_sh_layout_dropped_coefficients(3, 12, true) == 9u); // degree 3, quantized layout
-	CHECK(gs_sh_layout_dropped_coefficients(3, 5, false) == 0u); // degree 2 fits 12 slots
-	CHECK(gs_sh_layout_dropped_coefficients(3, 5, true) == 2u); // degree 2 loses two band-2 terms
-	CHECK(gs_sh_layout_dropped_coefficients(3, 0, true) == 0u); // degree 1 fits either layout
+	// Per-splat drop count: first-order clamped to 3, plus the higher-order count, minus 24 slots.
+	CHECK(gs_sh_layout_dropped_coefficients(3, 12, false) == 0u); // degree 3 fits both layouts
+	CHECK(gs_sh_layout_dropped_coefficients(3, 12, true) == 0u);
+	CHECK(gs_sh_layout_dropped_coefficients(3, 21, false) == 0u); // degree 4 fits both layouts
+	CHECK(gs_sh_layout_dropped_coefficients(3, 21, true) == 0u);
+	CHECK(gs_sh_layout_dropped_coefficients(3, 22, false) == 1u); // one past capacity
+	CHECK(gs_sh_layout_dropped_coefficients(3, 23, true) == 2u);
 	CHECK(gs_sh_layout_dropped_coefficients(0, 0, false) == 0u); // DC only
-	CHECK(gs_sh_layout_dropped_coefficients(7, 12, false) == 3u); // first-order count clamps to 3
-	CHECK(gs_sh_layout_dropped_coefficients(3, UINT32_MAX, false) == UINT32_MAX - 9u); // no wrap
+	CHECK(gs_sh_layout_dropped_coefficients(7, 22, false) == 1u); // first-order count clamps to 3
+	CHECK(gs_sh_layout_dropped_coefficients(3, UINT32_MAX, false) == UINT32_MAX - 21u); // no wrap
 
 	const Gaussian g = TestSHEncoding::make_sh_gaussian(Vector3(0.1f, -0.1f, 0.05f), Vector3(-0.02f, 0.03f, 0.0f), Vector3(0.01f, 0.0f, -0.01f));
-	Vector3 high[12];
-	for (int i = 0; i < 12; i++) {
+	Vector3 high[21];
+	for (int i = 0; i < 21; i++) {
 		high[i] = Vector3(0.01f * float(i + 1), -0.005f * float(i), 0.002f);
 	}
 
-	// Two degree-3 splats through each production packer: the stored count is unchanged and
-	// the dropped count is exactly what the layout has no slot for.
+	// Two degree-4 splats through each production packer: every coefficient is stored.
 	SHCompressionMetrics metrics;
 	PackedGaussian packed[2] = {};
-	pack_gaussian(g, packed[0], metrics, high, 3, 12);
-	pack_gaussian(g, packed[1], metrics, high, 3, 12);
-	CHECK(metrics.coefficient_count == 24u);
-	CHECK(metrics.dropped_coefficient_count == 6u);
-	CHECK(((packed[0].sh_metadata & GS_SH_METADATA_HIGH_ORDER_MASK) >> 8u) == 9u);
+	pack_gaussian(g, packed[0], metrics, high, 3, 21);
+	pack_gaussian(g, packed[1], metrics, high, 3, 21);
+	CHECK(metrics.coefficient_count == 48u);
+	CHECK(metrics.dropped_coefficient_count == 0u);
+	CHECK(((packed[0].sh_metadata & GS_SH_METADATA_HIGH_ORDER_MASK) >> 8u) == 21u);
 
 	SHCompressionMetrics qmetrics;
 	PackedGaussianQuantized quantized[2] = {};
-	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[0], qmetrics, high, 3, 12);
-	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[1], qmetrics, high, 3, 12);
-	CHECK(qmetrics.coefficient_count == 12u);
-	CHECK(qmetrics.dropped_coefficient_count == 18u);
+	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[0], qmetrics, high, 3, 21);
+	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[1], qmetrics, high, 3, 21);
+	CHECK(qmetrics.coefficient_count == 48u);
+	CHECK(qmetrics.dropped_coefficient_count == 0u);
 
 	// A caller's narrower coefficient_limit is deliberate and not counted as a layout drop.
 	SHCompressionMetrics limited;
@@ -614,23 +614,17 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Coefficients the GPU layout cannot st
 	CHECK(limited.coefficient_count == 4u);
 	CHECK(limited.dropped_coefficient_count == 0u);
 
-	// Degree 2 fits the 128-byte layout.
-	SHCompressionMetrics degree2;
-	PackedGaussian packed_degree2 = {};
-	pack_gaussian(g, packed_degree2, degree2, high, 3, 5);
-	CHECK(degree2.dropped_coefficient_count == 0u);
-
 	// Warn once per (asset, layout); never for an asset that fits. The keys are test-only
 	// values, not live ObjectIDs.
 	const uint64_t asset_a = 0xF1158A0000000001ull;
 	const uint64_t asset_b = 0xF1158B0000000002ull;
 	ERR_PRINT_OFF;
-	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, false));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, false));
-	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, true));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, true));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 5, false));
-	CHECK(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 5, true));
+	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, false));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, false));
+	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, true));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, true));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 21, false));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 21, true));
 	ERR_PRINT_ON;
 }
 
