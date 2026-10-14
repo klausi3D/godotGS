@@ -729,6 +729,7 @@ bool GaussianData::_capture_chunk_snapshot_locked(uint32_t p_start, uint32_t p_c
         r_metadata->content_revision = get_content_revision();
         r_metadata->sh_degree = sh_degree;
         r_metadata->is_2d_mode = is_2d_mode;
+        r_metadata->is_antialiased = is_antialiased;
     }
 
 #ifdef DEBUG_ENABLED

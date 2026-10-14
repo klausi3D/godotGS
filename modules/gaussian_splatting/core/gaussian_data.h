@@ -456,7 +456,7 @@ public:
             const LocalVector<Vector3> &p_sh_high_order_coefficients,
             uint32_t p_sh_first_order_count,
             uint32_t p_sh_high_order_count,
-            bool p_is_2d_mode, bool p_antialiased = false);
+            bool p_is_2d_mode, bool p_antialiased); // No default: every clone states its AA semantics.
 
     /**
      * @brief Destructively drops low-importance splats, keeping the highest-ranked subset.
@@ -745,6 +745,7 @@ public:
         uint64_t content_revision = 0;
         uint32_t sh_degree = 0;
         bool is_2d_mode = false;
+        bool is_antialiased = false;
     };
 
 private:

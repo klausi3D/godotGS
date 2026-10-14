@@ -991,7 +991,7 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed lane SHRINK that leaves t
     }
     Ref<::GaussianData> seed;
     seed.instantiate();
-    seed->set_gaussian_payload(_make_failure_contract_cloud(4), seed_high_order, 0, 2, false);
+    seed->set_gaussian_payload(_make_failure_contract_cloud(4), seed_high_order, 0, 2, false, false);
     if (seed->get_sh_high_order_count() != 2u) {
         // set_gaussian_payload() silently drops a mismatched SH block; without high-order
         // SH the whole term-count derivation this case guards is unreachable.
@@ -1020,7 +1020,7 @@ TEST_CASE("[GaussianSplatting][DataAuthority] A failed lane SHRINK that leaves t
     }
     Ref<::GaussianData> rewrite;
     rewrite.instantiate();
-    rewrite->set_gaussian_payload(_make_failure_contract_cloud(2), rewrite_high_order, 0, 2, false);
+    rewrite->set_gaussian_payload(_make_failure_contract_cloud(2), rewrite_high_order, 0, 2, false, false);
     if (rewrite->get_count() != 2 || rewrite->get_sh_high_order_count() != 2u) {
         FAIL("rewrite GaussianData must be 2 splats x 2 high-order terms");
         return;

@@ -26,6 +26,9 @@ private:
     uint32_t sh_first_order_count_metadata = 0;
     uint32_t sh_high_order_count_metadata = 0;
     bool is_2d_metadata = false;
+    // Antialiased-training semantics of the payload (GSF v3 bit 1); the world file format
+    // does not store it, so file-backed worlds start classic.
+    bool antialiased_metadata = false;
     // HLOD tree (ADR adr-hlod-streaming.md, slice S1a). Empty unless baked or loaded from a v2
     // file. Its leaf payload IS the gaussian payload above (same order); a new payload drops it.
     GaussianSplatHlodTree hlod_tree;
@@ -67,6 +70,7 @@ public:
     uint32_t get_sh_first_order_count() const;
     uint32_t get_sh_high_order_count() const;
     bool get_2d_mode() const;
+    bool get_antialiased() const;
     Error materialize_resident_gaussian_data();
 
     int get_chunk_count() const;
