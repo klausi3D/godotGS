@@ -134,8 +134,9 @@ REFERENCE_DIRECTIONS = (
         (0.8, 0.45, 0.1), (-0.05, 0.3, -0.95), (0.62, -0.71, 0.33), (-0.41, -0.12, 0.9))]
 )
 
-# A function writing a 16-entry SH basis: any `out float NAME[16]` parameter.
-_SH_BASIS_SIGNATURE = re.compile(r"\b(?:void)\s+(\w+)\s*\(([^)]*\bout\s+float\s+\w+\s*\[\s*16\s*\][^)]*)\)\s*\{")
+# A function writing a 16- or 25-entry SH basis: any `out float NAME[16|25]` parameter
+# (gs_sh_basis.glsl spells the qualifier GS_SH_OUT so the native tests can include it).
+_SH_BASIS_SIGNATURE = re.compile(r"\b(?:void)\s+(\w+)\s*\(([^)]*\b(?:out|GS_SH_OUT)\s+float\s+\w+\s*\[\s*(16|25)\s*\][^)]*)\)\s*\{")
 
 
 def discover_sh_basis_functions() -> list[tuple[Path, str, list[str]]]:
@@ -144,9 +145,9 @@ def discover_sh_basis_functions() -> list[tuple[Path, str, list[str]]]:
     for path in sorted(SHADERS_DIR.rglob("*.glsl")):
         text = path.read_text(encoding="utf-8")
         for m in _SH_BASIS_SIGNATURE.finditer(text):
-            param_types = [p.split()[-2] if p.split()[0] in ("in", "out", "inout") else p.split()[0]
+            param_types = [p.split()[-2] if p.split()[0] in ("in", "out", "inout", "GS_SH_OUT") else p.split()[0]
                            for p in (s.strip() for s in m.group(2).split(",")) if p]
-            found.append((path, m.group(1), param_types))
+            found.append((path, m.group(1), param_types + [int(m.group(3))]))
     return found
 
 
@@ -155,7 +156,8 @@ class ShBasisMatchesInriaReference(unittest.TestCase):
 
     def test_discovery_finds_the_production_basis(self) -> None:
         found = {(p.name, name) for p, name, _types in discover_sh_basis_functions()}
-        self.assertIn(("gs_sh_binning.glsl", "compute_sh_basis"), found,
+        # Tile binning evaluates the shared SH0-4 basis include since #1200/#1205.
+        self.assertIn(("gs_sh_basis.glsl", "gs_compute_real_sh_basis"), found,
                       "the tile-binning SH basis is no longer discovered; the pattern drifted")
 
     def _evaluate(self, path: Path, name: str, param_types: list[str], direction: tuple[float, float, float],
@@ -163,8 +165,8 @@ class ShBasisMatchesInriaReference(unittest.TestCase):
         program = glsl.load(path)
         vec3 = program.namespace["vec3"]
         args = []
-        basis = [None] * 16
-        for ptype in param_types:
+        basis = [None] * param_types[-1]
+        for ptype in param_types[:-1]:
             if ptype == "vec3":
                 args.append(vec3(*direction))
             elif ptype == "uint":
@@ -180,13 +182,13 @@ class ShBasisMatchesInriaReference(unittest.TestCase):
         functions = discover_sh_basis_functions()
         self.assertGreaterEqual(len(functions), 1)
         for path, name, param_types in functions:
-            has_band_param = "uint" in param_types
+            has_band_param = "uint" in param_types[:-1]
             for direction in REFERENCE_DIRECTIONS:
                 reference = inria_sh_basis(*direction)
                 for band in ((0, 1, 2, 3) if has_band_param else (3,)):
                     basis = self._evaluate(path, name, param_types, direction, band)
                     used = (1, 4, 9, 16)[band]
-                    for index in range(16):
+                    for index in range(len(basis)):  # entries past band 3 must stay zero
                         expected = reference[index] if index < used else 0.0
                         with self.subTest(file=path.name, function=name, direction=direction,
                                           band=band, index=index):
