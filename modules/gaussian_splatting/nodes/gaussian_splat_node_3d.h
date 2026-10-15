@@ -1029,6 +1029,7 @@ public:
     void test_mark_viewport_render_target_acquired(const RID &p_render_target, const RID &p_render_texture);
     bool test_is_viewport_render_target_ready() const;
     uint64_t test_get_viewport_render_target_query_count() const { return viewport_render_target_query_count; }
+    bool test_resolve_antialiasing_compensation() const { return _resolve_antialiasing_compensation(); }
 #endif
 };
 
