@@ -2665,10 +2665,16 @@ bool GaussianSplatNode3D::_resolve_antialiasing_compensation() const {
         return false;
     }
     if (splat_asset.is_valid()) {
-        Dictionary import_metadata = splat_asset->get_import_metadata();
-        if (import_metadata.has(StringName("spz_antialiased"))) {
-            return (bool)import_metadata[StringName("spz_antialiased")];
+        // The canonical gaussian_antialiased key (GSF v3, populate_from_gaussian_data) wins
+        // over the legacy spz_antialiased import key; both resolve through the asset's rule.
+        const Dictionary import_metadata = splat_asset->get_import_metadata();
+        if (import_metadata.has(StringName("gaussian_antialiased")) || import_metadata.has(StringName("spz_antialiased"))) {
+            return GaussianSplatAsset::resolve_antialiased_from_metadata(import_metadata);
         }
+    }
+    // Directly assigned data records antialiased training only as a positive flag.
+    if (renderer_data.is_valid() && renderer_data->get_antialiased()) {
+        return true;
     }
     return gs::settings::get_antialiasing_compensation_default(ProjectSettings::get_singleton());
 }
