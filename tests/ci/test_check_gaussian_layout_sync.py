@@ -150,6 +150,14 @@ class SHSelectionWiringTests(unittest.TestCase):
         between = source[reload:band]
         self.assertRegex(between, r"sh_config_note_band_level\(owner\.sh_cache_band_level,\s*uint32_t\(g_sh_config\.sh_bands\)\)")
         self.assertRegex(between, r"owner\.sh_cache_needs_full_update\s*=\s*true;")
+        # Hidden entries are not reached by the forced pass: the whole cache is reset (PR #1205 review).
+        self.assertRegex(between, r"owner\.sh_cache_buffers\.clear_color_cache\(p_resource_device\);")
+        binning = (ROOT / "modules/gaussian_splatting/shaders/tile_binning.glsl").read_text(encoding="utf-8")
+        self.assertRegex(binning, r"update_sh\s*=\s*phase_match\s*\|\|\s*cached_color\s*==\s*0u;")
+        resources = (ROOT / "modules/gaussian_splatting/renderer/tile_render_resources.cpp").read_text(encoding="utf-8")
+        clear_body = resources[resources.index("bool TileSHCacheBuffers::clear_color_cache("):]
+        clear_body = clear_body[:clear_body.index("\n}\n")]
+        self.assertRegex(clear_body, r"buffer_clear\(sh_color_cache,\s*0,\s*sh_color_cache_size\)")
 
     def test_effective_quality_is_synchronized_at_production_streaming_entry(self) -> None:
         source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")

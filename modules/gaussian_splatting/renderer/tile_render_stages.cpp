@@ -310,10 +310,12 @@ TileRenderParamsGPU TileRenderer::TileRenderParamsBuilder::build_params(const Re
 	// Set SH band configuration from global config. The resident route never runs a
 	// streaming update, so pick up a runtime sh_bands/tier change here as well.
 	sh_config_reload_if_settings_changed();
-	// A changed degree makes every amortized cache entry stale: refresh them all this frame
-	// instead of serving old-degree colours on the non-update phases.
+	// A changed degree makes every amortized cache entry stale. The forced pass refreshes the
+	// visible ones this frame; entries of Gaussians not dispatched this frame are reset to the
+	// "not cached" sentinel so they are re-evaluated when they become visible.
 	if (sh_config_note_band_level(owner.sh_cache_band_level, uint32_t(g_sh_config.sh_bands)) &&
 			owner.render_settings.enable_sh_amortization) {
+		owner.sh_cache_buffers.clear_color_cache(p_resource_device);
 		owner.sh_cache_needs_full_update = true;
 	}
 	params.sh_config[0] = static_cast<float>(g_sh_config.sh_bands);
