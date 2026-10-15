@@ -1249,11 +1249,12 @@ Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &f
         }
     }
 
-    // #1172: GAUSSIAN_DATA is the raw Gaussian struct, so it may only be decoded
-    // with the layout it was written with. Checked for every file, including
-    // forward-compatible newer versions, before any chunk is read.
+    // #1172: v1/v2 GAUSSIAN_DATA is the raw Gaussian struct, so it may only be decoded
+    // with the layout it was written with; checked before any chunk is read. v3 and
+    // later store canonical little-endian records validated by their own wire schema
+    // (ScenePayload), independent of the in-memory struct, so the word is not a gate there.
     const uint32_t recorded_layout = gaussian_resolve_persisted_layout_version(scene_header.gaussian_layout_version);
-    ERR_FAIL_COND_V_MSG(recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION, ERR_FILE_UNRECOGNIZED, vformat(
+    ERR_FAIL_COND_V_MSG(scene_header.version < 3 && recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION, ERR_FILE_UNRECOGNIZED, vformat(
             "Gaussian scene file '%s' was written with Gaussian struct layout %d, but this build reads layout %d. "
             "Re-save the scene from its source with this build.",
             file_path, (int)recorded_layout, (int)GAUSSIAN_STRUCT_LAYOUT_VERSION));

@@ -21,9 +21,11 @@
 #include "../io/resource_importer_gsplatworld.h"
 #endif
 #include "../persistence/gaussian_scene_serializer.h"
+#include "gsf_legacy_producer_fixtures.h"
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/marshalls.h"
 #include "core/os/os.h"
 
 namespace TestGaussianLayoutFingerprint {
@@ -725,10 +727,53 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF records the Gaussian struct layo
 
 TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] GSF refuses a GAUSSIAN_DATA chunk recorded under another Gaussian layout (#1172)") {
 	using namespace TestGaussianLayoutFingerprint;
-	Ref<GaussianData> data = make_data();
-	const String path = fixture_path("gsf_layout_mismatch", ".gsf");
-
+	// v1/v2 GAUSSIAN_DATA is the raw Gaussian struct: a foreign layout word is refused before
+	// any record is read. The real v2 producer capture carries a header checksum, so it is
+	// recomputed over the patched 60-byte header payload.
+	const String legacy_path = fixture_path("gsf_v2_layout_mismatch", ".gsf");
+	auto write_v2_with_layout_word = [&](uint16_t p_word) -> bool {
+		PackedByteArray bytes;
+		bytes.resize(sizeof(GSF_V2_CODEC_0));
+		memcpy(bytes.ptrw(), GSF_V2_CODEC_0, sizeof(GSF_V2_CODEC_0));
+		encode_uint16(p_word, bytes.ptrw() + GSF_LAYOUT_WORD_OFFSET);
+		uint32_t checksum = 2166136261u;
+		for (uint32_t i = 16; i < 16 + GaussianSplatting::SCENE_HEADER_PACKED_SIZE; i++) {
+			checksum = (checksum ^ bytes[i]) * 16777619u;
+		}
+		encode_uint32(checksum, bytes.ptrw() + 8);
+		Ref<FileAccess> f = FileAccess::open(legacy_path, FileAccess::WRITE);
+		if (f.is_null()) {
+			return false;
+		}
+		f->store_buffer(bytes.ptr(), bytes.size());
+		return f->get_error() == OK;
+	};
 	GaussianSplatting::GaussianSceneSerializer serializer;
+	if (!write_v2_with_layout_word(uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION + 1u))) {
+		FAIL("precondition failed: could not write the patched v2 capture");
+		return;
+	}
+	// The target already holds splats; a refused load must leave them untouched.
+	Ref<GaussianData> data = make_data();
+	Ref<GaussianData> target = make_data();
+	CHECK_EQ(serializer.load_scene(legacy_path, target.ptr(), nullptr, nullptr), ERR_FILE_UNRECOGNIZED);
+	check_same_splats(target, data);
+	CHECK_EQ(serializer.validate_file(legacy_path), ERR_FILE_UNRECOGNIZED);
+	// Control: the same capture with its own word (0 = not recorded, legacy layout) loads.
+	if (!write_v2_with_layout_word(0u)) {
+		FAIL("precondition failed: could not restore the v2 capture");
+		return;
+	}
+	Ref<GaussianData> legacy_loaded;
+	legacy_loaded.instantiate();
+	CHECK_EQ(serializer.load_scene(legacy_path, legacy_loaded.ptr(), nullptr, nullptr), OK);
+	CHECK_EQ(legacy_loaded->get_count(), 2);
+	remove_fixture(legacy_path);
+
+	// v3 stores canonical little-endian records validated by their own wire schema, so a
+	// later struct-layout bump must not strand existing v3 files: a different recorded
+	// word still loads the same splats (PR #1200 review).
+	const String path = fixture_path("gsf_v3_layout_word", ".gsf");
 	serializer.set_enable_checksum(false);
 	if (!(serializer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK)) {
 		FAIL("precondition failed: serializer.save_scene(path, data.ptr(), nullptr, Dictionary()) == OK");
@@ -738,22 +783,11 @@ TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] GSF refuses a GAUSS
 		FAIL("precondition failed: write_u16_at(path, GSF_LAYOUT_WORD_OFFSET, uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION + 1u))");
 		return;
 	}
-
-	// The target already holds splats; a refused load must leave them untouched.
-	Ref<GaussianData> target = make_data();
-	CHECK_EQ(serializer.load_scene(path, target.ptr(), nullptr, nullptr), ERR_FILE_UNRECOGNIZED);
-	check_same_splats(target, data);
-	CHECK_EQ(serializer.validate_file(path), ERR_FILE_UNRECOGNIZED);
-
-	// Sanity: restoring the word makes the same file load.
-	if (!(write_u16_at(path, GSF_LAYOUT_WORD_OFFSET, uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION)))) {
-		FAIL("precondition failed: write_u16_at(path, GSF_LAYOUT_WORD_OFFSET, uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION))");
-		return;
-	}
 	Ref<GaussianData> loaded;
 	loaded.instantiate();
 	CHECK_EQ(serializer.load_scene(path, loaded.ptr(), nullptr, nullptr), OK);
 	check_same_splats(loaded, data);
+	CHECK_EQ(serializer.validate_file(path), OK);
 
 	remove_fixture(path);
 }
