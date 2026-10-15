@@ -1,21 +1,13 @@
 var searchData=
 [
-  ['rasterstageoutput_0',['RasterStageOutput',['../classGaussianSplatRenderer.html#ae54af27b94801611f42f281b28c052ec',1,'GaussianSplatRenderer']]],
-  ['recordcrossdeviceoperationfn_1',['RecordCrossDeviceOperationFn',['../classRenderDeviceOrchestrator.html#a64b3e0c174168319569c4d828131379a',1,'RenderDeviceOrchestrator']]],
-  ['recordrenderingerrorfn_2',['recordrenderingerrorfn',['../classRenderDeviceOrchestrator.html#a1c1ca5442d4a98cabc8c08b6b64d1000',1,'RenderDeviceOrchestrator::RecordRenderingErrorFn'],['../classRenderSortingOrchestrator.html#a57f07bd7fc594ac9234f289dca073b4b',1,'RenderSortingOrchestrator::RecordRenderingErrorFn']]],
-  ['releaseshareddynamicassetfn_3',['ReleaseSharedDynamicAssetFn',['../classRenderDataOrchestrator.html#a93576943818f99e5fdb7d38ad8a725ca',1,'RenderDataOrchestrator']]],
-  ['renderconfig_4',['RenderConfig',['../classGaussianSplatRenderer.html#a718cf2f312ef36ccd2ea19ecc3ac9f4e',1,'GaussianSplatRenderer']]],
-  ['rendererdebughudsourceschangedcallback_5',['RendererDebugHudSourcesChangedCallback',['../classGaussianSplatSceneDirector.html#a70324e9faade7c32837ba74250500a33',1,'GaussianSplatSceneDirector']]],
-  ['renderfallbackreason_6',['renderfallbackreason',['../classGaussianSplatRenderer.html#a603fbe6126ce62bf93a1505f3767539b',1,'GaussianSplatRenderer::RenderFallbackReason'],['../classRenderPipelineStages.html#a5dd0e7c03d992ceb7147eb7ca9791474',1,'RenderPipelineStages::RenderFallbackReason'],['../render__streaming__orchestrator_8cpp.html#a9145c70b785050d1732c134c7d8df3f6',1,'RenderFallbackReason:&#160;render_streaming_orchestrator.cpp']]],
-  ['renderframecontext_7',['RenderFrameContext',['../classRenderPipelineStages.html#af66cc619e2035784ff0f7798f3db214f',1,'RenderPipelineStages']]],
-  ['renderframeplan_8',['renderframeplan',['../classGaussianSplatRenderer.html#a801ae6adf39543249a2030e377db80c5',1,'GaussianSplatRenderer::RenderFramePlan'],['../classRenderPipelineStages.html#a62f30749c7a057a9352274854ac6d39f',1,'RenderPipelineStages::RenderFramePlan']]],
-  ['renderframesnapshot_9',['RenderFrameSnapshot',['../classGaussianSplatRenderer.html#a2d03fd22fecc91c63713125dde9362dd',1,'GaussianSplatRenderer']]],
-  ['renderparams_10',['RenderParams',['../classTileRenderer.html#a62d67b57014413cde1e553ffaebb9b8b',1,'TileRenderer']]],
-  ['renderroutebackend_11',['RenderRouteBackend',['../classGaussianSplatRenderer.html#a5c893f77e516d0471ddec51fbce93c90',1,'GaussianSplatRenderer']]],
-  ['renderroutedecision_12',['renderroutedecision',['../classGaussianSplatRenderer.html#abd468b36e1ee28088f5c9469dcb78d41',1,'GaussianSplatRenderer::RenderRouteDecision'],['../classRenderPipelineStages.html#a3b42d765891b688950b698c1b53573a5',1,'RenderPipelineStages::RenderRouteDecision']]],
-  ['rendersortedsplatsfn_13',['RenderSortedSplatsFn',['../classRenderInstancingOrchestrator.html#a480c40c81a258de9063b6924c9bb698f',1,'RenderInstancingOrchestrator']]],
-  ['renderstats_14',['RenderStats',['../classTileRenderer.html#a311682fd78749394fce63ece3e9078a4',1,'TileRenderer']]],
-  ['resolvedebugmode_15',['ResolveDebugMode',['../classTileRenderer.html#a9dc666e46ed78e9a7b399f15e5abdadf',1,'TileRenderer']]],
-  ['resourcestate_16',['resourcestate',['../classGaussianSplatRenderer.html#aa9bb289e882ae03936a4c382a019fb2d',1,'GaussianSplatRenderer::ResourceState'],['../classRenderPipelineStages.html#aa14b41aff3d64a205d0e147cb3371df1',1,'RenderPipelineStages::ResourceState'],['../render__streaming__orchestrator_8cpp.html#a9ac64b3889dbe99ff3ea98a7787053c2',1,'ResourceState:&#160;render_streaming_orchestrator.cpp']]],
-  ['runtimeerrorstatistics_17',['RuntimeErrorStatistics',['../classGaussianSplatRenderer.html#a0595ef3231592151c43352835fc823ff',1,'GaussianSplatRenderer']]]
+  ['painterlycompositepushconstant_0',['PainterlyCompositePushConstant',['../classGaussianSplatRenderer.html#a2d7f50bf5be75b40377c34057c80d35b',1,'GaussianSplatRenderer']]],
+  ['painterlyconfig_1',['PainterlyConfig',['../classGaussianSplatRenderer.html#a6f4120399ad1ad0f6afef2011ced8b8d',1,'GaussianSplatRenderer']]],
+  ['performancemetrics_2',['performancemetrics',['../classGaussianSplatRenderer.html#ac35f3cbc2bb0d89d6dc239640465fd23',1,'GaussianSplatRenderer::PerformanceMetrics'],['../classRenderPipelineStages.html#a4901e10cc19d7d01eb5b5398ebffc555',1,'RenderPipelineStages::PerformanceMetrics']]],
+  ['performancesettings_3',['performancesettings',['../classGaussianSplatRenderer.html#a4a6f606a3ca5d28cd7d8b151da987b52',1,'GaussianSplatRenderer::PerformanceSettings'],['../render__streaming__orchestrator_8cpp.html#a05bb82755e6f204f3767f2a50f5a9324',1,'PerformanceSettings:&#160;render_streaming_orchestrator.cpp']]],
+  ['performancestate_4',['PerformanceState',['../classGaussianSplatRenderer.html#a3496af471471e36b8edea224c5a9e598',1,'GaussianSplatRenderer']]],
+  ['pipelineevent_5',['PipelineEvent',['../classGaussianSplatRenderer.html#a766ca6e16de6d4240dd690c594018b08',1,'GaussianSplatRenderer']]],
+  ['pipelinefeatureset_6',['PipelineFeatureSet',['../classRenderPipelineStages.html#a09123f6198de8001fb25d4082442fbfc',1,'RenderPipelineStages']]],
+  ['prefixparams_7',['PrefixParams',['../structTilePrefixScanStage.html#a45387d64235e01e4fd19a84206f3479e',1,'TilePrefixScanStage']]],
+  ['preparerenderframecontextfn_8',['PrepareRenderFrameContextFn',['../classRenderInstancingOrchestrator.html#a6f9fe747af385b605df2fc1b1f6a3b0e',1,'RenderInstancingOrchestrator']]],
+  ['publishedinstanceassetremap_9',['publishedinstanceassetremap',['../classGaussianSplatRenderer.html#a850e05e36aa427ee0147488a340b1da9',1,'GaussianSplatRenderer::PublishedInstanceAssetRemap'],['../render__streaming__orchestrator_8cpp.html#a964fb9f42646fb44c945af1984f4ee60',1,'PublishedInstanceAssetRemap:&#160;render_streaming_orchestrator.cpp']]]
 ];

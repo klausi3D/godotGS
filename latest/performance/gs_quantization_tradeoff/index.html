@@ -2264,10 +2264,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#measured-rtx-3090-optimized-build" class="md-nav__link">
+  <a href="#historical-measurements-rtx-3090-optimized-build-14480-byte-records" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Measured (RTX 3090, optimized build)
+        Historical measurements (RTX 3090, optimized build; 144/80-byte records)
       
     </span>
   </a>
@@ -2275,10 +2275,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#when-to-enable" class="md-nav__link">
+  <a href="#choosing-the-setting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to enable
+        Choosing the setting
       
     </span>
   </a>
@@ -3823,6 +3823,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4051,6 +4057,90 @@
     
   
     Complete v1 Splat Data Contract
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-spz-v4-reference-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SPZ v4 Reference Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-sh-basis-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SH Basis Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/adr-full-sh-gpu-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full SH GPU Storage
   
 
     
@@ -4394,10 +4484,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#measured-rtx-3090-optimized-build" class="md-nav__link">
+  <a href="#historical-measurements-rtx-3090-optimized-build-14480-byte-records" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Measured (RTX 3090, optimized build)
+        Historical measurements (RTX 3090, optimized build; 144/80-byte records)
       
     </span>
   </a>
@@ -4405,10 +4495,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#when-to-enable" class="md-nav__link">
+  <a href="#choosing-the-setting" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to enable
+        Choosing the setting
       
     </span>
   </a>
@@ -4472,25 +4562,20 @@
 off under the default <code>rendering/gaussian_splatting/quality/tier_preset</code> (<code>custom</code>) and under every
 tier except <code>steam_deck</code>, which turns quantization <strong>on</strong> (<code>QuantizationConfig::load_from_project_settings()</code>,
 <code>get_quality_tier_config()</code>).</p>
-<p>Per-chunk quantization stores each splat in the <strong>80-byte <code>PackedGaussianQuantized</code></strong>
-layout instead of the <strong>128-byte</strong> <code>PackedGaussian</code> — a <strong>−37.5 % atlas VRAM per splat</strong>.
-Position and scale are quantized per chunk (16-bit into per-chunk min/range bounds),
-rotation and normal are FP16, opacity and SH-DC stay FP32.</p>
-<blockquote>
-<p><strong><code>PackedGaussian</code> was 144 bytes until #971</strong> (<code>36bd5a1d868</code>) dropped four dead lanes;
-it is now 128, asserted by <code>static_assert(sizeof(PackedGaussian) == 128)</code> in <code>renderer/gaussian_gpu_layout.h</code>. Every measurement on
-this page was taken <strong>before</strong> that change, so the tables below compare 144 B against
-80 B, not 128 B against 80 B. They have not been re-run. Treat the frame-time and PSNR
-figures as describing the older layout, and the −37.5 % as the figure that applies
-today. Note also that the <strong>CPU</strong> authoring struct <code>Gaussian</code> is still 144 bytes
-(<code>static_assert(sizeof(Gaussian) == 144)</code> in <code>core/gaussian_data.h</code>) — the two sizes are no
-longer the same, and the comment above that assert warns about exactly that conflation.</p>
-</blockquote>
-<p><strong>This is not a free win.</strong> The saving is bandwidth/VRAM; the cost is compute. The GPU
-must <strong>dequantize every splat every frame</strong> — unpack position/scale/rotation from the 80-byte
-struct and do two extra buffer reads for the per-chunk bounds — in the binning, depth, and
-raster passes. Whether that is a net win depends entirely on whether you are VRAM-bound.</p>
-<h2 id="measured-rtx-3090-optimized-build">Measured (RTX 3090, optimized build)<a class="headerlink" href="#measured-rtx-3090-optimized-build" title="Permanent link">¶</a></h2>
+<p>The current full-SH storage contract uses <strong>160-byte <code>PackedGaussianQuantized</code></strong>
+records and <strong>176-byte <code>PackedGaussian</code></strong> records. Both retain all 24 non-DC SH4
+coefficients. The record-byte reduction is about <strong>9.1%</strong>; this is arithmetic,
+not a measured reduction in complete scene VRAM. Position and scale remain
+quantized per chunk, rotation and normal are FP16, opacity and SH-DC stay FP32.
+See <a href="../../architecture/adr-full-sh-gpu-storage/">Full SH GPU Storage</a>.</p>
+<p><strong>The measurements below are historical.</strong> They compare the older 144-byte
+normal layout with an 80-byte quantized layout; normal records later shrank to
+128 bytes before this SH extension. These figures have not been rerun for the
+176/160-byte layouts. They do not establish current frame time, image quality,
+scene capacity, or the benefit of a quality-tier default.</p>
+<p>Quantization adds GPU dequantization and per-chunk bounds reads. Measure its
+cost against its smaller record size on the target scene and hardware.</p>
+<h2 id="historical-measurements-rtx-3090-optimized-build-14480-byte-records">Historical measurements (RTX 3090, optimized build; 144/80-byte records)<a class="headerlink" href="#historical-measurements-rtx-3090-optimized-build-14480-byte-records" title="Permanent link">¶</a></h2>
 <p><strong>Render quality</strong> — resident path, real-scan asset (Rose), both configs rendering the
 <strong>identical</strong> splat set so this isolates quantization error:</p>
 <div class="gs-table-scroll" tabindex="0" role="group" aria-label="Table; scroll horizontally to see all columns"><table>
@@ -4556,17 +4641,12 @@ dequant ALU shows up as a straight ~14 % frame-time regression.</p>
 <p><strong>VRAM headroom</strong> — at a <em>fixed</em> VRAM budget the 80-byte atlas fits far more splats before
 the resident importance-clamp thins the scene: measured <strong>1.2 M vs 235 k</strong> splats on
 baeume-lankow (~5× more content, or the same content at ~55 % of the atlas bytes).</p>
-<h2 id="when-to-enable">When to enable<a class="headerlink" href="#when-to-enable" title="Permanent link">¶</a></h2>
-<p><strong>Enable</strong> when you are <strong>VRAM-bound</strong>:
-- A scene that would otherwise exceed the resident VRAM budget and get importance-thinned
-  (or fail to fit at all) — quantization is the difference between rendering the full scene
-  and dropping splats.
-- Low-end / mobile GPUs where VRAM is the wall.
-- Fitting ~2× more splats in the same budget when splat count, not frame time, is the limit.</p>
-<p><strong>Leave off</strong> when you have VRAM headroom: the same splats render ~14 % slower for no benefit.</p>
-<p><strong>Do not blanket-enable it</strong> (e.g. as a tier default) without measuring frame time on the
-target hardware — the trade flips sign with available VRAM. The <code>steam_deck</code> tier does enable
-it by default; no frame-time measurement for that tier is published here.</p>
+<h2 id="choosing-the-setting">Choosing the setting<a class="headerlink" href="#choosing-the-setting" title="Permanent link">¶</a></h2>
+<p>Measure both configurations with identical content and quality settings on the
+new layouts. Enable quantization when its measured memory benefit outweighs
+its dequantization cost. The historical timing and scene-capacity results above
+are not predictions for the new ABI. The <code>steam_deck</code> tier still enables the
+setting; no current-layout frame-time measurement for that tier is published here.</p>
 <h2 id="caveats">Caveats<a class="headerlink" href="#caveats" title="Permanent link">¶</a></h2>
 <ul>
 <li><strong>Position/scale bit depth is capped at 16</strong> (the <code>quantized_position</code>/<code>quantized_scale</code>
@@ -4575,31 +4655,18 @@ it by default; no frame-time measurement for that tier is published here.</p>
   publisher also caps them at <code>GS_QUANTIZED_BITS_MAX</code> (16).</li>
 <li><strong>Quantized content is lit.</strong> An earlier revision of this page said quantized binning
   zeroes normals, so quantized content was "effectively unlit". <strong>That was fixed in #510
-  and the claim is withdrawn.</strong> Normals are carried in the 80-byte payload
+  and the claim is withdrawn.</strong> Normals are carried in the 160-byte payload
   (<code>normal_xy</code> / <code>normal_z_stroke</code>, written by <code>pack_gaussian_quantized()</code> in
   <code>renderer/gaussian_gpu_layout.cpp</code>) and decoded in the quantized binning path of
   <code>shaders/tile_binning.glsl</code> (<code>g.normal = LOAD_NORMAL_QUANTIZED(src);</code>), whose comment names
   the old symptom by issue number. Lighting runs on the shared code after
   the quantized branch closes.</li>
-<li><strong>Spherical harmonics are truncated, and more so when quantized.</strong> This is a property of
-  the GPU layout rather than of quantization alone, but the quantized layout makes it much
-  larger, and it is documented nowhere else. <code>PackedSphericalHarmonics</code> stores the DC term
-  plus at most <strong>12</strong> non-DC coefficients (<code>PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS</code>
-  in <code>renderer/gaussian_gpu_layout.h</code>), while a
-  full band-3 asset carries 15 non-DC coefficients — so <strong>3 third-order coefficients are
-  dropped even at full quality</strong>. The quantized layout has only <strong>6</strong> non-DC slots
-  (<code>PackedGaussianQuantized::sh_encoded[6]</code> in <code>renderer/gaussian_gpu_layout.h</code>,
-  <code>GS_QUANTIZED_SH_ENCODED_SLOTS</code> in <code>renderer/gaussian_gpu_layout.cpp</code>), dropping <strong>9 of 15</strong>: two second-order and all
-  seven third-order. <code>rendering/sh_bands = 3</code> therefore never renders full third-order SH
-  (<a href="https://github.com/klausi3D/godotGS/issues/1158">#1158</a>). The packers count the dropped
-  coefficients in <code>SHCompressionMetrics::dropped_coefficient_count</code>, and the resident atlas
-  publisher and the <code>GaussianData</code> / <code>GPUBufferManager</code> upload paths print one warning per
-  asset and layout (<code>gs_warn_sh_layout_truncation_once()</code>). The streaming chunk packers
-  count the drop but do not warn. The <code>[SHEncoding]</code> doctests
-  (<code>tests/test_sh_encoding.h</code>) check that the stored coefficients round-trip and that the
-  drop is counted; no test measures the visual effect of the dropped ones.
-  Expect view-dependent specular detail to flatten, most visibly on quantized assets.</li>
-<li>Scale quantization is <strong>mandatory</strong> for the 80-byte layout (it has no unquantized scale
+<li><strong>SH storage is complete through degree 4 in both layouts.</strong> The strict
+  <code>[SHEncoding]</code> tests round-trip all 24 non-DC terms and check zero tails and
+  padding. Runtime degree/LOD limits still control evaluated terms; this storage
+  change alone does not implement SH4 evaluation or antialias compensation, nor
+  establish real-scan visual quality.</li>
+<li>Scale quantization is <strong>mandatory</strong> for the quantized layout (it has no unquantized scale
   field); it is forced on internally when quantization is enabled.</li>
 </ul>
 <h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">¶</a></h2>
@@ -4628,7 +4695,7 @@ it by default; no frame-time measurement for that tier is published here.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:56 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 15, 2026 23:22:21 UTC">October 15, 2026</span>
   </span>
 
     

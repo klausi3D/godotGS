@@ -26,7 +26,7 @@ var searchData=
   ['base_5fseed_23',['base_seed',['../structGaussianSplatting_1_1PainterlyManager_1_1Settings.html#ac5bf280dde3d2f77893927cf56269dcd',1,'GaussianSplatting::PainterlyManager::Settings']]],
   ['base_5fthreshold_24',['base_threshold',['../structLODConfig.html#ad63e1e25ecf78575e88ae4921fc7d7b0',1,'LODConfig']]],
   ['base_5fthreshold_5fpath_25',['BASE_THRESHOLD_PATH',['../structLODConfig.html#a06d7b51098d173a7d779affc0a553660',1,'LODConfig']]],
-  ['basic_20usage_26',['Basic Usage',['../classGaussianSplatNode3D.html#autotoc_md10',1,'']]],
+  ['basic_20usage_26',['Basic Usage',['../classGaussianSplatNode3D.html#autotoc_md7',1,'']]],
   ['basis_27',['basis',['../structGaussianSplatHlodInstance.html#a5478aecea87b3fe3ae0bc31d1d58687e',1,'GaussianSplatHlodInstance']]],
   ['batch_5fcomplete_28',['BATCH_COMPLETE',['../classBatchedAsyncReadback.html#add64bf14c70b58d92b9ae7caa3bf17f5aacdbadb0817032931584164f60af349f',1,'BatchedAsyncReadback']]],
   ['batch_5fidle_29',['BATCH_IDLE',['../classBatchedAsyncReadback.html#add64bf14c70b58d92b9ae7caa3bf17f5a1659fecf23c0fe1a8168c44611e02a4f',1,'BatchedAsyncReadback']]],
@@ -68,7 +68,7 @@ var searchData=
   ['binning_5fgroup_5fsize_65',['BINNING_GROUP_SIZE',['../classTileRenderer.html#a19dcf45149e07fd53721199f97c44ec9',1,'TileRenderer']]],
   ['binning_5ftimestamp_66',['binning_timestamp',['../structGaussianSplatting_1_1TileTimingState.html#a4f05fde1f17d100679c1114d7d9c8dbe',1,'GaussianSplatting::TileTimingState']]],
   ['binninguniformsets_67',['BinningUniformSets',['../structTileBinningStage_1_1BinningUniformSets.html',1,'TileBinningStage']]],
-  ['bit_20digits_68',['WHY 8-BIT DIGITS?',['..//home/runner/work/godotGS/godotGS/modules/gaussian_splatting/renderer/gpu_sorter.cpp#autotoc_md16',1,'']]],
+  ['bit_20digits_68',['WHY 8-BIT DIGITS?',['..//home/runner/work/godotGS/godotGS/modules/gaussian_splatting/renderer/gpu_sorter.cpp#autotoc_md13',1,'']]],
   ['bitonic_69',['BITONIC',['../structSortingStrategyConfig.html#a777134502f78b3db1455bda220b35053a6dafb7cbb6e233f059b1e656ce9a463d',1,'SortingStrategyConfig']]],
   ['bitonic_5fmax_5felements_70',['bitonic_max_elements',['../structSortingStrategyConfig.html#a532be630f880380715462c1d5910e1b9',1,'SortingStrategyConfig::bitonic_max_elements'],['../structGPUSorterFactory_1_1AutoThresholds.html#a459617ac018c5830fcff561597722054',1,'GPUSorterFactory::AutoThresholds::bitonic_max_elements']]],
   ['bitonicsort_71',['bitonicsort',['../classBitonicSort.html#aebfaa8b0bc3367019ad7aff0ee283306',1,'BitonicSort::BitonicSort()'],['../classBitonicSort.html',1,'BitonicSort']]],
@@ -103,7 +103,7 @@ var searchData=
   ['budget_5fwarning_5factive_100',['budget_warning_active',['../structVRAMDebugStats.html#ae25cec83b41066e6277a095fdc9cb71d',1,'VRAMDebugStats']]],
   ['budgetstate_101',['BudgetState',['../structGaussianStreamingTypes_1_1BudgetState.html',1,'GaussianStreamingTypes']]],
   ['buffer_102',['buffer',['../structGPUBufferManager_1_1BufferHandle.html#a31014a0f55154cb02c0651319f63b688',1,'GPUBufferManager::BufferHandle']]],
-  ['buffer_20layout_103',['BUFFER LAYOUT',['..//home/runner/work/godotGS/godotGS/modules/gaussian_splatting/renderer/gpu_sorter.cpp#autotoc_md18',1,'']]],
+  ['buffer_20layout_103',['BUFFER LAYOUT',['..//home/runner/work/godotGS/godotGS/modules/gaussian_splatting/renderer/gpu_sorter.cpp#autotoc_md15',1,'']]],
   ['buffer_5fcapacity_5fsplats_104',['buffer_capacity_splats',['../structGaussianSplatRenderer_1_1MonitorStreamingSnapshot.html#ae26a0337d7b4f18c7474e9b681dded59',1,'GaussianSplatRenderer::MonitorStreamingSnapshot']]],
   ['buffer_5fdevice_105',['buffer_device',['../structCullInputBuffers.html#ab44de4d4432e450a84edc12a1bd2970e',1,'CullInputBuffers']]],
   ['buffer_5ffree_106',['BUFFER_FREE',['../classGaussianMemoryStream.html#a5c27f6ef7694f393e876131fb0c1c162a984940fa64ab3666bb7b62aa2d5477c3',1,'GaussianMemoryStream']]],
@@ -154,5 +154,6 @@ var searchData=
   ['bypass_5fradius_5fdepth_5ffloor_151',['bypass_radius_depth_floor',['../structGaussianRenderDebug_1_1JacobianDebugConfig.html#aeb806c2c78e3003fe5ac93d3a2ae4bc6',1,'GaussianRenderDebug::JacobianDebugConfig']]],
   ['bytes_5fread_152',['bytes_read',['../classStagedFileChunkPayloadSource.html#a596f163164b0fe8d1b965686f6c15100',1,'StagedFileChunkPayloadSource']]],
   ['bytes_5frequested_153',['bytes_requested',['../classStagedFileChunkPayloadSource.html#ab5ef15273c169ddec02f3d481430cf4b',1,'StagedFileChunkPayloadSource']]],
-  ['bytes_5fuploaded_154',['bytes_uploaded',['../structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c',1,'StreamingUploadPipeline::UploadCoalescingCandidate::bytes_uploaded'],['../structStreamingUploadPipeline_1_1PendingChunkUpload.html#aba8725072f3c2896d2d0856390a6b976',1,'StreamingUploadPipeline::PendingChunkUpload::bytes_uploaded']]]
+  ['bytes_5fuploaded_154',['bytes_uploaded',['../structStreamingUploadPipeline_1_1UploadCoalescingCandidate.html#a92fbb69be8d6980dd3321f700b8f437c',1,'StreamingUploadPipeline::UploadCoalescingCandidate::bytes_uploaded'],['../structStreamingUploadPipeline_1_1PendingChunkUpload.html#aba8725072f3c2896d2d0856390a6b976',1,'StreamingUploadPipeline::PendingChunkUpload::bytes_uploaded']]],
+  ['bytesperelement_155',['bytesPerElement',['../structspz_1_1PlyExtraElement.html#a96b0da2be6fa86f264316c0df6f5647d',1,'spz::PlyExtraElement']]]
 ];

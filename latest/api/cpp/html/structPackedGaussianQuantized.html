@@ -119,18 +119,19 @@ Public Attributes</h2></td></tr>
 <tr class="separator:af7072eb84db6eb3c9c3e2ced58b5928a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:aa62c5e8f9c0bd158e43fca6b62181d53" id="r_aa62c5e8f9c0bd158e43fca6b62181d53"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53">sh_dc</a> [4]</td></tr>
 <tr class="separator:aa62c5e8f9c0bd158e43fca6b62181d53"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:afc8a937b97fe0b7312a1b351700e8927" id="r_afc8a937b97fe0b7312a1b351700e8927"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#afc8a937b97fe0b7312a1b351700e8927">sh_encoded</a> [6]</td></tr>
-<tr class="separator:afc8a937b97fe0b7312a1b351700e8927"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:aecd63fc9b48bdd4def5e3bf2fcffa564" id="r_aecd63fc9b48bdd4def5e3bf2fcffa564"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564">sh_encoded</a> [24]</td></tr>
+<tr class="separator:aecd63fc9b48bdd4def5e3bf2fcffa564"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a909aed848a3578195cdb61162941572e" id="r_a909aed848a3578195cdb61162941572e"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#a909aed848a3578195cdb61162941572e">normal_xy</a></td></tr>
 <tr class="separator:a909aed848a3578195cdb61162941572e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a99c59f7596e92a6237a944dd44a2e635" id="r_a99c59f7596e92a6237a944dd44a2e635"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#a99c59f7596e92a6237a944dd44a2e635">normal_z_stroke</a></td></tr>
 <tr class="separator:a99c59f7596e92a6237a944dd44a2e635"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6a7576c434305f78895b4c0ea6ffadbb" id="r_a6a7576c434305f78895b4c0ea6ffadbb"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structPackedGaussianQuantized.html#a6a7576c434305f78895b4c0ea6ffadbb">_tail_padding</a> [2]</td></tr>
+<tr class="separator:a6a7576c434305f78895b4c0ea6ffadbb"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>Per-chunk quantized <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> for maximum compression (Unity technique). </p>
 <p>Uses per-chunk min/max bounds to normalize positions and scales, achieving up to 4x compression ratio with minimal quality loss.</p>
-<p>Memory layout (80 bytes, 16-byte aligned): quantized_position: uint16_t[3] - Normalized position (6 bytes) chunk_id: uint16_t - Index into chunk bounds buffer (2 bytes) opacity: float (4 bytes) quantized_scale: uint16_t[3] - Normalized scale (6 bytes, or zeros if not quantized) area_lo: uint16_t - Low 16 bits of area as float16 (2 bytes) rotation: uint16_t[4] - Quaternion as float16 (8 bytes) sh_dc: float[4] - DC coefficients (16 bytes) sh_encoded: uint32_t[6] - SH coefficient triplets as signed SNORM10 words, scale in sh_dc[3] (24 bytes) normal_xy: uint32_t - Normal xy as half2 (4 bytes) normal_z_stroke: uint32_t - Normal z + stroke_age as half2 (4 bytes) painterly_data: uint32_t - Packed painterly meta (4 bytes) sh_metadata: uint32_t - SH encoding metadata (4 bytes)</p>
-<p>Total: 80 bytes (vs 128 bytes for <a class="el" href="structPackedGaussian.html">PackedGaussian</a> = 37.5% reduction) </p>
+<p>Memory layout (160 bytes, 16-byte aligned): geometry occupies 32 bytes, FP32 DC plus scale 16 bytes, 24 signed SH1–4 words 96 bytes, normal/stroke 8 bytes and deterministic trailing padding 8 bytes. SH metadata is synthesized by the quantized shader path; unused words are zero. Position/scale precision remains controlled by the per-chunk bounds. </p>
 </div><h2 class="groupheader">Member Data Documentation</h2>
 <a id="af7072eb84db6eb3c9c3e2ced58b5928a" name="af7072eb84db6eb3c9c3e2ced58b5928a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#af7072eb84db6eb3c9c3e2ced58b5928a">&#9670;&#160;</a></span>_pre_sh_padding</h2>
@@ -140,6 +141,20 @@ Public Attributes</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">uint16_t PackedGaussianQuantized::_pre_sh_padding[2]</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a6a7576c434305f78895b4c0ea6ffadbb" name="a6a7576c434305f78895b4c0ea6ffadbb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a6a7576c434305f78895b4c0ea6ffadbb">&#9670;&#160;</a></span>_tail_padding</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">uint32_t PackedGaussianQuantized::_tail_padding[2]</td>
         </tr>
       </table>
 </div><div class="memdoc">
@@ -272,14 +287,14 @@ Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="afc8a937b97fe0b7312a1b351700e8927" name="afc8a937b97fe0b7312a1b351700e8927"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#afc8a937b97fe0b7312a1b351700e8927">&#9670;&#160;</a></span>sh_encoded</h2>
+<a id="aecd63fc9b48bdd4def5e3bf2fcffa564" name="aecd63fc9b48bdd4def5e3bf2fcffa564"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#aecd63fc9b48bdd4def5e3bf2fcffa564">&#9670;&#160;</a></span>sh_encoded</h2>
 
 <div class="memitem">
 <div class="memproto">
       <table class="memname">
         <tr>
-          <td class="memname">uint32_t PackedGaussianQuantized::sh_encoded[6]</td>
+          <td class="memname">uint32_t PackedGaussianQuantized::sh_encoded[24]</td>
         </tr>
       </table>
 </div><div class="memdoc">

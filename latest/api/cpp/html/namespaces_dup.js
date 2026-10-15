@@ -76,6 +76,7 @@ var namespaces_dup =
     [ "ResidentInstanceContractPublisher", "namespaceResidentInstanceContractPublisher.html", [
       [ "publish_resident_direct_data_contract", "namespaceResidentInstanceContractPublisher.html#a3046dd9730c099a2f93a6e1d1a8f6d6d", null ]
     ] ],
+    [ "spz", "namespacespz.html", "namespacespz" ],
     [ "StreamingChunkBakeIO", "namespaceStreamingChunkBakeIO.html", [
       [ "deserialize_records", "namespaceStreamingChunkBakeIO.html#adde21ea893f9521d12dfaa7ba67b5f15", null ],
       [ "serialize_records", "namespaceStreamingChunkBakeIO.html#ac3cd9450bf585c09d79b89cef1a809f0", null ]

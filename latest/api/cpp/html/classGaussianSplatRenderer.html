@@ -1366,7 +1366,7 @@ Friends</h2></td></tr>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><p>GPU rendering backend for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting. </p>
 <p><a class="el" href="classGaussianSplatRenderer.html" title="GPU rendering backend for Gaussian Splatting.">GaussianSplatRenderer</a> implements the complete rendering pipeline for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> splats using Godot's RenderingDevice API. It is designed for integration with the engine's RendererSceneRenderRD and can be used standalone for viewport rendering.</p>
-<h2><a class="anchor" id="autotoc_md11"></a>
+<h2><a class="anchor" id="autotoc_md8"></a>
 Pipeline Overview</h2>
 <p>The renderer uses a global composite sort approach:</p><ol type="1">
 <li><b>Frustum Cull</b>: GPU hierarchical culling to reject off-screen splats</li>
@@ -1375,7 +1375,7 @@ Pipeline Overview</h2>
 <li><b>Radix Sort</b>: O(n) GPU sort on composite (tile_id, depth) keys</li>
 <li><b>Tile Rasterize</b>: Per-pixel <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> weight evaluation and alpha blending</li>
 </ol>
-<h2><a class="anchor" id="autotoc_md12"></a>
+<h2><a class="anchor" id="autotoc_md9"></a>
 Usage</h2>
 <p>In production scenes this is typically created and managed by <a class="el" href="classGaussianSplatNode3D.html" title="3D scene node for displaying Gaussian splat content.">GaussianSplatNode3D</a>, <a class="el" href="classGaussianSplatWorld3D.html">GaussianSplatWorld3D</a>, or the shared scene-director renderer flow. Direct <code><a class="el" href="classGaussianSplatRenderer.html#a2e165a47c1369802d2067cb30cae6906" title="Binds raw GaussianData directly to the renderer.">set_gaussian_data()</a></code> calls are the low-level resident direct-data path kept for tests, tools, editor preview, and internal world-submission realization.</p>
 <p>Low-level usage: </p><div class="fragment"><div class="line">Ref&lt;GaussianSplatRenderer&gt; renderer;</div>

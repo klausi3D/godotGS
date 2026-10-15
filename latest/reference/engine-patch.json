@@ -881,6 +881,19 @@
     },
     {
       "deletion_commit": null,
+      "display_path": "COPYRIGHT.txt",
+      "last_touch_commit": "e668916f7db05d176f9f86287459a21762c89321",
+      "lines_added": 6,
+      "lines_deleted": 0,
+      "new_path": "COPYRIGHT.txt",
+      "old_path": "COPYRIGHT.txt",
+      "pre_deletion_commit": null,
+      "status": "M",
+      "subsystem": "COPYRIGHT.txt",
+      "touchpoints": []
+    },
+    {
+      "deletion_commit": null,
       "display_path": "README.md",
       "last_touch_commit": "15a1233689e18fcdc0a0a2e744a747b4501bdb91",
       "lines_added": 57,
@@ -2430,7 +2443,7 @@
       ]
     },
     "fork_base_commit": "876b290332ec6f2e6d173d08162a02aa7e6ca46d",
-    "head_commit": "d4ab7a775c6ec4214acca5e9de379eb425473602",
+    "head_commit": "e668916f7db05d176f9f86287459a21762c89321",
     "head_ref": "HEAD",
     "label": "Godot 4.5 stable fork-point commit",
     "rename_threshold": "70%",
@@ -2464,6 +2477,10 @@
     {
       "count": 1,
       "name": "CONTRIBUTING.md"
+    },
+    {
+      "count": 1,
+      "name": "COPYRIGHT.txt"
     },
     {
       "count": 1,
@@ -2540,9 +2557,9 @@
   ],
   "summary": {
     "deleted": 37,
-    "modified": 107,
+    "modified": 108,
     "renamed": 0,
-    "total_files": 144
+    "total_files": 145
   },
   "warnings": []
 }

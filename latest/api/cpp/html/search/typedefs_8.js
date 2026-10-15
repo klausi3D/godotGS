@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['overflowstatssnapshot_0',['OverflowStatsSnapshot',['../classTileRenderer.html#a87102b3edbed976a1cf8c54e32db035b',1,'TileRenderer']]]
+  ['jacobiandebugconfig_0',['JacobianDebugConfig',['../classGaussianSplatRenderer.html#a94bc9473e61007006fc36f9695f5a8c8',1,'GaussianSplatRenderer']]]
 ];

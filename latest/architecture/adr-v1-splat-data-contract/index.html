@@ -13,7 +13,7 @@
         <link rel="prev" href="../adr-splat-colour-encoding/">
       
       
-        <link rel="next" href="../adr-hlod-streaming/">
+        <link rel="next" href="../adr-spz-v4-reference-adapter/">
       
       
         
@@ -3751,6 +3751,12 @@
       
         
       
+        
+      
+        
+      
+        
+      
     
     
     
@@ -4085,10 +4091,105 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gsf-v3-wire-contract-2026-10-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GSF v3 wire contract (2026-10-08)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-spz-v4-reference-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SPZ v4 Reference Adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-sh-basis-evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SH Basis Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr-full-sh-gpu-storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full SH GPU Storage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -4478,6 +4579,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#gsf-v3-wire-contract-2026-10-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GSF v3 wire contract (2026-10-08)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4639,6 +4751,40 @@ format; GodotGS owns SH evaluation and antialias filter/opacity compensation.</p
 independent reviews and human/CODEOWNER disposition before merge. Rollback is a
 focused revert before new-format files are distributed; once distributed, keep
 the new read path or explicitly migrate files before reverting the writer.</p>
+<h2 id="gsf-v3-wire-contract-2026-10-08">GSF v3 wire contract (2026-10-08)<a class="headerlink" href="#gsf-v3-wire-contract-2026-10-08" title="Permanent link">¶</a></h2>
+<p>The full-save writer emits GSF version 3 with minimum reader version 3. The
+60-byte scene header and 16-byte chunk headers remain unchanged. Every v3 scene,
+including an empty scene, has exactly one GAUSSIAN_DATA chunk. Legacy v1/v2
+GAUSSIAN_DATA keeps its original count plus raw 144-byte record decoder.</p>
+<p>The v3 decoded chunk starts with eight little-endian uint32 fields (32 bytes):
+count, schema (=1), record size (=132), SH degree, first-order count, high-order
+count, semantic flags (bit 0: 2D; bit 1: antialiased), reserved (=0). It is followed
+by count canonical records, then count * high-order-count RGB float32 vectors.
+A record explicitly stores position, opacity, scale, area, quaternion xyzw, DC
+rgba, three first-order RGB vectors, normal, stroke age, brush axes, painterly
+metadata and render metadata in that order. Padding is not persisted. Existing
+per-record DC encoding is retained; this task does not reinterpret color.</p>
+<p>SH degree is 0--4, first-order count is 0--3 and high-order count is 0--21.
+The declared degree agrees with the existing authoring layout's degree derivation;
+partial legacy layouts remain representable. Full SH0--4 layouts retain all
+1/4/9/16/25 RGB vectors. Unknown semantic bits, schema/element-size mismatches,
+nonzero reserved data, duplicate/missing payloads and non-exact lengths fail
+before target mutation. Memory bounds and codec/checksum protections apply to
+both uncompressed and compressed payloads. Size arithmetic uses uint64 before
+checking the uint32 wire limit. Real allocation failure remains subject to the
+engine LocalVector container's existing fatal-OOM contract; checked byte-buffer
+allocations return errors and leave the previous target intact.</p>
+<p>Antialias semantics become an asset-level field captured under data_rwlock and
+committed together with geometry/SH/2D state. This is preservation metadata; the
+subsequent SPZ/raster task implements filter and opacity compensation. Existing
+callers of the bulk payload setter default to classic semantics. The incremental
+baseline uses this same v3 writer; a semantic or SH-layout edit still requires a
+full baseline, while supported per-index deltas preserve baseline sidecars.</p>
+<p>Acceptance adds legacy v1/v2 loading, SH0--4 complete roundtrips for every codec,
+empty semantic datasets, incremental baseline + delta retention, semantic-edit
+full-save requirements, malformed metadata and transactional rejection. Tests
+that encode the previous known loss are replaced by preservation assertions;
+malformed fixtures continue to test their original failure property.</p>
 
 
 
@@ -4659,7 +4805,7 @@ the new read path or explicitly migrate files before reverting the writer.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 19:19:47 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 15, 2026 23:22:15 UTC">October 15, 2026</span>
   </span>
 
     
@@ -4714,13 +4860,13 @@ the new read path or explicitly migrate files before reverting the writer.</p>
         
         
           
-          <a href="../adr-hlod-streaming/" class="md-footer__link md-footer__link--next" aria-label="Next: Hierarchical LOD for Streamed Worlds">
+          <a href="../adr-spz-v4-reference-adapter/" class="md-footer__link md-footer__link--next" aria-label="Next: SPZ v4 Reference Adapter">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Hierarchical LOD for Streamed Worlds
+                SPZ v4 Reference Adapter
               </div>
             </div>
             <div class="md-footer__button md-icon">

@@ -1,6 +1,7 @@
 var structPackedGaussianQuantized =
 [
     [ "_pre_sh_padding", "structPackedGaussianQuantized.html#af7072eb84db6eb3c9c3e2ced58b5928a", null ],
+    [ "_tail_padding", "structPackedGaussianQuantized.html#a6a7576c434305f78895b4c0ea6ffadbb", null ],
     [ "area_fp16", "structPackedGaussianQuantized.html#a661fbe52eca77e599f0621adb211d3f2", null ],
     [ "chunk_id", "structPackedGaussianQuantized.html#a2ff771ae251de67092e736d4ecc2f1c2", null ],
     [ "normal_xy", "structPackedGaussianQuantized.html#a909aed848a3578195cdb61162941572e", null ],
@@ -10,5 +11,5 @@ var structPackedGaussianQuantized =
     [ "quantized_scale", "structPackedGaussianQuantized.html#aac060848632fa5a46ae5ed87275df74a", null ],
     [ "rotation", "structPackedGaussianQuantized.html#af7458dd0caf2802772d45e0777769a2d", null ],
     [ "sh_dc", "structPackedGaussianQuantized.html#aa62c5e8f9c0bd158e43fca6b62181d53", null ],
-    [ "sh_encoded", "structPackedGaussianQuantized.html#afc8a937b97fe0b7312a1b351700e8927", null ]
+    [ "sh_encoded", "structPackedGaussianQuantized.html#aecd63fc9b48bdd4def5e3bf2fcffa564", null ]
 ];

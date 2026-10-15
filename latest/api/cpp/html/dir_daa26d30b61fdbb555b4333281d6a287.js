@@ -19,6 +19,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "gpu_memory_stream.h", "gpu__memory__stream_8h.html", "gpu__memory__stream_8h" ],
     [ "gpu_performance_monitor.cpp", "gpu__performance__monitor_8cpp.html", null ],
     [ "gpu_performance_monitor.h", "gpu__performance__monitor_8h.html", "gpu__performance__monitor_8h" ],
+    [ "gpu_record_sizes.h", "gpu__record__sizes_8h.html", "gpu__record__sizes_8h" ],
     [ "gpu_sorter.cpp", "gpu__sorter_8cpp.html", "gpu__sorter_8cpp" ],
     [ "gpu_sorter.h", "gpu__sorter_8h.html", "gpu__sorter_8h" ],
     [ "gpu_sorting_config.cpp", "gpu__sorting__config_8cpp.html", "gpu__sorting__config_8cpp" ],

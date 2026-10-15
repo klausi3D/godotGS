@@ -67,6 +67,7 @@ var searchData=
   ['user_5fdata_64',['user_data',['../structBatchedAsyncReadback_1_1ReadbackRequest.html#ae33c93d77a85935af6bd2a7c6d9ef725',1,'BatchedAsyncReadback::ReadbackRequest']]],
   ['uses_5fexplicit_5fsource_5findices_65',['uses_explicit_source_indices',['../structStreamingUploadPipeline_1_1PackJob.html#a97b1e5102e427be9dcfd9bba4410b70c',1,'StreamingUploadPipeline::PackJob']]],
   ['uses_5fprimary_5fchunks_66',['uses_primary_chunks',['../structGaussianStreamingTypes_1_1AtlasAssetState.html#a37d59e9f267cd73c6fc2772d716ed4d9',1,'GaussianStreamingTypes::AtlasAssetState']]],
-  ['using_5freal_5fdata_67',['using_real_data',['../structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf',1,'GaussianRenderPerformance::PerformanceMetrics::using_real_data'],['../structGaussianRenderPipeline_1_1DataSourcePlan.html#a86e3d2a80e5d9fa785ffab914c2f49ca',1,'GaussianRenderPipeline::DataSourcePlan::using_real_data']]],
-  ['using_5fscene_5fdata_68',['using_scene_data',['../structRenderFrameContextManager_1_1ViewState.html#afaf10d291b5390817af43d9152ad734c',1,'RenderFrameContextManager::ViewState']]]
+  ['usesquaternionsmallestthree_67',['usesQuaternionSmallestThree',['../structspz_1_1PackedGaussians.html#abfdd10f52eb226ec82876de7fa149565',1,'spz::PackedGaussians']]],
+  ['using_5freal_5fdata_68',['using_real_data',['../structGaussianRenderPerformance_1_1PerformanceMetrics.html#a6a2c7c6040e674b1d796ff9d387c63cf',1,'GaussianRenderPerformance::PerformanceMetrics::using_real_data'],['../structGaussianRenderPipeline_1_1DataSourcePlan.html#a86e3d2a80e5d9fa785ffab914c2f49ca',1,'GaussianRenderPipeline::DataSourcePlan::using_real_data']]],
+  ['using_5fscene_5fdata_69',['using_scene_data',['../structRenderFrameContextManager_1_1ViewState.html#afaf10d291b5390817af43d9152ad734c',1,'RenderFrameContextManager::ViewState']]]
 ];

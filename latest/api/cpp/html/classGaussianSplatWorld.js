@@ -6,6 +6,7 @@ var classGaussianSplatWorld =
     [ "clear", "classGaussianSplatWorld.html#acbc5efe173e7d3dadca6cf2137856569", null ],
     [ "copy_from", "classGaussianSplatWorld.html#a6e9fe19e2518e3d32dd4d3d85bb86d31", null ],
     [ "get_2d_mode", "classGaussianSplatWorld.html#a03686ecae8ef19c968a36adc51a4d19b", null ],
+    [ "get_antialiased", "classGaussianSplatWorld.html#ae7cc03946c57411ebdf93bbeef51a481", null ],
     [ "get_bounds", "classGaussianSplatWorld.html#aa1cb93a47b4370bdf213aa060f4cebca", null ],
     [ "get_chunk_aabbs", "classGaussianSplatWorld.html#a63c8ce147e980bd0fa3221b2169ff963", null ],
     [ "get_chunk_count", "classGaussianSplatWorld.html#ae277516843a13445c46fa89803d55189", null ],

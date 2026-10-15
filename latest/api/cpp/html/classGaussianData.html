@@ -138,9 +138,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a9dcb08fd1abcac07ed74c0df6ed53dce" id="r_a9dcb08fd1abcac07ed74c0df6ed53dce"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a9dcb08fd1abcac07ed74c0df6ed53dce">set_gaussians</a> (const Vector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;p_gaussians)</td></tr>
 <tr class="memdesc:a9dcb08fd1abcac07ed74c0df6ed53dce"><td class="mdescLeft">&#160;</td><td class="mdescRight">This is an overloaded member function, provided for convenience. It differs from the above function only in what argument(s) it accepts.  <br /></td></tr>
 <tr class="separator:a9dcb08fd1abcac07ed74c0df6ed53dce"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a860e1822e7cdc76c9f407bc4f3745b2e" id="r_a860e1822e7cdc76c9f407bc4f3745b2e"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a860e1822e7cdc76c9f407bc4f3745b2e">set_gaussian_payload</a> (const LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;p_gaussians, const LocalVector&lt; Vector3 &gt; &amp;p_sh_high_order_coefficients, uint32_t p_sh_first_order_count, uint32_t p_sh_high_order_count, bool p_is_2d_mode)</td></tr>
-<tr class="memdesc:a860e1822e7cdc76c9f407bc4f3745b2e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Replaces <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> payload and SH metadata in one bulk operation.  <br /></td></tr>
-<tr class="separator:a860e1822e7cdc76c9f407bc4f3745b2e"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a9a20a6800c799f7eb9a2914dd611adbd" id="r_a9a20a6800c799f7eb9a2914dd611adbd"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a9a20a6800c799f7eb9a2914dd611adbd">set_gaussian_payload</a> (const LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;p_gaussians, const LocalVector&lt; Vector3 &gt; &amp;p_sh_high_order_coefficients, uint32_t p_sh_first_order_count, uint32_t p_sh_high_order_count, bool p_is_2d_mode, bool p_antialiased)</td></tr>
+<tr class="memdesc:a9a20a6800c799f7eb9a2914dd611adbd"><td class="mdescLeft">&#160;</td><td class="mdescRight">Replaces <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> payload and SH metadata in one bulk operation.  <br /></td></tr>
+<tr class="separator:a9a20a6800c799f7eb9a2914dd611adbd"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a8d7c5168a343d8e222cc84e011c12f8d" id="r_a8d7c5168a343d8e222cc84e011c12f8d"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a8d7c5168a343d8e222cc84e011c12f8d">prune_by_importance</a> (double p_keep_ratio, float p_importance_threshold)</td></tr>
 <tr class="memdesc:a8d7c5168a343d8e222cc84e011c12f8d"><td class="mdescLeft">&#160;</td><td class="mdescRight">Destructively drops low-importance splats, keeping the highest-ranked subset.  <br /></td></tr>
 <tr class="separator:a8d7c5168a343d8e222cc84e011c12f8d"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -203,6 +203,10 @@ Public Member Functions</h2></td></tr>
 <tr class="separator:ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a18ca3236a61c20f74d0b9f99fdc49596" id="r_a18ca3236a61c20f74d0b9f99fdc49596"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a18ca3236a61c20f74d0b9f99fdc49596">get_2d_mode</a> () const</td></tr>
 <tr class="separator:a18ca3236a61c20f74d0b9f99fdc49596"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a22a2397eebf21f3375cb788edeff5fdb" id="r_a22a2397eebf21f3375cb788edeff5fdb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a22a2397eebf21f3375cb788edeff5fdb">set_antialiased</a> (bool p_enabled)</td></tr>
+<tr class="separator:a22a2397eebf21f3375cb788edeff5fdb"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad6fbfba972c5065ed986b91215d7c006" id="r_ad6fbfba972c5065ed986b91215d7c006"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#ad6fbfba972c5065ed986b91215d7c006">get_antialiased</a> () const</td></tr>
+<tr class="separator:ad6fbfba972c5065ed986b91215d7c006"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a324983aab2d291f8a4c958ed59b9bdeb" id="r_a324983aab2d291f8a4c958ed59b9bdeb"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a324983aab2d291f8a4c958ed59b9bdeb">set_normals</a> (const PackedVector3Array &amp;p_normals)</td></tr>
 <tr class="memdesc:a324983aab2d291f8a4c958ed59b9bdeb"><td class="mdescLeft">&#160;</td><td class="mdescRight">Sets per-splat surface normals (shading normals; they do not change the projected footprint, see <a class="el" href="classGaussianData.html#ac6bf5c6cbe3ea4fdbc8dfa70709ed0d6" title="Sets the 2D Gaussian (surfel) flag.">set_2d_mode()</a>).  <br /></td></tr>
 <tr class="separator:a324983aab2d291f8a4c958ed59b9bdeb"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -406,6 +410,8 @@ Friends</h2></td></tr>
 <tr class="separator:af4258510b2e000f2d26a2c6973df5848"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a792691bd59209b0755c69211b5f7ef74" id="r_a792691bd59209b0755c69211b5f7ef74"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a792691bd59209b0755c69211b5f7ef74">capture_save_snapshot</a> (<a class="el" href="classGaussianData_1_1SaveSnapshot.html">SaveSnapshot</a> &amp;r_snapshot) const</td></tr>
 <tr class="separator:a792691bd59209b0755c69211b5f7ef74"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a5ae7a85a2553095c044ad2d0b083736f" id="r_a5ae7a85a2553095c044ad2d0b083736f"><td class="memItemLeft" align="right" valign="top">Error&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a5ae7a85a2553095c044ad2d0b083736f">capture_save_layout</a> (uint32_t &amp;r_splat_count, uint32_t &amp;r_sh_high_order_count) const</td></tr>
+<tr class="separator:a5ae7a85a2553095c044ad2d0b083736f"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a69c889321e57cc38a5c3d3a1451712a3" id="r_a69c889321e57cc38a5c3d3a1451712a3"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classGaussianData.html#a69c889321e57cc38a5c3d3a1451712a3">capture_chunk_snapshot</a> (uint32_t p_start, uint32_t p_count, LocalVector&lt; <a class="el" href="structGaussian.html">Gaussian</a> &gt; &amp;r_gaussians, LocalVector&lt; Vector3 &gt; &amp;r_sh_high_order, uint32_t &amp;r_sh_first_order_count, uint32_t &amp;r_sh_high_order_count, <a class="el" href="structGaussianData_1_1ChunkSnapshotMetadata.html">ChunkSnapshotMetadata</a> *r_metadata=nullptr) const</td></tr>
 <tr class="memdesc:a69c889321e57cc38a5c3d3a1451712a3"><td class="mdescLeft">&#160;</td><td class="mdescRight">Captures a coherent chunk snapshot for async pack jobs.  <br /></td></tr>
 <tr class="separator:a69c889321e57cc38a5c3d3a1451712a3"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -877,6 +883,34 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a5ae7a85a2553095c044ad2d0b083736f" name="a5ae7a85a2553095c044ad2d0b083736f"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a5ae7a85a2553095c044ad2d0b083736f">&#9670;&#160;</a></span>capture_save_layout()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">Error GaussianData::capture_save_layout </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t &amp;&#160;</td>
+          <td class="paramname"><em>r_splat_count</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t &amp;&#160;</td>
+          <td class="paramname"><em>r_sh_high_order_count</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a792691bd59209b0755c69211b5f7ef74" name="a792691bd59209b0755c69211b5f7ef74"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a792691bd59209b0755c69211b5f7ef74">&#9670;&#160;</a></span>capture_save_snapshot()</h2>
 
@@ -1267,6 +1301,23 @@ Friends</h2></td></tr>
 </div><div class="memdoc">
 
 <p>Returns the current animation state machine. </p>
+
+</div>
+</div>
+<a id="ad6fbfba972c5065ed986b91215d7c006" name="ad6fbfba972c5065ed986b91215d7c006"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad6fbfba972c5065ed986b91215d7c006">&#9670;&#160;</a></span>get_antialiased()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool GaussianData::get_antialiased </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td> const</td>
+        </tr>
+      </table>
+</div><div class="memdoc">
 
 </div>
 </div>
@@ -2308,6 +2359,24 @@ Friends</h2></td></tr>
 
 </div>
 </div>
+<a id="a22a2397eebf21f3375cb788edeff5fdb" name="a22a2397eebf21f3375cb788edeff5fdb"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a22a2397eebf21f3375cb788edeff5fdb">&#9670;&#160;</a></span>set_antialiased()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">void GaussianData::set_antialiased </td>
+          <td>(</td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_enabled</em></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="acfa2b25836ee3a6c493776e09aacb914" name="acfa2b25836ee3a6c493776e09aacb914"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#acfa2b25836ee3a6c493776e09aacb914">&#9670;&#160;</a></span>set_brush_axes()</h2>
 
@@ -2423,8 +2492,8 @@ Friends</h2></td></tr>
 
 </div>
 </div>
-<a id="a860e1822e7cdc76c9f407bc4f3745b2e" name="a860e1822e7cdc76c9f407bc4f3745b2e"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a860e1822e7cdc76c9f407bc4f3745b2e">&#9670;&#160;</a></span>set_gaussian_payload()</h2>
+<a id="a9a20a6800c799f7eb9a2914dd611adbd" name="a9a20a6800c799f7eb9a2914dd611adbd"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a9a20a6800c799f7eb9a2914dd611adbd">&#9670;&#160;</a></span>set_gaussian_payload()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -2457,7 +2526,13 @@ Friends</h2></td></tr>
           <td class="paramkey"></td>
           <td></td>
           <td class="paramtype">bool&#160;</td>
-          <td class="paramname"><em>p_is_2d_mode</em>&#160;</td>
+          <td class="paramname"><em>p_is_2d_mode</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">bool&#160;</td>
+          <td class="paramname"><em>p_antialiased</em>&#160;</td>
         </tr>
         <tr>
           <td></td>

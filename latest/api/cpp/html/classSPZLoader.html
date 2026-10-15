@@ -100,7 +100,7 @@ $(document).ready(function(){initNavTree('classSPZLoader.html',''); initResizabl
 </div><!--header-->
 <div class="contents">
 
-<p>Loader for Niantic's SPZ compressed <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting format.  
+<p>Loader adapter for the pinned official Niantic SPZ decoder.  
  <a href="classSPZLoader.html#details">More...</a></p>
 
 <p><code>#include &lt;<a class="el" href="spz__loader_8h_source.html">spz_loader.h</a>&gt;</code></p>
@@ -118,7 +118,7 @@ Collaboration diagram for SPZLoader:</div>
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="nested-classes" name="nested-classes"></a>
 Classes</h2></td></tr>
 <tr class="memitem:"><td class="memItemLeft" align="right" valign="top">struct &#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSPZLoader_1_1SPZHeader.html">SPZHeader</a></td></tr>
-<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">SPZ file header structure (16 bytes).  <a href="structSPZLoader_1_1SPZHeader.html#details">More...</a><br /></td></tr>
+<tr class="memdesc:"><td class="mdescLeft">&#160;</td><td class="mdescRight">Normalized legacy header information (16 bytes); v4 container metadata is separate.  <a href="structSPZLoader_1_1SPZHeader.html#details">More...</a><br /></td></tr>
 <tr class="separator:"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="pub-methods" name="pub-methods"></a>
@@ -153,10 +153,14 @@ Static Public Member Functions</h2></td></tr>
 Static Public Attributes</h2></td></tr>
 <tr class="memitem:a24d94864e8019f0dac87dd9c4fb43c1b" id="r_a24d94864e8019f0dac87dd9c4fb43c1b"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a24d94864e8019f0dac87dd9c4fb43c1b">SPZ_MAGIC</a> = 0x5053474E</td></tr>
 <tr class="separator:a24d94864e8019f0dac87dd9c4fb43c1b"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a148a1773783edb00b05d148240707989" id="r_a148a1773783edb00b05d148240707989"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a148a1773783edb00b05d148240707989">SPZ_VERSION_1</a> = 1</td></tr>
+<tr class="separator:a148a1773783edb00b05d148240707989"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a9d19a0db7a70eeb31a72acb0b5060f3a" id="r_a9d19a0db7a70eeb31a72acb0b5060f3a"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a9d19a0db7a70eeb31a72acb0b5060f3a">SPZ_VERSION_2</a> = 2</td></tr>
 <tr class="separator:a9d19a0db7a70eeb31a72acb0b5060f3a"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2105ff725bd352a7e1f65bcb3141eb5c" id="r_a2105ff725bd352a7e1f65bcb3141eb5c"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a2105ff725bd352a7e1f65bcb3141eb5c">SPZ_VERSION_3</a> = 3</td></tr>
 <tr class="separator:a2105ff725bd352a7e1f65bcb3141eb5c"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a33082fe018f5270e102f9bac5c5e8b09" id="r_a33082fe018f5270e102f9bac5c5e8b09"><td class="memItemLeft" align="right" valign="top">static constexpr uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a33082fe018f5270e102f9bac5c5e8b09">SPZ_VERSION_4</a> = 4</td></tr>
+<tr class="separator:a33082fe018f5270e102f9bac5c5e8b09"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a66d9f02f0aad89e837c325e50e54999d" id="r_a66d9f02f0aad89e837c325e50e54999d"><td class="memItemLeft" align="right" valign="top">static constexpr uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classSPZLoader.html#a66d9f02f0aad89e837c325e50e54999d">SPZ_FLAG_ANTIALIASED</a> = 0x01</td></tr>
 <tr class="separator:a66d9f02f0aad89e837c325e50e54999d"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
@@ -166,55 +170,8 @@ Static Protected Member Functions</h2></td></tr>
 <tr class="separator:a9cd0a1cc53c30e7464ebfc5144002900"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>Loader for Niantic's SPZ compressed <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting format. </p>
-<p>SPZ is a compressed format for <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> Splatting data that provides approximately 10x compression over PLY with minimal visual degradation. It is used by Scaniverse and other mobile applications.</p>
-<h2><a class="anchor" id="autotoc_md4"></a>
-Format Specification</h2>
-<p>Based on github.com/nianticlabs/spz:</p><ul>
-<li>16-byte header with magic number 0x5053474E ("NGSP")</li>
-<li>gzip-compressed data stream containing packed splat attributes</li>
-</ul>
-<h2><a class="anchor" id="autotoc_md5"></a>
-Data Encoding</h2>
-<p><b>Positions</b>: 24-bit fixed-point signed integers (3 per point)</p><ul>
-<li>Precision controlled by header.fractional_bits (typically 11-13 bits)</li>
-<li>Decoded as: position = fixed_value / (1 &lt;&lt; fractional_bits)</li>
-</ul>
-<p><b>Scales</b>: 8-bit log-encoded values (3 per point)</p><ul>
-<li>Decoded as: scale = exp(encoded / 16.0 - 10.0)</li>
-<li>Range approximately [4.5e-5, 3.8e+2]</li>
-</ul>
-<p><b>Rotations</b>: quaternions, normalised into the w &gt;= 0 hemisphere</p><ul>
-<li>Version 2: 3 bytes per rotation, (x, y, z) as UNSIGNED bytes with a 127.5 offset: decoded as c = (byte - 127.5) / 127.5, w = sqrt(max(0, 1 - |xyz|^2)) (Niantic packQuaternionFirstThree; byte 128 is a zero component)</li>
-<li>Version 3: 4 bytes per rotation, smallest-three encoding: a 2-bit index of the largest component plus three 10-bit (sign + 9-bit magnitude) components</li>
-</ul>
-<p><b>Alphas</b>: 8-bit unsigned integers holding the activated opacity</p><ul>
-<li>Decoded as: alpha = encoded / 255.0</li>
-</ul>
-<p><b>Colors</b>: RGB as 8-bit unsigned integers holding the SH DC coefficient</p><ul>
-<li>Packed by the reference as byte = 255 * (0.5 + 0.15 * f_dc)</li>
-<li>Decoded to the renderer's centred DC: sh_dc = SH_C0 * (byte / 255 - 0.5) / 0.15, tagged GAUSSIAN_DC_ENCODING_LINEAR_RGB (display colour = sh_dc + 0.5), the same space <a class="el" href="classPLYLoader.html" title="Loader for PLY (Polygon File Format) Gaussian Splatting data.">PLYLoader</a> produces from f_dc_*</li>
-</ul>
-<p><b>Spherical Harmonics</b>: Variable coefficients based on SH degree (0-3)</p><ul>
-<li>Stored as quantized values when sh_degree &gt; 0</li>
-</ul>
-<h2><a class="anchor" id="autotoc_md6"></a>
-Comparison with PLY</h2>
-<table class="markdownTable">
-<tr class="markdownTableHead">
-<th class="markdownTableHeadNone">Feature   </th><th class="markdownTableHeadNone">PLY   </th><th class="markdownTableHeadNone">SPZ    </th></tr>
-<tr class="markdownTableRowOdd">
-<td class="markdownTableBodyNone">File size   </td><td class="markdownTableBodyNone">Large (32-bit floats)   </td><td class="markdownTableBodyNone">~10x smaller    </td></tr>
-<tr class="markdownTableRowEven">
-<td class="markdownTableBodyNone">Position precision   </td><td class="markdownTableBodyNone">Full float32   </td><td class="markdownTableBodyNone">Fixed-point (configurable)    </td></tr>
-<tr class="markdownTableRowOdd">
-<td class="markdownTableBodyNone">Rotation precision   </td><td class="markdownTableBodyNone">Full float32   </td><td class="markdownTableBodyNone">Smallest-three encoded    </td></tr>
-<tr class="markdownTableRowEven">
-<td class="markdownTableBodyNone">Validation   </td><td class="markdownTableBodyNone">Property-level   </td><td class="markdownTableBodyNone">Header-level    </td></tr>
-<tr class="markdownTableRowOdd">
-<td class="markdownTableBodyNone">Editing   </td><td class="markdownTableBodyNone">Human-readable (ASCII)   </td><td class="markdownTableBodyNone">Binary only   </td></tr>
-</table>
-<dl class="section see"><dt>See also</dt><dd><a class="el" href="classPLYLoader.html" title="Loader for PLY (Polygon File Format) Gaussian Splatting data.">PLYLoader</a> for the uncompressed PLY format alternative. </dd></dl>
+<div class="textblock"><p>Loader adapter for the pinned official Niantic SPZ decoder. </p>
+<p>Supports bounded legacy gzip/wrappers and v4 multi-stream Zstd containers, full SH0-4, coordinate/SH conversion and antialiased training metadata. Runtime DC stores C0 * raw SH-DC; the raster route adds the 0.5 bias. </p>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="a6eb538063b60c564d482811a9946bb6d" name="a6eb538063b60c564d482811a9946bb6d"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a6eb538063b60c564d482811a9946bb6d">&#9670;&#160;</a></span>SPZLoader()</h2>
@@ -479,6 +436,28 @@ Comparison with PLY</h2>
 
 </div>
 </div>
+<a id="a148a1773783edb00b05d148240707989" name="a148a1773783edb00b05d148240707989"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a148a1773783edb00b05d148240707989">&#9670;&#160;</a></span>SPZ_VERSION_1</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">constexpr uint32_t SPZLoader::SPZ_VERSION_1 = 1</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
 <a id="a9d19a0db7a70eeb31a72acb0b5060f3a" name="a9d19a0db7a70eeb31a72acb0b5060f3a"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a9d19a0db7a70eeb31a72acb0b5060f3a">&#9670;&#160;</a></span>SPZ_VERSION_2</h2>
 
@@ -512,6 +491,28 @@ Comparison with PLY</h2>
       <table class="memname">
         <tr>
           <td class="memname">constexpr uint32_t SPZLoader::SPZ_VERSION_3 = 3</td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">static</span><span class="mlabel">constexpr</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="a33082fe018f5270e102f9bac5c5e8b09" name="a33082fe018f5270e102f9bac5c5e8b09"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a33082fe018f5270e102f9bac5c5e8b09">&#9670;&#160;</a></span>SPZ_VERSION_4</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">constexpr uint32_t SPZLoader::SPZ_VERSION_4 = 4</td>
         </tr>
       </table>
   </td>

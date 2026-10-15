@@ -68,12 +68,13 @@ var searchData=
   ['_7escopedshadowpassstate_65',['~ScopedShadowPassState',['../classGaussianSplatRenderer_1_1ScopedShadowPassState.html#aa9097e19a1eea1ef7b068e4b0be6cdc2',1,'GaussianSplatRenderer::ScopedShadowPassState']]],
   ['_7escopedsubmissionlock_66',['~ScopedSubmissionLock',['../classGaussianSplatManager_1_1ScopedSubmissionLock.html#ae40185337a6897c1ede7e1774f4fd848',1,'GaussianSplatManager::ScopedSubmissionLock']]],
   ['_7esphereeffector3d_67',['~SphereEffector3D',['../classSphereEffector3D.html#afbf61dd10ec28aa9b4fdce0ac7e597cd',1,'SphereEffector3D']]],
-  ['_7espzloader_68',['~SPZLoader',['../classSPZLoader.html#aa57839d783c7291a5fa34be9863604e3',1,'SPZLoader']]],
-  ['_7estagedfilechunkpayloadsource_69',['~StagedFileChunkPayloadSource',['../classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc',1,'StagedFileChunkPayloadSource']]],
-  ['_7estreamingpipeline_70',['~StreamingPipeline',['../classStreamingPipeline.html#a4a1c062e9070bff0ba55fbb58d8d3de3',1,'StreamingPipeline']]],
-  ['_7ethreadownedmutexlock_71',['~ThreadOwnedMutexLock',['../classGaussianSplatting_1_1ThreadOwnedMutexLock.html#a3cd84a216467ff9a7aceeb01af9812ad',1,'GaussianSplatting::ThreadOwnedMutexLock']]],
-  ['_7etilerasterizer_72',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
-  ['_7etilerenderer_73',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
-  ['_7etileshaderresources_74',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
-  ['_7evrambudgetregulator_75',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]]
+  ['_7espzextensionbase_68',['~SpzExtensionBase',['../structspz_1_1SpzExtensionBase.html#a66fbbd60ff8243d3495f0530f9ac12c7',1,'spz::SpzExtensionBase']]],
+  ['_7espzloader_69',['~SPZLoader',['../classSPZLoader.html#aa57839d783c7291a5fa34be9863604e3',1,'SPZLoader']]],
+  ['_7estagedfilechunkpayloadsource_70',['~StagedFileChunkPayloadSource',['../classStagedFileChunkPayloadSource.html#a97e6848ce86f528622c871ba9a571bcc',1,'StagedFileChunkPayloadSource']]],
+  ['_7estreamingpipeline_71',['~StreamingPipeline',['../classStreamingPipeline.html#a4a1c062e9070bff0ba55fbb58d8d3de3',1,'StreamingPipeline']]],
+  ['_7ethreadownedmutexlock_72',['~ThreadOwnedMutexLock',['../classGaussianSplatting_1_1ThreadOwnedMutexLock.html#a3cd84a216467ff9a7aceeb01af9812ad',1,'GaussianSplatting::ThreadOwnedMutexLock']]],
+  ['_7etilerasterizer_73',['~TileRasterizer',['../classTileRasterizer.html#ae4084b54d68043de0cb7699dae83ba49',1,'TileRasterizer']]],
+  ['_7etilerenderer_74',['~TileRenderer',['../classTileRenderer.html#a78e83dcd62005551a89123221d8bd65c',1,'TileRenderer']]],
+  ['_7etileshaderresources_75',['~TileShaderResources',['../structGaussianSplatting_1_1TileShaderResources.html#aec19bd0fd315bb363e7828d54b505cbe',1,'GaussianSplatting::TileShaderResources']]],
+  ['_7evrambudgetregulator_76',['~VRAMBudgetRegulator',['../classVRAMBudgetRegulator.html#a7eca1111e2b99cc939edbd325821528b',1,'VRAMBudgetRegulator']]]
 ];

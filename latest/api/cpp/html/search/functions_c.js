@@ -24,11 +24,12 @@ var searchData=
   ['materialize_5fresident_5fgaussian_5fdata_21',['materialize_resident_gaussian_data',['../classGaussianSplatWorld.html#ab4889db3ba743afcc2c5e353f23ad906',1,'GaussianSplatWorld']]],
   ['max_5fcodec_5fexpansion_5fbytes_22',['max_codec_expansion_bytes',['../classGaussianSplatting_1_1GaussianSceneSerializer.html#afaba7aeeb9e80ca8efcbb0ee8add75ba',1,'GaussianSplatting::GaussianSceneSerializer']]],
   ['measure_5fprecision_5floss_23',['measure_precision_loss',['../namespaceFloat16Utils.html#afbd8cadebbee8d40ded6edf3a4196859',1,'Float16Utils']]],
-  ['merge_5fat_5feps_24',['merge_at_eps',['../namespacegs__hlod.html#af8f4cf0c1bc1477e1885d885e00a4e3a',1,'gs_hlod']]],
-  ['merge_5fcell_5fsat_25',['merge_cell_sat',['../namespacegs__hlod.html#a146cf01b9e5ec4025f3d9c1895486c73',1,'gs_hlod']]],
-  ['merge_5fchildren_26',['merge_children',['../classGaussianSplatContainer.html#a58a63328c009e24ad5197530e48fb708',1,'GaussianSplatContainer']]],
-  ['merge_5fchildren_5fto_5fnode_27',['merge_children_to_node',['../classGaussianSplatContainer.html#a359dd9bdf0b3e89bbda8d53be6f02924',1,'GaussianSplatContainer']]],
-  ['merge_5fincremental_5ffiles_28',['merge_incremental_files',['../classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991',1,'GaussianSplatting::GaussianIncrementalSaver']]],
-  ['merged_5fcount_5fat_5feps_29',['merged_count_at_eps',['../namespacegs__hlod.html#a5febf4bb4df59dc14cc51315d8749c30',1,'gs_hlod']]],
-  ['mode_5fname_30',['mode_name',['../namespacegs__sort__policy.html#a20ac2f4740864fb94f1631ddeb8640fc',1,'gs_sort_policy']]]
+  ['medianvolume_24',['medianVolume',['../structspz_1_1GaussianCloud.html#a849d75973f0b0a601afa9ade6499c319',1,'spz::GaussianCloud']]],
+  ['merge_5fat_5feps_25',['merge_at_eps',['../namespacegs__hlod.html#af8f4cf0c1bc1477e1885d885e00a4e3a',1,'gs_hlod']]],
+  ['merge_5fcell_5fsat_26',['merge_cell_sat',['../namespacegs__hlod.html#a146cf01b9e5ec4025f3d9c1895486c73',1,'gs_hlod']]],
+  ['merge_5fchildren_27',['merge_children',['../classGaussianSplatContainer.html#a58a63328c009e24ad5197530e48fb708',1,'GaussianSplatContainer']]],
+  ['merge_5fchildren_5fto_5fnode_28',['merge_children_to_node',['../classGaussianSplatContainer.html#a359dd9bdf0b3e89bbda8d53be6f02924',1,'GaussianSplatContainer']]],
+  ['merge_5fincremental_5ffiles_29',['merge_incremental_files',['../classGaussianSplatting_1_1GaussianIncrementalSaver.html#a621edfe9eacfd33a7c1198e910410991',1,'GaussianSplatting::GaussianIncrementalSaver']]],
+  ['merged_5fcount_5fat_5feps_30',['merged_count_at_eps',['../namespacegs__hlod.html#a5febf4bb4df59dc14cc51315d8749c30',1,'gs_hlod']]],
+  ['mode_5fname_31',['mode_name',['../namespacegs__sort__policy.html#a20ac2f4740864fb94f1631ddeb8640fc',1,'gs_sort_policy']]]
 ];

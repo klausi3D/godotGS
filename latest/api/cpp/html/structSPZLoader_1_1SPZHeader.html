@@ -96,7 +96,7 @@ $(document).ready(function(){initNavTree('structSPZLoader_1_1SPZHeader.html','')
 </div><!--header-->
 <div class="contents">
 
-<p>SPZ file header structure (16 bytes).  
+<p>Normalized legacy header information (16 bytes); v4 container metadata is separate.  
  <a href="structSPZLoader_1_1SPZHeader.html#details">More...</a></p>
 
 <p><code>#include &lt;<a class="el" href="spz__loader_8h_source.html">spz_loader.h</a>&gt;</code></p>
@@ -107,13 +107,13 @@ Public Attributes</h2></td></tr>
 <tr class="memdesc:a40b3a00016abd2f4789428277afc9339"><td class="mdescLeft">&#160;</td><td class="mdescRight">Magic number: 0x5053474E ("NGSP" in little-endian)  <br /></td></tr>
 <tr class="separator:a40b3a00016abd2f4789428277afc9339"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ad63d4979c0fcbce16b5983e9e0950f62" id="r_ad63d4979c0fcbce16b5983e9e0950f62"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSPZLoader_1_1SPZHeader.html#ad63d4979c0fcbce16b5983e9e0950f62">version</a></td></tr>
-<tr class="memdesc:ad63d4979c0fcbce16b5983e9e0950f62"><td class="mdescLeft">&#160;</td><td class="mdescRight">Format version (2 or 3 supported)  <br /></td></tr>
+<tr class="memdesc:ad63d4979c0fcbce16b5983e9e0950f62"><td class="mdescLeft">&#160;</td><td class="mdescRight">Supported format version (1-4)  <br /></td></tr>
 <tr class="separator:ad63d4979c0fcbce16b5983e9e0950f62"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a30d8fa14fa354b89c109777c889782ea" id="r_a30d8fa14fa354b89c109777c889782ea"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSPZLoader_1_1SPZHeader.html#a30d8fa14fa354b89c109777c889782ea">num_points</a></td></tr>
 <tr class="memdesc:a30d8fa14fa354b89c109777c889782ea"><td class="mdescLeft">&#160;</td><td class="mdescRight">Number of <a class="el" href="structGaussian.html" title="GPU-aligned structure for efficient splat rendering.">Gaussian</a> points.  <br /></td></tr>
 <tr class="separator:a30d8fa14fa354b89c109777c889782ea"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a2dcfffe3774479e1ba3a842d5942cec5" id="r_a2dcfffe3774479e1ba3a842d5942cec5"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSPZLoader_1_1SPZHeader.html#a2dcfffe3774479e1ba3a842d5942cec5">sh_degree</a></td></tr>
-<tr class="memdesc:a2dcfffe3774479e1ba3a842d5942cec5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Spherical harmonics degree (0-3)  <br /></td></tr>
+<tr class="memdesc:a2dcfffe3774479e1ba3a842d5942cec5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Spherical harmonics degree (0-4)  <br /></td></tr>
 <tr class="separator:a2dcfffe3774479e1ba3a842d5942cec5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a78ab135132696b2311eb466fceac4c51" id="r_a78ab135132696b2311eb466fceac4c51"><td class="memItemLeft" align="right" valign="top">uint8_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structSPZLoader_1_1SPZHeader.html#a78ab135132696b2311eb466fceac4c51">fractional_bits</a></td></tr>
 <tr class="memdesc:a78ab135132696b2311eb466fceac4c51"><td class="mdescLeft">&#160;</td><td class="mdescRight">Fixed-point precision for positions.  <br /></td></tr>
@@ -126,7 +126,7 @@ Public Attributes</h2></td></tr>
 <tr class="separator:a8410a887440f1c31ae515f1c34843f8b"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>SPZ file header structure (16 bytes). </p>
+<div class="textblock"><p>Normalized legacy header information (16 bytes); v4 container metadata is separate. </p>
 </div><h2 class="groupheader">Member Data Documentation</h2>
 <a id="a60d1ad5534e5fe377d43d3cac68dfaba" name="a60d1ad5534e5fe377d43d3cac68dfaba"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a60d1ad5534e5fe377d43d3cac68dfaba">&#9670;&#160;</a></span>flags</h2>
@@ -220,7 +220,7 @@ Public Attributes</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Spherical harmonics degree (0-3) </p>
+<p>Spherical harmonics degree (0-4) </p>
 
 </div>
 </div>
@@ -236,7 +236,7 @@ Public Attributes</h2></td></tr>
       </table>
 </div><div class="memdoc">
 
-<p>Format version (2 or 3 supported) </p>
+<p>Supported format version (1-4) </p>
 
 </div>
 </div>

@@ -197,6 +197,19 @@ var annotated_dup =
     [ "ResidentAtlasBudget", "namespaceResidentAtlasBudget.html", [
       [ "SubsetPlan", "structResidentAtlasBudget_1_1SubsetPlan.html", "structResidentAtlasBudget_1_1SubsetPlan" ]
     ] ],
+    [ "spz", "namespacespz.html", [
+      [ "CoordinateConverter", "structspz_1_1CoordinateConverter.html", "structspz_1_1CoordinateConverter" ],
+      [ "GaussianCloud", "structspz_1_1GaussianCloud.html", "structspz_1_1GaussianCloud" ],
+      [ "PackedGaussian", "structspz_1_1PackedGaussian.html", "structspz_1_1PackedGaussian" ],
+      [ "PackedGaussians", "structspz_1_1PackedGaussians.html", "structspz_1_1PackedGaussians" ],
+      [ "PackOptions", "structspz_1_1PackOptions.html", "structspz_1_1PackOptions" ],
+      [ "PlyExtraElement", "structspz_1_1PlyExtraElement.html", "structspz_1_1PlyExtraElement" ],
+      [ "SpzExtensionBase", "structspz_1_1SpzExtensionBase.html", "structspz_1_1SpzExtensionBase" ],
+      [ "SpzExtensionCoordinateSystemAdobe", "structspz_1_1SpzExtensionCoordinateSystemAdobe.html", "structspz_1_1SpzExtensionCoordinateSystemAdobe" ],
+      [ "SpzExtensionSafeOrbitCameraAdobe", "structspz_1_1SpzExtensionSafeOrbitCameraAdobe.html", "structspz_1_1SpzExtensionSafeOrbitCameraAdobe" ],
+      [ "UnpackedGaussian", "structspz_1_1UnpackedGaussian.html", "structspz_1_1UnpackedGaussian" ],
+      [ "UnpackOptions", "structspz_1_1UnpackOptions.html", "structspz_1_1UnpackOptions" ]
+    ] ],
     [ "TileShaderCompilation", "namespaceTileShaderCompilation.html", [
       [ "CompilationResult", "structTileShaderCompilation_1_1CompilationResult.html", "structTileShaderCompilation_1_1CompilationResult" ],
       [ "ShaderVariant", "structTileShaderCompilation_1_1ShaderVariant.html", "structTileShaderCompilation_1_1ShaderVariant" ]
@@ -241,6 +254,7 @@ var annotated_dup =
     [ "FrustumCullParamsGPU", "structFrustumCullParamsGPU.html", "structFrustumCullParamsGPU" ],
     [ "Gaussian", "structGaussian.html", "structGaussian" ],
     [ "GaussianAtlasAllocator", "classGaussianAtlasAllocator.html", "classGaussianAtlasAllocator" ],
+    [ "GaussianCloudData", "structGaussianCloudData.html", "structGaussianCloudData" ],
     [ "GaussianData", "classGaussianData.html", "classGaussianData" ],
     [ "GaussianDataLoadResult", "structGaussianDataLoadResult.html", "structGaussianDataLoadResult" ],
     [ "GaussianImportPresetDefinition", "structGaussianImportPresetDefinition.html", "structGaussianImportPresetDefinition" ],
@@ -405,6 +419,8 @@ var annotated_dup =
     [ "SphereEffectorGPU", "structSphereEffectorGPU.html", "structSphereEffectorGPU" ],
     [ "SPIRVDiskCache", "classSPIRVDiskCache.html", "classSPIRVDiskCache" ],
     [ "SplatRefGPU", "structSplatRefGPU.html", "structSplatRefGPU" ],
+    [ "SpzExtensionNode", "structSpzExtensionNode.html", "structSpzExtensionNode" ],
+    [ "SpzFloatBuffer", "structSpzFloatBuffer.html", "structSpzFloatBuffer" ],
     [ "SPZLoader", "classSPZLoader.html", "classSPZLoader" ],
     [ "StagedFileChunkPayloadSource", "classStagedFileChunkPayloadSource.html", "classStagedFileChunkPayloadSource" ],
     [ "StaticChunk", "structStaticChunk.html", "structStaticChunk" ],

@@ -20,7 +20,7 @@ var dir_7647312eaffe3fbde22451c27808fddd =
     [ "resource_importer_ply.h", "resource__importer__ply_8h.html", null ],
     [ "resource_importer_spz.cpp", "resource__importer__spz_8cpp.html", null ],
     [ "resource_importer_spz.h", "resource__importer__spz_8h.html", null ],
-    [ "spz_loader.cpp", "spz__loader_8cpp.html", null ],
+    [ "spz_loader.cpp", "spz__loader_8cpp.html", "spz__loader_8cpp" ],
     [ "spz_loader.h", "spz__loader_8h.html", "spz__loader_8h" ],
     [ "streaming_chunk_bake.cpp", "streaming__chunk__bake_8cpp.html", "streaming__chunk__bake_8cpp" ],
     [ "streaming_chunk_bake.h", "streaming__chunk__bake_8h.html", "streaming__chunk__bake_8h" ]
