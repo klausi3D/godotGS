@@ -700,6 +700,7 @@ Error GPUBufferManager::upload_gaussian_data(const Ref<::GaussianData> &p_data) 
             ERR_FAIL_V_MSG(ERR_OUT_OF_MEMORY,
                     vformat("Failed to pack %d gaussians for GPU upload; aborting upload.", target_count));
         }
+        gs_warn_sh_layout_truncation_once(**p_data, p_data->get_sh_first_order_count(), p_data->get_sh_high_order_count(), false); // #1158
 
         GaussianSplatManager::ScopedSubmissionLock upload_lock;
         RenderingDevice *upload_device = _acquire_submission_device(write_set.device ? write_set.device : rd, upload_lock);
@@ -712,10 +713,11 @@ Error GPUBufferManager::upload_gaussian_data(const Ref<::GaussianData> &p_data) 
         gs_device_utils::safe_submit_and_sync(upload_device);
 
         uint64_t upload_time = OS::get_singleton()->get_ticks_usec() - start_time;
-        GS_LOG_GPU_MEMORY_INFO(vformat("Uploaded %d gaussians to GPU in %.2f ms (SH coeffs: %d, compression %.2f%%)",
+        GS_LOG_GPU_MEMORY_INFO(vformat("Uploaded %d gaussians to GPU in %.2f ms (SH coeffs: %d, dropped by layout: %d, compression %.2f%%)",
                 target_count,
                 upload_time / 1000.0,
                 compression_metrics.coefficient_count,
+                compression_metrics.dropped_coefficient_count,
                 compression_metrics.raw_bytes > 0
                         ? (compression_metrics.compressed_bytes * 100.0) / (double)compression_metrics.raw_bytes
                         : 0.0));

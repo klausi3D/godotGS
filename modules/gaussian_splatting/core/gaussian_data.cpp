@@ -113,7 +113,7 @@ void GaussianData::_bind_methods() {
 
     // File I/O
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianData::load_from_file);
-    ClassDB::bind_method(D_METHOD("save_to_file", "path"), &GaussianData::save_to_file);
+    ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianData::save_to_file, DEFVAL(false));
 
     // Spatial queries
     ClassDB::bind_method(D_METHOD("build_octree", "max_depth", "min_gaussians"), &GaussianData::build_octree, DEFVAL(8), DEFVAL(32));
@@ -300,6 +300,11 @@ void GaussianData::_on_gaussian_storage_changed_locked() {
 }
 
 void GaussianData::set_gaussians(const LocalVector<Gaussian> &p_gaussians) {
+#ifdef TESTS_ENABLED
+    if (save_snapshot_test_hook) {
+        save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::REPLACEMENT_ENTERED);
+    }
+#endif
     RWLockWrite lock(data_rwlock);
     copy_local_vector(gaussians, p_gaussians);
     // PERSIST-001: _on_gaussian_storage_changed_locked() fails the incremental saver
@@ -593,16 +598,8 @@ bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
         // and before #518 only splat 0's geometry was ever checked — so the sweep
         // must visit ALL render-critical fields of every splat, including the DC
         // color (sh_dc) and first-order SH (sh_1) coefficients (Codex #756).
-        if (!Math::is_finite(g.position.x) || !Math::is_finite(g.position.y) || !Math::is_finite(g.position.z) ||
-                !Math::is_finite(g.scale.x) || !Math::is_finite(g.scale.y) || !Math::is_finite(g.scale.z) ||
-                !Math::is_finite(g.rotation.x) || !Math::is_finite(g.rotation.y) ||
-                !Math::is_finite(g.rotation.z) || !Math::is_finite(g.rotation.w) ||
-                !Math::is_finite(g.opacity) ||
-                !Math::is_finite(g.sh_dc.r) || !Math::is_finite(g.sh_dc.g) ||
-                !Math::is_finite(g.sh_dc.b) || !Math::is_finite(g.sh_dc.a) ||
-                !Math::is_finite(g.sh_1[0].x) || !Math::is_finite(g.sh_1[0].y) || !Math::is_finite(g.sh_1[0].z) ||
-                !Math::is_finite(g.sh_1[1].x) || !Math::is_finite(g.sh_1[1].y) || !Math::is_finite(g.sh_1[1].z) ||
-                !Math::is_finite(g.sh_1[2].x) || !Math::is_finite(g.sh_1[2].y) || !Math::is_finite(g.sh_1[2].z)) {
+        // The per-splat predicate is shared with the GPU packers (#1175).
+        if (!gaussian_render_fields_finite(g)) {
             if (r_first_bad_index) {
                 *r_first_bad_index = (int)i;
             }
@@ -630,6 +627,57 @@ bool GaussianData::all_render_fields_finite(int *r_first_bad_index) const {
 
 const Vector3 *GaussianData::get_sh_high_order_coefficients_ptr() const {
     return sh_high_order_coefficients.is_empty() ? nullptr : sh_high_order_coefficients.ptr();
+}
+
+Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
+    SaveSnapshot captured;
+    {
+        RWLockRead lock(data_rwlock);
+#ifdef TESTS_ENABLED
+        if (save_snapshot_test_hook) {
+            save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::CAPTURE_READ_LOCKED);
+        }
+#endif
+        const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
+        // resize() and coefficient setters may retain allocation slack. Only
+        // the active extent belongs to the immutable payload.
+        if (expected_high > uint64_t(sh_high_order_coefficients.size())) {
+            return ERR_INVALID_DATA;
+        }
+        if (!gs_resize_or_fail(captured.payload, gaussians.size(), "GaussianData::capture_save_snapshot geometry") ||
+                !gs_resize_or_fail(captured.high_order, expected_high, "GaussianData::capture_save_snapshot SH")) {
+            return ERR_OUT_OF_MEMORY;
+        }
+        for (uint32_t i = 0; i < gaussians.size(); ++i) {
+            captured.payload.write[i] = gaussians[i];
+        }
+        for (uint64_t i = 0; i < expected_high; ++i) {
+            captured.high_order.write[i] = sh_high_order_coefficients[i];
+        }
+        captured.degree = sh_degree;
+        captured.first_order_count = sh_first_order_count;
+        captured.high_order_count = sh_high_order_count;
+        captured.mode_2d = is_2d_mode;
+        captured.revision = content_revision.load(std::memory_order_relaxed);
+    }
+    // Bounds are derived from the owned geometry, never from a second live read.
+    if (!captured.payload.is_empty()) {
+        Vector3 min_pos, max_pos;
+        for (int64_t i = 0; i < captured.payload.size(); ++i) {
+            const Gaussian &g = captured.payload[i];
+            const Vector3 extent(Math::abs(g.scale.x) * 3.0f, Math::abs(g.scale.y) * 3.0f, Math::abs(g.scale.z) * 3.0f);
+            if (i == 0) {
+                min_pos = g.position - extent;
+                max_pos = g.position + extent;
+            } else {
+                min_pos = min_pos.min(g.position - extent);
+                max_pos = max_pos.max(g.position + extent);
+            }
+        }
+        captured.bounds = AABB(min_pos, max_pos - min_pos);
+    }
+    r_snapshot = std::move(captured);
+    return OK;
 }
 
 bool GaussianData::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
@@ -1121,6 +1169,12 @@ void GaussianData::set_stroke_ages(const PackedFloat32Array &p_stroke_ages) {
 }
 
 void GaussianData::set_2d_mode(bool p_enabled) {
+    if (p_enabled) {
+        // #1185: the flag reaches the GPU asset/instance flags, but no shader reads
+        // GS_ASSET_FLAG_IS_2D / GS_INSTANCE_FLAG_IS_2D and project_gaussian_2d always
+        // builds the 3D covariance. Say so rather than let the API imply surfels.
+        WARN_PRINT_ONCE("[GaussianData] set_2d_mode(true): 2D mode is metadata-only: no renderer path reads it, so splats still render as 3D ellipsoids; it only makes save_to_file() write normal columns (#1185).");
+    }
     RWLockWrite lock(data_rwlock);
     is_2d_mode = p_enabled;
     // PERSIST-001: is_2d_mode is outside the per-index delta contract (and the GSF baseline

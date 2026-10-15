@@ -1342,16 +1342,20 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
   </thead>
   <tbody>
     <tr>
-      <td><pre><code>gs_pack_screen_xy(vec2 screen_pos)</code></pre></td>
-      <td>Pack screen-space position into two half-floats.</td>
-    </tr>
-    <tr>
       <td><pre><code>gs_pack_normal_z_opacity_flags(vec3 normal, float opacity, uint flags)</code></pre></td>
       <td>Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw + depth-word opacity: the high half of the normal-z word was unused, and reclaiming it frees data[1] to carry raw fp32 depth (see header comment).</td>
     </tr>
     <tr>
+      <td><pre><code>gs_round_f16_for_shift(uint h, uint drop_bits)</code></pre></td>
+      <td>Round an fp16 bit pattern to nearest (ties to even) at `drop_bits` below its mantissa LSB, so the caller's right shift keeps the nearest value instead of truncating (#1168: truncation biased every payload colour dark; over [0.5, 1) by about -0.9 / -1.9 8-bit LSB on average on R,G / B, and by up to one full quantum). A carry out of the mantissa bumps the exponent, which is the correct rounding; the result saturates at the max finite half (0x7BFF) so 65504 cannot round into the infinity exponent.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_color_is_finite(vec3 color)</code></pre></td>
+      <td>True when every channel is a finite number. A NaN/Inf colour must not reach gs_pack_color_r11g11b10: clamp() on NaN is undefined and the R11G11B10 pack keeps the fp16 NaN/Inf exponent, which the raster then accumulates over the whole footprint.</td>
+    </tr>
+    <tr>
       <td><pre><code>gs_pack_color_r11g11b10(vec3 color)</code></pre></td>
-      <td>Pack linear RGB into the tile color payload format.</td>
+      <td>Pack linear RGB into the tile color payload format. Callers must pass a finite colour (see gs_color_is_finite).</td>
     </tr>
     <tr>
       <td><pre><code>gs_pack_normal_xy(vec3 normal)</code></pre></td>
@@ -1360,10 +1364,6 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_pack_conic_y_and_index(float conic_y, uint global_idx)</code></pre></td>
       <td>Legacy function kept for API compatibility. IMPORTANT: this packs `global_idx` into the high 16 bits and the rasterizer (tile_raster_common.glsl, `if (stored_global_idx != sorted_idx) continue;`) will silently reject any visible splat whose actual global_idx exceeds UINT16_MAX = 65535. Callers must ensure `enable_packed_stage_data` is only used when the packed-stage payload count is <= 65535. Runtime enforcement is the TileRenderer disable gate (renderer/tile_renderer.cpp ~ line 415), which has the scene payload count; PipelineFeatureSet only carries the shared PACKED_STAGE_MAX_TOTAL_SPLATS = 65535 capability constant. The GS_PACKED_STAGE_DATA define is emitted only after the TileRenderer gate. Do not relax these without redesigning the packed payload to carry a full 32-bit global_idx.</td>
-    </tr>
-    <tr>
-      <td><pre><code>gs_unpack_screen_xy(uint packed)</code></pre></td>
-      <td>Unpack the packed screen-space position.</td>
     </tr>
     <tr>
       <td><pre><code>gs_unpack_opacity_flags(uint packed, out float opacity, out uint flags)</code></pre></td>

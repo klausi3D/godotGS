@@ -77,6 +77,9 @@ static String _describe_common_route_uid(const String &p_route_uid) {
 	if (p_route_uid == String(RenderRouteUID::COMMON_SKIP_GPU_CULLER_UNAVAILABLE)) {
 		return "Skipped because the GPU culler is unavailable";
 	}
+	if (p_route_uid == String(RenderRouteUID::COMMON_SKIP_MULTIVIEW_UNSUPPORTED)) {
+		return "Skipped because multiview (XR/stereo) viewports are not supported";
+	}
 	if (p_route_uid == String(RenderRouteUID::COMMON_SKIP_LEGACY_GPU_DISABLED)) {
 		return "Skipped because legacy GPU culling is disabled";
 	}

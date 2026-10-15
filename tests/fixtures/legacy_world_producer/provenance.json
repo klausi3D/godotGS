@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "producer_base_sha": "012960050d29427bd00a42e1cd86840806d6bf5c",
+  "historical_same_writer_sha": "8e3aa741ea3b54ed8c127a153fe8c3c7f5451e3a",
+  "instrumented_producer_sha": "8aede40654d86896429e11bca05ddaa1b5563480",
+  "instrumented_producer_tree_sha": "ae210e89c7b71bf7967e36b756b855e3aa15f25f",
+  "producer_test_helper_path": "modules/gaussian_splatting/tests/test_legacy_world_producer_capture.h",
+  "producer_test_helper_sha256": "d4326e67f5d15b390f7a080b927c530a9e3d9eb5bdb7ae4d0933029c9f97b22c",
+  "producer_patch_sha256": "2eed1ae735df70b76cc5afbe8a46679d3ac952be20c5c08a50555fc30f42ff34",
+  "unchanged_production_source_sha256": {
+    "modules/gaussian_splatting/io/gaussian_splat_world_io.cpp": "6bd58ed74d47667384ef55b91ed54db4c85fad0106d693fd07f72b450c6414c7",
+    "modules/gaussian_splatting/io/gaussian_splat_world_io.h": "996d1b3f674cb4c92c5138e98480ca9f194f17ce5a73147eeb13c0f4f6c41c5a",
+    "modules/gaussian_splatting/io/gs_atomic_file_writer.cpp": "ee0509226e0579027c1157fd7e8005700b684bafd456f94f0d0381446fdbf821",
+    "modules/gaussian_splatting/io/gs_atomic_file_writer.h": "b329a4429dc80b3c36074afbaf23b741999547807b9d84ee232aac26a854fca7",
+    "modules/gaussian_splatting/core/gaussian_data.h": "7c91aaeae417c8c061253991ef8f8d8105f968aec631bf3cdd4b719257842a75",
+    "modules/gaussian_splatting/core/gaussian_data.cpp": "c21436ddab925cbea1bbed7fd61ac82c88806914c91c71659e2d82c261705c95",
+    "modules/gaussian_splatting/core/gaussian_data_io.cpp": "9547e4f9a1d6e4bd4dd35c6c845ea83df965dee48aeb27f6fb0b4886efa046a1",
+    "modules/gaussian_splatting/core/gaussian_splat_world.cpp": "583deb455c57507b11481f136b4f13c3073960addfd0e7e351f7c72244b5c741",
+    "modules/gaussian_splatting/core/gaussian_splat_world.h": "152eae6c3dfa88b7a9c513fa0ef71059e3dfac91a062f174a68722456fd5e831",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tree.cpp": "040c7b7728456eefd36faabd3a83d0a2eb5257f30ac1405c39d9991d99bd5bae",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_tree.h": "eada2026774b6b310a615086258c80f65d9cf294c62ba7c131381f34e7617d91",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake.cpp": "1995709fb261024c44e2249412a85c6f2bd3385983aeb8470ff087483788a7ed",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_bake.h": "c71a13281121b20e4b69b9ab58e8b2ec69ccb6ddd524e130804396f6739dce2b",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_merge.cpp": "e6559663b1b299f6edf107e14ed5d5937583bfb7f0bb0a632ec25ac0cc7e23f1",
+    "modules/gaussian_splatting/core/gaussian_splat_hlod_merge.h": "5a80c7d8196a1143554c47de36e0b7259bdfb78f80f0220acc75147af26b7742",
+    "modules/gaussian_splatting/core/streaming_chunk_payload_source.cpp": "58d788e2c702fe52e0d04631d33927b5e2f887b1369edac69c4c5ce7cd70468d",
+    "modules/gaussian_splatting/core/streaming_chunk_payload_source.h": "04e3e3c6775fa67ea876cc801943a7a8eaccdb7e2130fa2ddb8124d5a1307bd1"
+  },
+  "binary_sha256": {
+    "godot.windows.editor.x86_64.console.exe": "a3ec62652d2dc51e08b1f73ad1dc2957825fe06fa80b0c802b6367d2571301dc",
+    "godot.windows.editor.x86_64.exe": "784e874b13366d79745e4875fc0d13689b21326ad38b7d96657d6c3973440c85"
+  },
+  "binary_version": "4.5.rc.custom_build.8aede4065",
+  "build_command": "scons platform=windows target=editor dev_build=no optimize=speed_trace tests=yes debug_symbols=no arch=x86_64 precision=single lto=none -j4",
+  "compiler_version": "MSVC14.38.33130",
+  "windows_sdk_version": "10.0.26100.0",
+  "build_exit": 0,
+  "capture_exit": 0,
+  "capture_case": "[LegacyWorldCapture] actual released v1 and HLOD v2 producer fixtures",
+  "capture_assertions": 126,
+  "capture_log_sha256": "ba0178379952626c74dfbd26af7eaaa797c4d1d44e8431e4b5ceec395e421a6b",
+  "fixtures": [
+    {
+      "path": "plain_v1_streamable.gsplatworld",
+      "bytes": 451,
+      "sha256": "ac50e0b409d9dc57876c081f3d1fd259a7e1a785b0471fefc400fa629fd3547f",
+      "version": 1,
+      "flags": 1,
+      "gaussian_offset": 104
+    },
+    {
+      "path": "plain_v1_resident.gsplatworld",
+      "bytes": 451,
+      "sha256": "bb1b6ccfdff8f0563ebded814a398fb97aa3b0a836e75f8ec4f2a6423f6184a9",
+      "version": 1,
+      "flags": 33,
+      "gaussian_offset": 104
+    },
+    {
+      "path": "plain_v1_compressed.gsplatworld",
+      "bytes": 241,
+      "sha256": "dcc6794d141ff99c3739daf23c7c70780652c53ba9c3b0a263724f7253d13b36",
+      "version": 1,
+      "flags": 49,
+      "gaussian_offset": 104
+    },
+    {
+      "path": "hlod_v2_streamable.gsplatworld",
+      "bytes": 659,
+      "sha256": "6565bddc836028d6d0f3204a4c7e5b5306deed421b914c128367d8cfbfb1cb51",
+      "version": 2,
+      "flags": 65,
+      "gaussian_offset": 184
+    },
+    {
+      "path": "hlod_v2_resident.gsplatworld",
+      "bytes": 659,
+      "sha256": "337025e00337ea9a64d03ef61104dbb1e65305303f7829a7ef02eea4782df83a",
+      "version": 2,
+      "flags": 97,
+      "gaussian_offset": 184
+    },
+    {
+      "path": "hlod_v2_compressed.gsplatworld",
+      "bytes": 442,
+      "sha256": "2481c1c72eba730625a94f9851f8560260e227fab32fb61bb9ae5fbe5aaa6e2e",
+      "version": 2,
+      "flags": 113,
+      "gaussian_offset": 184
+    }
+  ],
+  "proof_scope": "Actual released-schema producer output and its native production-reader decoded leaf controls; candidate compatibility is tested separately",
+  "leaf_values": {
+    "count": 2,
+    "painterly_ids": [
+      23,
+      24
+    ],
+    "painterly_flags": 5,
+    "positions": [
+      [
+        4,
+        5,
+        6
+      ],
+      [
+        5,
+        5,
+        6
+      ]
+    ],
+    "opacity": 0.75,
+    "scale": [
+      0.25,
+      0.5,
+      0.75
+    ],
+    "color": [
+      0.25,
+      0.5,
+      0.75,
+      1
+    ],
+    "normal": [
+      0,
+      1,
+      0
+    ],
+    "brush_axes": [
+      1,
+      1
+    ],
+    "render_meta": 0
+  },
+  "capture_helper_fixture_path": "capture_producer.h"
+}

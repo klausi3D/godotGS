@@ -21,6 +21,7 @@ python3 modules/gaussian_splatting/shaders/compile_shaders.py --contracts-only -
 - Per-dispatch counter init contracts: `#1322`
 - Diagnostics toggle contracts: `#1324`
 - Embedded sorter shader coverage: `#525`
+- Orthographic EWA Jacobian in tile binning (ABI contract `tile_binning_orthographic_jacobian`): `#1156`
 
 ### Embedded sorter shaders (`#525`)
 

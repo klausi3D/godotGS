@@ -1,0 +1,385 @@
+{
+	"bake_rule_version": 1,
+	"first_order_count": 3,
+	"higher_order_count": 5,
+	"instance_count": 0,
+	"interior_count": 1,
+	"interior_gaussians": [
+		{
+			"area": 0.0,
+			"brush_axes": [
+				1.0,
+				1.0
+			],
+			"normal": [
+				0.0,
+				1.0,
+				0.0
+			],
+			"opacity": 0.170668110251426697,
+			"padding": 0.0,
+			"padding2": [
+				0.0,
+				0.0
+			],
+			"painterly_meta": 327721,
+			"position": [
+				0.25,
+				-2.5,
+				-1.25
+			],
+			"render_meta": 0,
+			"rotation": [
+				0.5,
+				0.5,
+				0.5,
+				0.5
+			],
+			"scale": [
+				0.5,
+				0.75,
+				4.00780487060546875
+			],
+			"sh_dc": [
+				0.25,
+				0.5,
+				0.75,
+				1.0
+			],
+			"sh_first": [
+				[
+					0.0390625,
+					-0.0390625,
+					0.078125
+				],
+				[
+					0.0546875,
+					-0.0546875,
+					0.109375
+				],
+				[
+					0.0703125,
+					-0.0703125,
+					0.140625
+				]
+			],
+			"stroke_age": 0.0
+		}
+	],
+	"interior_sh_high_order": [
+		[
+			0.02734375,
+			0.0546875,
+			-0.02734375
+		],
+		[
+			0.03515625,
+			0.0703125,
+			-0.03515625
+		],
+		[
+			0.04296875,
+			0.0859375,
+			-0.04296875
+		],
+		[
+			0.05078125,
+			0.1015625,
+			-0.05078125
+		],
+		[
+			0.05859375,
+			0.1171875,
+			-0.05859375
+		]
+	],
+	"leaf_count": 2,
+	"leaf_gaussians": [
+		{
+			"area": 0.0,
+			"brush_axes": [
+				1.0,
+				1.0
+			],
+			"normal": [
+				0.0,
+				1.0,
+				0.0
+			],
+			"opacity": 0.75,
+			"padding": 0.0,
+			"padding2": [
+				0.0,
+				0.0
+			],
+			"painterly_meta": 327721,
+			"position": [
+				4.25,
+				5.5,
+				6.75
+			],
+			"render_meta": 0,
+			"rotation": [
+				0.0,
+				0.0,
+				0.0,
+				1.0
+			],
+			"scale": [
+				0.25,
+				0.5,
+				0.75
+			],
+			"sh_dc": [
+				0.25,
+				0.5,
+				0.75,
+				1.0
+			],
+			"sh_first": [
+				[
+					0.015625,
+					-0.015625,
+					0.03125
+				],
+				[
+					0.03125,
+					-0.03125,
+					0.0625
+				],
+				[
+					0.046875,
+					-0.046875,
+					0.09375
+				]
+			],
+			"stroke_age": 0.0
+		},
+		{
+			"area": 0.0,
+			"brush_axes": [
+				1.0,
+				1.0
+			],
+			"normal": [
+				0.0,
+				1.0,
+				0.0
+			],
+			"opacity": 0.75,
+			"padding": 0.0,
+			"padding2": [
+				0.0,
+				0.0
+			],
+			"painterly_meta": 327722,
+			"position": [
+				12.25,
+				5.5,
+				6.75
+			],
+			"render_meta": 0,
+			"rotation": [
+				0.0,
+				0.0,
+				0.0,
+				1.0
+			],
+			"scale": [
+				0.25,
+				0.5,
+				0.75
+			],
+			"sh_dc": [
+				0.25,
+				0.5,
+				0.75,
+				1.0
+			],
+			"sh_first": [
+				[
+					0.0625,
+					-0.0625,
+					0.125
+				],
+				[
+					0.078125,
+					-0.078125,
+					0.15625
+				],
+				[
+					0.09375,
+					-0.09375,
+					0.1875
+				]
+			],
+			"stroke_age": 0.0
+		}
+	],
+	"leaf_sh_high_order": [
+		[
+			0.0078125,
+			0.015625,
+			-0.0078125
+		],
+		[
+			0.015625,
+			0.03125,
+			-0.015625
+		],
+		[
+			0.0234375,
+			0.046875,
+			-0.0234375
+		],
+		[
+			0.03125,
+			0.0625,
+			-0.03125
+		],
+		[
+			0.0390625,
+			0.078125,
+			-0.0390625
+		],
+		[
+			0.046875,
+			0.09375,
+			-0.046875
+		],
+		[
+			0.0546875,
+			0.109375,
+			-0.0546875
+		],
+		[
+			0.0625,
+			0.125,
+			-0.0625
+		],
+		[
+			0.0703125,
+			0.140625,
+			-0.0703125
+		],
+		[
+			0.078125,
+			0.15625,
+			-0.078125
+		]
+	],
+	"leaf_source_index": [
+		0,
+		1
+	],
+	"metadata": {
+		"fixture": "actual old branching HLOD baker with first-order3 and higher-order5"
+	},
+	"nodes": [
+		{
+			"aabb_max": [
+				12.2734146118164062,
+				-1.0,
+				1.0
+			],
+			"aabb_min": [
+				-11.7734146118164062,
+				-4.0,
+				-3.5
+			],
+			"cell_center": [
+				8.0,
+				8.0,
+				8.0
+			],
+			"child_count": 2,
+			"e": 4,
+			"error_chosen": 0.0,
+			"error_rejected": 0.0,
+			"first_child": 1,
+			"flags": 1,
+			"geometric_error": 13.8777885437011719,
+			"height": 1,
+			"ix": 0,
+			"iy": 0,
+			"iz": 0,
+			"overlap_footprint": 0.0,
+			"parent": 4294967295,
+			"payload_count": 1,
+			"payload_first": 2,
+			"radius": 12.0234146118164062
+		},
+		{
+			"aabb_max": [
+				1.0,
+				3.0,
+				5.0
+			],
+			"aabb_min": [
+				-0.5,
+				0.0,
+				0.5
+			],
+			"cell_center": [
+				4.0,
+				4.0,
+				4.0
+			],
+			"child_count": 0,
+			"e": 3,
+			"error_chosen": 0.0,
+			"error_rejected": 0.0,
+			"first_child": 0,
+			"flags": 0,
+			"geometric_error": 0.0,
+			"height": 0,
+			"ix": 0,
+			"iy": 0,
+			"iz": 0,
+			"overlap_footprint": 0.0,
+			"parent": 0,
+			"payload_count": 1,
+			"payload_first": 0,
+			"radius": 2.25
+		},
+		{
+			"aabb_max": [
+				1.0,
+				3.0,
+				5.0
+			],
+			"aabb_min": [
+				-0.5,
+				0.0,
+				0.5
+			],
+			"cell_center": [
+				12.0,
+				4.0,
+				4.0
+			],
+			"child_count": 0,
+			"e": 3,
+			"error_chosen": 0.0,
+			"error_rejected": 0.0,
+			"first_child": 0,
+			"flags": 0,
+			"geometric_error": 0.0,
+			"height": 0,
+			"ix": 1,
+			"iy": 0,
+			"iz": 0,
+			"overlap_footprint": 0.0,
+			"parent": 0,
+			"payload_count": 1,
+			"payload_first": 1,
+			"radius": 2.25
+		}
+	],
+	"origin": [
+		0.0,
+		0.0,
+		0.0
+	],
+	"top_level_count": 0
+}

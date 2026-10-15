@@ -41,6 +41,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import subprocess
+import sys
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -79,6 +83,16 @@ BASELESS_EVENTS = {"push", "schedule", "workflow_dispatch", "workflow_call"}
 REQUIRED_TRIGGERS = ("pull_request", "merge_group")
 
 STEP_RE = re.compile(r"^      - name: (.+)$", re.MULTILINE)
+
+# #1167: the risk-class step no longer runs `python scripts/agentic/classify_change.py`
+# from the PR checkout. It runs the BASE copy, materialised into a shell variable,
+# through an inline launcher fed on stdin: `python - "${<var>}" <anchor> <args...>`.
+# Same line-start discipline as `invocation_re`: anything before the interpreter
+# (`echo`, `true`, `:`) is not an invocation.
+BASE_CLASSIFIER_INVOCATION_RE = re.compile(
+    r'^[ \t]*python3?[ \t]+-[ \t]+"\$\{(\w+)\}"(?=[ \t\\]|$)', re.MULTILINE
+)
+HEAD_CLASSIFIER = "scripts/agentic/classify_change.py"
 
 
 def invocation_re(script: str) -> "re.Pattern[str]":
@@ -297,14 +311,16 @@ class EchoPrefixIsNotAnInvocationTest(unittest.TestCase):
         selection find zero invoking steps -- i.e. the tests that call
         `step_invoking` go red rather than passing on a decorative step.
         """
-        pattern = invocation_re(self.SCRIPT)
+        # #1167: the live workflow runs the BASE copy of the classifier, so the
+        # mutation targets that invocation.
+        pattern = BASE_CLASSIFIER_INVOCATION_RE
         lines = TEXT.splitlines(keepends=True)
         indexes = [i for i, line in enumerate(lines) if pattern.search(line)]
         self.assertEqual(
             1,
             len(indexes),
-            f"expected exactly one line invoking {self.SCRIPT} in the live workflow; "
-            f"found {len(indexes)}",
+            f"expected exactly one line invoking the base classifier copy in the live "
+            f"workflow; found {len(indexes)}",
         )
         for prefix in ("echo ", "true ", ": "):
             mutated = list(lines)
@@ -341,7 +357,30 @@ class RiskClassStepTest(WorkflowScan):
     SCRIPT = "scripts/agentic/classify_change.py"
 
     def raw_block(self) -> str:
-        return self.step_invoking(self.SCRIPT)
+        found = [
+            block
+            for _, block in self.steps
+            if BASE_CLASSIFIER_INVOCATION_RE.search(self.body(block))
+        ]
+        self.assertEqual(
+            1,
+            len(found),
+            "expected exactly one step that runs the BASE copy of the classifier "
+            '(python - "${<var>}" ...)',
+        )
+        return found[0]
+
+    def base_classifier_variable(self) -> str:
+        match = BASE_CLASSIFIER_INVOCATION_RE.search(self.block())
+        self.assertIsNotNone(match)
+        return match.group(1)
+
+    def launcher_source(self) -> str:
+        """The inline Python the step feeds on stdin, as Python will see it."""
+        block = self.raw_block()
+        match = re.search(r"<<'(\w+)'[ \t]*\n(.*?)\n[ \t]*\1[ \t]*$", block, re.DOTALL | re.MULTILINE)
+        self.assertIsNotNone(match, f"no quoted heredoc launcher in the step:\n{block}")
+        return textwrap.dedent(match.group(2)) + "\n"
 
     def block(self) -> str:
         # Comment-stripped: a flag named only in a comment is not wiring, and the
@@ -349,18 +388,94 @@ class RiskClassStepTest(WorkflowScan):
         return self.body(self.raw_block())
 
     def test_the_classifier_is_executed_not_merely_named(self):
-        """The step must RUN the classifier.
+        """The step must RUN the classifier -- the base copy of it (#1167).
 
-        `step_invoking` already selects on `invocation_re`, so this restates the
-        requirement at the point a reader looks for it and fails with a readable
-        message if the command is ever prefixed (`echo`, `true`, `:`) back into a
-        print-only step.
+        `raw_block` already selects on the line-start invocation pattern, so this
+        restates the requirement where a reader looks for it and fails readably if
+        the command is ever prefixed (`echo`, `true`, `:`) into a print-only step.
         """
         block = self.block()
         self.assertIsNotNone(
-            invocation_re(self.SCRIPT).search(block),
+            BASE_CLASSIFIER_INVOCATION_RE.search(block),
             f"the risk-class step does not execute the classifier:\n{block}",
         )
+
+    def test_the_classifier_code_comes_from_the_immutable_base(self):
+        """#1167: the executed classifier is the one materialised from the base SHA.
+
+        Pinning only the policy left the CODE in the PR's hands: scripts/agentic/**
+        is R0, so a PR editing renderer code and the classifier was graded by the
+        edited classifier.
+        """
+        block = self.block()
+        variable = self.base_classifier_variable()
+        written = re.search(
+            r'git show "\$\{GS_PR_BASE_SHA\}:scripts/agentic/classify_change\.py"[ \t]*>[ \t]*"\$\{(\w+)\}"',
+            block,
+        )
+        self.assertIsNotNone(written, f"the classifier is not materialised from the base:\n{block}")
+        self.assertEqual(variable, written.group(1), "the executed file is not the base copy")
+        self.assertRegex(block, rf'(?m)^[ \t]*{variable}="\$\{{RUNNER_TEMP\}}/')
+
+    def test_no_step_runs_the_pr_heads_classifier(self):
+        """The property, across the whole job, not only this step."""
+        offenders = [
+            name
+            for name, block in self.steps
+            if invocation_re(HEAD_CLASSIFIER).search(self.body(block))
+        ]
+        self.assertEqual([], offenders, "a step still runs the PR-head classifier")
+
+    def test_an_unreadable_base_classifier_fails_the_step(self):
+        block = self.block()
+        variable = self.base_classifier_variable()
+        self.assertRegex(
+            block, r'if ! git show "\$\{GS_PR_BASE_SHA\}:scripts/agentic/classify_change\.py"'
+        )
+        self.assertRegex(block, rf'if \[ ! -s "\$\{{{variable}\}}" \]')
+
+    def test_the_launcher_runs_the_base_source_against_this_checkout(self):
+        """Behavioural: execute the step's own launcher, not a description of it.
+
+        A stand-in "base copy" (the current classifier plus a marker line) is
+        written to a temp dir. The launcher must (a) execute THAT source -- the
+        marker is printed -- and (b) anchor the repository root at this checkout,
+        so `--base-ref HEAD` resolves. A launcher that ran the copy in place
+        (runpy.run_path) would resolve ROOT under the temp dir and fail (b); one
+        that ran the anchor file would never print the marker and fail (a).
+        """
+        launcher = self.launcher_source()
+        marker = "GS_BASE_COPY_EXECUTED_1167"
+        head = (ROOT / HEAD_CLASSIFIER).read_text(encoding="utf-8")
+        policy = ROOT / ".agentic" / "policy.json"
+        anchor = ROOT / HEAD_CLASSIFIER
+        ordering = POLICY["classification"]["ordering"]
+        with tempfile.TemporaryDirectory() as raw:
+            copy = Path(raw) / "base_classify_change.py"
+            copy.write_text(head.replace("\ndef main(", f"\nprint({marker!r})\n\n\ndef main(", 1), encoding="utf-8")
+            self.assertIn(marker, copy.read_text(encoding="utf-8"))
+
+            def run(*args: str) -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    [sys.executable, "-", str(copy), str(anchor), *args],
+                    input=launcher,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(ROOT),
+                )
+
+            graded = run("--paths", HEAD_CLASSIFIER, "--policy", str(policy), "--format", "json")
+            self.assertEqual(0, graded.returncode, graded.stderr)
+            self.assertIn(marker, graded.stdout, "the launcher did not execute the base source")
+            self.assertIn(f'"risk_class": "{ordering[-1]}"', graded.stdout)
+
+            diffed = run("--base-ref", "HEAD", "--policy", str(policy), "--format", "json")
+            self.assertEqual(
+                0,
+                diffed.returncode,
+                "the base copy could not diff this checkout; its repository root is "
+                f"not anchored here:\n{diffed.stderr}",
+            )
 
     def base_ref_variable(self) -> str:
         """The shell variable `--base-ref` is actually given.
@@ -484,9 +599,9 @@ class RiskClassStepTest(WorkflowScan):
         self.assertRegex(block, r'if \[ ! -s "\$\{base_policy\}" \]')
         self.assertGreaterEqual(
             block.count("exit 1"),
-            3,
-            "each of the three preconditions -- no base SHA, unreadable base "
-            "policy, empty base policy -- must exit non-zero",
+            5,
+            "each of the five preconditions -- no base SHA, unreadable or empty base "
+            "policy, unreadable or empty base classifier (#1167) -- must exit non-zero",
         )
 
     def test_the_step_publishes_the_class_obligations_to_the_job_summary(self):

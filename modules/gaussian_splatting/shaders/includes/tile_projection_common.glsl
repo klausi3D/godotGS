@@ -15,21 +15,26 @@
 // composite's depth_epsilon and caused silhouette shimmer when depth-testing splats
 // against mesh depth. Opacity + flags moved to the free high 16 bits of the normal-z
 // word (data[8] full / data[7] packed) -- gs_unpack_normal reads only the low half of
-// that word, so both strides stay unchanged (36 B / 32 B).
+// that word.
+//
+// The screen centre is RAW fp32 too (#1153): x in data[0], y in the last word
+// (GS_PG_SCREEN_Y_WORD). It used to be packHalf2x16 in pixels, whose spacing is 1 px for
+// x in [1024, 2048) and 2 px above, so the right half of a 1080p frame rasterized every
+// centre snapped to an integer pixel and sub-pixel TAA jitter could not move it. A
+// viewport-normalised unorm16 would have kept the stride but clamps off-screen centres,
+// which large splats overlapping the screen edge legitimately have. Strides: 40 B full,
+// 36 B packed (host mirror: TileProjectionLayout in renderer/tile_render_types.h).
 #ifdef GS_PACKED_STAGE_DATA
-struct ProjectedGaussian {
-    uint data[8];
-};
-#else
+#define GS_PG_SCREEN_Y_WORD 8
 struct ProjectedGaussian {
     uint data[9];
 };
+#else
+#define GS_PG_SCREEN_Y_WORD 9
+struct ProjectedGaussian {
+    uint data[10];
+};
 #endif
-
-// Pack screen-space position into two half-floats.
-uint gs_pack_screen_xy(vec2 screen_pos) {
-    return packHalf2x16(screen_pos);
-}
 
 // Pack the Z normal component (low 16 bits, half) plus opacity (unorm8) and 8 bits of
 // flags (high 16 bits) into one 32-bit word. Replaces the separate gs_pack_normal_zw +
@@ -41,7 +46,26 @@ uint gs_pack_normal_z_opacity_flags(vec3 normal, float opacity, uint flags) {
     return z_bits | (opacity_bits << 16u) | ((flags & 0xFFu) << 24u);
 }
 
-// Pack linear RGB into the tile color payload format.
+// Round an fp16 bit pattern to nearest (ties to even) at `drop_bits` below its mantissa
+// LSB, so the caller's right shift keeps the nearest value instead of truncating
+// (#1168: truncation biased every payload colour dark; over [0.5, 1) by about -0.9 / -1.9
+// 8-bit LSB on average on R,G / B, and by up to one full quantum). A carry out of the mantissa bumps the exponent, which is the correct
+// rounding; the result saturates at the max finite half (0x7BFF) so 65504 cannot round
+// into the infinity exponent.
+uint gs_round_f16_for_shift(uint h, uint drop_bits) {
+    uint half_step = ((1u << (drop_bits - 1u)) - 1u) + ((h >> drop_bits) & 1u);
+    return min(h + half_step, 0x7BFFu);
+}
+
+// True when every channel is a finite number. A NaN/Inf colour must not reach
+// gs_pack_color_r11g11b10: clamp() on NaN is undefined and the R11G11B10 pack keeps the
+// fp16 NaN/Inf exponent, which the raster then accumulates over the whole footprint.
+bool gs_color_is_finite(vec3 color) {
+    return !(any(isnan(color)) || any(isinf(color)));
+}
+
+// Pack linear RGB into the tile color payload format. Callers must pass a finite colour
+// (see gs_color_is_finite).
 uint gs_pack_color_r11g11b10(vec3 color) {
     // Pack using RGB11F/10F style encoding stored in 16-bit halves.
     color = clamp(color, vec3(0.0), vec3(65504.0));
@@ -49,9 +73,9 @@ uint gs_pack_color_r11g11b10(vec3 color) {
     uint rg_packed = packHalf2x16(color.rg);
     uint b_packed = packHalf2x16(vec2(color.b, 0.0));
 
-    uint r_f16 = rg_packed & 0xFFFFu;
-    uint g_f16 = (rg_packed >> 16u) & 0xFFFFu;
-    uint b_f16 = b_packed & 0xFFFFu;
+    uint r_f16 = gs_round_f16_for_shift(rg_packed & 0xFFFFu, 4u);
+    uint g_f16 = gs_round_f16_for_shift((rg_packed >> 16u) & 0xFFFFu, 4u);
+    uint b_f16 = gs_round_f16_for_shift(b_packed & 0xFFFFu, 5u);
 
     uint r_exp = (r_f16 >> 10u) & 0x1Fu;
     uint r_mant = (r_f16 & 0x3FFu) >> 4u;
@@ -89,11 +113,6 @@ uint gs_pack_conic_y_and_index(float conic_y, uint global_idx) {
     uint conic_y_bits = packHalf2x16(vec2(conic_y, 0.0)) & 0xFFFFu;
     uint idx_bits = (global_idx & 0xFFFFu);
     return conic_y_bits | (idx_bits << 16u);
-}
-
-// Unpack the packed screen-space position.
-vec2 gs_unpack_screen_xy(uint packed) {
-    return unpackHalf2x16(packed);
 }
 
 // Unpack opacity and flags from the high 16 bits of the normal-z word.
@@ -142,7 +161,7 @@ void gs_unpack_conic_y_and_index(uint packed, out float conic_y, out uint global
 void gs_unpack_projected_gaussian(in ProjectedGaussian pg,
         out vec2 screen_pos, out float depth, out float opacity,
         out vec3 color, out vec3 normal, out vec3 conic, out uint global_idx) {
-    screen_pos = gs_unpack_screen_xy(pg.data[0]);
+    screen_pos = vec2(uintBitsToFloat(pg.data[0]), uintBitsToFloat(pg.data[GS_PG_SCREEN_Y_WORD]));
 
     depth = uintBitsToFloat(pg.data[1]);
 
@@ -169,7 +188,8 @@ void gs_unpack_projected_gaussian(in ProjectedGaussian pg,
 void gs_pack_projected_gaussian(out ProjectedGaussian pg,
         vec2 screen_pos, float depth, float opacity,
         vec3 color, vec3 normal, vec3 conic, uint global_idx) {
-    pg.data[0] = gs_pack_screen_xy(screen_pos);
+    pg.data[0] = floatBitsToUint(screen_pos.x);
+    pg.data[GS_PG_SCREEN_Y_WORD] = floatBitsToUint(screen_pos.y);
     pg.data[1] = floatBitsToUint(depth);
     pg.data[2] = gs_pack_color_r11g11b10(color);
     pg.data[3] = floatBitsToUint(conic.x);

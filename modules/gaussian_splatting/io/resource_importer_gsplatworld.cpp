@@ -12,6 +12,7 @@
 #include "../core/streaming_chunk_payload_source.h"
 #include "../logger/gs_logger.h"
 #include "gaussian_splat_world_io.h"
+#include "gaussian_splat_world_format.h"
 #include "gs_atomic_file_writer.h"
 #include <cstdint>
 
@@ -34,6 +35,7 @@ static bool _checked_mul_u64(uint64_t p_a, uint64_t p_b, uint64_t &r_result) {
 
 struct GSplatWorldHeaderInfo {
 	uint32_t version = 0;
+	bool has_hlod = false;
 	bool compressed = false;
 	bool resident_payload = false;
 	uint32_t splat_count = 0;
@@ -45,8 +47,6 @@ struct GSplatWorldHeaderInfo {
 
 static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWorldHeaderInfo *r_info = nullptr) {
 	constexpr uint32_t world_magic = 0x57505347u; // 'GSPW' little-endian.
-	constexpr uint32_t world_version_v1 = 1u;
-	constexpr uint32_t world_version_v2 = 2u; // HLOD worlds; fully validated by the loader below
 	constexpr uint32_t max_sh_degree = 3u;
 	constexpr uint32_t max_sh_first_order = 3u;
 	constexpr uint32_t flag_has_metadata = 1u << 0u;
@@ -54,7 +54,8 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	constexpr uint32_t flag_has_high_sh = 1u << 3u;
 	constexpr uint32_t flag_compressed = 1u << 4u;
 	constexpr uint32_t flag_resident_payload = 1u << 5u;
-	constexpr uint64_t header_size_bytes = 104u;
+	constexpr uint64_t header_size_bytes_v1 = 104u;
+	constexpr uint32_t flag_has_hlod = gs_world_format::kFlagHasHlod;
 	constexpr uint64_t chunk_record_size_bytes = 56u;
 	// Compressed-payload cap = the gzip decompression limit (INT32_MAX). KEEP IN
 	// SYNC with the loader's kMaxCompressedGaussianBytes in
@@ -70,7 +71,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint64_t file_size = file->get_length();
-	if (file_size < header_size_bytes) {
+	if (file_size < header_size_bytes_v1) {
 		return ERR_FILE_CORRUPT;
 	}
 
@@ -80,11 +81,15 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	}
 
 	const uint32_t version = file->get_32();
-	if (version != world_version_v1 && version != world_version_v2) {
-		return ERR_FILE_CORRUPT;
-	}
-
 	const uint32_t flags = file->get_32();
+	gs_world_format::HeaderLayout header;
+	const Error header_error = gs_world_format::select_header(version, flags, file_size, header);
+	if (header_error != OK) {
+		if (version == gs_world_format::kVersionV2 && (flags & flag_has_hlod) == 0u) {
+			ERR_PRINT(vformat("Refusing plain-v2 prototype %s. Re-export the world from its source with this build.", p_source_file));
+		}
+		return header_error;
+	}
 	const uint32_t splat_count = file->get_32();
 
 	const uint32_t sh_degree = file->get_32();
@@ -115,14 +120,27 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 	const uint64_t metadata_offset = file->get_64();
 	const uint64_t metadata_size = file->get_64();
 
-	if (gaussian_offset < header_size_bytes || gaussian_offset >= file_size) {
+	// Mirror the loader (#1172): the raw Gaussian payload must have been written
+	// with this build's struct layout.
+	const uint32_t recorded_layout = header.has_layout_word ? file->get_32() : GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED;
+	if (recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION) {
+		ERR_PRINT(vformat("Refusing to import %s: its splats were written with Gaussian struct layout %d, but this build reads layout %d. Re-export the world from its source with this build.",
+				p_source_file, recorded_layout, GAUSSIAN_STRUCT_LAYOUT_VERSION));
+		return ERR_FILE_UNRECOGNIZED;
+	}
+
+	if (header.has_layout_word && file->get_32() != 0u) {
 		return ERR_FILE_CORRUPT;
 	}
-	if (version == world_version_v2) {
-		// The v2 sections (interior payload, node tables) are validated by the loader, which
-		// import() runs on the output before accepting it; only record what import() needs.
+	if (gaussian_offset < header.header_bytes || gaussian_offset > file_size || (splat_count > 0u && gaussian_offset == file_size)) {
+		return ERR_FILE_CORRUPT;
+	}
+	if (header.has_hlod) {
+		// The HLOD sections (interior payload, node tables) are validated by the loader, which
+		// import() runs on the source and output before accepting either; only record what import() needs.
 		if (r_info) {
 			r_info->version = version;
+			r_info->has_hlod = header.has_hlod;
 			r_info->compressed = (flags & flag_compressed) != 0u;
 			r_info->resident_payload = (flags & flag_resident_payload) != 0u;
 			r_info->splat_count = splat_count;
@@ -168,7 +186,7 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 		if (!_checked_mul_u64(sh_count, sizeof(Vector3), sh_bytes)) {
 			return ERR_FILE_CORRUPT;
 		}
-		if (!_range_in_file(sh_offset, sh_bytes, file_size)) {
+		if ((sh_bytes > 0u && sh_offset < header.header_bytes) || !_range_in_file(sh_offset, sh_bytes, file_size)) {
 			return ERR_FILE_CORRUPT;
 		}
 	}
@@ -178,22 +196,23 @@ static Error _validate_gsplatworld_header(const String &p_source_file, GSplatWor
 			return ERR_FILE_CORRUPT;
 		}
 		const uint64_t chunk_table_size = uint64_t(chunk_count) * chunk_record_size_bytes;
-		if (!_range_in_file(chunk_table_offset, chunk_table_size, file_size)) {
+		if (chunk_table_offset < header.header_bytes || !_range_in_file(chunk_table_offset, chunk_table_size, file_size)) {
 			return ERR_FILE_CORRUPT;
 		}
-		if (indices_offset >= file_size) {
+		if (indices_offset < header.header_bytes || indices_offset >= file_size) {
 			return ERR_FILE_CORRUPT;
 		}
 	}
 
 	if ((flags & flag_has_metadata) != 0u && metadata_size > 0u) {
-		if (!_range_in_file(metadata_offset, metadata_size, file_size)) {
+		if (metadata_offset < header.header_bytes || !_range_in_file(metadata_offset, metadata_size, file_size)) {
 			return ERR_FILE_CORRUPT;
 		}
 	}
 
 	if (r_info) {
 		r_info->version = version;
+		r_info->has_hlod = header.has_hlod;
 		r_info->compressed = (flags & flag_compressed) != 0u;
 		r_info->resident_payload = (flags & flag_resident_payload) != 0u;
 		r_info->splat_count = splat_count;
@@ -276,7 +295,7 @@ static Error _copy_binary_file(const String &p_source_file, const String &p_dest
 			});
 }
 
-// Loads a v1 source resident, bakes its HLOD tree and writes the v2 imported copy with the same
+// Loads a plain source resident, bakes its HLOD tree and writes the v3 imported copy with the same
 // payload mode as the source (streamable, resident or resident-compressed). The source file is
 // only read. r_bake_failed tells a failure to produce the baked file (load, bake, temp save) apart
 // from a failure to publish it (the final replace, e.g. #714's ERR_BUSY).
@@ -403,13 +422,13 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	}
 
 	String save_path = p_save_path + "." + get_save_extension();
-	// v1 sources are baked into a v2 imported copy (HLOD, ADR §7). v2 sources (already baked) and
+	// Plain sources are baked into a v3 HLOD imported copy (ADR §7). HLOD sources (already baked) and
 	// empty worlds are copied unchanged.
 	// An in-place import (destination == source) must not rewrite the user's source file (ADR §7:
 	// "the source file is not touched"); it keeps the plain, byte-preserving copy.
 	const bool in_place = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path() ==
 			ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
-	const bool bake = header_info.version == 1u && header_info.splat_count > 0u && !in_place;
+	const bool bake = !header_info.has_hlod && header_info.splat_count > 0u && !in_place;
 	Error err = OK;
 	String hlod_skip_reason;
 	if (bake) {
@@ -425,7 +444,7 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 			err = _copy_binary_file(p_source_file, save_path);
 		}
 	} else {
-		hlod_skip_reason = header_info.version != 1u ? String("source_already_v2")
+		hlod_skip_reason = header_info.has_hlod ? String("source_already_hlod")
 				: in_place                          ? String("destination_is_source")
 													: String("empty_world");
 		err = _copy_binary_file(p_source_file, save_path);

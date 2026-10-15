@@ -1701,7 +1701,9 @@ class RealTreeTests(IsolatedTestCase):
         # 375 -> 374 (#1115): the tier-streaming-budget case in the same file
         # became [SceneTree][RequiresGPU] and runs in the WorldSceneTree batch;
         # its renderer-unavailable skip became a FAIL.
-        self.assertEqual(374, sum(len(v) for v in found.values()))
+        # #1195: 374 -> 261. Streaming Pipeline device/runtime preconditions
+        # now fail; the device-dependent cases receive a real GPU batch route.
+        self.assertEqual(261, sum(len(v) for v in found.values()))
         self.assertEqual(27, len(found))
 
     def test_derived_macro_set_matches_the_headers_actual_macros(self) -> None:

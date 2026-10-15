@@ -58,7 +58,12 @@ struct SceneHeader {
     // GAUSSIAN_SCENE_VERSION is at least this value may open the file and
     // gracefully skip any chunk types they do not recognize.
     uint16_t minimum_reader_version;
-    uint16_t _reserved_v2; // Padding / reserved for future use.
+    // Was `_reserved_v2` (always written 0). Since #1172 it records the
+    // GAUSSIAN_STRUCT_LAYOUT_VERSION the GAUSSIAN_DATA chunk's raw Gaussian
+    // bytes were written with. 0 (older writers, and v1 files, which have no
+    // such field) resolves to GAUSSIAN_STRUCT_LAYOUT_VERSION_UNRECORDED. A
+    // reader refuses a file whose resolved layout differs from its own.
+    uint16_t gaussian_layout_version;
 };
 
 // On-disk packed size of SceneHeader (may differ from sizeof(SceneHeader)
@@ -145,13 +150,13 @@ private:
     // Internal serialization methods
     Error _write_chunk_header(Ref<FileAccess> file, ChunkType type, uint32_t size, uint32_t flags = 0);
     Error _write_scene_header(Ref<FileAccess> file, const SceneHeader& header);
-    Error _write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData* gaussian_data);
+    Error _write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData::SaveSnapshot &snapshot);
     Error _write_animation_data_chunk(Ref<FileAccess> file, const GaussianAnimationStateMachine* animation);
     Error _write_metadata_chunk(Ref<FileAccess> file, const Dictionary& p_metadata);
     Error _write_asset_refs_chunk(Ref<FileAccess> file);
     // Streams the full scene to an already-open file. Invoked inside the atomic
     // write in save_scene() so a mid-write failure never truncates the target.
-    Error _write_scene_to_file(const Ref<FileAccess>& file, const ::GaussianData* gaussian_data,
+    Error _write_scene_to_file(const Ref<FileAccess>& file, const ::GaussianData::SaveSnapshot &snapshot,
             const GaussianAnimationStateMachine* animation, const Dictionary& p_metadata);
 
     Error _read_chunk_header(Ref<FileAccess> file, ChunkHeader& header) const;

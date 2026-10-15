@@ -90,9 +90,14 @@ it by default; no frame-time measurement for that tier is published here.
   dropped even at full quality**. The quantized layout has only **6** non-DC slots
   (`PackedGaussianQuantized::sh_encoded[6]` in `renderer/gaussian_gpu_layout.h`,
   `GS_QUANTIZED_SH_ENCODED_SLOTS` in `renderer/gaussian_gpu_layout.cpp`), dropping **9 of 15**: two second-order and all
-  seven third-order. Nothing logs or meters the truncation. The `[SHEncoding]` doctests
-  (`tests/test_sh_encoding.h`) check that the stored coefficients round-trip; no test
-  measures the visual effect of the dropped ones.
+  seven third-order. `rendering/sh_bands = 3` therefore never renders full third-order SH
+  ([#1158](https://github.com/klausi3D/godotGS/issues/1158)). The packers count the dropped
+  coefficients in `SHCompressionMetrics::dropped_coefficient_count`, and the resident atlas
+  publisher and the `GaussianData` / `GPUBufferManager` upload paths print one warning per
+  asset and layout (`gs_warn_sh_layout_truncation_once()`). The streaming chunk packers
+  count the drop but do not warn. The `[SHEncoding]` doctests
+  (`tests/test_sh_encoding.h`) check that the stored coefficients round-trip and that the
+  drop is counted; no test measures the visual effect of the dropped ones.
   Expect view-dependent specular detail to flatten, most visibly on quantized assets.
 - Scale quantization is **mandatory** for the 80-byte layout (it has no unquantized scale
   field); it is forced on internally when quantization is enabled.

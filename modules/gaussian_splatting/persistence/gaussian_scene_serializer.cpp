@@ -113,7 +113,7 @@ uint32_t _fnv1a(const uint8_t *data, int64_t length) {
 
 // V1 header size (before minimum_reader_version was added).
 static const uint32_t SCENE_HEADER_V1_SIZE = 56;
-// V2 header size (includes minimum_reader_version + _reserved_v2).
+// V2 header size (includes minimum_reader_version + gaussian_layout_version).
 static const uint32_t SCENE_HEADER_V2_SIZE = 60;
 
 PackedByteArray _pack_scene_header(const SceneHeader &header) {
@@ -135,7 +135,7 @@ PackedByteArray _pack_scene_header(const SceneHeader &header) {
     memcpy(w + 48, &header.modification_time, sizeof(uint64_t));  // 48
     // v2 fields
     memcpy(w + 56, &header.minimum_reader_version, sizeof(uint16_t)); // 56
-    memcpy(w + 58, &header._reserved_v2, sizeof(uint16_t));           // 58
+    memcpy(w + 58, &header.gaussian_layout_version, sizeof(uint16_t)); // 58
 
     return bytes;
 }
@@ -159,11 +159,11 @@ SceneHeader _unpack_scene_header(const PackedByteArray &bytes) {
     // A v1 file will have a 56-byte header; default to safe values.
     if (sz >= 60) {
         memcpy(&header.minimum_reader_version, r + 56, sizeof(uint16_t));
-        memcpy(&header._reserved_v2, r + 58, sizeof(uint16_t));
+        memcpy(&header.gaussian_layout_version, r + 58, sizeof(uint16_t));
     } else {
         // V1 files implicitly have minimum_reader_version == 1.
         header.minimum_reader_version = 1;
-        header._reserved_v2 = 0;
+        header.gaussian_layout_version = 0; // Not recorded; see SceneHeader.
     }
 
     return header;
@@ -521,10 +521,8 @@ bool GaussianSceneSerializer::_verify_checksum(const PackedByteArray &data, uint
     return _calculate_checksum(data) == expected_checksum;
 }
 
-Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData *gaussian_data) {
-    ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
-
-    const LocalVector<Gaussian> &storage = gaussian_data->get_gaussian_storage();
+Error GaussianSceneSerializer::_write_gaussian_data_chunk(Ref<FileAccess> file, const ::GaussianData::SaveSnapshot &snapshot) {
+    const Vector<Gaussian> &storage = snapshot.get_gaussians();
     PackedByteArray payload;
     // #798: sized from the splat count, so this is the largest allocation the writer makes
     // (144 B/splat) and by far the likeliest to fail. Both memcpys go through the raw `w`
@@ -934,22 +932,28 @@ bool GaussianSceneSerializer::_is_asset_modified(const AssetReference &ref) cons
 Error GaussianSceneSerializer::save_scene(const String &file_path, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     ERR_FAIL_NULL_V(gaussian_data, ERR_INVALID_PARAMETER);
 
+    ::GaussianData::SaveSnapshot snapshot;
+    const Error snapshot_error = gaussian_data->capture_save_snapshot(snapshot);
+    if (snapshot_error != OK) {
+        return snapshot_error;
+    }
+
     // Atomic write: a crash or write error mid-save must not truncate an existing
     // scene file (worst case the baseline the incremental system depends on).
     return gs_atomic_file_write(file_path, [&](const Ref<FileAccess> &file) -> Error {
-        return _write_scene_to_file(file, gaussian_data, animation, p_metadata);
+        return _write_scene_to_file(file, snapshot, animation, p_metadata);
     });
 }
 
-Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData *gaussian_data, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
+Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file, const ::GaussianData::SaveSnapshot &snapshot, const GaussianAnimationStateMachine *animation, const Dictionary &p_metadata) {
     // Honest lossy-save warning (#600). The GAUSSIAN_DATA chunk persists only the
     // per-splat `Gaussian` struct bytes (which embed first-order SH). The
     // high-order SH sidecar and the 2D-mode flag are NOT part of the .gsf format
     // yet, so they will be dropped on load. Warn instead of losing data silently.
     // A lossless versioned schema is deferred to the ADR for #600.
-    if (gaussian_data != nullptr) {
-        const uint32_t dropped_sh_high_order = gaussian_data->get_sh_high_order_count();
-        const bool dropped_2d_mode = gaussian_data->get_2d_mode();
+    {
+        const uint32_t dropped_sh_high_order = snapshot.get_sh_high_order_count();
+        const bool dropped_2d_mode = snapshot.get_2d_mode();
         if (dropped_sh_high_order > 0 || dropped_2d_mode) {
             WARN_PRINT(vformat(
                     "GaussianSceneSerializer: the .gsf format does not persist high-order "
@@ -964,7 +968,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     header.magic = GAUSSIAN_SCENE_MAGIC;
     header.version = GAUSSIAN_SCENE_VERSION;
     header.minimum_reader_version = GAUSSIAN_SCENE_MIN_READER_VERSION;
-    header._reserved_v2 = 0;
+    static_assert(GAUSSIAN_STRUCT_LAYOUT_VERSION <= UINT16_MAX, "GSF stores the Gaussian layout version in 16 bits");
+    header.gaussian_layout_version = uint16_t(GAUSSIAN_STRUCT_LAYOUT_VERSION);
     header.flags = 0;
     if (incremental_mode) {
         header.flags |= SCENE_FLAG_INCREMENTAL;
@@ -973,8 +978,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         header.flags |= SCENE_FLAG_CHECKSUM_ENABLED;
     }
     uint32_t chunk_count = 1; // Scene header chunk.
-    header.splat_count = gaussian_data->get_count();
-    AABB bounds = gaussian_data->get_aabb();
+    header.splat_count = snapshot.get_gaussians().size();
+    AABB bounds = snapshot.get_aabb();
     header.bounds_min[0] = bounds.position.x;
     header.bounds_min[1] = bounds.position.y;
     header.bounds_min[2] = bounds.position.z;
@@ -986,7 +991,7 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
     header.creation_time = (uint64_t)now;
     header.modification_time = (uint64_t)now;
 
-    if (gaussian_data->get_count() > 0) {
+    if (snapshot.get_gaussians().size() > 0) {
         chunk_count++;
     }
     if (animation != nullptr && animation->get_clip_count() > 0) {
@@ -1007,8 +1012,8 @@ Error GaussianSceneSerializer::_write_scene_to_file(const Ref<FileAccess> &file,
         return err;
     }
 
-    if (gaussian_data->get_count() > 0) {
-        err = _write_gaussian_data_chunk(file, gaussian_data);
+    if (snapshot.get_gaussians().size() > 0) {
+        err = _write_gaussian_data_chunk(file, snapshot);
         if (err != OK) {
             return err;
         }
@@ -1257,6 +1262,15 @@ Error GaussianSceneSerializer::_read_scene_into_staging(const Ref<FileAccess> &f
                     (int)GAUSSIAN_SCENE_VERSION, (int)scene_header.version));
         }
     }
+
+    // #1172: GAUSSIAN_DATA is the raw Gaussian struct, so it may only be decoded
+    // with the layout it was written with. Checked for every file, including
+    // forward-compatible newer versions, before any chunk is read.
+    const uint32_t recorded_layout = gaussian_resolve_persisted_layout_version(scene_header.gaussian_layout_version);
+    ERR_FAIL_COND_V_MSG(recorded_layout != GAUSSIAN_STRUCT_LAYOUT_VERSION, ERR_FILE_UNRECOGNIZED, vformat(
+            "Gaussian scene file '%s' was written with Gaussian struct layout %d, but this build reads layout %d. "
+            "Re-save the scene from its source with this build.",
+            file_path, (int)recorded_layout, (int)GAUSSIAN_STRUCT_LAYOUT_VERSION));
 
     return _read_scene_body(file, file_path, scene_header, r_staging);
 }

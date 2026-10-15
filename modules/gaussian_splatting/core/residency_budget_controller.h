@@ -22,6 +22,11 @@ public:
         bool enforce_vram_regulator_gate = false;
         bool vram_regulator_allows_load = true;
         bool atlas_slots_full = false;
+        // #1176: admission intent. A needed load (visible demand, explicit residency
+        // request) may fall back to evicting a visible chunk; a predictive prefetch may
+        // not, so an off-screen guess can never open a hole on screen. Only the
+        // visible-eviction fallback reads it; the admission decision itself does not.
+        bool allow_visible_eviction = true;
     };
 
     struct AdmissionContext {
@@ -33,6 +38,7 @@ public:
         bool enforce_vram_regulator_gate = false;
         bool vram_regulator_allows_load = true;
         bool atlas_slots_full = false;
+        bool allow_visible_eviction = true;
     };
 
     struct AdmissionGate {
@@ -51,8 +57,12 @@ public:
     static void note_successful_eviction(AdmissionFrameBudget &p_frame_budget);
     static void note_blocked_eviction(AdmissionFrameBudget &p_frame_budget);
     // Visible-eviction fallback is valid only when admission required eviction due
-    // to hard chunk-cap pressure, atlas-slot pressure, or regulator-gated pressure.
+    // to hard chunk-cap pressure, atlas-slot pressure, or regulator-gated pressure,
+    // and only for an admission whose intent allows it (#1176).
     static bool should_attempt_visible_evict_fallback(const AdmissionGate &p_gate);
+    // #1176: true when the pressure alone would have taken the visible-eviction fallback
+    // but the admission intent (prefetch) forbids it, i.e. the load is skipped instead.
+    static bool is_visible_evict_fallback_refused_by_intent(const AdmissionGate &p_gate);
     static AdmissionDecision decide_admission(const AdmissionContext &p_context);
 };
 

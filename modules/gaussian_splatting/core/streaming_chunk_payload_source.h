@@ -94,11 +94,27 @@ protected:
 	uint32_t sh_degree = 0;
 	uint32_t sh_first_order = 0;
 	uint32_t sh_high_order = 0;
+	// Selected by the format loader before publication; raw callers default to
+	// this build's layout. Historical unrecorded layout zero resolves to layout1.
+	uint32_t gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION;
 	AABB bounds;
 	mutable Mutex file_mutex;
-	mutable HashMap<Thread::ID, Ref<FileAccess>> cached_files;
+	// #1179: bounded pool of open handles on file_path, guarded by file_mutex. A capture
+	// checks one handle out exclusively for its duration (PooledFileLease) and returns it,
+	// so the pool never holds more handles than captures ever ran at the same time, however
+	// often the pack threads are restarted. It replaces a cache keyed by Thread::ID whose
+	// entries for exited threads were never evicted, leaking one open handle per restarted
+	// worker. file_pool_epoch changes whenever the pool is taken over (configure(),
+	// ScopedReaderSuspend); a lease from an older epoch drops its handle instead of
+	// returning it.
+	struct PooledFile {
+		Ref<FileAccess> file;
+		bool in_use = false;
+	};
+	mutable LocalVector<PooledFile> file_pool;
+	mutable uint64_t file_pool_epoch = 0;
 	// #714: set while a writer is atomically replacing file_path. Lock-free on
-	// purpose: _get_thread_file() must be able to consult it WITHOUT holding
+	// purpose: _acquire_pooled_file() must be able to consult it WITHOUT holding
 	// file_mutex, and ScopedReaderSuspend must be able to set it without holding
 	// file_mutex either -- an already-active read still needs that mutex to finish
 	// (_record_io_counters takes it while the reader's Ref is alive), so blocking on
@@ -109,7 +125,7 @@ protected:
 	mutable uint64_t file_open_count = 0;
 
 public:
-	// HLOD v2 worlds (ADR adr-hlod-streaming.md §6.2) store leaf positions relative to each
+	// HLOD v2/v3 worlds (ADR adr-hlod-streaming.md §6.2) store leaf positions relative to each
 	// leaf's cell centre. A frame maps the payload range [first, first + count) to its centre.
 	struct PositionFrame {
 		uint32_t first = 0u;
@@ -136,7 +152,23 @@ protected:
 	static Mutex &_registry_mutex();
 	static HashMap<StagedFileChunkPayloadSource *, bool> &_live_sources();
 
-	Ref<FileAccess> _get_thread_file() const;
+	// #1179: one pooled handle checked out for one capture; returned on scope exit.
+	class PooledFileLease {
+		const StagedFileChunkPayloadSource *source = nullptr;
+		uint32_t slot = UINT32_MAX;
+		uint64_t epoch = 0;
+
+	public:
+		Ref<FileAccess> file;
+
+		explicit PooledFileLease(const StagedFileChunkPayloadSource *p_source);
+		~PooledFileLease();
+		PooledFileLease(const PooledFileLease &) = delete;
+		PooledFileLease &operator=(const PooledFileLease &) = delete;
+	};
+
+	Ref<FileAccess> _acquire_pooled_file(uint32_t &r_slot, uint64_t &r_epoch) const;
+	void _release_pooled_file(uint32_t p_slot, uint64_t p_epoch) const;
 	bool _read_exact(FileAccess *p_file, uint64_t p_offset, void *p_dst, uint64_t p_bytes, const char *p_label, uint64_t *r_bytes_read = nullptr) const;
 	void _record_io_counters(uint64_t p_bytes_requested, uint64_t p_bytes_read) const;
 
@@ -150,7 +182,7 @@ public:
 	// Windows opens FileAccess without FILE_SHARE_DELETE (file_access_windows.cpp:
 	// _SH_DENYNO / _SH_DENYWR / _SH_DENYRW), so an open reader blocks MoveFileExW
 	// replacement AND the backup-swap fallback rename. Merely dropping the cached
-	// handles is not enough: _get_thread_file() would immediately reopen and re-cache
+	// handles is not enough: _acquire_pooled_file() would immediately reopen and re-cache
 	// mid-copy, making reimport intermittent under continuous streaming.
 	//
 	// So this sets each matching source's lock-free `suspend_opens` flag (which stops
@@ -158,7 +190,7 @@ public:
 	// flight to release their own Refs before returning to the caller's rename.
 	//
 	// It deliberately does NOT hold file_mutex while waiting. A read already past
-	// _get_thread_file() still needs that mutex to finish -- _record_io_counters()
+	// _acquire_pooled_file() still needs that mutex to finish -- _record_io_counters()
 	// takes it while the reader's Ref is alive -- so holding it would block the very
 	// reads being drained and make the timeout certain instead of rare.
 	//
@@ -210,7 +242,8 @@ public:
 			uint32_t p_sh_degree,
 			uint32_t p_sh_first_order,
 			uint32_t p_sh_high_order,
-			const AABB &p_bounds);
+			const AABB &p_bounds,
+			uint32_t p_gaussian_layout_version = GAUSSIAN_STRUCT_LAYOUT_VERSION);
 
 	// Must tile [0, splat_count) in order; returns false (and installs nothing) otherwise.
 	bool set_position_frames(const LocalVector<PositionFrame> &p_frames);
@@ -230,7 +263,7 @@ public:
 	uint32_t get_count() const override { return splat_count; }
 	uint32_t get_sh_degree() const override { return sh_degree; }
 	AABB get_bounds() const override { return bounds; }
-	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0; }
+	bool is_valid() const override { return !file_path.is_empty() && splat_count > 0 && gaussian_layout_version == GAUSSIAN_STRUCT_LAYOUT_VERSION; }
 
 	const String &get_file_path() const { return file_path; }
 	uint64_t get_bytes_requested() const;

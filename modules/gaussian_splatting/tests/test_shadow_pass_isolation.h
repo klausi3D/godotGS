@@ -6,6 +6,7 @@
 #include "../core/gaussian_data.h"
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
+#include "../renderer/render_pipeline_stages.h"
 #include "../renderer/tile_renderer.h"
 
 #include "core/math/projection.h"
@@ -21,6 +22,53 @@ TEST_CASE("[GaussianSplatting][Renderer] scoped shadow pass guard restores rende
 	REQUIRE(renderer.is_valid());
 
 	CHECK(renderer->test_shadow_pass_guard_restores_after_scope());
+}
+
+// Color replay may reuse its snapshot; shadow replay needs pass-specific caster evidence.
+TEST_CASE("[GaussianSplatting][ViewTransform] raster takes the snapshot sorted count when no sort stage filled the metrics (#1163)") {
+	GaussianSplatRenderer::StageMetrics stage_metrics{};
+	REQUIRE_FALSE(stage_metrics.sort.did_sort);
+	GaussianSplatRenderer::RenderFrameContext context;
+	context.pass_kind = GaussianSplatRenderer::RenderPassKind::MAIN_VIEW;
+	context.metrics = &stage_metrics;
+	context.snapshot.valid = true;
+	context.snapshot.sorted_splats = 42;
+	context.snapshot.sorted_index_domain = GaussianSplatRenderer::IndexDomain::SPLAT_REF;
+
+	GaussianSplatRenderer::RasterStageInput raster_input;
+	RenderPipelineStages::resolve_raster_sort_input(context, raster_input);
+	CHECK_EQ(raster_input.sorted_splat_count, 42u);
+	CHECK_EQ(raster_input.sorted_index_domain, GaussianSplatRenderer::IndexDomain::SPLAT_REF);
+	CHECK_EQ(raster_input.sort_time_ms, 0.0f);
+
+	context.pass_kind = GaussianSplatRenderer::RenderPassKind::SHADOW_MAP;
+	GaussianSplatRenderer::RasterStageInput shadow_input;
+	shadow_input.sorted_splat_count = 99;
+	RenderPipelineStages::resolve_raster_sort_input(context, shadow_input);
+	CHECK_EQ(shadow_input.sorted_splat_count, 0u);
+	CHECK_EQ(shadow_input.sorted_index_domain, GaussianSplatRenderer::IndexDomain::UNKNOWN);
+	CHECK_EQ(shadow_input.sort_time_ms, 0.0f);
+
+	// A sort stage that ran in this pass stays authoritative over the snapshot.
+	stage_metrics.sort.did_sort = true;
+	stage_metrics.sort.sorted_count = 7;
+	stage_metrics.sort.sort_time_ms = 1.5f;
+	stage_metrics.sort.output_domain = GaussianSplatRenderer::IndexDomain::GAUSSIAN_GLOBAL;
+	GaussianSplatRenderer::RasterStageInput sorted_input;
+	RenderPipelineStages::resolve_raster_sort_input(context, sorted_input);
+	CHECK_EQ(sorted_input.sorted_splat_count, 7u);
+	CHECK_EQ(sorted_input.sorted_index_domain, GaussianSplatRenderer::IndexDomain::GAUSSIAN_GLOBAL);
+	CHECK_EQ(sorted_input.sort_time_ms, 1.5f);
+
+	// No sort output and no snapshot: nothing to raster.
+	GaussianSplatRenderer::StageMetrics empty_metrics{};
+	GaussianSplatRenderer::RenderFrameContext empty_context;
+	empty_context.metrics = &empty_metrics;
+	GaussianSplatRenderer::RasterStageInput empty_input;
+	empty_input.sorted_splat_count = 99;
+	RenderPipelineStages::resolve_raster_sort_input(empty_context, empty_input);
+	CHECK_EQ(empty_input.sorted_splat_count, 0u);
+	CHECK_EQ(empty_input.sorted_index_domain, GaussianSplatRenderer::IndexDomain::UNKNOWN);
 }
 
 TEST_CASE("[GaussianSplatting][Renderer] shadow pass reports invalid atlas as shadow-specific failure") {

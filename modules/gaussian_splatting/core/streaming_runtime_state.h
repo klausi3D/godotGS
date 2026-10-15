@@ -40,6 +40,12 @@ struct BudgetState {
     // drop above: this one fires BEFORE the write, so no neighbor slot is corrupted. Cumulative,
     // like the retirement counter, so the pre-write degraded path is explicit and observable.
     uint64_t stride_flip_dropped_prewrite_uploads = 0;
+    // #1177: completed uploads dropped at pack completion (process_upload_queue) and retirement
+    // tickets dropped at retirement because their upload_sequence no longer matched the chunk's:
+    // the chunk was cancelled while a worker held the job and has been re-queued since.
+    // Cumulative, and kept apart so each guard stays individually observable.
+    uint64_t stale_sequence_dropped_uploads = 0;
+    uint64_t stale_sequence_dropped_upload_retirements = 0;
 
     Dictionary get_vram_debug_stats() const;
     bool is_vram_budget_warning_active() const;
@@ -148,6 +154,13 @@ struct DiagnosticsState {
     // #1088: evictions beyond the first that admission needed before a contiguous page run
     // existed for the chunk (fragmentation or a victim smaller than the incoming chunk).
     uint64_t atlas_fit_extra_evictions = 0;
+    // #1176: admissions of a predictive prefetch that found only visible chunks to evict and
+    // were skipped instead of taking the visible-eviction fallback. Cumulative.
+    uint64_t prefetch_visible_eviction_refusals = 0;
+    // #1178: chunk payload reads that failed (async pack snapshot or sync pack), cumulative.
+    // Each failure backs its chunk off exponentially, so a permanently unreadable chunk adds
+    // O(log frames) here, not one per frame; the open-world proof can assert it stays 0.
+    uint64_t chunk_payload_read_failures = 0;
 
     uint32_t last_total_chunks = 0;
     uint32_t last_visible_chunks = 0;

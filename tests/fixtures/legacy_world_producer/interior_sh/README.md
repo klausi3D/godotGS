@@ -1,0 +1,11 @@
+# Captured legacy HLOD interior and SH fixtures
+
+These three HLOD-v2 files were emitted by the actual unchanged historical baker and savers at instrumented producer `bd1fe1bdc7d586cd81e67013182ff8ce750eef52`. The same17 production writer/reader/bake/ABI files match historical8e3 and master012. The producer adds only capture helpers. Its native build and selected capture passed:1case/621assertions. Exact source, binary, helper and fixture identities are in `provenance.json`; build/capture logs remain external. The original six fixtures and their provenance are unchanged.
+
+The actual baker receives two deterministic leaves, first-order3 and higher-order5 nonzero SH vectors, and `leaf_max_splats=1`. It emits two leaves, one genuine interior splat and three node records. `bake-result.json` is the actual native BakeResult output, not an independently invented header or tree. Each file uses a production saver: streamable, resident uncompressed, or resident compressed. The old production resident/normal readers check every node/frame, leaf/interior Gaussian, SH value and metadata against that BakeResult. Independent byte authentication also matches all raw/decompressed Gaussian144-byte records, SH vectors, node128-byte records and metadata exactly. GZIP is lossless.
+
+The captured expected result binds node-relative interior positions and leaf frames to actual old output. Consumer tests read it directly; they do not rebake with current code to generate their expected values. The streamable consumer checks actual cached contiguous and indexed payload captures. Missing files or invalid expected-data shape fail the case. Stage1 emits empty top-level and instance tables; nonempty tables are not claimed.
+
+`capture_producer.h` retains the exact compiled successor helper. To reproduce, install it at the recorded producer source path alongside the original helper whose exact bytes are retained in the parent fixture directory as `capture_producer.h`. It is fixture-generation source, not registered in the candidate suite.
+
+Producer proof does not establish candidate consumption, editor/runtime/GPU/QA/performance or merge acceptance; those require separate native runs and independent disposition.
