@@ -45,6 +45,12 @@ Copyright: 2014-present, Godot Engine contributors
  2007-2014, Juan Linietsky, Ariel Manzur
 License: Expat
 
+Files: modules/gaussian_splatting/thirdparty/spz/*
+Comment: Niantic SPZ decoder and supported Adobe extensions
+Copyright: 2024-2025, Niantic Labs
+ 2025-2026, Adobe Inc.
+License: Expat
+
 Files: icon.png
  icon.svg
  logo.png

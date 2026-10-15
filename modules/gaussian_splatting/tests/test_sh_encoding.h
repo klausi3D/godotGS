@@ -21,8 +21,107 @@
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering_server.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
+
+// Compile the exact production polynomial source into the native test.
+// The independent reference below uses a recurrence, not those polynomials.
+namespace GSProductionSHBasis {
+using uint = uint32_t;
+using std::min;
+#define vec3 Vector3
+#define GS_SH_OUT
+#include "../shaders/includes/gs_sh_basis.glsl"
+#undef GS_SH_OUT
+#undef vec3
+}
+
+namespace GSReferenceSHBasis {
+static double real_sh(int l, int m, const Vector3 &dir) {
+    const int order = m < 0 ? -m : m;
+    const double z = dir.z;
+    double pmm = 1.0;
+    for (int k = 1; k <= order; k++) {
+        pmm *= -(2*k - 1)*std::sqrt(std::max(0.0, 1.0 - z*z));
+    }
+    double plm = pmm;
+    if (l > order) {
+        double previous = pmm;
+        plm = (2*order + 1)*z*pmm;
+        for (int degree = order + 2; degree <= l; degree++) {
+            double next = ((2*degree - 1)*z*plm - (degree + order - 1)*previous)/(degree - order);
+            previous = plm;
+            plm = next;
+        }
+    }
+    double ratio = 1.0;
+    for (int k = l - order + 1; k <= l + order; k++) ratio /= k;
+    double result = std::sqrt((2*l + 1)*ratio/(4.0*std::acos(-1.0)))*plm;
+    if (m != 0) {
+        const double phi = std::atan2(double(dir.y), double(dir.x));
+        result *= std::sqrt(2.0)*(m < 0 ? std::sin(order*phi) : std::cos(order*phi));
+    }
+    return result;
+}
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH0-4 basis agrees with independent Legendre recurrence") {
+    for (int sample = 0; sample < 130; sample++) {
+        Vector3 dir;
+        if (sample < 2) {
+            dir = Vector3(0, 0, sample == 0 ? 1 : -1);
+        } else {
+            const double z = 1.0 - 2.0*(double(sample - 2) + 0.5)/128.0;
+            const double phi = double(sample - 2)*2.39996322972865332;
+            const double radius = std::sqrt(1.0 - z*z);
+            dir = Vector3(radius*std::cos(phi), radius*std::sin(phi), z);
+        }
+        for (uint32_t band = 0; band <= 5; band++) {
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, band, basis);
+            for (int l = 0; l <= 4; l++) {
+                for (int m = -l; m <= l; m++) {
+                    const int index = l*l + l + m;
+                    const double expected = uint32_t(l) <= band ? GSReferenceSHBasis::real_sh(l, m, dir) : 0.0;
+                    CAPTURE(sample);
+                    CAPTURE(band);
+                    CAPTURE(l);
+                    CAPTURE(m);
+                    CHECK(std::abs(double(basis[index]) - expected) < 2e-6);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH3 sign and normalized m2 regression") {
+    const Vector3 dir = Vector3(1, 2, 3).normalized();
+    float basis[25];
+    GSProductionSHBasis::gs_compute_real_sh_basis(dir, 3, basis);
+    CHECK(basis[11] < 0.0f);
+    CHECK(basis[13] < 0.0f);
+    CHECK(std::abs(double(basis[14]) - GSReferenceSHBasis::real_sh(3, 2, dir)) < 2e-6);
+    for (int i = 16; i < 25; i++) CHECK(basis[i] == 0.0f);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Production SH metadata bounds compact prefixes") {
+    struct Counts { uint32_t first, high, encoded, expected_first, expected_high; };
+    const Counts cases[] = {
+        { 3, 21, 24, 3, 21 }, { 1, 5, 6, 1, 5 }, { 0, 5, 5, 0, 5 },
+        { 2, 12, 14, 2, 12 }, { 3, 21, 0, 0, 0 }, { 3, 21, 2, 2, 0 },
+        { 255, 255, 24, 3, 21 }, { 0, 255, 24, 0, 21 }, { 1, 255, 24, 1, 21 }
+    };
+    for (const Counts &c : cases) {
+        const uint32_t first = GSProductionSHBasis::gs_sh_first_count(c.first, c.encoded);
+        const uint32_t high = GSProductionSHBasis::gs_sh_high_count(c.high, c.first, c.encoded);
+        CHECK(first == c.expected_first);
+        CHECK(high == c.expected_high);
+        CHECK(first + high <= c.encoded);
+        CHECK(first + high <= 24u);
+    }
+}
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).
 // SH coefficients are signed. Both GPU packers now store each coefficient triplet as three
@@ -100,6 +199,41 @@ inline void check_round_trip(const Vector3 *p_expected, const uint32_t *p_words,
 }
 
 } // namespace TestSHEncoding
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Packed partial SH prefixes retain higher-term colours") {
+    const Vector3 dir = Vector3(1, -2, 3).normalized();
+    const Vector3 first_terms[3] = { Vector3(0.2, -0.1, 0.3), Vector3(-0.4, 0.2, 0.1), Vector3(0.1, 0.3, -0.2) };
+    const Vector3 high_terms[5] = { Vector3(-0.2, 0.3, 0.1), Vector3(0.4, -0.1, 0.2), Vector3(0.1, 0.2, -0.3), Vector3(-0.1, -0.4, 0.2), Vector3(0.3, 0.1, -0.2) };
+    const Gaussian g = TestSHEncoding::make_sh_gaussian(first_terms[0], first_terms[1], first_terms[2]);
+    for (uint32_t stored_first = 0; stored_first <= 3; stored_first++) {
+        PackedGaussian packed = {};
+        SHCompressionMetrics metrics;
+        pack_gaussian(g, packed, metrics, high_terms, stored_first, 5);
+        for (uint32_t visible_words = 0; visible_words <= stored_first + 5; visible_words++) {
+            const uint32_t first = GSProductionSHBasis::gs_sh_first_count(stored_first, visible_words);
+            const uint32_t high = GSProductionSHBasis::gs_sh_high_count(5, stored_first, visible_words);
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, 2, basis);
+            Vector3 decoded, expected;
+            double error_bound = 1e-5;
+            for (uint32_t i = 0; i < first; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[i], packed.sh.dc[3])*basis[1+i];
+                expected += first_terms[i]*GSReferenceSHBasis::real_sh(1, int(i)-1, dir);
+                error_bound += std::abs(double(basis[1+i]))*packed.sh.dc[3]/511.0;
+            }
+            for (uint32_t i = 0; i < high; i++) {
+                decoded += gs_decode_sh_snorm10(packed.sh.encoded[first+i], packed.sh.dc[3])*basis[4+i];
+                expected += high_terms[i]*GSReferenceSHBasis::real_sh(2, int(i)-2, dir);
+                error_bound += std::abs(double(basis[4+i]))*packed.sh.dc[3]/511.0;
+            }
+            CAPTURE(stored_first);
+            CAPTURE(visible_words);
+            CHECK(std::abs(double(decoded.x - expected.x)) <= error_bound);
+            CHECK(std::abs(double(decoded.y - expected.y)) <= error_bound);
+            CHECK(std::abs(double(decoded.z - expected.z)) <= error_bound);
+        }
+    }
+}
 
 TEST_CASE("[GaussianSplatting][SHEncoding] Negative band-1 SH survives the unquantized packer (#1054 reproduction)") {
 	// The audit probe's splat: before the fix sh_1[0] decoded as (0, 0.2, 0).
@@ -182,13 +316,13 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Round-trip within scale/1022 for nega
 		CHECK(packed.sh.dc[1] == g.sh_dc.g);
 		CHECK(packed.sh.dc[2] == g.sh_dc.b);
 
-		// Quantized: 3 first-order + 3 higher-order = the fixed 6 slots; the scale covers
-		// only the coefficients actually stored.
+		// Quantized: the same 12 authored terms survive; remaining slots are zero.
+		// Scale covers every stored coefficient.
 		PackedGaussianQuantized quantized = {};
 		SHCompressionMetrics qmetrics;
 		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized, qmetrics, c.high, 3, 9);
-		CHECK(quantized.sh_dc[3] == TestSHEncoding::max_abs_component(expected, 6));
-		TestSHEncoding::check_round_trip(expected, quantized.sh_encoded, 6, quantized.sh_dc[3], c.label);
+		CHECK(quantized.sh_dc[3] == TestSHEncoding::max_abs_component(expected, 12));
+		TestSHEncoding::check_round_trip(expected, quantized.sh_encoded, 12, quantized.sh_dc[3], c.label);
 	}
 }
 
@@ -237,43 +371,43 @@ TEST_CASE("[GaussianSplatting][SHEncoding] All-zero and non-finite coefficients 
 	}
 }
 
-// #1158: a degree-3 splat carries 15 non-DC coefficients (3 band-1 + 5 band-2 + 7 band-3).
-// The 128-byte layout has 12 slots and the 80-byte quantized layout 6, so 3 and 9 are dropped.
-// The drop used to be invisible; the packers now count it in SHCompressionMetrics and the
-// asset-level callers warn once per asset and layout.
+// #1158: the drop used to be invisible; the packers count it in SHCompressionMetrics and the
+// asset-level callers warn once per asset and layout. Since the full SH0-4 storage (#1200)
+// both layouts hold 24 non-DC slots, so every supported payload (SH0-4: at most 3 + 21) fits
+// and only an over-capacity caller-supplied count is dropped.
 TEST_CASE("[GaussianSplatting][SHEncoding] Coefficients the GPU layout cannot store are counted and warned once per asset (#1158)") {
-	// Per-splat drop count: first-order clamped to 3, plus the higher-order count, minus slots.
-	CHECK(gs_sh_layout_dropped_coefficients(3, 12, false) == 3u); // degree 3, 128-byte layout
-	CHECK(gs_sh_layout_dropped_coefficients(3, 12, true) == 9u); // degree 3, quantized layout
-	CHECK(gs_sh_layout_dropped_coefficients(3, 5, false) == 0u); // degree 2 fits 12 slots
-	CHECK(gs_sh_layout_dropped_coefficients(3, 5, true) == 2u); // degree 2 loses two band-2 terms
-	CHECK(gs_sh_layout_dropped_coefficients(3, 0, true) == 0u); // degree 1 fits either layout
+	// Per-splat drop count: first-order clamped to 3, plus the higher-order count, minus 24 slots.
+	CHECK(gs_sh_layout_dropped_coefficients(3, 12, false) == 0u); // degree 3 fits both layouts
+	CHECK(gs_sh_layout_dropped_coefficients(3, 12, true) == 0u);
+	CHECK(gs_sh_layout_dropped_coefficients(3, 21, false) == 0u); // degree 4 fits both layouts
+	CHECK(gs_sh_layout_dropped_coefficients(3, 21, true) == 0u);
+	CHECK(gs_sh_layout_dropped_coefficients(3, 22, false) == 1u); // one past capacity
+	CHECK(gs_sh_layout_dropped_coefficients(3, 23, true) == 2u);
 	CHECK(gs_sh_layout_dropped_coefficients(0, 0, false) == 0u); // DC only
-	CHECK(gs_sh_layout_dropped_coefficients(7, 12, false) == 3u); // first-order count clamps to 3
-	CHECK(gs_sh_layout_dropped_coefficients(3, UINT32_MAX, false) == UINT32_MAX - 9u); // no wrap
+	CHECK(gs_sh_layout_dropped_coefficients(7, 22, false) == 1u); // first-order count clamps to 3
+	CHECK(gs_sh_layout_dropped_coefficients(3, UINT32_MAX, false) == UINT32_MAX - 21u); // no wrap
 
 	const Gaussian g = TestSHEncoding::make_sh_gaussian(Vector3(0.1f, -0.1f, 0.05f), Vector3(-0.02f, 0.03f, 0.0f), Vector3(0.01f, 0.0f, -0.01f));
-	Vector3 high[12];
-	for (int i = 0; i < 12; i++) {
+	Vector3 high[21];
+	for (int i = 0; i < 21; i++) {
 		high[i] = Vector3(0.01f * float(i + 1), -0.005f * float(i), 0.002f);
 	}
 
-	// Two degree-3 splats through each production packer: the stored count is unchanged and
-	// the dropped count is exactly what the layout has no slot for.
+	// Two degree-4 splats through each production packer: every coefficient is stored.
 	SHCompressionMetrics metrics;
 	PackedGaussian packed[2] = {};
-	pack_gaussian(g, packed[0], metrics, high, 3, 12);
-	pack_gaussian(g, packed[1], metrics, high, 3, 12);
-	CHECK(metrics.coefficient_count == 24u);
-	CHECK(metrics.dropped_coefficient_count == 6u);
-	CHECK(((packed[0].sh_metadata & GS_SH_METADATA_HIGH_ORDER_MASK) >> 8u) == 9u);
+	pack_gaussian(g, packed[0], metrics, high, 3, 21);
+	pack_gaussian(g, packed[1], metrics, high, 3, 21);
+	CHECK(metrics.coefficient_count == 48u);
+	CHECK(metrics.dropped_coefficient_count == 0u);
+	CHECK(((packed[0].sh_metadata & GS_SH_METADATA_HIGH_ORDER_MASK) >> 8u) == 21u);
 
 	SHCompressionMetrics qmetrics;
 	PackedGaussianQuantized quantized[2] = {};
-	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[0], qmetrics, high, 3, 12);
-	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[1], qmetrics, high, 3, 12);
-	CHECK(qmetrics.coefficient_count == 12u);
-	CHECK(qmetrics.dropped_coefficient_count == 18u);
+	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[0], qmetrics, high, 3, 21);
+	pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized[1], qmetrics, high, 3, 21);
+	CHECK(qmetrics.coefficient_count == 48u);
+	CHECK(qmetrics.dropped_coefficient_count == 0u);
 
 	// A caller's narrower coefficient_limit is deliberate and not counted as a layout drop.
 	SHCompressionMetrics limited;
@@ -282,23 +416,17 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Coefficients the GPU layout cannot st
 	CHECK(limited.coefficient_count == 4u);
 	CHECK(limited.dropped_coefficient_count == 0u);
 
-	// Degree 2 fits the 128-byte layout.
-	SHCompressionMetrics degree2;
-	PackedGaussian packed_degree2 = {};
-	pack_gaussian(g, packed_degree2, degree2, high, 3, 5);
-	CHECK(degree2.dropped_coefficient_count == 0u);
-
 	// Warn once per (asset, layout); never for an asset that fits. The keys are test-only
 	// values, not live ObjectIDs.
 	const uint64_t asset_a = 0xF1158A0000000001ull;
 	const uint64_t asset_b = 0xF1158B0000000002ull;
 	ERR_PRINT_OFF;
-	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, false));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, false));
-	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, true));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 12, true));
-	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 5, false));
-	CHECK(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 5, true));
+	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, false));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, false));
+	CHECK(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, true));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_a, "test_asset_a", 3, 22, true));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 21, false));
+	CHECK_FALSE(gs_warn_sh_layout_truncation_once(asset_b, "test_asset_b", 3, 21, true));
 	ERR_PRINT_ON;
 }
 
@@ -522,6 +650,105 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Band-1 SH renders the ref
 	g_quantization_config.per_chunk_quantization = true;
 	TestSHEncoding::check_band1_against_reference(rd, Vector3(1.2f, 0.9f, -3.0f), true, "quantized off-axis");
 	g_quantization_config = saved_quantization;
+}
+
+#include "../renderer/gpu_record_sizes.h"
+
+TEST_CASE("[GaussianSplatting][SHEncoding] GPU byte sizing rejects overflow and covers every aligned upload byte") {
+	for (uint32_t count : { 0u, 1u, 2u, 3u, 15u, 16u, 17u, 255u, 256u, 257u }) {
+		uint32_t bytes = 0;
+		const bool valid = gs_gpu_record_buffer_size(count, sizeof(PackedGaussian), 256, bytes);
+		CHECK(valid);
+		if (!valid) {
+			continue;
+		}
+		CHECK_EQ(bytes % 256, 0u);
+		CHECK(uint64_t(bytes) >= uint64_t(count) * sizeof(PackedGaussian));
+		CHECK(uint64_t(bytes) < uint64_t(count) * sizeof(PackedGaussian) + 256);
+		const uint32_t scratch_count = gs_gpu_upload_scratch_count(bytes, sizeof(PackedGaussian));
+		CHECK(uint64_t(scratch_count) * sizeof(PackedGaussian) >= bytes);
+		if (scratch_count > 0) {
+			CHECK(uint64_t(scratch_count - 1) * sizeof(PackedGaussian) < bytes);
+		}
+	}
+	for (uint32_t stride : { uint32_t(sizeof(PackedGaussian)), uint32_t(sizeof(PackedGaussian) + sizeof(uint32_t)) }) {
+		const uint32_t max_aligned = UINT32_MAX & ~255u;
+		const uint32_t largest_count = max_aligned / stride;
+		uint32_t bytes = 0;
+		CHECK(gs_gpu_record_buffer_size(largest_count, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(largest_count + 1, stride, 256, bytes));
+		CHECK_EQ(bytes, 0u);
+		CHECK_FALSE(gs_gpu_record_buffer_size(25000000, stride, 256, bytes));
+		CHECK_FALSE(gs_gpu_record_buffer_size(UINT32_MAX, stride, 256, bytes));
+	}
+	uint32_t bytes = 123;
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 0, 256, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 0, bytes));
+	CHECK_FALSE(gs_gpu_record_buffer_size(1, 176, 3, bytes));
+	CHECK_EQ(bytes, 0u);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Both GPU layouts preserve every SH0–4 term and zero unused storage") {
+	Vector3 expected[24];
+	for (uint32_t i = 0; i < 24; i++) {
+		expected[i] = Vector3(float(i + 1) / 32.0f, -float(i + 2) / 64.0f, float(24 - i) / 48.0f);
+	}
+	const Gaussian g = TestSHEncoding::make_sh_gaussian(expected[0], expected[1], expected[2]);
+	for (uint32_t degree = 0; degree <= 4; degree++) {
+		const uint32_t total = (degree + 1) * (degree + 1) - 1;
+		const uint32_t first = MIN(total, 3u);
+		const uint32_t high = total - first;
+		PackedGaussian normal_a, normal_b;
+		PackedGaussianQuantized quant_a, quant_b;
+		memset(&normal_a, 0xA5, sizeof(normal_a));
+		memset(&normal_b, 0x5A, sizeof(normal_b));
+		memset(&quant_a, 0xA5, sizeof(quant_a));
+		memset(&quant_b, 0x5A, sizeof(quant_b));
+		SHCompressionMetrics metrics_a, metrics_b, qmetrics_a, qmetrics_b;
+		pack_gaussian(g, normal_a, metrics_a, expected + 3, first, high);
+		pack_gaussian(g, normal_b, metrics_b, expected + 3, first, high);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quant_a, qmetrics_a, expected + 3, first, high);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quant_b, qmetrics_b, expected + 3, first, high);
+		CHECK_EQ(memcmp(&normal_a, &normal_b, sizeof(normal_a)), 0);
+		CHECK_EQ(memcmp(&quant_a, &quant_b, sizeof(quant_a)), 0);
+		CHECK_EQ((normal_a.sh_metadata & GS_SH_METADATA_ENCODED_COUNT_MASK) >> 16u, total);
+		CHECK_EQ(metrics_a.coefficient_count, total);
+		CHECK_EQ(qmetrics_a.coefficient_count, total);
+		TestSHEncoding::check_round_trip(expected, normal_a.sh.encoded, total, normal_a.sh.dc[3], "normal SH0–4");
+		TestSHEncoding::check_round_trip(expected, quant_a.sh_encoded, total, quant_a.sh_dc[3], "quantized SH0–4");
+		for (uint32_t i = total; i < 24; i++) {
+			CHECK_EQ(normal_a.sh.encoded[i], 0u);
+			CHECK_EQ(quant_a.sh_encoded[i], 0u);
+		}
+		CHECK_EQ(quant_a._tail_padding[0], 0u);
+		CHECK_EQ(quant_a._tail_padding[1], 0u);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH4 storage respects explicit limits in both layouts") {
+	Vector3 high[21];
+	for (uint32_t i = 0; i < 21; i++) {
+		high[i] = Vector3(float(i + 1), -float(i + 2), float(i + 3));
+	}
+	const Gaussian g = TestSHEncoding::make_sh_gaussian(Vector3(0.1f, -0.2f, 0.3f), Vector3(), Vector3());
+	for (uint32_t limit : { 0u, 3u, 8u, 15u, 24u, UINT32_MAX }) {
+		PackedGaussian normal;
+		PackedGaussianQuantized quantized;
+		SHCompressionMetrics metrics, qmetrics;
+		pack_gaussian(g, normal, metrics, high, 3, 21, limit);
+		pack_gaussian_quantized(g, TestSHEncoding::make_unit_chunk(), 0, quantized, qmetrics, high, 3, 21, limit);
+		const uint32_t stored = MIN(limit, 24u);
+		CHECK_EQ(metrics.coefficient_count, stored);
+		CHECK_EQ(qmetrics.coefficient_count, stored);
+		CHECK_EQ(normal.sh.dc[3], quantized.sh_dc[3]);
+		for (uint32_t i = 0; i < stored; i++) {
+			CHECK_EQ(normal.sh.encoded[i], quantized.sh_encoded[i]);
+		}
+		for (uint32_t i = stored; i < 24; i++) {
+			CHECK_EQ(normal.sh.encoded[i], 0u);
+			CHECK_EQ(quantized.sh_encoded[i], 0u);
+		}
+	}
 }
 
 #endif // GAUSSIAN_SPLATTING_TEST_SH_ENCODING_H

@@ -87,7 +87,7 @@ static Ref<GaussianSplatAsset> _make_degree3_asset(uint32_t p_splats, uint64_t p
 	}
 	Ref<::GaussianData> data;
 	data.instantiate();
-	data->set_gaussian_payload(gaussians, high, 3u, 12u, false);
+	data->set_gaussian_payload(gaussians, high, 3u, 12u, false, false);
 	Ref<GaussianSplatAsset> asset;
 	asset.instantiate();
 	if (asset->populate_from_gaussian_data(data) != OK) {

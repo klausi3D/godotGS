@@ -80,3 +80,43 @@ Each implementation is a focused task/PR with an immutable base. R3 requires two
 independent reviews and human/CODEOWNER disposition before merge. Rollback is a
 focused revert before new-format files are distributed; once distributed, keep
 the new read path or explicitly migrate files before reverting the writer.
+
+## GSF v3 wire contract (2026-10-08)
+
+The full-save writer emits GSF version 3 with minimum reader version 3. The
+60-byte scene header and 16-byte chunk headers remain unchanged. Every v3 scene,
+including an empty scene, has exactly one GAUSSIAN_DATA chunk. Legacy v1/v2
+GAUSSIAN_DATA keeps its original count plus raw 144-byte record decoder.
+
+The v3 decoded chunk starts with eight little-endian uint32 fields (32 bytes):
+count, schema (=1), record size (=132), SH degree, first-order count, high-order
+count, semantic flags (bit 0: 2D; bit 1: antialiased), reserved (=0). It is followed
+by count canonical records, then count * high-order-count RGB float32 vectors.
+A record explicitly stores position, opacity, scale, area, quaternion xyzw, DC
+rgba, three first-order RGB vectors, normal, stroke age, brush axes, painterly
+metadata and render metadata in that order. Padding is not persisted. Existing
+per-record DC encoding is retained; this task does not reinterpret color.
+
+SH degree is 0--4, first-order count is 0--3 and high-order count is 0--21.
+The declared degree agrees with the existing authoring layout's degree derivation;
+partial legacy layouts remain representable. Full SH0--4 layouts retain all
+1/4/9/16/25 RGB vectors. Unknown semantic bits, schema/element-size mismatches,
+nonzero reserved data, duplicate/missing payloads and non-exact lengths fail
+before target mutation. Memory bounds and codec/checksum protections apply to
+both uncompressed and compressed payloads. Size arithmetic uses uint64 before
+checking the uint32 wire limit. Real allocation failure remains subject to the
+engine LocalVector container's existing fatal-OOM contract; checked byte-buffer
+allocations return errors and leave the previous target intact.
+
+Antialias semantics become an asset-level field captured under data_rwlock and
+committed together with geometry/SH/2D state. This is preservation metadata; the
+subsequent SPZ/raster task implements filter and opacity compensation. Existing
+callers of the bulk payload setter default to classic semantics. The incremental
+baseline uses this same v3 writer; a semantic or SH-layout edit still requires a
+full baseline, while supported per-index deltas preserve baseline sidecars.
+
+Acceptance adds legacy v1/v2 loading, SH0--4 complete roundtrips for every codec,
+empty semantic datasets, incremental baseline + delta retention, semantic-edit
+full-save requirements, malformed metadata and transactional rejection. Tests
+that encode the previous known loss are replaced by preservation assertions;
+malformed fixtures continue to test their original failure property.

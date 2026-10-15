@@ -33,7 +33,7 @@ struct ChunkQuantization {
 
 // Quantized Gaussian data (matches PackedGaussianQuantized in C++)
 // IMPORTANT: Use scalar/uint types to avoid std430 uvec2 alignment padding mismatch
-// C++ layout: 80 bytes tightly packed, GLSL uvec2 would add implicit padding
+// C++ layout: 160 bytes including explicit tail padding, GLSL uvec2 would add implicit padding
 struct GaussianQuantized {
     uvec2 position_chunk;   // 8 bytes @0: quantized_position[3] + chunk_id
     float opacity;          // 4 bytes @8
@@ -44,12 +44,11 @@ struct GaussianQuantized {
     uint rotation_hi;       // 4 bytes @24: rotation[2-3]
     uint _padding;          // 4 bytes @28: alignment padding (matches C++ _pre_sh_padding)
     vec4 sh_dc;             // 16 bytes @32: DC coefficients (FP32)
-    uvec2 sh_encoded_01;    // 8 bytes @48: sh_encoded[0-1]
-    uvec2 sh_encoded_23;    // 8 bytes @56: sh_encoded[2-3]
-    uvec2 sh_encoded_45;    // 8 bytes @64: sh_encoded[4-5]
-    uint normal_xy;         // 4 bytes @72: packHalf2x16(nx, ny)
-    uint normal_z_stroke;   // 4 bytes @76: packHalf2x16(nz, stroke_age)
-    // Total: 80 bytes (matches C++)
+    uint sh_encoded[24];    // 96 bytes @48: signed SH1–4 words
+    uint normal_xy;         // 4 bytes @144: packHalf2x16(nx, ny)
+    uint normal_z_stroke;   // 4 bytes @148: packHalf2x16(nz, stroke_age)
+    uint _tail_padding[2];  // 8 bytes @152: explicit std430 stride
+    // Total: 160 bytes (matches C++)
 };
 
 // ============================================================================

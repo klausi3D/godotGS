@@ -74,7 +74,9 @@ public:
     //  v11: a max_splats cap at density_multiplier 1.0 thins by a uniform stride
     //       instead of keeping a file-order prefix (issue #1155; same change as
     //       ResourceImporterPLY v12). Only assets imported under such a cap change.
-    virtual int get_format_version() const override { return 11; }
+    //  v12: pinned official SPZ v1-4 decoding (#1201), preserved SH0-4 and
+    //       antialiased training metadata require reimport.
+    virtual int get_format_version() const override { return 12; }
 
     ResourceImporterSPZ();
 };

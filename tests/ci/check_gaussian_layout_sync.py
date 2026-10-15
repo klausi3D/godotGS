@@ -416,11 +416,10 @@ def _build_quantized_expected_layout(host_structs: dict[str, StructDef]) -> Layo
         FlatField("rotation_hi", "uint", 1),
         FlatField("_padding", "uint", 1),
         FlatField("sh_dc", "float", 4),
-        FlatField("sh_encoded_01", "uint", 2),
-        FlatField("sh_encoded_23", "uint", 2),
-        FlatField("sh_encoded_45", "uint", 2),
+        FlatField("sh_encoded", "uint", 24),
         FlatField("normal_xy", "uint", 1),
         FlatField("normal_z_stroke", "uint", 1),
+        FlatField("_tail_padding", "uint", 2),
     )
     offsets = {
         "position_chunk": host_layout.offsets["quantized_position"],
@@ -431,11 +430,10 @@ def _build_quantized_expected_layout(host_structs: dict[str, StructDef]) -> Layo
         "rotation_hi": host_layout.offsets["rotation"] + 4,
         "_padding": host_layout.offsets["_pre_sh_padding"],
         "sh_dc": host_layout.offsets["sh_dc"],
-        "sh_encoded_01": host_layout.offsets["sh_encoded"],
-        "sh_encoded_23": host_layout.offsets["sh_encoded"] + 8,
-        "sh_encoded_45": host_layout.offsets["sh_encoded"] + 16,
+        "sh_encoded": host_layout.offsets["sh_encoded"],
         "normal_xy": host_layout.offsets["normal_xy"],
         "normal_z_stroke": host_layout.offsets["normal_z_stroke"],
+        "_tail_padding": host_layout.offsets["_tail_padding"],
     }
     return LayoutSpec(fields, offsets, host_layout.size, host_layout.alignment)
 

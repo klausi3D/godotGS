@@ -635,7 +635,7 @@
 		</member>
 		<member name="rendering/antialiasing_compensation" type="int" setter="set_antialiasing_compensation" getter="get_antialiasing_compensation" enum="GaussianSplatNode3D.AntialiasingCompensation" default="0">
 			How the splats were trained, which decides whether the renderer applies the Mip-Splatting opacity compensation. With compensation, each splat's opacity is scaled by [code]sqrt(det(cov2d) / det(cov2d + low_pass))[/code] so the screen-space low-pass does not add energy. That is correct only for splats trained with antialiasing (Mip-Splatting, gsplat [code]antialiased[/code] mode). Splats trained the classic way (Inria 3DGS, gsplat's default mode) expect the low-pass without compensation; compensating them makes small splats see-through.
-			[constant ANTIALIASING_COMPENSATION_AUTO] uses the training mode the asset recorded on import (the SPZ antialiased flag), and otherwise [code]rendering/gaussian_splatting/rasterization/antialiasing_compensation[/code]. PLY files record no training mode.
+			[constant ANTIALIASING_COMPENSATION_AUTO] uses the training mode the asset recorded (its antialiased metadata from an SPZ import or a GSF v3 payload, or the antialiased flag of directly assigned data), and otherwise [code]rendering/gaussian_splatting/rasterization/antialiasing_compensation[/code]. PLY files record no training mode.
 		</member>
 		<member name="rendering/frustum_culling" type="bool" setter="set_use_frustum_culling" getter="is_frustum_culling_enabled" default="true">
 			Enables frustum culling of offscreen splats.
@@ -755,7 +755,7 @@
 			Heatmap visualization of per-pixel splat density.
 		</constant>
 		<constant name="ANTIALIASING_COMPENSATION_AUTO" value="0" enum="AntialiasingCompensation">
-			Use the asset's recorded training mode (SPZ antialiased flag); if the asset records none, use [code]rendering/gaussian_splatting/rasterization/antialiasing_compensation[/code].
+			Use the asset's recorded training mode (antialiased metadata from an SPZ import or a GSF v3 payload); if it records none, use [code]rendering/gaussian_splatting/rasterization/antialiasing_compensation[/code].
 		</constant>
 		<constant name="ANTIALIASING_COMPENSATION_OFF" value="1" enum="AntialiasingCompensation">
 			Classic 3DGS training (Inria, gsplat [code]classic[/code]): the low-pass is added with no opacity compensation.

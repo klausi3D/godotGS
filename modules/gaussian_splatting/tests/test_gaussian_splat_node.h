@@ -3331,6 +3331,52 @@ TEST_CASE("[GaussianSplatting][Node] Antialiasing compensation mode defaults to 
     CHECK_FALSE(gs::settings::get_antialiasing_compensation_default(nullptr));
 }
 
+// PR #1200 review: Auto mode must honour the canonical gaussian_antialiased key that
+// populate_from_gaussian_data() writes (e.g. after a GSF v3 load), not only the legacy
+// spz_antialiased import key, before falling back to the project default.
+TEST_CASE("[GaussianSplatting][Node] Auto antialiasing compensation honours the canonical asset key before the legacy key and project default") {
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    if (ps == nullptr) {
+        FAIL("ProjectSettings singleton required");
+        return;
+    }
+    const StringName key("rendering/gaussian_splatting/rasterization/antialiasing_compensation");
+    const Variant saved_setting = ps->get_setting(key);
+    struct Case {
+        Variant canonical;
+        Variant legacy;
+        bool project_default;
+        bool expected;
+    };
+    const Case cases[] = {
+        { true, Variant(), false, true }, // canonical only (GSF v3 route)
+        { false, Variant(), true, false }, // canonical classic beats the project default
+        { false, true, false, false }, // canonical wins over the legacy key
+        { Variant(), true, false, true }, // legacy only (old SPZ imports)
+        { Variant(), Variant(), true, true }, // nothing recorded: project default
+        { Variant(), Variant(), false, false },
+    };
+    for (const Case &c : cases) {
+        ps->set_setting(key, c.project_default);
+        Ref<GaussianSplatAsset> asset = make_single_splat_asset(0.0f);
+        Dictionary metadata = asset->get_import_metadata();
+        metadata.erase(StringName("gaussian_antialiased"));
+        metadata.erase(StringName("spz_antialiased"));
+        if (c.canonical.get_type() != Variant::NIL) {
+            metadata[StringName("gaussian_antialiased")] = c.canonical;
+        }
+        if (c.legacy.get_type() != Variant::NIL) {
+            metadata[StringName("spz_antialiased")] = c.legacy;
+        }
+        asset->set_import_metadata(metadata);
+        GaussianSplatNode3D *node = memnew(GaussianSplatNode3D);
+        node->set_splat_asset(asset);
+        CHECK_EQ(node->test_resolve_antialiasing_compensation(), c.expected);
+        memdelete(node);
+    }
+    ps->set_setting(key, saved_setting);
+}
+
 // #1173: the instance flag that turns on the Mip-Splatting opacity compensation in
 // tile_binning.glsl. Precedence: node mode, then the asset's spz_antialiased import
 // metadata, then the project setting.

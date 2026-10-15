@@ -1,13 +1,21 @@
 #pragma once
 
 #include "test_macros.h"
+#include "gsf_legacy_producer_fixtures.h"
+#include "../persistence/gaussian_scene_payload.h"
 #include "../persistence/gaussian_scene_serializer.h"
 #include "../persistence/incremental_saver.h"
+#include "../core/gaussian_splat_asset.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/streaming_chunk_payload_source.h"
+#include "../io/resource_importer_spz.h"
+#include "../io/spz_loader.h"
+#include "synthetic_spz_writer.h"
 
 #include "core/io/file_access.h"
 #include "core/io/dir_access.h"
+#include "core/io/resource_loader.h"
+#include "core/io/resource_uid.h"
 #include "core/os/os.h"
 #include "../core/gs_vector_alloc.h"
 #include "core/os/thread.h"
@@ -313,7 +321,7 @@ void _write_gsf_header_chunk(Ref<FileAccess> file, uint32_t total_chunks, uint32
     file->store_32(0); // flags
     // HEAD payload (see _pack_scene_header for the exact byte layout).
     file->store_32(GaussianSplatting::GAUSSIAN_SCENE_MAGIC);
-    file->store_16(GaussianSplatting::GAUSSIAN_SCENE_VERSION);
+    file->store_16(2);
     file->store_16(0); // scene flags: SCENE_FLAG_CHECKSUM_ENABLED NOT set
     file->store_32(total_chunks);
     file->store_32(splat_count);
@@ -325,7 +333,7 @@ void _write_gsf_header_chunk(Ref<FileAccess> file, uint32_t total_chunks, uint32
     }
     file->store_64(0); // creation_time
     file->store_64(0); // modification_time
-    file->store_16(GaussianSplatting::GAUSSIAN_SCENE_MIN_READER_VERSION);
+    file->store_16(1);
     file->store_16(0); // gaussian_layout_version: 0 = not recorded (legacy layout)
 }
 
@@ -386,8 +394,8 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip serialization") {
 
     // Dedicated LOCAL fixture (NOT the shared create_test_world() helper, which
     // other test cases depend on): give every splat DISTINCT, non-default values
-    // for EVERY field the raw-record GAUSSIAN_DATA chunk persists. That chunk is a
-    // whole-struct memcpy of each `Gaussian` (see _write_gaussian_data_chunk), so
+    // for EVERY authored field the GAUSSIAN_DATA chunk persists. V3 uses
+    // explicit serialization of each authored Gaussian field, so
     // position, opacity, scale, area, rotation, sh_dc (incl. alpha), normal,
     // stroke_age, brush_axes, painterly_meta and render_meta all round-trip. A
     // serializer/format migration that drops, zeroes, or defaults any of them
@@ -549,19 +557,8 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF round-trip preserves first-order
     _remove_persistence_fixture(path);
 }
 
-TEST_CASE("[GaussianSplatting][Persistence] GSF save/load drops high-order SH and 2D-mode flag (KNOWN LIMITATION, issue #600)") {
-    // KNOWN LIMITATION (issue #600), pinned here DELIBERATELY -- this is not the
-    // desired end state. The GAUSSIAN_DATA chunk persists only the per-splat
-    // `Gaussian` struct bytes (which embed the first-order SH triplet). It does
-    // NOT persist the high-order SH sidecar (`sh_high_order_coefficients`) or the
-    // 2D-mode flag, so BOTH reset to their defaults after a save/load round-trip.
-    //
-    // save_scene() emits a runtime WARNING when a save would drop either of these
-    // (see _write_scene_to_file), so the loss is observable rather than silent.
-    // A lossless versioned schema is deferred to the format ADR tracked by #600;
-    // when it lands, this test AND the reconstruction path in
-    // _read_gaussian_data_chunk must both change to round-trip the sidecar + flag.
-    const String path = _make_persistence_fixture_path("test_sh_high_order_and_2d_loss");
+TEST_CASE("[GaussianSplatting][Persistence] GSF preserves high-order SH and 2D-mode flag") {
+    const String path = _make_persistence_fixture_path("test_sh_high_order_and_2d_preserved");
     const bool fixture_dir_ready = _ensure_persistence_fixture_dir(path);
     CHECK_MESSAGE(fixture_dir_ready, "Persistence fixture directory should be available");
     if (!fixture_dir_ready) {
@@ -590,16 +587,14 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF save/load drops high-order SH an
         high_order[i] = Vector3(float(i) * 0.01f, 0.0f, 0.0f);
     }
 
-    // Seed BOTH lossy dimensions: the high-order SH sidecar AND 2D (surfel) mode.
-    original_data->set_gaussian_payload(gaussians, high_order, 1, high_order_per_splat, true);
+    // Partial authoring layouts must survive without inferred coefficient loss.
+    original_data->set_gaussian_payload(gaussians, high_order, 1, high_order_per_splat, true, false);
     CHECK_MESSAGE(original_data->get_sh_high_order_count() == high_order_per_splat,
             "Source data should carry high-order SH before save");
     CHECK_MESSAGE(original_data->get_2d_mode(),
             "Source data should be flagged 2D before save");
 
     GaussianSplatting::GaussianSceneSerializer serializer;
-    // NOTE: this save intentionally hits the lossy path, so it emits the #600
-    // runtime warning about dropping the high-order SH sidecar + 2D-mode flag.
     Error save_err = serializer.save_scene(path, original_data.ptr(), nullptr, Dictionary());
     CHECK_MESSAGE(save_err == OK, "GSF save should succeed");
     if (save_err != OK) {
@@ -612,15 +607,19 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF save/load drops high-order SH an
     Error load_err = serializer.load_scene(path, loaded_data.ptr(), nullptr, nullptr);
     CHECK_MESSAGE(load_err == OK, "GSF load should succeed");
     if (load_err == OK) {
-        CHECK_MESSAGE(loaded_data->get_sh_high_order_count() == 0,
-                "KNOWN LIMITATION #600: high-order SH is not persisted and must reset to 0 on load");
-        CHECK_MESSAGE(loaded_data->get_sh_high_order_coefficients_ptr() == nullptr,
-                "KNOWN LIMITATION #600: high-order SH sidecar must be empty after reconstruction");
-        CHECK_MESSAGE(loaded_data->get_2d_mode() == false,
-                "KNOWN LIMITATION #600: the 2D-mode flag is not persisted and must reset to false on load");
-        // First-order SH still survives because it is embedded in the Gaussian struct bytes.
+        CHECK(loaded_data->get_sh_high_order_count() == high_order_per_splat);
+        CHECK(loaded_data->get_2d_mode());
+        GaussianData::SaveSnapshot snapshot;
+        CHECK(loaded_data->capture_save_snapshot(snapshot) == OK);
+        CHECK(snapshot.get_sh_high_order().size() == int(high_order.size()));
+        if (snapshot.get_sh_high_order().size() == int(high_order.size())) {
+            for (int i = 0; i < snapshot.get_sh_high_order().size(); i++) {
+                CHECK(snapshot.get_sh_high_order()[i] == high_order[i]);
+            }
+        }
+        // The explicit first-order authoring count survives without value inference.
         CHECK_MESSAGE(loaded_data->get_sh_first_order_count() == 1,
-                "First-order SH metadata should be recovered from the persisted Gaussian bytes");
+                "First-order SH metadata should retain its explicit authoring layout");
     }
 
     _remove_persistence_fixture(path);
@@ -658,7 +657,7 @@ TEST_CASE("[GaussianSplatting][Persistence] GSF load clears pre-existing state o
     seed_gaussians.resize(5);
     LocalVector<Vector3> seed_high_order;
     seed_high_order.resize(seed_gaussians.size() * 3);
-    loaded_data->set_gaussian_payload(seed_gaussians, seed_high_order, 0, 3, false);
+    loaded_data->set_gaussian_payload(seed_gaussians, seed_high_order, 0, 3, false, false);
     loaded_data->set_runtime_position(0, Vector3(42.0f, 0.0f, 0.0f));
     CHECK_MESSAGE(loaded_data->has_modifications(),
             "Seeded data should carry a runtime overlay modification before load");
@@ -2984,7 +2983,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's highly
         CHECK_MESSAGE(probe.is_valid(), "Saved fixture should be readable");
         if (probe.is_valid()) {
             const uint64_t on_disk = probe->get_length();
-            const uint64_t uncompressed_payload = uint64_t(sizeof(uint32_t)) + uint64_t(kSplats) * uint64_t(sizeof(Gaussian));
+            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 132ull;
             CHECK_MESSAGE(uncompressed_payload > 16ull * 1024 * 1024,
                     "Fixture payload must exceed the old 16 MiB floor for this to be a real regression test");
             CHECK_MESSAGE(on_disk * 4096 < uncompressed_payload,
@@ -3063,7 +3062,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Reader loads its OWN writer's LZ4/Fa
         CHECK_MESSAGE(probe.is_valid(), "Saved LZ4 fixture should be readable");
         if (probe.is_valid()) {
             const uint64_t on_disk = probe->get_length();
-            const uint64_t uncompressed_payload = uint64_t(sizeof(uint32_t)) + uint64_t(kSplats) * uint64_t(sizeof(Gaussian));
+            const uint64_t uncompressed_payload = 32ull + uint64_t(kSplats) * 132ull;
             CHECK_MESSAGE(uncompressed_payload > 64ull * 1024,
                     "Fixture payload must exceed 64 KiB so FastLZ level 2 (the uncapped one) is selected");
             CHECK_MESSAGE(on_disk * 128 < uncompressed_payload,
@@ -3548,7 +3547,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     for (uint32_t i = 0; i < high.size(); ++i) {
         high[i] = Vector3(float(i), 0.25f, -0.5f);
     }
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     GaussianData::SaveSnapshot snapshot;
     const Error capture = data->capture_save_snapshot(snapshot);
     CHECK(capture == OK);
@@ -3558,7 +3557,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot retains complete 
     const uint64_t revision = data->get_content_revision();
     geometry.clear();
     high.clear();
-    data->set_gaussian_payload(geometry, high, 0, 0, false);
+    data->set_gaussian_payload(geometry, high, 0, 0, false, false);
     CHECK(snapshot.get_content_revision() == revision);
     CHECK(data->get_content_revision() != revision);
     CHECK(snapshot.get_sh_degree() == 3);
@@ -3592,7 +3591,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot follows resize se
     geometry.resize(2);
     high.resize(24);
     high[0] = Vector3(1, 2, 3);
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     GaussianData::SaveSnapshot snapshot;
     for (int count : {1, 0, 2}) {
         data->resize(count);
@@ -3607,7 +3606,7 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save snapshot follows resize se
         CHECK(snapshot.get_sh_high_order().is_empty());
         CHECK(snapshot.get_sh_high_order_count() == 0);
     }
-    data->set_gaussian_payload(geometry, high, 3, 12, true);
+    data->set_gaussian_payload(geometry, high, 3, 12, true, false);
     const Error restored = data->capture_save_snapshot(snapshot);
     CHECK(restored == OK);
     if (restored != OK) {
@@ -3660,6 +3659,7 @@ namespace {
 struct FullSnapshotRaceContext {
     GaussianData *data = nullptr;
     LocalVector<Gaussian> first, second;
+    LocalVector<Vector3> first_sh, second_sh;
     std::atomic<bool> stop{false};
     std::atomic<bool> checkpoint_timed_out{false};
     std::atomic<bool> unexpected_entry{false};
@@ -3719,7 +3719,11 @@ void full_snapshot_replace_worker(void *p_userdata) {
         if (token != processed + 1u) {
             ctx.unexpected_entry.store(true, std::memory_order_release);
         }
-        ctx.data->set_gaussians((token & 1u) ? ctx.second : ctx.first);
+        if (token & 1u) {
+            ctx.data->set_gaussian_payload(ctx.second, ctx.second_sh, 3, 5, false, false);
+        } else {
+            ctx.data->set_gaussian_payload(ctx.first, ctx.first_sh, 3, 21, true, true);
+        }
         ctx.completed_token.store(token, std::memory_order_release);
         processed = token;
     }
@@ -3760,6 +3764,24 @@ bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
         coherent = coherent && snapshot.get_gaussians()[i].position == position;
     }
     CHECK(coherent);
+    const bool first_count_matches = snapshot.get_sh_first_order_count() == 3;
+    const bool degree_matches = snapshot.get_sh_degree() == (first ? 4 : 2);
+    const bool high_count_matches = snapshot.get_sh_high_order_count() == (first ? 21 : 5);
+    const bool mode_matches = snapshot.get_2d_mode() == first;
+    const bool antialiased_matches = snapshot.get_antialiased() == first;
+    const bool sh_extent_matches = snapshot.get_sh_high_order().size() == snapshot.get_gaussians().size() * (first ? 21 : 5);
+    CHECK(first_count_matches);
+    CHECK(degree_matches);
+    CHECK(high_count_matches);
+    CHECK(mode_matches);
+    CHECK(antialiased_matches);
+    CHECK(sh_extent_matches);
+    const Vector3 coefficient = first ? Vector3(1, 2, 3) : Vector3(-1, -2, -3);
+    bool sh_coherent = true;
+    for (int64_t i = 0; i < snapshot.get_sh_high_order().size(); ++i) {
+        sh_coherent = sh_coherent && snapshot.get_sh_high_order()[i] == coefficient;
+    }
+    CHECK(sh_coherent);
     // Read the stored header directly: loading recomputes bounds and would
     // hide a mixed-generation header produced by a second live bounds read.
     Ref<FileAccess> stored = FileAccess::open(path, FileAccess::READ);
@@ -3779,7 +3801,8 @@ bool full_snapshot_check_roundtrip(GaussianSplatting::GaussianSceneSerializer &s
             header_coherent = header_coherent && matches;
         }
     }
-    return validated == OK && valid_generation && captured_generation && coherent && header_coherent;
+    return validated == OK && valid_generation && captured_generation && coherent && first_count_matches && degree_matches &&
+            high_count_matches && mode_matches && antialiased_matches && sh_extent_matches && sh_coherent && header_coherent;
 }
 }
 TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during concurrent structural replacement") {
@@ -3794,7 +3817,10 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
     ctx.data = data.ptr();
     ctx.first.resize(4096);
     ctx.second.resize(3072);
-    if (ctx.first.size() != 4096 || ctx.second.size() != 3072) {
+    ctx.first_sh.resize(4096 * 21);
+    ctx.second_sh.resize(3072 * 5);
+    if (ctx.first.size() != 4096 || ctx.second.size() != 3072 ||
+            ctx.first_sh.size() != 4096 * 21 || ctx.second_sh.size() != 3072 * 5) {
         FAIL("Could not prepare both snapshot replacement generations");
         _remove_persistence_fixture(path);
         return;
@@ -3807,7 +3833,13 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
         ctx.second[i].position = Vector3(-21, -22, -23);
         ctx.second[i].scale = Vector3(2, 2, 2);
     }
-    data->set_gaussians(ctx.first);
+    for (uint32_t i = 0; i < ctx.first_sh.size(); ++i) {
+        ctx.first_sh[i] = Vector3(1, 2, 3);
+    }
+    for (uint32_t i = 0; i < ctx.second_sh.size(); ++i) {
+        ctx.second_sh[i] = Vector3(-1, -2, -3);
+    }
+    data->set_gaussian_payload(ctx.first, ctx.first_sh, 3, 21, true, true);
     // Immutable hook configuration during worker lifetime; no global observer.
     data->save_snapshot_test_userdata = &ctx;
     data->save_snapshot_test_hook = full_snapshot_race_checkpoint;
@@ -3858,3 +3890,652 @@ TEST_CASE("[GaussianSplatting][Persistence] Full save remains coherent during co
     _remove_persistence_fixture(path);
 }
 #endif
+
+namespace {
+Ref<GaussianData> gsf_v3_make_payload(uint32_t p_degree, uint32_t p_flags, bool p_empty = false) {
+    LocalVector<Gaussian> gaussians;
+    gaussians.resize(p_empty ? 0 : 2);
+    const uint32_t first = p_degree == 0 ? 0 : 3;
+    const uint32_t high = (p_degree + 1) * (p_degree + 1) - 1 - first;
+    for (uint32_t i = 0; i < gaussians.size(); i++) {
+        Gaussian &g = gaussians[i];
+        g.position = Vector3(float(i) + 0.25f, -2, 3);
+        g.scale = Vector3(0.125f, 0.25f, 0.5f);
+        g.rotation = Quaternion(0, 0, 0, 1);
+        g.opacity = 0.375f + float(i) * 0.125f;
+        g.sh_dc = Color(-0.25f, 0.5f, 0.75f, 1);
+        g.area = 0.25f + float(i) / 8;
+        g.normal = Vector3(0, 1, 0);
+        g.stroke_age = float(i) / 4;
+        g.brush_axes = Vector2(0.5f, 0.75f);
+        g.painterly_meta = 0x12340000u + i;
+        g.render_meta = i; // Both existing DC encodings are preserved verbatim.
+        for (uint32_t j = 0; j < first; j++) {
+            g.sh_1[j] = Vector3(float(i + j) / 8, -float(j) / 16, 0.25f);
+        }
+    }
+    LocalVector<Vector3> sidecar;
+    sidecar.resize(gaussians.size() * high);
+    for (uint32_t i = 0; i < sidecar.size(); i++) {
+        sidecar[i] = Vector3(float(i) / 64, -float(i) / 128, 0.375f);
+    }
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussian_payload(gaussians, sidecar, first, high, p_flags & 1, p_flags & 2);
+    return data;
+}
+
+void gsf_v3_check_payload(const GaussianData *p_expected, const GaussianData *p_actual) {
+    GaussianData::SaveSnapshot expected;
+    GaussianData::SaveSnapshot actual;
+    if (p_expected->capture_save_snapshot(expected) != OK || p_actual->capture_save_snapshot(actual) != OK) {
+        FAIL("Payload snapshots must be capturable");
+        return;
+    }
+    CHECK(actual.get_sh_degree() == expected.get_sh_degree());
+    CHECK(actual.get_sh_first_order_count() == expected.get_sh_first_order_count());
+    CHECK(actual.get_sh_high_order_count() == expected.get_sh_high_order_count());
+    CHECK(actual.get_2d_mode() == expected.get_2d_mode());
+    CHECK(actual.get_antialiased() == expected.get_antialiased());
+    if (actual.get_gaussians().size() != expected.get_gaussians().size() || actual.get_sh_high_order().size() != expected.get_sh_high_order().size()) {
+        FAIL("Payload extents must survive the roundtrip");
+        return;
+    }
+    for (int i = 0; i < actual.get_gaussians().size(); i++) {
+        const Gaussian &a = actual.get_gaussians()[i];
+        const Gaussian &e = expected.get_gaussians()[i];
+        CHECK(a.position == e.position);
+        CHECK(a.scale == e.scale);
+        CHECK(a.rotation == e.rotation);
+        CHECK(a.opacity == e.opacity);
+        CHECK(a.sh_dc == e.sh_dc);
+        CHECK(a.render_meta == e.render_meta);
+        CHECK(a.area == e.area);
+        CHECK(a.normal == e.normal);
+        CHECK(a.stroke_age == e.stroke_age);
+        CHECK(a.brush_axes == e.brush_axes);
+        CHECK(a.painterly_meta == e.painterly_meta);
+        for (uint32_t j = 0; j < 3; j++) {
+            CHECK(a.sh_1[j] == e.sh_1[j]);
+        }
+    }
+    for (int i = 0; i < actual.get_sh_high_order().size(); i++) {
+        CHECK(actual.get_sh_high_order()[i] == expected.get_sh_high_order()[i]);
+    }
+}
+
+bool gsf_v3_write_bytes(const String &p_path, const PackedByteArray &p_bytes) {
+    if (!_ensure_persistence_fixture_dir(p_path)) {
+        return false;
+    }
+    Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE);
+    return file.is_valid() && file->store_buffer(p_bytes);
+}
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 complete SH0-4 and semantic flags roundtrip every codec") {
+    const String path = _make_persistence_fixture_path("gsf_v3_layouts");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint32_t codec = 0; codec < 3; codec++) {
+        serializer.set_compression_type(GaussianSplatting::CompressionType(codec));
+        for (uint32_t degree = 0; degree <= 4; degree++) {
+            for (uint32_t flags = 0; flags < 4; flags++) {
+                Ref<GaussianData> source = gsf_v3_make_payload(degree, flags);
+                Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+                if (serializer.save_scene(path, source.ptr()) != OK) {
+                    FAIL("Complete-layout save failed");
+                    continue;
+                }
+                CHECK(serializer.validate_file(path) == OK);
+                const Error loaded = serializer.load_scene(path, target.ptr());
+                CHECK(loaded == OK);
+                if (loaded == OK) {
+                    gsf_v3_check_payload(source.ptr(), target.ptr());
+                }
+            }
+        }
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 empty assets retain SH layout and semantics") {
+    const String path = _make_persistence_fixture_path("gsf_v3_empty");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source = gsf_v3_make_payload(4, 3, true);
+    Ref<GaussianData> target = gsf_v3_make_payload(0, 0);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    CHECK(serializer.save_scene(path, source.ptr()) == OK);
+    CHECK(serializer.validate_file(path) == OK);
+    const Dictionary info = serializer.get_file_info(path);
+    CHECK(int(info.get("version", 0)) == 3);
+    CHECK(int(info.get("minimum_reader_version", 0)) == 3);
+    CHECK(int(info.get("chunks", 0)) == 3);
+    const Error loaded = serializer.load_scene(path, target.ptr());
+    CHECK(loaded == OK);
+    if (loaded == OK) {
+        gsf_v3_check_payload(source.ptr(), target.ptr());
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v2 producer captures load with all codecs") {
+    const uint8_t *fixtures[] = { GSF_V2_CODEC_0, GSF_V2_CODEC_1, GSF_V2_CODEC_2 };
+    const uint32_t lengths[] = { sizeof(GSF_V2_CODEC_0), sizeof(GSF_V2_CODEC_1), sizeof(GSF_V2_CODEC_2) };
+    const String path = _make_persistence_fixture_path("gsf_v2_captured");
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint32_t codec = 0; codec < 3; codec++) {
+        PackedByteArray bytes;
+        bytes.resize(lengths[codec]);
+        memcpy(bytes.ptrw(), fixtures[codec], lengths[codec]);
+        if (!gsf_v3_write_bytes(path, bytes)) {
+            FAIL("Captured fixture could not be written");
+            continue;
+        }
+        Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+        CHECK(serializer.validate_file(path) == OK);
+        const Error loaded = serializer.load_scene(path, target.ptr());
+        CHECK(loaded == OK);
+        if (loaded == OK && target->get_count() == 2) {
+            CHECK(target->get_gaussian(0).position == Vector3(1, 2, 3));
+            CHECK(target->get_gaussian(1).position == Vector3(-4, 5, 6));
+            CHECK(target->get_gaussian(0).opacity == 0.25f);
+            CHECK(target->get_gaussian(1).opacity == 0.75f);
+            CHECK(target->get_sh_first_order_count() == 3);
+            CHECK(target->get_sh_high_order_count() == 0);
+            CHECK(!target->get_2d_mode());
+            CHECK(!target->get_antialiased());
+        } else {
+            FAIL("Captured scene must contain two splats");
+        }
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Constructed GSF v1 envelope accepts captured legacy Gaussian payload") {
+    // Structural compatibility input: NOT claimed as a historical v1 producer capture.
+    PackedByteArray bytes;
+    bytes.resize(sizeof(GSF_V2_CODEC_0) - 4);
+    memcpy(bytes.ptrw(), GSF_V2_CODEC_0, 72);
+    memcpy(bytes.ptrw() + 72, GSF_V2_CODEC_0 + 76, sizeof(GSF_V2_CODEC_0) - 76);
+    encode_uint32(56, bytes.ptrw() + 4); // v1 HEAD payload extent.
+    encode_uint16(1, bytes.ptrw() + 20);
+    uint32_t checksum = 2166136261u;
+    for (uint32_t i = 16; i < 72; i++) {
+        checksum = (checksum ^ bytes[i]) * 16777619u;
+    }
+    encode_uint32(checksum, bytes.ptrw() + 8);
+    const String path = _make_persistence_fixture_path("gsf_v1_constructed_envelope");
+    if (!gsf_v3_write_bytes(path, bytes)) {
+        FAIL("Constructed envelope could not be written");
+        return;
+    }
+    Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    CHECK(serializer.validate_file(path) == OK);
+    CHECK(serializer.load_scene(path, target.ptr()) == OK);
+    CHECK(target->get_count() == 2);
+    CHECK(target->get_gaussian(0).position == Vector3(1, 2, 3));
+    CHECK(!target->get_2d_mode());
+    CHECK(!target->get_antialiased());
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] Constructed legacy v1-v2 SH1 inference preserves approximate-zero compatibility") {
+    // Constructed boundary inputs, derived from a copy of the uncompressed v2
+    // capture. The immutable producer captures above remain untouched.
+    const float coefficients[] = { 0.0f, float(CMP_EPSILON) * 0.5f, float(CMP_EPSILON), float(CMP_EPSILON) * 2.0f,
+        -float(CMP_EPSILON) * 0.5f, -float(CMP_EPSILON), -float(CMP_EPSILON) * 2.0f };
+    const bool significant[] = { false, false, true, true, false, true, true };
+    const uint32_t chunk_offset = GaussianSplatting::GSF_CHUNK_HEADER_SIZE + GaussianSplatting::SCENE_HEADER_PACKED_SIZE;
+    const uint32_t payload_offset = chunk_offset + GaussianSplatting::GSF_CHUNK_HEADER_SIZE;
+    const uint32_t record_offset = payload_offset + sizeof(uint32_t);
+    const String path = _make_persistence_fixture_path("gsf_legacy_sh1_boundary_constructed");
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint16_t version : { 1, 2 }) {
+        for (uint32_t band = 0; band < 3; band++) {
+            for (uint32_t axis = 0; axis < 3; axis++) {
+                for (uint32_t sample = 0; sample < sizeof(coefficients) / sizeof(coefficients[0]); sample++) {
+                    PackedByteArray bytes;
+                    bytes.resize(sizeof(GSF_V2_CODEC_0));
+                    memcpy(bytes.ptrw(), GSF_V2_CODEC_0, sizeof(GSF_V2_CODEC_0));
+                    const uint32_t payload_size = decode_uint32(bytes.ptr() + chunk_offset + 4);
+                    if (payload_size != sizeof(uint32_t) + 2 * sizeof(Gaussian) ||
+                            payload_offset + payload_size > uint32_t(bytes.size()) ||
+                            decode_uint32(bytes.ptr() + chunk_offset) != uint32_t(GaussianSplatting::ChunkType::GAUSSIAN_DATA)) {
+                        FAIL("Uncompressed legacy capture layout changed");
+                        return;
+                    }
+                    Gaussian expected[2];
+                    memcpy(expected, bytes.ptr() + record_offset, sizeof(expected));
+                    for (Gaussian &g : expected) {
+                        for (Vector3 &sh : g.sh_1) {
+                            sh = Vector3();
+                        }
+                    }
+                    expected[1].sh_1[band][axis] = coefficients[sample];
+                    memcpy(bytes.ptrw() + record_offset, expected, sizeof(expected));
+                    uint32_t checksum = 2166136261u;
+                    for (uint32_t i = payload_offset; i < payload_offset + payload_size; i++) {
+                        checksum = (checksum ^ bytes[i]) * 16777619u;
+                    }
+                    encode_uint32(checksum, bytes.ptrw() + chunk_offset + 8);
+                    if (version == 1) {
+                        // v1 omits the v2 minimum-reader field from HEAD.
+                        bytes.remove_at(75);
+                        bytes.remove_at(74);
+                        bytes.remove_at(73);
+                        bytes.remove_at(72);
+                        encode_uint32(56, bytes.ptrw() + 4);
+                        encode_uint16(1, bytes.ptrw() + 20);
+                        checksum = 2166136261u;
+                        for (uint32_t i = 16; i < 72; i++) {
+                            checksum = (checksum ^ bytes[i]) * 16777619u;
+                        }
+                        encode_uint32(checksum, bytes.ptrw() + 8);
+                    }
+                    if (!gsf_v3_write_bytes(path, bytes)) {
+                        FAIL("Constructed legacy boundary fixture could not be written");
+                        return;
+                    }
+                    Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+                    const Error loaded = serializer.load_scene(path, target.ptr());
+                    CHECK(loaded == OK);
+                    CHECK(target->get_count() == 2);
+                    if (loaded != OK || target->get_count() != 2) {
+                        _remove_persistence_fixture(path);
+                        continue;
+                    }
+                    CHECK(target->get_sh_first_order_count() == (significant[sample] ? band + 1 : 0));
+                    // A partial first-order layout retains the old degree
+                    // calculation: degree 1 requires all three SH1 vectors.
+                    CHECK(target->get_sh_degree() == (significant[sample] && band == 2 ? 1 : 0));
+                    CHECK(target->get_sh_high_order_count() == 0);
+                    for (uint32_t i = 0; i < 2; i++) {
+                        const Gaussian actual = target->get_gaussian(i);
+                        for (uint32_t j = 0; j < 3; j++) {
+                            CHECK(actual.sh_1[j] == expected[i].sh_1[j]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects invalid metadata without changing targets") {
+    const String path = _make_persistence_fixture_path("gsf_v3_invalid_metadata");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source = gsf_v3_make_payload(4, 3);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_compression_type(GaussianSplatting::CompressionType::NONE);
+    serializer.set_enable_checksum(false);
+    if (serializer.save_scene(path, source.ptr()) != OK) {
+        FAIL("Valid seed save failed");
+        return;
+    }
+    Ref<FileAccess> input = FileAccess::open(path, FileAccess::READ);
+    if (input.is_null()) {
+        FAIL("Valid seed unavailable");
+        return;
+    }
+    const PackedByteArray original = input->get_buffer(input->get_length());
+    input.unref();
+    const uint32_t payload_start = 16 + 60 + 16;
+    const uint32_t offsets[] = { 0, 4, 8, 12, 16, 20, 24, 28 };
+    const uint32_t invalid_values[] = { 1, 2, 144, 3, 4, 22, 4, 1 };
+    for (uint32_t field = 0; field < 8; field++) {
+        PackedByteArray invalid = original;
+        encode_uint32(invalid_values[field], invalid.ptrw() + payload_start + offsets[field]);
+        if (!gsf_v3_write_bytes(path, invalid)) {
+            FAIL("Invalid fixture could not be written");
+            continue;
+        }
+        Ref<GaussianData> target = gsf_v3_make_payload(2, 1);
+        Ref<GaussianData> expected = gsf_v3_make_payload(2, 1);
+        const uint64_t revision = target->get_content_revision();
+        CHECK(serializer.validate_file(path) == ERR_FILE_CORRUPT);
+        CHECK(serializer.load_scene(path, target.ptr()) == ERR_FILE_CORRUPT);
+        CHECK(target->get_content_revision() == revision);
+        gsf_v3_check_payload(expected.ptr(), target.ptr());
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 incremental baseline preserves SH4 and semantics through per-index deltas") {
+    const String baseline = _make_persistence_fixture_path("gsf_v3_incremental_baseline");
+    const String delta = _make_persistence_fixture_path("gsf_v3_incremental_delta", ".gsif");
+    if (!_ensure_persistence_fixture_dir(baseline)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source = gsf_v3_make_payload(4, 3);
+    Ref<GaussianSplatting::GaussianIncrementalSaver> saver;
+    saver.instantiate();
+    source->set_incremental_saver(saver);
+    saver->start_tracking(baseline);
+    const Error saved = saver->create_baseline(baseline, source.ptr());
+    CHECK(saved == OK);
+    if (saved != OK) {
+        return;
+    }
+    Gaussian changed = source->get_gaussian(1);
+    changed.opacity = 0.875f;
+    source->set_gaussian(1, changed);
+    CHECK(saver->save_changes(delta) == OK);
+    Ref<GaussianData> target;
+    target.instantiate();
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    CHECK(serializer.load_scene(baseline, target.ptr()) == OK);
+    CHECK(saver->load_and_apply_changes(delta, target.ptr()) == OK);
+    gsf_v3_check_payload(source.ptr(), target.ptr());
+    source->set_antialiased(false);
+    CHECK(saver->get_requires_full_save());
+    CHECK(saver->save_changes(delta) == ERR_UNAVAILABLE);
+    CHECK(saver->create_baseline(baseline, source.ptr()) == OK);
+    CHECK(!saver->get_requires_full_save());
+    CHECK(serializer.load_scene(baseline, target.ptr()) == OK);
+    gsf_v3_check_payload(source.ptr(), target.ptr());
+    _remove_persistence_fixture(baseline);
+    _remove_persistence_fixture(delta);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 rejects ambiguous chunks and incompatible reader declarations transactionally") {
+    const String path = _make_persistence_fixture_path("gsf_v3_invalid_structure");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source = gsf_v3_make_payload(4, 3);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_compression_type(GaussianSplatting::CompressionType::NONE);
+    serializer.set_enable_checksum(false);
+    if (serializer.save_scene(path, source.ptr()) != OK) {
+        FAIL("Valid seed save failed");
+        return;
+    }
+    Ref<FileAccess> file = FileAccess::open(path, FileAccess::READ);
+    if (file.is_null()) {
+        FAIL("Valid seed unavailable");
+        return;
+    }
+    const PackedByteArray original = file->get_buffer(file->get_length());
+    file.unref();
+    const int header_size = 76;
+    const int gaussian_size = 16 + 32 + 2 * (132 + 21 * 12);
+    const int eof_offset = header_size + gaussian_size;
+    if (original.size() != eof_offset + 16) {
+        FAIL("Seed must use the documented uncompressed v3 structure");
+        return;
+    }
+    for (int variant = 0; variant < 7; variant++) {
+        PackedByteArray invalid = original;
+        if (variant == 0) { // Missing GAUS; valid HEAD + EOF chunk count.
+            invalid = original.slice(0, header_size);
+            invalid.append_array(original.slice(eof_offset));
+            encode_uint32(2, invalid.ptrw() + 24);
+        } else if (variant == 1 || variant == 2) { // Duplicate mandatory chunk.
+            invalid = original.slice(0, eof_offset);
+            invalid.append_array(variant == 1 ? original.slice(header_size, eof_offset) : original.slice(0, header_size));
+            invalid.append_array(original.slice(eof_offset));
+            encode_uint32(4, invalid.ptrw() + 24);
+        } else if (variant == 3) { // Trailing decoded byte, fully consistent outer envelope.
+            invalid = original.slice(0, eof_offset);
+            invalid.append(0);
+            invalid.append_array(original.slice(eof_offset));
+            encode_uint32(gaussian_size - 16 + 1, invalid.ptrw() + header_size + 4);
+        } else if (variant == 4) { // Short decoded payload with matching outer extent.
+            invalid = original.slice(0, eof_offset - 1);
+            invalid.append_array(original.slice(eof_offset));
+            encode_uint32(gaussian_size - 16 - 1, invalid.ptrw() + header_size + 4);
+        } else { // A v3 file may not claim compatibility with reader 1 or require reader 4.
+            encode_uint16(variant == 5 ? 1 : 4, invalid.ptrw() + 72);
+        }
+        if (!gsf_v3_write_bytes(path, invalid)) {
+            FAIL("Invalid fixture could not be written");
+            continue;
+        }
+        Ref<GaussianData> target = gsf_v3_make_payload(2, 1);
+        Ref<GaussianData> expected = gsf_v3_make_payload(2, 1);
+        const uint64_t revision = target->get_content_revision();
+        CHECK(serializer.validate_file(path) != OK);
+        CHECK(serializer.load_scene(path, target.ptr()) != OK);
+        CHECK(target->get_content_revision() == revision);
+        gsf_v3_check_payload(expected.ptr(), target.ptr());
+    }
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] GSF v3 bounds in-memory staging separately from canonical wire size") {
+    const String path = _make_persistence_fixture_path("gsf_v3_staging_budget");
+    if (!_ensure_persistence_fixture_dir(path)) {
+        FAIL("Fixture directory unavailable");
+        return;
+    }
+    Ref<GaussianData> source;
+    source.instantiate();
+    source->resize(100);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    serializer.set_compression_type(GaussianSplatting::CompressionType::NONE);
+    if (serializer.save_scene(path, source.ptr()) != OK) {
+        FAIL("Valid seed save failed");
+        return;
+    }
+    // The complete 13232-byte wire payload fits; the 14400-byte staging ABI does not.
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(13300);
+    Ref<GaussianData> target = gsf_v3_make_payload(4, 3);
+    const uint64_t revision = target->get_content_revision();
+    const Error validated = serializer.validate_file(path);
+    const Error loaded = serializer.load_scene(path, target.ptr());
+    GaussianSplatting::GaussianSceneSerializer::set_load_allocation_budget_override(0);
+    CHECK(validated == ERR_FILE_CORRUPT);
+    CHECK(loaded == ERR_FILE_CORRUPT);
+    CHECK(target->get_content_revision() == revision);
+    Ref<GaussianData> expected = gsf_v3_make_payload(4, 3);
+    gsf_v3_check_payload(expected.ptr(), target.ptr());
+    _remove_persistence_fixture(path);
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] File size estimate reads extents without changing the v3 arithmetic") {
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    for (uint32_t degree = 0; degree <= 4; degree++) {
+        for (bool empty : { false, true }) {
+            Ref<GaussianData> data = gsf_v3_make_payload(degree, 3, empty);
+            GaussianData::SaveSnapshot snapshot;
+            if (data->capture_save_snapshot(snapshot) != OK) {
+                FAIL("Payload snapshot must be capturable");
+                continue;
+            }
+            uint32_t splats = 0;
+            uint32_t high = 0;
+            CHECK(data->capture_save_layout(splats, high) == OK);
+            CHECK(splats == uint32_t(snapshot.get_gaussians().size()));
+            CHECK(uint64_t(splats) * high == uint64_t(snapshot.get_sh_high_order().size()));
+            const uint64_t expected = GaussianSplatting::SCENE_HEADER_PACKED_SIZE + sizeof(GaussianSplatting::ChunkHeader)
+                    + GaussianSplatting::GSF_CHUNK_HEADER_SIZE + GaussianSplatting::ScenePayload::PREFIX_SIZE
+                    + uint64_t(snapshot.get_gaussians().size()) * GaussianSplatting::ScenePayload::RECORD_SIZE
+                    + uint64_t(snapshot.get_sh_high_order().size()) * 12;
+            CHECK(serializer.get_file_size_estimate(data.ptr(), nullptr) == expected);
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Persistence][MalformedCorpus] Antialiased import metadata resolves canonical key, SPZ fallback and rejects non-bool values") {
+    Dictionary metadata;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("spz_antialiased")] = true;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("gaussian_antialiased")] = false;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    metadata[StringName("gaussian_antialiased")] = true;
+    metadata[StringName("spz_antialiased")] = false;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    // A malformed canonical value is ignored, never coerced; the fallback still applies.
+    metadata[StringName("gaussian_antialiased")] = String("false");
+    metadata[StringName("spz_antialiased")] = true;
+    CHECK(GaussianSplatAsset::resolve_antialiased_from_metadata(metadata));
+    Dictionary malformed;
+    malformed[StringName("gaussian_antialiased")] = 1;
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(malformed));
+    malformed.clear();
+    malformed[StringName("spz_antialiased")] = String("yes");
+    CHECK(!GaussianSplatAsset::resolve_antialiased_from_metadata(malformed));
+}
+
+namespace {
+LocalVector<TestGaussianSplatting::SyntheticSpzSplat> spz_aa_make_splats() {
+    LocalVector<TestGaussianSplatting::SyntheticSpzSplat> splats;
+    splats.resize(4);
+    for (uint32_t i = 0; i < splats.size(); i++) {
+        splats[i].position = Vector3(float(i), 0.5f * float(i), -float(i));
+        splats[i].opacity = 0.75f;
+        splats[i].scale = Vector3(0.1f, 0.2f, 0.3f);
+    }
+    return splats;
+}
+
+// The official producer writes header flag 0x1 (antialiased training) itself.
+bool spz_aa_write(const String &p_path, bool p_antialiased) {
+    return TestGaussianSplatting::write_synthetic_spz(p_path, spz_aa_make_splats(), 12, 4, 0, p_antialiased);
+}
+
+void spz_aa_check_gsf_roundtrip(const Ref<GaussianData> &p_source, bool p_antialiased, const String &p_prefix) {
+    const String path = _make_persistence_fixture_path(p_prefix);
+    GaussianSplatting::GaussianSceneSerializer serializer;
+    if (!_ensure_persistence_fixture_dir(path) || serializer.save_scene(path, p_source.ptr()) != OK) {
+        FAIL("GSF v3 save failed");
+        return;
+    }
+    // Seed the target with the opposite flag so a dropped bit cannot pass.
+    Ref<GaussianData> target = gsf_v3_make_payload(0, p_antialiased ? 0 : 2);
+    CHECK(serializer.load_scene(path, target.ptr()) == OK);
+    CHECK(target->get_antialiased() == p_antialiased);
+    _remove_persistence_fixture(path);
+}
+} // namespace
+
+TEST_CASE("[GaussianSplatting][Persistence] Bound SPZLoader API preserves antialiased flag on reuse and GSF v3 save") {
+    Ref<SPZLoader> loader;
+    loader.instantiate();
+    // Loading classic data after antialiased data must clear the old flag.
+    for (bool antialiased : { true, false, true }) {
+        const String path = _make_persistence_fixture_path("spz_aa_direct_reuse", ".spz");
+        if (!_ensure_persistence_fixture_dir(path) || !spz_aa_write(path, antialiased)) {
+            FAIL("SPZ direct API fixture unavailable");
+            return;
+        }
+        const Error loaded = Error(int(loader->call("load_file", path)));
+        CHECK(loaded == OK);
+        if (loaded != OK) {
+            _remove_persistence_fixture(path);
+            continue;
+        }
+        Ref<GaussianData> data = loader->call("get_gaussian_data");
+        CHECK(data.is_valid());
+        if (data.is_valid()) {
+            CHECK(data->get_count() == int(spz_aa_make_splats().size()));
+            CHECK(data->get_antialiased() == antialiased);
+            spz_aa_check_gsf_roundtrip(data, antialiased, "spz_aa_direct_gsf");
+        }
+        _remove_persistence_fixture(path);
+    }
+}
+
+TEST_CASE("[GaussianSplatting][Persistence] SPZ antialiased header flag reaches GaussianData on raw load routes and survives GSF v3") {
+    for (bool antialiased : { false, true }) {
+        const String path = _make_persistence_fixture_path(antialiased ? "spz_aa_on" : "spz_aa_off", ".spz");
+        if (!_ensure_persistence_fixture_dir(path) || !spz_aa_write(path, antialiased)) {
+            FAIL("SPZ fixture unavailable");
+            continue;
+        }
+        Ref<GaussianData> raw;
+        raw.instantiate();
+        CHECK(raw->load_from_file(path) == OK);
+        CHECK(raw->get_antialiased() == antialiased);
+
+        Ref<GaussianSplatAsset> asset;
+        asset.instantiate();
+        if (asset->load_from_file(path) != OK) {
+            FAIL("Raw SPZ asset load failed");
+            _remove_persistence_fixture(path);
+            continue;
+        }
+        Ref<GaussianData> cached = asset->get_gaussian_data();
+        CHECK(cached.is_valid());
+        if (cached.is_valid()) {
+            CHECK(cached->get_antialiased() == antialiased);
+        }
+        const Variant recorded = asset->get_import_metadata().get(StringName("gaussian_antialiased"), Variant());
+        CHECK(recorded.get_type() == Variant::BOOL);
+        CHECK(bool(recorded) == antialiased);
+
+        Ref<GaussianData> materialized;
+        CHECK(asset->populate_gaussian_data(materialized));
+        CHECK(materialized.is_valid());
+        if (materialized.is_valid()) {
+            CHECK(materialized->get_antialiased() == antialiased);
+        }
+        Ref<GaussianData> populated;
+        populated.instantiate();
+        CHECK(populated->populate_from_asset(asset) == OK);
+        CHECK(populated->get_antialiased() == antialiased);
+        spz_aa_check_gsf_roundtrip(populated, antialiased, "spz_aa_raw_gsf");
+        _remove_persistence_fixture(path);
+    }
+}
+
+// ResourceImporterSPZ exists only in tools builds.
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][Persistence] Imported SPZ antialiased metadata reaches GaussianData and survives GSF v3") {
+    for (bool antialiased : { false, true }) {
+        const uint64_t ticks = OS::get_singleton() ? OS::get_singleton()->get_ticks_usec() : 0;
+        const String stem = "user://godotgs_spz_aa_import_" + itos(ticks) + (antialiased ? "_on" : "_off");
+        const String source_path = stem + ".spz";
+        const String save_base_path = stem + "_asset";
+        if (!spz_aa_write(source_path, antialiased)) {
+            FAIL("SPZ fixture unavailable");
+            continue;
+        }
+        Ref<ResourceImporterSPZ> importer;
+        importer.instantiate();
+        HashMap<StringName, Variant> options;
+        options.insert(StringName("quality/preset"), String("ultra"));
+        options.insert(StringName("quality/max_splats"), 0);
+        options.insert(StringName("quality/density_multiplier"), 1.0);
+        options.insert(StringName("processing/sort_by_opacity"), false);
+        options.insert(StringName("preview/generate_thumbnail"), false);
+        const Error import_err = importer->import(ResourceUID::INVALID_ID, source_path, save_base_path, options,
+                nullptr, nullptr, nullptr);
+        CHECK(import_err == OK);
+        Ref<GaussianSplatAsset> asset;
+        if (import_err == OK) {
+            asset = ResourceLoader::load(save_base_path + String(".res"), "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+        }
+        CHECK(asset.is_valid());
+        if (asset.is_valid()) {
+            Ref<GaussianData> materialized = asset->get_gaussian_data();
+            CHECK(materialized.is_valid());
+            if (materialized.is_valid()) {
+                CHECK(materialized->get_antialiased() == antialiased);
+            }
+            Ref<GaussianData> populated;
+            populated.instantiate();
+            CHECK(populated->populate_from_asset(asset) == OK);
+            CHECK(populated->get_antialiased() == antialiased);
+            spz_aa_check_gsf_roundtrip(populated, antialiased, "spz_aa_import_gsf");
+        }
+        DirAccess::remove_absolute(source_path);
+        DirAccess::remove_absolute(save_base_path + ".res");
+    }
+}
+#endif // TOOLS_ENABLED

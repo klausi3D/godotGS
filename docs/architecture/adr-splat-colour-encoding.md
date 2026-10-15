@@ -13,6 +13,11 @@
   read at that commit. Module paths are relative to `modules/gaussian_splatting/`.
 - **Date:** 2026-09-23
 
+The historical record capacities below are superseded by
+[Full SH GPU Storage](adr-full-sh-gpu-storage.md): both GPU layouts retain 24
+non-DC words, with 176/160-byte normal/quantized strides. The signed-storage
+encoding remains unchanged.
+
 ## 1. Context
 
 Both defects come from one missing contract: nothing defines how a splat's colour is

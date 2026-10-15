@@ -229,7 +229,7 @@ static Error _materialize_payload_source_for_save(const GaussianSplatWorld *p_wo
 
 	r_gaussian_data.instantiate();
 	r_gaussian_data->set_gaussian_payload(gaussians, sh_high_order,
-			sh_first_order, sh_high_order_count, p_world->get_2d_mode());
+			sh_first_order, sh_high_order_count, p_world->get_2d_mode(), p_world->get_antialiased());
 	return OK;
 }
 
@@ -1119,7 +1119,8 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		}
 		tree.interior_resident = true;
 		gaussian_data.instantiate();
-		gaussian_data->set_gaussian_payload(leaf, leaf_sh, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u);
+		// The world file format has no antialias flag; its payloads load as classic.
+		gaussian_data->set_gaussian_payload(leaf, leaf_sh, p_sh_first_order, p_sh_high_order, (p_flags & kFlagIs2D) != 0u, false);
 	} else {
 		// Verify every referenced leaf/interior payload before publication, with bounded
 		// scratch: at most one node (16,384 splats), never a resident copy of the world.
@@ -1763,7 +1764,8 @@ static Ref<Resource> _load_gsplatworld_resource(const String &p_path, Error *r_e
 	Ref<GaussianData> gaussian_data;
 	if (should_materialize_resident_payload) {
 		gaussian_data.instantiate();
-		gaussian_data->set_gaussian_payload(gaussians, sh_high_coeffs, sh_first_order, sh_high_order, (flags & kFlagIs2D) != 0);
+		// The world file format has no antialias flag; its payloads load as classic.
+		gaussian_data->set_gaussian_payload(gaussians, sh_high_coeffs, sh_first_order, sh_high_order, (flags & kFlagIs2D) != 0, false);
 	}
 
 	Vector<StaticChunk> chunks;

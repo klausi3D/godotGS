@@ -1787,7 +1787,7 @@ struct Gaussian {
     vec4 rotation;
 
     vec4 sh_dc;
-    uint sh_encoded[12];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
+    uint sh_encoded[24];  // #1054: raw SNORM10 SH words; uint (not float) so no driver can flush them as denormals
 
     vec3 normal;
 

@@ -377,8 +377,20 @@
 				Restores splat state from a dictionary previously returned by [method capture_brush_affected_state]. Used to undo brush strokes.
 			</description>
 		</method>
+		<method name="get_antialiased">
+			<return type="bool" />
+			<description>Returns whether the asset carries antialiased training semantics.</description>
+		</method>
+		<method name="set_antialiased">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>Sets the asset's antialiased training metadata. GSF v3 preserves this flag; changing it requires a full incremental baseline. Raster filter and opacity compensation support is qualified separately.</description>
+		</method>
 	</methods>
 	<members>
+		<member name="antialiased" type="bool" setter="set_antialiased" getter="get_antialiased" default="false">
+			Asset training semantics preserved by GSF v3. This metadata alone does not enable compensated rasterization.
+		</member>
 		<member name="2d_mode" type="bool" setter="set_2d_mode" getter="get_2d_mode" default="false">
 			Metadata-only 2D (surfel) flag. No renderer path reads it: splats are rendered as 3D ellipsoids whether it is set or not. It only makes [method save_to_file] write normal columns and declare the mode in the PLY header. PLY files set it only when their header declares it ([code]comment gs_2d_mode[/code]), not because they carry [code]nx[/code]/[code]ny[/code]/[code]nz[/code] columns.
 		</member>

@@ -142,6 +142,7 @@ void GaussianSplatWorld::_assign_gaussian_data(const Ref<GaussianData> &p_data, 
                 gaussian_data->get_sh_first_order_count(),
                 gaussian_data->get_sh_high_order_count(),
                 gaussian_data->get_2d_mode());
+        antialiased_metadata = gaussian_data->get_antialiased();
         if (!bounds.has_volume()) {
             bounds = gaussian_data->get_aabb();
         }
@@ -290,6 +291,13 @@ bool GaussianSplatWorld::get_2d_mode() const {
     return is_2d_metadata;
 }
 
+bool GaussianSplatWorld::get_antialiased() const {
+    if (gaussian_data.is_valid()) {
+        return gaussian_data->get_antialiased();
+    }
+    return antialiased_metadata;
+}
+
 Error GaussianSplatWorld::materialize_resident_gaussian_data() {
     if (gaussian_data.is_valid()) {
         return OK;
@@ -310,7 +318,7 @@ Error GaussianSplatWorld::materialize_resident_gaussian_data() {
     Ref<GaussianData> materialized;
     materialized.instantiate();
     materialized->set_gaussian_payload(gaussians, sh_high_order,
-            sh_first_order, sh_high_order_count, is_2d_metadata);
+            sh_first_order, sh_high_order_count, is_2d_metadata, antialiased_metadata);
     // Same payload, same order: a loaded tree stays valid.
     _assign_gaussian_data(materialized, true);
     return OK;
@@ -352,6 +360,7 @@ void GaussianSplatWorld::clear() {
     sh_first_order_count_metadata = 0;
     sh_high_order_count_metadata = 0;
     is_2d_metadata = false;
+    antialiased_metadata = false;
     hlod_tree.clear();
     // Consumers must observe the completed reset, not retain their apply-time
     // payload/submission after this resource has become empty.
@@ -390,6 +399,7 @@ Error GaussianSplatWorld::copy_from(const Ref<Resource> &p_resource) {
     sh_first_order_count_metadata = other->sh_first_order_count_metadata;
     sh_high_order_count_metadata = other->sh_high_order_count_metadata;
     is_2d_metadata = other->is_2d_metadata;
+    antialiased_metadata = other->antialiased_metadata;
     hlod_tree = other->hlod_tree;
     notify_property_list_changed();
     emit_changed();
@@ -494,6 +504,7 @@ Error GaussianSplatWorld::bake_hlod() {
     uint32_t sh_high_order_count = 0;
     GaussianData::ChunkSnapshotMetadata snapshot_metadata;
     bool is_2d = is_2d_metadata;
+    bool antialiased = antialiased_metadata;
     {
         // Scoped so the snapshot is freed as soon as the bake has consumed it (peak memory).
         LocalVector<Gaussian> gaussians;
@@ -512,6 +523,7 @@ Error GaussianSplatWorld::bake_hlod() {
             captured = snapshot_fits && original_data->_capture_chunk_snapshot_locked(0, original_data->get_count(),
                     gaussians, sh_high_order, sh_first_order, sh_high_order_count, &snapshot_metadata);
             is_2d = snapshot_metadata.is_2d_mode;
+            antialiased = snapshot_metadata.is_antialiased;
         } else {
             snapshot_fits = _probe_bake_payload(uint64_t(original_source->get_count()) * sizeof(Gaussian),
                     uint64_t(original_source->get_count()) * sh_high_order_count_metadata * sizeof(Vector3),
@@ -558,7 +570,8 @@ Error GaussianSplatWorld::bake_hlod() {
     // Retain the original until publication so an edit cannot be silently overwritten.
     Ref<GaussianData> baked;
     baked.instantiate();
-    baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order, sh_high_order_count, is_2d);
+    baked->set_gaussian_payload(result.leaf_gaussians, result.leaf_sh_high_order, sh_first_order, sh_high_order_count, is_2d,
+            antialiased);
     result.leaf_gaussians.reset();
     result.leaf_sh_high_order.reset();
     // The bounds become the RenderingServer custom AABB (GaussianSplatWorld3D::_update_bounds()),
@@ -575,6 +588,7 @@ Error GaussianSplatWorld::bake_hlod() {
         sh_first_order_count_metadata = sh_first_order;
         sh_high_order_count_metadata = sh_high_order_count;
         is_2d_metadata = is_2d;
+        antialiased_metadata = antialiased;
         bounds = baked_bounds;
         hlod_tree = std::move(result.tree);
         hlod_tree.leaf_payload_revision = baked->get_content_revision();

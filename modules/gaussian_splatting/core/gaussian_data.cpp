@@ -111,6 +111,9 @@ void GaussianData::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_2d_mode"), &GaussianData::get_2d_mode);
     ClassDB::bind_method(D_METHOD("set_normals", "normals"), &GaussianData::set_normals);
 
+    ClassDB::bind_method(D_METHOD("set_antialiased", "enabled"), &GaussianData::set_antialiased);
+    ClassDB::bind_method(D_METHOD("get_antialiased"), &GaussianData::get_antialiased);
+
     // File I/O
     ClassDB::bind_method(D_METHOD("load_from_file", "path"), &GaussianData::load_from_file);
     ClassDB::bind_method(D_METHOD("save_to_file", "path", "include_painterly_fields"), &GaussianData::save_to_file, DEFVAL(false));
@@ -143,6 +146,7 @@ void GaussianData::_bind_methods() {
 
     // Properties
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "2d_mode"), "set_2d_mode", "get_2d_mode");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "antialiased"), "set_antialiased", "get_antialiased");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "count", PROPERTY_HINT_RANGE, "0,10000000,1"), "", "get_count");
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "animation_enabled"), "set_animation_enabled", "is_animation_enabled");
 
@@ -322,7 +326,12 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
         const LocalVector<Vector3> &p_sh_high_order_coefficients,
         uint32_t p_sh_first_order_count,
         uint32_t p_sh_high_order_count,
-        bool p_is_2d_mode) {
+        bool p_is_2d_mode, bool p_antialiased) {
+#ifdef TESTS_ENABLED
+    if (save_snapshot_test_hook) {
+        save_snapshot_test_hook(save_snapshot_test_userdata, SaveSnapshotTestCheckpoint::REPLACEMENT_ENTERED);
+    }
+#endif
     RWLockWrite lock(data_rwlock);
 
     copy_local_vector(gaussians, p_gaussians);
@@ -371,6 +380,7 @@ void GaussianData::set_gaussian_payload(const LocalVector<Gaussian> &p_gaussians
     }
     sh_degree = degree > 0 ? degree - 1 : 0;
     is_2d_mode = p_is_2d_mode;
+    is_antialiased = p_antialiased;
 
     _bump_content_revision();
 
@@ -658,6 +668,7 @@ Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
         captured.first_order_count = sh_first_order_count;
         captured.high_order_count = sh_high_order_count;
         captured.mode_2d = is_2d_mode;
+        captured.antialiased = is_antialiased;
         captured.revision = content_revision.load(std::memory_order_relaxed);
     }
     // Bounds are derived from the owned geometry, never from a second live read.
@@ -680,6 +691,17 @@ Error GaussianData::capture_save_snapshot(SaveSnapshot &r_snapshot) const {
     return OK;
 }
 
+Error GaussianData::capture_save_layout(uint32_t &r_splat_count, uint32_t &r_sh_high_order_count) const {
+    RWLockRead lock(data_rwlock);
+    const uint64_t expected_high = uint64_t(gaussians.size()) * uint64_t(sh_high_order_count);
+    if (expected_high > uint64_t(sh_high_order_coefficients.size())) {
+        return ERR_INVALID_DATA;
+    }
+    r_splat_count = gaussians.size();
+    r_sh_high_order_count = sh_high_order_count;
+    return OK;
+}
+
 bool GaussianData::capture_chunk_snapshot(uint32_t p_start, uint32_t p_count,
         LocalVector<Gaussian> &r_gaussians,
         LocalVector<Vector3> &r_sh_high_order,
@@ -699,6 +721,7 @@ bool GaussianData::_capture_chunk_snapshot_locked(uint32_t p_start, uint32_t p_c
         r_metadata->content_revision = get_content_revision();
         r_metadata->sh_degree = sh_degree;
         r_metadata->is_2d_mode = is_2d_mode;
+        r_metadata->is_antialiased = is_antialiased;
     }
 
 #ifdef DEBUG_ENABLED
@@ -1177,11 +1200,21 @@ void GaussianData::set_2d_mode(bool p_enabled) {
     }
     RWLockWrite lock(data_rwlock);
     is_2d_mode = p_enabled;
-    // PERSIST-001: is_2d_mode is outside the per-index delta contract (and the GSF baseline
-    // format cannot persist it either -- #600, which warns on drop), so a toggle cannot be
-    // recorded. Fail closed rather than silently drop it.
+    // Asset semantics require a full baseline; per-index deltas cannot represent them.
     _invalidate_incremental_delta_locked();
     _bump_content_revision();
+}
+
+void GaussianData::set_antialiased(bool p_enabled) {
+    RWLockWrite lock(data_rwlock);
+    is_antialiased = p_enabled;
+    _invalidate_incremental_delta_locked();
+    _bump_content_revision();
+}
+
+bool GaussianData::get_antialiased() const {
+    RWLockRead lock(data_rwlock);
+    return is_antialiased;
 }
 
 void GaussianData::set_normals(const PackedVector3Array &p_normals) {
