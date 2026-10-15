@@ -468,3 +468,17 @@ TEST_CASE("[GaussianSplatting][Config] Runtime SH settings change reloads withou
 	CHECK(g_sh_config.sh_bands == SH_BAND_4);
 	CHECK(g_sh_config.sh_bands_source == "code_default");
 }
+
+TEST_CASE("[GaussianSplatting][Config] A changed SH degree marks the amortized colour cache stale exactly once") {
+	// PR #1205 review: a runtime sh_bands change with an unchanged amortization divisor kept
+	// serving colours evaluated at the old degree on the cache's non-update phases.
+	uint32_t cached = UINT32_MAX; // nothing cached yet
+	CHECK(sh_config_note_band_level(cached, 3u));
+	CHECK(cached == 3u);
+	CHECK_FALSE(sh_config_note_band_level(cached, 3u));
+	CHECK(sh_config_note_band_level(cached, 1u)); // runtime reduction
+	CHECK(cached == 1u);
+	CHECK_FALSE(sh_config_note_band_level(cached, 1u));
+	CHECK(sh_config_note_band_level(cached, 4u)); // and back up
+	CHECK_FALSE(sh_config_note_band_level(cached, 4u));
+}

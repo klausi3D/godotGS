@@ -79,5 +79,14 @@ void initialize_sh_config();
 // every route that reads it (streaming update and the tile raster params), so a runtime
 // sh_bands/tier change also reaches the resident backend. Returns true when it reloaded.
 bool sh_config_reload_if_settings_changed();
+// Records the SH degree an amortized colour cache is filled at. Returns true (and stores
+// the new degree) when it differs from the recorded one, i.e. cached colours are stale.
+inline bool sh_config_note_band_level(uint32_t &r_cached_level, uint32_t p_level) {
+    if (r_cached_level == p_level) {
+        return false;
+    }
+    r_cached_level = p_level;
+    return true;
+}
 
 #endif // SH_CONFIG_H

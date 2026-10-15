@@ -110,7 +110,8 @@ nor creates workers or RD resources.
 
 The amortized SH colour cache is keyed per physical Gaussian and shared by every
 instance of an asset, so only references at the full configured degree read or
-write it; reduced per-instance limits evaluate fresh.
+write it; reduced per-instance limits evaluate fresh. A changed configured degree
+forces one full cache refresh.
 
 Qualify with real settings signals and no manual global SH reload, initialized
 and failed-init paths, retained full-dirty/no-worker early-path controls, normal

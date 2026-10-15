@@ -143,7 +143,13 @@ class SHSelectionWiringTests(unittest.TestCase):
 
     def test_resident_raster_params_reload_runtime_sh_settings(self) -> None:
         source = (ROOT / "modules/gaussian_splatting/renderer/tile_render_stages.cpp").read_text(encoding="utf-8")
-        self.assertRegex(source, r"sh_config_reload_if_settings_changed\(\);\s*params\.sh_config\[0\]\s*=\s*static_cast<float>\(g_sh_config\.sh_bands\)")
+        reload = source.index("sh_config_reload_if_settings_changed();")
+        band = source.index("params.sh_config[0] = static_cast<float>(g_sh_config.sh_bands);")
+        self.assertLess(reload, band, "the raster params must reload SH settings before reading them")
+        # A changed degree must refresh the amortized SH colour cache (PR #1205 review).
+        between = source[reload:band]
+        self.assertRegex(between, r"sh_config_note_band_level\(owner\.sh_cache_band_level,\s*uint32_t\(g_sh_config\.sh_bands\)\)")
+        self.assertRegex(between, r"owner\.sh_cache_needs_full_update\s*=\s*true;")
 
     def test_effective_quality_is_synchronized_at_production_streaming_entry(self) -> None:
         source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")

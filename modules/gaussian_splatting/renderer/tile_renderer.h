@@ -532,6 +532,8 @@ private:
     };
     InstancePipelineBindings instance_pipeline_buffers;
     bool sh_cache_needs_full_update = false;
+    // SH degree the amortized colour cache was last filled at (sh_config_note_band_level).
+    uint32_t sh_cache_band_level = UINT32_MAX;
     TileFrameState frame_state;
     TileDeviceContext device_context;
     bool gpu_timestamp_capture_enabled = true;
