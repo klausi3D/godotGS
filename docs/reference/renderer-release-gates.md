@@ -40,7 +40,7 @@ limitation before candidate mode can pass.
 | #351 route/fallback/stage contracts | Blocking | #351 closed or split to non-alpha follow-up; resident, streaming, and serial route failure-injection tests; candidate benchmark rows include `route_uid`, `stage_statuses`, and `fallback_counters`. |
 | #352 GPU resource lifetime | Blocking | #352 closed or split to non-alpha follow-up; GPU/RID accounting fails on retained owned resources; required GPU batches report `rid_leak_bytes=0`. |
 | #360 public-alpha acceptance gates | Blocking | Candidate evidence bundle passes `--mode candidate`; issue snapshot classifies every open P0/P1/release-blocker issue; known limitations page contains each accepted alpha limitation. |
-| #369 opaque `qlty check` | Deferred external signal | `master` branch protection does not require `qlty check` (its required checks are `agentic-pr-gate` and `docs-build`); no repo-owned qlty config is tracked; `qlty check` is documented as non-blocking unless branch protection later requires it. |
+| #369 opaque `qlty check` | Deferred external signal | #369 is closed and the qlty GitHub app was uninstalled on 2026-10-15, so `qlty check` no longer reports; `master` branch protection requires only `agentic-pr-gate` and `docs-build`. The row stays because the contract checker requires a `qlty check` classification (see [External Status Checks](#external-status-checks)). |
 
 Closed umbrella issues #350 and #353 stay closed only because their remaining
 release risk is represented by open child blockers and follow-up issues. They
@@ -77,14 +77,14 @@ not fail this gate; those contexts are enforced only by branch protection when a
 merges into `master`. `required_for_public_alpha` is empty.
 
 As of 2026-10-08, GitHub branch protection for `master` requires two status
-checks, `agentic-pr-gate` and `docs-build`, and not `qlty check` (when this policy was written
-on 2026-05-21 it required none), and the repo does not track a qlty configuration
-file. Therefore `qlty check` is an advisory external signal for this gate. A
-failing, pending, absent, or login-gated qlty result must not fail `tests/ci/check_renderer_release_gates.py`.
+checks, `agentic-pr-gate` and `docs-build` (when this policy was written on
+2026-05-21 it required none). No other external check is part of this gate.
 
-If qlty later becomes branch-protection-required or gets a repo-owned actionable
-configuration/log contract, update `external_status_check_policy` in the
-manifest and reclassify #369 before cutting a candidate.
+The qlty GitHub app was uninstalled on 2026-10-15, so `qlty check` no longer
+reports. The manifest still lists it under `non_blocking_checks` as a deferred
+entry tied to the closed #369 only because `_validate_external_status_check_policy`
+requires every manifest to classify `qlty check` as required or non-blocking.
+Dropping that entry needs a change to the checker and its tests, not to this page.
 
 ## Workflow Policy Scope
 
