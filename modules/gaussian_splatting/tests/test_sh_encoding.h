@@ -826,7 +826,8 @@ inline bool check_partial_higher_pixels(RenderingDevice *p_rd, uint32_t p_first,
     for (float sign : { 1.0f, -1.0f }) {
         const Vector3 position = direction * (3.0f * sign);
         // Rotating the camera keeps both opposite world directions centred and in front.
-        const Transform3D camera = Transform3D().looking_at(position, Vector3(0, 1, 0));
+        // render_for_view takes the view (world-to-camera) matrix, so invert the camera pose.
+        const Transform3D camera = Transform3D().looking_at(position, Vector3(0, 1, 0)).affine_inverse();
         float baseline = 0.0f, measured = 0.0f;
         String why;
         if (!render_payload_red(p_rd, make_partial_higher_splat(position, p_first, 0.0f), camera, 2,
