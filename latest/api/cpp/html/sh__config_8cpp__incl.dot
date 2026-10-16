@@ -6,7 +6,7 @@ digraph "sh_config.cpp"
   node [fontname=Helvetica,fontsize=10,shape=box,height=0.2,width=0.4];
   Node1 [id="Node000001",label="sh_config.cpp",height=0.2,width=0.4,color="gray40", fillcolor="grey60", style="filled", fontcolor="black",tooltip=" "];
   Node1 -> Node2 [id="edge1_Node000001_Node000002",color="steelblue1",style="solid",tooltip=" "];
-  Node2 [id="Node000002",label="sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for memory/quality tradeoff."];
+  Node2 [id="Node000002",label="sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for shading work/quality tradeoff."];
   Node2 -> Node3 [id="edge2_Node000002_Node000003",color="steelblue1",style="solid",tooltip=" "];
   Node3 [id="Node000003",label="core/string/ustring.h",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
   Node2 -> Node4 [id="edge3_Node000002_Node000004",color="steelblue1",style="solid",tooltip=" "];
@@ -49,4 +49,5 @@ digraph "sh_config.cpp"
   Node16 -> Node15 [id="edge25_Node000016_Node000015",color="steelblue1",style="solid",tooltip=" "];
   Node16 -> Node19 [id="edge26_Node000016_Node000019",color="steelblue1",style="solid",tooltip=" "];
   Node19 [id="Node000019",label="functional",height=0.2,width=0.4,color="grey60", fillcolor="#E0E0E0", style="filled",tooltip=" "];
+  Node1 -> Node18 [id="edge27_Node000001_Node000018",color="steelblue1",style="solid",tooltip=" "];
 }

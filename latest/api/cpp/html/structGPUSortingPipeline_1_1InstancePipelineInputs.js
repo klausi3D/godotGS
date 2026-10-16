@@ -13,6 +13,7 @@ var structGPUSortingPipeline_1_1InstancePipelineInputs =
     [ "max_visible_splats", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#ac66a19e4e9f5179f98228d09d0daf46f", null ],
     [ "owner_renderer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a4d5fbab8996bc344496cca86a5b1ee7a", null ],
     [ "quantization_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a0d125e941c9517e156adf2e652ef6bdf", null ],
+    [ "sh_lod_policy", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#ab3a1cb8f2127e269e96d94eb29c4618f", null ],
     [ "sort_key_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a35fe5341eb8c499979ebef840063f963", null ],
     [ "sort_value_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#a3ed430bc7e79576259855531b9b83724", null ],
     [ "splat_ref_buffer", "structGPUSortingPipeline_1_1InstancePipelineInputs.html#aef856798318d52906479e9557fa37869", null ],

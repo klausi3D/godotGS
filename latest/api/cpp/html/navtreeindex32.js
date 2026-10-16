@@ -1,5 +1,17 @@
 var NAVTREEINDEX32 =
 {
+"structGaussianSplatHlodCell.html#a949bdb4486453b32d9699b7c9df33b49":[1,0,72,2],
+"structGaussianSplatHlodCell.html#ad054c5529242ff3460954786f493a157":[1,0,72,1],
+"structGaussianSplatHlodCell.html#ad58d6f0d1220eb239e80cb327ab6507e":[1,0,72,4],
+"structGaussianSplatHlodInstance.html":[1,0,73],
+"structGaussianSplatHlodInstance.html#a1fef37d1108dbd54fe702d52d8aa8470":[1,0,73,4],
+"structGaussianSplatHlodInstance.html#a29cab1673e82a330fc0f5d7463da41cd":[1,0,73,2],
+"structGaussianSplatHlodInstance.html#a5478aecea87b3fe3ae0bc31d1d58687e":[1,0,73,1],
+"structGaussianSplatHlodInstance.html#ace2ae9833608d49aa67a2dae080e07d6":[1,0,73,0],
+"structGaussianSplatHlodInstance.html#ae7afd9af315a2571b5efbbf8fac7e1d7":[1,0,73,3],
+"structGaussianSplatHlodNode.html":[1,0,74],
+"structGaussianSplatHlodNode.html#a0767d32249cd26294433e6710d31c225":[1,0,74,12],
+"structGaussianSplatHlodNode.html#a076bf58937f3adb60da726044f1552b6":[1,0,74,16],
 "structGaussianSplatHlodNode.html#a0812cfc19aec818e1846c3d7837662de":[1,0,74,2],
 "structGaussianSplatHlodNode.html#a162a448a2600a0fa6497b8e330c60a48":[1,0,74,15],
 "structGaussianSplatHlodNode.html#a2131d58aab0d29114037c5b5b2cb6325":[1,0,74,14],
@@ -237,17 +249,5 @@ var NAVTREEINDEX32 =
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#ae682abe7e901f9f51799a3f6a666fdaf":[1,0,87,9,0,8],
 "structGaussianSplatRenderer_1_1RenderFrameContext_1_1FrameDeps.html#afc0ccad616d1be95364c3d1d14bbe0cb":[1,0,87,9,0,12],
 "structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html":[1,0,87,10],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#a8d2266303f0a5af03bb2d9442c27b5cc":[1,0,87,10,3],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#a913913ac634f240334988e4977511674":[1,0,87,10,5],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#a9dba75efda458f734837cc6901c2e579":[1,0,87,10,0],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#ac3d5727a9fc4a73ab02ac804826948e6":[1,0,87,10,4],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#ada6ed0584430d703ff4717602c662b33":[1,0,87,10,1],
-"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#af75123af12de6469c07c6df2cd6e1e1e":[1,0,87,10,2],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html":[1,0,87,12],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#a3d445eeb223cae3777372b6a1890f053":[1,0,87,12,1],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#a43cfb4483892ec22c64dfa4e2bbcae07":[1,0,87,12,0],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#ac4a098793dd79c105dbb0bc18274b8a5":[1,0,87,12,2],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#ac94d669aff92c470b5d4aaaf0911b304":[1,0,87,12,5],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#ac9d7eaa0d13f98362fdb825b93e8d66a":[1,0,87,12,3],
-"structGaussianSplatRenderer_1_1ShadowPassDescriptor.html#afe617361e4f92a6a69ab78220637b0b4":[1,0,87,12,4]
+"structGaussianSplatRenderer_1_1RuntimeFidelityPolicy.html#a8d2266303f0a5af03bb2d9442c27b5cc":[1,0,87,10,3]
 };

@@ -59,12 +59,13 @@ var searchData=
   ['gs_5flog_5fwarn_5fdefault_56',['GS_LOG_WARN_DEFAULT',['../gs__logger_8h.html#adf2bdd37529e8f3a7bf37a8c237345c6',1,'gs_logger.h']]],
   ['gs_5fmaterialize_5flane_57',['GS_MATERIALIZE_LANE',['../gaussian__splat__asset_8cpp.html#ad5682c7afbc6e2ec4310c71b115ff803',1,'gaussian_splat_asset.cpp']]],
   ['gs_5fpin_5fgaussian_5ffield_58',['GS_PIN_GAUSSIAN_FIELD',['../gaussian__data_8h.html#a52cd70f12218c459c050e63b6c70798f',1,'gaussian_data.h']]],
-  ['gs_5frenderer_5fdebug_5faccessor_5fimpl_59',['GS_RENDERER_DEBUG_ACCESSOR_IMPL',['../debug__overlay__macros_8h.html#a5cb9e219b6c76d31af48789007fcfcea',1,'debug_overlay_macros.h']]],
-  ['gs_5frenderer_5fdebug_5fgetter_5fimpl_60',['GS_RENDERER_DEBUG_GETTER_IMPL',['../debug__overlay__macros_8h.html#a7d6cbab665d6829ead13fd89cea63b67',1,'debug_overlay_macros.h']]],
-  ['gs_5frenderer_5fdebug_5fsetter_5fimpl_61',['GS_RENDERER_DEBUG_SETTER_IMPL',['../debug__overlay__macros_8h.html#ad90c8ba2ae9e3c48752f3e5f18dfcbf3',1,'debug_overlay_macros.h']]],
-  ['gs_5fsafe_5ffree_62',['GS_SAFE_FREE',['../gpu__debug__utils_8h.html#a4d79b14a4948827433cfa03ab0c52e7f',1,'gpu_debug_utils.h']]],
-  ['gs_5fsafe_5ffree_5fif_5fvalid_63',['GS_SAFE_FREE_IF_VALID',['../gpu__debug__utils_8h.html#a5b698cb33bed25b8f761ec6d5849cb73',1,'gpu_debug_utils.h']]],
-  ['gs_5fstartup_5fscope_64',['GS_STARTUP_SCOPE',['../startup__trace_8h.html#a3c3eb4388de46dae704b84ff0edda5f0',1,'startup_trace.h']]],
-  ['gs_5fstartup_5fscope_5fconcat_65',['GS_STARTUP_SCOPE_CONCAT',['../startup__trace_8h.html#a38ca49ea50cdda2367f47c41a1412bd8',1,'startup_trace.h']]],
-  ['gs_5fstartup_5fscope_5fconcat_5finner_66',['GS_STARTUP_SCOPE_CONCAT_INNER',['../startup__trace_8h.html#aa31dea123b37a8b05a8c59edd4e58bb0',1,'startup_trace.h']]]
+  ['gs_5fref_5finline_59',['GS_REF_INLINE',['../splat__ref__encoding_8h.html#abc5fd197131b3fce3a00c3124c137685',1,'splat_ref_encoding.h']]],
+  ['gs_5frenderer_5fdebug_5faccessor_5fimpl_60',['GS_RENDERER_DEBUG_ACCESSOR_IMPL',['../debug__overlay__macros_8h.html#a5cb9e219b6c76d31af48789007fcfcea',1,'debug_overlay_macros.h']]],
+  ['gs_5frenderer_5fdebug_5fgetter_5fimpl_61',['GS_RENDERER_DEBUG_GETTER_IMPL',['../debug__overlay__macros_8h.html#a7d6cbab665d6829ead13fd89cea63b67',1,'debug_overlay_macros.h']]],
+  ['gs_5frenderer_5fdebug_5fsetter_5fimpl_62',['GS_RENDERER_DEBUG_SETTER_IMPL',['../debug__overlay__macros_8h.html#ad90c8ba2ae9e3c48752f3e5f18dfcbf3',1,'debug_overlay_macros.h']]],
+  ['gs_5fsafe_5ffree_63',['GS_SAFE_FREE',['../gpu__debug__utils_8h.html#a4d79b14a4948827433cfa03ab0c52e7f',1,'gpu_debug_utils.h']]],
+  ['gs_5fsafe_5ffree_5fif_5fvalid_64',['GS_SAFE_FREE_IF_VALID',['../gpu__debug__utils_8h.html#a5b698cb33bed25b8f761ec6d5849cb73',1,'gpu_debug_utils.h']]],
+  ['gs_5fstartup_5fscope_65',['GS_STARTUP_SCOPE',['../startup__trace_8h.html#a3c3eb4388de46dae704b84ff0edda5f0',1,'startup_trace.h']]],
+  ['gs_5fstartup_5fscope_5fconcat_66',['GS_STARTUP_SCOPE_CONCAT',['../startup__trace_8h.html#a38ca49ea50cdda2367f47c41a1412bd8',1,'startup_trace.h']]],
+  ['gs_5fstartup_5fscope_5fconcat_5finner_67',['GS_STARTUP_SCOPE_CONCAT_INNER',['../startup__trace_8h.html#aa31dea123b37a8b05a8c59edd4e58bb0',1,'startup_trace.h']]]
 ];

@@ -1,5 +1,6 @@
 var NAVTREEINDEX19 =
 {
+"load-spz_8h.html#ac309ef6078e0b9806881178ed83e20e2":[2,0,0,0,14,0,1,25],
 "load-spz_8h.html#ad378f98e5a3e8bba8c81f4abb9423d03":[2,0,0,0,14,0,1,16],
 "load-spz_8h.html#ad8fbd9586254940168e2a23a1d22eeaf":[2,0,0,0,14,0,1,7],
 "load-spz_8h.html#ada5755a87e36478bc31537b42d92563f":[2,0,0,0,14,0,1,8],
@@ -248,6 +249,5 @@ var NAVTREEINDEX19 =
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a1ca67e799d099560930113bcfa1e342a":[0,0,12,0,10],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a3e14ff5ee9422f2c27d924383ca77956":[0,0,12,0,13],
 "namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a6f5ae7595f89777668ab2446d38be9b1":[0,0,12,0,14],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a72fbc97357b86bdc2e17276b7d59e1f6":[0,0,12,0,11],
-"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a769b871c128ce6a6bc68887e94807b66":[0,0,12,0,7]
+"namespaceGaussianSplatting_1_1ComputeInfrastructure.html#a72fbc97357b86bdc2e17276b7d59e1f6":[0,0,12,0,11]
 };

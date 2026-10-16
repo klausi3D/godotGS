@@ -123,9 +123,9 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:ad82cff6380f33e20f084e484b1b1cfe4" id="r_ad82cff6380f33e20f084e484b1b1cfe4"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structLODConfig.html#ad82cff6380f33e20f084e484b1b1cfe4">get_splat_skip_factor</a> (int lod_level) const</td></tr>
 <tr class="memdesc:ad82cff6380f33e20f084e484b1b1cfe4"><td class="mdescLeft">&#160;</td><td class="mdescRight">Get splat skip factor for a given LOD level.  <br /></td></tr>
 <tr class="separator:ad82cff6380f33e20f084e484b1b1cfe4"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a230dec8402ca61d5218138f4638b1de4" id="r_a230dec8402ca61d5218138f4638b1de4"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structLODConfig.html#a230dec8402ca61d5218138f4638b1de4">get_sh_band_for_lod</a> (int lod_level) const</td></tr>
-<tr class="memdesc:a230dec8402ca61d5218138f4638b1de4"><td class="mdescLeft">&#160;</td><td class="mdescRight">Get SH band level for a given LOD level.  <br /></td></tr>
-<tr class="separator:a230dec8402ca61d5218138f4638b1de4"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a07b3af0c0dd4f1d3659e7ad793679df5" id="r_a07b3af0c0dd4f1d3659e7ad793679df5"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structLODConfig.html#a07b3af0c0dd4f1d3659e7ad793679df5">get_sh_band_for_lod</a> (int lod_level, int max_band=3) const</td></tr>
+<tr class="memdesc:a07b3af0c0dd4f1d3659e7ad793679df5"><td class="mdescLeft">&#160;</td><td class="mdescRight">Get SH band level for a given LOD level.  <br /></td></tr>
+<tr class="separator:a07b3af0c0dd4f1d3659e7ad793679df5"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6c45b40691544f25787c489f479dce87" id="r_a6c45b40691544f25787c489f479dce87"><td class="memItemLeft" align="right" valign="top">float&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structLODConfig.html#a6c45b40691544f25787c489f479dce87">get_opacity_multiplier</a> (float distance) const</td></tr>
 <tr class="memdesc:a6c45b40691544f25787c489f479dce87"><td class="mdescLeft">&#160;</td><td class="mdescRight">Get opacity multiplier for a given distance.  <br /></td></tr>
 <tr class="separator:a6c45b40691544f25787c489f479dce87"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -251,8 +251,8 @@ Static Public Attributes</h2></td></tr>
 
 </div>
 </div>
-<a id="a230dec8402ca61d5218138f4638b1de4" name="a230dec8402ca61d5218138f4638b1de4"></a>
-<h2 class="memtitle"><span class="permalink"><a href="#a230dec8402ca61d5218138f4638b1de4">&#9670;&#160;</a></span>get_sh_band_for_lod()</h2>
+<a id="a07b3af0c0dd4f1d3659e7ad793679df5" name="a07b3af0c0dd4f1d3659e7ad793679df5"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a07b3af0c0dd4f1d3659e7ad793679df5">&#9670;&#160;</a></span>get_sh_band_for_lod()</h2>
 
 <div class="memitem">
 <div class="memproto">
@@ -261,21 +261,32 @@ Static Public Attributes</h2></td></tr>
           <td class="memname">int LODConfig::get_sh_band_for_lod </td>
           <td>(</td>
           <td class="paramtype">int&#160;</td>
-          <td class="paramname"><em>lod_level</em></td><td>)</td>
-          <td> const</td>
+          <td class="paramname"><em>lod_level</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">int&#160;</td>
+          <td class="paramname"><em>max_band</em> = <code>3</code>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td> const</td>
         </tr>
       </table>
 </div><div class="memdoc">
 
 <p>Get SH band level for a given LOD level. </p>
-<p>Maps LOD level to SH band level (0-3): LOD 0: SH3 (full quality) LOD 1: SH2 LOD 2: SH1 LOD 3+: SH0 (DC only)</p>
+<p>With reduction enabled and the default maximum of 3: LOD 0: SH3 LOD 1: SH2 LOD 2: SH1 LOD 3+: SH0 (DC only)</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">lod_level</td><td>The LOD level </td></tr>
+    <tr><td class="paramname">max_band</td><td>Maximum degree, clamped to 0-4 (default 3) </td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>SH band level (0-3) </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>SH band level (0-4); the maximum when reduction is disabled </dd></dl>
 
 </div>
 </div>

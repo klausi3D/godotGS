@@ -150,7 +150,7 @@ digraph "tile_render_resolve.cpp"
   Node71 -> Node11 [id="edge100_Node000071_Node000011",color="steelblue1",style="solid",tooltip=" "];
   Node71 -> Node12 [id="edge101_Node000071_Node000012",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node74 [id="edge102_Node000001_Node000074",color="steelblue1",style="solid",tooltip=" "];
-  Node74 [id="Node000074",label="sh_config.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for memory/quality tradeoff."];
+  Node74 [id="Node000074",label="sh_config.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for shading work/quality tradeoff."];
   Node74 -> Node7 [id="edge103_Node000074_Node000007",color="steelblue1",style="solid",tooltip=" "];
   Node74 -> Node47 [id="edge104_Node000074_Node000047",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node75 [id="edge105_Node000001_Node000075",color="steelblue1",style="solid",tooltip=" "];

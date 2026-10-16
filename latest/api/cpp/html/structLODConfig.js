@@ -3,7 +3,7 @@ var structLODConfig =
     [ "calculate_lod_level", "structLODConfig.html#a38af8efc673bd53ea0acafdef27b654b", null ],
     [ "get_distance_threshold", "structLODConfig.html#a0c48597ee4402ee600483cb6ba289b7c", null ],
     [ "get_opacity_multiplier", "structLODConfig.html#a6c45b40691544f25787c489f479dce87", null ],
-    [ "get_sh_band_for_lod", "structLODConfig.html#a230dec8402ca61d5218138f4638b1de4", null ],
+    [ "get_sh_band_for_lod", "structLODConfig.html#a07b3af0c0dd4f1d3659e7ad793679df5", null ],
     [ "get_splat_skip_factor", "structLODConfig.html#ad82cff6380f33e20f084e484b1b1cfe4", null ],
     [ "load_from_project_settings", "structLODConfig.html#ab5ae3b707b80aa63a903a83b1bd01431", null ],
     [ "operator!=", "structLODConfig.html#a64b43b02041893538be69c051050ae9b", null ],

@@ -155,7 +155,7 @@ digraph "tile_render_binning.cpp"
   Node70 -> Node11 [id="edge104_Node000070_Node000011",color="steelblue1",style="solid",tooltip=" "];
   Node70 -> Node12 [id="edge105_Node000070_Node000012",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node73 [id="edge106_Node000001_Node000073",color="steelblue1",style="solid",tooltip=" "];
-  Node73 [id="Node000073",label="sh_config.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for memory/quality tradeoff."];
+  Node73 [id="Node000073",label="sh_config.h",height=0.2,width=0.4,color="red", fillcolor="#FFF0F0", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for shading work/quality tradeoff."];
   Node73 -> Node7 [id="edge107_Node000073_Node000007",color="steelblue1",style="solid",tooltip=" "];
   Node73 -> Node47 [id="edge108_Node000073_Node000047",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node54 [id="edge109_Node000001_Node000054",color="steelblue1",style="solid",tooltip=" "];

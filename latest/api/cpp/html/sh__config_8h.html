@@ -99,7 +99,7 @@ $(document).ready(function(){initNavTree('sh__config_8h.html',''); initResizable
 </div><!--header-->
 <div class="contents">
 
-<p>Spherical Harmonics configuration for memory/quality tradeoff.  
+<p>Spherical Harmonics configuration for shading work/quality tradeoff.  
 <a href="#details">More...</a></p>
 <div class="textblock"><code>#include &quot;core/string/ustring.h&quot;</code><br />
 <code>#include &quot;core/config/project_settings.h&quot;</code><br />
@@ -138,7 +138,8 @@ Enumerations</h2></td></tr>
 , <a class="el" href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da2aea0a57e07cdbbc06e30bd19510273d">SH_BAND_2</a> = 2
 , <a class="el" href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687">SH_BAND_3</a> = 3
 , <br />
-&#160;&#160;<a class="el" href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da1c18aea0b9cd0388b3d4d69921168a24">SH_BAND_MAX</a> = SH_BAND_3
+&#160;&#160;<a class="el" href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da20a720f98b52d20160af8c41e8637f5b">SH_BAND_4</a> = 4
+, <a class="el" href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da1c18aea0b9cd0388b3d4d69921168a24">SH_BAND_MAX</a> = SH_BAND_4
 <br />
  }</td></tr>
 <tr class="memdesc:a9894bd26324be7adc91699b2e59f140d"><td class="mdescLeft">&#160;</td><td class="mdescRight">Spherical Harmonics band configuration levels.  <a href="sh__config_8h.html#a9894bd26324be7adc91699b2e59f140d">More...</a><br /></td></tr>
@@ -148,6 +149,10 @@ Enumerations</h2></td></tr>
 Functions</h2></td></tr>
 <tr class="memitem:a2638ccf61f1126e66c7538caebc441df" id="r_a2638ccf61f1126e66c7538caebc441df"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="sh__config_8h.html#a2638ccf61f1126e66c7538caebc441df">initialize_sh_config</a> ()</td></tr>
 <tr class="separator:a2638ccf61f1126e66c7538caebc441df"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:abb8c416df92980405ced3cd2b502a976" id="r_abb8c416df92980405ced3cd2b502a976"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="sh__config_8h.html#abb8c416df92980405ced3cd2b502a976">sh_config_reload_if_settings_changed</a> ()</td></tr>
+<tr class="separator:abb8c416df92980405ced3cd2b502a976"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:acc3ad1835887273509d17a9067744d54" id="r_acc3ad1835887273509d17a9067744d54"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="sh__config_8h.html#acc3ad1835887273509d17a9067744d54">sh_config_note_band_level</a> (uint32_t &amp;r_cached_level, uint32_t p_level)</td></tr>
+<tr class="separator:acc3ad1835887273509d17a9067744d54"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
 Variables</h2></td></tr>
@@ -155,13 +160,14 @@ Variables</h2></td></tr>
 <tr class="separator:afd4263cdf6d82ae6987db3a1406dac15"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
-<div class="textblock"><p>Spherical Harmonics configuration for memory/quality tradeoff. </p>
-<p>Provides runtime configuration of SH band count to balance memory usage against view-dependent color quality:</p>
+<div class="textblock"><p>Spherical Harmonics configuration for shading work/quality tradeoff. </p>
+<p>Provides runtime configuration of SH band count to balance shading work against view-dependent color quality:</p>
 <ul>
-<li>SH0 (DC only): Base color, 3 values per splat (~4x memory reduction)</li>
+<li>SH0 (DC only): Base color, 3 logical values per splat</li>
 <li>SH1 (1st order): + basic view dependence, 12 values total</li>
 <li>SH2 (2nd order): + enhanced view dependence, 27 values total</li>
-<li>SH3 (3rd order): Full quality, 48 values total (default) </li>
+<li>SH3 (3rd order): 48 values total</li>
+<li>SH4 (4th order): Full available quality, 75 values total (default) </li>
 </ul>
 </div><h2 class="groupheader">Macro Definition Documentation</h2>
 <a id="ae85a4cc38607c3c555b9e62edab3b96f" name="ae85a4cc38607c3c555b9e62edab3b96f"></a>
@@ -213,7 +219,9 @@ Variables</h2></td></tr>
 </td></tr>
 <tr><td class="fieldname"><a id="a9894bd26324be7adc91699b2e59f140da2aea0a57e07cdbbc06e30bd19510273d" name="a9894bd26324be7adc91699b2e59f140da2aea0a57e07cdbbc06e30bd19510273d"></a>SH_BAND_2&#160;</td><td class="fielddoc"><p>DC + 2nd order (9 coefficients = 27 values) </p>
 </td></tr>
-<tr><td class="fieldname"><a id="a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687" name="a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687"></a>SH_BAND_3&#160;</td><td class="fielddoc"><p>DC + 3rd order (16 coefficients = 48 values) - default. </p>
+<tr><td class="fieldname"><a id="a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687" name="a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687"></a>SH_BAND_3&#160;</td><td class="fielddoc"><p>DC + 3rd order (16 coefficients = 48 values) </p>
+</td></tr>
+<tr><td class="fieldname"><a id="a9894bd26324be7adc91699b2e59f140da20a720f98b52d20160af8c41e8637f5b" name="a9894bd26324be7adc91699b2e59f140da20a720f98b52d20160af8c41e8637f5b"></a>SH_BAND_4&#160;</td><td class="fielddoc"><p>DC + 4th order (25 coefficients = 75 values) </p>
 </td></tr>
 <tr><td class="fieldname"><a id="a9894bd26324be7adc91699b2e59f140da1c18aea0b9cd0388b3d4d69921168a24" name="a9894bd26324be7adc91699b2e59f140da1c18aea0b9cd0388b3d4d69921168a24"></a>SH_BAND_MAX&#160;</td><td class="fielddoc"></td></tr>
 </table>
@@ -229,6 +237,59 @@ Variables</h2></td></tr>
       <table class="memname">
         <tr>
           <td class="memname">void initialize_sh_config </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="acc3ad1835887273509d17a9067744d54" name="acc3ad1835887273509d17a9067744d54"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#acc3ad1835887273509d17a9067744d54">&#9670;&#160;</a></span>sh_config_note_band_level()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<table class="mlabels">
+  <tr>
+  <td class="mlabels-left">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool sh_config_note_band_level </td>
+          <td>(</td>
+          <td class="paramtype">uint32_t &amp;&#160;</td>
+          <td class="paramname"><em>r_cached_level</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">uint32_t&#160;</td>
+          <td class="paramname"><em>p_level</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+  </td>
+  <td class="mlabels-right">
+<span class="mlabels"><span class="mlabel">inline</span></span>  </td>
+  </tr>
+</table>
+</div><div class="memdoc">
+
+</div>
+</div>
+<a id="abb8c416df92980405ced3cd2b502a976" name="abb8c416df92980405ced3cd2b502a976"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#abb8c416df92980405ced3cd2b502a976">&#9670;&#160;</a></span>sh_config_reload_if_settings_changed()</h2>
+
+<div class="memitem">
+<div class="memproto">
+      <table class="memname">
+        <tr>
+          <td class="memname">bool sh_config_reload_if_settings_changed </td>
           <td>(</td>
           <td class="paramname"></td><td>)</td>
           <td></td>

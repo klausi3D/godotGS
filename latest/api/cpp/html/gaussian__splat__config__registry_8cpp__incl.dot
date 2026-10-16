@@ -42,7 +42,7 @@ digraph "gaussian_splat_config_registry.cpp"
   Node15 -> Node7 [id="edge21_Node000015_Node000007",color="steelblue1",style="solid",tooltip=" "];
   Node15 -> Node4 [id="edge22_Node000015_Node000004",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node16 [id="edge23_Node000001_Node000016",color="steelblue1",style="solid",tooltip=" "];
-  Node16 [id="Node000016",label="../renderer/sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for memory/quality tradeoff."];
+  Node16 [id="Node000016",label="../renderer/sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for shading work/quality tradeoff."];
   Node16 -> Node7 [id="edge24_Node000016_Node000007",color="steelblue1",style="solid",tooltip=" "];
   Node16 -> Node4 [id="edge25_Node000016_Node000004",color="steelblue1",style="solid",tooltip=" "];
   Node16 -> Node14 [id="edge26_Node000016_Node000014",color="steelblue1",style="solid",tooltip=" "];

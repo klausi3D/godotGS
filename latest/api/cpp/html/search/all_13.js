@@ -555,7 +555,7 @@ var searchData=
   ['rotflippfunc_552',['rotFlipPFunc',['../structspz_1_1CoordinateConverter.html#a41faac2b00c5de20b3dc2ba422e0b88b',1,'spz::CoordinateConverter']]],
   ['rotflipqfunc_553',['rotFlipQFunc',['../structspz_1_1CoordinateConverter.html#a70e1e911eddb207863fc42055bd5f728',1,'spz::CoordinateConverter']]],
   ['rotflipshfuncs_554',['rotFlipShFuncs',['../structspz_1_1CoordinateConverter.html#a73aab8022046454a7371a4a67748bac6',1,'spz::CoordinateConverter']]],
-  ['route_555',['route',['../structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html#ab106d38d5a1f1c640161ba4fb6f49af9',1,'GaussianSplatting::ComputeInfrastructure::FallbackDecision::route'],['../structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html#a98336322ce426958e5657e4cd53c10bb',1,'GaussianSplatting::ComputeInfrastructure::FallbackDecision::Route']]],
+  ['route_555',['route',['../structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html#a98336322ce426958e5657e4cd53c10bb',1,'GaussianSplatting::ComputeInfrastructure::FallbackDecision::Route'],['../structGaussianSplatting_1_1ComputeInfrastructure_1_1FallbackDecision.html#ab106d38d5a1f1c640161ba4fb6f49af9',1,'GaussianSplatting::ComputeInfrastructure::FallbackDecision::route']]],
   ['route_5fdecision_556',['route_decision',['../structGaussianRenderPipeline_1_1RenderFramePlan.html#a11fae2374f5029e508c7337a54cef213',1,'GaussianRenderPipeline::RenderFramePlan']]],
   ['route_5flabel_557',['route_label',['../structGaussianSplatRenderer_1_1ShadowRenderResult.html#a059c14316dc4bb1a8d2757c0d71c1e25',1,'GaussianSplatRenderer::ShadowRenderResult']]],
   ['route_5fpolicy_558',['route_policy',['../structQualityTierConfig.html#a25d73436646a93a82ec28ecb031aef23',1,'QualityTierConfig']]],

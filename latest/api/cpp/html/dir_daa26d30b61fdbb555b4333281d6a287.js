@@ -83,6 +83,7 @@ var dir_daa26d30b61fdbb555b4333281d6a287 =
     [ "sorting_settings_utils.h", "sorting__settings__utils_8h.html", null ],
     [ "spirv_disk_cache.cpp", "spirv__disk__cache_8cpp.html", null ],
     [ "spirv_disk_cache.h", "spirv__disk__cache_8h.html", "spirv__disk__cache_8h" ],
+    [ "splat_ref_encoding.h", "splat__ref__encoding_8h.html", "splat__ref__encoding_8h" ],
     [ "tile_lighting_abi.h", "tile__lighting__abi_8h.html", "tile__lighting__abi_8h" ],
     [ "tile_prefix_scan_utils.h", "tile__prefix__scan__utils_8h.html", "tile__prefix__scan__utils_8h" ],
     [ "tile_render_adaptive_controller.cpp", "tile__render__adaptive__controller_8cpp.html", null ],

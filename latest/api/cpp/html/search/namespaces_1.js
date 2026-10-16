@@ -29,6 +29,7 @@ var searchData=
   ['gs_5flogger_26',['gs_logger',['../namespacegs__logger.html',1,'']]],
   ['gs_5flogger_3a_3atest_27',['test',['../namespacegs__logger_1_1test.html',1,'gs_logger']]],
   ['gs_5fsort_5fpolicy_28',['gs_sort_policy',['../namespacegs__sort__policy.html',1,'']]],
-  ['gs_5ftier_5fcap_29',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
-  ['gs_5fworld_5fformat_30',['gs_world_format',['../namespacegs__world__format.html',1,'']]]
+  ['gs_5fsplat_5fref_29',['gs_splat_ref',['../namespacegs__splat__ref.html',1,'']]],
+  ['gs_5ftier_5fcap_30',['gs_tier_cap',['../namespacegs__tier__cap.html',1,'']]],
+  ['gs_5fworld_5fformat_31',['gs_world_format',['../namespacegs__world__format.html',1,'']]]
 ];

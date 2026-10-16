@@ -1,6 +1,7 @@
 var structGaussianSplatting_1_1TileSHCacheBuffers =
 [
     [ "TileSHCacheBuffers", "structGaussianSplatting_1_1TileSHCacheBuffers.html#a8cb8b5226b4f935a9e604add9804e003", null ],
+    [ "clear_color_cache", "structGaussianSplatting_1_1TileSHCacheBuffers.html#a429f3ac465a1cf2bfb937853c4959eab", null ],
     [ "ensure_color_cache", "structGaussianSplatting_1_1TileSHCacheBuffers.html#ac368bcb82435f120dc9eff3e8fdef070", null ],
     [ "release", "structGaussianSplatting_1_1TileSHCacheBuffers.html#a315690e46b6180aad2d0238bb72372bb", null ],
     [ "reset_state", "structGaussianSplatting_1_1TileSHCacheBuffers.html#aa8f8fd9c7d18e24fca0aeb2598bf34fb", null ],

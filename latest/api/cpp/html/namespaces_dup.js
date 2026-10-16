@@ -59,6 +59,9 @@ var namespaces_dup =
     [ "gs_layout_hint", "namespacegs__layout__hint.html", "namespacegs__layout__hint" ],
     [ "gs_logger", "namespacegs__logger.html", "namespacegs__logger" ],
     [ "gs_sort_policy", "namespacegs__sort__policy.html", "namespacegs__sort__policy" ],
+    [ "gs_splat_ref", "namespacegs__splat__ref.html", [
+      [ "uint", "namespacegs__splat__ref.html#a863ad4e11ab23d315f2978fd828e6fde", null ]
+    ] ],
     [ "gs_tier_cap", "namespacegs__tier__cap.html", "namespacegs__tier__cap" ],
     [ "gs_world_format", "namespacegs__world__format.html", "namespacegs__world__format" ],
     [ "RenderingErrorCodes", "namespaceRenderingErrorCodes.html", [

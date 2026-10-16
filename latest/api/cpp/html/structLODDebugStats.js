@@ -7,7 +7,7 @@ var structLODDebugStats =
     [ "lod_level_counts", "structLODDebugStats.html#a64e70f07adb326e40000e3f321da5db9", null ],
     [ "max_distance", "structLODDebugStats.html#ab8ea44bb0915751cf4db94f1dc4a40c7", null ],
     [ "min_distance", "structLODDebugStats.html#a14e50767479a2141555f429e5c06ce0a", null ],
-    [ "sh_band_counts", "structLODDebugStats.html#a0dd176d17c2e8a75a26e06620814b3af", null ],
+    [ "sh_band_counts", "structLODDebugStats.html#afe77eb7e2d9e7ad0cd89d60a448e6c36", null ],
     [ "splat_reduction_ratio", "structLODDebugStats.html#a9e96c089c5eb998700548eee2fde3f20", null ],
     [ "total_chunks", "structLODDebugStats.html#a7445ab19912fc1ec0331c34b97b5439a", null ],
     [ "total_splats_after_skip", "structLODDebugStats.html#a01af26a742e27afc60804b30f1c50269", null ],

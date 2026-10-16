@@ -8,8 +8,11 @@ var sh__config_8h =
       [ "SH_BAND_1", "sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da6d60c456fba9c45b05ed590a3d96ca72", null ],
       [ "SH_BAND_2", "sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da2aea0a57e07cdbbc06e30bd19510273d", null ],
       [ "SH_BAND_3", "sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da64d94edbc92b86e0ffdd3bb6df91d687", null ],
+      [ "SH_BAND_4", "sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da20a720f98b52d20160af8c41e8637f5b", null ],
       [ "SH_BAND_MAX", "sh__config_8h.html#a9894bd26324be7adc91699b2e59f140da1c18aea0b9cd0388b3d4d69921168a24", null ]
     ] ],
     [ "initialize_sh_config", "sh__config_8h.html#a2638ccf61f1126e66c7538caebc441df", null ],
+    [ "sh_config_note_band_level", "sh__config_8h.html#acc3ad1835887273509d17a9067744d54", null ],
+    [ "sh_config_reload_if_settings_changed", "sh__config_8h.html#abb8c416df92980405ced3cd2b502a976", null ],
     [ "g_sh_config", "sh__config_8h.html#afd4263cdf6d82ae6987db3a1406dac15", null ]
 ];

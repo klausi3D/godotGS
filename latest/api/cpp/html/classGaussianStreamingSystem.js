@@ -35,6 +35,7 @@ var classGaussianStreamingSystem =
     [ "get_global_atlas_state", "classGaussianStreamingSystem.html#aa7afd4c7bfb5026a14f8ad8b46cd9c6c", null ],
     [ "get_global_lod_blend_factor", "classGaussianStreamingSystem.html#ae3fdc71b2677d1f6a9dc31d7915ed4b1", null ],
     [ "get_global_sh_band_level", "classGaussianStreamingSystem.html#a112d791bb9f016b19bef546e3758dc2f", null ],
+    [ "get_instance_sh_policy", "classGaussianStreamingSystem.html#a570759dd4218b43e153b21abe56011ef", null ],
     [ "get_load_distance_limit", "classGaussianStreamingSystem.html#a3416bdefccf364f4d15d97a65fcf9320", null ],
     [ "get_loaded_chunks", "classGaussianStreamingSystem.html#afb0df4cf53fc5fd78801d0f38f94ead6", null ],
     [ "get_lod_blend_distance", "classGaussianStreamingSystem.html#aaf34bc756858b402903913dd2bc155db", null ],

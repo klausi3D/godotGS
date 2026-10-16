@@ -125,7 +125,7 @@ digraph "render_diagnostics_orchestrator.cpp"
   Node131 -> Node3 [id="edge80_Node000131_Node000003",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node109 [id="edge81_Node000001_Node000109",color="steelblue1",style="solid",tooltip=" "];
   Node1 -> Node132 [id="edge82_Node000001_Node000132",color="steelblue1",style="solid",tooltip=" "];
-  Node132 [id="Node000132",label="sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for memory/quality tradeoff."];
+  Node132 [id="Node000132",label="sh_config.h",height=0.2,width=0.4,color="grey40", fillcolor="white", style="filled",URL="$sh__config_8h.html",tooltip="Spherical Harmonics configuration for shading work/quality tradeoff."];
   Node132 -> Node38 [id="edge83_Node000132_Node000038",color="steelblue1",style="solid",tooltip=" "];
   Node132 -> Node54 [id="edge84_Node000132_Node000054",color="steelblue1",style="solid",tooltip=" "];
   Node132 -> Node36 [id="edge85_Node000132_Node000036",color="steelblue1",style="solid",tooltip=" "];
