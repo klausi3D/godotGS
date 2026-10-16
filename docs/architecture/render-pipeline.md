@@ -13,6 +13,43 @@ This document describes the runtime render pipeline in detail: frame entry, rout
 
 ## Frame Execution Flow
 
+### Route Decisions
+
+The renderer tests resident preference first. Only its **No** branch continues to the second decision.
+
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Backend decisions in priority order">
+    <li>
+      <strong>Prefer resident?</strong>
+      <ul class="gs-flow__branches">
+        <li><small>Yes: resident attempt<br>Accepted: shared stages<br>Rejected: typed skip</small></li>
+        <li><small>No: check the streaming request</small></li>
+      </ul>
+    </li>
+    <li>
+      <strong>Streaming requested?</strong>
+      <ul class="gs-flow__branches">
+        <li><small>Yes: streaming readiness<br>Ready: shared stages<br>Not ready: typed skip</small></li>
+        <li><small>No: explicit resident attempt<br>Accepted: shared stages<br>Rejected: no frame, no typed skip</small></li>
+      </ul>
+    </li>
+  </ol>
+  <figcaption>A rejected preferred-resident attempt or an unavailable/rejected streaming path ends this frame. Neither falls back to the other backend in the same frame. See <a href="#execution-details">Execution Details</a> for the calls and diagnostics.</figcaption>
+</figure>
+
+### Shared Stages
+
+<figure class="gs-flow" markdown="1">
+  <ol class="gs-flow__steps" aria-label="Common stage order">
+    <li><strong><a href="#cull-stage">Cull</a></strong><small>Determine visible splats</small></li>
+    <li><strong><a href="#sort-stage">Sort</a></strong><small>Prepare sorted indices</small></li>
+    <li><strong><a href="#raster-and-composite">Raster / composite</a></strong><small>Prepare and integrate output</small></li>
+  </ol>
+  <figcaption>Stage order, not a guarantee of dispatch or completed output: individual stages can skip or reject work. Resident execution drives the sequence per instance pass; streaming uses one frame entry.</figcaption>
+</figure>
+
+### Execution Details
+
 1. `GaussianSplatRenderer::render_scene_instance` initializes per-frame state and camera/view context.
 2. The renderer builds the frame's backend plan (`build_frame_backend_plan`) and picks exactly one route:
    - **Resident, tried first** when `FrameBackendPlan::prefer_resident_backend` is set. `_try_render_resident_frame` publishes the resident instance contract (`_publish_resident_direct_data_contract`, backed by `ResidentInstanceContractPublisher`), then calls `render_instanced`. If the contract cannot be published, the frame is skipped with a typed `resident_not_feasible` route. Streaming is not tried on the same frame.
@@ -20,27 +57,6 @@ This document describes the runtime render pipeline in detail: frame entry, rout
    - **Resident, explicit policy**: if streaming was not requested at all, the renderer calls `_render_resident_frame`, which runs the same resident attempt but discards its result. If that attempt fails, the frame is not rendered, but no typed skip route is published: there is no route decision, no `publish_route_skip_stage_metrics` call, and `route_uid` stays at the frame-start `COMMON.UNSET.ROUTE`. Only a failed contract publish records a reason, through the instance-backend diagnostics.
 3. `RenderPipelineStages` runs the same stage sequence on both routes: cull (`execute_cull_stage`), sort (`execute_sort_stage`), then raster/composite (`render_sorted_splats_with_context`). The resident route drives it per instance pass from `RenderInstancingOrchestrator::render_instanced`. The streaming route drives it once from `execute_frame_entry`.
 4. Output and diagnostics are finalized.
-
-```mermaid
-flowchart LR
-    Entry[render_scene_instance] --> Plan{Prefer<br/>resident?}
-    Plan -- Yes --> Resident[Publish resident contract]
-    Resident -- Published --> Inst[render_instanced]
-    Inst --> Cull[Cull Stage]
-    Resident -- Not feasible --> Skip[Typed skip route, no same-frame fallback]
-    Plan -- No --> Stream{Streaming<br/>requested + ready?}
-    Stream -- Yes --> StreamOrch[RenderStreamingOrchestrator]
-    StreamOrch -- Ready --> Entry2[execute_frame_entry]
-    Entry2 --> Cull
-    StreamOrch -- Not ready --> Skip
-    Stream -- Requested, not ready --> Skip
-    Stream -- Not requested --> ResidentExplicit[Publish resident contract<br/>explicit policy]
-    ResidentExplicit -- Published --> Inst
-    ResidentExplicit -- Not feasible --> Untyped[Frame not rendered,<br/>no typed skip route]
-    Cull --> Sort[Sort Stage]
-    Sort --> Raster[Raster / Composite]
-    Raster --> Output[Final Output]
-```
 
 ## Backend Route Policy (Resident vs Streaming)
 
