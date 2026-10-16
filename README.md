@@ -5,12 +5,11 @@ GodotGS is a Godot 4.5 fork with an in-tree Gaussian Splatting module for import
 
 ## Download
 
-godotGS runs as its own editor, not as a plugin for stock Godot. Nightly editors are published as prereleases on GitHub:
+**[Download the godotGS editor for Windows or Linux](https://klausi3d.github.io/godotGS/latest/getting-started/downloads/)** — choose your platform, extract the archive, and open the executable. No source build is needed on these platforms.
 
-- **[GitHub Releases](https://github.com/klausi3D/godotGS/releases)**: pick the most recent `nightly-YYYYMMDD` entry at the top. Every nightly has the Linux editor. The Windows editor and the Windows export template are attached only when that night's Windows build passed, so on Windows pick the newest nightly that lists `godotgs-windows-x86_64-<tag>.zip`.
-- macOS: [build from source](docs/BUILDING.md).
+godotGS runs as its own editor, not as a plugin for stock Godot. These downloads are nightly prereleases for evaluation and prototypes; no stable (`v*`) release is published yet. **macOS:** [build from source](docs/BUILDING.md).
 
-[Downloads](docs/getting-started/downloads.md) explains each archive and how to run and verify it. No stable (`v*`) release is published yet, so nightlies are the only published binaries. See [Release Channels](docs/development/release-channels.md) for the publishing model.
+The [Downloads instructions](docs/getting-started/downloads.md) cover running and verifying the editor, including manual downloads from [GitHub Releases](https://github.com/klausi3D/godotGS/releases) if the live buttons cannot load. Export templates are only needed to ship a game. See [Release Channels](docs/development/release-channels.md) for the publishing model.
 
 > [!WARNING]
 > **The nightly Linux editor is an unoptimized `-O0` build.** It is compiled with `dev_build=yes`, which inflates CPU-side frame cost by roughly an order of magnitude. The `.dev` segment in its filename is that flag. The nightly Windows editor is optimized (`optimize=speed_trace`, no `.dev` segment). Use the Linux nightly to see godotGS work, not to judge how fast it is. For representative performance, build with `target=editor optimize=speed_trace` ([Build Flavors](docs/BUILDING.md#build-flavors)) and read the [Performance Dashboard](docs/performance/index.md#measurement-environment).

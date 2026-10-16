@@ -10,7 +10,7 @@ Follow the four steps below. First run the supplied sample, then import your own
 
 A stock Godot editor does not work: you need an editor built from this fork.
 
-- **Windows or Linux:** download a nightly editor from [Downloads](downloads.md). On Windows, take `godotgs-windows-x86_64-<tag>.zip`, not the export template zip.
+- **Windows or Linux:** [download the editor for your platform](downloads.md#latest-nightly), extract the archive, and follow [Run It](downloads.md#run-it) to open the executable. You do not need an export template to use the editor.
 - **macOS:** there is no published binary. Build one with [Build from Source](../BUILDING.md), then come back to step 2.
 - **Already built one?** Any editor built from this fork works. [Build Your Own Editor](installation.md) lists the prerequisites.
 
