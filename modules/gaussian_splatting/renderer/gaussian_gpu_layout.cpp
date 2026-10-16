@@ -75,9 +75,9 @@ static inline float sanitize_sh_component(float p_value) {
     return Math::is_finite(p_value) ? p_value : 0.0f;
 }
 
-// The SH coefficients a packer stores for one splat, in slot order: first-order (band 1)
-// coefficients, then higher-order ones, truncated to the layout's slot capacity. This is the
-// same selection both packers made before; the per-splat scale must cover exactly this set.
+// Selected SH coefficients at their physical record positions. Normal records compact the
+// first-order prefix; quantized records reserve its three fixed slots. The per-splat scale
+// covers exactly this span, including zero holes that cannot affect the scale.
 struct SelectedSH {
     Vector3 coeffs[PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS];
     uint32_t stored_first = 0;
@@ -98,6 +98,22 @@ static void select_sh_coefficients(const Gaussian &p_src, const Vector3 *p_highe
             r_sel.coeffs[r_sel.total++] = p_higher_order_coeffs ? p_higher_order_coeffs[i] : Vector3();
         }
     }
+}
+
+// Quantized metadata always describes three first-order slots followed by at most 21
+// higher-order slots. The logical coefficient limit counts retained values, not zero holes.
+static void select_quantized_sh_coefficients(const Gaussian &p_src, const Vector3 *p_higher_order_coeffs,
+		uint32_t p_first_order_count, uint32_t p_higher_order_count, uint32_t p_capacity, SelectedSH &r_sel) {
+	const uint32_t capacity = MIN<uint32_t>(p_capacity, PackedSphericalHarmonics::MAX_ENCODED_COEFFICIENTS);
+	r_sel.stored_first = MIN<uint32_t>(MIN<uint32_t>(p_first_order_count, 3u), capacity);
+	r_sel.stored_high = MIN<uint32_t>(MIN<uint32_t>(p_higher_order_count, 21u), capacity - r_sel.stored_first);
+	for (uint32_t i = 0; i < 3; i++) {
+		r_sel.coeffs[i] = i < r_sel.stored_first ? p_src.sh_1[i] : Vector3();
+	}
+	for (uint32_t i = 0; i < r_sel.stored_high; i++) {
+		r_sel.coeffs[3 + i] = p_higher_order_coeffs ? p_higher_order_coeffs[i] : Vector3();
+	}
+	r_sel.total = r_sel.stored_high > 0 ? 3u + r_sel.stored_high : r_sel.stored_first;
 }
 
 // Encodes the selected coefficients into r_words[0..total) and returns the per-splat scale
@@ -405,17 +421,17 @@ void pack_gaussian_quantized(const Gaussian &src,
     dst.sh_dc[1] = sanitize_finite(src.sh_dc.g, 0.0f);
     dst.sh_dc[2] = sanitize_finite(src.sh_dc.b, 0.0f);
 
-    // Higher-order SH: signed SNORM10 into the fixed 24-slot array, same selection order as
-    // pack_gaussian (first-order coeffs then higher-order), stored as raw uint32 (the
-    // shader reads these as uint words). The per-splat scale goes to sh_dc[3].
+    // Signed SNORM10 in the shader's fixed three-first / 21-higher slot layout, with zero
+    // holes for missing first-order terms. The logical limit and metrics count selected
+    // coefficients rather than holes. The per-splat scale goes to sh_dc[3].
     for (uint32_t i = 0; i < GS_QUANTIZED_SH_ENCODED_SLOTS; i++) {
         dst.sh_encoded[i] = 0u;
     }
     SelectedSH selected;
-    select_sh_coefficients(src, higher_order_coeffs, first_order_count, higher_order_count,
+    select_quantized_sh_coefficients(src, higher_order_coeffs, first_order_count, higher_order_count,
             MIN<uint32_t>(coefficient_limit, GS_QUANTIZED_SH_ENCODED_SLOTS), selected);
     dst.sh_dc[3] = encode_sh_snorm10(selected, dst.sh_encoded);
-    const uint32_t encoded_total = selected.total;
+    const uint32_t encoded_total = selected.stored_first + selected.stored_high;
 
     // Normal + stroke_age: two half2 words (GLSL extract_normal / extract_stroke_age).
     const Vector3 safe_normal = sanitize_finite_vec3(src.normal, Vector3());

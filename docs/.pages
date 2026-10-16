@@ -29,6 +29,7 @@ nav:
       - reference/index.md
       - Project Settings:
           - reference/project-settings.md
+          - Spherical Harmonics Quality: reference/sh-quality.md
           - Settings Migration: reference/gaussian-project-settings-migration.md
       - reference/compatibility-matrix.md
       - reference/color-grading.md
@@ -108,6 +109,7 @@ nav:
               - Splat Colour Encoding: architecture/adr-splat-colour-encoding.md
               - Complete v1 Splat Data Contract: architecture/adr-v1-splat-data-contract.md
               - SPZ v4 Reference Adapter: architecture/adr-spz-v4-reference-adapter.md
+              - SH4 Quality Selection: architecture/adr-sh4-quality-selection.md
               - SH Basis Evaluation: architecture/adr-sh-basis-evaluation.md
               - Full SH GPU Storage: architecture/adr-full-sh-gpu-storage.md
               - Hierarchical LOD for Streamed Worlds: architecture/adr-hlod-streaming.md

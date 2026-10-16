@@ -7,15 +7,16 @@
 
 /**
  * @file sh_config.h
- * @brief Spherical Harmonics configuration for memory/quality tradeoff.
+ * @brief Spherical Harmonics configuration for shading work/quality tradeoff.
  *
- * Provides runtime configuration of SH band count to balance memory usage
+ * Provides runtime configuration of SH band count to balance shading work
  * against view-dependent color quality:
  *
- * - SH0 (DC only):   Base color, 3 values per splat (~4x memory reduction)
+ * - SH0 (DC only):   Base color, 3 logical values per splat
  * - SH1 (1st order): + basic view dependence, 12 values total
  * - SH2 (2nd order): + enhanced view dependence, 27 values total
- * - SH3 (3rd order): Full quality, 48 values total (default)
+ * - SH3 (3rd order): 48 values total
+ * - SH4 (4th order): Full available quality, 75 values total (default)
  */
 
 // Project settings paths
@@ -30,8 +31,9 @@ enum SHBandLevel {
     SH_BAND_0 = 0,  ///< DC only (base color, 1 coefficient = 3 values)
     SH_BAND_1 = 1,  ///< DC + 1st order (4 coefficients = 12 values)
     SH_BAND_2 = 2,  ///< DC + 2nd order (9 coefficients = 27 values)
-    SH_BAND_3 = 3,  ///< DC + 3rd order (16 coefficients = 48 values) - default
-    SH_BAND_MAX = SH_BAND_3
+    SH_BAND_3 = 3,  ///< DC + 3rd order (16 coefficients = 48 values)
+    SH_BAND_4 = 4,  ///< DC + 4th order (25 coefficients = 75 values)
+    SH_BAND_MAX = SH_BAND_4
 };
 
 /**
@@ -39,8 +41,8 @@ enum SHBandLevel {
  * @brief Runtime configuration for Spherical Harmonics rendering.
  */
 struct SHConfig {
-    // Current SH band level (0-3)
-    SHBandLevel sh_bands = SH_BAND_3;
+    // Current SH band level (0-4)
+    SHBandLevel sh_bands = SH_BAND_4;
 
     // Project settings integration
     void load_from_project_settings();
@@ -73,5 +75,18 @@ extern SHConfig g_sh_config;
 
 // Configuration management functions
 void initialize_sh_config();
+// Reloads g_sh_config once after any ProjectSettings settings_changed signal. Called by
+// every route that reads it (streaming update and the tile raster params), so a runtime
+// sh_bands/tier change also reaches the resident backend. Returns true when it reloaded.
+bool sh_config_reload_if_settings_changed();
+// Records the SH degree an amortized colour cache is filled at. Returns true (and stores
+// the new degree) when it differs from the recorded one, i.e. cached colours are stale.
+inline bool sh_config_note_band_level(uint32_t &r_cached_level, uint32_t p_level) {
+    if (r_cached_level == p_level) {
+        return false;
+    }
+    r_cached_level = p_level;
+    return true;
+}
 
 #endif // SH_CONFIG_H

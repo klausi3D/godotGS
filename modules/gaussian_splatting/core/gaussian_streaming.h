@@ -324,7 +324,10 @@ public:
 
     // SH band level and visibility change tracking
     int get_global_sh_band_level() const { return visibility.global_sh_band_level; }
-    void set_global_sh_band_level(int p_level) { visibility.global_sh_band_level = CLAMP(p_level, 0, 3); }
+    void set_global_sh_band_level(int p_level) { visibility.global_sh_band_level = CLAMP(p_level, 0, 4); }
+    // Instance depth-pass SH policy word (gs_pack_instance_sh_policy): the effective
+    // maximum plus whether resolved instance LODs reduce it, for shared registered chunks.
+    uint32_t get_instance_sh_policy() const;
     float get_visible_count_change_ratio() const;
 
     // Streaming change tracking
@@ -380,6 +383,8 @@ public:
         global_atlas_registry.mark_chunk_meta_dirty(*this, asset_id, chunk_idx);
     }
     void _test_force_next_chunk_upload_failure() { test_force_next_chunk_upload_failure = true; }
+    bool _test_pack_threads_running() const { return upload_pipeline.pack_thread_running.load(std::memory_order_acquire); }
+    bool _test_full_config_dirty() const { return config_dirty; }
     void _test_apply_requested_residency_async() { _apply_requested_residency(true); }
 
     // Test-only access to atlas-state internals. Replaced the
@@ -580,6 +585,7 @@ private:
     uint64_t _make_chunk_key(uint32_t asset_id, uint32_t chunk_id) const;
     void _update_chunk_visibility(const Transform3D &camera_transform, const Projection &projection);
     void _log_streaming_telemetry();
+    void _reload_sh_config_if_dirty();
     void _reload_config_if_dirty();
     float _resolve_frame_delta_seconds(float p_frame_delta_seconds);
     // #1088: capacity in atlas PAGES (allocator capacity bounded by the live buffer size).
@@ -764,7 +770,7 @@ private:
     void _load_lod_config_from_project_settings();
     void _collect_lod_debug_stats(const FrameData &frame,
             uint32_t (&lod_level_counts)[8],
-            uint32_t (&sh_band_counts)[4],
+            uint32_t (&sh_band_counts)[5],
             uint32_t &total_original_splats,
             uint32_t &total_effective_splats,
             float &min_distance,

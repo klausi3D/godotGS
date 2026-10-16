@@ -15,6 +15,9 @@
 #include "../renderer/gaussian_gpu_layout.h"
 #include "../renderer/gaussian_splat_renderer.h"
 #include "../renderer/quantization_config.h"
+#include "../renderer/sh_config.h"
+#include "../renderer/splat_ref_encoding.h"
+#include "../lod/lod_config.h"
 
 #include "core/math/projection.h"
 #include "core/math/transform_3d.h"
@@ -121,6 +124,74 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Production SH metadata bounds compact
         CHECK(first + high <= c.encoded);
         CHECK(first + high <= 24u);
     }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] SH4 config and relative LOD quality remain observable") {
+    SHConfig config;
+    CHECK(config.sh_bands == SH_BAND_4);
+    CHECK(config.validate());
+    const int counts[] = { 1, 4, 9, 16, 25 };
+    for (int degree = 0; degree <= 4; degree++) {
+        config.sh_bands = SHBandLevel(degree);
+        CHECK(config.validate());
+        CHECK(SHConfig::get_coefficient_count(config.sh_bands) == counts[degree]);
+        CHECK(SHConfig::get_float_count(config.sh_bands) == 3*counts[degree]);
+    }
+    config.reset_to_defaults();
+    CHECK(config.sh_bands == SH_BAND_4);
+    LODConfig lod;
+    lod.sh_reduction_enabled = true;
+    for (int maximum = 0; maximum <= 4; maximum++) {
+        for (int level = 0; level < 8; level++) {
+            CHECK(lod.get_sh_band_for_lod(level, maximum) == MAX(0, maximum - level));
+        }
+    }
+    lod.sh_reduction_enabled = false;
+    CHECK(lod.get_sh_band_for_lod(7, 4) == 4);
+    CHECK(lod.get_sh_band_for_lod(7, 3) == 3);
+    CHECK(lod.get_sh_band_for_lod(7) == 3); // Existing standalone caller contract.
+    ChunkLODMetadata chunks[2];
+    chunks[0].sh_band_level = 4;
+    chunks[1].sh_band_level = 3;
+    LODDebugStats stats;
+    stats.update_from_chunks(chunks, 2);
+    CHECK(stats.sh_band_counts[4] == 1);
+    CHECK(stats.sh_band_counts[3] == 1);
+    CHECK(stats.to_string().contains("SH4:1"));
+    stats.reset();
+    CHECK(stats.sh_band_counts[4] == 0);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Visible reference carries bounded per-chunk SH quality") {
+    using namespace gs_splat_ref;
+    static_assert(uint64_t(UINT32_MAX)/sizeof(PackedGaussianQuantized) <= GS_SPLAT_REF_ATLAS_INDEX_MASK, "RD record bound exceeds reference index capacity");
+    const uint32_t indices[] = { 0u, 1u, 1234567u, GS_SPLAT_REF_ATLAS_INDEX_MASK };
+    for (uint32_t index : indices) {
+        CHECK(gs_splat_ref_can_encode(index));
+        for (uint32_t degree = 0; degree <= 7; degree++) {
+            uint32_t encoded = gs_pack_splat_ref_atlas_index(index, degree);
+            CHECK(gs_splat_ref_atlas_index(encoded) == index);
+            CHECK(gs_splat_ref_sh_limit(encoded) == MIN(degree, 4u));
+        }
+    }
+    CHECK_FALSE(gs_splat_ref_can_encode(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u));
+    CHECK(gs_pack_splat_ref_atlas_index(GS_SPLAT_REF_ATLAS_INDEX_MASK + 1u, 4u) == UINT32_MAX);
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Amortized SH cache only serves references at the full configured degree") {
+    // PR #1205 review: the cache is keyed per physical Gaussian, shared by every instance.
+    // A reference whose per-instance limit is below the configured degree must bypass it.
+    using namespace gs_splat_ref;
+    for (uint32_t band = 0; band <= 4; band++) {
+        for (uint32_t limit = 0; limit <= 4; limit++) {
+            CHECK(gs_sh_cache_allowed(limit, band) == (limit >= band));
+        }
+    }
+    // Two instances of one Gaussian at LOD 0 and LOD 2 under SH3 with per-LOD reduction:
+    // only the LOD 0 reference may use the shared cache.
+    const uint32_t policy = gs_pack_instance_sh_policy(3u, true);
+    CHECK(gs_sh_cache_allowed(MIN(4u, gs_instance_sh_limit(policy, 0u)), 3u));
+    CHECK_FALSE(gs_sh_cache_allowed(MIN(4u, gs_instance_sh_limit(policy, 2u)), 3u));
 }
 
 // #1054 / docs/architecture/adr-splat-colour-encoding.md (option E, evidence item 1).
@@ -232,6 +303,133 @@ TEST_CASE("[GaussianSplatting][SHEncoding] Packed partial SH prefixes retain hig
             CHECK(std::abs(double(decoded.y - expected.y)) <= error_bound);
             CHECK(std::abs(double(decoded.z - expected.z)) <= error_bound);
         }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Quantized partial prefixes retain the even higher-term basis") {
+    const Gaussian gaussian = TestSHEncoding::make_sh_gaussian(Vector3(), Vector3(), Vector3());
+    Vector3 higher[8] = {};
+    higher[0] = Vector3(0.4f, -0.3f, 0.2f);
+    const Vector3 direction = Vector3(0.3f, 0.4f, -std::sqrt(0.75f));
+    for (uint32_t first : { 0u, 1u, 2u, 3u }) {
+        LocalVector<Gaussian> gaussians;
+        gaussians.push_back(gaussian);
+        LocalVector<Vector3> higher_payload;
+        for (const Vector3 &coefficient : higher) {
+            higher_payload.push_back(coefficient);
+        }
+        Ref<GaussianData> payload;
+        payload.instantiate();
+        payload->set_gaussian_payload(gaussians, higher_payload, first, 8, false, false);
+        CHECK_EQ(payload->get_sh_degree(), 2u);
+
+        PackedGaussian normal = {};
+        PackedGaussianQuantized quantized = {};
+        SHCompressionMetrics normal_metrics, quantized_metrics;
+        pack_gaussian(gaussian, normal, normal_metrics, higher, first, 8);
+        pack_gaussian_quantized(gaussian, TestSHEncoding::make_unit_chunk(), 0,
+                quantized, quantized_metrics, higher, first, 8);
+        CHECK_EQ(normal_metrics.coefficient_count, first + 8);
+        CHECK_EQ(quantized_metrics.coefficient_count, first + 8);
+        // This is the fixed quantized decoder ABI, independently of the host's selection order.
+        for (uint32_t word = 0; word < 3; word++) {
+            CHECK_EQ(quantized.sh_encoded[word], 0u);
+        }
+        CHECK(Math::abs(gs_decode_sh_snorm10(quantized.sh_encoded[3], quantized.sh_dc[3]).x - higher[0].x) < 1e-6f);
+
+        Vector3 forward_quantized;
+        for (float sign : { 1.0f, -1.0f }) {
+            const Vector3 dir = direction * sign;
+            float basis[25];
+            GSProductionSHBasis::gs_compute_real_sh_basis(dir, 2, basis);
+            const Vector3 expected = higher[0] * GSReferenceSHBasis::real_sh(2, -2, dir);
+            Vector3 quantized_colour, normal_colour;
+            double quantization_bound = 1e-5;
+            for (uint32_t word = 0; word < 24; word++) {
+                quantized_colour += gs_decode_sh_snorm10(quantized.sh_encoded[word], quantized.sh_dc[3]) * basis[1 + word];
+                quantization_bound += std::abs(double(basis[1 + word])) * quantized.sh_dc[3] / 511.0;
+            }
+            for (uint32_t word = 0; word < first; word++) {
+                normal_colour += gs_decode_sh_snorm10(normal.sh.encoded[word], normal.sh.dc[3]) * basis[1 + word];
+            }
+            for (uint32_t word = 0; word < 8; word++) {
+                normal_colour += gs_decode_sh_snorm10(normal.sh.encoded[first + word], normal.sh.dc[3]) * basis[4 + word];
+            }
+            CAPTURE(first);
+            CAPTURE(sign);
+            for (int axis = 0; axis < 3; axis++) {
+                CHECK(std::abs(double(normal_colour[axis] - expected[axis])) <= quantization_bound);
+                CHECK(std::abs(double(quantized_colour[axis] - expected[axis])) <= quantization_bound);
+            }
+            if (sign > 0.0f) {
+                forward_quantized = quantized_colour;
+            } else {
+                for (int axis = 0; axis < 3; axis++) {
+                    CHECK(std::abs(double(quantized_colour[axis] - forward_quantized[axis])) <= 2 * quantization_bound);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("[GaussianSplatting][SHEncoding] Quantized partial prefixes count retained coefficients rather than holes") {
+    struct Selection {
+        uint32_t first, higher, limit, retained_first, retained_higher;
+    };
+    const Selection cases[] = {
+        { 0, 8, 0, 0, 0 }, { 0, 8, 1, 0, 1 }, { 0, 8, 2, 0, 2 },
+        { 0, 8, 3, 0, 3 }, { 0, 8, 4, 0, 4 }, { 0, 8, 8, 0, 8 },
+        { 1, 8, 0, 0, 0 }, { 1, 8, 1, 1, 0 }, { 1, 8, 2, 1, 1 },
+        { 1, 8, 3, 1, 2 }, { 1, 8, 4, 1, 3 }, { 1, 8, 8, 1, 7 },
+        { 2, 8, 1, 1, 0 }, { 2, 8, 2, 2, 0 }, { 2, 8, 3, 2, 1 },
+        { 2, 8, 4, 2, 2 }, { 2, 8, 8, 2, 6 }, { 2, 8, 24, 2, 8 },
+        { 0, 22, 24, 0, 21 }, { 1, 22, 24, 1, 21 }, { 2, 22, 24, 2, 21 },
+        { 3, 22, 24, 3, 21 }, { 0, 22, UINT32_MAX, 0, 21 },
+        { 3, 22, UINT32_MAX, 3, 21 }, { 2, 0, 24, 2, 0 }
+    };
+    const Vector3 first_coefficients[3] = { Vector3(0.1f, -0.2f, 0.3f), Vector3(-0.4f, 0.2f, 0.1f), Vector3(0.2f, 0.3f, -0.1f) };
+    const Gaussian gaussian = TestSHEncoding::make_sh_gaussian(first_coefficients[0], first_coefficients[1], first_coefficients[2]);
+    Vector3 higher[22];
+    for (uint32_t term = 0; term < 21; term++) {
+        higher[term] = Vector3(float(term + 1) / 32.0f, -float(term + 2) / 64.0f, float(21 - term) / 48.0f);
+    }
+    higher[21] = Vector3(1000, -2000, 3000); // A term beyond SH4 must not affect the retained scale.
+    for (const Selection &selection : cases) {
+        PackedGaussianQuantized packed;
+        memset(&packed, 0xA5, sizeof(packed));
+        SHCompressionMetrics metrics;
+        pack_gaussian_quantized(gaussian, TestSHEncoding::make_unit_chunk(), 0, packed, metrics,
+                higher, selection.first, selection.higher, selection.limit);
+        Vector3 expected[24] = {};
+        for (uint32_t term = 0; term < selection.retained_first; term++) {
+            expected[term] = first_coefficients[term];
+        }
+        for (uint32_t term = 0; term < selection.retained_higher; term++) {
+            expected[3 + term] = higher[term];
+        }
+        CAPTURE(selection.first);
+        CAPTURE(selection.higher);
+        CAPTURE(selection.limit);
+        CHECK_EQ(metrics.coefficient_count, selection.retained_first + selection.retained_higher);
+        CHECK(packed.sh_dc[3] == doctest::Approx(TestSHEncoding::max_abs_component(expected, 24)));
+        TestSHEncoding::check_round_trip(expected, packed.sh_encoded, 24, packed.sh_dc[3], "fixed quantized prefix");
+        for (uint32_t word = selection.retained_first; word < 3; word++) {
+            CHECK_EQ(packed.sh_encoded[word], 0u);
+        }
+        for (uint32_t word = 3 + selection.retained_higher; word < 24; word++) {
+            CHECK_EQ(packed.sh_encoded[word], 0u);
+        }
+        CHECK_EQ(packed._tail_padding[0], 0u);
+        CHECK_EQ(packed._tail_padding[1], 0u);
+    }
+    PackedGaussianQuantized missing_higher = {};
+    SHCompressionMetrics missing_metrics;
+    pack_gaussian_quantized(gaussian, TestSHEncoding::make_unit_chunk(), 0, missing_higher,
+            missing_metrics, nullptr, 1, 8, 3);
+    CHECK_EQ(missing_metrics.coefficient_count, 3u);
+    CHECK(missing_higher.sh_dc[3] == doctest::Approx(0.3f));
+    for (uint32_t word = 1; word < 24; word++) {
+        CHECK_EQ(missing_higher.sh_encoded[word], 0u);
     }
 }
 
@@ -532,14 +730,14 @@ inline bool sample_centroid_red(const Vector<uint8_t> &p_pixels, const Vector2i 
 	return true;
 }
 
-// Renders make_band1_splat(p_position, p_band1) with the camera at the origin looking down -Z
-// and returns sample_centroid_red() of the final texture. False (with a reason) on any
-// render/readback failure, or when the route under test (quantized or not) was not the one taken.
-inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, const Vector3 &p_band1,
+// Returns centroid red for an explicit payload and camera; rejects invalid degree,
+// rendering, readback and actual storage-route premises before testing colour.
+inline bool render_payload_red(RenderingDevice *p_rd, const Ref<GaussianData> &p_data,
+		const Transform3D &p_camera, uint32_t p_expected_degree,
 		bool p_expect_quantized, float &r_red, String &r_why) {
-	const Ref<GaussianData> data = make_band1_splat(p_position, p_band1);
-	if (data->get_sh_degree() != 1) {
-		r_why = vformat("premise: fixture sh_degree is %d, expected 1 (band 1 would be gated off)", data->get_sh_degree());
+	if (p_data->get_sh_degree() != p_expected_degree) {
+		r_why = vformat("premise: fixture sh_degree is %d, expected %d (the term under test would be gated off)",
+				p_data->get_sh_degree(), p_expected_degree);
 		return false;
 	}
 	Ref<GaussianSplatRenderer> renderer;
@@ -551,7 +749,7 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 	renderer->initialize();
 	renderer->set_painterly_enabled(false);
 	renderer->set_max_splats(1);
-	if (renderer->set_gaussian_data(data) != OK) {
+	if (renderer->set_gaussian_data(p_data) != OK) {
 		r_why = "set_gaussian_data failed";
 		return false;
 	}
@@ -560,7 +758,7 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 	Projection projection;
 	projection.set_perspective(60.0f, 1.0f, 0.1f, 50.0f);
 	const TestGaussianSplatting::GSPumpOutcome outcome = TestGaussianSplatting::gs_pump_until([&]() {
-		return renderer->render_for_view(Transform3D(), projection, RID(), resolution);
+		return renderer->render_for_view(p_camera, projection, RID(), resolution);
 	}, 10000000, 1);
 	if (!outcome.ready()) {
 		r_why = "render_for_view never reported a rendered frame: " + outcome.describe();
@@ -590,6 +788,80 @@ inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, c
 		return false;
 	}
 	return sample_centroid_red(pixels, resolution, r_red, r_why);
+}
+
+// The existing band-1 fixture retains its camera at the origin looking down -Z.
+inline bool render_splat_red(RenderingDevice *p_rd, const Vector3 &p_position, const Vector3 &p_band1,
+		bool p_expect_quantized, float &r_red, String &r_why) {
+	return render_payload_red(p_rd, make_band1_splat(p_position, p_band1), Transform3D(), 1,
+			p_expect_quantized, r_red, r_why);
+}
+
+inline Ref<GaussianData> make_partial_higher_splat(const Vector3 &p_position, uint32_t p_first, float p_coefficient) {
+    LocalVector<Gaussian> gaussians;
+    Gaussian gaussian = make_sh_gaussian(Vector3(), Vector3(), Vector3());
+    gaussian.position = p_position;
+    gaussian.scale = Vector3(0.6f, 0.6f, 0.6f);
+    gaussian.opacity = 0.995f;
+    gaussian.area = gaussian.scale.x * gaussian.scale.y;
+    gaussian.normal = Vector3(0, 0, 1);
+    gaussian.sh_dc = Color(0.0f, 0.0f, 0.0f, 1.0f);
+    gaussian.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+    gaussians.push_back(gaussian);
+    LocalVector<Vector3> higher;
+    higher.resize(8); // With first0..3 this explicitly describes a degree-2 payload.
+    for (uint32_t term = 0; term < 8; term++) {
+        higher[term] = Vector3();
+    }
+    higher[0] = Vector3(p_coefficient, 0, 0);
+    Ref<GaussianData> data;
+    data.instantiate();
+    data->set_gaussian_payload(gaussians, higher, p_first, 8, false, false);
+    return data;
+}
+
+inline bool check_partial_higher_pixels(RenderingDevice *p_rd, uint32_t p_first, bool p_quantized) {
+    const Vector3 direction = Vector3(0.3f, 0.4f, -std::sqrt(0.75f));
+    float forward_delta = 0.0f;
+    for (float sign : { 1.0f, -1.0f }) {
+        const Vector3 position = direction * (3.0f * sign);
+        // Rotating the camera keeps both opposite world directions centred and in front.
+        // render_for_view takes the view (world-to-camera) matrix, so invert the camera pose.
+        const Transform3D camera = Transform3D().looking_at(position, Vector3(0, 1, 0)).affine_inverse();
+        float baseline = 0.0f, measured = 0.0f;
+        String why;
+        if (!render_payload_red(p_rd, make_partial_higher_splat(position, p_first, 0.0f), camera, 2,
+                    p_quantized, baseline, why)) {
+            FAIL(vformat("partial first%d quantized=%s direction%+.0f zero-SH premise: %s",
+                    p_first, p_quantized ? "true" : "false", sign, why));
+            return false;
+        }
+        if (!(baseline > 0.4f && baseline < 0.6f)) {
+            FAIL(vformat("partial first%d zero-SH colour is not mid grey: %f", p_first, baseline));
+            return false;
+        }
+        if (!render_payload_red(p_rd, make_partial_higher_splat(position, p_first, 0.4f), camera, 2,
+                    p_quantized, measured, why)) {
+            FAIL(vformat("partial first%d quantized=%s direction%+.0f higher-SH premise: %s",
+                    p_first, p_quantized ? "true" : "false", sign, why));
+            return false;
+        }
+        const float expected = float(0.4 * GSReferenceSHBasis::real_sh(2, -2, position.normalized()));
+        const float delta = measured - baseline;
+        MESSAGE(vformat("partial first%d quantized=%s direction%+.0f: red delta %+f, independent degree-2 reference %+f",
+                p_first, p_quantized ? "true" : "false", sign, delta, expected));
+        CHECK_MESSAGE(Math::abs(delta - expected) < 0.02f,
+                vformat("partial first%d quantized=%s direction%+.0f uses the wrong higher-term basis: delta %+f expected %+f",
+                        p_first, p_quantized ? "true" : "false", sign, delta, expected));
+        if (sign > 0.0f) {
+            forward_delta = delta;
+        } else {
+            CHECK_MESSAGE(Math::abs(delta - forward_delta) < 0.02f,
+                    vformat("partial first%d quantized=%s degree-2 colour must be even under direction reversal",
+                            p_first, p_quantized ? "true" : "false"));
+        }
+    }
+    return true;
 }
 
 // Reference band-1 basis (Inria forward.cu) for the direction from the camera (origin) to p_pos.
@@ -653,6 +925,35 @@ TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Band-1 SH renders the ref
 }
 
 #include "../renderer/gpu_record_sizes.h"
+
+TEST_CASE("[GaussianSplatting][SceneTree][RequiresGPU] Partial SH prefixes render the even degree-2 colour in both GPU layouts") {
+    if (RenderingServer::get_singleton() == nullptr) {
+        FAIL("RenderingServer unavailable in a [SceneTree][RequiresGPU] case");
+        return;
+    }
+    GaussianSplatManager *manager = GaussianSplatManager::get_singleton();
+    if (manager == nullptr || manager->get_primary_rendering_device() == nullptr) {
+        FAIL("Primary RenderingDevice unavailable in a [SceneTree][RequiresGPU] case");
+        return;
+    }
+    struct SavedConfiguration {
+        QuantizationConfig quantization = g_quantization_config;
+        SHConfig sh = g_sh_config;
+        ~SavedConfiguration() {
+            g_quantization_config = quantization;
+            g_sh_config = sh;
+        }
+    } saved_configuration;
+    g_sh_config.sh_bands = SH_BAND_2;
+    for (bool quantized : { false, true }) {
+        g_quantization_config.per_chunk_quantization = quantized;
+        for (uint32_t first : { 0u, 1u, 2u, 3u }) {
+            if (!TestSHEncoding::check_partial_higher_pixels(manager->get_primary_rendering_device(), first, quantized)) {
+                return;
+            }
+        }
+    }
+}
 
 TEST_CASE("[GaussianSplatting][SHEncoding] GPU byte sizing rejects overflow and covers every aligned upload byte") {
 	for (uint32_t count : { 0u, 1u, 2u, 3u, 15u, 16u, 17u, 255u, 256u, 257u }) {

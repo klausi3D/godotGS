@@ -751,6 +751,7 @@ void StreamingVisibilityController::append_lod_worklist(const LocalVector<uint32
 bool StreamingVisibilityController::lod_parameter_config_matches(const LODConfig &lod_config) const {
     return lod_parameter_state_initialized &&
             lod_parameter_last_enabled == lod_config.enabled &&
+            lod_parameter_last_global_sh_band_level == global_sh_band_level &&
             lod_parameter_last_num_levels == lod_config.num_levels &&
             Math::is_equal_approx(lod_parameter_last_max_distance, lod_config.max_distance) &&
             Math::is_equal_approx(lod_parameter_last_base_threshold, lod_config.base_threshold) &&
@@ -763,6 +764,7 @@ void StreamingVisibilityController::remember_lod_parameter_config(const LODConfi
     lod_parameter_state_initialized = true;
     lod_parameter_state_chunk_count = chunk_count;
     lod_parameter_last_enabled = lod_config.enabled;
+    lod_parameter_last_global_sh_band_level = global_sh_band_level;
     lod_parameter_last_num_levels = lod_config.num_levels;
     lod_parameter_last_max_distance = lod_config.max_distance;
     lod_parameter_last_base_threshold = lod_config.base_threshold;
@@ -888,7 +890,7 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
             const int prev_sh_band_level = chunk.sh_band_level;
             chunk.current_lod_level = 0;
             chunk.target_lod_level = 0;
-            chunk.sh_band_level = 3;
+            chunk.sh_band_level = global_sh_band_level;
             chunk.splat_skip_factor = 1;
             chunk.opacity_multiplier = 1.0f;
             chunk.effective_count = chunk.count;
@@ -935,7 +937,7 @@ void StreamingVisibilityController::update_chunk_lod_parameters(GaussianStreamin
             lod_transitions_this_frame++;
         }
 
-        chunk.sh_band_level = lod_config.get_sh_band_for_lod(lod_level);
+        chunk.sh_band_level = lod_config.get_sh_band_for_lod(lod_level, global_sh_band_level);
         chunk.splat_skip_factor = lod_config.get_splat_skip_factor(lod_level);
         chunk.opacity_multiplier = lod_config.get_opacity_multiplier(distance);
         chunk.effective_count = chunk.count / chunk.splat_skip_factor;

@@ -252,7 +252,7 @@ static_assert(offsetof(VisibleChunkRefGPU, chunk_id) == 4, "VisibleChunkRefGPU.c
 // Visible splat list emitted by Stage B.
 struct SplatRefGPU {
     uint32_t instance_id;
-    uint32_t atlas_index;
+    uint32_t atlas_index; // Encoded physical index + SH limit; use splat_ref_encoding.h.
 };
 
 static_assert(sizeof(SplatRefGPU) == 8, "SplatRefGPU must be 8 bytes");
@@ -385,7 +385,7 @@ struct alignas(16) TileRenderParamsGPU {
     float jacobian_diag_flags[4];
     float debug_overlay_flags[4];
     // Spherical Harmonics configuration:
-    // x=sh_bands (0-3), y=amortization_divisor, z=amortization_phase, w=force_full_update
+    // x=sh_bands (0-4), y=amortization_divisor, z=amortization_phase, w=force_full_update
     // sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order (full)
     float sh_config[4];
     // SH decode configuration is reserved; runtime decode now comes from per-gaussian metadata.
@@ -612,7 +612,7 @@ struct alignas(16) InstanceDepthParamsGPU {
     float frustum_planes[InstanceCullParamsGPU::kFrustumPlaneCount][4];
     float camera_position_ortho[4]; // xyz = camera position, w = orthographic flag (1.0 or 0.0)
     float cull_screen_distance[4]; // x = pixel_scale_y, y = tiny_splat_radius_px, z = min_screen_threshold_px, w = max_distance_sq
-    float cull_frustum_radius[4]; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = reserved
+    float cull_frustum_radius[4]; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy (gs_pack_instance_sh_policy)
 };
 
 static_assert(alignof(InstanceDepthParamsGPU) == 16, "InstanceDepthParamsGPU must be 16-byte aligned");

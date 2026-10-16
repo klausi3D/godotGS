@@ -472,6 +472,8 @@ void GaussianSplattingPerformanceMonitors::_register_monitor_definitions(Perform
                 callable_mp(this, &GaussianSplattingPerformanceMonitors::_get_lod_level_0_chunk_count) },
         { "gaussian_splatting/lod_sh_band_3_chunk_count",
                 callable_mp(this, &GaussianSplattingPerformanceMonitors::_get_lod_sh_band_3_chunk_count) },
+        { "gaussian_splatting/lod_sh_band_4_chunk_count",
+                callable_mp(this, &GaussianSplattingPerformanceMonitors::_get_lod_sh_band_4_chunk_count) },
 
         // Compression Analytics Monitors (Phase 5)
         { "gaussian_splatting/sh_compression_raw_mb",
@@ -1618,6 +1620,19 @@ int GaussianSplattingPerformanceMonitors::_get_lod_sh_band_3_chunk_count() const
     if (stats.has("sh_band_distribution")) {
         Array sh_dist = stats["sh_band_distribution"];
         return sh_dist.size() > 3 ? (int)sh_dist[3] : 0;
+    }
+    return 0;
+}
+
+int GaussianSplattingPerformanceMonitors::_get_lod_sh_band_4_chunk_count() const {
+    GaussianSplatRenderer *renderer = _get_active_splat_renderer(true);
+    if (!renderer) return 0;
+    const GaussianSplatRenderer::MonitorStreamingSnapshot snapshot =
+            _streaming_snapshot_for_monitors(renderer);
+    const Dictionary &stats = snapshot.lod_debug_stats;
+    if (stats.has("sh_band_distribution")) {
+        Array sh_dist = stats["sh_band_distribution"];
+        return sh_dist.size() > 4 ? (int)sh_dist[4] : 0;
     }
     return 0;
 }

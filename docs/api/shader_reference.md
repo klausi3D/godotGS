@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `186` documented functions, `15` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `189` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -780,7 +780,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>sh_config</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>Spherical Harmonics configuration: x=sh_bands (0-3), y=amortization_divisor, z=amortization_phase, w=force_full_update sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order (full)</td>
+      <td>Spherical Harmonics configuration: x=sh_bands (0-4), y=amortization_divisor, z=amortization_phase, w=force_full_update sh_bands: 0=DC only, 1=1st order, 2=2nd order, 3=3rd order, 4=4th order (full)</td>
     </tr>
     <tr>
       <td><pre><code>sh_decode_config</code></pre></td>
@@ -995,6 +995,36 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>gs_pack_sort_key64(float depth, uint tie_break)</code></pre></td>
       <td>Pack depth and tie-break data into a 64-bit sort key.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+## gs_splat_ref_encoding.glsl
+
+`modules/gaussian_splatting/shaders/includes/gs_splat_ref_encoding.glsl`
+
+### Functions
+
+<table>
+  <thead>
+    <tr>
+      <th>Function</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>gs_pack_instance_sh_policy(uint max_degree, bool reduce_per_lod)</code></pre></td>
+      <td>Instance SH policy word (InstanceDepthParamsGPU.cull_frustum_radius.w as an exact small float): bits 0-2 configured maximum degree, bit 3 reduces one degree per resolved instance LOD. Mirrors LODConfig::get_sh_band_for_lod() for shared registered chunks.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_instance_sh_limit(uint policy, uint lod_level)</code></pre></td>
+      <td>SH limit for one instance: the policy maximum, less one degree per resolved LOD when enabled.</td>
+    </tr>
+    <tr>
+      <td><pre><code>gs_sh_cache_allowed(uint ref_sh_limit, uint band_level)</code></pre></td>
+      <td>The amortized SH colour cache is keyed per physical Gaussian, which every instance of an asset shares. Only references at the full configured degree may read or write it, so a reduced per-instance limit is never served (or overwrites) a colour of another degree.</td>
     </tr>
   </tbody>
 </table>
@@ -1874,7 +1904,7 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>cull_frustum_radius</code></pre></td>
       <td><pre><code>vec4</code></pre></td>
-      <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = reserved</td>
+      <td>x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy</td>
     </tr>
   </tbody>
 </table>

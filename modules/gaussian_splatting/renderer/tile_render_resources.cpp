@@ -761,6 +761,15 @@ void TileSHCacheBuffers::release(RenderingDevice *p_default_device) {
 	reset_state();
 }
 
+bool TileSHCacheBuffers::clear_color_cache(RenderingDevice *p_default_device) {
+	RenderingDevice *device = sh_color_cache_owner.device ? sh_color_cache_owner.device : p_default_device;
+	if (device == nullptr || !sh_color_cache.is_valid() || sh_color_cache_size == 0) {
+		return false;
+	}
+	// tile_binning.glsl treats cached_color == 0u as "not cached" and re-evaluates it.
+	return device->buffer_clear(sh_color_cache, 0, sh_color_cache_size) == OK;
+}
+
 void TileSHCacheBuffers::reset_state() {
 	sh_color_cache = RID();
 	sh_color_cache_owner.clear();

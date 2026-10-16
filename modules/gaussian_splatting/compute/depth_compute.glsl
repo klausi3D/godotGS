@@ -88,7 +88,7 @@ layout(set = 0, binding = 9, std140) uniform Params {
     vec4 frustum_planes[6];
     vec4 camera_position_ortho; // xyz = camera position, w = orthographic flag
     vec4 cull_screen_distance; // x = pixel_scale_y, y = tiny_splat_radius_px, z = min_screen_threshold_px, w = max_distance_sq
-    vec4 cull_frustum_radius; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = reserved
+    vec4 cull_frustum_radius; // x = radius_multiplier, y = frustum_plane_slack, z = enable_frustum, w = instance SH policy
 } params;
 
 // Rotate vector `v` by quaternion `q`.
@@ -142,6 +142,10 @@ void main() {
     }
 
     uint atlas_index = chunk.atlas_base + splat_index_in_chunk;
+    if (atlas_index < chunk.atlas_base || !gs_splat_ref_can_encode(atlas_index)) {
+        atomicAdd(counters.overflowed_splats, 1u);
+        return;
+    }
     GS_GAUSSIAN_STRUCT gaussian = atlas_gaussian_buffer.gaussians[atlas_index];
 
 #if defined(USE_QUANTIZED_GAUSSIANS)
@@ -229,7 +233,11 @@ void main() {
     }
 
     splat_ref_buffer.splat_refs[write_index].instance_id = visible_chunk.instance_id;
-    splat_ref_buffer.splat_refs[write_index].atlas_index = atlas_index;
+    // Registered chunks are shared by every instance of an asset, so the SH limit also
+    // follows this instance's resolved LOD; the per-chunk limit still caps it.
+    uint instance_sh_limit = gs_instance_sh_limit(uint(params.cull_frustum_radius.w + 0.5), instance.lod.x);
+    splat_ref_buffer.splat_refs[write_index].atlas_index =
+            gs_pack_splat_ref_atlas_index(atlas_index, min(chunk.sh_limit, instance_sh_limit));
     // Favor atlas index for tie-break to improve cache locality when depths are similar.
     uint tie_break = atlas_index;
     sort_key_buffer.keys[write_index] = gs_pack_sort_key64(depth, tie_break);

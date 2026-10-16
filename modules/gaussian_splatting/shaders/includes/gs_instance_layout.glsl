@@ -1,6 +1,8 @@
 #ifndef GS_INSTANCE_LAYOUT_GLSL
 #define GS_INSTANCE_LAYOUT_GLSL
 
+#include "gs_splat_ref_encoding.glsl"
+
 // Instance pipeline layout (always active).
 
 #ifndef GS_MAX_ASSET_LODS

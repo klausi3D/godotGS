@@ -123,5 +123,48 @@ class QuantizedStorageWiringTests(unittest.TestCase):
             self.assertIn(guard.FlatField("_tail_padding", "uint", 2), fields)
 
 
+class SHSelectionWiringTests(unittest.TestCase):
+    def test_current_chunk_limit_reaches_both_binning_record_paths(self) -> None:
+        module = ROOT / "modules" / "gaussian_splatting"
+        stage_b = (module / "compute/depth_compute.glsl").read_text(encoding="utf-8")
+        binning = (module / "shaders/tile_binning.glsl").read_text(encoding="utf-8")
+        # Shared registered chunks: the per-instance LOD policy is capped by the chunk limit.
+        self.assertRegex(stage_b, r"instance_sh_limit\s*=\s*gs_instance_sh_limit\(uint\(params\.cull_frustum_radius\.w\s*\+\s*0\.5\),\s*instance\.lod\.x\)")
+        self.assertRegex(stage_b, r"\.atlas_index\s*=\s*gs_pack_splat_ref_atlas_index\(atlas_index,\s*min\(chunk\.sh_limit,\s*instance_sh_limit\)\)")
+        start = binning.index("SplatRefGPU splat_ref =")
+        end = binning.index("#if defined(USE_QUANTIZED_GAUSSIANS)", start)
+        common = binning[start:end]
+        self.assertRegex(common, r"gaussian_idx\s*=\s*gs_splat_ref_atlas_index\(splat_ref\.atlas_index\)")
+        self.assertRegex(common, r"chunk_sh_limit\s*=\s*gs_splat_ref_sh_limit\(splat_ref\.atlas_index\)")
+        self.assertRegex(binning, r"sh_band_level\s*=\s*min\(sh_band_level,\s*chunk_sh_limit\)")
+        # The per-Gaussian amortized SH cache is shared by every instance: reduced-limit
+        # references must bypass it (PR #1205 review).
+        self.assertRegex(binning, r"bool use_cache\s*=\s*sh_divisor\s*>\s*1u\s*&&\s*gs_sh_cache_allowed\(chunk_sh_limit,\s*gs_get_sh_band_level\(\)\);")
+
+    def test_resident_raster_params_reload_runtime_sh_settings(self) -> None:
+        source = (ROOT / "modules/gaussian_splatting/renderer/tile_render_stages.cpp").read_text(encoding="utf-8")
+        reload = source.index("sh_config_reload_if_settings_changed();")
+        band = source.index("params.sh_config[0] = static_cast<float>(g_sh_config.sh_bands);")
+        self.assertLess(reload, band, "the raster params must reload SH settings before reading them")
+        # A changed degree must refresh the amortized SH colour cache (PR #1205 review).
+        between = source[reload:band]
+        self.assertRegex(between, r"sh_config_note_band_level\(owner\.sh_cache_band_level,\s*uint32_t\(g_sh_config\.sh_bands\)\)")
+        self.assertRegex(between, r"owner\.sh_cache_needs_full_update\s*=\s*true;")
+        # Hidden entries are not reached by the forced pass: the whole cache is reset (PR #1205 review).
+        self.assertRegex(between, r"owner\.sh_cache_buffers\.clear_color_cache\(p_resource_device\);")
+        binning = (ROOT / "modules/gaussian_splatting/shaders/tile_binning.glsl").read_text(encoding="utf-8")
+        self.assertRegex(binning, r"update_sh\s*=\s*phase_match\s*\|\|\s*cached_color\s*==\s*0u;")
+        resources = (ROOT / "modules/gaussian_splatting/renderer/tile_render_resources.cpp").read_text(encoding="utf-8")
+        clear_body = resources[resources.index("bool TileSHCacheBuffers::clear_color_cache("):]
+        clear_body = clear_body[:clear_body.index("\n}\n")]
+        self.assertRegex(clear_body, r"buffer_clear\(sh_color_cache,\s*0,\s*sh_color_cache_size\)")
+
+    def test_effective_quality_is_synchronized_at_production_streaming_entry(self) -> None:
+        source = (ROOT / "modules/gaussian_splatting/core/gaussian_streaming.cpp").read_text(encoding="utf-8")
+        start = source.index("void GaussianStreamingSystem::update_streaming(")
+        prefix = source[start:source.index("\n    if (", start)]
+        self.assertRegex(prefix, r"_reload_sh_config_if_dirty\(\);\s*set_global_sh_band_level\(int\(g_sh_config\.sh_bands\)\)")
+
+
 if __name__ == "__main__":
     unittest.main()
