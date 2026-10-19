@@ -3384,8 +3384,11 @@ inline Ref<GaussianSplatWorld> hlod_cut_fixture(uint32_t p_degree)
 		g.stroke_age = float(i + 1u) / 2048.0f;
 		g.brush_axes = Vector2(float(i + 1u) / 512.0f, 0.25f);
 		g.painterly_meta = gaussian_pack_painterly_meta(uint16_t(i), 300);
-		g.render_meta = gaussian_set_dc_encoding(0x80u, (i & 1u) ? GAUSSIAN_DC_ENCODING_LINEAR_RGB
-		                                                         : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+		// Mixed encodings are separate merge buckets: the producer's 2 -> 1
+		// reduction cannot combine them. Keep each baked world homogeneous,
+		// while exercising both DC encodings across the SH0-4 fixtures.
+		g.render_meta = gaussian_set_dc_encoding(0x80u, (p_degree & 1u) ? GAUSSIAN_DC_ENCODING_LINEAR_RGB
+		                                                                : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
 		for (uint32_t k = 0; k < 3u; ++k) {
 			const float value = p_degree == 0 ? 0.0f : float(3u * i + k + 1u) / 4096.0f;
 			g.sh_1[k] = Vector3(value, -value, value * 0.5f);
@@ -3611,7 +3614,7 @@ inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hl
 
 } // namespace TestGaussianSplatHlod
 
-TEST_CASE("[GaussianSplatting][HLODCut] actual bake SH0-4 materializes exact leaves and interior blocks")
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes exact leaves and interior blocks")
 {
 	using namespace TestGaussianSplatHlod;
 	using namespace gs_hlod::runtime_cut;
@@ -3700,7 +3703,7 @@ TEST_CASE("[GaussianSplatting][HLODCut] actual bake SH0-4 materializes exact lea
 	}
 }
 
-TEST_CASE("[GaussianSplatting][HLODCut] complete coverage survives budgets residency and static multiview")
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] complete coverage survives budgets residency and static multiview")
 {
 	using namespace TestGaussianSplatHlod;
 	using namespace gs_hlod::runtime_cut;
@@ -3711,6 +3714,65 @@ TEST_CASE("[GaussianSplatting][HLODCut] complete coverage survives budgets resid
 	}
 	const auto &tree = source->get_hlod_tree();
 	Request request = hlod_cut_request(source);
+	{
+		// Axis-aligned camera: independently derive nearest root depth from its
+		// absolute upper Z bound. A binary-exact relative margin avoids an ULP-only oracle.
+		double root_lo[3], root_hi[3];
+		hlod_root_extent(tree, root_lo, root_hi);
+		const View far = request.views[0];
+		const double far_depth = double(far.position.z) - root_hi[2];
+		const double far_pixels = double(tree.nodes[0].geometric_error) / far_depth * far.focal_pixels;
+		if (!(far_depth > far.near_plane) || !std::isfinite(far_pixels) || !(far_pixels > 0)) {
+			FAIL("finite root-error crossing admission");
+			return;
+		}
+		Request finite = request;
+		finite.threshold_pixels = far_pixels * (1.0 + 1.0 / 1024.0);
+		Result threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		CHECK(threshold_result.selected_nodes.size() == 1);
+		if (threshold_result.selected_nodes.is_empty()) {
+			FAIL("complete root cut");
+			return;
+		}
+		CHECK(threshold_result.selected_nodes[0] == 0u);
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+		finite.threshold_pixels = far_pixels * (1.0 - 1.0 / 1024.0);
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		for (uint32_t id : threshold_result.selected_nodes) {
+			CHECK(id != 0u);
+		}
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+
+		View near = far;
+		near.position.z = real_t(root_hi[2] + 64.0);
+		const double near_depth = double(near.position.z) - root_hi[2];
+		const double near_pixels = double(tree.nodes[0].geometric_error) / near_depth * near.focal_pixels;
+		if (!(near_depth > near.near_plane) || !std::isfinite(near_pixels) || !(near_pixels > far_pixels)) {
+			FAIL("two finite-view decisions admission");
+			return;
+		}
+		finite.threshold_pixels = far_pixels + (near_pixels - far_pixels) * 0.5;
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		CHECK(threshold_result.selected_nodes.size() == 1);
+		if (threshold_result.selected_nodes.is_empty()) {
+			FAIL("far-view root cut");
+			return;
+		}
+		CHECK(threshold_result.selected_nodes[0] == 0u);
+		finite.views.push_back(near);
+		threshold_result = build_cut(source, finite);
+		CHECK(hlod_cut_oracle(source, threshold_result));
+		for (uint32_t id : threshold_result.selected_nodes) {
+			CHECK(id != 0u);
+		}
+		CHECK(threshold_result.heuristic_available);
+		CHECK(threshold_result.heuristic_satisfied);
+	}
 	request.force_leaves = true;
 	request.splat_budget = tree.nodes[0].payload_count;
 	Result result = build_cut(source, request);
@@ -3830,7 +3892,8 @@ TEST_CASE("[GaussianSplatting][HLODCut] complete coverage survives budgets resid
 	CHECK(result.canonical_leaves);
 }
 
-TEST_CASE("[GaussianSplatting][HLODCut] invalid stale unsupported and bounded inputs fail without partial output")
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] invalid stale unsupported and bounded inputs fail without partial "
+          "output")
 {
 	using namespace TestGaussianSplatHlod;
 	using namespace gs_hlod::runtime_cut;
@@ -3908,6 +3971,41 @@ TEST_CASE("[GaussianSplatting][HLODCut] invalid stale unsupported and bounded in
 	bad.interior_gaussians[0].position.x = FLT_MAX;
 	bad_tree(std::move(bad), Status::INVALID_INPUT);
 	CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+
+	// Actual view state can change without changing the baked base revision.
+	// The caller's default deformation=false must not bypass its admission.
+	const Ref<GaussianData> data = source->get_gaussian_data();
+	CHECK_FALSE(good.deformation);
+	Ref<GaussianSplatting::GaussianAnimationStateMachine> animation;
+	animation.instantiate();
+	data->set_animation_state_machine(animation);
+	CHECK(data->has_animation());
+	CHECK(data->get_content_revision() == good.source_revision);
+	CHECK(source->is_hlod_payload_current());
+	rejected(good, Status::UNSUPPORTED);
+	data->set_animation_state_machine(Ref<GaussianSplatting::GaussianAnimationStateMachine>());
+	CHECK_FALSE(data->has_animation());
+	CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+	for (int overlay = 0; overlay < 3; ++overlay) {
+		CAPTURE(overlay);
+		if (overlay == 0) {
+			data->set_runtime_position(0, data->get_gaussians()[0].position + Vector3(1, 0, 0));
+		}
+		if (overlay == 1) {
+			data->set_runtime_color(0, Color(0.1f, 0.2f, 0.3f, 1));
+		}
+		if (overlay == 2) {
+			data->set_runtime_opacity(0, 0.125f);
+		}
+		CHECK(data->has_modifications());
+		CHECK(data->get_content_revision() == good.source_revision);
+		CHECK(source->is_hlod_payload_current());
+		rejected(good, Status::UNSUPPORTED);
+		data->revert_runtime_changes();
+		CHECK_FALSE(data->has_modifications());
+		CHECK(hlod_cut_oracle(source, build_cut(source, good)));
+	}
+
 	source->get_gaussian_data()->set_antialiased(!source->get_antialiased());
 	request = hlod_cut_request(source);
 	rejected(request, Status::STALE); // Tree stale even with current requested data revision.
@@ -3920,7 +4018,7 @@ TEST_CASE("[GaussianSplatting][HLODCut] invalid stale unsupported and bounded in
 	CHECK(build_cut(Ref<GaussianSplatWorld>(), good).status == Status::INVALID_INPUT);
 }
 
-TEST_CASE("[GaussianSplatting][HLODCut] allocation failures retain the source and no partial world")
+TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] allocation failures retain the source and no partial world")
 {
 	using namespace TestGaussianSplatHlod;
 	using namespace gs_hlod::runtime_cut;
