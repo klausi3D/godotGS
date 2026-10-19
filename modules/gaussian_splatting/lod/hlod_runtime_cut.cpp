@@ -41,7 +41,14 @@ struct Bounds {
 			if (double(lower) > lo[a]) {
 				lower = std::nextafter(lower, real_t(-INFINITY));
 			}
-			const double extent = hi[a] - double(lower);
+			// Round the absolute endpoint first. An ULP of a small size can be
+			// far smaller than an ULP of position + size, so incrementing only
+			// the size need not move the runtime endpoint past the original hi.
+			real_t upper = real_t(hi[a]);
+			if (double(upper) < hi[a]) {
+				upper = std::nextafter(upper, real_t(INFINITY));
+			}
+			const double extent = double(upper) - double(lower);
 			if (!std::isfinite(extent) || extent > limit) {
 				return false;
 			}
@@ -49,12 +56,12 @@ struct Bounds {
 			if (double(size) < extent) {
 				size = std::nextafter(size, real_t(INFINITY));
 			}
-			// Also enclose the end calculated by the runtime's real_t addition.
-			if (double(lower + size) < hi[a]) {
+			// The target is now itself representable in the runtime scalar type.
+			if (double(lower) + double(size) < double(upper) || lower + size < upper) {
 				size = std::nextafter(size, real_t(INFINITY));
 			}
 			if (!Math::is_finite(lower) || !Math::is_finite(size) || !Math::is_finite(lower + size) ||
-			    double(lower + size) < hi[a]) {
+			    double(lower) + double(size) < hi[a] || lower + size < upper) {
 				return false;
 			}
 			r_box.position[a] = lower;
@@ -140,6 +147,11 @@ Result build_cut(const Ref<GaussianSplatWorld> &p_source, const Request &p_reque
 	}
 	if (data.is_null()) {
 		return fail(Status::UNAVAILABLE, "Resident leaf payload required");
+	}
+	// These view states do not bump the base payload revision. Inspect the
+	// actual source under the documented quiescent main-thread precondition.
+	if (data->has_animation() || data->has_modifications()) {
+		return fail(Status::UNSUPPORTED, "Source animation and runtime overlays are unsupported");
 	}
 	uint32_t leaf_count = 0, high = 0;
 	if (data->capture_save_layout(leaf_count, high) != OK) {

@@ -3476,6 +3476,20 @@ inline bool hlod_cut_snapshot_equal(const GaussianData::SaveSnapshot &p_a, const
 	return true;
 }
 
+inline bool hlod_cut_bounds_enclose(const AABB &p_bounds, const double p_lo[3], const double p_hi[3])
+{
+	if (!hlod_aabb_encloses(p_bounds, p_lo, p_hi)) {
+		return false;
+	}
+	const Vector3 runtime_end = p_bounds.get_end();
+	for (int a = 0; a < 3; ++a) {
+		if (double(runtime_end[a]) < p_hi[a]) {
+			return false;
+		}
+	}
+	return true;
+}
+
 inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hlod::runtime_cut::Result &p_result)
 {
 	using namespace gs_hlod::runtime_cut;
@@ -3571,7 +3585,7 @@ inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hl
 				lo[a] = double(expected.position[a]) - support;
 				hi[a] = double(expected.position[a]) + support;
 			}
-			if (!hlod_aabb_encloses(chunks[k].bounds, lo, hi)) {
+			if (!hlod_cut_bounds_enclose(chunks[k].bounds, lo, hi)) {
 				return false;
 			}
 		}
@@ -3580,14 +3594,14 @@ inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hl
 			lo[a] = center[a] + double(node.aabb_min[a]);
 			hi[a] = center[a] + double(node.aabb_max[a]);
 		}
-		if (!hlod_aabb_encloses(chunks[k].bounds, lo, hi)) {
+		if (!hlod_cut_bounds_enclose(chunks[k].bounds, lo, hi)) {
 			return false;
 		}
 		for (int a = 0; a < 3; ++a) {
 			lo[a] = chunks[k].bounds.position[a];
 			hi[a] = double(chunks[k].bounds.position[a]) + chunks[k].bounds.size[a];
 		}
-		if (!hlod_aabb_encloses(p_result.world->get_bounds(), lo, hi)) {
+		if (!hlod_cut_bounds_enclose(p_result.world->get_bounds(), lo, hi)) {
 			return false;
 		}
 		double radius2 = 0;
@@ -3601,7 +3615,7 @@ inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hl
 	}
 	double root_lo[3], root_hi[3];
 	hlod_root_extent(tree, root_lo, root_hi);
-	if (!hlod_aabb_encloses(p_result.world->get_bounds(), root_lo, root_hi)) {
+	if (!hlod_cut_bounds_enclose(p_result.world->get_bounds(), root_lo, root_hi)) {
 		return false;
 	}
 	for (int a = 0; a < 3; ++a) {
@@ -3609,7 +3623,7 @@ inline bool hlod_cut_oracle(const Ref<GaussianSplatWorld> &p_source, const gs_hl
 		root_hi[a] = double(p_source->get_bounds().position[a]) + p_source->get_bounds().size[a];
 	}
 	return cursor == count && rounding == p_result.position_rounding_occurred &&
-	       hlod_aabb_encloses(p_result.world->get_bounds(), root_lo, root_hi);
+	       hlod_cut_bounds_enclose(p_result.world->get_bounds(), root_lo, root_hi);
 }
 
 } // namespace TestGaussianSplatHlod
