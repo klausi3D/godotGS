@@ -24,6 +24,8 @@
 #include "core/io/file_access.h"
 #include "core/io/compression.h"
 #include "core/io/resource_loader.h"
+#include "core/io/resource_saver.h"
+#include "core/error/error_macros.h"
 #include "core/math/geometry_3d.h"
 #include "core/math/math_funcs.h"
 #include "core/math/projection.h"
@@ -3724,4 +3726,214 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] representable posit
 	}
 	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
 	memdelete(observer);
+}
+
+namespace TestGaussianSplatHlod {
+
+// Observe the actual engine diagnostic channel; never suppress valid-path errors.
+struct ScopedWorldProbeErrors : public ErrorHandlerList {
+	Vector<String> messages;
+
+	static void capture(void *p_userdata, const char *, const char *, int, const char *p_error,
+			const char *p_message, bool, ErrorHandlerType p_type) {
+		if (p_type != ERR_HANDLER_ERROR) {
+			return;
+		}
+		ScopedWorldProbeErrors *self = static_cast<ScopedWorldProbeErrors *>(p_userdata);
+		String message = p_error ? String::utf8(p_error) : String();
+		if (p_message && p_message[0]) {
+			message += String(" | ") + String::utf8(p_message);
+		}
+		self->messages.push_back(message);
+	}
+
+	ScopedWorldProbeErrors() {
+		errfunc = capture;
+		userdata = this;
+		add_error_handler(this);
+	}
+	~ScopedWorldProbeErrors() { remove_error_handler(this); }
+	ScopedWorldProbeErrors(const ScopedWorldProbeErrors &) = delete;
+	ScopedWorldProbeErrors &operator=(const ScopedWorldProbeErrors &) = delete;
+};
+
+struct ScopedWorldProbeFile {
+	String path;
+	explicit ScopedWorldProbeFile(const String &p_name) : path(hlod_temp_path(p_name)) {}
+	~ScopedWorldProbeFile() { DirAccess::remove_absolute(path); }
+};
+
+inline bool hlod_has_world_extension(const List<String> &p_extensions) {
+	for (const String &extension : p_extensions) {
+		if (extension == "gsplatworld") {
+			return true;
+		}
+	}
+	return false;
+}
+
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD] world public metadata probes preserve custom format ownership") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	LocalVector<Gaussian> fixture;
+	hlod_make_fixture(32u, 32u, fixture);
+	for (bool baked : { false, true }) {
+		CAPTURE(baked);
+		Ref<GaussianSplatWorld> world = hlod_make_world(fixture);
+		if (baked && world->bake_hlod() != OK) {
+			FAIL("produce the HLOD metadata-probe control");
+			return;
+		}
+		GaussianData::SaveSnapshot expected;
+		if (world->get_gaussian_data()->capture_save_snapshot(expected) != OK) {
+			FAIL("capture the actual producer payload");
+			return;
+		}
+		CHECK(world->get_base_extension() == String("gsplatworld"));
+		List<String> load_extensions;
+		ResourceLoader::get_recognized_extensions_for_type("GaussianSplatWorld", &load_extensions);
+		CHECK(hlod_has_world_extension(load_extensions));
+		List<String> save_extensions;
+		ResourceSaver::get_recognized_extensions(world, &save_extensions);
+		CHECK(hlod_has_world_extension(save_extensions));
+
+		for (int mode = 1; mode <= 3; ++mode) {
+			CAPTURE(mode);
+			ScopedWorldProbeFile source("public_probe_source");
+			ScopedWorldProbeFile resaved("public_probe_resaved");
+			ScopedWorldProbeErrors errors;
+			if (saver.save_with_payload_mode(world, source.path,
+					ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("write the authentic plain/HLOD payload-mode control");
+				return;
+			}
+			const PackedByteArray source_before = hlod_read_file(source.path);
+			// Raw GSPW does not embed a UID. An editor-generated .import remains its
+			// separate source of UID authority, covered by the native editor import test.
+			CHECK(ResourceLoader::get_resource_uid(source.path) == ResourceUID::INVALID_ID);
+			for (bool add_types : { false, true }) {
+				List<String> dependencies;
+				ResourceLoader::get_dependencies(source.path, &dependencies, add_types);
+				CHECK(dependencies.is_empty());
+			}
+			Error load_error = ERR_BUG;
+			Ref<GaussianSplatWorld> loaded = ResourceLoader::load(source.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			if (loaded.is_null() || load_error != OK) {
+				FAIL("public ResourceLoader must load the custom producer file");
+				return;
+			}
+			CHECK(loaded->get_splat_count() == fixture.size());
+			CHECK(loaded->has_hlod_tree() == baked);
+			CHECK(loaded->get_sh_degree() == 0u);
+			if (loaded->materialize_resident_gaussian_data() != OK || loaded->get_gaussian_data().is_null()) {
+				FAIL("materialize the public loader payload");
+				return;
+			}
+			GaussianData::SaveSnapshot actual;
+			if (loaded->get_gaussian_data()->capture_save_snapshot(actual) != OK ||
+					actual.get_gaussians().size() != expected.get_gaussians().size()) {
+				FAIL("the public load must preserve producer payload cardinality");
+				return;
+			}
+			for (int i = 0; i < expected.get_gaussians().size(); ++i) {
+				const Gaussian &got = actual.get_gaussians()[i];
+				const Gaussian &want = expected.get_gaussians()[i];
+				CHECK(got.position == want.position);
+				CHECK(got.scale == want.scale);
+				CHECK(got.rotation == want.rotation);
+				CHECK(got.opacity == want.opacity);
+				CHECK(got.sh_dc == want.sh_dc);
+				CHECK(got.render_meta == want.render_meta);
+			}
+			// Generic ResourceSaver must still route to the registered custom saver,
+			// even though get_base_extension also advertises its preferred suffix.
+			if (ResourceSaver::save(loaded, resaved.path) != OK) {
+				FAIL("public ResourceSaver must retain custom GSPW output");
+				return;
+			}
+			const PackedByteArray resaved_bytes = hlod_read_file(resaved.path);
+			if (resaved_bytes.size() < 4) {
+				FAIL("public saver output must contain the format magic");
+				return;
+			}
+			CHECK(resaved_bytes[0] == 'G');
+			CHECK(resaved_bytes[1] == 'S');
+			CHECK(resaved_bytes[2] == 'P');
+			CHECK(resaved_bytes[3] == 'W');
+			CHECK(ResourceLoader::get_resource_uid(resaved.path) == ResourceUID::INVALID_ID);
+			List<String> dependencies;
+			ResourceLoader::get_dependencies(resaved.path, &dependencies, true);
+			CHECK(dependencies.is_empty());
+			Ref<GaussianSplatWorld> reloaded = ResourceLoader::load(resaved.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			CHECK(load_error == OK);
+			if (reloaded.is_null()) {
+				FAIL("public saver output must load through the public loader");
+				return;
+			}
+			CHECK(reloaded->get_splat_count() == fixture.size());
+			CHECK(reloaded->has_hlod_tree() == baked);
+			CHECK(hlod_read_file(source.path) == source_before);
+			for (const String &message : errors.messages) {
+				INFO(message.utf8().get_data());
+			}
+			CHECK(errors.messages.is_empty());
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] world public metadata probes do not bypass malformed payload rejection") {
+	using namespace TestGaussianSplatHlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld raw_loader;
+	LocalVector<Gaussian> fixture;
+	hlod_make_fixture(32u, 32u, fixture);
+	for (bool baked : { false, true }) {
+		CAPTURE(baked);
+		Ref<GaussianSplatWorld> world = hlod_make_world(fixture);
+		if (baked && world->bake_hlod() != OK) {
+			FAIL("produce the malformed HLOD sibling");
+			return;
+		}
+		for (int mode = 1; mode <= 3; ++mode) {
+			CAPTURE(mode);
+			ScopedWorldProbeFile source("public_probe_malformed");
+			if (saver.save_with_payload_mode(world, source.path,
+					ResourceFormatSaverGaussianSplatWorld::PayloadSaveMode(mode)) != OK) {
+				FAIL("produce the valid file before the SH-degree mutation");
+				return;
+			}
+			PackedByteArray malformed = hlod_read_file(source.path);
+			if (malformed.size() < 20) {
+				FAIL("the authentic producer header must contain sh_degree");
+				return;
+			}
+			const uint32_t unsupported_degree = 5u;
+			memcpy(malformed.ptrw() + 16, &unsupported_degree, sizeof(unsupported_degree));
+			if (!hlod_write_file(source.path, malformed)) {
+				FAIL("write the single-field malformed sibling");
+				return;
+			}
+			Error load_error = OK;
+			CHECK(raw_loader.load(source.path, "", &load_error).is_null());
+			CHECK(load_error == ERR_FILE_CORRUPT);
+			ScopedWorldProbeErrors errors;
+			// Expected malformed-load diagnostics are still emitted to the handler;
+			// only console printing is disabled for this negative control.
+			ERR_PRINT_OFF;
+			Ref<Resource> rejected = ResourceLoader::load(source.path, "GaussianSplatWorld",
+					ResourceFormatLoader::CACHE_MODE_IGNORE, &load_error);
+			ERR_PRINT_ON;
+			CHECK(rejected.is_null());
+			CHECK(load_error == ERR_FILE_CORRUPT);
+			CHECK_FALSE(errors.messages.is_empty());
+			for (const String &message : errors.messages) {
+				CHECK_FALSE(message.contains("Unrecognized binary resource file"));
+			}
+			CHECK(hlod_read_file(source.path) == malformed);
+		}
+	}
 }

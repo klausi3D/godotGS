@@ -13,7 +13,6 @@
 
 class GaussianSplatWorld : public Resource {
     GDCLASS(GaussianSplatWorld, Resource);
-    RES_BASE_EXTENSION("gsplatworld");
 
 private:
     Ref<GaussianData> gaussian_data;
@@ -41,6 +40,10 @@ protected:
     void _get_property_list(List<PropertyInfo> *p_list) const;
 
 public:
+    // GSPW is owned by the custom loader/saver, not Godot's RSRC/RSCC loader.
+    // RES_BASE_EXTENSION would also register it for generic binary UID/dependency probes.
+    String get_base_extension() const override { return "gsplatworld"; }
+
     void set_gaussian_data(const Ref<GaussianData> &p_data);
     Ref<GaussianData> get_gaussian_data() const { return gaussian_data; }
     bool has_resident_gaussian_data() const;
