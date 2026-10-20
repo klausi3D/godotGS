@@ -58,7 +58,7 @@
 			The underlying [GaussianData] resource containing the splat payload for this world.
 		</member>
 		<member name="bounds" type="AABB" setter="set_bounds" getter="get_bounds">
-			The world-space axis-aligned bounding box enclosing all splats.
+			The world-space axis-aligned bounding box enclosing all splats. When the world has an HLOD tree, setting this property retains both the requested box and the tree root, rounding outward as needed. Zero extents are retained as points or planes. Non-finite values, negative extents, or a union that cannot be represented by a finite runtime AABB are rejected without changing the previous bounds. Worlds without an HLOD tree retain the supplied value.
 		</member>
 		<member name="metadata" type="Dictionary" setter="set_metadata" getter="get_metadata">
 			Arbitrary metadata dictionary. May contain keys such as [code]lod_levels[/code], source file information, or application-specific tags.

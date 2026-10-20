@@ -765,8 +765,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 	tree.interior_resident = true;
 
 	String reason;
-	if (!gs_hlod_validate_tree(tree, &reason)) {
-		return fail(vformat("HLOD bake produced an invalid tree (bug): %s", reason));
+	Error validation_error = OK;
+	if (!gs_hlod_validate_tree(tree, &reason, &validation_error)) {
+		return fail(vformat("HLOD bake tree validation failed: %s", reason), validation_error);
 	}
 	const uint64_t t_end = OS::get_singleton()->get_ticks_usec();
 	tree.bake_stats.tree_build_ms = double(t_tree - t_start) / 1000.0;

@@ -1038,8 +1038,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		return refuse("read error in the node tables");
 	}
 	String reason;
-	if (!gs_hlod_validate_tree(tree, &reason)) {
-		return refuse(reason);
+	Error validation_error = OK;
+	if (!gs_hlod_validate_tree(tree, &reason, &validation_error)) {
+		return refuse(reason, validation_error == ERR_OUT_OF_MEMORY ? ERR_OUT_OF_MEMORY : ERR_FILE_CORRUPT);
 	}
 	// A finite but too-small or disjoint header AABB would let engine frustum culling hide valid splats.
 	if (!_hlod_bounds_enclose_root(tree, p_bounds_pos, p_bounds_size)) {
@@ -1181,6 +1182,9 @@ static Ref<Resource> _load_gsplatworld_hlod(const Ref<FileAccess> &p_file, const
 		world->set_chunk_payload_source(file_source);
 	}
 	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		return refuse("HLOD bounds cannot be published in runtime coordinates");
+	}
 
 	if (r_error) {
 		*r_error = OK;
@@ -1199,7 +1203,8 @@ static Error _save_gsplatworld_hlod(const GaussianSplatWorld *p_world, const Ref
 					"nodes are stale. Call bake_hlod() again, or set_gaussian_data() to drop the tree.",
 					p_path));
 	String reason;
-	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason), ERR_INVALID_DATA,
+	Error validation_error = OK;
+	ERR_FAIL_COND_V_MSG(!gs_hlod_validate_tree(tree, &reason, &validation_error), validation_error,
 			vformat("Refusing to save %s: invalid HLOD tree: %s", p_path, reason));
 	const uint32_t leaf_count = tree.leaf_splat_count;
 
