@@ -3693,7 +3693,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes 
 			CHECK(source->get_gaussian_data()->get_antialiased() == before.get_antialiased());
 			CHECK(repeated.world->get_gaussian_data()->get_antialiased() == before.get_antialiased());
 			print_line(vformat("HLODCut degree=%d canonical=%d nodes=%d splats=%d admitted_bytes=%d cpu_usec=%d",
-			                   degree, canonical, result.selected_nodes.size(), result.selected_splats,
+			                   degree, int(canonical), result.selected_nodes.size(), result.selected_splats,
 			                   result.admitted_allocation_bytes, result.cpu_usec));
 		}
 		if (source->get_gaussian_data()->capture_save_snapshot(after) != OK) {
