@@ -13,10 +13,24 @@ namespace gs_hlod {
 bool quality_allocation_fits(uint64_t p_count, uint64_t p_element_bytes, uint64_t p_size_max, uint64_t p_header_bytes);
 uint64_t quality_allocation_header_bytes();
 uint64_t quality_allocation_size_max();
+// Fixed resource ceilings for the CPU metric, not total bake memory or elapsed time.
+struct QualityResourceLimits {
+	uint64_t image_payload_bytes = uint64_t(1) << 26u;
+	uint64_t scratch_peak_bytes = uint64_t(1) << 28u;
+	uint64_t node_work = uint64_t(1) << 28u;
+	uint64_t bake_work = uint64_t(1) << 34u;
+};
+QualityResourceLimits quality_resource_limits();
+// Five slots: reference/MERGED/SELECTED projections, reference/candidate images.
+// Counts describe the old and replacement owners; both allocations and headers count.
+bool quality_metric_memory_fits(const uint64_t p_old[5], const uint64_t p_next[5],
+                                const QualityResourceLimits &p_limits);
+bool quality_charge_product(uint64_t &r_remaining, uint64_t p_a, uint64_t p_b);
 #ifdef TESTS_ENABLED
 // Thread-local and test-only: can only lower the native size_t limit. No large allocation
 // is required to exercise the real resize admission and public bake failure path.
 uint64_t quality_set_test_allocation_size_max(uint64_t p_size_max);
+QualityResourceLimits quality_set_test_resource_limits(const QualityResourceLimits &p_limits);
 #endif
 
 template <typename T>
@@ -75,6 +89,7 @@ struct QualityViewResult {
 	int64_t x0 = 0, y0 = 0;
 	uint64_t width = 0, height = 0;
 	double merged_mse = 0, selected_mse = 0;
+	uint64_t work_units = 0; // Declared pixel visits, excludes projection and sorting.
 };
 struct QualityResult {
 	QualityViewResult views[kQualityViewCount];
@@ -96,7 +111,8 @@ Error quality_compare_view(const SplatSpan &p_reference, const SplatSpan &p_merg
                            uint32_t p_first_count, double p_eps, uint32_t p_view, QualityScratch &r_scratch,
                            QualityViewResult &r_result);
 Error quality_compare(const SplatSpan &p_reference, const SplatSpan &p_merged, const SplatSpan &p_selected,
-                      uint32_t p_first_count, double p_eps, QualityScratch &r_scratch, QualityResult &r_result);
+                      uint32_t p_first_count, double p_eps, QualityScratch &r_scratch, QualityResult &r_result,
+                      uint64_t *r_bake_work_remaining = nullptr);
 
 } // namespace gs_hlod
 #endif

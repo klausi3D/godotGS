@@ -141,8 +141,9 @@ Error raster(const Vector<gs_hlod::QualityProjected> &projected, const gs_hlod::
 } // namespace
 
 namespace gs_hlod {
-bool quality_allocation_fits(uint64_t count, uint64_t element_bytes, uint64_t size_max, uint64_t header_bytes)
+static bool rounded_payload(uint64_t count, uint64_t element_bytes, uint64_t &capacity)
 {
+	capacity = 0;
 	if (count == 0u) {
 		return true; // CowData clears without allocating a header.
 	}
@@ -154,7 +155,7 @@ bool quality_allocation_fits(uint64_t count, uint64_t element_bytes, uint64_t si
 	if (bytes > (uint64_t(1) << 63u)) {
 		return false;
 	}
-	uint64_t capacity = bytes - 1u;
+	capacity = bytes - 1u;
 	capacity |= capacity >> 1u;
 	capacity |= capacity >> 2u;
 	capacity |= capacity >> 4u;
@@ -162,6 +163,17 @@ bool quality_allocation_fits(uint64_t count, uint64_t element_bytes, uint64_t si
 	capacity |= capacity >> 16u;
 	capacity |= capacity >> 32u;
 	++capacity;
+	return true;
+}
+bool quality_allocation_fits(uint64_t count, uint64_t element_bytes, uint64_t size_max, uint64_t header_bytes)
+{
+	uint64_t capacity;
+	if (!rounded_payload(count, element_bytes, capacity)) {
+		return false;
+	}
+	if (count == 0u) {
+		return true;
+	}
 	return header_bytes <= size_max && capacity <= size_max - header_bytes;
 }
 uint64_t quality_allocation_header_bytes()
@@ -182,6 +194,16 @@ uint64_t quality_allocation_header_bytes()
 }
 #ifdef TESTS_ENABLED
 static thread_local uint64_t quality_test_size_max = SIZE_MAX;
+static thread_local QualityResourceLimits quality_test_resource_limits;
+QualityResourceLimits quality_set_test_resource_limits(const QualityResourceLimits &limits)
+{
+	const QualityResourceLimits previous = quality_test_resource_limits;
+	const QualityResourceLimits fixed;
+	quality_test_resource_limits = {MIN(limits.image_payload_bytes, fixed.image_payload_bytes),
+	                                MIN(limits.scratch_peak_bytes, fixed.scratch_peak_bytes),
+	                                MIN(limits.node_work, fixed.node_work), MIN(limits.bake_work, fixed.bake_work)};
+	return previous;
+}
 uint64_t quality_set_test_allocation_size_max(uint64_t size_max)
 {
 	const uint64_t previous = quality_test_size_max;
@@ -196,6 +218,43 @@ uint64_t quality_allocation_size_max()
 #else
 	return SIZE_MAX;
 #endif
+}
+QualityResourceLimits quality_resource_limits()
+{
+#ifdef TESTS_ENABLED
+	return quality_test_resource_limits;
+#else
+	return QualityResourceLimits();
+#endif
+}
+bool quality_charge_product(uint64_t &remaining, uint64_t a, uint64_t b)
+{
+	if (a && b > remaining / a) {
+		return false;
+	}
+	remaining -= a * b;
+	return true;
+}
+bool quality_metric_memory_fits(const uint64_t old[5], const uint64_t next[5], const QualityResourceLimits &limits)
+{
+	uint64_t remaining = limits.scratch_peak_bytes;
+	const uint64_t header = quality_allocation_header_bytes();
+	for (uint32_t i = 0; i < 5u; ++i) {
+		const uint64_t bytes = i < 3u ? sizeof(QualityProjected) : sizeof(QualityPixel);
+		for (uint64_t count : {old[i], next[i]}) {
+			uint64_t capacity;
+			if (!rounded_payload(count, bytes, capacity) ||
+			    !quality_allocation_fits(count, bytes, quality_allocation_size_max(), header) ||
+			    (i >= 3u && capacity > limits.image_payload_bytes) ||
+			    !quality_charge_product(remaining, capacity, 1u) ||
+			    (count && !quality_charge_product(remaining, header, 1u))) {
+				return false;
+			}
+		}
+	}
+	// Sum of all old + all new storage also covers realloc and same-size COW forks.
+	// Caller-owned source/selection payloads and external retained aliases are not metric scratch.
+	return true;
 }
 QualityView quality_view(uint32_t index)
 {
@@ -382,9 +441,9 @@ Error quality_select(const GaussianSplatHlodTree &tree, const Vector<uint32_t> &
 	return OK;
 }
 
-Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected,
-                           uint32_t first, double eps, uint32_t view_index, QualityScratch &scratch,
-                           QualityViewResult &result)
+static Error compare_view_budgeted(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected,
+                                   uint32_t first, double eps, uint32_t view_index, QualityScratch &scratch,
+                                   QualityViewResult &result, uint64_t &node_remaining, uint64_t &bake_remaining)
 {
 	result = QualityViewResult();
 	if (view_index >= kQualityViewCount || !std::isfinite(eps) || !(eps > 0) || merged.count != selected.count ||
@@ -398,6 +457,13 @@ Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, 
 		return ERR_INVALID_DATA;
 	}
 	const SplatSpan spans[3] = {reference, merged, selected};
+	const QualityResourceLimits limits = quality_resource_limits();
+	const uint64_t old_counts[5] = {uint64_t(scratch.projected[0].size()), uint64_t(scratch.projected[1].size()),
+	                                uint64_t(scratch.projected[2].size()), uint64_t(scratch.reference_image.size()),
+	                                uint64_t(scratch.candidate_image.size())};
+	uint64_t next_counts[5] = {reference.count, merged.count, selected.count, old_counts[3], old_counts[4]};
+	ERR_FAIL_COND_V_MSG(!quality_metric_memory_fits(old_counts, next_counts, limits), ERR_OUT_OF_MEMORY,
+	                    "HLOD quality projected scratch exceeds the declared memory budget.");
 	const char *labels[3] = {"gs_hlod::quality projected_reference", "gs_hlod::quality projected_merged",
 	                         "gs_hlod::quality projected_selected"};
 	double lo[2] = {DBL_MAX, DBL_MAX}, hi[2] = {-DBL_MAX, -DBL_MAX};
@@ -438,11 +504,38 @@ Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, 
 	    domain.width * domain.height > uint64_t(INT64_MAX) / sizeof(QualityPixel)) {
 		return ERR_OUT_OF_MEMORY;
 	}
+	const uint64_t pixels = domain.width * domain.height;
+	next_counts[3] = next_counts[4] = pixels;
+	ERR_FAIL_COND_V_MSG(!quality_metric_memory_fits(old_counts, next_counts, limits), ERR_OUT_OF_MEMORY,
+	                    "HLOD quality image or old/new scratch exceeds the declared memory budget.");
+	// Reserve the entire view before any image allocation/clear/raster. Includes all
+	// three support loops, even if transmittance or the alpha predicate rejects a pixel.
+	const uint64_t available = MIN(node_remaining, bake_remaining);
+	uint64_t remaining = available;
+	ERR_FAIL_COND_V_MSG(!quality_charge_product(remaining, pixels, 15u), ERR_PARAMETER_RANGE_ERROR,
+	                    "HLOD quality raster-work budget exhausted by complete-view pixel visits.");
+	for (const auto &projected : scratch.projected) {
+		for (const QualityProjected &p : projected) {
+			if (p.alpha < 1.0 / 255.0) {
+				continue;
+			}
+			const int64_t x0 = MAX(domain.x0, int64_t(std::floor(p.x - p.rx)));
+			const int64_t y0 = MAX(domain.y0, int64_t(std::floor(p.y - p.ry)));
+			const int64_t x1 = MIN(domain.x0 + int64_t(domain.width), int64_t(std::ceil(p.x + p.rx)));
+			const int64_t y1 = MIN(domain.y0 + int64_t(domain.height), int64_t(std::ceil(p.y + p.ry)));
+			ERR_FAIL_COND_V_MSG(!quality_charge_product(remaining, uint64_t(MAX(int64_t(0), x1 - x0)),
+			                                            uint64_t(MAX(int64_t(0), y1 - y0))),
+			                    ERR_PARAMETER_RANGE_ERROR,
+			                    "HLOD quality raster-work budget exhausted by complete support rectangles.");
+		}
+	}
+	domain.work_units = available - remaining;
+	node_remaining -= domain.work_units;
+	bake_remaining -= domain.work_units;
 	Error err = raster(scratch.projected[0], domain, scratch.reference_image, "gs_hlod::quality reference_image");
 	if (err != OK) {
 		return err;
 	}
-	const uint64_t pixels = domain.width * domain.height;
 	for (int candidate = 1; candidate < 3; ++candidate) {
 		err = raster(scratch.projected[candidate], domain, scratch.candidate_image, "gs_hlod::quality candidate_image");
 		if (err != OK) {
@@ -468,14 +561,27 @@ Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, 
 	result = domain;
 	return OK;
 }
-Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected, uint32_t first,
-                      double eps, QualityScratch &scratch, QualityResult &result)
+Error quality_compare_view(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected,
+                           uint32_t first, double eps, uint32_t view_index, QualityScratch &scratch,
+                           QualityViewResult &result)
 {
+	const QualityResourceLimits limits = quality_resource_limits();
+	uint64_t node_remaining = limits.node_work, bake_remaining = limits.bake_work;
+	return compare_view_budgeted(reference, merged, selected, first, eps, view_index, scratch, result, node_remaining,
+	                             bake_remaining);
+}
+Error quality_compare(const SplatSpan &reference, const SplatSpan &merged, const SplatSpan &selected, uint32_t first,
+                      double eps, QualityScratch &scratch, QualityResult &result, uint64_t *bake_work_remaining)
+{
+	const QualityResourceLimits limits = quality_resource_limits();
+	uint64_t node_remaining = limits.node_work, local_bake_remaining = limits.bake_work;
+	uint64_t &bake_remaining = bake_work_remaining ? *bake_work_remaining : local_bake_remaining;
+	bake_remaining = MIN(bake_remaining, limits.bake_work);
 	QualityResult candidate;
 	double merged_sum = 0, selected_sum = 0;
 	for (uint32_t view = 0; view < kQualityViewCount; ++view) {
-		const Error err =
-		        quality_compare_view(reference, merged, selected, first, eps, view, scratch, candidate.views[view]);
+		const Error err = compare_view_budgeted(reference, merged, selected, first, eps, view, scratch,
+		                                        candidate.views[view], node_remaining, bake_remaining);
 		if (err != OK) {
 			return err;
 		}

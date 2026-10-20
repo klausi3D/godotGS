@@ -616,6 +616,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return false;
 	}
 	QualityScratch quality_scratch;
+	uint64_t quality_bake_work_remaining = quality_resource_limits().bake_work;
 	QualityPayload selected;
 	const SplatSpan full_leaves = {r_result.leaf_gaussians.ptr(), r_result.leaf_sh_high_order.ptr(), n, sh_count};
 	InteriorBakeScratch interior_scratch;
@@ -723,7 +724,7 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 			if (quality_error == OK) {
 				quality_error = quality_compare(children_frame.span(), interior_result.payload.span(), selected.span(),
 				                                p_input.sh_first_order_count, interior_result.geometric_error,
-				                                quality_scratch, quality);
+				                                quality_scratch, quality, &quality_bake_work_remaining);
 			}
 			if (quality_error != OK) {
 				return fail(vformat("HLOD node %d: full-SH candidate quality evaluation failed (error %d).", i,

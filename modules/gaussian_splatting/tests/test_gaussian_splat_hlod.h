@@ -4679,6 +4679,14 @@ struct HlodQualityAllocationLimit {
 	}
 	~HlodQualityAllocationLimit() { gs_hlod::quality_set_test_allocation_size_max(previous); }
 };
+struct HlodQualityResourceLimit {
+	gs_hlod::QualityResourceLimits previous;
+	explicit HlodQualityResourceLimit(const gs_hlod::QualityResourceLimits &p_limits)
+	        : previous(gs_hlod::quality_set_test_resource_limits(p_limits))
+	{
+	}
+	~HlodQualityResourceLimit() { gs_hlod::quality_set_test_resource_limits(previous); }
+};
 } // namespace TestGaussianSplatHlod
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] rounded size admission rejects before allocation and "
@@ -4769,4 +4777,354 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] rounded size admissio
 	for (uint32_t i = 0; i < old_tree.nodes.size(); ++i) {
 		CHECK(hlod_nodes_equal(world->get_hlod_tree().nodes[i], old_tree.nodes[i]));
 	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] bounded metric memory and whole-view work admission")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	const QualityResourceLimits fixed;
+	CHECK(fixed.image_payload_bytes == (uint64_t(1) << 26u));
+	CHECK(fixed.scratch_peak_bytes == (uint64_t(1) << 28u));
+	CHECK(fixed.node_work == (uint64_t(1) << 28u));
+	CHECK(fixed.bake_work == (uint64_t(1) << 34u));
+	const uint64_t empty[5] = {};
+	uint64_t next[5] = {};
+	next[3] = next[4] = (uint64_t(1) << 26u) / sizeof(QualityPixel);
+	CHECK(quality_metric_memory_fits(empty, next, fixed));      // two 64 MiB images, no allocation
+	CHECK_FALSE(quality_metric_memory_fits(next, next, fixed)); // four payloads plus headers > 256 MiB
+	++next[3];
+	CHECK_FALSE(quality_metric_memory_fits(empty, next, fixed)); // rounds to 128 MiB per image
+	next[3] = next[4] = 0u;
+	next[0] = next[1] = next[2] = (uint64_t(1) << 26u) / sizeof(QualityProjected) + 1u;
+	CHECK_FALSE(quality_metric_memory_fits(empty, next, fixed)); // all three projections count
+	uint64_t remaining = 17u;
+	CHECK_FALSE(quality_charge_product(remaining, UINT64_MAX, 2u));
+	CHECK(remaining == 17u);
+	CHECK(quality_charge_product(remaining, 0u, UINT64_MAX));
+	CHECK(quality_charge_product(remaining, 17u, 1u));
+	CHECK(remaining == 0u);
+	CHECK_FALSE(quality_charge_product(remaining, 1u, 1u));
+	{
+		QualityResourceLimits oversized{UINT64_MAX, UINT64_MAX, UINT64_MAX, UINT64_MAX};
+		HlodQualityResourceLimit scoped(oversized);
+		const QualityResourceLimits actual = quality_resource_limits();
+		CHECK(actual.image_payload_bytes == fixed.image_payload_bytes);
+		CHECK(actual.scratch_peak_bytes == fixed.scratch_peak_bytes);
+		CHECK(actual.node_work == fixed.node_work);
+		CHECK(actual.bake_work == fixed.bake_work);
+	}
+
+	Gaussian g = hlod_quality_gaussian();
+	g.opacity = 0.0f; // one transparent pixel, but all three real projection arrays still exist
+	const SplatSpan one = {&g, nullptr, 1u, 0u};
+	QualityScratch scratch;
+	QualityViewResult view;
+	QualityResourceLimits limits;
+	uint64_t rounded_projection = 1u;
+	while (rounded_projection < sizeof(QualityProjected)) {
+		rounded_projection *= 2u;
+	}
+	const uint64_t one_owner =
+	        3u * rounded_projection + 2u * sizeof(QualityPixel) + 5u * quality_allocation_header_bytes();
+	for (bool admitted : {false, true}) {
+		limits.scratch_peak_bytes = one_owner - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(limits);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_view(one, one, one, 0u, 1.0, 0u, scratch, view);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_OUT_OF_MEMORY));
+		if (!admitted) {
+			CHECK(scratch.reference_image.is_empty());
+			CHECK(scratch.candidate_image.is_empty());
+			CHECK(view.width == 0u);
+			// A failed projection/image admission may retain projections. Start the
+			// independent exact-fit control empty, not with an uncharged retained owner.
+			scratch = QualityScratch();
+		}
+	}
+	if (view.width != 1u || view.height != 1u || scratch.reference_image.size() != 1) {
+		FAIL("actual exact-fit memory control");
+		return;
+	}
+	CHECK(view.work_units == 15u);
+	QualityScratch alias = scratch; // force real same-size COW writes in the next admitted call
+	for (bool admitted : {false, true}) {
+		limits.scratch_peak_bytes = 2u * one_owner - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(limits);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_view(one, one, one, 0u, 1.0, 0u, scratch, view);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_OUT_OF_MEMORY));
+	}
+	if (alias.reference_image.size() != 1 || scratch.reference_image.size() != 1) {
+		FAIL("COW owners retained");
+		return;
+	}
+	CHECK(alias.reference_image.ptr() != scratch.reference_image.ptr());
+	CHECK(alias.reference_image[0].rgba[3] == 0.0);
+	for (bool admitted : {false, true}) {
+		QualityScratch fresh;
+		QualityResourceLimits image_limits;
+		image_limits.image_payload_bytes = sizeof(QualityPixel) - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(image_limits);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_view(one, one, one, 0u, 1.0, 0u, fresh, view);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_OUT_OF_MEMORY));
+		if (!admitted) {
+			CHECK(fresh.reference_image.is_empty());
+			CHECK(fresh.candidate_image.is_empty());
+		}
+	}
+
+	// No raster/image mutation is allowed until the entire view, not just 15P,
+	// is reserved. Independent rectangle area for this centred isotropic splat.
+	g.opacity = 0.5f;
+	g.position = Vector3();
+	g.scale = Vector3(0.25f, 0.25f, 0.25f);
+	const double radius = std::sqrt(2.0 * std::log(255.0 * double(g.opacity)) * (double(g.scale.x) * g.scale.x + 0.3));
+	const uint64_t edge = uint64_t(2.0 * std::ceil(radius));
+	const uint64_t work = 18u * edge * edge; // 15P + one full rectangle in each of three spans
+	for (bool admitted : {false, true}) {
+		QualityScratch fresh;
+		QualityResourceLimits work_limits;
+		work_limits.node_work = work - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(work_limits);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_view(one, one, one, 0u, 1.0, 0u, fresh, view);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_PARAMETER_RANGE_ERROR));
+		if (admitted) {
+			CHECK(view.work_units == work);
+		} else {
+			CHECK(fresh.reference_image.is_empty());
+			CHECK(fresh.candidate_image.is_empty());
+			CHECK(view.width == 0u);
+		}
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] raster budgets persist across views and baked nodes")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	Gaussian g = hlod_quality_gaussian();
+	g.opacity = 0.0f;
+	const SplatSpan one = {&g, nullptr, 1u, 0u};
+	QualityScratch scratch;
+	QualityResult result;
+	const uint64_t node_work = 22u * 15u;
+	for (bool admitted : {false, true}) {
+		QualityResourceLimits limits;
+		limits.node_work = node_work - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(limits);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare(one, one, one, 0u, 1.0, scratch, result);
+		ERR_PRINT_ON;
+		CHECK(error == (admitted ? OK : ERR_PARAMETER_RANGE_ERROR));
+	}
+	uint64_t bake_remaining = 2u * node_work - 1u;
+	CHECK(quality_compare(one, one, one, 0u, 1.0, scratch, result, &bake_remaining) == OK);
+	CHECK(bake_remaining == node_work - 1u);
+	ERR_PRINT_OFF;
+	const Error second = quality_compare(one, one, one, 0u, 1.0, scratch, result, &bake_remaining);
+	ERR_PRINT_ON;
+	CHECK(second == ERR_PARAMETER_RANGE_ERROR);
+	CHECK(bake_remaining == 14u); // 21 further complete views, never a partial-view debit
+
+	// Exercise the actual bake loop, rather than only the direct comparison seam.
+	LocalVector<Gaussian> source;
+	source.resize(64u);
+	for (Gaussian &entry : source) {
+		entry = g;
+		entry.position = Vector3(1, 1, 1);
+	}
+	BakeInput input;
+	input.gaussians = source.ptr();
+	input.count = source.size();
+	BakeParams params;
+	params.leaf_max_splats = 4u;
+	BakeResult baseline;
+	String reason;
+	Error code = ERR_BUG;
+	if (!bake_world(input, params, baseline, &reason, &code)) {
+		FAIL(reason.utf8().get_data());
+		return;
+	}
+	uint64_t interiors = 0;
+	for (const auto &node : baseline.tree.nodes) {
+		interiors += node.child_count != 0u;
+	}
+	if (interiors < 2u) {
+		FAIL("multiple real interior nodes required");
+		return;
+	}
+	for (bool admitted : {false, true}) {
+		QualityResourceLimits limits;
+		limits.node_work = node_work;
+		limits.bake_work = interiors * node_work - (admitted ? 0u : 1u);
+		HlodQualityResourceLimit scoped(limits);
+		BakeResult trial;
+		code = OK; // bake_world reports an error only on failure.
+		ERR_PRINT_OFF;
+		const bool built = bake_world(input, params, trial, &reason, &code);
+		ERR_PRINT_ON;
+		CHECK(built == admitted);
+		CHECK(code == (admitted ? OK : ERR_PARAMETER_RANGE_ERROR));
+		if (admitted) {
+			if (trial.tree.nodes.size() != baseline.tree.nodes.size()) {
+				FAIL("budget-admitted bake preserves exact nodes");
+				return;
+			}
+			for (uint32_t i = 0; i < baseline.tree.nodes.size(); ++i) {
+				CHECK(hlod_nodes_equal(trial.tree.nodes[i], baseline.tree.nodes[i]));
+			}
+		}
+	}
+	// Public default bake: over one 16,384-splat leaf, with a previously published
+	// tree. A work failure must preserve that complete world, not publish partial nodes.
+	source.resize(16385u);
+	for (Gaussian &entry : source) {
+		entry = g;
+		entry.position = Vector3(1, 1, 1);
+	}
+	Ref<GaussianSplatWorld> world = hlod_make_world(source);
+	if (world->bake_hlod() != OK || !world->has_hlod_tree()) {
+		FAIL("public work-budget control bake");
+		return;
+	}
+	const Ref<GaussianData> before = world->get_gaussian_data();
+	if (before.is_null()) {
+		FAIL("public work-budget payload");
+		return;
+	}
+	const uint64_t revision = before->get_content_revision();
+	const GaussianSplatHlodTree tree_before = world->get_hlod_tree();
+	const AABB bounds_before = world->get_bounds();
+	const int chunks_before = world->get_chunk_count();
+	QualityResourceLimits public_limits;
+	public_limits.bake_work = node_work - 1u;
+	Error public_error;
+	{
+		HlodQualityResourceLimit scoped(public_limits);
+		ERR_PRINT_OFF;
+		public_error = world->bake_hlod();
+		ERR_PRINT_ON;
+	}
+	CHECK(public_error == ERR_PARAMETER_RANGE_ERROR);
+	CHECK(world->get_gaussian_data() == before);
+	CHECK(before->get_content_revision() == revision);
+	CHECK(world->get_bounds() == bounds_before);
+	CHECK(world->get_chunk_count() == chunks_before);
+	if (!world->has_hlod_tree() || world->get_hlod_tree().nodes.size() != tree_before.nodes.size()) {
+		FAIL("work-budget rejection retains complete tree");
+		return;
+	}
+	for (uint32_t i = 0; i < tree_before.nodes.size(); ++i) {
+		CHECK(hlod_nodes_equal(world->get_hlod_tree().nodes[i], tree_before.nodes[i]));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] mixed outlier actual merge epsilon rejects before images")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	LocalVector<Gaussian> source;
+	source.resize(16385u);
+	for (Gaussian &g : source) {
+		g = hlod_quality_gaussian();
+		g.position = Vector3();
+		g.opacity = 0.5f;
+		g.scale = Vector3(1, 1, 1) * real_t(std::ldexp(7.0, -26));
+	}
+	source[0].scale = Vector3(0.25f, 0.125f, 0.0625f);
+	const SplatSpan span = hlod_span(source);
+	const double eps = std::ldexp(1.0, -22);
+	MergeScratch count_scratch;
+	Error code = ERR_BUG;
+	CHECK(merged_count_at_eps(span, Vector3(), eps, count_scratch, &code) == 2u);
+	CHECK(code == OK);
+	InteriorBakeScratch merge_scratch;
+	InteriorBakeResult merged;
+	String reason;
+	if (!bake_interior_node(&span, 1u, Vector3(), std::ldexp(1.0, -16), 0.0, InteriorBakeParams(), merge_scratch,
+	                        merged, &reason, &code)) {
+		FAIL(reason.utf8().get_data());
+		return;
+	}
+	CHECK(merged.geometric_error == eps);
+	CHECK(merged.payload.size() == 2u);
+	QualityScratch scratch;
+	QualityResult result;
+	const SplatSpan selected = {source.ptr(), nullptr, 2u, 0u};
+	ERR_PRINT_OFF;
+	const Error metric_error =
+	        quality_compare(span, merged.payload.span(), selected, 0u, merged.geometric_error, scratch, result);
+	ERR_PRINT_ON;
+	CHECK(metric_error == ERR_OUT_OF_MEMORY);
+	CHECK(scratch.reference_image.is_empty());
+	CHECK(scratch.candidate_image.is_empty());
+
+	Ref<GaussianSplatWorld> world = hlod_make_world(source);
+	const Ref<GaussianData> before_data = world->get_gaussian_data();
+	const uint64_t before_revision = before_data->get_content_revision();
+	const AABB before_bounds = world->get_bounds();
+	const int before_chunks = world->get_chunk_count();
+	ERR_PRINT_OFF;
+	const Error public_error = world->bake_hlod();
+	ERR_PRINT_ON;
+	CHECK(public_error == ERR_OUT_OF_MEMORY);
+	CHECK(world->get_gaussian_data() == before_data);
+	CHECK(before_data->get_content_revision() == before_revision);
+	CHECK_FALSE(world->has_hlod_tree());
+	CHECK(world->get_bounds() == before_bounds);
+	CHECK(world->get_chunk_count() == before_chunks);
+	if (before_data->get_count() != int(source.size())) {
+		FAIL("complete source retained");
+		return;
+	}
+	for (uint32_t i = 0; i < source.size(); ++i) {
+		const Gaussian actual = before_data->get_gaussian(i);
+		CHECK(memcmp(&actual, &source[i], sizeof(Gaussian)) == 0);
+	}
+#ifdef TOOLS_ENABLED
+	// Successful fallback is the validated unchanged source, not an unmeasured
+	// candidate. Existing import policy is retained, including atomic replacement.
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	const String path = hlod_temp_path("quality_outlier_source");
+	const String output = hlod_temp_path("quality_outlier_destination");
+	if (saver.save(world, path, 0u) != OK || saver.save(world, output, 0u) != OK) {
+		FAIL("save immutable outlier import inputs");
+		return;
+	}
+	const PackedByteArray bytes = hlod_read_file(path);
+	Variant metadata;
+	ERR_PRINT_OFF;
+	const Error imported = importer->import(ResourceUID::INVALID_ID, path, output.get_basename(), options, nullptr,
+	                                        nullptr, &metadata);
+	ERR_PRINT_ON;
+	CHECK(imported == OK);
+	CHECK(hlod_read_file(path) == bytes);
+	CHECK(hlod_read_file(output) == bytes);
+	if (metadata.get_type() != Variant::DICTIONARY) {
+		FAIL("resource-rejected fallback metadata");
+		return;
+	}
+	CHECK(String(Dictionary(metadata)["hlod_skip_reason"]) == "bake_failed");
+	Error loaded_error = ERR_BUG;
+	Ref<GaussianSplatWorld> loaded = loader.load_resident(output, &loaded_error);
+	if (loaded_error != OK || loaded.is_null()) {
+		FAIL("resource-rejected fallback decodes");
+		return;
+	}
+	CHECK_FALSE(loaded->has_hlod_tree());
+	loaded.unref();
+	DirAccess::remove_absolute(output);
+	DirAccess::remove_absolute(path);
+#endif
 }
