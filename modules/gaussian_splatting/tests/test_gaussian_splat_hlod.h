@@ -14,6 +14,7 @@
 
 #include "../core/gaussian_splat_hlod_bake.h"
 #include "../core/gaussian_splat_hlod_merge.h"
+#include "../core/gaussian_splat_hlod_quality.h"
 #include "../core/gaussian_splat_hlod_tree.h"
 #include "../core/gaussian_splat_world.h"
 #include "../core/gs_vector_alloc.h"
@@ -3039,41 +3040,55 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer falls back to the plain c
 // through the label-matched gs_vector_alloc seam (TESTS_ENABLED only). Every label must fire: an
 // armed label that stays armed means the site was renamed or bypassed and the case went vacuous.
 static const char *const kHlodBakeAllocationSites[] = {
-	"GaussianSplatWorld::bake_hlod snapshot_gaussians",
-	"GaussianSplatWorld::bake_hlod snapshot_sh_high_order",
-	"gs_hlod::bake_world perm",
-	"gs_hlod::bake_world scratch_perm",
-	"gs_hlod::bake_world octant",
-	"gs_hlod::bake_world index_split_keys",
-	"gs_hlod::bake_world index_split_order",
-	"gs_hlod::bake_world node_of_build",
-	"gs_hlod::bake_world nodes",
-	"gs_hlod::bake_world importance",
-	"gs_hlod::bake_world leaf_gaussians",
-	"gs_hlod::bake_world leaf_sh_high_order",
-	"gs_hlod::bake_world leaf_source_index",
-	"gs_hlod::bake_world interior_payloads",
-	"gs_hlod::bake_world node_lo",
-	"gs_hlod::bake_world node_hi",
-	// Interior merge (per node; not a small constant, see gaussian_splat_hlod_merge.h).
-	"gs_hlod::bake_world children_frame_gaussians",
-	"gs_hlod::bake_world children_frame_sh_high_order",
-	"gs_hlod::bake_interior_node reference_gaussians",
-	"gs_hlod::bake_interior_node reference_sh_high_order",
-	"gs_hlod::bucket_cells pass_through",
-	"gs_hlod::bucket_cells cells",
-	"gs_hlod::bucket_cells entries",
-	"gs_hlod::merge_at_eps merged_gaussians",
-	"gs_hlod::merge_at_eps merged_sh_high_order",
-	"gs_hlod::merge_at_eps members",
-	"gs_hlod::importance_order order",
-	"gs_hlod::importance_order keys",
-	"gs_hlod::bake_interior_node payload_gaussians",
-	"gs_hlod::bake_interior_node payload_sh_high_order",
-	"gs_hlod::bake_world interior_gaussians",
-	"gs_hlod::bake_world interior_sh_high_order",
-	"GaussianSplatWorld::bake_hlod baked_gaussians",
-	"GaussianSplatWorld::bake_hlod baked_sh_high_order",
+        "GaussianSplatWorld::bake_hlod snapshot_gaussians",
+        "GaussianSplatWorld::bake_hlod snapshot_sh_high_order",
+        "gs_hlod::bake_world perm",
+        "gs_hlod::bake_world scratch_perm",
+        "gs_hlod::bake_world octant",
+        "gs_hlod::bake_world index_split_keys",
+        "gs_hlod::bake_world index_split_order",
+        "gs_hlod::bake_world node_of_build",
+        "gs_hlod::bake_world nodes",
+        "gs_hlod::bake_world importance",
+        "gs_hlod::bake_world leaf_gaussians",
+        "gs_hlod::bake_world leaf_sh_high_order",
+        "gs_hlod::bake_world leaf_source_index",
+        "gs_hlod::bake_world interior_payloads",
+        "gs_hlod::bake_world node_lo",
+        "gs_hlod::bake_world node_hi",
+        // Interior merge (per node; not a small constant, see gaussian_splat_hlod_merge.h).
+        "gs_hlod::bake_world children_frame_gaussians",
+        "gs_hlod::bake_world children_frame_sh_high_order",
+        "gs_hlod::bake_interior_node reference_gaussians",
+        "gs_hlod::bake_interior_node reference_sh_high_order",
+        "gs_hlod::bucket_cells pass_through",
+        "gs_hlod::bucket_cells cells",
+        "gs_hlod::bucket_cells entries",
+        "gs_hlod::merge_at_eps merged_gaussians",
+        "gs_hlod::merge_at_eps merged_sh_high_order",
+        "gs_hlod::merge_at_eps members",
+        "gs_hlod::importance_order order",
+        "gs_hlod::importance_order keys",
+        "gs_hlod::bake_interior_node payload_gaussians",
+        "gs_hlod::bake_interior_node payload_sh_high_order",
+        "gs_hlod::bake_world interior_gaussians",
+        "gs_hlod::bake_world interior_sh_high_order",
+        "GaussianSplatWorld::bake_hlod baked_gaussians",
+        "GaussianSplatWorld::bake_hlod baked_sh_high_order",
+        "gs_hlod::quality dfs_leaves",
+        "gs_hlod::quality first_descendant_leaf",
+        "gs_hlod::quality descendant_leaf_count",
+        "gs_hlod::quality leaf_shares",
+        "gs_hlod::quality selected_gaussians",
+        "gs_hlod::quality selected_sh",
+        "gs_hlod::quality selected_order",
+        "gs_hlod::quality ordered_gaussians",
+        "gs_hlod::quality ordered_sh",
+        "gs_hlod::quality projected_reference",
+        "gs_hlod::quality projected_merged",
+        "gs_hlod::quality projected_selected",
+        "gs_hlod::quality reference_image",
+        "gs_hlod::quality candidate_image",
 };
 
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] a bake allocation failure returns ERR_OUT_OF_MEMORY and leaves the world unchanged") {
@@ -3184,7 +3199,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] importer bakes a plain v3 source i
 
 	Ref<ResourceImporterGSplatWorld> importer;
 	importer.instantiate();
-	CHECK_EQ(importer->get_format_version(), 5);
+	CHECK_EQ(importer->get_format_version(), 6);
 	const String save_base = OS::get_singleton()->get_temp_path().path_join("godotgs_hlod_import_" + itos(OS::get_singleton()->get_ticks_usec()));
 	HashMap<StringName, Variant> options;
 	Variant metadata;
@@ -3937,3 +3952,647 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][MalformedCorpus] world public meta
 		}
 	}
 }
+
+namespace TestGaussianSplatHlod {
+// Independent associated-Legendre recurrence; never calls the production polynomial table.
+inline double hlod_quality_sh(int l, int m, const Vector3 &ray)
+{
+	const int order = std::abs(m);
+	double p = 1.0;
+	for (int k = 1; k <= order; ++k) {
+		p *= -(2 * k - 1) * std::sqrt(MAX(0.0, 1.0 - double(ray.z) * ray.z));
+	}
+	if (l > order) {
+		double previous = p;
+		p *= (2 * order + 1) * ray.z;
+		for (int k = order + 2; k <= l; ++k) {
+			const double next = ((2 * k - 1) * ray.z * p - (k + order - 1) * previous) / (k - order);
+			previous = p;
+			p = next;
+		}
+	}
+	double ratio = 1.0;
+	for (int k = l - order + 1; k <= l + order; ++k) {
+		ratio /= k;
+	}
+	p *= std::sqrt((2 * l + 1) * ratio / (4.0 * std::acos(-1.0)));
+	if (m != 0) {
+		const double phi = std::atan2(double(ray.y), double(ray.x));
+		p *= std::sqrt(2.0) * (m < 0 ? std::sin(order * phi) : std::cos(order * phi));
+	}
+	return p;
+}
+inline Gaussian hlod_quality_gaussian()
+{
+	Gaussian g;
+	g.position = Vector3(0.5f, 0.5f, 0.5f);
+	g.scale = Vector3(0.25f, 0.125f, 0.0625f);
+	g.rotation = Quaternion();
+	g.opacity = 0.5f;
+	g.sh_dc = Color(0.0f, -0.25f, 0.25f, 1.0f);
+	g.render_meta = gaussian_set_dc_encoding(0u, GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+	return g;
+}
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] fixed views and full compact SH use camera-to-splat rays")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	CHECK(kQualityViewCount == 22u);
+	for (uint32_t v = 0; v < 22u; ++v) {
+		const QualityView view = quality_view(v);
+		double eye2 = 0, right2 = 0, up2 = 0, dot = 0;
+		for (int a = 0; a < 3; ++a) {
+			eye2 += view.eye[a] * view.eye[a];
+			right2 += view.right[a] * view.right[a];
+			up2 += view.up[a] * view.up[a];
+			dot += view.eye[a] * view.right[a];
+		}
+		CHECK(hlod_close(eye2, 1.0, 1e-12));
+		CHECK(hlod_close(right2, 1.0, 1e-12));
+		CHECK(hlod_close(up2, 1.0, 1e-12));
+		CHECK(std::abs(dot) < 1e-12);
+		CHECK(view.pitch_multiplier == (v < 6u ? 1u : 2u));
+		if (v >= 14u) {
+			CHECK(hlod_close(view.eye[1], std::sin(std::acos(-1.0) / 18.0), 1e-12));
+		}
+		const Vector3 direction(real_t(-view.eye[0]), real_t(-view.eye[1]), real_t(-view.eye[2]));
+		const double ray[3] = {direction.x, direction.y, direction.z};
+		// Every prefix, not just full bands: first=0/high=0 is distinct from SH1/high=0.
+		for (uint32_t first = 0; first <= 3u; ++first) {
+			for (uint32_t high = 0; high <= 21u; ++high) {
+				for (GaussianDCEncoding encoding :
+				     {GAUSSIAN_DC_ENCODING_LINEAR_RGB, GAUSSIAN_DC_ENCODING_LEGACY_BIAS}) {
+					Gaussian g = hlod_quality_gaussian();
+					g.render_meta = gaussian_set_dc_encoding(0u, encoding);
+					Vector3 coefficients[21];
+					for (int j = 0; j < 3; ++j) {
+						g.sh_1[j] = Vector3(0.03125f, -0.015625f, 0.0078125f) * real_t(j + 1);
+					}
+					for (int j = 0; j < 21; ++j) {
+						coefficients[j] = Vector3(0.001953125f, -0.0009765625f, 0.00048828125f) * real_t(j + 1);
+					}
+					double rgb[3];
+					if (quality_color(g, coefficients, first, high, ray, rgb) != OK) {
+						FAIL("full compact SH colour evaluation");
+						return;
+					}
+					for (int c = 0; c < 3; ++c) {
+						const double dc = g.sh_dc[c];
+						double expected = encoding == GAUSSIAN_DC_ENCODING_LINEAR_RGB
+						                          ? dc + 0.5
+						                          : 1.5 / (1.0 + std::exp(-dc)) - 0.25;
+						for (int l = 1; l <= 4; ++l) {
+							for (int m = -l; m <= l; ++m) {
+								const uint32_t index = uint32_t(l * l + l + m);
+								if (index <= first) {
+									expected += g.sh_1[index - 1u][c] * hlod_quality_sh(l, m, direction);
+								}
+								if (index >= 4u && index < 4u + high) {
+									expected += coefficients[index - 4u][c] * hlod_quality_sh(l, m, direction);
+								}
+							}
+						}
+						CHECK(std::abs(rgb[c] - std::clamp(expected, 0.0, 1.0)) < 2e-7);
+					}
+				}
+			}
+		}
+	}
+	Gaussian odd = hlod_quality_gaussian();
+	odd.sh_1[2] = Vector3(0.25f, 0, 0);
+	const double camera_to_splat[3] = {-1, 0, 0};
+	double rgb[3];
+	CHECK(quality_color(odd, nullptr, 3u, 0u, camera_to_splat, rgb) == OK);
+	CHECK(rgb[0] > 0.5); // Signed odd band; an eye-vector substitution reverses this.
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] analytic alpha covariance depth ties and equal-view "
+          "candidate choice")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	Gaussian g = hlod_quality_gaussian();
+	const SplatSpan one = {&g, nullptr, 1u, 0u};
+	QualityScratch scratch;
+	QualityViewResult view;
+	// +X view: right=-Z, up=Y, centre=(-.5,.5) is exactly a pixel centre.
+	if (quality_compare_view(one, one, one, 0u, 1.0, 0u, scratch, view) != OK) {
+		FAIL("analytic raster");
+		return;
+	}
+	const int64_t px = -1 - view.x0, py = -view.y0;
+	if (px < 0 || py < 0 || uint64_t(px) >= view.width || uint64_t(py) >= view.height ||
+	    scratch.reference_image.size() != int64_t(view.width * view.height)) {
+		FAIL("analytic centre is in complete image");
+		return;
+	}
+	const QualityPixel &centre = scratch.reference_image[uint64_t(py) * view.width + uint64_t(px)];
+	CHECK(centre.rgba[3] == 0.5);
+	CHECK(centre.rgba[0] == 0.25);
+	CHECK(centre.rgba[1] == 0.125);
+	CHECK(view.merged_mse == 0.0);
+	CHECK(view.selected_mse == 0.0);
+	if (scratch.projected[0].size() != 1) {
+		FAIL("one projected splat");
+		return;
+	}
+	CHECK(hlod_close(scratch.projected[0][0].conditional_inverse, 1.0 / (0.0625 * 0.0625 + 0.3), 1e-12));
+	CHECK(hlod_close(scratch.projected[0][0].yy_inverse, 1.0 / (0.125 * 0.125 + 0.3), 1e-12));
+	g.rotation = Quaternion(Vector3(1, 0, 0), real_t(std::acos(-1.0) / 4.0));
+	if (quality_compare_view(one, one, one, 0u, 1.0, 0u, scratch, view) != OK || scratch.projected[0].size() != 1) {
+		FAIL("rotated covariance");
+		return;
+	}
+	double covariance[6];
+	hlod_covariance(g, covariance);
+	CHECK(hlod_close(scratch.projected[0][0].xy_over_yy, -covariance[4] / (covariance[3] + 0.3), 1e-6));
+
+	Gaussian layers[2] = {hlod_quality_gaussian(), hlod_quality_gaussian()};
+	layers[0].sh_dc = Color(0.5f, -0.5f, -0.5f); // red
+	layers[1].sh_dc = Color(-0.5f, -0.5f, 0.5f); // blue
+	const SplatSpan two = {layers, nullptr, 2u, 0u};
+	for (bool reverse_depth : {false, true}) {
+		layers[1].position.x = reverse_depth ? 1.5f : 0.5f;
+		if (quality_compare_view(two, two, two, 0u, 1.0, 0u, scratch, view) != OK) {
+			FAIL("layer raster");
+			return;
+		}
+		const uint64_t pixel = uint64_t(-view.y0) * view.width + uint64_t(-1 - view.x0);
+		if (pixel >= uint64_t(scratch.reference_image.size())) {
+			FAIL("layer centre");
+			return;
+		}
+		CHECK(scratch.reference_image[pixel].rgba[3] == 0.75);
+		CHECK(scratch.reference_image[pixel].rgba[0] == (reverse_depth ? 0.25 : 0.5));
+		CHECK(scratch.reference_image[pixel].rgba[2] == (reverse_depth ? 0.5 : 0.25));
+	}
+	Gaussian transparent = hlod_quality_gaussian();
+	transparent.opacity = 0.0f;
+	const SplatSpan zero = {&transparent, nullptr, 1u, 0u};
+	QualityResult result;
+	if (quality_compare(zero, zero, zero, 0u, 0.5, scratch, result) != OK) {
+		FAIL("transparent view");
+		return;
+	}
+	CHECK(result.use_merged);
+	for (const auto &domain : result.views) {
+		CHECK(domain.width == 1u);
+		CHECK(domain.height == 1u);
+	}
+	CHECK(quality_prefer_merged(0.0, 0.0));
+	CHECK(quality_prefer_merged(1.01, 1.0));
+	CHECK_FALSE(quality_prefer_merged(1.0101, 1.0));
+	Gaussian other = hlod_quality_gaussian();
+	other.position += Vector3(1.0f, 0.5f, 0);
+	const SplatSpan changed = {&other, nullptr, 1u, 0u};
+	for (bool merged_wins : {false, true}) {
+		const SplatSpan reference = merged_wins ? one : changed;
+		if (quality_compare(reference, one, changed, 0u, 0.25, scratch, result) != OK) {
+			FAIL("candidate metric");
+			return;
+		}
+		CHECK(result.use_merged == merged_wins);
+		double m = 0, s = 0;
+		bool different_domain = false;
+		for (uint32_t v = 0; v < 22u; ++v) {
+			m += result.views[v].merged_mse;
+			s += result.views[v].selected_mse;
+			different_domain |=
+			        result.views[v].width * result.views[v].height != result.views[0].width * result.views[0].height;
+		}
+		CHECK(different_domain);
+		CHECK(result.merged_error == float(m / 22.0));
+		CHECK(result.selected_error == float(s / 22.0));
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] full-detail leaf shares preserve prefix identity all fields "
+          "and SH")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	GaussianSplatHlodTree tree;
+	tree.nodes.resize(4); // fixed synthetic selection input, not a serialized producer fixture
+	Vector<uint32_t> leaves;
+	leaves.resize(3);
+	const uint32_t ids[3] = {3u, 1u, 2u}, counts[3] = {2u, 3u, 5u};
+	Gaussian gaussians[10];
+	Vector3 sh[210];
+	uint32_t offset = 0;
+	for (uint32_t j = 0; j < 3u; ++j) {
+		leaves.write[j] = ids[j];
+		tree.nodes[ids[j]].payload_first = offset;
+		tree.nodes[ids[j]].payload_count = counts[j];
+		for (uint32_t i = 0; i < counts[j]; ++i) {
+			Gaussian &g = gaussians[offset + i];
+			g = hlod_quality_gaussian();
+			g.position = Vector3(real_t(offset + i), 2, 3);
+			g.painterly_meta = offset + i;
+			g.normal = Vector3(0, 1, 0);
+			g.stroke_age = float(i);
+			g.brush_axes = Vector2(2, 3);
+			g.render_meta = gaussian_set_dc_encoding(0u, (i & 1u) ? GAUSSIAN_DC_ENCODING_LEGACY_BIAS
+			                                                      : GAUSSIAN_DC_ENCODING_LINEAR_RGB);
+			for (int c = 0; c < 3; ++c) {
+				g.sh_1[c] = Vector3(real_t(offset + i), real_t(c), 1);
+			}
+			for (uint32_t c = 0; c < 21u; ++c) {
+				sh[(offset + i) * 21u + c] = Vector3(real_t(offset + i), real_t(c), -1);
+			}
+		}
+		offset += counts[j];
+	}
+	const SplatSpan source = {gaussians, sh, 10u, 21u};
+	const double centre[3] = {0.5, 1.0, 2.0};
+	for (uint32_t wanted = 1; wanted <= 10u; ++wanted) {
+		QualityScratch scratch;
+		QualityPayload out;
+		if (quality_select(tree, leaves, 0u, 3u, source, wanted, centre, scratch, out) != OK || out.size() != wanted ||
+		    out.sh.size() != int64_t(wanted * 21u) || scratch.shares.size() != 3) {
+			FAIL("complete selected candidate");
+			return;
+		}
+		uint32_t expected[3], remainder[3], allocated = 0;
+		for (uint32_t j = 0; j < 3u; ++j) {
+			expected[j] = wanted * counts[j] / 10u;
+			remainder[j] = wanted * counts[j] % 10u;
+			allocated += expected[j];
+		}
+		while (allocated < wanted) {
+			uint32_t best = 0;
+			for (uint32_t j = 1; j < 3u; ++j) {
+				if (remainder[j] > remainder[best] || (remainder[j] == remainder[best] && ids[j] < ids[best])) {
+					best = j;
+				}
+			}
+			++expected[best];
+			remainder[best] = 0;
+			++allocated;
+		}
+		uint32_t cursor = 0;
+		// All importance keys are equal: final order must be leaf id, then prefix ordinal.
+		for (uint32_t id = 1; id <= 3u; ++id) {
+			uint32_t j = 0;
+			while (ids[j] != id) {
+				++j;
+			}
+			CHECK(scratch.shares[id - 1u].share == expected[j]);
+			for (uint32_t i = 0; i < expected[j]; ++i) {
+				if (cursor >= out.size()) {
+					FAIL("share sum");
+					return;
+				}
+				const uint32_t src = uint32_t(tree.nodes[id].payload_first) + i;
+				Gaussian expected_g = gaussians[src];
+				expected_g.position -= Vector3(0.5f, 1, 2);
+				CHECK(memcmp(&out.gaussians[cursor], &expected_g, sizeof(Gaussian)) == 0);
+				CHECK(memcmp(out.sh.ptr() + cursor * 21u, sh + src * 21u, 21u * sizeof(Vector3)) == 0);
+				++cursor;
+			}
+		}
+		CHECK(cursor == wanted);
+	}
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] actual bake publishes measured candidates before parent "
+          "construction")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	LocalVector<Gaussian> g;
+	hlod_make_fixture(24u, 8u, g);
+	LocalVector<Vector3> sh;
+	sh.resize(32u * 21u);
+	for (uint32_t i = 0; i < g.size(); ++i) {
+		for (int c = 0; c < 3; ++c) {
+			g[i].sh_1[c] = Vector3(0.03125f, -0.015625f, 0.0078125f) * real_t((i + c) % 5u);
+		}
+		for (uint32_t c = 0; c < 21u; ++c) {
+			sh[i * 21u + c] = Vector3(0.00390625f, 0.001953125f, -0.0009765625f) * real_t((i + c) % 7u);
+		}
+	}
+	BakeInput input;
+	input.gaussians = g.ptr();
+	input.count = g.size();
+	input.sh_high_order = sh.ptr();
+	input.sh_first_order_count = 3u;
+	input.sh_high_order_count = 21u;
+	BakeParams params;
+	params.leaf_max_splats = 4u;
+	BakeResult result, again;
+	String reason;
+	if (!bake_world(input, params, result, &reason) || !bake_world(input, params, again, &reason)) {
+		FAIL(reason.utf8().get_data());
+		return;
+	}
+	const GaussianSplatHlodTree &tree = result.tree;
+	if (tree.nodes.size() != again.tree.nodes.size() || result.leaf_gaussians.size() != 32u ||
+	    result.leaf_source_index.size() != 32u || result.leaf_sh_high_order.size() != 32u * 21u) {
+		FAIL("complete deterministic bake");
+		return;
+	}
+	CHECK(tree.bake_rule_version == 2u);
+	for (uint32_t i = 0; i < 32u; ++i) {
+		const uint32_t src = result.leaf_source_index[i];
+		if (src >= 32u) {
+			FAIL("leaf permutation");
+			return;
+		}
+		CHECK(memcmp(&result.leaf_gaussians[i], &g[src], sizeof(Gaussian)) == 0);
+		CHECK(memcmp(result.leaf_sh_high_order.ptr() + i * 21u, sh.ptr() + src * 21u, 21u * sizeof(Vector3)) == 0);
+	}
+	uint32_t interiors = 0;
+	for (uint32_t ni = 0; ni < tree.nodes.size(); ++ni) {
+		const auto &node = tree.nodes[ni];
+		CHECK(hlod_nodes_equal(node, again.tree.nodes[ni]));
+		if (!node.child_count) {
+			continue;
+		}
+		++interiors;
+		double center[3];
+		tree.node_cell_center(node, center);
+		SplatList reference;
+		reference.sh_high_order_count = 21u;
+		SplatSpan children[kMaxChildren];
+		uint32_t starts[kMaxChildren], sizes[kMaxChildren];
+		double child_error = 0;
+		for (uint32_t c = 0; c < node.child_count; ++c) {
+			const auto &child = tree.nodes[node.first_child + c];
+			SplatSpan span;
+			span.count = child.payload_count;
+			span.sh_high_order_count = 21u;
+			double child_center[3] = {};
+			if (child.child_count) {
+				const uint64_t offset = child.payload_first - tree.leaf_splat_count;
+				span.gaussians = tree.interior_gaussians.ptr() + offset;
+				span.sh_high_order = tree.interior_sh_high_order.ptr() + offset * 21u;
+				tree.node_cell_center(child, child_center);
+			} else {
+				span.gaussians = result.leaf_gaussians.ptr() + child.payload_first;
+				span.sh_high_order = result.leaf_sh_high_order.ptr() + child.payload_first * 21u;
+			}
+			starts[c] = reference.size();
+			sizes[c] = span.count;
+			if (reference.append(span, 0, span.count) != OK) {
+				FAIL("reference assembly");
+				return;
+			}
+			for (uint32_t j = starts[c]; j < reference.size(); ++j) {
+				for (int a = 0; a < 3; ++a) {
+					reference.gaussians[j].position[a] =
+					        real_t(double(reference.gaussians[j].position[a]) + child_center[a] - center[a]);
+				}
+			}
+			child_error = MAX(child_error, double(child.geometric_error));
+		}
+		for (uint32_t c = 0; c < node.child_count; ++c) {
+			children[c] = {reference.gaussians.ptr() + starts[c], reference.sh_high_order.ptr() + starts[c] * 21u,
+			               sizes[c], 21u};
+		}
+		InteriorBakeScratch merge_scratch;
+		InteriorBakeResult merged;
+		const double edge = tree.node_cell_edge(node);
+		if (!bake_interior_node(children, node.child_count,
+		                        Vector3(real_t(-edge / 2), real_t(-edge / 2), real_t(-edge / 2)), edge, child_error,
+		                        params.interior, merge_scratch, merged, &reason)) {
+			FAIL("independent stage replay merge");
+			return;
+		}
+		Vector<uint32_t> leaves;
+		for (uint32_t li = 0; li < tree.nodes.size(); ++li) {
+			if (tree.nodes[li].child_count) {
+				continue;
+			}
+			uint32_t ancestor = li;
+			while (ancestor != kNoParent && ancestor != ni) {
+				ancestor = tree.nodes[ancestor].parent;
+			}
+			if (ancestor == ni) {
+				leaves.push_back(li);
+			}
+		}
+		QualityScratch scratch;
+		QualityPayload selected;
+		QualityResult metric;
+		const SplatSpan all_leaves = {result.leaf_gaussians.ptr(), result.leaf_sh_high_order.ptr(), 32u, 21u};
+		if (quality_select(tree, leaves, 0u, uint32_t(leaves.size()), all_leaves, merged.payload.size(), center,
+		                   scratch, selected) != OK ||
+		    quality_compare(reference.span(), merged.payload.span(), selected.span(), 3u, merged.geometric_error,
+		                    scratch, metric) != OK) {
+			FAIL("candidate stage replay");
+			return;
+		}
+		CHECK((node.flags & kNodeFlagKindMask) == uint32_t(metric.use_merged ? NODE_KIND_MERGED : NODE_KIND_SELECTED));
+		CHECK(node.error_chosen == (metric.use_merged ? metric.merged_error : metric.selected_error));
+		CHECK(node.error_rejected == (metric.use_merged ? metric.selected_error : metric.merged_error));
+		CHECK(std::isfinite(node.error_chosen));
+		CHECK(std::isfinite(node.error_rejected));
+		const SplatSpan chosen = metric.use_merged ? merged.payload.span() : selected.span();
+		if (node.payload_count != chosen.count || node.payload_first < 32u ||
+		    node.payload_first - 32u + chosen.count > tree.interior_gaussians.size()) {
+			FAIL("chosen payload range");
+			return;
+		}
+		CHECK(memcmp(tree.interior_gaussians.ptr() + node.payload_first - 32u, chosen.gaussians,
+		             sizeof(Gaussian) * chosen.count) == 0);
+		CHECK(memcmp(tree.interior_sh_high_order.ptr() + (node.payload_first - 32u) * 21u, chosen.sh_high_order,
+		             sizeof(Vector3) * chosen.count * 21u) == 0);
+	}
+	CHECK(interiors > 0u);
+}
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] public bake carries SH0-4 and measured rule through "
+          "resident roundtrip")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	for (uint32_t degree = 0; degree <= 4u; ++degree) {
+		const uint32_t first = degree ? 3u : 0u, high = degree >= 2u ? (degree + 1u) * (degree + 1u) - 4u : 0u;
+		LocalVector<Gaussian> g;
+		g.resize(kMaxNodeSplats + 1u);
+		LocalVector<Vector3> sh;
+		sh.resize(g.size() * high);
+		for (uint32_t i = 0; i < g.size(); ++i) {
+			g[i] = hlod_quality_gaussian();
+			g[i].position = Vector3(1, 1, 1);
+			for (uint32_t c = 0; c < first; ++c) {
+				g[i].sh_1[c] = Vector3(0.03125f, -0.015625f, 0.0078125f) * real_t(c + 1u);
+			}
+			for (uint32_t c = 0; c < high; ++c) {
+				sh[i * high + c] = Vector3(0.00390625f, -0.001953125f, 0.0009765625f) * real_t(c + 1u);
+			}
+		}
+		Ref<GaussianData> data;
+		data.instantiate();
+		data->set_gaussian_payload(g, sh, first, high, false, false);
+		Ref<GaussianSplatWorld> world;
+		world.instantiate();
+		world->set_gaussian_data(data);
+		if (world->bake_hlod() != OK || !world->has_hlod_tree()) {
+			FAIL("public full-SH bake");
+			return;
+		}
+		CHECK(world->get_hlod_tree().bake_rule_version == 2u);
+		CHECK(world->get_hlod_tree().interior_splat_count > 0u);
+		const String path = hlod_temp_path("quality_sh_roundtrip");
+		ResourceFormatSaverGaussianSplatWorld saver;
+		if (saver.save_resident_uncompressed(world, path) != OK) {
+			FAIL("save measured tree");
+			return;
+		}
+		ResourceFormatLoaderGaussianSplatWorld loader;
+		Error err = ERR_BUG;
+		Ref<GaussianSplatWorld> loaded = loader.load_resident(path, &err);
+		if (err != OK || loaded.is_null() || loaded->get_gaussian_data().is_null() || !loaded->has_hlod_tree()) {
+			FAIL("reload measured tree");
+			return;
+		}
+		const auto &a = world->get_hlod_tree();
+		const auto &b = loaded->get_hlod_tree();
+		if (a.nodes.size() != b.nodes.size()) {
+			FAIL("roundtrip node count");
+			return;
+		}
+		for (uint32_t i = 0; i < a.nodes.size(); ++i) {
+			CHECK(hlod_nodes_equal(a.nodes[i], b.nodes[i]));
+		}
+		LocalVector<Gaussian> read_g;
+		LocalVector<Vector3> read_sh;
+		uint32_t read_first = 0, read_high = 0;
+		if (!loaded->get_gaussian_data()->capture_chunk_snapshot(0, g.size(), read_g, read_sh, read_first, read_high) ||
+		    read_g.size() != g.size() || read_sh.size() != sh.size()) {
+			FAIL("roundtrip full leaf payload");
+			return;
+		}
+		CHECK(read_first == first);
+		CHECK(read_high == high);
+		CHECK(memcmp(read_g.ptr(), g.ptr(), sizeof(Gaussian) * g.size()) == 0);
+		if (high) {
+			CHECK(memcmp(read_sh.ptr(), sh.ptr(), sizeof(Vector3) * sh.size()) == 0);
+		}
+		loaded.unref();
+		DirAccess::remove_absolute(path);
+	}
+}
+
+#ifdef TOOLS_ENABLED
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] import rule policy preserves old unsupported future and "
+          "failed source bytes")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	// Deliberate rule/envelope controls exercise policy. Authentic rule-1 migration is
+	// separately checked with an immutable producer-captured file, never claimed here.
+	for (int mode = 0; mode < 3; ++mode) {
+		for (int control = 0; control < 6; ++control) {
+			LocalVector<Gaussian> g;
+			g.push_back(hlod_quality_gaussian());
+			Ref<GaussianSplatWorld> world = hlod_make_world(g);
+			if (world->bake_hlod() != OK || !world->has_hlod_tree()) {
+				FAIL("policy control bake");
+				return;
+			}
+			GaussianSplatHlodTree tree = world->get_hlod_tree();
+			if (tree.nodes.size() != 1u) {
+				FAIL("one-leaf policy control");
+				return;
+			}
+			const uint32_t rule = control == 0 ? 2u : control == 1 ? 3u : 1u;
+			tree.bake_rule_version = rule;
+			if (control == 2) {
+				// Same physical cell and splat support, expressed on a nonzero-origin lattice.
+				tree.origin[0] = tree.node_cell_edge(tree.nodes[0]);
+				--tree.nodes[0].cell.ix;
+			}
+			if (control == 3) {
+				GaussianSplatHlodNode top;
+				top.cell = tree.nodes[0].cell;
+				tree.top_level_nodes.push_back(top);
+				GaussianSplatHlodInstance instance;
+				instance.instance_key = 42u;
+				instance.asset_uid = 7;
+				tree.instances.push_back(instance);
+			}
+			String reason;
+			if (!gs_hlod_validate_tree(tree, &reason)) {
+				FAIL(reason.utf8().get_data());
+				return;
+			}
+			world->set_hlod_tree(std::move(tree));
+			const String source = hlod_temp_path("quality_rule_source");
+			const auto payload_mode =
+			        mode == 0   ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED
+			        : mode == 1 ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED
+			                    : ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED;
+			if (saver.save_with_payload_mode(world, source, payload_mode) != OK) {
+				FAIL("save policy control");
+				return;
+			}
+			const PackedByteArray before = hlod_read_file(source);
+			Variant in_place_metadata;
+			if (importer->import(ResourceUID::INVALID_ID, source, source.get_basename(), options, nullptr, nullptr,
+			                     &in_place_metadata) != OK) {
+				FAIL("validated in-place import");
+				return;
+			}
+			CHECK(hlod_read_file(source) == before);
+			CHECK(String(Dictionary(in_place_metadata)["hlod_skip_reason"]) == "destination_is_source");
+			const String base = source.get_basename() + "_imported";
+			Variant metadata;
+			if (control == 5) {
+				gs_vector_alloc_force_failure_at("GaussianSplatWorld::bake_hlod snapshot_gaussians");
+			}
+			ERR_PRINT_OFF;
+			const Error imported_error =
+			        importer->import(ResourceUID::INVALID_ID, source, base, options, nullptr, nullptr, &metadata);
+			ERR_PRINT_ON;
+			const bool fired = !gs_vector_alloc_forced_failure_is_armed();
+			gs_vector_alloc_clear_forced_failure();
+			if (imported_error != OK || metadata.get_type() != Variant::DICTIONARY) {
+				FAIL("rule import");
+				return;
+			}
+			if (control == 5) {
+				CHECK(fired);
+			}
+			CHECK(hlod_read_file(source) == before);
+			const char *reasons[] = {"source_already_hlod",
+			                         "source_hlod_rule_newer",
+			                         "old_hlod_rebake_unsupported_envelope",
+			                         "old_hlod_rebake_unsupported_envelope",
+			                         "",
+			                         "old_hlod_rebake_failed"};
+			const Dictionary md = metadata;
+			CHECK(String(md["hlod_skip_reason"]) == String(reasons[control]));
+			CHECK(uint32_t(md["source_hlod_rule"]) == rule);
+			if (control != 4) {
+				CHECK(hlod_read_file(base + ".gsplatworld") == before);
+			}
+			Error err = ERR_BUG;
+			Ref<GaussianSplatWorld> loaded = loader.load_resident(base + ".gsplatworld", &err);
+			if (err != OK || loaded.is_null() || !loaded->has_hlod_tree() || loaded->get_gaussian_data().is_null()) {
+				FAIL("reload imported policy control");
+				return;
+			}
+			CHECK(loaded->get_hlod_tree().bake_rule_version == (control == 4 ? 2u : rule));
+			CHECK(loaded->get_gaussian_data()->get_count() == 1);
+			if (loaded->get_gaussian_data()->get_count() != 1) {
+				FAIL("one preserved leaf");
+				return;
+			}
+			const Gaussian leaf = loaded->get_gaussian_data()->get_gaussian(0);
+			CHECK(memcmp(&leaf, g.ptr(), sizeof(Gaussian)) == 0);
+			loaded.unref();
+			DirAccess::remove_absolute(base + ".gsplatworld");
+			DirAccess::remove_absolute(source);
+		}
+	}
+}
+#endif

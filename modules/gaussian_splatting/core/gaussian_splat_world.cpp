@@ -623,6 +623,7 @@ Error GaussianSplatWorld::bake_hlod() {
         gs_hlod::BakeInput input;
         input.gaussians = gaussians.ptr();
         input.count = gaussians.size();
+        input.sh_first_order_count = sh_first_order;
         input.sh_high_order_count = sh_high_order_count;
         input.sh_high_order = sh_high_order.is_empty() ? nullptr : sh_high_order.ptr();
         gs_hlod::BakeParams params;

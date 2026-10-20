@@ -2364,7 +2364,8 @@ TEST_CASE("[GaussianSplatting][Importer] gsplatworld importer preserves payload 
     // 3 since HLOD slice S1a: v1 sources are baked into a v2 imported copy.
     // 4: v2 header world bounds must enclose the HLOD root.
     // 5: plain/HLOD world v3 records the raw struct layout.
-    CHECK(importer->get_format_version() == 5);
+    // 6: rule-2 full-SH candidate choice; supported old HLOD sources rebake.
+    CHECK(importer->get_format_version() == 6);
 
     HashMap<StringName, Variant> options;
     Variant import_metadata_variant;

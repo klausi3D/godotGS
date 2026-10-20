@@ -114,7 +114,7 @@ TEST_CASE("[GaussianSplatting][WorldIO] released plain v1 and HLOD v2 producer f
 #ifdef TOOLS_ENABLED
 			Ref<ResourceImporterGSplatWorld> importer;
 			importer.instantiate();
-			CHECK_EQ(importer->get_format_version(), 5);
+			CHECK_EQ(importer->get_format_version(), 6);
 			const String destination = fixture_path("authentic_legacy_import", "");
 			HashMap<StringName, Variant> options;
 			Variant metadata;
@@ -124,19 +124,19 @@ TEST_CASE("[GaussianSplatting][WorldIO] released plain v1 and HLOD v2 producer f
 			}
 			const String output = destination + ".gsplatworld";
 			CHECK(FileAccess::get_file_as_bytes(path) == source_bytes);
-			if (hlod) {
-				CHECK_EQ(String(Dictionary(metadata)["hlod_skip_reason"]), String("source_already_hlod"));
-				CHECK(FileAccess::get_file_as_bytes(output) == source_bytes);
-			} else {
-				CHECK_EQ(read_u32_at(output, 4u), 3u);
-				CHECK_EQ(read_u32_at(output, 104u), GAUSSIAN_STRUCT_LAYOUT_VERSION);
-				CHECK_EQ(read_u64_at(output, 56u), 192u);
-			}
+			// Both authentic plain v1 and supported rule-1 HLOD v2 producers now
+			// migrate to current-rule v3; the source and all payload modes stay intact.
+			CHECK_EQ(String(Dictionary(metadata)["hlod_skip_reason"]), String());
+			CHECK_EQ(uint32_t(Dictionary(metadata)["source_hlod_rule"]), hlod ? 1u : 0u);
+			CHECK_EQ(read_u32_at(output, 4u), 3u);
+			CHECK_EQ(read_u32_at(output, 104u), GAUSSIAN_STRUCT_LAYOUT_VERSION);
+			CHECK_EQ(read_u64_at(output, 56u), 192u);
 			Ref<GaussianSplatWorld> imported = loader.load_resident(output, &err);
 			if (err != OK || !check_loaded_world(imported, true, false)) {
 				FAIL("actual imported output must retain the two authentic leaves");
 				return;
 			}
+			CHECK_EQ(imported->get_hlod_tree().bake_rule_version, 2u);
 			imported.unref();
 			remove_fixture(output);
 #endif
