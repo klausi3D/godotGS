@@ -3662,6 +3662,15 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes 
 				FAIL("cut must be complete");
 				return;
 			}
+			if (result.world.is_null()) {
+				FAIL("complete result must own a world");
+				return;
+			}
+			const Ref<GaussianData> result_data = result.world->get_gaussian_data();
+			if (result_data.is_null()) {
+				FAIL("complete result must own GaussianData");
+				return;
+			}
 			CHECK(hlod_cut_oracle(source, result));
 			CHECK(result.canonical_leaves == canonical);
 			CHECK(result.heuristic_available);
@@ -3673,15 +3682,28 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes 
 				CHECK(result.selected_splats == tree.leaf_splat_count);
 			} else {
 				CHECK(result.selected_nodes.size() == 1);
-				CHECK(result.selected_nodes[0] == 0u);
+				if (result.selected_nodes.size() == 1) {
+					CHECK(result.selected_nodes[0] == 0u);
+				} else {
+					FAIL("interior cut must contain exactly the root");
+					return;
+				}
 			}
 			const Result repeated = build_cut(source, request);
+			if (repeated.world.is_null()) {
+				FAIL("repeated result must own a world");
+				return;
+			}
+			const Ref<GaussianData> repeated_data = repeated.world->get_gaussian_data();
+			if (repeated_data.is_null()) {
+				FAIL("repeated result must own GaussianData");
+				return;
+			}
 			CHECK(hlod_cut_oracle(source, repeated));
 			CHECK(repeated.selected_nodes == result.selected_nodes);
 			GaussianData::SaveSnapshot first_output, second_output;
-			if (result.world->get_gaussian_data()->capture_save_snapshot(first_output) != OK ||
-			    repeated.world.is_null() ||
-			    repeated.world->get_gaussian_data()->capture_save_snapshot(second_output) != OK) {
+			if (result_data->capture_save_snapshot(first_output) != OK ||
+			    repeated_data->capture_save_snapshot(second_output) != OK) {
 				FAIL("repeat snapshot");
 				return;
 			}
@@ -3689,9 +3711,9 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes 
 			// The prepared world owns its own payload, independently of source and another result.
 			CHECK(result.world != source);
 			CHECK(result.world->get_gaussian_data() != source->get_gaussian_data());
-			result.world->get_gaussian_data()->set_antialiased(!before.get_antialiased());
+			result_data->set_antialiased(!before.get_antialiased());
 			CHECK(source->get_gaussian_data()->get_antialiased() == before.get_antialiased());
-			CHECK(repeated.world->get_gaussian_data()->get_antialiased() == before.get_antialiased());
+			CHECK(repeated_data->get_antialiased() == before.get_antialiased());
 			print_line(vformat("HLODCut degree=%d canonical=%d nodes=%d splats=%d admitted_bytes=%d cpu_usec=%d",
 			                   degree, int(canonical), result.selected_nodes.size(), result.selected_splats,
 			                   result.admitted_allocation_bytes, result.cpu_usec));
@@ -3705,13 +3727,26 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] actual bake SH0-4 materializes 
 		CHECK(source->get_bounds() == before_bounds);
 		CHECK(source->get_static_chunks().size() == before_chunks.size());
 		CHECK(tree.nodes.size() == before_tree.nodes.size());
-		for (uint32_t i = 0; i < tree.nodes.size(); ++i) {
+		if (tree.nodes.size() != before_tree.nodes.size()) {
+			FAIL("source node cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.nodes.size() && i < before_tree.nodes.size(); ++i) {
 			CHECK(hlod_nodes_equal(tree.nodes[i], before_tree.nodes[i]));
 		}
-		for (uint32_t i = 0; i < tree.interior_gaussians.size(); ++i) {
+		if (tree.interior_gaussians.size() != before_tree.interior_gaussians.size()) {
+			FAIL("source interior Gaussian cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.interior_gaussians.size() && i < before_tree.interior_gaussians.size(); ++i) {
 			CHECK(hlod_cut_semantics(tree.interior_gaussians[i], before_tree.interior_gaussians[i]));
 		}
-		for (uint32_t i = 0; i < tree.interior_sh_high_order.size(); ++i) {
+		if (tree.interior_sh_high_order.size() != before_tree.interior_sh_high_order.size()) {
+			FAIL("source interior SH cardinality changed");
+			return;
+		}
+		for (uint32_t i = 0; i < tree.interior_sh_high_order.size() && i < before_tree.interior_sh_high_order.size();
+		     ++i) {
 			CHECK(hlod_cut_bits(tree.interior_sh_high_order[i], before_tree.interior_sh_high_order[i]));
 		}
 	}
@@ -3745,11 +3780,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] complete coverage survives budg
 		Result threshold_result = build_cut(source, finite);
 		CHECK(hlod_cut_oracle(source, threshold_result));
 		CHECK(threshold_result.selected_nodes.size() == 1);
-		if (threshold_result.selected_nodes.is_empty()) {
+		if (threshold_result.selected_nodes.size() == 1) {
+			CHECK(threshold_result.selected_nodes[0] == 0u);
+		} else {
 			FAIL("complete root cut");
 			return;
 		}
-		CHECK(threshold_result.selected_nodes[0] == 0u);
 		CHECK(threshold_result.heuristic_available);
 		CHECK(threshold_result.heuristic_satisfied);
 		finite.threshold_pixels = far_pixels * (1.0 - 1.0 / 1024.0);
@@ -3773,11 +3809,12 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLODCut] complete coverage survives budg
 		threshold_result = build_cut(source, finite);
 		CHECK(hlod_cut_oracle(source, threshold_result));
 		CHECK(threshold_result.selected_nodes.size() == 1);
-		if (threshold_result.selected_nodes.is_empty()) {
+		if (threshold_result.selected_nodes.size() == 1) {
+			CHECK(threshold_result.selected_nodes[0] == 0u);
+		} else {
 			FAIL("far-view root cut");
 			return;
 		}
-		CHECK(threshold_result.selected_nodes[0] == 0u);
 		finite.views.push_back(near);
 		threshold_result = build_cut(source, finite);
 		CHECK(hlod_cut_oracle(source, threshold_result));
