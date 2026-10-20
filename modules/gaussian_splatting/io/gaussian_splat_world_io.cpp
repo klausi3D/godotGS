@@ -38,7 +38,7 @@ static constexpr uint32_t kWorldMagic = 0x57505347; // 'GSPW' little-endian.
 // v1 plain and v2 HLOD remain readable with their historical raw layout.
 // Both new plain and HLOD worlds use the explicit-layout v3 schema.
 static constexpr uint32_t kWorldVersion = gs_world_format::kVersion;
-static constexpr uint32_t kMaxShDegree = 3;
+static constexpr uint32_t kMaxShDegree = 4;
 // Gaussian.sh_1[3] holds at most 3 first-order coefficients on disk, and
 // GaussianData::set_gaussian_payload() clamps p_sh_first_order_count to 3, so
 // a value above 3 cannot have been produced by the in-tree saver. sh_high_order
