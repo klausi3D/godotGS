@@ -195,6 +195,23 @@ uint64_t quality_allocation_header_bytes()
 #ifdef TESTS_ENABLED
 static thread_local uint64_t quality_test_size_max = SIZE_MAX;
 static thread_local QualityResourceLimits quality_test_resource_limits;
+static thread_local const char *quality_writable_failure_site = nullptr;
+void quality_force_writable_failure_at(const char *where)
+{
+	quality_writable_failure_site = where;
+}
+bool quality_writable_failure_is_armed()
+{
+	return quality_writable_failure_site != nullptr;
+}
+bool quality_consume_writable_failure(const char *where)
+{
+	if (!quality_writable_failure_site || !where || strcmp(quality_writable_failure_site, where) != 0) {
+		return false;
+	}
+	quality_writable_failure_site = nullptr;
+	return true;
+}
 QualityResourceLimits quality_set_test_resource_limits(const QualityResourceLimits &limits)
 {
 	const QualityResourceLimits previous = quality_test_resource_limits;

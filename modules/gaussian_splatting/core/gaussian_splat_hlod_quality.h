@@ -31,6 +31,11 @@ bool quality_charge_product(uint64_t &r_remaining, uint64_t p_a, uint64_t p_b);
 // is required to exercise the real resize admission and public bake failure path.
 uint64_t quality_set_test_allocation_size_max(uint64_t p_size_max);
 QualityResourceLimits quality_set_test_resource_limits(const QualityResourceLimits &p_limits);
+// One-shot, thread-local and matched to a static site label. Injects a null
+// writable acquisition, not a process/global allocator failure.
+void quality_force_writable_failure_at(const char *p_where);
+bool quality_writable_failure_is_armed();
+bool quality_consume_writable_failure(const char *p_where);
 #endif
 
 template <typename T>
@@ -44,7 +49,26 @@ template <typename T>
 		        vformat("%s: rounded HLOD quality allocation (%d elements of %d bytes plus header) exceeds size_t.",
 		                String(p_where), p_count, uint64_t(sizeof(T))));
 	}
-	return gs_resize_or_fail(p_vector, int64_t(p_count), p_where);
+	if (!gs_resize_or_fail(p_vector, int64_t(p_count), p_where)) {
+		return false;
+	}
+	if (p_count) {
+		// Same-size resize does not fork an aliased CowData. Acquire/check the
+		// writable storage here, so later ptrw()/write[] use an exclusive owner.
+		T *writable = nullptr;
+#ifdef TESTS_ENABLED
+		if (!quality_consume_writable_failure(p_where))
+#endif
+		{
+			writable = p_vector.ptrw();
+		}
+		if (writable == nullptr) {
+			p_vector.clear();
+			ERR_FAIL_V_MSG(false, vformat("%s: cannot acquire writable HLOD quality storage (%d entries).",
+			                              String(p_where), p_count));
+		}
+	}
+	return true;
 }
 
 // Rule 2: deterministic orthographic CPU proxy, not the perspective GPU renderer.

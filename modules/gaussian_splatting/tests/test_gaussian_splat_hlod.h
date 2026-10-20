@@ -5128,3 +5128,129 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] mixed outlier actual 
 	DirAccess::remove_absolute(path);
 #endif
 }
+
+namespace TestGaussianSplatHlod {
+struct HlodQualityWritableFailure {
+	explicit HlodQualityWritableFailure(const char *p_site) { gs_hlod::quality_force_writable_failure_at(p_site); }
+	~HlodQualityWritableFailure() { gs_hlod::quality_force_writable_failure_at(nullptr); }
+};
+template <typename T>
+void hlod_quality_check_small_alias()
+{
+	Vector<T> owner;
+	if (!gs_hlod::quality_resize_or_fail(owner, 1u, "quality alias control")) {
+		FAIL("tiny alias control allocation");
+		return;
+	}
+	Vector<T> alias = owner;
+	const T *original = alias.ptr();
+	if (!gs_hlod::quality_resize_or_fail(owner, 1u, "quality alias control")) {
+		FAIL("actual same-size COW acquisition");
+		return;
+	}
+	CHECK(owner.ptr() != original);
+	CHECK(alias.ptr() == original);
+	CHECK(alias.size() == 1);
+	alias = owner;
+	original = alias.ptr();
+	HlodQualityWritableFailure forced("quality alias control");
+	ERR_PRINT_OFF;
+	const bool acquired = gs_hlod::quality_resize_or_fail(owner, 1u, "quality alias control");
+	ERR_PRINT_ON;
+	CHECK_FALSE(gs_hlod::quality_writable_failure_is_armed());
+	CHECK_FALSE(acquired);
+	CHECK(owner.is_empty());
+	CHECK(alias.size() == 1);
+	CHECK(alias.ptr() == original);
+}
+} // namespace TestGaussianSplatHlod
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODQuality] checked writable COW acquisition fails closed")
+{
+	using namespace TestGaussianSplatHlod;
+	using namespace gs_hlod;
+	// The wrapper covers every quality-owned Vector element type. These are real
+	// successful tiny COW forks; failures below inject only the acquisition result,
+	// taking its real null-check branch without exhausting the process allocator.
+	hlod_quality_check_small_alias<uint32_t>();
+	hlod_quality_check_small_alias<Gaussian>();
+	hlod_quality_check_small_alias<Vector3>();
+	hlod_quality_check_small_alias<QualityProjected>();
+	hlod_quality_check_small_alias<QualityPixel>();
+	hlod_quality_check_small_alias<QualityLeafShare>();
+	hlod_quality_check_small_alias<QualityOrder>();
+
+	Gaussian g = hlod_quality_gaussian();
+	const SplatSpan one = {&g, nullptr, 1u, 0u};
+	QualityScratch seed;
+	QualityViewResult view;
+	if (quality_compare_view(one, one, one, 0u, 1.0, 0u, seed, view) != OK) {
+		FAIL("seed real projection/image aliases");
+		return;
+	}
+	const char *sites[] = {"gs_hlod::quality projected_reference", "gs_hlod::quality projected_merged",
+	                       "gs_hlod::quality projected_selected", "gs_hlod::quality reference_image",
+	                       "gs_hlod::quality candidate_image"};
+	const Vector<QualityPixel> saved_image = seed.reference_image;
+	for (uint32_t i = 0; i < 5u; ++i) {
+		INFO(sites[i]);
+		QualityScratch scratch = seed;
+		HlodQualityWritableFailure forced(sites[i]);
+		ERR_PRINT_OFF;
+		const Error error = quality_compare_view(one, one, one, 0u, 1.0, 0u, scratch, view);
+		ERR_PRINT_ON;
+		CHECK_FALSE(quality_writable_failure_is_armed());
+		CHECK(error == ERR_OUT_OF_MEMORY);
+		CHECK(view.width == 0u); // no completed result published
+		if (i < 3u) {
+			CHECK(scratch.projected[i].is_empty());
+		} else if (i == 3u) {
+			CHECK(scratch.reference_image.is_empty());
+		} else {
+			CHECK(scratch.candidate_image.is_empty());
+		}
+		CHECK(seed.reference_image.ptr() == saved_image.ptr());
+		CHECK(seed.reference_image.size() == saved_image.size());
+		for (const auto &projected : seed.projected) {
+			CHECK(projected.size() == 1);
+		}
+	}
+
+	// Exercise the selection callers too: shares and order are copyable retained
+	// scratch, whereas newly created payload buffers are still covered by the wrapper.
+	GaussianSplatHlodTree tree;
+	tree.nodes.resize(2u);
+	Vector<uint32_t> leaves;
+	if (leaves.resize(2) != OK) {
+		FAIL("tiny selection leaf ids");
+		return;
+	}
+	for (uint32_t i = 0; i < 2u; ++i) {
+		leaves.write[i] = i;
+		tree.nodes[i].payload_first = i;
+		tree.nodes[i].payload_count = 1u;
+	}
+	Gaussian source[2] = {g, g};
+	const SplatSpan two = {source, nullptr, 2u, 0u};
+	const double center[3] = {};
+	QualityPayload payload;
+	QualityScratch selected_seed;
+	if (quality_select(tree, leaves, 0u, 2u, two, 1u, center, selected_seed, payload) != OK) {
+		FAIL("seed real selection aliases");
+		return;
+	}
+	for (const char *site : {"gs_hlod::quality leaf_shares", "gs_hlod::quality selected_order"}) {
+		INFO(site);
+		QualityScratch scratch = selected_seed;
+		HlodQualityWritableFailure forced(site);
+		ERR_PRINT_OFF;
+		const Error error = quality_select(tree, leaves, 0u, 2u, two, 1u, center, scratch, payload);
+		ERR_PRINT_ON;
+		CHECK_FALSE(quality_writable_failure_is_armed());
+		CHECK(error == ERR_OUT_OF_MEMORY);
+		CHECK(payload.gaussians.is_empty());
+		CHECK(payload.sh.is_empty());
+		CHECK(selected_seed.shares.size() == 2);
+		CHECK(selected_seed.order.size() == 1);
+	}
+}
