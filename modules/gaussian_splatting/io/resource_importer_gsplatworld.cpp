@@ -436,8 +436,17 @@ Error ResourceImporterGSplatWorld::import(ResourceUID::ID p_source_id, const Str
 	// Current/future rules and unsupported old envelopes stay byte-preserving.
 	// An in-place import (destination == source) must not rewrite the user's source file (ADR §7:
 	// "the source file is not touched"); it keeps the plain, byte-preserving copy.
-	const bool in_place = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path() ==
-			ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
+	const String absolute_source = ProjectSettings::get_singleton()->globalize_path(p_source_file).simplify_path();
+	const String absolute_destination = ProjectSettings::get_singleton()->globalize_path(save_path).simplify_path();
+	bool in_place = absolute_source == absolute_destination;
+	if (!in_place && FileAccess::exists(absolute_destination)) {
+		Ref<DirAccess> filesystem = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+		if (filesystem.is_null()) {
+			return ERR_CANT_OPEN;
+		}
+		// Case aliases, hard links and other existing aliases must never replace the source.
+		in_place = filesystem->is_equivalent(absolute_source, absolute_destination);
+	}
 	const bool old_rule = source_rule > 0u && source_rule < gs_hlod::kBakeRuleVersion;
 	const bool bake =
 	        (!header_info.has_hlod || (old_rule && old_rebake_supported)) && header_info.splat_count > 0u && !in_place;

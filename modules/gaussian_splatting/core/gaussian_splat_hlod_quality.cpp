@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 
@@ -47,7 +48,7 @@ Error project(const gs_hlod::SplatSpan &span, uint32_t first, const gs_hlod::Qua
 	    (span.count && span.sh_high_order_count && !span.sh_high_order)) {
 		return ERR_INVALID_DATA;
 	}
-	if (!gs_resize_or_fail(out, span.count, label)) {
+	if (!gs_hlod::quality_resize_or_fail(out, span.count, label)) {
 		return ERR_OUT_OF_MEMORY;
 	}
 	gs_hlod::QualityProjected *dst = out.ptrw();
@@ -102,7 +103,7 @@ Error raster(const Vector<gs_hlod::QualityProjected> &projected, const gs_hlod::
              Vector<gs_hlod::QualityPixel> &image, const char *label)
 {
 	const uint64_t pixels = domain.width * domain.height; // checked by domain admission
-	if (!gs_resize_or_fail(image, int64_t(pixels), label)) {
+	if (!gs_hlod::quality_resize_or_fail(image, int64_t(pixels), label)) {
 		return ERR_OUT_OF_MEMORY;
 	}
 	gs_hlod::QualityPixel *dst = image.ptrw();
@@ -140,6 +141,62 @@ Error raster(const Vector<gs_hlod::QualityProjected> &projected, const gs_hlod::
 } // namespace
 
 namespace gs_hlod {
+bool quality_allocation_fits(uint64_t count, uint64_t element_bytes, uint64_t size_max, uint64_t header_bytes)
+{
+	if (count == 0u) {
+		return true; // CowData clears without allocating a header.
+	}
+	if (count > uint64_t(INT64_MAX) || element_bytes == 0u || count > UINT64_MAX / element_bytes) {
+		return false;
+	}
+	const uint64_t bytes = count * element_bytes;
+	// CowData::next_power_of_2 would wrap above 2^63. Round only after this guard.
+	if (bytes > (uint64_t(1) << 63u)) {
+		return false;
+	}
+	uint64_t capacity = bytes - 1u;
+	capacity |= capacity >> 1u;
+	capacity |= capacity >> 2u;
+	capacity |= capacity >> 4u;
+	capacity |= capacity >> 8u;
+	capacity |= capacity >> 16u;
+	capacity |= capacity >> 32u;
+	++capacity;
+	return header_bytes <= size_max && capacity <= size_max - header_bytes;
+}
+uint64_t quality_allocation_header_bytes()
+{
+	// Mirror CowData's private SIZE_OFFSET/DATA_OFFSET layout from its actual types.
+	// USize is uint64_t even on 32-bit targets; no assumed 8/16-byte constant.
+	constexpr uint64_t size_offset =
+	        ((sizeof(SafeNumeric<uint64_t>) + alignof(uint64_t) - 1u) / alignof(uint64_t)) * alignof(uint64_t);
+	constexpr uint64_t data_offset =
+	        ((size_offset + sizeof(uint64_t) + alignof(max_align_t) - 1u) / alignof(max_align_t)) *
+	        alignof(max_align_t);
+#ifdef DEBUG_ENABLED
+	// Memory::alloc_static(..., false) still prepads in a debug-enabled engine.
+	return data_offset + Memory::DATA_OFFSET;
+#else
+	return data_offset;
+#endif
+}
+#ifdef TESTS_ENABLED
+static thread_local uint64_t quality_test_size_max = SIZE_MAX;
+uint64_t quality_set_test_allocation_size_max(uint64_t size_max)
+{
+	const uint64_t previous = quality_test_size_max;
+	quality_test_size_max = MIN(size_max, uint64_t(SIZE_MAX));
+	return previous;
+}
+#endif
+uint64_t quality_allocation_size_max()
+{
+#ifdef TESTS_ENABLED
+	return quality_test_size_max;
+#else
+	return SIZE_MAX;
+#endif
+}
 QualityView quality_view(uint32_t index)
 {
 	QualityView view;
@@ -215,7 +272,7 @@ Error quality_select(const GaussianSplatHlodTree &tree, const Vector<uint32_t> &
 	    (source.sh_high_order_count && !source.sh_high_order)) {
 		return ERR_INVALID_DATA;
 	}
-	if (!gs_resize_or_fail(scratch.shares, count, "gs_hlod::quality leaf_shares")) {
+	if (!gs_hlod::quality_resize_or_fail(scratch.shares, count, "gs_hlod::quality leaf_shares")) {
 		return ERR_OUT_OF_MEMORY;
 	}
 	QualityLeafShare *shares = scratch.shares.ptrw();
@@ -262,9 +319,9 @@ Error quality_select(const GaussianSplatHlodTree &tree, const Vector<uint32_t> &
 	unsorted.high_count = source.sh_high_order_count;
 	const uint64_t sh_size = uint64_t(wanted) * source.sh_high_order_count;
 	if (sh_size > uint64_t(INT64_MAX) / sizeof(Vector3) ||
-	    !gs_resize_or_fail(unsorted.gaussians, wanted, "gs_hlod::quality selected_gaussians") ||
-	    (sh_size && !gs_resize_or_fail(unsorted.sh, int64_t(sh_size), "gs_hlod::quality selected_sh")) ||
-	    !gs_resize_or_fail(scratch.order, wanted, "gs_hlod::quality selected_order")) {
+	    !gs_hlod::quality_resize_or_fail(unsorted.gaussians, wanted, "gs_hlod::quality selected_gaussians") ||
+	    (sh_size && !gs_hlod::quality_resize_or_fail(unsorted.sh, int64_t(sh_size), "gs_hlod::quality selected_sh")) ||
+	    !gs_hlod::quality_resize_or_fail(scratch.order, wanted, "gs_hlod::quality selected_order")) {
 		return ERR_OUT_OF_MEMORY;
 	}
 	Gaussian *dst = unsorted.gaussians.ptrw();
@@ -307,8 +364,8 @@ Error quality_select(const GaussianSplatHlodTree &tree, const Vector<uint32_t> &
 	}
 	QualityPayload sorted;
 	sorted.high_count = source.sh_high_order_count;
-	if (!gs_resize_or_fail(sorted.gaussians, wanted, "gs_hlod::quality ordered_gaussians") ||
-	    (sh_size && !gs_resize_or_fail(sorted.sh, int64_t(sh_size), "gs_hlod::quality ordered_sh"))) {
+	if (!gs_hlod::quality_resize_or_fail(sorted.gaussians, wanted, "gs_hlod::quality ordered_gaussians") ||
+	    (sh_size && !gs_hlod::quality_resize_or_fail(sorted.sh, int64_t(sh_size), "gs_hlod::quality ordered_sh"))) {
 		return ERR_OUT_OF_MEMORY;
 	}
 	Gaussian *sorted_g = sorted.gaussians.ptrw();

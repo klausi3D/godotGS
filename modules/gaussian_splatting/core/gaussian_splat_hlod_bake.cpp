@@ -559,9 +559,9 @@ bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult
 		return false;
 	}
 	Vector<uint32_t> dfs_leaves, first_descendant_leaf, descendant_leaf_count;
-	if (!gs_resize_or_fail(dfs_leaves, node_count, "gs_hlod::quality dfs_leaves") ||
-	    !gs_resize_or_fail(first_descendant_leaf, node_count, "gs_hlod::quality first_descendant_leaf") ||
-	    !gs_resize_or_fail(descendant_leaf_count, node_count, "gs_hlod::quality descendant_leaf_count")) {
+	if (!quality_resize_or_fail(dfs_leaves, node_count, "gs_hlod::quality dfs_leaves") ||
+	    !quality_resize_or_fail(first_descendant_leaf, node_count, "gs_hlod::quality first_descendant_leaf") ||
+	    !quality_resize_or_fail(descendant_leaf_count, node_count, "gs_hlod::quality descendant_leaf_count")) {
 		return fail("Cannot allocate HLOD full-detail descendant ranges.", ERR_OUT_OF_MEMORY);
 	}
 	uint32_t leaf_ordinal = 0u;

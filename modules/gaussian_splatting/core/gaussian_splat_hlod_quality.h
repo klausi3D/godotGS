@@ -4,8 +4,34 @@
 #include "core/templates/vector.h"
 #include "gaussian_splat_hlod_merge.h"
 #include "gaussian_splat_hlod_tree.h"
+#include "gs_vector_alloc.h"
 
 namespace gs_hlod {
+
+// Local admission for the actual CowData allocation, not just count * sizeof(T).
+// Keep this bounded to new quality scratch; it does not change the common allocator.
+bool quality_allocation_fits(uint64_t p_count, uint64_t p_element_bytes, uint64_t p_size_max, uint64_t p_header_bytes);
+uint64_t quality_allocation_header_bytes();
+uint64_t quality_allocation_size_max();
+#ifdef TESTS_ENABLED
+// Thread-local and test-only: can only lower the native size_t limit. No large allocation
+// is required to exercise the real resize admission and public bake failure path.
+uint64_t quality_set_test_allocation_size_max(uint64_t p_size_max);
+#endif
+
+template <typename T>
+[[nodiscard]] bool quality_resize_or_fail(Vector<T> &p_vector, uint64_t p_count, const char *p_where)
+{
+	if (!quality_allocation_fits(p_count, sizeof(T), quality_allocation_size_max(),
+	                             quality_allocation_header_bytes())) {
+		p_vector.clear();
+		ERR_FAIL_V_MSG(
+		        false,
+		        vformat("%s: rounded HLOD quality allocation (%d elements of %d bytes plus header) exceeds size_t.",
+		                String(p_where), p_count, uint64_t(sizeof(T))));
+	}
+	return gs_resize_or_fail(p_vector, int64_t(p_count), p_where);
+}
 
 // Rule 2: deterministic orthographic CPU proxy, not the perspective GPU renderer.
 static constexpr uint32_t kQualityViewCount = 22u;
