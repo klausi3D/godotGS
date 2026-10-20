@@ -364,13 +364,13 @@ bool TileRenderer::TileRendererDebugStats::membership_save(const Vector<uint8_t>
 		membership_problem("Capture target already exists; refusing overwrite");
 		return false;
 	}
-	Ref<FileAccess> raw = FileAccess::open(directory.path_join(stem + ".bin"), FileAccess::WRITE);
+	Ref<FileAccess> raw = FileAccess::open(directory.path_join(stem + ".bin"), FileAccess::WRITE); // GS_CI_ALLOW_RENDER_PATH_FS_WRITE: TESTS_ENABLED default-off capture; bounded evidence reserved before arm.
 	if (raw.is_null() || !raw->store_buffer(p_data)) { // GS_CI_ALLOW_RENDER_PATH_FS_WRITE: TESTS_ENABLED explicit capture; bytes reserved before admission.
 		membership_problem("Cannot persist raw capture bytes");
 		return false;
 	}
 	raw.unref();
-	Ref<FileAccess> json = FileAccess::open(directory.path_join(stem + ".json"), FileAccess::WRITE);
+	Ref<FileAccess> json = FileAccess::open(directory.path_join(stem + ".json"), FileAccess::WRITE); // GS_CI_ALLOW_RENDER_PATH_FS_WRITE: TESTS_ENABLED default-off capture; bounded evidence reserved before arm.
 	if (json.is_null() || !json->store_string(json_text)) { // GS_CI_ALLOW_RENDER_PATH_FS_WRITE: TESTS_ENABLED opt-in
 		                                                    // metadata; all-tile bytes are budgeted above.
 		membership_problem("Cannot persist capture metadata");
