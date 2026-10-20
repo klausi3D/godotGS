@@ -1579,7 +1579,117 @@ bool TileRendererRegressionTest::generate_reference_captures(RenderingDevice *p_
 }
 
 TileRendererRegressionTest::TestResult TileRendererRegressionTest::test_overflow_drop_telemetry(RenderingDevice *p_rd) {
-    // C4b / exit criterion G4 ("no silent degradation"), Channel A: on-GPU proof that a real
+	const String all_control = OS::get_singleton()->get_environment("GS_RECORD_LOSS_CONTROL");
+	if (!all_control.is_empty()) {
+		TestResult capture_result;
+		RID capture_gaussian;
+		RID capture_indices;
+		InstancePipelineTestInputs capture_instances;
+		print_line("[RECORD-LOSS-CONTROL] BEGIN FORCED_CONTROL; synthetic SH0 input; mode=" + all_control);
+		capture_result.passed = [&]() -> bool {
+			auto &capture = tile_renderer->_test_debug_stats();
+			const uint32_t control_kind =
+			        all_control == "dirty_cursor"
+			                ? 1u
+			                : (all_control == "count_disagreement"
+			                           ? 2u
+			                           : (all_control == "no_drop"
+			                                      ? 3u
+			                                      : (all_control == "global"
+			                                                 ? 4u
+			                                                 : (all_control == "raster_cap" ? 5u : 0u))));
+			if (control_kind == 0u || !capture.membership_enabled() ||
+			    tile_renderer->initialize(p_rd, Vector2i(16, 16), 16) != OK) {
+				capture_result.error_message = "Explicit capture opt-in and initialized renderer required";
+				return false;
+			}
+			Gaussian gaussian = {};
+			gaussian.position = Vector3(0, 0, -5);
+			// Visible footprint in the one-tile 16px viewport; no culling threshold changes.
+			gaussian.scale = Vector3(0.5, 0.5, 0.5);
+			gaussian.rotation = Quaternion();
+			gaussian.opacity = 0.5f;
+			gaussian.sh_dc = Color(1, 0.5, 0.2, 1);
+			gaussian.normal = Vector3(0, 0, 1);
+			gaussian.brush_axes = Vector2(1, 1);
+			Vector<Gaussian> gaussians;
+			const uint32_t fixture_count = control_kind == 5u ? tile_renderer->get_raster_tile_cap() + 1u
+			                                                  : ((control_kind == 2u || control_kind == 4u) ? 2u : 1u);
+			gaussians.resize(fixture_count);
+			gaussians.fill(gaussian); // Real identical geometry with distinct full reference IDs.
+
+			capture_gaussian = create_test_gaussian_buffer(p_rd, gaussians);
+			capture_indices = create_test_sorted_indices(p_rd, fixture_count);
+			capture_instances = create_instance_pipeline_test_inputs(p_rd, fixture_count);
+			if (!capture_gaussian.is_valid() || !capture_indices.is_valid() || !capture_instances.is_valid()) {
+				capture_result.error_message = "Capture control fixture allocation failed";
+				return false;
+			}
+			PackedGaussian packed;
+			SHCompressionMetrics metrics;
+			pack_gaussian(gaussian, packed, metrics, nullptr, 0, 0, 0);
+			Vector<PackedGaussian> packed_fixture;
+			packed_fixture.resize(fixture_count);
+			packed_fixture.fill(packed);
+			if (p_rd->buffer_update(capture_gaussian, 0, fixture_count * sizeof(packed), packed_fixture.ptr()) != OK) {
+				capture_result.error_message = "Capture control SH0 upload failed";
+				return false;
+			}
+			if (control_kind == 2u) {
+				const uint32_t count_visible = 1u;
+				if (p_rd->buffer_update(capture_instances.indirect_count_buffer, 12u, 4u, &count_visible) != OK) {
+					capture_result.error_message = "COUNT visible-input setup failed";
+					return false;
+				}
+			}
+			TileRenderer::RenderParams capture_params =
+			        make_render_params(capture_gaussian, capture_indices, fixture_count, 16, 16, 16);
+			bind_instance_pipeline_inputs(capture_params, capture_instances, fixture_count);
+			capture_params.debug_show_performance_hud = false;
+			capture_params.enable_direct_lighting = false;
+			capture_params.distance_cull_enabled = false;
+			capture_params.tiny_splat_screen_radius = 0.1f;
+			capture_params.request_sh_amortization = false;
+			capture_params.wind_enabled = false;
+			capture.membership_all_control = control_kind;
+			const uint64_t capture_start = OS::get_singleton()->get_ticks_usec();
+			while (!capture.membership_finished) {
+				if (OS::get_singleton()->get_ticks_usec() - capture_start > 5000000u ||
+				    !tile_renderer->render(p_rd, capture_params).is_valid()) {
+					capture_result.error_message = "Control render failed or exceeded five seconds";
+					return false;
+				}
+				// Local test RD only. Flush the test's existing submission and async
+				// callback; the scene capture never introduces synchronous readback.
+				if (p_rd->buffer_get_data(capture_gaussian, 0, sizeof(packed)).size() != sizeof(packed)) {
+					capture_result.error_message = "Control observation flush failed";
+					return false;
+				}
+			}
+			if (!capture.membership_control_observed || !capture.membership_error.is_empty() ||
+			    OS::get_singleton()->get_ticks_usec() - capture_start > 5000000u) {
+				capture_result.error_message =
+				        "Missing completed same-frame control packet: " + capture.membership_error;
+				return false;
+			}
+			return true;
+		}();
+		// Descriptor owners release their bindings before fixture input owners free.
+		tile_renderer->cleanup();
+		capture_instances.free(p_rd);
+		if (capture_indices.is_valid()) {
+			p_rd->free(capture_indices);
+		}
+		if (capture_gaussian.is_valid()) {
+			p_rd->free(capture_gaussian);
+		}
+		if (!capture_result.passed) {
+			print_line("[RECORD-LOSS-CONTROL] ERROR " + capture_result.error_message);
+		}
+		print_line(String("[RECORD-LOSS-CONTROL] COMPLETE ") + (capture_result.passed ? "PASS" : "FAIL"));
+		return capture_result;
+	}
+	// C4b / exit criterion G4 ("no silent degradation"), Channel A: on-GPU proof that a real
     // binning overlap-record drop makes the always-on resident-signal telemetry fire, and that
     // it does NOT fire without one. This drives TileRenderer::render() through the actual
     // instance pipeline (build_instance_pipeline_test_inputs supplies the splat_ref / instance /

@@ -166,6 +166,44 @@ struct TileOverflowStatsSnapshot {
 static_assert(sizeof(TileOverflowStatsSnapshot) == 88,
 		"TileOverflowStatsSnapshot must match the 88-byte binding-3 OverflowStats SSBO layout");
 
+#ifdef TESTS_ENABLED
+// Default-off record-loss diagnostic; no production ABI change. GLSL mirrors these offsets.
+namespace TileMembershipCapture {
+static constexpr uint32_t MAGIC = 0x47534c31u;
+static constexpr uint32_t MAX_TILES = 65536u;
+static constexpr uint32_t HEADER_WORDS = 160u;
+static constexpr uint32_t PARAM_WORDS = sizeof(TileRenderParamsGPU) / sizeof(uint32_t);
+static constexpr uint32_t COUNT_PARAMS = HEADER_WORDS;
+static constexpr uint32_t EMIT_PARAMS = COUNT_PARAMS + PARAM_WORDS;
+static constexpr uint32_t COUNTS = EMIT_PARAMS + PARAM_WORDS;
+static constexpr uint32_t ALL_RANGES = COUNTS + MAX_TILES;
+static constexpr uint32_t ALL_PRE_CURSOR = ALL_RANGES + MAX_TILES * 2u;
+static constexpr uint32_t ALL_POST_CURSOR = ALL_PRE_CURSOR + MAX_TILES;
+static constexpr uint32_t ALL_ATTEMPTS = ALL_POST_CURSOR + MAX_TILES;
+static constexpr uint32_t ALL_LOCAL = ALL_ATTEMPTS + MAX_TILES;
+static constexpr uint32_t ALL_GLOBAL = ALL_LOCAL + MAX_TILES;
+static constexpr uint32_t ALL_WORDS = ALL_GLOBAL + MAX_TILES;
+static constexpr uint32_t ALL_BYTES = ALL_WORDS * sizeof(uint32_t);
+static constexpr uint64_t ALL_HOST_BUDGET = 64u * 1024u * 1024u;
+static constexpr uint64_t ALL_METADATA_LIMIT = 64u * 1024u;
+static constexpr uint64_t ALL_RESERVATION = ALL_BYTES + HEADER_WORDS * 4u + ALL_METADATA_LIMIT * 4u;
+static constexpr uint64_t REQUIRED_COPIES = (1u << 15u) - 1u;
+static_assert(PARAM_WORDS == 236u, "Update diagnostic GLSL packet offsets with params ABI");
+static_assert(ALL_BYTES + 32u < 4u * 1024u * 1024u, "Record-loss GPU allocation bound");
+struct alignas(16) Control {
+	uint32_t mode = 0; // 0 inactive, 3 all-tile observation
+	uint32_t tile = UINT32_MAX;
+	uint32_t frame_lo = 0;
+	uint32_t frame_hi = 0;
+	uint32_t capacity = MAX_TILES;
+	uint32_t total_tiles = 0;
+	uint32_t nonce_lo = 0;
+	uint32_t nonce_hi = 0;
+};
+static_assert(sizeof(Control) == 32, "Record-loss control std140 ABI");
+} // namespace TileMembershipCapture
+#endif
+
 // Channel bits of TileOverflowStatsSnapshot::overflow_drop_signal. Host mirror of
 // GS_OVERFLOW_DROP_* in shaders/includes/tile_projection_common.glsl; keep the values equal.
 static constexpr uint32_t OVERFLOW_DROP_SIGNAL_BINNING = 1u; // tile-binning EMIT dropped a record

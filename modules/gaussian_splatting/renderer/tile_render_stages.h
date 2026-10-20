@@ -32,7 +32,61 @@
                 bool p_has_debug_data, bool p_has_overflow_data);
         void _log_overflow_stats(uint64_t p_frame_serial, bool p_log_enabled, bool p_has_overflow_data);
 
-        TileRenderer &owner;
+#ifdef TESTS_ENABLED
+	    bool membership_enabled() const;
+	    bool membership_all_tiles_enabled() const;
+	    void membership_release_budget();
+	    void membership_create(RenderingDevice *p_device);
+	    void membership_free(RenderingDevice *p_device);
+	    void membership_before_count(RenderingDevice *p_device, RID p_buffers, RID p_params, RID p_lighting);
+	    void membership_after_count(RenderingDevice *p_device);
+	    void membership_before_emit(RenderingDevice *p_device, RID p_buffers, RID p_params, RID p_lighting);
+	    void membership_after_emit(RenderingDevice *p_device);
+	    void membership_after_raster(RenderingDevice *p_device, RID p_buffers, RID p_params, bool p_recorded);
+	    void membership_readback(const Vector<uint8_t> &p_data, uint64_t p_nonce);
+	    bool membership_copy(RenderingDevice *p_device, RID p_source, uint32_t p_source_offset, uint32_t p_word,
+	                         uint32_t p_bytes);
+	    void membership_request(RenderingDevice *p_device);
+	    void membership_record_set(RenderingDevice *p_device, RID p_set, const Vector<RD::Uniform> &p_uniforms);
+	    void membership_check_sets(RenderingDevice *p_device, RID p_buffers, RID p_params, RID p_lighting,
+	                               bool p_count);
+	    HashMap<RID, Dictionary> membership_sets;
+	    Dictionary membership_identity(bool p_count) const;
+	    void membership_problem(const String &p_reason);
+	    bool membership_save(const Vector<uint8_t> &p_data, const String &p_status);
+	    RID membership_buffer;
+	    RID membership_control;
+	    BufferOwnership membership_owner;
+	    uint64_t membership_started_us = 0;
+	    uint64_t membership_copy_mask = 0;
+	    uint64_t membership_stop_sample_frame = 0;
+	    uint32_t membership_raster_completed = 0;
+	    bool membership_stop_requested = false;
+	    uint64_t membership_budget_reserved = 0;
+	    bool membership_full_readback = false;
+	    bool membership_followup_ready = false;
+	    uint32_t membership_all_control =
+	            0; // Forced controls:1 dirty cursor,2 count disagreement,3 no drop,4 GLOBAL,5 raster cap.
+	    uint64_t membership_nonce = 0;
+	    uint64_t membership_frame = 0;
+	    uint32_t membership_captures = 0;
+	    uint32_t membership_header_observations = 0;
+	    uint32_t membership_full_observations = 0;
+	    uint32_t membership_invalid_observations = 0;
+	    uint32_t membership_count_dispatches = 0;
+	    uint32_t membership_emit_dispatches = 0;
+	    uint32_t membership_count_completed = 0;
+	    uint32_t membership_emit_completed = 0;
+	    bool membership_pending = false;
+	    bool membership_armed = false;
+	    bool membership_finished = false;
+	    bool membership_control_observed = false;
+	    String membership_error;
+	    Dictionary membership_metadata;
+	    Dictionary membership_first_loss_sample;
+#endif
+
+	    TileRenderer &owner;
         RID overflow_statistics_buffer;
         RID debug_counter_buffer;  // Debug counters for tracking rejection reasons
         RID debug_splat_audit_buffer;
