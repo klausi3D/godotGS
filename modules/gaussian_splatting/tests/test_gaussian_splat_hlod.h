@@ -3674,3 +3674,54 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] live bounds keep th
 	plain->set_bounds(plain_bounds);
 	CHECK(plain->get_bounds() == plain_bounds); // no-HLOD behavior is unchanged
 }
+
+TEST_CASE("[GaussianSplatting][WorldIO][HLOD][HLODIntegrity] representable positive bounds union reaches the largest float") {
+	using namespace TestGaussianSplatHlod;
+	GaussianSplatHlodTree tree;
+	hlod_make_valid_tree(tree);
+	tree.origin[0] = std::ldexp(1.0, 103);
+	String reason;
+	Error validation_error = ERR_BUG;
+	if (!gs_hlod_validate_tree(tree, &reason, &validation_error) || tree.nodes.is_empty()) {
+		FAIL("positive-range control must be a valid tree: ", reason.utf8().get_data());
+		return;
+	}
+	CHECK(validation_error == OK);
+	double root_lo[3], root_hi[3];
+	hlod_root_extent(tree, root_lo, root_hi);
+	if (root_lo[0] != std::ldexp(1.0, 103) || root_hi[0] != root_lo[0]) {
+		FAIL("the control requires exact world X endpoints at 2^103");
+		return;
+	}
+	Ref<GaussianSplatWorld> world;
+	world.instantiate();
+	world->set_hlod_tree(std::move(tree));
+	if (!world->has_hlod_tree()) {
+		FAIL("valid positive-range tree must be installed");
+		return;
+	}
+	HlodBakeObserver *observer = memnew(HlodBakeObserver);
+	world->connect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	const AABB requested(Vector3(std::numeric_limits<float>::max(), 0, 0), Vector3());
+	// With float real_t, an upward-rounded tight extent overflows when added to
+	// 2^103. The conservative interval [0, FLT_MAX] is nevertheless representable.
+	ERR_PRINT_OFF;
+	world->set_bounds(requested);
+	ERR_PRINT_ON;
+	const AABB actual = world->get_bounds();
+	CHECK(observer->notifications == 1);
+	CHECK(hlod_aabb_encloses(actual, root_lo, root_hi));
+	for (int axis = 0; axis < 3; ++axis) {
+		CHECK(Math::is_finite(actual.position[axis]));
+		CHECK(Math::is_finite(actual.size[axis]));
+		CHECK(Math::is_finite(actual.get_end()[axis]));
+		CHECK(actual.size[axis] >= real_t(0));
+		CHECK(double(actual.position[axis]) <= root_lo[axis]);
+		CHECK(double(actual.get_end()[axis]) >= root_hi[axis]);
+		CHECK(actual.position[axis] <= requested.position[axis]);
+		CHECK(actual.get_end()[axis] >= requested.get_end()[axis]);
+		CHECK(double(actual.position[axis]) + double(actual.size[axis]) >= double(requested.get_end()[axis]));
+	}
+	world->disconnect(SNAME("changed"), callable_mp(observer, &HlodBakeObserver::on_changed));
+	memdelete(observer);
+}
