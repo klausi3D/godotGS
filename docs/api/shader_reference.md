@@ -1,6 +1,6 @@
 # Shader Reference
 
-Coverage summary: `189` documented functions, `19` undocumented functions, `74` documented uniform fields, `109` undocumented uniform fields.
+Coverage summary: `189` documented functions, `21` undocumented functions, `75` documented uniform fields, `113` undocumented uniform fields.
 
 Undocumented entries are omitted by default. Use `--include-undocumented` to list them.
 
@@ -1622,6 +1622,27 @@ Undocumented entries are omitted by default. Use `--include-undocumented` to lis
     <tr>
       <td><pre><code>main()</code></pre></td>
       <td>Compute entry point for the active tile binning pass.</td>
+    </tr>
+  </tbody>
+</table>
+
+### Uniform Blocks
+
+#### RecordLossControl
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre><code>632u</code></pre></td>
+      <td><pre><code>const uint GS_LOSS_COUNTS =</code></pre></td>
+      <td>Host TileMembershipCapture:160 header + 2*236 params + eight uint words/tile.</td>
     </tr>
   </tbody>
 </table>
