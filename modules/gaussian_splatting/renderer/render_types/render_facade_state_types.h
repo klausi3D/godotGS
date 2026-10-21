@@ -70,6 +70,7 @@ struct ResourceState {
     uint64_t hlod_budget_bound_frames = 0;
     uint64_t hlod_root_dropped_frames = 0;
     uint64_t hlod_cpu_cut_usec = 0;
+    uint64_t hlod_cpu_prepare_usec = 0; // View admission, selection and draw-list upload; CPU elapsed only.
     uint64_t hlod_device_byte_upper_bound = 0;
     uint64_t hlod_view_epoch = 0;
     uint32_t hlod_visited_nodes = 0;

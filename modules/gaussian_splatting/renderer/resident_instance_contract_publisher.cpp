@@ -1447,6 +1447,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     }
     publish_hlod_bundle(false); // Context admission happens later, with the actual view identity.
     state.hlod_frame_active = false;
+    state.hlod_cpu_prepare_usec = 0;
     state.hlod_reason = "prepared_awaiting_view_admission";
     r_reason = String();
     return 1;
@@ -1458,8 +1459,17 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     state.hlod_frame_active = false;
     state.hlod_selected_nodes = state.hlod_selected_parents = state.hlod_visited_nodes = 0;
     state.hlod_selected_splats = state.hlod_cpu_cut_usec = 0;
+    state.hlod_cpu_prepare_usec = 0;
     state.hlod_estimated_records = 0.0;
     if (state.hlod_prepared_snapshot.is_null()) { return false; }
+    // Includes admission, scratch readiness, selection and draw-list upload on
+    // every return. This CPU elapsed duration is distinct from selection-only
+    // hlod_cpu_cut_usec and does not measure GPU execution or bundle creation.
+    struct PrepareCpuTimer {
+        uint64_t &elapsed;
+        uint64_t start = OS::get_singleton()->get_ticks_usec();
+        ~PrepareCpuTimer() { elapsed = OS::get_singleton()->get_ticks_usec() - start; }
+    } prepare_timer{ state.hlod_cpu_prepare_usec };
     publish_hlod_bundle(false);
     const Ref<GaussianSplatHlodRuntimeData> input = state.hlod_prepared_snapshot;
     auto fallback = [&](const char *p_reason) { state.hlod_reason = p_reason; return false; };

@@ -1495,6 +1495,8 @@ Dictionary RenderDiagnosticsOrchestrator::build_render_stats() const {
     stats["hlod_selected_splats"] = int64_t(resource_state.hlod_selected_splats);
     stats["hlod_visited_nodes"] = resource_state.hlod_visited_nodes;
     stats["hlod_cpu_cut_usec"] = int64_t(resource_state.hlod_cpu_cut_usec);
+    stats["hlod_cpu_prepare_usec"] = int64_t(resource_state.hlod_cpu_prepare_usec);
+    stats["hlod_cpu_prepare_timing_scope"] = "cpu_view_admission_selection_draw_upload";
     stats["hlod_preparation_usec"] = resource_state.hlod_prepared_snapshot.is_valid() ? int64_t(resource_state.hlod_prepared_snapshot->preparation_usec) : int64_t(0);
     stats["hlod_budget_bound_frames"] = int64_t(resource_state.hlod_budget_bound_frames);
     stats["hlod_root_dropped_frames"] = int64_t(resource_state.hlod_root_dropped_frames);

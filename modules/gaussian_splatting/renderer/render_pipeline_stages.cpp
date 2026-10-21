@@ -1533,13 +1533,14 @@ struct RenderPipelineStages::CullStage {
 		const auto &buffers = renderer->get_instance_pipeline_buffers();
 		const bool instance_cull_path_requested = renderer->has_instance_pipeline_buffers() &&
 				GaussianSplatting::InstancePipelineContract::has_cull_buffers(buffers);
+		const char *cull_route = buffers.hlod_relative ? RenderRouteUID::INSTANCE_CULL_HLOD_CPU : RenderRouteUID::INSTANCE_CULL_GPU;
 		if (instance_cull_path_requested) {
 			_record_pipeline_event(renderer, "cull",
 					vformat("instance_path inst_count=%d chunk_count=%d max_vis_chunks=%d",
 							buffers.instance_count, buffers.dispatch_chunk_count, buffers.max_visible_chunks),
 					buffers.instance_count, buffers.max_visible_chunks, false,
 					GaussianSplatRenderer::RenderFallbackReason::NONE,
-					RenderRouteUID::INSTANCE_CULL_GPU);
+					cull_route);
 			GPUCuller::InstancePipelineInputs instance_inputs;
 			instance_inputs.instance_buffer = buffers.instance_buffer;
 			instance_inputs.asset_meta_buffer = buffers.asset_meta_buffer;
@@ -1578,16 +1579,28 @@ struct RenderPipelineStages::CullStage {
 		}
 
 		gpu_culler->get_config().last_cull_viewport_size = p_input.viewport_size;
-        if (buffers.hlod_relative) {
-            r_output.candidate_count = buffers.dispatch_chunk_count;
-            r_output.visible_count = buffers.hlod_draw_count;
-            r_output.visible_domain = GaussianSplatRenderer::IndexDomain::CHUNK_REF;
-            r_output.has_visible = r_output.visible_count != 0;
-            // The CPU cut has already uploaded its complete draw list and counter.
-            // Running the ordinary append culler here would destroy that antichain.
-        } else {
-		r_output = pipeline->cull_for_view(p_input.world_to_camera_transform, p_input.projection, p_input.viewport_size);
-        }
+		if (buffers.hlod_relative) {
+			r_output.candidate_count = buffers.dispatch_chunk_count;
+			r_output.visible_count = buffers.hlod_draw_count;
+			r_output.visible_domain = GaussianSplatRenderer::IndexDomain::CHUNK_REF;
+			r_output.has_visible = r_output.visible_count != 0;
+			r_output.cull_time_ms = float(renderer->get_resource_state().hlod_cpu_prepare_usec) * 0.001f;
+			result.reason = "CPU HLOD view admission, selection and draw-list upload";
+			// The CPU cut has already uploaded its complete draw list and counter.
+			// Running the ordinary append culler here would destroy that antichain.
+			// Publish current CPU metrics instead of retaining a prior GPU summary.
+			auto &perf = renderer->get_performance_state().metrics;
+			perf.cull_route_uid = cull_route;
+			perf.cull_route_reason = "hlod_cpu_view_admission_selection_upload";
+			perf.culling_time_ms = r_output.cull_time_ms;
+			perf.culling_candidate_count = r_output.candidate_count;
+			perf.visible_after_culling = r_output.visible_count;
+			perf.culled_frustum_count = perf.culled_distance_count = perf.culled_screen_count = perf.culled_importance_count = 0;
+			perf.used_hierarchical_culling = true;
+			renderer->get_frame_state().visible_splat_count.store(r_output.visible_count, std::memory_order_release);
+		} else {
+			r_output = pipeline->cull_for_view(p_input.world_to_camera_transform, p_input.projection, p_input.viewport_size);
+		}
 		if (r_output.visible_domain == GaussianSplatRenderer::IndexDomain::UNKNOWN) {
 			r_output.visible_domain = instance_cull_path_requested
 					? GaussianSplatRenderer::IndexDomain::CHUNK_REF
@@ -1599,7 +1612,7 @@ struct RenderPipelineStages::CullStage {
 					GaussianSplatRenderer::RenderFallbackReason::NONE);
 		}
 		RenderPipelineStages::stamp_stage_result_contract(result, "cull",
-				result.status == StageResult::StageStatus::FAILED ? String(RenderRouteUID::COMMON_FAIL_SORT_FAILED) : String(RenderRouteUID::INSTANCE_CULL_GPU),
+				result.status == StageResult::StageStatus::FAILED ? String(RenderRouteUID::COMMON_FAIL_SORT_FAILED) : String(cull_route),
 				GaussianSplatRenderer::IndexDomain::UNKNOWN, r_output.visible_domain,
 				r_output.candidate_count, r_output.visible_count);
 		_record_pipeline_event(renderer, "cull",
@@ -1608,7 +1621,7 @@ struct RenderPipelineStages::CullStage {
 						GaussianRenderState::index_domain_to_string(r_output.visible_domain)),
 				r_output.candidate_count, r_output.visible_count, false,
 				GaussianSplatRenderer::RenderFallbackReason::NONE,
-				RenderRouteUID::INSTANCE_CULL_GPU);
+				cull_route);
 
 		r_output.has_visible = r_output.visible_count > 0;
 		if (!r_output.has_visible) {

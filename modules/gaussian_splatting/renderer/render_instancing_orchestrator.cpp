@@ -188,6 +188,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 			hlod_state.hlod_frame_active = false;
 			hlod_state.hlod_selected_nodes = hlod_state.hlod_selected_parents = hlod_state.hlod_visited_nodes = 0;
 			hlod_state.hlod_selected_splats = hlod_state.hlod_cpu_cut_usec = 0;
+			hlod_state.hlod_cpu_prepare_usec = 0;
 			hlod_state.hlod_estimated_records = 0.0;
 			hlod_state.hlod_reason = "unsupported_instance_transform_domain";
 		}

@@ -18,6 +18,7 @@
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
+#include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
 #include "servers/rendering/storage/render_scene_buffers.h"
@@ -236,9 +237,9 @@ namespace TestHlodRuntimeGpuIdentity {
 TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident World3D main view admits and renders its nonempty runtime cut") {
     SceneTree *tree = SceneTree::get_singleton();
     RenderingServer *server = RenderingServer::get_singleton();
+    RenderingDevice *rd = RenderingDevice::get_singleton();
     ProjectSettings *ps = ProjectSettings::get_singleton();
-    RendererRD::TextureStorage *textures = RendererRD::TextureStorage::get_singleton();
-    if (!tree || !server || !ps || !textures) { FAIL("WorldSceneTree GPU harness required"); return; }
+    if (!tree || !server || !rd || !ps) { FAIL("WorldSceneTree GPU harness required"); return; }
     Window *root = tree->get_root();
     if (!root) { FAIL("SceneTree root required"); return; }
     struct SettingsGuard {
@@ -272,6 +273,26 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
             g_quantization_config = quantization;
         }
     } settings(ps);
+    // The SceneTree listener uses a dummy rasterizer while --gs-gpu-test owns
+    // the real RD. Supply only its absent storage services, without replacing
+    // the server or bypassing the actual World3D/main-view entry.
+    ScopedSortDevice manager_device(rd);
+    struct ScopedRDStorage {
+        RendererRD::TextureStorage *owned_textures = nullptr;
+        RendererRD::MaterialStorage *owned_materials = nullptr;
+        ScopedRDStorage() {
+            if (!RendererRD::TextureStorage::get_singleton()) { owned_textures = memnew(RendererRD::TextureStorage); }
+            if (!RendererRD::MaterialStorage::get_singleton()) { owned_materials = memnew(RendererRD::MaterialStorage); }
+        }
+        ~ScopedRDStorage() {
+            // All render-data refs, buffers, targets, nodes and shared renderers
+            // below are destroyed first; manager_device restores its RD last.
+            if (owned_materials) { memdelete(owned_materials); }
+            if (owned_textures) { memdelete(owned_textures); }
+        }
+    } storage;
+    RendererRD::TextureStorage *textures = RendererRD::TextureStorage::get_singleton();
+    if (!textures || !RendererRD::MaterialStorage::get_singleton()) { FAIL("RD storage setup failed"); return; }
     struct WorldFixture {
         SceneTree *tree;
         RendererRD::TextureStorage *textures;
@@ -354,6 +375,7 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
                 " ", ready.describe().utf8().get_data());
         return;
     }
+    CHECK(renderer->get_device_state().rd == rd);
     for (uint32_t frame = 0; frame < 2; ++frame) {
         renderer->render_scene_instance(&render);
         const auto &state = renderer->get_resource_state();
@@ -364,6 +386,17 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
         CHECK(state.hlod_selected_parents == 0);
         CHECK_FALSE(state.hlod_canonical.buffers.world_submission_active);
         CHECK_FALSE(state.hlod_relative.buffers.world_submission_active);
+        const auto &stages = renderer->get_debug_state().last_stage_metrics;
+        const auto &perf = renderer->get_performance_state().metrics;
+        CHECK(renderer->get_debug_state().last_stage_metrics_valid);
+        CHECK(stages.cull_result.route_uid == String(RenderRouteUID::INSTANCE_CULL_HLOD_CPU));
+        CHECK(perf.cull_route_uid == String(RenderRouteUID::INSTANCE_CULL_HLOD_CPU));
+        CHECK(perf.cull_route_reason == String("hlod_cpu_view_admission_selection_upload"));
+        // A two-splat measurement may resolve to zero ticks. Check its actual
+        // scope and exact propagation, never an invented positive minimum.
+        CHECK(state.hlod_cpu_prepare_usec >= state.hlod_cpu_cut_usec);
+        CHECK(stages.cull.cull_time_ms == float(state.hlod_cpu_prepare_usec) * 0.001f);
+        CHECK(perf.culling_time_ms == stages.cull.cull_time_ms);
         CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
         CHECK(renderer->get_sorting_state().sorted_splat_count == 2);
         CHECK(renderer->has_rendered_content());
