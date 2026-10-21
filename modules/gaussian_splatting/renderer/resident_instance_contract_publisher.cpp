@@ -1390,10 +1390,16 @@ bool GaussianSplatRenderer::is_hlod_prepared_contract_current() const {
         auto ready = b;
         ready.sort_key_buffer = sort.keys_buffer;
         ready.sort_value_buffer = sort.indices_buffer;
+        // A prepared relative bundle has no cut content serial until its first
+        // publication. Check resources here; the full published-content contract
+        // is checked after assigning the real serial in publish_hlod_bundle().
+        if (relative && (!b.hlod_draw_entry_buffer.is_valid() ||
+                get_resource_owner(b.hlod_draw_entry_buffer, nullptr) != rd ||
+                !rd->buffer_is_valid(b.hlod_draw_entry_buffer))) { return false; }
         if (!GaussianSplatting::InstancePipelineContract::has_atlas_buffers(ready) ||
                 !GaussianSplatting::InstancePipelineContract::has_cull_buffers(ready) ||
-                !GaussianSplatting::InstancePipelineContract::has_sort_buffers(ready) ||
-                !GaussianSplatting::InstancePipelineContract::has_raster_buffers(ready)) { return false; }
+                GaussianSplatting::InstancePipelineContract::first_sort_violation(ready) != InvariantViolationReason::NONE ||
+                GaussianSplatting::InstancePipelineContract::first_raster_violation(ready) != InvariantViolationReason::NONE) { return false; }
     }
     const uint64_t budget = rd->get_device_memory_budget();
     const uint64_t limit = budget ? MIN(budget, GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT) : GaussianSplatHlodRuntimeData::GPU_BYTE_LIMIT;
@@ -1426,6 +1432,12 @@ bool GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     bundle.buffers.sort_key_buffer = handles.keys_buffer;
     bundle.buffers.sort_value_buffer = handles.indices_buffer;
     bundle.buffers.hlod_content_generation = ++state.hlod_content_serial;
+    if (!GaussianSplatting::InstancePipelineContract::has_sort_buffers(bundle.buffers) ||
+            !GaussianSplatting::InstancePipelineContract::has_raster_buffers(bundle.buffers)) {
+        release_hlod_resources();
+        state.hlod_reason = "hlod_published_content_contract_incomplete";
+        return false;
+    }
     instance_pipeline_buffers = bundle.buffers;
     instance_backend_policy = InstanceBackendPolicy::RESIDENT;
     instance_contract_source_generation = bundle.buffers.hlod_content_generation;

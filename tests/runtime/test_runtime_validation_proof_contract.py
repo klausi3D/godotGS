@@ -2806,6 +2806,21 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
             self.assertEqual(self._replay(changed).status, "failed")
 
     def test_identity_device_and_lod_controls_are_discriminating(self) -> None:
+        def replace_snapshot_during_instance_change(metrics):
+            row = metrics["identity_transitions"][0]
+            original = row["before"]["input_source_generation"]
+            changed = original + 1 if original != -1 else original - 1
+            row["refused"]["input_source_generation"] = changed
+            recovered = row["recovered"]
+            recovered["input_source_generation"] = changed
+            recovered["prepared_source_generation"] = changed
+            recovered["stats"]["hlod_source_generation"] = changed
+            recovered["stats"]["hlod_bound_source_generation"] = changed
+            metrics["identity_transitions"][1]["before"] = recovered
+        # This changes both refusal and recovery coherently, so the new failure
+        # specifically requires retaining the pre-change snapshot as well.
+        changed = self._mutate_metrics(replace_snapshot_during_instance_change)
+        self.assertEqual(self._replay(changed).status, "failed")
         for index, key in ((0, "current_instance_generation"), (1, "grading_hex"), (2, "relative_capacity")):
             changed = self._mutate_metrics(lambda m, i=index, k=key:
                 m["identity_transitions"][i]["refused"].__setitem__(k, m["identity_transitions"][i]["before"][k]))

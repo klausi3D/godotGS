@@ -197,7 +197,7 @@ func _check_current_publication(observation: Dictionary, source: GaussianData, c
 	return _check(observation["bound_atlas_count"] == count and observation["source_leaf_count"] == count, "Current complete leaf atlas missing")
 
 
-func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int) -> Dictionary:
+func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int, instance_before: Dictionary = {}) -> Dictionary:
 	while Time.get_ticks_msec() < deadline:
 		await RenderingServer.frame_post_draw
 		var observation := await _observe_publication()
@@ -215,6 +215,14 @@ func _wait_publication(source: GaussianData, count: int, active: bool, reason: S
 				return {}
 		else:
 			continue
+		if not instance_before.is_empty():
+			for key in ["source_data_id", "source_revision", "source_leaf_hex", "input_source_generation", "device_instance_id", "current_grading_generation", "grading_hex", "relative_capacity"]:
+				if not _check(observation[key] == instance_before[key], "Instance-generation probe changed another identity: %s" % key):
+					return {}
+			if not _check(int(observation["current_instance_generation"]) > int(instance_before["current_instance_generation"]), "Actual director instance generation did not advance"):
+				return {}
+			if not _check(not observation["prepared_current"], "Changed instance generation retained the prepared HLOD route under an armed rebuild failure"):
+				return {}
 		if bool(stats["hlod_active"]) != active or stats["hlod_reason"] != reason:
 			continue
 		var stages_succeeded := bool(stats["stage_metrics_valid"])
@@ -330,14 +338,15 @@ func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
 			transient.force_update()
 			_scene.remove_child(transient)
 			transient.free()
-			_node.apply_world()
+			# Keep the admitted world/snapshot unchanged: reapplying the world
+			# would independently invalidate it and mask a missing instance guard.
 		elif change == "grading":
 			var grading := ColorGradingResource.new()
 			grading.exposure = 0.25
 			_renderer.test_set_hlod_grading(grading)
 		else:
 			_renderer.set_max_splats(1)
-		var refused := await _wait_publication(world.gaussian_data, 2, false, "hlod_candidate_allocation_failed", deadline, int(before["stats"]["frame_count"]))
+		var refused := await _wait_publication(world.gaussian_data, 2, false, "hlod_candidate_allocation_failed", deadline, int(before["stats"]["frame_count"]), before if change == "instance" else {})
 		if refused.is_empty():
 			return false
 		if change == "instance" and not _check(int(refused["current_instance_generation"]) > int(before["current_instance_generation"]), "Actual director instance generation did not advance"):

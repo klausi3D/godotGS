@@ -970,9 +970,11 @@ def _hlod_transition_proof_failures(metrics: Dict[str, object]) -> List[str]:
                 fail(label, "before must retain preceding actual recovery")
             later(before, refused, label)
             later(refused, recovered, label)
-            # Node policy resubmission may replace the runtime snapshot while
-            # retaining the same real GaussianData and complete packed leaves.
-            same(before, refused, current_keys[:3] + ("device_instance_id",), label)
+            # Isolate the instance predicate: a simultaneous snapshot replacement
+            # would invalidate independently and mask a missing generation guard.
+            same(before, refused, current_keys if change == "instance" else current_keys[:3] + ("device_instance_id",), label)
+            if change == "instance":
+                same(before, refused, ("current_grading_generation", "grading_hex", "relative_capacity"), label)
             same(refused, recovered, current_keys, label)
             if change in ("instance", "grading"):
                 key, generation = change + "_hex", "current_" + change + "_generation"
