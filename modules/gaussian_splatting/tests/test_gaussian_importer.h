@@ -3426,4 +3426,158 @@ TEST_CASE("[GaussianSplatting][Editor] Re-collecting watched hot-reload nodes dr
 	memdelete(plugin);
 }
 
+TEST_CASE("[GaussianSplatting][Importer][WorldIO][WorldSH4][MalformedCorpus] authentic SH0-4 imports preserve "
+          "coefficients and reject unsupported degrees atomically")
+{
+	ResourceFormatSaverGaussianSplatWorld saver;
+	ResourceFormatLoaderGaussianSplatWorld loader;
+	Ref<ResourceImporterGSplatWorld> importer;
+	importer.instantiate();
+	HashMap<StringName, Variant> options;
+	for (uint32_t degree = 0u; degree <= 4u; ++degree) {
+		const uint32_t first = degree ? 3u : 0u;
+		const uint32_t high = degree >= 2u ? (degree + 1u) * (degree + 1u) - 4u : 0u;
+		for (bool hlod : {false, true}) {
+			LocalVector<Gaussian> gaussians;
+			LocalVector<Vector3> sh;
+			gaussians.resize(3u);
+			sh.resize(3u * high);
+			for (uint32_t i = 0; i < 3u; ++i) {
+				Gaussian &g = gaussians[i];
+				g.position = Vector3(real_t(i), 1, 2);
+				g.scale = Vector3(0.0625f, 0.125f, 0.25f);
+				g.rotation = Quaternion();
+				g.opacity = 0.25f * (i + 1u);
+				g.sh_dc = Color(0.125f, -0.25f, 0.5f, 1);
+				g.render_meta = gaussian_set_dc_encoding(0u, i == 1u ? GAUSSIAN_DC_ENCODING_LINEAR_RGB
+				                                                     : GAUSSIAN_DC_ENCODING_LEGACY_BIAS);
+				for (uint32_t j = 0; j < first; ++j) {
+					g.sh_1[j] = Vector3(0.03125f, -0.015625f, 0.0625f) * real_t(1u + i * 3u + j);
+				}
+				for (uint32_t j = 0; j < high; ++j) {
+					sh[i * high + j] = Vector3(0.00390625f, -0.0078125f, 0.015625f) * real_t(1u + i * high + j);
+				}
+			}
+			Ref<GaussianData> data;
+			data.instantiate();
+			data->set_gaussian_payload(gaussians, sh, first, high, false, false);
+			CHECK(data->get_sh_degree() == degree);
+			Ref<GaussianSplatWorld> world;
+			world.instantiate();
+			world->set_gaussian_data(data);
+			if (hlod && world->bake_hlod() != OK) {
+				FAIL("authentic importer HLOD producer");
+				return;
+			}
+			for (int mode = 0; mode < 3; ++mode) {
+				INFO(degree, hlod, mode);
+				const auto save_mode =
+				        mode == 0   ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_STREAMABLE_UNCOMPRESSED
+				        : mode == 1 ? ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_UNCOMPRESSED
+				                    : ResourceFormatSaverGaussianSplatWorld::SAVE_PAYLOAD_RESIDENT_COMPRESSED;
+				const String base = OS::get_singleton()->get_temp_path().path_join(
+				        "godotgs_sh_admission_import_" + itos(OS::get_singleton()->get_ticks_usec()));
+				const String source_path = base + "_source.gsplatworld";
+				const String output_base = base + "_destination";
+				const String output_path = output_base + ".gsplatworld";
+				if (saver.save_with_payload_mode(world, source_path, save_mode) != OK) {
+					FAIL("authentic importer source save");
+					return;
+				}
+				const PackedByteArray original = FileAccess::get_file_as_bytes(source_path);
+				if (original.size() < 20) {
+					FAIL("source header and payload");
+					return;
+				}
+				Variant metadata;
+				const Error imported = importer->import(ResourceUID::INVALID_ID, source_path, output_base, options,
+				                                        nullptr, nullptr, &metadata);
+				if (imported != OK || metadata.get_type() != Variant::DICTIONARY) {
+					FAIL("valid producer sibling must import");
+					return;
+				}
+				CHECK(FileAccess::get_file_as_bytes(source_path) == original);
+				const PackedByteArray destination = FileAccess::get_file_as_bytes(output_path);
+				if (destination.size() < 20) {
+					FAIL("validated import destination");
+					return;
+				}
+				if (hlod) {
+					CHECK(destination == original); // current rule is copied, not re-baked
+				}
+				Error load_error = ERR_BUG;
+				Ref<GaussianSplatWorld> loaded = loader.load_resident(output_path, &load_error);
+				if (load_error != OK || loaded.is_null() || loaded->get_gaussian_data().is_null()) {
+					FAIL("imported supported SH payload loads resident");
+					return;
+				}
+				CHECK(loaded->has_hlod_tree()); // plain sources follow the existing actual bake path
+				CHECK(loaded->get_sh_degree() == degree);
+				const char *modes[] = {"streamable_uncompressed", "resident_only", "resident_only"};
+				CHECK(String(Dictionary(metadata)["payload_mode"]) == String(modes[mode]));
+				CHECK(bool(Dictionary(metadata)["compressed"]) == (mode == 2));
+				CHECK(bool(Dictionary(metadata)["streamable"]) == (mode == 0));
+				CHECK(bool(destination[8] & (1u << 4u)) == (mode == 2));
+				CHECK(bool(destination[8] & (1u << 5u)) == (mode != 0));
+				GaussianData::SaveSnapshot got;
+				if (loaded->get_gaussian_data()->capture_save_snapshot(got) != OK || got.get_gaussians().size() != 3 ||
+				    got.get_sh_high_order().size() != int(3u * high)) {
+					FAIL("complete imported coefficient extent");
+					return;
+				}
+				CHECK(got.get_sh_degree() == degree);
+				CHECK(got.get_sh_first_order_count() == first);
+				CHECK(got.get_sh_high_order_count() == high);
+				bool seen[3] = {};
+				for (uint32_t i = 0; i < 3u; ++i) {
+					uint32_t source_index = 3u;
+					for (uint32_t j = 0; j < 3u; ++j) {
+						if (got.get_gaussians()[i].position == gaussians[j].position) {
+							source_index = j;
+						}
+					}
+					if (source_index >= 3u) {
+						FAIL("import preserves leaf identities");
+						return;
+					}
+					CHECK_FALSE(seen[source_index]);
+					seen[source_index] = true;
+					CHECK(memcmp(&got.get_gaussians()[i], &gaussians[source_index], sizeof(Gaussian)) == 0);
+					for (uint32_t j = 0; j < high; ++j) {
+						CHECK(got.get_sh_high_order()[i * high + j] == sh[source_index * high + j]);
+					}
+				}
+				loaded.unref();
+				if (degree == 4u) {
+					// Only negative fixtures mutate headers. Positive siblings above
+					// are genuine saver outputs, including all 21 high-order vectors.
+					for (uint32_t unsupported : {5u, UINT32_MAX}) {
+						PackedByteArray mutated = original;
+						uint8_t *bytes = mutated.ptrw();
+						for (uint32_t b = 0; b < 4u; ++b) {
+							bytes[16u + b] = uint8_t(unsupported >> (8u * b));
+						}
+						const String bad_path = base + "_invalid.gsplatworld";
+						if (_write_binary_file(bad_path, mutated) != OK) {
+							FAIL("write degree-only importer mutation");
+							return;
+						}
+						ERR_PRINT_OFF;
+						const Error rejected = importer->import(ResourceUID::INVALID_ID, bad_path, output_base, options,
+						                                        nullptr, nullptr, nullptr);
+						ERR_PRINT_ON;
+						CHECK(rejected == ERR_FILE_CORRUPT);
+						CHECK(FileAccess::get_file_as_bytes(output_path) == destination);
+						CHECK(FileAccess::get_file_as_bytes(source_path) == original);
+						CHECK(FileAccess::get_file_as_bytes(bad_path) == mutated);
+						DirAccess::remove_absolute(bad_path);
+					}
+				}
+				DirAccess::remove_absolute(output_path);
+				DirAccess::remove_absolute(source_path);
+			}
+		}
+	}
+}
+
 #endif // TOOLS_ENABLED
