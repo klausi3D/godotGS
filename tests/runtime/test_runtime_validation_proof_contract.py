@@ -2488,6 +2488,86 @@ class HlodMainViewRequiredWiringTests(unittest.TestCase):
             self.assertTrue(any(row["name"] == "Required HLOD Main View Execution" and row["status"] == "failed" for row in result["tests"]))
 
 
+class HlodMainViewProjectWiringTests(unittest.TestCase):
+    """Observe the actual runner command without launching a native process."""
+
+    def _run(self, project_path=None, scenario="Resident HLOD Main View"):
+        config = runtime_validation.GodotRunConfig("never-launched", "windows-vulkan", 30, (), True, (), project_path)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=_raw_result(scenario)) as launch:
+            results = runtime_validation.run_gd_tests(config, [], [scenario])
+        return results, launch
+
+    def test_default_project_reaches_the_actual_launch_command(self) -> None:
+        _, launch = self._run()
+        launch.assert_called_once()
+        command = launch.call_args.args[1]
+        self.assertEqual(command.count("--path"), 1)
+        project = Path(command[command.index("--path") + 1])
+        self.assertEqual(project, ROOT / "tests/runtime/hlod_main_view_project")
+        self.assertTrue((project / "project.godot").is_file())
+        self.assertEqual(Path(command[command.index("--script") + 1]), runtime_validation.GDS_TESTS["Resident HLOD Main View"])
+
+    def test_explicit_real_project_keeps_precedence_and_script_resolution(self) -> None:
+        project = ROOT / "tests/examples/godot/test_project"
+        _, launch = self._run(project)
+        command = launch.call_args.args[1]
+        self.assertEqual(command[command.index("--path") + 1], str(project))
+        self.assertEqual(Path(command[command.index("--script") + 1]), runtime_validation.GDS_TESTS["Resident HLOD Main View"])
+
+    def test_explicit_missing_project_fails_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            results, launch = self._run(Path(tmp))
+        launch.assert_not_called()
+        self.assertEqual(results[0].status, "failed")
+        self.assertIn("project.godot missing", results[0].stderr)
+
+    def test_missing_default_project_fails_config_and_launch_wiring(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(runtime_validation, "HLOD_MAIN_VIEW_PROJECT", Path(tmp)):
+            with self.assertRaisesRegex(ValueError, "native project is missing"):
+                runtime_validation._load_scenario_config(runtime_validation.DEFAULT_SCENARIO_CONFIG)
+            results, launch = self._run()
+        launch.assert_not_called()
+        self.assertEqual(results[0].status, "failed")
+
+    def test_other_scenarios_keep_their_existing_no_project_command(self) -> None:
+        _, launch = self._run(scenario="Engine Capability Sanity")
+        command = launch.call_args.args[1]
+        self.assertNotIn("--path", command)
+        self.assertEqual(Path(command[command.index("--script") + 1]),
+                         runtime_validation.GDS_TESTS["Engine Capability Sanity"].relative_to(ROOT))
+
+
+class HlodMainViewProjectManagerCaptureTests(unittest.TestCase):
+    def test_actual_project_manager_capture_is_rejected(self) -> None:
+        """The independently inspected a74 PM image is negative evidence only."""
+        path = os.environ.get("GS_HLOD_PROJECT_MANAGER_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual project-manager capture not requested (GS_HLOD_PROJECT_MANAGER_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested project-manager capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertEqual(capture.get("exit_code"), 0)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertEqual(result.status, "failed")
+        self.assertTrue(any("native project context" in reason for reason in result.reasons), result.reasons)
+        self.assertTrue(any("target capture requires" in reason for reason in result.reasons), result.reasons)
+
+
 class HlodMainViewCapturedProducerTests(unittest.TestCase):
     """Replay original producer bytes, then corrupt those bytes for controls.
 
@@ -2571,6 +2651,20 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
         self.assertEqual(self._replay(changed).status, "failed")
         for key in ("hlod_bound_atlas_valid", "hlod_canonical_atlas_rid", "renderer_device_object_id", "stage_cull_time_ms"):
             changed = self._mutate_metrics(lambda m, k=key: m["samples"][1].pop(k))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_actual_project_and_image_corruptions_fail(self) -> None:
+        for key, value in (("project_file_present", False), ("editor_hint", True),
+                           ("initial_root_children", 1), ("capture_root_children", 2),
+                           ("capture_scene_is_only_root_child", False), ("project_path", ""),
+                           ("image_width", 540), ("image_height", 337),
+                           ("image_nonblack_rgb_pixels", 0), ("image_nonblack_rgb_pixels", 4096)):
+            with self.subTest(key=key, value=value):
+                changed = self._mutate_metrics(lambda m, k=key, v=value: m.__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("project_file_present", "editor_hint", "initial_root_children",
+                    "capture_scene_is_only_root_child", "image_nonblack_rgb_pixels"):
+            changed = self._mutate_metrics(lambda m, k=key: m.pop(k))
             self.assertEqual(self._replay(changed).status, "failed")
 
 

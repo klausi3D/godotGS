@@ -226,6 +226,7 @@ GDS_TESTS: Dict[str, Path] = {
 # these existing GPU lanes. This does not flip the legacy completion ladder.
 HLOD_MAIN_VIEW_SCENARIO = "Resident HLOD Main View"
 HLOD_REQUIRED_PROFILES = ("streaming-gpu-ci", "release-ci")
+HLOD_MAIN_VIEW_PROJECT = RUNTIME_DIR / "hlod_main_view_project"
 
 # Explicit dependency policy for every registered runtime scenario. Empty tuples
 # are deliberate fixture-free declarations, not an inferred absence. A scenario
@@ -859,9 +860,19 @@ def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
                 or type(second.get("hlod_content_generation")) is not int
                 or second["hlod_content_generation"] <= first["hlod_content_generation"]):
             failures.append("HLOD cut content generation did not advance.")
+    for key, expected in (("project_file_present", True), ("editor_hint", False),
+                          ("initial_root_children", 0), ("capture_root_children", 1),
+                          ("capture_scene_is_only_root_child", True)):
+        if type(metrics.get(key)) is not type(expected) or metrics.get(key) != expected:
+            failures.append(f"HLOD native project context requires {key}={expected!r}.")
+    if not isinstance(metrics.get("project_path"), str) or not metrics["project_path"]:
+        failures.append("HLOD actual project path missing.")
     for key in ("image_width", "image_height"):
-        if type(metrics.get(key)) is not int or metrics[key] <= 0:
-            failures.append(f"HLOD target capture has no positive {key}.")
+        if type(metrics.get(key)) is not int or metrics[key] != 64:
+            failures.append(f"HLOD target capture requires {key}=64.")
+    nonblack = metrics.get("image_nonblack_rgb_pixels")
+    if type(nonblack) is not int or not 0 < nonblack < 64 * 64:
+        failures.append("HLOD target must contain visible RGB signal and black background.")
     if not isinstance(metrics.get("image_path"), str) or not metrics["image_path"]:
         failures.append("HLOD target capture path missing.")
     digest = metrics.get("image_sha256")
@@ -1146,15 +1157,24 @@ def _resolve_mode_args(mode: str) -> List[str]:
 
 def _build_godot_command(config: GodotRunConfig, script: Path) -> List[str]:
     command = [config.binary, *_resolve_mode_args(config.mode)]
-    if config.project_path is not None:
-        command.extend(["--path", str(config.project_path)])
+    project_path = config.project_path
+    if script == RUNTIME_DIR / "test_hlod_resident_main_view.gd":
+        # An editor binary with --script but no project silently starts the
+        # project manager. Keep this isolated default local to the HLOD proof;
+        # an explicit caller project still has precedence.
+        if project_path is None:
+            project_path = HLOD_MAIN_VIEW_PROJECT
+        if not (project_path / "project.godot").is_file():
+            raise ValueError(f"Required HLOD project.godot missing under {project_path}.")
+    if project_path is not None:
+        command.extend(["--path", str(project_path)])
     command.extend(config.extra_args)
     script_arg: Path
-    if config.project_path is None:
+    if project_path is None:
         script_arg = script.relative_to(ROOT)
     else:
         try:
-            script_arg = script.relative_to(config.project_path)
+            script_arg = script.relative_to(project_path)
         except ValueError:
             script_arg = script
     command.extend(["--verbose", "--script", str(script_arg)])
@@ -1387,6 +1407,8 @@ def _validate_hlod_profile_wiring(config: Dict[str, object]) -> None:
     source = RUNTIME_DIR / "test_hlod_resident_main_view.gd"
     if GDS_TESTS.get(HLOD_MAIN_VIEW_SCENARIO) != source or not source.is_file():
         raise ValueError("Required Resident HLOD Main View registry/source is missing.")
+    if not (HLOD_MAIN_VIEW_PROJECT / "project.godot").is_file():
+        raise ValueError("Required Resident HLOD Main View native project is missing.")
     contract = SCENARIO_FIXTURE_CONTRACTS.get(f"GDScript: {HLOD_MAIN_VIEW_SCENARIO}")
     if contract is None or contract.source != source or contract.fixtures != ():
         raise ValueError("Required HLOD scenario must declare its in-memory fixture producer.")
@@ -1772,10 +1794,22 @@ def run_gd_tests(
         ]
 
     availability_error = _godot_binary_is_available(config.binary)
-    if availability_error:
-        results: List[TestResult] = []
-        for name, script in gd_tests.items():
+    if not availability_error:
+        print(
+            "[runtime] GDScript mode="
+            f"{config.mode} fail_on_skip={'yes' if config.fail_on_skip else 'no'} "
+            f"allow_skip_tests={len(config.allow_skip_tests)}"
+        )
+    results: List[TestResult] = []
+    allow_skip_tests = set(config.allow_skip_tests)
+    for name, script in gd_tests.items():
+        try:
             command = _build_godot_command(config, script)
+        except ValueError as exc:
+            results.append(TestResult(name=name, command=[], duration=0.0,
+                exit_code=1, stdout="", stderr=str(exc), status="failed", reasons=[str(exc)]))
+            continue
+        if availability_error:
             results.append(
                 TestResult(
                     name=name,
@@ -1788,17 +1822,7 @@ def run_gd_tests(
                     reasons=[availability_error],
                 )
             )
-        return results
-
-    print(
-        "[runtime] GDScript mode="
-        f"{config.mode} fail_on_skip={'yes' if config.fail_on_skip else 'no'} "
-        f"allow_skip_tests={len(config.allow_skip_tests)}"
-    )
-    results: List[TestResult] = []
-    allow_skip_tests = set(config.allow_skip_tests)
-    for name, script in gd_tests.items():
-        command = _build_godot_command(config, script)
+            continue
         result = run_command(name, command, cwd=ROOT, timeout=config.timeout)
         results.append(
             _classify_result(

@@ -107,6 +107,16 @@ func _check_sample(sample: Dictionary) -> bool:
 
 
 func _run() -> void:
+	# A bare --script can start the editor's project manager and still render
+	# this scene behind its UI. Assert actual context before creating anything.
+	_metrics["project_file_present"] = FileAccess.file_exists("res://project.godot")
+	_metrics["project_path"] = ProjectSettings.globalize_path("res://")
+	_metrics["editor_hint"] = Engine.is_editor_hint()
+	_metrics["initial_root_children"] = get_root().get_child_count()
+	if not _check(_metrics["project_file_present"] and not _metrics["editor_hint"], "A native game project, without editor or project manager, is required"):
+		return
+	if not _check(_metrics["initial_root_children"] == 0, "Foreign root children would contaminate the main-view proof"):
+		return
 	var rd := RenderingServer.get_rendering_device()
 	if not _check(rd != null and not OS.has_feature("headless"), "Native RD main-view runtime required"):
 		return
@@ -120,6 +130,7 @@ func _run() -> void:
 	get_root().size = Vector2i(64, 64)
 	get_root().use_taa = false
 	get_root().msaa_3d = Viewport.MSAA_DISABLED
+	RenderingServer.set_default_clear_color(Color.BLACK)
 
 	var data := GaussianData.new()
 	data.resize(2)
@@ -179,9 +190,14 @@ func _run() -> void:
 				return
 		if not _check(int(sample["hlod_content_generation"]) > int(previous["hlod_content_generation"]), "Cut publication did not advance"):
 			return
+		_metrics["capture_root_children"] = get_root().get_child_count()
+		_metrics["capture_scene_is_only_root_child"] = get_root().get_child_count() == 1 and get_root().get_child(0) == _scene
+		if not _check(_metrics["capture_scene_is_only_root_child"], "Capture root contains content outside the test scene"):
+			return
 		var image := get_root().get_texture().get_image()
 		if not _check(image != null and not image.is_empty(), "Actual post-draw target capture missing"):
 			return
+		# Preserve a real image even if dimensions or visible signal fail below.
 		var path := "user://resident_hlod_main_view_%d.png" % OS.get_process_id()
 		if not _check(image.save_png(path) == OK, "Cannot preserve actual viewport capture"):
 			return
@@ -189,6 +205,19 @@ func _run() -> void:
 		_metrics["image_sha256"] = FileAccess.get_sha256(path)
 		_metrics["image_width"] = image.get_width()
 		_metrics["image_height"] = image.get_height()
+		if not _check(image.get_size() == Vector2i(64, 64), "Actual target must be exactly 64x64"):
+			return
+		# Functional signal only: positive RGB from the scene, plus unchanged
+		# black background. No luma tolerance or per-splat/SH/quality claim.
+		var nonblack_rgb_pixels := 0
+		for y in range(image.get_height()):
+			for x in range(image.get_width()):
+				var pixel := image.get_pixel(x, y)
+				if pixel.r != 0.0 or pixel.g != 0.0 or pixel.b != 0.0:
+					nonblack_rgb_pixels += 1
+		_metrics["image_nonblack_rgb_pixels"] = nonblack_rgb_pixels
+		if not _check(nonblack_rgb_pixels > 0 and nonblack_rgb_pixels < 64 * 64, "Actual target must contain scene RGB signal and black background"):
+			return
 		if not _check(Time.get_ticks_msec() < deadline, "Proof completed after its deadline"):
 			return
 		_metrics["hlod_main_view_proof_status"] = "passed"
