@@ -1,8 +1,8 @@
 #ifndef GAUSSIAN_SPLAT_HLOD_BAKE_H
 #define GAUSSIAN_SPLAT_HLOD_BAKE_H
 
-// HLOD bake (ADR docs/architecture/adr-hlod-streaming.md §6.1-§6.3, slice S1a): builds the
-// world-aligned octree over a world's splats, merges interior nodes bottom-up and lays the payload
+// HLOD bake (ADR docs/architecture/adr-hlod-streaming.md §6.1-§6.3, slices S1a/S1b): builds the
+// world-aligned octree over a world's splats, chooses merged/selected interior nodes bottom-up and lays the payload
 // out node-contiguous and importance-ordered. Pure CPU, host-testable; no Resource or GPU state.
 //
 // The lattice is the world frame's (origin O = (0, 0, 0) for a world without one, see
@@ -24,6 +24,7 @@ struct BakeInput {
 	const Vector3 *sh_high_order = nullptr; // count * sh_high_order_count, may be null if 0
 	uint32_t count = 0u;
 	uint32_t sh_high_order_count = 0u;
+	uint32_t sh_first_order_count = 0u; // explicit compact prefix; high_count alone cannot distinguish SH0/SH1
 };
 
 struct BakeResult {
@@ -48,9 +49,9 @@ bool choose_root_cell(const double p_origin[3], const double p_min[3], const dou
 // fields (position, scale, rotation, opacity, SH), a leaf size outside [1, 16384], a payload
 // that would not fit the 32-bit index space, or a splat-count-sized allocation that cannot be
 // served. r_code, when given, receives ERR_OUT_OF_MEMORY for the last and ERR_INVALID_DATA
-// otherwise. The interior merge's per-node allocations are probed too (the bound comment in
-// gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <= kMaxChildren child
-// spans are not.
+// otherwise (numeric image-domain range failures retain their typed error). The interior merge's per-node allocations
+// are probed too (the bound comment in gaussian_splat_hlod_merge.h); the node-count-sized build stacks and the <=
+// kMaxChildren child spans are not.
 bool bake_world(const BakeInput &p_input, const BakeParams &p_params, BakeResult &r_result, String *r_error,
 		Error *r_code = nullptr);
 

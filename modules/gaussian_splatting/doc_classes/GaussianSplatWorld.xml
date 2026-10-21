@@ -37,7 +37,7 @@
 		<method name="bake_hlod">
 			<return type="int" enum="Error" />
 			<description>
-				Bakes the hierarchical level-of-detail tree of this world: a world-aligned octree whose leaves hold the original splats (at most 16,384 each) and whose interior nodes hold merged splats. The payload is reordered into leaf order and the chunks are replaced by the leaves; a file-backed payload is loaded into memory first. Saving a baked world writes a version 2 [code].gsplatworld[/code] file. Nothing bakes implicitly: worlds from [method GaussianSplatContainer.export_world_resource] stay tree-less until this is called. Returns [constant ERR_INVALID_DATA] for splats with non-finite fields.
+				Bakes the hierarchical level-of-detail tree of this world: a world-aligned octree whose leaves hold the original splats (at most 16,384 each) and whose interior nodes choose between merged splats and equal-count importance prefixes from descendant leaves. Bake rule 2 compares both candidates against the chosen child representations using 22 fixed orthographic views, full supplied SH0–4 coefficients, and a premultiplied RGBA image error. This offline, classic-filtered proxy is not a guarantee of perspective renderer quality or frame rate. The payload is reordered into leaf order and the chunks are replaced by the leaves; a file-backed payload is loaded into memory first. Saving a baked world writes a version 3 [code].gsplatworld[/code] file. Importing a plain or supported older-rule file bakes an imported copy without rewriting the source. Runtime-built worlds from [method GaussianSplatContainer.export_world_resource] stay tree-less until this is called. Returns [constant ERR_INVALID_DATA] for splats with non-finite fields, and an error if candidate evaluation cannot complete; it never publishes an unmeasured candidate. Metric image payloads are limited to 64 MiB each and conservative old/new metric buffer storage to 256 MiB, including two images and three projection arrays; exceeding these limits returns [constant ERR_OUT_OF_MEMORY]. The complete-view raster-work budget is 2^28 pixel visits per node and 2^34 per bake; exhaustion returns [constant ERR_PARAMETER_RANGE_ERROR]. These limits do not bound total bake memory or elapsed time. Failure leaves the live world unchanged; an importer may retain the validated source through its explicit byte-preserving fallback.
 			</description>
 		</method>
 		<method name="get_hlod_info" qualifiers="const">
@@ -49,7 +49,7 @@
 		<method name="has_hlod_tree" qualifiers="const">
 			<return type="bool" />
 			<description>
-				Returns [code]true[/code] if this world has an HLOD tree, baked by [method bake_hlod] or loaded from a version 2 file.
+				Returns [code]true[/code] if this world has an HLOD tree, baked by [method bake_hlod] or loaded from a version 3 file.
 			</description>
 		</method>
 	</methods>
