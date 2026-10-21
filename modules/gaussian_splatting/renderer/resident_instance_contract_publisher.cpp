@@ -27,7 +27,6 @@
 #include "../core/gaussian_splat_hlod_bake.h"
 #include "pipeline_io_contracts.h"
 #include "servers/rendering_server.h"
-#include "core/config/engine.h"
 #endif
 
 namespace {
@@ -1771,7 +1770,6 @@ Dictionary GaussianSplatRenderer::test_observe_hlod_publication() {
     const Vector<uint8_t> observed = rd->buffer_get_data(bound.atlas_gaussian_buffer);
     result["atlas_hex"] = String::hex_encode_buffer(observed.ptr(), observed.size());
     result["source_leaf_hex"] = String::hex_encode_buffer(expected.ptr(), expected.size());
-    result["engine_frame"] = int64_t(Engine::get_singleton()->get_frames_drawn());
     result["source_data_id"] = int64_t(source->get_instance_id());
     result["device_instance_id"] = int64_t(rd->get_device_instance_id());
     result["source_revision"] = int64_t(snapshot.get_content_revision());

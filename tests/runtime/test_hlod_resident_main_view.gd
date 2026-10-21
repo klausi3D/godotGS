@@ -175,7 +175,14 @@ func _deliver_publication_observation(observation: Dictionary) -> void:
 
 
 func _read_publication_on_render_thread(foreign_device: bool) -> void:
+	var engine_frame_before := Engine.get_frames_drawn()
 	var observation: Dictionary = _renderer.test_hlod_foreign_device_publication() if foreign_device else _renderer.test_observe_hlod_publication()
+	if not foreign_device:
+		# Observe the real engine clock in this test producer, as for the view
+		# samples. A frame spanning the GPU readback cannot establish freshness.
+		observation["engine_frame"] = Engine.get_frames_drawn()
+		if observation["engine_frame"] != engine_frame_before:
+			observation["error"] = "engine_frame_changed_during_publication_readback"
 	_deliver_publication_observation.call_deferred(observation)
 
 
