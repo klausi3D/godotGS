@@ -782,6 +782,55 @@ def _classify_base_result(
     )
 
 
+def _hlod_orthographic_proof_failures(samples: object, last_positive: object) -> List[str]:
+    """Require a later real view refusal without replacing the perspective proof."""
+    if not isinstance(samples, list) or len(samples) != 2:
+        return ["Required HLOD orthographic proof needs exactly two consecutive actual samples."]
+    if not isinstance(last_positive, dict):
+        return ["HLOD orthographic proof has no valid preceding perspective sample."]
+    failures: List[str] = []
+    exact = {
+        "camera_projection": 1,  # Camera3D.PROJECTION_ORTHOGONAL, recorded by the producer.
+        "hlod_active": False, "hlod_reason": "unsupported_view_or_material",
+        "hlod_selected_nodes": 0, "hlod_selected_splats": 0, "hlod_selected_parents": 0,
+        "hlod_bound_relative": False, "hlod_bound_atlas_valid": True,
+        "hlod_canonical_atlas_valid": True, "hlod_canonical_world_submission_active": False,
+        "hlod_relative_world_submission_active": False, "stage_metrics_valid": True,
+        "stage_cull_route_uid": "INSTANCE.CULL.GPU", "cull_route_uid": "INSTANCE.CULL.GPU",
+        "sort_route_uid": "INSTANCE.SORT.GPU", "stage_sort_sorted_count": 2,
+        "sorted_splats": 2, "rendered_content": True,
+        "stage_cull_status": "success", "stage_sort_status": "success",
+        "stage_raster_status": "success", "stage_composite_status": "success",
+    }
+    identity_keys = (
+        "hlod_source_generation", "hlod_bound_source_generation", "hlod_bound_atlas_rid",
+        "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+    )
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict):
+            failures.append(f"HLOD orthographic sample {index} is not an object.")
+            continue
+        for key, expected in exact.items():
+            if type(sample.get(key)) is not type(expected) or sample.get(key) != expected:
+                failures.append(f"HLOD orthographic sample {index}: {key} must equal {expected!r}.")
+        for key in identity_keys:
+            if (type(sample.get(key)) is not int or sample[key] == 0
+                    or type(last_positive.get(key)) is not int or sample[key] != last_positive[key]):
+                failures.append(f"HLOD orthographic sample {index}: {key} must retain the nonzero perspective identity.")
+        for key in ("engine_frame", "frame_count"):
+            if (type(sample.get(key)) is not int or type(last_positive.get(key)) is not int
+                    or sample[key] <= last_positive[key]):
+                failures.append(f"HLOD orthographic sample {index}: {key} must follow the perspective proof.")
+    if all(isinstance(sample, dict) for sample in samples):
+        first, second = samples
+        for key in ("engine_frame", "frame_count"):
+            if type(first.get(key)) is not int or type(second.get(key)) is not int or second[key] != first[key] + 1:
+                failures.append(f"HLOD orthographic {key} samples are not consecutive.")
+    # No HLOD CPU-route timing or view-epoch advance: this gate refuses the
+    # view before history acquisition and renders through ordinary GPU culling.
+    return failures
+
+
 def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
     """Validate actual native samples; absent or ambiguous observations fail.
 
@@ -860,6 +909,7 @@ def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
                 or type(second.get("hlod_content_generation")) is not int
                 or second["hlod_content_generation"] <= first["hlod_content_generation"]):
             failures.append("HLOD cut content generation did not advance.")
+    failures.extend(_hlod_orthographic_proof_failures(metrics.get("orthographic_samples"), samples[-1]))
     for key, expected in (("project_file_present", True), ("editor_hint", False),
                           ("initial_root_children", 0), ("capture_root_children", 1),
                           ("capture_scene_is_only_root_child", True)):

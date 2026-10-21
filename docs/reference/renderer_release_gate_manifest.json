@@ -153,8 +153,8 @@
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
     "test_count": 217,
-    "sha256": "98066a028ad865abaf9c7e6f8661b5f63726460a9a7209f5544ed2efdfdfd1cf",
-    "sha256_last_changed_by": "HLOD resident runtime COR-S2A-009: preserve all 214 base GPU cases and two additive GpuSorting cases; rename the new WorldSceneTree case to the actual unsupported-view canonical control. All positive main-view assertions migrate to the mandatory native Resident HLOD Main View runtime scenario. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
+    "sha256": "1bd0190099973f6e3b54fb4cb57e0dc4b7942caf335c68dc1adcefc5b22c75e1",
+    "sha256_last_changed_by": "HLOD resident runtime V11: preserve all 214 base GPU cases and both additive GpuSorting cases; rename only the new WorldSceneTree case to its actual early ledger-refusal canonical control. The required native Resident HLOD Main View scenario retains its perspective/image proof and adds the late orthographic refusal proof. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; 217 total, 152 batched, 2 waived and 63 backlog unchanged. Native compiled case selection remains separately required.",
     "deferred_tags_any": [
       "Importer"
     ],

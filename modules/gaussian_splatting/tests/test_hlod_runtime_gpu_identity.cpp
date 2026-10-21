@@ -231,7 +231,7 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
 }
 
 namespace TestHlodRuntimeGpuIdentity {
-TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident World3D refuses HLOD without main-view render buffers and keeps its canonical contract") {
+TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident World3D preserves canonical output while the targetless HLOD ledger is unavailable") {
     SceneTree *tree = SceneTree::get_singleton();
     RenderingServer *server = RenderingServer::get_singleton();
     RenderingDevice *rd = RenderingDevice::get_singleton();
@@ -318,7 +318,9 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
     // Positive target-backed acceptance lives in the required native Runtime
     // scenario Resident HLOD Main View. The dummy SceneTree server cannot own
     // the complete present-target stack. This actual World3D entry deliberately
-    // lacks render buffers and must refuse HLOD while rendering canonically.
+    // lacks render buffers, so compositor target scratch never establishes its
+    // device ledger. Prove that early refusal and canonical output here; the
+    // native scenario separately checks the later unsupported-view gate.
     renderer->get_view_state().manual_viewport_override = Size2i(64, 64);
     RenderSceneDataRD scene;
     scene.cam_transform = Transform3D();
@@ -329,32 +331,38 @@ TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident Wor
         tree->process(0.0);
         renderer->render_scene_instance(&render);
         const auto &state = renderer->get_resource_state();
-        return state.hlod_prepared_snapshot.is_valid() &&
-                state.hlod_reason == "unsupported_view_or_material" && renderer->has_rendered_content();
+        return state.hlod_snapshot.is_valid() && renderer->is_instance_contract_ready() && renderer->has_rendered_content();
     });
     if (!ready.ready()) {
-        FAIL("resident unsupported-view canonical fallback not reached: ", renderer->get_resource_state().hlod_reason.utf8().get_data(),
-                " ", ready.describe().utf8().get_data());
+        FAIL("resident targetless canonical output not reached: ", renderer->get_resource_state().hlod_reason,
+                " ", ready.describe());
         return;
     }
     CHECK(renderer->get_device_state().rd == rd);
     for (uint32_t frame = 0; frame < 2; ++frame) {
         renderer->render_scene_instance(&render);
         const auto &state = renderer->get_resource_state();
+        CHECK(bool(ps->get_setting("rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled")));
+        if (state.hlod_snapshot.is_null()) { FAIL("current World3D HLOD input snapshot missing"); return; }
+        CHECK(state.hlod_snapshot->is_current());
+        CHECK(state.hlod_prepared_snapshot.is_null());
+        uint64_t route_bytes = 0;
+        CHECK_FALSE(renderer->get_hlod_owned_byte_upper_bound(route_bytes));
         CHECK_FALSE(state.hlod_frame_active);
-        CHECK(state.hlod_reason == String("unsupported_view_or_material"));
+        CHECK(state.hlod_reason == String("resource_ledger_warmup_or_unavailable"));
         CHECK(state.hlod_selected_nodes == 0);
         CHECK(state.hlod_selected_splats == 0);
         CHECK(state.hlod_selected_parents == 0);
-        CHECK_FALSE(state.hlod_canonical.buffers.world_submission_active);
-        CHECK_FALSE(state.hlod_relative.buffers.world_submission_active);
+        const auto &bound = renderer->get_instance_pipeline_buffers();
+        CHECK_FALSE(bound.hlod_relative);
+        CHECK_FALSE(bound.world_submission_active);
         CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
         CHECK(renderer->get_sorting_state().sorted_splat_count == 2);
         CHECK(renderer->has_rendered_content());
-        CHECK_FALSE(state.hlod_active); // Complete canonical bundle restored after the actual main-view pass.
-        CHECK(renderer->get_instance_pipeline_buffers().atlas_gaussian_buffer.is_valid());
-        CHECK(state.hlod_canonical.buffers.atlas_gaussian_buffer.is_valid());
-        CHECK(renderer->get_instance_pipeline_buffers().atlas_gaussian_buffer == state.hlod_canonical.buffers.atlas_gaussian_buffer);
+        CHECK_FALSE(state.hlod_active);
+        CHECK(bound.atlas_gaussian_buffer.is_valid());
+        CHECK(state.resident_atlas_gaussian_buffer.is_valid());
+        CHECK(bound.atlas_gaussian_buffer == state.resident_atlas_gaussian_buffer);
     }
 }
 }

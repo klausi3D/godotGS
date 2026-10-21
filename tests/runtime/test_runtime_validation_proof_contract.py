@@ -2568,6 +2568,36 @@ class HlodMainViewProjectManagerCaptureTests(unittest.TestCase):
         self.assertTrue(any("target capture requires" in reason for reason in result.reasons), result.reasons)
 
 
+class HlodMainViewPerspectiveOnlyCaptureTests(unittest.TestCase):
+    def test_actual_perspective_only_capture_cannot_replace_late_view_proof(self) -> None:
+        """Preserve the actual 64b success as evidence of the earlier scope only."""
+        path = os.environ.get("GS_HLOD_PERSPECTIVE_ONLY_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual perspective-only capture not requested (GS_HLOD_PERSPECTIVE_ONLY_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested perspective-only capture unavailable: {exc}")
+        self.assertIsInstance(capture, dict)
+        self.assertIs(type(capture.get("exit_code")), int)
+        self.assertEqual(capture["exit_code"], 0)
+        self.assertIsInstance(capture.get("stdout"), str)
+        self.assertIsInstance(capture.get("stderr"), str)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            results = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])
+        self.assertEqual(len(results), 1)
+        result = results[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertNotIn("orthographic_samples", result.metrics)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.reasons, ["Required HLOD orthographic proof needs exactly two consecutive actual samples."])
+
+
 class HlodMainViewCapturedProducerTests(unittest.TestCase):
     """Replay original producer bytes, then corrupt those bytes for controls.
 
@@ -2666,6 +2696,58 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
                     "capture_scene_is_only_root_child", "image_nonblack_rgb_pixels"):
             changed = self._mutate_metrics(lambda m, k=key: m.pop(k))
             self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_missing_or_replaced_orthographic_phase_fails(self) -> None:
+        for mutate in (
+            lambda m: m.pop("orthographic_samples"),
+            lambda m: m.__setitem__("orthographic_samples", []),
+            lambda m: m["orthographic_samples"].pop(),
+            lambda m: m.__setitem__("orthographic_samples", m["samples"]),
+            lambda m: m["orthographic_samples"].__setitem__(0, None),
+        ):
+            self.assertEqual(self._replay(self._mutate_metrics(mutate)).status, "failed")
+
+    def test_orthographic_binding_route_and_payload_corruptions_fail(self) -> None:
+        corruptions = {
+            "camera_projection": 0, "hlod_active": True, "hlod_reason": "resource_ledger_warmup_or_unavailable",
+            "hlod_selected_nodes": 1, "hlod_selected_splats": 2, "hlod_selected_parents": 1,
+            "hlod_bound_relative": True, "hlod_bound_atlas_valid": False, "hlod_canonical_atlas_valid": False,
+            "hlod_canonical_world_submission_active": True, "hlod_relative_world_submission_active": True,
+            "stage_metrics_valid": False, "stage_cull_route_uid": "INSTANCE.CULL.HLOD_CPU",
+            "cull_route_uid": "INSTANCE.CULL.HLOD_CPU", "sort_route_uid": "INSTANCE.SORT.CPU",
+            "stage_sort_sorted_count": 0, "sorted_splats": 0, "rendered_content": False,
+            "stage_cull_status": "failed", "stage_sort_status": "failed",
+            "stage_raster_status": "failed", "stage_composite_status": "failed",
+        }
+        identity_keys = (
+            "hlod_source_generation", "hlod_bound_source_generation", "hlod_bound_atlas_rid",
+            "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id",
+        )
+        for index in (0, 1):
+            for key, value in corruptions.items():
+                with self.subTest(sample=index, key=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key, v=value: m["orthographic_samples"][i].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in identity_keys:
+                with self.subTest(sample=index, identity=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].__setitem__(k, 0))
+                    self.assertEqual(self._replay(changed).status, "failed")
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].__setitem__(k, m["samples"][-1][k] + 1))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in (*corruptions, *identity_keys, "engine_frame", "frame_count"):
+                with self.subTest(sample=index, missing=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key: m["orthographic_samples"][i].pop(k))
+                    self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_orthographic_frames_must_follow_perspective_and_be_consecutive(self) -> None:
+        for key in ("engine_frame", "frame_count"):
+            with self.subTest(frame=key):
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][0].__setitem__(k, m["samples"][-1][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][1].__setitem__(k, m["orthographic_samples"][0][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+                changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][1].__setitem__(k, m["orthographic_samples"][0][k] + 2))
+                self.assertEqual(self._replay(changed).status, "failed")
 
 
 if __name__ == "__main__":

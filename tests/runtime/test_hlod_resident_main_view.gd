@@ -25,7 +25,7 @@ var _report := GsRuntimeReport.new(SCENARIO)
 var _scene: Node3D
 var _node: GaussianSplatWorld3D
 var _renderer: GaussianSplatRenderer
-var _metrics: Dictionary = {"hlod_main_view_proof_status": "not_started", "samples": []}
+var _metrics: Dictionary = {"hlod_main_view_proof_status": "not_started", "samples": [], "orthographic_samples": []}
 
 
 func _init() -> void:
@@ -104,6 +104,67 @@ func _check_sample(sample: Dictionary) -> bool:
 	if not _check(float(sample["stage_cull_time_ms"]) == expected_ms, "Stage time differs from measured CPU preparation"):
 		return false
 	return _check(sample["culling_time_ms"] == sample["stage_cull_time_ms"], "Stage and performance CPU times differ")
+
+
+func _check_orthographic_sample(sample: Dictionary, last_positive: Dictionary) -> bool:
+	var exact := {
+		"camera_projection": Camera3D.PROJECTION_ORTHOGONAL,
+		"hlod_active": false, "hlod_reason": "unsupported_view_or_material",
+		"hlod_selected_nodes": 0, "hlod_selected_splats": 0, "hlod_selected_parents": 0,
+		"hlod_bound_relative": false, "hlod_bound_atlas_valid": true,
+		"hlod_canonical_atlas_valid": true, "hlod_canonical_world_submission_active": false,
+		"hlod_relative_world_submission_active": false, "stage_metrics_valid": true,
+		"stage_cull_route_uid": "INSTANCE.CULL.GPU", "cull_route_uid": "INSTANCE.CULL.GPU",
+		"sort_route_uid": "INSTANCE.SORT.GPU", "stage_sort_sorted_count": 2,
+		"sorted_splats": 2, "rendered_content": true,
+		"stage_cull_status": "success", "stage_sort_status": "success",
+		"stage_raster_status": "success", "stage_composite_status": "success",
+	}
+	for key in exact:
+		if not _check(sample[key] == exact[key], "Orthographic %s: expected %s, got %s" % [key, exact[key], sample[key]]):
+			return false
+	# The prepared source and valid restored atlas must survive this view-only
+	# transition. Rejection precedes view-history acquisition; no new epoch or
+	# HLOD CPU-route timing is expected on the ordinary canonical GPU route.
+	for key in ["hlod_source_generation", "hlod_bound_source_generation", "hlod_bound_atlas_rid", "hlod_canonical_atlas_rid", "renderer_device_object_id", "server_device_object_id"]:
+		if not _check(int(sample[key]) != 0 and sample[key] == last_positive[key], "Orthographic %s differs from the admitted perspective identity" % key):
+			return false
+	for key in ["engine_frame", "frame_count"]:
+		if not _check(int(sample[key]) > int(last_positive[key]), "Orthographic %s is not newer than the perspective proof" % key):
+			return false
+	return true
+
+
+func _check_orthographic_fallback(camera: Camera3D, rd: RenderingDevice, last_positive: Dictionary, deadline: int) -> bool:
+	camera.set_orthogonal(2.0, 0.1, 100.0)
+	var previous: Dictionary = {}
+	while Time.get_ticks_msec() < deadline:
+		await RenderingServer.frame_post_draw
+		if Time.get_ticks_msec() >= deadline:
+			break
+		var stats := _renderer.get_render_stats()
+		# A post-draw wake can still expose the previous renderer observation.
+		# It cannot count as either of the two new fallback frames.
+		if Engine.get_frames_drawn() <= int(last_positive["engine_frame"]) or int(stats.get("frame_count", -1)) <= int(last_positive["frame_count"]):
+			continue
+		var sample: Dictionary = {}
+		for key in SAMPLE_KEYS:
+			if not _check(stats.has(key), "Missing orthographic renderer field: %s" % key):
+				return false
+			sample[key] = stats[key]
+		sample["engine_frame"] = Engine.get_frames_drawn()
+		sample["server_device_object_id"] = rd.get_instance_id()
+		sample["rendered_content"] = _renderer.has_rendered_content()
+		sample["camera_projection"] = camera.projection
+		_metrics["orthographic_samples"] = [sample] if previous.is_empty() else [previous, sample]
+		if not _check_orthographic_sample(sample, last_positive):
+			return false
+		if previous.is_empty() or int(sample["engine_frame"]) != int(previous["engine_frame"]) + 1 or int(sample["frame_count"]) != int(previous["frame_count"]) + 1:
+			previous = sample
+			continue
+		return _check(Time.get_ticks_msec() < deadline, "Orthographic proof completed after its deadline")
+	_fail("No two consecutive fresh orthographic fallback frames within deadline")
+	return false
 
 
 func _run() -> void:
@@ -217,6 +278,11 @@ func _run() -> void:
 					nonblack_rgb_pixels += 1
 		_metrics["image_nonblack_rgb_pixels"] = nonblack_rgb_pixels
 		if not _check(nonblack_rgb_pixels > 0 and nonblack_rgb_pixels < 64 * 64, "Actual target must contain scene RGB signal and black background"):
+			return
+		# Keep the complete perspective samples and image above. The same real
+		# World3D then exercises the late view gate with its prepared source intact.
+		var fallback_proved := await _check_orthographic_fallback(camera, rd, sample, deadline)
+		if not fallback_proved:
 			return
 		if not _check(Time.get_ticks_msec() < deadline, "Proof completed after its deadline"):
 			return
