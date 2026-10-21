@@ -114,7 +114,7 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] rounded runtime sphere retains a t
     request.record_budget = 1000.0;
     request.splat_budget = 2;
     request.node_budget = 1;
-    const auto selected = history.select(*snapshot, request);
+    const auto selected = history.select(*snapshot.ptr(), request);
     CHECK(selected.status == gs_hlod_runtime::CutHistory::COMPLETE);
     CHECK(selected.selected_count == 1);
     CHECK(selected.selected_splats == 2);

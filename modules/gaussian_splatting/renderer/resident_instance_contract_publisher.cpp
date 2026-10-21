@@ -1334,7 +1334,7 @@ void GaussianSplatRenderer::release_hlod_resources() {
 void GaussianSplatRenderer::publish_hlod_bundle(bool p_relative) {
     auto &state = get_resource_state();
     auto &bundle = p_relative ? state.hlod_relative : state.hlod_canonical;
-    if (!bundle.generation || !subsystem_state.sorting_pipeline) { return; }
+    if (!bundle.generation || subsystem_state.sorting_pipeline.is_null()) { return; }
     if (!instance_asset_remap.valid || instance_asset_remap.generation != bundle.generation) {
         instance_asset_remap.asset_to_dense_id.clear();
         instance_asset_remap.asset_to_dense_id.insert(0, 0);
@@ -1380,7 +1380,7 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
     const uint64_t instance_generation = director->get_instance_generation_for_renderer(this);
     const uint64_t grading_generation = state.instance_grading_defaults_generation.load(std::memory_order_relaxed);
     const uint32_t sort_capacity = MAX(input->leaf_count, relative_capacity);
-    const SortBufferHandles existing_sort = subsystem_state.sorting_pipeline ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
+    const SortBufferHandles existing_sort = subsystem_state.sorting_pipeline.is_valid() ? subsystem_state.sorting_pipeline->get_buffer_handles() : SortBufferHandles();
     if (!existing_sort.valid || existing_sort.capacity < sort_capacity) {
         state.hlod_reason = "canonical_sort_capacity_warmup";
         return 0;
@@ -1395,8 +1395,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         if (uint64_t(input->leaf_count + input->parent_count) * (quantized ? sizeof(PackedGaussianQuantized) : sizeof(PackedGaussian)) > atlas_limit) {
             state.hlod_reason = "hlod_existing_atlas_limit"; return 0;
         }
-        const uint64_t candidate_bytes = hlod_bundle_bytes(*input, false, quantized, input->leaf_count) +
-                hlod_bundle_bytes(*input, true, quantized, relative_capacity);
+        const uint64_t candidate_bytes = hlod_bundle_bytes(*input.ptr(), false, quantized, input->leaf_count) +
+                hlod_bundle_bytes(*input.ptr(), true, quantized, relative_capacity);
         uint64_t device_bytes = 0;
         if (!get_hlod_owned_byte_upper_bound(device_bytes)) { state.hlod_reason = "resource_ledger_warmup_or_unavailable"; return 0; }
         state.hlod_device_byte_upper_bound = device_bytes + candidate_bytes;
@@ -1414,8 +1414,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         director->build_instance_grading_buffer_for_renderer(this, grading, false);
         if (instances.size() != 1 || grading.size() != 1) { state.hlod_reason = "hlod_identity_shim_unavailable"; return 0; }
         HlodBundle canonical, relative;
-        const bool built = hlod_build_bundle(this, rd, *input, false, quantized, input->leaf_count, instances[0], grading[0], canonical) &&
-                hlod_build_bundle(this, rd, *input, true, quantized, relative_capacity, instances[0], grading[0], relative);
+        const bool built = hlod_build_bundle(this, rd, *input.ptr(), false, quantized, input->leaf_count, instances[0], grading[0], canonical) &&
+                hlod_build_bundle(this, rd, *input.ptr(), true, quantized, relative_capacity, instances[0], grading[0], relative);
         if (!built) {
             release_hlod_bundle(canonical);
             release_hlod_bundle(relative);
@@ -1518,7 +1518,7 @@ bool GaussianSplatRenderer::prepare_hlod_frame(const RenderFrameContext &p_conte
     request.splat_budget = capacity;
     request.node_budget = state.hlod_relative.buffers.max_visible_chunks;
     const uint64_t start = OS::get_singleton()->get_ticks_usec();
-    const auto selected = history->select(*input, request);
+    const auto selected = history->select(*input.ptr(), request);
     state.hlod_cpu_cut_usec = OS::get_singleton()->get_ticks_usec() - start;
     if (selected.status == gs_hlod_runtime::CutHistory::INVALID || selected.status == gs_hlod_runtime::CutHistory::UNAVAILABLE) {
         return fallback("cut_unavailable");

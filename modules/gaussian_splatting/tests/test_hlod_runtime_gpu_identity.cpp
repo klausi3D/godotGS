@@ -195,12 +195,18 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         const Vector<uint8_t> sorted_bytes = rd->buffer_get_data(pipeline->get_sort_indices_buffer(), 0, 2 * sizeof(uint32_t));
         const Vector<uint8_t> ref_bytes = rd->buffer_get_data(buffers.splat_ref_buffer, 0, 2 * sizeof(SplatRefGPU));
         const Vector<uint8_t> sidecar_bytes = rd->buffer_get_data(buffers.hlod_draw_entry_buffer, 0, 2 * sizeof(uint32_t));
-        if (count_bytes.size() < 4 || sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8) {
+        if (count_bytes.size() != int(sizeof(GaussianSplatting::IndirectDispatchLayout)) ||
+                sorted_bytes.size() != 8 || ref_bytes.size() != 16 || sidecar_bytes.size() != 8) {
             FAIL("complete GPU output required"); return;
         }
-        uint32_t count = 0;
-        std::memcpy(&count, count_bytes.ptr(), sizeof(count));
-        CHECK(count == 2);
+        GaussianSplatting::IndirectDispatchLayout count_header = {};
+        std::memcpy(&count_header, count_bytes.ptr(), sizeof(count_header));
+        CHECK(count_header.element_count == 2);
+        CHECK(count_header.dispatch_x == 1); // ceil(2 / 256), distinct from element_count.
+        CHECK(count_header.dispatch_y == 1);
+        CHECK(count_header.dispatch_z == 1);
+        CHECK(count_header.overflow_flag == 0);
+        CHECK(count_header.unclamped_total == 2);
         const auto *sorted = reinterpret_cast<const uint32_t *>(sorted_bytes.ptr());
         const auto *refs = reinterpret_cast<const SplatRefGPU *>(ref_bytes.ptr());
         const auto *entries = reinterpret_cast<const uint32_t *>(sidecar_bytes.ptr());
