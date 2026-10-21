@@ -519,7 +519,10 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_buffer_uniform_set(Renderi
 		ERR_FAIL_V_MSG(RID(), "[TileRenderer] Failed to create raster buffer uniform set (projection buffer path)");
 	}
 	p_device->set_resource_name(cached_raster_buffer_uniform_set, "GS_TileRenderer_RasterBufferSet");
-    cached_raster_gaussian_buffer = p_gaussian_buffer;
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, cached_raster_buffer_uniform_set, uniforms);
+#endif
+	cached_raster_gaussian_buffer = p_gaussian_buffer;
     cached_raster_sorted_indices = p_sorted_indices;
     cached_raster_splat_ref_buffer = owner.instance_pipeline_buffers.splat_ref_buffer;
     cached_raster_indirect_count_buffer = owner.instance_pipeline_buffers.indirect_count_buffer;
@@ -657,7 +660,10 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_compute_buffer_uniform_set
         ERR_FAIL_V_MSG(RID(), "[TileRenderer] Failed to create compute raster buffer uniform set");
     }
     p_device->set_resource_name(cached_raster_compute_buffer_uniform_set, "GS_TileRenderer_RasterComputeBufferSet");
-    cached_raster_compute_gaussian_buffer = p_gaussian_buffer;
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, cached_raster_compute_buffer_uniform_set, uniforms);
+#endif
+	cached_raster_compute_gaussian_buffer = p_gaussian_buffer;
     cached_raster_compute_sorted_indices = p_sorted_indices;
     cached_raster_compute_splat_ref_buffer = owner.instance_pipeline_buffers.splat_ref_buffer;
     cached_raster_compute_indirect_count_buffer = owner.instance_pipeline_buffers.indirect_count_buffer;
@@ -707,7 +713,10 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_param_uniform_set(Renderin
         ERR_FAIL_V_MSG(RID(), "[TileRenderer] Failed to create raster param uniform set");
     }
     p_device->set_resource_name(cached_raster_param_uniform_set, "GS_TileRenderer_RasterParamSet");
-    cached_state_uniform = p_state_uniform;
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, cached_raster_param_uniform_set, uniforms);
+#endif
+	cached_state_uniform = p_state_uniform;
     cached_raster_param_device = p_device;
 
     return cached_raster_param_uniform_set;
@@ -753,7 +762,10 @@ RID TileRenderer::TileRasterizerStage::acquire_raster_compute_param_uniform_set(
         ERR_FAIL_V_MSG(RID(), "[TileRenderer] Failed to create compute raster param uniform set");
     }
     p_device->set_resource_name(cached_raster_compute_param_uniform_set, "GS_TileRenderer_RasterComputeParamSet");
-    cached_raster_compute_state_uniform = p_state_uniform;
+#ifdef TESTS_ENABLED
+	owner.debug_stats.membership_record_set(p_device, cached_raster_compute_param_uniform_set, uniforms);
+#endif
+	cached_raster_compute_state_uniform = p_state_uniform;
     cached_raster_compute_param_device = p_device;
 
     return cached_raster_compute_param_uniform_set;

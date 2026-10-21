@@ -142,6 +142,53 @@ layout(set = 0, binding = 17, std430) buffer SubpixelVisibility {
     uint visible[];
 } subpixel_visibility;
 
+#ifdef GS_RECORD_LOSS_CAPTURE
+layout(set = 0, binding = 21, std430) buffer RecordLossCapture { uint words[]; } membership_capture;
+layout(set = 1, binding = 1, std140) uniform RecordLossControl { uvec4 selection; uvec4 bounds; } membership_control;
+// Host TileMembershipCapture:160 header + 2*236 params + eight uint words/tile.
+const uint GS_LOSS_COUNTS = 632u;
+const uint GS_LOSS_ATTEMPTS = GS_LOSS_COUNTS + 5u * 65536u;
+const uint GS_LOSS_LOCAL = GS_LOSS_COUNTS + 6u * 65536u;
+const uint GS_LOSS_GLOBAL = GS_LOSS_COUNTS + 7u * 65536u;
+void gs_loss_increment(uint word, uint overflow_bit) {
+    if (atomicAdd(membership_capture.words[word], 1u) == 0xffffffffu) {
+        atomicOr(membership_capture.words[10], overflow_bit);
+    }
+}
+void gs_membership_append(uint tile, uint global_id, uint ref_id, uint atlas_id, uint instance_id, uint packed_atlas) {
+#ifdef GS_TILE_GLOBAL_SORT_EMIT_PASS
+    if (membership_control.selection.x != 3u) { return; }
+    if (tile >= min(membership_control.bounds.y, 65536u)) {
+        atomicOr(membership_capture.words[10], 128u); return;
+    }
+    gs_loss_increment(GS_LOSS_ATTEMPTS + tile, 4u);
+#endif
+}
+void gs_membership_drop(uint tile, uint global_id, uint ref_id, uint atlas_id, uint instance_id,
+        uint packed_atlas, uint local_offset, uvec2 range, bool local_drop) {
+    if (membership_control.selection.x != 3u) { return; }
+    if (tile >= min(membership_control.bounds.y, 65536u)) {
+        atomicOr(membership_capture.words[10], 128u); return;
+    }
+    gs_loss_increment((local_drop ? GS_LOSS_LOCAL : GS_LOSS_GLOBAL) + tile, local_drop ? 8u : 16u);
+    gs_loss_increment(local_drop ? 11u : 12u, local_drop ? 32u : 64u);
+    if (!local_drop || atomicCompSwap(membership_capture.words[13], 0u, 1u) != 0u) { return; }
+    membership_capture.words[14] = tile;
+    membership_capture.words[15] = global_id;
+    membership_capture.words[16] = ref_id;
+    membership_capture.words[17] = atlas_id;
+    membership_capture.words[18] = instance_id;
+    membership_capture.words[19] = local_offset;
+    membership_capture.words[20] = range.x;
+    membership_capture.words[21] = range.y;
+    membership_capture.words[22] = membership_control.selection.z;
+    membership_capture.words[23] = membership_control.selection.w;
+    membership_capture.words[24] = packed_atlas;
+    memoryBarrierBuffer();
+    atomicExchange(membership_capture.words[13], 2u);
+}
+#endif
+
 // Return the number of visible Gaussians scheduled for this dispatch.
 uint gs_get_visible_gaussian_count() {
     return instance_indirect.element_count;
@@ -741,6 +788,20 @@ vec3 project_gaussian_2d(Gaussian g, bool antialiased, out vec2 screen_pos, out 
 void main() {
     uint global_idx = gl_GlobalInvocationID.x;
 
+#if defined(GS_RECORD_LOSS_CAPTURE) && defined(GS_TILE_GLOBAL_SORT_EMIT_PASS)
+    if (global_idx == 0u && membership_control.selection.x == 3u) {
+        // Actual descriptor spans from runtime arrays, not an estimated CPU record count.
+        membership_capture.words[118] = uint(global_sort_keys.keys.length());
+        membership_capture.words[119] = uint(global_sort_values.values.length());
+        membership_capture.words[120] = uint(GS_SORT_KEY_BITS / 8);
+        membership_capture.words[121] = uint(tile_counts.counts.length());
+        membership_capture.words[122] = uint(tile_ranges.ranges.length());
+        membership_capture.words[123] = uint(prev_tile_counts.counts.length());
+        membership_capture.words[124] = uint(subpixel_visibility.visible.length());
+        membership_capture.words[125] = 1u;
+    }
+#endif
+
     if (global_idx >= gs_get_visible_gaussian_count()) {
         return;
     }
@@ -1226,6 +1287,9 @@ void main() {
             if (!gs_keep_overlap_record(gaussian_idx, splat_ref.instance_id, tile_idx)) {
                 continue;
             }
+#ifdef GS_RECORD_LOSS_CAPTURE
+            gs_membership_append(tile_idx, global_idx, splat_ref_idx, gaussian_idx, splat_ref.instance_id, splat_ref.atlas_index);
+#endif
             atomicAdd(tile_counts.counts[tile_idx], 1u);
         }
     }
@@ -1475,10 +1539,17 @@ void main() {
             }
             emitted_overlap_count += 1u;
             uvec2 range = tile_ranges.ranges[tile_idx];
+#ifdef GS_RECORD_LOSS_CAPTURE
+            gs_membership_append(tile_idx, global_idx, splat_ref_idx, gaussian_idx, splat_ref.instance_id, splat_ref.atlas_index);
+#endif
             uint local_offset = atomicAdd(tile_counts.counts[tile_idx], 1u);
             if (local_offset >= range.y) {
                 // Undo the cursor increment so tile_counts reflects emitted (clamped) records.
                 atomicAdd(tile_counts.counts[tile_idx], 0xFFFFFFFFu); // -1
+#ifdef GS_RECORD_LOSS_CAPTURE
+                gs_membership_drop(tile_idx, global_idx, splat_ref_idx, gaussian_idx, splat_ref.instance_id,
+                        splat_ref.atlas_index, local_offset, range, true);
+#endif
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
                 atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING); // C4b: resident drop flag (per-tile capacity)
                 continue;
@@ -1486,6 +1557,10 @@ void main() {
             uint record_idx = range.x + local_offset;
             uint overlap_limit = indirect_dispatch.element_count;
             if (record_idx >= overlap_limit) {
+#ifdef GS_RECORD_LOSS_CAPTURE
+                gs_membership_drop(tile_idx, global_idx, splat_ref_idx, gaussian_idx, splat_ref.instance_id,
+                        splat_ref.atlas_index, local_offset, range, false);
+#endif
                 // Global overlap budget exhausted. Do not write past the allocated key/value range.
                 atomicAdd(overflow_stats.overflow_splats_clamped, 1u);
                 atomicOr(overflow_stats.overflow_drop_signal, GS_OVERFLOW_DROP_BINNING); // C4b: resident drop flag (global overlap budget)
