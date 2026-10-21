@@ -2811,8 +2811,10 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
             original = row["before"]["input_source_generation"]
             changed = original + 1 if original != -1 else original - 1
             row["refused"]["input_source_generation"] = changed
+            row["refused"]["gpu_sort_count"]["input_source_generation"] = changed
             recovered = row["recovered"]
             recovered["input_source_generation"] = changed
+            recovered["gpu_sort_count"]["input_source_generation"] = changed
             recovered["prepared_source_generation"] = changed
             recovered["stats"]["hlod_source_generation"] = changed
             recovered["stats"]["hlod_bound_source_generation"] = changed
