@@ -831,6 +831,200 @@ def _hlod_orthographic_proof_failures(samples: object, last_positive: object) ->
     return failures
 
 
+def _hlod_transition_proof_failures(metrics: Dict[str, object]) -> List[str]:
+    """Check real TESTS_ENABLED readbacks, faults and recovery, never inferred flags."""
+    failures: List[str] = []
+    reasons = (
+        "canonical_sort_capacity_warmup", "resource_ledger_warmup_or_unavailable",
+        "hlod_candidate_memory_limit", "hlod_candidate_allocation_failed",
+        "hlod_candidate_readiness_or_memory_failed",
+    )
+
+    def fail(label: str, message: str) -> None:
+        failures.append(f"HLOD transition {label}: {message}.")
+
+    def exact(obj: dict, key: str, value: object, label: str) -> None:
+        if type(obj.get(key)) is not type(value) or obj[key] != value:
+            fail(label, f"{key} must equal {value!r}")
+
+    def sample(value: object, label: str, count: int, mode: int = 0, *, lod_off: bool = False) -> dict:
+        if not isinstance(value, dict) or not isinstance(value.get("stats"), dict):
+            fail(label, "actual observation/stats missing")
+            return {}
+        stats = value["stats"]
+        active = mode == 0 and not lod_off
+        for key, expected in (("source_leaf_count", count), ("bound_atlas_count", count),
+                              ("source_first_order_count", 3), ("source_high_order_count", 12),
+                              ("input_current", True), ("prepared_current", mode == 0),
+                              ("rendered_content", True), ("failure_mode", mode)):
+            exact(value, key, expected, label)
+        for key in ("source_data_id", "input_source_generation", "device_instance_id"):
+            if type(value.get(key)) is not int or value[key] == 0:
+                fail(label, f"{key} must be a nonzero signed integer")
+        for key in ("engine_frame", "source_revision", "current_instance_generation", "current_grading_generation", "failure_hits"):
+            if type(value.get(key)) is not int or value[key] < 0:
+                fail(label, f"{key} must be a nonnegative integer")
+        if "error" in value:
+            fail(label, "readback reported an error")
+        # ABI sizes from gaussian_gpu_layout.h; the consumer checks full current
+        # bytes, not a caller-supplied success bit or a hash of an unknown range.
+        for actual, expected, size in (("atlas_hex", "source_leaf_hex", count * 176),
+                                       ("instance_hex", "expected_instance_hex", 112),
+                                       ("grading_hex", "expected_grading_hex", 32)):
+            raw = value.get(actual)
+            if (not isinstance(raw, str) or len(raw) != size * 2
+                    or any(c not in "0123456789abcdef" for c in raw) or raw != value.get(expected)):
+                fail(label, f"{actual} differs from complete current bytes")
+        reason = reasons[mode - 1] if mode else ("lod_disabled_canonical_leaves" if lod_off else "active")
+        for key, expected in (("hlod_active", active), ("hlod_reason", reason),
+                              ("hlod_bound_relative", False), ("hlod_bound_atlas_valid", True),
+                              ("stage_metrics_valid", True), ("sort_route_uid", "INSTANCE.SORT.GPU")):
+            exact(stats, key, expected, label)
+        for stage in ("cull", "sort", "raster", "composite"):
+            exact(stats, f"stage_{stage}_status", "success", label)
+        for key in ("frame_count", "hlod_selected_nodes", "hlod_selected_splats", "hlod_selected_parents"):
+            if type(stats.get(key)) is not int or stats[key] < 0:
+                fail(label, f"{key} must be a nonnegative integer")
+        for key in ("hlod_bound_atlas_rid", "renderer_device_object_id"):
+            if type(stats.get(key)) is not int or stats[key] == 0:
+                fail(label, f"{key} must be a valid signed identity")
+        route = "INSTANCE.CULL.HLOD_CPU" if active else "INSTANCE.CULL.GPU"
+        for key in ("cull_route_uid", "stage_cull_route_uid"):
+            exact(stats, key, route, label)
+        selected = stats.get("hlod_selected_splats")
+        emitted = selected if active else count
+        for key in ("stage_sort_sorted_count", "sorted_splats"):
+            exact(stats, key, emitted, label)
+        if active and (type(selected) is not int or not 0 < selected <= count
+                       or type(stats.get("hlod_selected_nodes")) is not int or stats["hlod_selected_nodes"] <= 0):
+            fail(label, "active cut has no selected payload")
+        if not active:
+            for key in ("hlod_selected_nodes", "hlod_selected_splats", "hlod_selected_parents"):
+                exact(stats, key, 0, label)
+        if mode:
+            exact(value, "prepared_source_generation", 0, label)
+            if type(value.get("failure_hits")) is not int or value["failure_hits"] <= 0:
+                fail(label, "actual failure branch was not exercised")
+        else:
+            exact(value, "failure_hits", 0, label)
+            exact(value, "prepared_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_bound_source_generation", value.get("input_source_generation"), label)
+            exact(stats, "hlod_canonical_atlas_valid", True, label)
+            exact(stats, "hlod_bound_atlas_rid", stats.get("hlod_canonical_atlas_rid"), label)
+        return value
+
+    def later(a: dict, b: dict, label: str) -> None:
+        for x, y, key in ((a, b, "engine_frame"), (a.get("stats", {}), b.get("stats", {}), "frame_count")):
+            if type(x.get(key)) is not int or type(y.get(key)) is not int or y[key] <= x[key]:
+                fail(label, f"{key} must strictly advance")
+
+    def same(a: dict, b: dict, keys: tuple, label: str) -> None:
+        for key in keys:
+            if key not in a or key not in b or a[key] != b[key]:
+                fail(label, f"current {key} changed unexpectedly")
+
+    current_keys = ("source_data_id", "source_revision", "atlas_hex", "input_source_generation", "device_instance_id")
+    last: dict = {}
+    transitions = metrics.get("publication_transitions")
+    if not isinstance(transitions, list) or len(transitions) != 5:
+        fail("publication", "all five actual A-to-B refusal/recovery transitions are required")
+    else:
+        for mode, row in enumerate(transitions, 1):
+            label = f"publication[{mode}]"
+            if not isinstance(row, dict):
+                fail(label, "observation row missing")
+                continue
+            exact(row, "failure", mode, label)
+            before = sample(row.get("before"), label + ".before", 2)
+            refused = sample(row.get("refused"), label + ".refused", 2, mode)
+            recovered = sample(row.get("recovered"), label + ".recovered", 2)
+            if last:
+                if before != last:
+                    fail(label, "before must retain the preceding actual recovery")
+            elif isinstance(metrics.get("orthographic_samples"), list) and metrics["orthographic_samples"]:
+                prior = metrics["orthographic_samples"][-1]
+                if isinstance(prior, dict):
+                    later({"engine_frame": prior.get("engine_frame"), "stats": prior}, before, label)
+            later(before, refused, label)
+            later(refused, recovered, label)
+            for key in ("source_data_id", "atlas_hex", "input_source_generation"):
+                if key not in before or key not in refused or before[key] == refused[key]:
+                    fail(label, f"A-to-B must discriminate {key}")
+            same(refused, recovered, current_keys, label)
+            last = recovered
+    identities = metrics.get("identity_transitions")
+    if not isinstance(identities, list) or len(identities) != 3:
+        fail("identity", "instance, grading and capacity refusal/recovery are required")
+    else:
+        for change, row in zip(("instance", "grading", "capacity"), identities):
+            label = "identity." + change
+            if not isinstance(row, dict):
+                fail(label, "observation row missing")
+                continue
+            exact(row, "change", change, label)
+            before = sample(row.get("before"), label + ".before", 2)
+            refused = sample(row.get("refused"), label + ".refused", 2, 4)
+            recovered = sample(row.get("recovered"), label + ".recovered", 2)
+            if before != last:
+                fail(label, "before must retain preceding actual recovery")
+            later(before, refused, label)
+            later(refused, recovered, label)
+            # Node policy resubmission may replace the runtime snapshot while
+            # retaining the same real GaussianData and complete packed leaves.
+            same(before, refused, current_keys[:3] + ("device_instance_id",), label)
+            same(refused, recovered, current_keys, label)
+            if change in ("instance", "grading"):
+                key, generation = change + "_hex", "current_" + change + "_generation"
+                if change == "grading" and (key not in refused or key not in before or refused[key] == before[key]):
+                    fail(label, "actual GPU grading rows did not change")
+                if (type(refused.get(generation)) is not int or type(before.get(generation)) is not int
+                        or refused[generation] <= before[generation]):
+                    fail(label, "actual identity generation did not advance")
+                same(refused, recovered, (generation,) if change == "instance" else (key, generation), label)
+            else:
+                exact(refused, "relative_capacity", 1, label)
+                exact(before, "relative_capacity", 2, label)
+                exact(recovered, "relative_capacity", 2, label)
+            last = recovered
+    device = metrics.get("device_transition")
+    if not isinstance(device, dict) or not isinstance(device.get("foreign"), dict):
+        fail("device", "actual distinct-device refusal and main-device recovery required")
+    else:
+        before = sample(device.get("before"), "device.before", 2)
+        recovered = sample(device.get("recovered"), "device.recovered", 2)
+        if before != last:
+            fail("device", "before must retain preceding actual recovery")
+        foreign = device["foreign"]
+        exact(foreign, "original_device", before.get("device_instance_id"), "device")
+        if (type(foreign.get("foreign_device")) is not int or foreign["foreign_device"] == 0
+                or foreign["foreign_device"] == foreign.get("original_device") or "error" in foreign):
+            fail("device", "actual distinct device unavailable")
+        exact(foreign, "publication_succeeded", False, "device")
+        exact(foreign, "prepared_retained", False, "device")
+        same(before, recovered, current_keys, "device")
+        later(before, recovered, "device")
+        last = recovered
+    lod = metrics.get("lod_policy_transition")
+    if not isinstance(lod, dict):
+        fail("LOD", "actual parent-selecting on/off/on proof required")
+    else:
+        on = sample(lod.get("on"), "LOD.on", 8)
+        off = sample(lod.get("off"), "LOD.off", 8, lod_off=True)
+        enabled = sample(lod.get("reenabled"), "LOD.reenabled", 8)
+        later(last, on, "LOD.on")
+        later(on, off, "LOD.off")
+        later(off, enabled, "LOD.reenabled")
+        same(on, off, current_keys[:3] + ("device_instance_id",), "LOD.off")
+        same(off, enabled, current_keys[:3] + ("device_instance_id",), "LOD.reenabled")
+        for label, value in (("LOD.on", on), ("LOD.reenabled", enabled)):
+            stats = value.get("stats", {})
+            if (type(stats.get("hlod_selected_parents")) is not int or stats["hlod_selected_parents"] <= 0
+                    or type(stats.get("hlod_selected_splats")) is not int or not 0 < stats["hlod_selected_splats"] < 8):
+                fail(label, "fixture must actually select a reduced parent payload")
+    return failures
+
+
 def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
     """Validate actual native samples; absent or ambiguous observations fail.
 
@@ -910,6 +1104,7 @@ def _hlod_main_view_proof_failures(metrics: Dict[str, object]) -> List[str]:
                 or second["hlod_content_generation"] <= first["hlod_content_generation"]):
             failures.append("HLOD cut content generation did not advance.")
     failures.extend(_hlod_orthographic_proof_failures(metrics.get("orthographic_samples"), samples[-1]))
+    failures.extend(_hlod_transition_proof_failures(metrics))
     for key, expected in (("project_file_present", True), ("editor_hint", False),
                           ("initial_root_children", 0), ("capture_root_children", 1),
                           ("capture_scene_is_only_root_child", True)):

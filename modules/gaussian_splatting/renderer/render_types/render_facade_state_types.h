@@ -84,6 +84,15 @@ struct ResourceState {
     uint64_t hlod_retired_bytes = 0;
     uint64_t hlod_instance_generation = 0;
     uint64_t hlod_grading_generation = 0;
+    uint64_t hlod_prepared_owner_key = 0;
+    uint32_t hlod_position_bits = 0;
+    uint32_t hlod_scale_bits = 0;
+    bool hlod_quantize_scales = false;
+#ifdef TESTS_ENABLED
+    // Failure-only seams at the actual publisher boundaries; no success override.
+    std::atomic<int> hlod_test_failure{ 0 };
+    std::atomic<uint64_t> hlod_test_failure_hits{ 0 };
+#endif
 	bool gpu_resources_initialized = false;
 	bool gpu_initialization_pending = false;
 	Ref<GPUBufferManager> buffer_manager;

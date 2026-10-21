@@ -2595,7 +2595,31 @@ class HlodMainViewPerspectiveOnlyCaptureTests(unittest.TestCase):
         self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
         self.assertNotIn("orthographic_samples", result.metrics)
         self.assertEqual(result.status, "failed")
-        self.assertEqual(result.reasons, ["Required HLOD orthographic proof needs exactly two consecutive actual samples."])
+        self.assertIn("Required HLOD orthographic proof needs exactly two consecutive actual samples.", result.reasons)
+        self.assertTrue(any("all five actual A-to-B" in reason for reason in result.reasons), result.reasons)
+
+
+class HlodMainViewPreTransitionCaptureTests(unittest.TestCase):
+    def test_actual_older_native_proof_cannot_replace_transition_evidence(self) -> None:
+        path = os.environ.get("GS_HLOD_PRE_TRANSITION_CAPTURE", "").strip()
+        if not path:
+            self.skipTest("Actual pre-transition capture not requested (GS_HLOD_PRE_TRANSITION_CAPTURE)")
+        try:
+            capture = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"Requested pre-transition capture unavailable: {exc}")
+        self.assertEqual(capture["exit_code"], 0)
+        raw = _raw_result("Resident HLOD Main View", exit_code=capture["exit_code"],
+                          stdout=capture["stdout"], stderr=capture["stderr"])
+        config = runtime_validation.GodotRunConfig("capture-replay", "windows-vulkan", 30, (), True, (), None)
+        with mock.patch.object(runtime_validation, "_godot_binary_is_available", return_value=None), \
+                mock.patch.object(runtime_validation, "run_command", return_value=raw):
+            result = runtime_validation.run_gd_tests(config, [], ["Resident HLOD Main View"])[0]
+        self.assertEqual(result.completion.get("marker_present"), True)
+        self.assertEqual(result.metrics.get("hlod_main_view_proof_status"), "passed")
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(len(result.reasons), 4, result.reasons)
+        self.assertTrue(all(reason.startswith("HLOD transition ") for reason in result.reasons), result.reasons)
 
 
 class HlodMainViewCapturedProducerTests(unittest.TestCase):
@@ -2748,6 +2772,66 @@ class HlodMainViewCapturedProducerTests(unittest.TestCase):
                 self.assertEqual(self._replay(changed).status, "failed")
                 changed = self._mutate_metrics(lambda m, k=key: m["orthographic_samples"][1].__setitem__(k, m["orthographic_samples"][0][k] + 2))
                 self.assertEqual(self._replay(changed).status, "failed")
+
+
+    def test_missing_transition_phases_are_rejected(self) -> None:
+        for key in ("publication_transitions", "identity_transitions", "device_transition", "lod_policy_transition"):
+            with self.subTest(missing=key):
+                changed = self._mutate_metrics(lambda m, k=key: m.pop(k))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key in ("publication_transitions", "identity_transitions"):
+            changed = self._mutate_metrics(lambda m, k=key: m[k].pop())
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_stale_source_and_unexercised_faults_are_rejected(self) -> None:
+        for index in range(5):
+            for key, value in (("input_current", False), ("prepared_current", True),
+                               ("prepared_source_generation", 1), ("failure_hits", 0),
+                               ("failure_mode", 0), ("source_high_order_count", 0),
+                               ("atlas_hex", ""), ("instance_hex", ""), ("grading_hex", "")):
+                with self.subTest(failure=index + 1, key=key):
+                    changed = self._mutate_metrics(lambda m, i=index, k=key, v=value:
+                        m["publication_transitions"][i]["refused"].__setitem__(k, v))
+                    self.assertEqual(self._replay(changed).status, "failed")
+            for key in ("atlas_hex", "source_data_id", "input_source_generation", "engine_frame"):
+                changed = self._mutate_metrics(lambda m, i=index, k=key:
+                    m["publication_transitions"][i]["refused"].__setitem__(k, m["publication_transitions"][i]["before"][k]))
+                self.assertEqual(self._replay(changed).status, "failed")
+            # An old but internally self-consistent A cannot stand in for B.
+            changed = self._mutate_metrics(lambda m, i=index:
+                m["publication_transitions"][i].__setitem__("refused", m["publication_transitions"][i]["before"]))
+            self.assertEqual(self._replay(changed).status, "failed")
+            changed = self._mutate_metrics(lambda m, i=index:
+                m["publication_transitions"][i]["recovered"]["stats"].__setitem__("frame_count", m["publication_transitions"][i]["refused"]["stats"]["frame_count"]))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_identity_device_and_lod_controls_are_discriminating(self) -> None:
+        for index, key in ((0, "current_instance_generation"), (1, "grading_hex"), (2, "relative_capacity")):
+            changed = self._mutate_metrics(lambda m, i=index, k=key:
+                m["identity_transitions"][i]["refused"].__setitem__(k, m["identity_transitions"][i]["before"][k]))
+            self.assertEqual(self._replay(changed).status, "failed")
+        for key, value in (("publication_succeeded", True), ("prepared_retained", True), ("foreign_device", 0)):
+            changed = self._mutate_metrics(lambda m, k=key, v=value: m["device_transition"]["foreign"].__setitem__(k, v))
+            self.assertEqual(self._replay(changed).status, "failed")
+        changed = self._mutate_metrics(lambda m: m["device_transition"]["foreign"].__setitem__("foreign_device", m["device_transition"]["foreign"]["original_device"]))
+        self.assertEqual(self._replay(changed).status, "failed")
+        for phase in ("on", "reenabled"):
+            for key, value in (("hlod_selected_parents", 0), ("hlod_selected_splats", 8)):
+                changed = self._mutate_metrics(lambda m, p=phase, k=key, v=value: m["lod_policy_transition"][p]["stats"].__setitem__(k, v))
+                self.assertEqual(self._replay(changed).status, "failed")
+        for key, value in (("hlod_active", True), ("hlod_selected_splats", 1), ("sorted_splats", 2),
+                           ("stage_sort_sorted_count", 2), ("hlod_reason", "active")):
+            changed = self._mutate_metrics(lambda m, k=key, v=value: m["lod_policy_transition"]["off"]["stats"].__setitem__(k, v))
+            self.assertEqual(self._replay(changed).status, "failed")
+
+    def test_transition_consumer_wiring_mutation_is_detected(self) -> None:
+        # Mutate actual captured bytes, then delete this check's call effect.
+        # This positive return is a consumer mutation, never a producer fixture.
+        changed = self._mutate_metrics(lambda m: m.pop("publication_transitions"))
+        self.assertEqual(self._replay(changed).status, "failed")
+        with mock.patch.object(runtime_validation, "_hlod_transition_proof_failures", return_value=[]):
+            self.assertEqual(self._replay(changed).status, "passed")
+        self.assertEqual(self._replay(changed).status, "failed")
 
 
 if __name__ == "__main__":

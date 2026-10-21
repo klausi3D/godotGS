@@ -26,6 +26,9 @@ var _scene: Node3D
 var _node: GaussianSplatWorld3D
 var _renderer: GaussianSplatRenderer
 var _metrics: Dictionary = {"hlod_main_view_proof_status": "not_started", "samples": [], "orthographic_samples": []}
+var _last_publication_engine_frame := -1
+
+signal publication_observed(observation: Dictionary)
 
 
 func _init() -> void:
@@ -167,6 +170,225 @@ func _check_orthographic_fallback(camera: Camera3D, rd: RenderingDevice, last_po
 	return false
 
 
+func _deliver_publication_observation(observation: Dictionary) -> void:
+	publication_observed.emit(observation)
+
+
+func _read_publication_on_render_thread(foreign_device: bool) -> void:
+	var observation: Dictionary = _renderer.test_hlod_foreign_device_publication() if foreign_device else _renderer.test_observe_hlod_publication()
+	_deliver_publication_observation.call_deferred(observation)
+
+
+func _observe_publication(foreign_device := false) -> Dictionary:
+	RenderingServer.call_on_render_thread(_read_publication_on_render_thread.bind(foreign_device))
+	return await publication_observed
+
+
+func _check_current_publication(observation: Dictionary, source: GaussianData, count: int) -> bool:
+	if not _check(not observation.has("error"), "Actual publication readback failed: %s" % observation.get("error", "")):
+		return false
+	for pair in [["atlas_hex", "source_leaf_hex"], ["instance_hex", "expected_instance_hex"], ["grading_hex", "expected_grading_hex"]]:
+		if not _check(not str(observation.get(pair[0], "")).is_empty() and observation.get(pair[0]) == observation.get(pair[1]), "Current %s differs from actual source/instance/grading" % pair[0]):
+			return false
+	if not _check(observation["source_data_id"] == source.get_instance_id(), "Publication belongs to an obsolete source"):
+		return false
+	if not _check(observation["input_current"] and int(observation["input_source_generation"]) != 0, "Current HLOD input snapshot missing"):
+		return false
+	return _check(observation["bound_atlas_count"] == count and observation["source_leaf_count"] == count, "Current complete leaf atlas missing")
+
+
+func _wait_publication(source: GaussianData, count: int, active: bool, reason: String, deadline: int, after_frame: int) -> Dictionary:
+	while Time.get_ticks_msec() < deadline:
+		await RenderingServer.frame_post_draw
+		var observation := await _observe_publication()
+		if Time.get_ticks_msec() >= deadline:
+			break
+		if observation.has("error"):
+			continue # A genuinely absent current contract is warmup, never success.
+		var stats: Dictionary = observation["stats"]
+		if int(stats["frame_count"]) <= after_frame or int(observation["engine_frame"]) <= _last_publication_engine_frame:
+			continue
+		# As soon as the renderer has current B, ANY bound A payload is a failure,
+		# including observations before the requested fallback/recovery completes.
+		if observation["source_data_id"] == source.get_instance_id():
+			if not _check_current_publication(observation, source, count):
+				return {}
+		else:
+			continue
+		if bool(stats["hlod_active"]) != active or stats["hlod_reason"] != reason:
+			continue
+		var stages_succeeded := bool(stats["stage_metrics_valid"])
+		for key in ["stage_cull_status", "stage_sort_status", "stage_raster_status", "stage_composite_status"]:
+			stages_succeeded = stages_succeeded and stats[key] == "success"
+		if not stages_succeeded:
+			continue
+		if not _check(observation["rendered_content"] and stats["sort_route_uid"] == "INSTANCE.SORT.GPU" and not stats["hlod_bound_relative"], "Current route did not render and restore canonically"):
+			return {}
+		if not _check(bool(observation["prepared_current"]) == active or reason == "lod_disabled_canonical_leaves", "Prepared eligibility differs from publication phase"):
+			return {}
+		if not active and reason != "lod_disabled_canonical_leaves":
+			if not _check(int(observation["prepared_source_generation"]) == 0 and int(observation["failure_hits"]) > 0, "Failure seam did not invalidate the previous prepared route"):
+				return {}
+		if active:
+			if not _check(int(observation["prepared_source_generation"]) == int(observation["input_source_generation"]) and int(stats["hlod_selected_splats"]) > 0 and stats["stage_sort_sorted_count"] == stats["hlod_selected_splats"] and stats["sorted_splats"] == stats["hlod_selected_splats"], "Prepared cut did not reach the actual GPU sort"):
+				return {}
+		if not active:
+			if not _check(stats["hlod_selected_nodes"] == 0 and stats["hlod_selected_splats"] == 0 and stats["hlod_selected_parents"] == 0 and stats["stage_sort_sorted_count"] == count and stats["sorted_splats"] == count, "Canonical fallback did not render current complete leaves"):
+				return {}
+		_last_publication_engine_frame = int(observation["engine_frame"])
+		return observation
+	_fail("Publication transition did not complete within deadline: %s" % reason)
+	return {}
+
+
+func _transition_data(serial: int, count := 2) -> GaussianData:
+	var data := GaussianData.new()
+	data.resize(count)
+	var positions := PackedVector3Array()
+	var scales := PackedVector3Array()
+	var rotations: Array[Quaternion] = []
+	var opacities := PackedFloat32Array()
+	var coefficients := PackedFloat32Array()
+	for i in range(count):
+		positions.append(Vector3(0.125 + i * 0.125 + serial * 0.03125, 0.125 + (i % 2) * 0.25, -4.0))
+		scales.append(Vector3(0.0625, 0.0625, 0.0625))
+		rotations.append(Quaternion())
+		opacities.append(0.75)
+		# Genuine SH3: DC, first order and all twelve higher-order coefficients.
+		for coefficient in range(16 * 3):
+			coefficients.append((serial + 1) * 0.015625 + (coefficient % 7) * 0.001953125)
+	data.set_positions(positions)
+	data.set_scales(scales)
+	data.set_rotations(rotations)
+	data.set_opacities(opacities)
+	data.set_spherical_harmonics(coefficients)
+	return data
+
+
+func _replace_transition_world(serial: int) -> GaussianSplatWorld:
+	var world := GaussianSplatWorld.new()
+	world.gaussian_data = _transition_data(serial)
+	if not _check(world.bake_hlod() == OK and world.has_hlod_tree(), "Actual transition source bake failed"):
+		return null
+	_node.world = world
+	_node.apply_world()
+	return world
+
+
+func _run_publication_and_lod_proof(camera: Camera3D, deadline: int) -> bool:
+	for method in ["test_set_hlod_publication_failure", "test_observe_hlod_publication", "test_hlod_foreign_device_publication", "test_set_hlod_grading", "test_bake_hlod_small_leaf_fixture"]:
+		if not _check(_renderer.has_method(method), "Required native test hook missing: %s" % method):
+			return false
+	camera.set_perspective(70.0, 0.1, 100.0)
+	_last_publication_engine_frame = int(_metrics["orthographic_samples"][-1]["engine_frame"])
+	_metrics["publication_transitions"] = []
+	_metrics["identity_transitions"] = []
+	var world := _replace_transition_world(1)
+	if world == null:
+		return false
+	var before := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(_metrics["orthographic_samples"][-1]["frame_count"]))
+	if before.is_empty():
+		return false
+	var failure_reasons := ["canonical_sort_capacity_warmup", "resource_ledger_warmup_or_unavailable", "hlod_candidate_memory_limit", "hlod_candidate_allocation_failed", "hlod_candidate_readiness_or_memory_failed"]
+	for failure in range(1, 6):
+		_renderer.test_set_hlod_publication_failure(failure)
+		world = _replace_transition_world(failure + 1)
+		if world == null:
+			return false
+		var refused := await _wait_publication(world.gaussian_data, 2, false, failure_reasons[failure - 1], deadline, int(before["stats"]["frame_count"]))
+		if refused.is_empty():
+			return false
+		if not _check(refused["atlas_hex"] != before["atlas_hex"] and refused["source_data_id"] != before["source_data_id"], "A-to-B fixture failed to discriminate payload identity"):
+			return false
+		if not _check(refused["source_first_order_count"] == 3 and refused["source_high_order_count"] == 12, "Transition must preserve complete SH3 payload"):
+			return false
+		_renderer.test_set_hlod_publication_failure(0)
+		var recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(refused["stats"]["frame_count"]))
+		if recovered.is_empty():
+			return false
+		if not _check(recovered["atlas_hex"] == refused["atlas_hex"] and recovered["input_source_generation"] == refused["input_source_generation"], "Recovery changed current B identity or payload"):
+			return false
+		_metrics["publication_transitions"].append({"failure": failure, "before": before, "refused": refused, "recovered": recovered})
+		before = recovered
+	# Instance, grading-default and draw-capacity changes with the same source
+	# must also invalidate retained contracts before a failed rebuild.
+	var previous_max := _renderer.get_max_splats()
+	for change in ["instance", "grading", "capacity"]:
+		_renderer.test_set_hlod_publication_failure(4)
+		if change == "instance":
+			# The world shim is identity even when world opacity changes. Exercise
+			# the actual director generation by adding/removing a real instance,
+			# then recover the exclusive world before another frame is rendered.
+			var asset := GaussianSplatAsset.new()
+			asset.set_splat_count(1)
+			asset.set_positions(PackedFloat32Array([0.125, 0.125, -4.0]))
+			asset.set_scales(PackedFloat32Array([0.0625, 0.0625, 0.0625]))
+			asset.set_rotations(PackedFloat32Array([0.0, 0.0, 0.0, 1.0]))
+			var transient := GaussianSplatNode3D.new()
+			transient.set_splat_asset(asset)
+			_scene.add_child(transient)
+			transient.force_update()
+			_scene.remove_child(transient)
+			transient.free()
+			_node.apply_world()
+		elif change == "grading":
+			var grading := ColorGradingResource.new()
+			grading.exposure = 0.25
+			_renderer.test_set_hlod_grading(grading)
+		else:
+			_renderer.set_max_splats(1)
+		var refused := await _wait_publication(world.gaussian_data, 2, false, "hlod_candidate_allocation_failed", deadline, int(before["stats"]["frame_count"]))
+		if refused.is_empty():
+			return false
+		if change == "instance" and not _check(int(refused["current_instance_generation"]) > int(before["current_instance_generation"]), "Actual director instance generation did not advance"):
+			return false
+		if change == "grading" and not _check(refused["grading_hex"] != before["grading_hex"], "Grading control did not change real GPU grading data"):
+			return false
+		if change == "capacity":
+			if not _check(refused["relative_capacity"] == 1, "Capacity control did not take effect"):
+				return false
+			_renderer.set_max_splats(previous_max)
+		_renderer.test_set_hlod_publication_failure(0)
+		var recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(refused["stats"]["frame_count"]))
+		if recovered.is_empty():
+			return false
+		_metrics["identity_transitions"].append({"change": change, "before": before, "refused": refused, "recovered": recovered})
+		before = recovered
+	var foreign := await _observe_publication(true)
+	if not _check(not foreign.has("error") and int(foreign.get("original_device", 0)) != 0 and int(foreign.get("foreign_device", 0)) != 0 and foreign.get("original_device") != foreign.get("foreign_device"), "Actual second RenderingDevice probe missing"):
+		return false
+	if not _check(not foreign["publication_succeeded"] and not foreign["prepared_retained"], "Foreign device published or retained first-device HLOD resources"):
+		return false
+	var device_recovered := await _wait_publication(world.gaussian_data, 2, true, "active", deadline, int(before["stats"]["frame_count"]))
+	if device_recovered.is_empty():
+		return false
+	_metrics["device_transition"] = {"before": before, "foreign": foreign, "recovered": device_recovered}
+	# Existing real baker, only a smaller leaf size for a bounded multi-level fixture.
+	var parent_world := _renderer.test_bake_hlod_small_leaf_fixture(_transition_data(0, 8)) as GaussianSplatWorld
+	if not _check(parent_world != null and parent_world.has_hlod_tree(), "Actual multi-level fixture bake failed"):
+		return false
+	_node.world = parent_world
+	_node.set_hlod_tau_px(10000.0)
+	_node.apply_world()
+	var lod_on := await _wait_publication(parent_world.gaussian_data, 8, true, "active", deadline, int(device_recovered["stats"]["frame_count"]))
+	if lod_on.is_empty():
+		return false
+	if not _check(int(lod_on["stats"]["hlod_selected_parents"]) > 0 and int(lod_on["stats"]["hlod_selected_splats"]) < 8, "LOD-on fixture did not select a reduced parent representation"):
+		return false
+	_node.set_lod_enabled(false)
+	var lod_off := await _wait_publication(parent_world.gaussian_data, 8, false, "lod_disabled_canonical_leaves", deadline, int(lod_on["stats"]["frame_count"]))
+	if lod_off.is_empty():
+		return false
+	_node.set_lod_enabled(true)
+	var lod_reenabled := await _wait_publication(parent_world.gaussian_data, 8, true, "active", deadline, int(lod_off["stats"]["frame_count"]))
+	if lod_reenabled.is_empty():
+		return false
+	if not _check(int(lod_reenabled["stats"]["hlod_selected_parents"]) > 0 and int(lod_reenabled["stats"]["hlod_selected_splats"]) < 8, "LOD re-enable did not restore parent selection"):
+		return false
+	_metrics["lod_policy_transition"] = {"on": lod_on, "off": lod_off, "reenabled": lod_reenabled}
+	return _check(Time.get_ticks_msec() < deadline, "Publication and LOD proof completed after its deadline")
+
+
 func _run() -> void:
 	# A bare --script can start the editor's project manager and still render
 	# this scene behind its UI. Assert actual context before creating anything.
@@ -283,6 +505,9 @@ func _run() -> void:
 		# World3D then exercises the late view gate with its prepared source intact.
 		var fallback_proved := await _check_orthographic_fallback(camera, rd, sample, deadline)
 		if not fallback_proved:
+			return
+		var transitions_proved := await _run_publication_and_lod_proof(camera, deadline)
+		if not transitions_proved:
 			return
 		if not _check(Time.get_ticks_msec() < deadline, "Proof completed after its deadline"):
 			return

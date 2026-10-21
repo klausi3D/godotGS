@@ -319,7 +319,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_buffer_uniform_set(Rendering
     if (owner.instance_pipeline_buffers.hlod_relative) {
         RD::Uniform sidecar;
         sidecar.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
-        sidecar.binding = 21;
+        sidecar.binding = 23; // Binding 21 belongs to record-loss capture (#1261).
         sidecar.append_id(owner.instance_pipeline_buffers.hlod_draw_entry_buffer);
         uniforms.push_back(sidecar);
         RD::Uniform draw_list;
@@ -558,7 +558,7 @@ RID TileRenderer::TileBinningStage::acquire_binning_count_uniform_set(RenderingD
     if (owner.instance_pipeline_buffers.hlod_relative) {
         RD::Uniform sidecar;
         sidecar.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
-        sidecar.binding = 21;
+        sidecar.binding = 23; // Binding 21 belongs to record-loss capture (#1261).
         sidecar.append_id(owner.instance_pipeline_buffers.hlod_draw_entry_buffer);
         uniforms.push_back(sidecar);
         RD::Uniform draw_list;

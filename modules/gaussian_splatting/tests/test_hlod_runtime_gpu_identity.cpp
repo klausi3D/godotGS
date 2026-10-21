@@ -135,8 +135,10 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     bundle.device_id = rd->get_device_instance_id();
     bundle.generation = 1;
     // Only the already-prepared marker is needed to exercise the regression:
-    // this test covers publication -> orchestrator -> real depth/sidecar/sort,
-    // not snapshot admission, CPU selection or the final tile/raster image.
+    // this test covers explicit sort inputs -> orchestrator -> real depth/sidecar/sort,
+    // not production bundle admission, CPU selection or the final tile/raster image.
+    // Production publication requires a complete current world and is exercised
+    // by the target-backed native main-view transition scenario.
     state.hlod_prepared_snapshot.instantiate();
     auto create = [&](uint32_t p_bytes, const void *p_data = nullptr, bool p_indirect = false) {
         Vector<uint8_t> bytes;
@@ -192,7 +194,16 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
         if (rd->buffer_update(buffers.counter_buffer, 0, sizeof(counters), counters) != OK) {
             FAIL("cut counter upload failed"); return;
         }
-        renderer->publish_hlod_bundle(true);
+        const SortBufferHandles sort_handles = pipeline->get_buffer_handles();
+        buffers.sort_key_buffer = sort_handles.keys_buffer;
+        buffers.sort_value_buffer = sort_handles.indices_buffer;
+        buffers.hlod_content_generation = pass + 1;
+        GaussianSplatRenderer::PublishedInstanceAssetRemap remap;
+        remap.valid = true;
+        remap.generation = 1;
+        remap.asset_to_dense_id.insert(0, 0);
+        renderer->publish_instance_pipeline_contract(buffers, remap, GaussianSplatRenderer::InstanceBackendPolicy::RESIDENT,
+                pass + 1, "relative_sort_component_test");
         if (!GaussianSplatting::InstancePipelineContract::has_sort_buffers(renderer->get_instance_pipeline_buffers())) {
             FAIL("actual relative sort inputs incomplete"); return;
         }

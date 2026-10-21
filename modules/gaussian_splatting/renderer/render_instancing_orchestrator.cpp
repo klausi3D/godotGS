@@ -173,9 +173,7 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 			GaussianSplatRenderer *owner;
 			bool relative;
 			~HlodContractRestore() {
-				if (owner->get_resource_state().hlod_prepared_snapshot.is_valid()) {
-					owner->publish_hlod_bundle(relative);
-				}
+				owner->publish_hlod_bundle(relative); // Revalidates the complete current identity before restoration.
 			}
 		} hlod_restore{ renderer, previous_hlod_relative };
 		if (instance_count == 1 && instance_xform == Transform3D()) {

@@ -7,6 +7,9 @@ extern "C" int test_hlod_runtime_publication_cpp_force_link() { return 0; }
 #include <cmath>
 #include "../nodes/gaussian_splat_world_3d.h"
 #include <limits>
+#include "../core/gaussian_splat_scene_director.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
 
 namespace TestHlodRuntimePublication {
 TEST_CASE("[GaussianSplatting][WorldIO][HLOD] detached runtime snapshot preserves leaves and rejects stale or failed publication") {
@@ -118,5 +121,88 @@ TEST_CASE("[GaussianSplatting][WorldIO][HLOD] rounded runtime sphere retains a t
     CHECK(selected.status == gs_hlod_runtime::CutHistory::COMPLETE);
     CHECK(selected.selected_count == 1);
     CHECK(selected.selected_splats == 2);
+}
+}
+
+namespace TestHlodRuntimePublication {
+TEST_CASE("[GaussianSplatting][HLOD][Node][SceneTree] tau changes preserve explicit world registration and scenario ownership") {
+    SceneTree *tree = SceneTree::get_singleton();
+    if (!tree || !tree->get_root()) { FAIL("actual SceneTree root required"); return; }
+    GaussianSplatSceneDirector *director = GaussianSplatSceneDirector::get_singleton();
+    const bool owns_director = !director;
+    if (!director) { director = memnew(GaussianSplatSceneDirector); }
+    struct Fixture {
+        GaussianSplatSceneDirector *director;
+        bool owns_director;
+        GaussianSplatWorld3D *owner = nullptr;
+        GaussianSplatWorld3D *peer = nullptr;
+        ~Fixture() {
+            for (auto *node : { peer, owner }) {
+                if (node) {
+                    if (node->get_parent()) { node->get_parent()->remove_child(node); }
+                    memdelete(node);
+                }
+            }
+            if (owns_director) { memdelete(director); }
+        }
+    } fixture{ director, owns_director };
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> splats;
+    splats.resize(1); // Fixed one-element synthetic publication payload.
+    splats[0].position = Vector3(0.125, 0.125, -4.0);
+    splats[0].scale = Vector3(0.125, 0.125, 0.125);
+    splats[0].opacity = 0.75;
+    LocalVector<Vector3> sh;
+    data->set_gaussian_payload(splats, sh, 0, 0, false, false);
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(data);
+    fixture.owner = memnew(GaussianSplatWorld3D);
+    fixture.owner->set_auto_apply_on_ready(false);
+    fixture.owner->set_world(world);
+    tree->get_root()->add_child(fixture.owner);
+    tree->process(0.0);
+    auto registered = [&](GaussianSplatWorld3D *node) {
+        GaussianSplatSceneDirector::WorldSubmission current;
+        return director->get_world_submission(node->get_instance_id(), &current);
+    };
+    if (registered(fixture.owner)) { FAIL("never-applied precondition missing"); return; }
+    fixture.owner->set_hlod_tau_px(0.5f);
+    CHECK(fixture.owner->get_hlod_tau_px() == 0.5f);
+    CHECK_FALSE(registered(fixture.owner));
+    fixture.owner->apply_world();
+    if (!registered(fixture.owner)) { FAIL("explicit apply failed"); return; }
+    fixture.owner->set_hlod_tau_px(0.75f);
+    GaussianSplatSceneDirector::WorldSubmission applied;
+    if (!director->get_world_submission(fixture.owner->get_instance_id(), &applied)) { FAIL("applied owner lost submission"); return; }
+    CHECK(applied.hlod_tau_px == 0.75f);
+    CHECK(applied.gaussian_data == data);
+    ERR_PRINT_OFF;
+    fixture.owner->set_hlod_tau_px(-1.0f);
+    fixture.owner->set_hlod_tau_px(std::numeric_limits<float>::quiet_NaN());
+    fixture.owner->set_hlod_tau_px(std::numeric_limits<float>::infinity());
+    ERR_PRINT_ON;
+    CHECK(fixture.owner->get_hlod_tau_px() == 0.75f);
+    GaussianSplatSceneDirector::WorldSubmission unchanged;
+    if (!director->get_world_submission(fixture.owner->get_instance_id(), &unchanged)) { FAIL("invalid tau changed registration"); return; }
+    CHECK(unchanged.hlod_tau_px == applied.hlod_tau_px);
+    CHECK(unchanged.gaussian_data == applied.gaussian_data);
+    fixture.peer = memnew(GaussianSplatWorld3D);
+    fixture.peer->set_auto_apply_on_ready(false);
+    fixture.peer->set_world(world);
+    tree->get_root()->add_child(fixture.peer);
+    fixture.peer->apply_world(); // Competing owner loses the existing scenario arbitration.
+    if (registered(fixture.peer)) { FAIL("competing owner unexpectedly acquired occupied scenario"); return; }
+    fixture.peer->set_hlod_tau_px(1.5f);
+    CHECK(fixture.peer->get_hlod_tau_px() == 1.5f);
+    CHECK_FALSE(registered(fixture.peer));
+    CHECK(registered(fixture.owner));
+    fixture.owner->clear_world();
+    if (registered(fixture.owner)) { FAIL("clear_world did not release submission"); return; }
+    fixture.owner->set_hlod_tau_px(2.0f);
+    CHECK(fixture.owner->get_hlod_tau_px() == 2.0f);
+    CHECK_FALSE(registered(fixture.owner));
+    CHECK_FALSE(registered(fixture.peer));
 }
 }

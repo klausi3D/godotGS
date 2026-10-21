@@ -842,5 +842,5 @@ void GaussianSplatWorld3D::set_hlod_tau_px(float p_tau) {
         return;
     }
     hlod_tau_px = p_tau;
-    _register_shared_renderer();
+    _resubmit_world_submission_if_registered();
 }

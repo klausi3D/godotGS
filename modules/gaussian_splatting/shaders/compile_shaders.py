@@ -149,11 +149,12 @@ RUNTIME_SHADER_MATRIX: tuple[ShaderMatrixEntry, ...] = (
         stages=("compute",),
         issue_ids=("#1267", "#1318", "#1324"),
         variants=(
-            *(Variant(f"hlod_{mode}_{storage}", _merge_defines(
+            *(Variant(f"hlod_{mode}_{storage}{capture}", _merge_defines(
                 TILE_COMMON_DEFINES, TILE_SORT_TIE_DEFINES, TILE_DIAGNOSTICS_OFF,
                 ("GS_DISPATCH_LOCAL_SIZE_X=256", "GS_HLOD_RELATIVE_PAYLOAD=1", f"GS_TILE_GLOBAL_SORT_{mode.upper()}_PASS=1"),
-                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else ()), ("#1131",))
-                for mode in ("count", "emit") for storage in ("raw", "quantized")),
+                ("USE_QUANTIZED_GAUSSIANS=1",) if storage == "quantized" else (),
+                ("GS_RECORD_LOSS_CAPTURE=1",) if capture else ()), ("#1131",))
+                for mode in ("count", "emit") for storage in ("raw", "quantized") for capture in ("", "_capture")),
             Variant(
                 "emit_prod",
                 _merge_defines(
@@ -1358,6 +1359,28 @@ def _compile_sorter_permutations(
 
 
 ABI_CONTRACTS: tuple[ValidationContract, ...] = (
+    ValidationContract(
+        key="hlod_tile_descriptor_reservation",
+        issue_id="#1267",
+        description="HLOD COUNT/EMIT use 23/22; binding21 remains available to merged record-loss capture.",
+        files=(
+            FilePatternSet(
+                path=SHADERS_DIR / "tile_binning.glsl",
+                patterns=(
+                    r"layout\(set = 0, binding = 23, std430\) readonly buffer HlodDrawEntryBuffer",
+                    r"layout\(set = 0, binding = 22, std430\) readonly buffer HlodDrawListBuffer",
+                ),
+            ),
+            FilePatternSet(
+                path=MODULE_DIR / "renderer" / "tile_render_binning.cpp",
+                patterns=(
+                    # Inspect every assignment, not just one of COUNT/EMIT.
+                    r"\A(?![\s\S]*sidecar\.binding\s*=(?!\s*23\s*;))[\s\S]*sidecar\.binding\s*=\s*23\s*;",
+                    r"\A(?![\s\S]*draw_list\.binding\s*=(?!\s*22\s*;))[\s\S]*draw_list\.binding\s*=\s*22\s*;",
+                ),
+            ),
+        ),
+    ),
     ValidationContract(
         key="tile_raster_indirect_count_clamp",
         issue_id=ISSUE_RASTER_BOUNDS,

@@ -1308,7 +1308,7 @@ void RenderPipelineStages::execute_frame_entry(const RenderFrameContext &p_frame
         GaussianSplatRenderer *owner;
         bool relative;
         ~HlodContractRestore() {
-            if (owner->get_resource_state().hlod_prepared_snapshot.is_valid()) { owner->publish_hlod_bundle(relative); }
+            owner->publish_hlod_bundle(relative); // Revalidates the complete current identity before restoration.
         }
     } hlod_restore{ renderer, previous_relative };
     renderer->prepare_hlod_frame(frame_context);

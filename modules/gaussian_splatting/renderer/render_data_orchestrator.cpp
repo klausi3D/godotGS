@@ -702,6 +702,10 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 		return ERR_INVALID_PARAMETER;
 	}
 
+    // A failed/empty replacement must not leave a prepared route available to
+    // a later frame or scope restore. Same-input policy resubmission can reuse it.
+    if (get_resource_state().hlod_snapshot != p_snapshot.hlod_snapshot) { release_hlod_resources(); }
+    get_resource_state().hlod_snapshot = p_snapshot.hlod_snapshot;
 	set_lod_enabled(p_snapshot.lod_enabled);
 	set_lod_bias(p_snapshot.lod_bias);
 	set_lod_max_distance(p_snapshot.lod_max_distance);
@@ -739,6 +743,8 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 							? set_file_backed_payload_source(p_snapshot.payload_source)
 							: set_gaussian_data(Ref<GaussianData>()));
 	if (err != OK) {
+        release_hlod_resources();
+        get_resource_state().hlod_snapshot.unref();
 		set_gaussian_data(Ref<GaussianData>());
 		clear_static_chunks();
 		world_submission_contract_active = false;
@@ -754,7 +760,8 @@ Error GaussianSplatRenderer::restore_world_submission_runtime_state(const WorldS
 	}
 
 	ResourceState &resource_state = get_resource_state();
-	resource_state.hlod_snapshot = p_snapshot.hlod_snapshot;
+	if (!has_active_world_submission) { release_hlod_resources(); }
+	resource_state.hlod_snapshot = has_active_world_submission ? p_snapshot.hlod_snapshot : Ref<GaussianSplatHlodRuntimeData>();
 	resource_state.hlod_reason = p_snapshot.hlod_reason;
 	resource_state.hlod_tau_px = p_snapshot.hlod_tau_px;
 	resource_state.hlod_owner_key = p_snapshot.hlod_owner_key;
@@ -774,6 +781,10 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	// submission was constructed with, instead of a stale prior value.
 	_mark_streaming_route_policy_dirty();
 	_refresh_streaming_route_policy_cache();
+    // A failed/empty replacement must not leave a prepared route available to
+    // a later frame or scope restore. Same-input policy resubmission can reuse it.
+    if (get_resource_state().hlod_snapshot != p_contract.hlod_snapshot) { release_hlod_resources(); }
+    get_resource_state().hlod_snapshot = p_contract.hlod_snapshot;
 	set_lod_enabled(p_contract.lod_enabled);
 	set_lod_bias(p_contract.lod_bias);
 	set_lod_max_distance(p_contract.lod_max_distance);
@@ -811,6 +822,8 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 							? set_file_backed_payload_source(p_contract.payload_source)
 							: set_gaussian_data(Ref<GaussianData>()));
 	if (err != OK) {
+        release_hlod_resources();
+        get_resource_state().hlod_snapshot.unref();
 		clear_static_chunks();
 		world_submission_contract_active = false;
 		world_submission_has_residency_hint = false;
@@ -819,6 +832,8 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 	}
 
 	if (!has_renderable_data) {
+        release_hlod_resources();
+        get_resource_state().hlod_snapshot.unref();
 		world_submission_contract_active = false;
 		world_submission_has_residency_hint = false;
 		world_submission_residency_hint = 0;
@@ -844,6 +859,9 @@ Error GaussianSplatRenderer::apply_world_submission_contract(const WorldSubmissi
 }
 
 void GaussianSplatRenderer::clear_world_submission_contract() {
+    release_hlod_resources();
+    get_resource_state().hlod_snapshot.unref();
+    get_resource_state().hlod_owner_key = 0;
 	world_submission_contract_active = false;
 	world_submission_has_residency_hint = false;
 	world_submission_residency_hint = 0;

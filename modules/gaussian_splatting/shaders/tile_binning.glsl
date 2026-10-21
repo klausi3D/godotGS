@@ -128,7 +128,7 @@ layout(set = 0, binding = 18, std430) readonly buffer ChunkMetaBuffer {
 #endif
 
 #if defined(GS_HLOD_RELATIVE_PAYLOAD)
-layout(set = 0, binding = 21, std430) readonly buffer HlodDrawEntryBuffer {
+layout(set = 0, binding = 23, std430) readonly buffer HlodDrawEntryBuffer {
     uint draw_entries[];
 } hlod_draw_entry_buffer;
 layout(set = 0, binding = 22, std430) readonly buffer HlodDrawListBuffer {

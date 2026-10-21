@@ -892,7 +892,8 @@ public:
     bool get_hlod_owned_byte_upper_bound(uint64_t &r_bytes) const;
     void release_hlod_resources();
     void release_hlod_bundle(GaussianRenderFacadeState::HlodBundle &r_bundle);
-    void publish_hlod_bundle(bool p_relative);
+    bool is_hlod_prepared_contract_current() const;
+    bool publish_hlod_bundle(bool p_relative);
 
     void publish_instance_pipeline_contract(const InstancePipelineBuffers &p_buffers,
             const PublishedInstanceAssetRemap &p_remap, InstanceBackendPolicy p_backend_policy,
@@ -2051,6 +2052,11 @@ public:
 // declarations behind the same guard.
 #ifdef TESTS_ENABLED
     void test_override_rendering_device(RenderingDevice *p_device);
+    void test_set_hlod_publication_failure(int p_failure);
+    bool test_hlod_publication_refuses(int p_failure);
+    Dictionary test_observe_hlod_publication();
+    Dictionary test_hlod_foreign_device_publication();
+    Ref<Resource> test_bake_hlod_small_leaf_fixture(const Ref<GaussianData> &p_data);
     void test_disable_gpu_culler();
     void test_disable_rasterizer();
     bool test_copy_final_output(RID p_source, RID p_destination, const Size2i &p_viewport_size);
