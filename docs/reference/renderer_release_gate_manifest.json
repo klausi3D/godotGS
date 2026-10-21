@@ -152,9 +152,9 @@
   "known_limitations_page": "docs/development/known-public-alpha-limitations.md",
   "requires_gpu_test_snapshot": {
     "source_glob": "modules/gaussian_splatting/tests/**/*.{h,cpp}",
-    "test_count": 216,
-    "sha256": "3f6c0bc654bfc402747665e6405d46cac5d24885862b5713ada620572577ae25",
-    "sha256_last_changed_by": "HLOD resident runtime: additive actual RadixSort allocation-ledger and nonempty relative draw-list fresh-sort cases in test_hlod_runtime_gpu_identity.cpp, tagged [Sort][RequiresGPU] for the existing GpuSorting batch. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
+    "test_count": 217,
+    "sha256": "342a641a87046cb61f731f425b44eaf6fd5e567c8aeca2b3559add518ce37161",
+    "sha256_last_changed_by": "HLOD resident runtime: additive allocation-ledger and relative draw-list GPU cases in existing GpuSorting, plus an actual World3D render_scene_instance cut regression in existing WorldSceneTree. Recomputed with check_renderer_release_gates._extract_requires_gpu_tests/_requires_gpu_snapshot; deferred and orphan policies unchanged. Native compiled case selection remains separately required.",
     "deferred_tags_any": [
       "Importer"
     ],

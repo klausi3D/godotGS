@@ -11,6 +11,16 @@
 #include "../renderer/pipeline_io_contracts.h"
 #include "../renderer/render_debug_state_orchestrator.h"
 #include "core/config/project_settings.h"
+#include "../core/gaussian_splat_world.h"
+#include "../core/gaussian_splat_scene_director.h"
+#include "../nodes/gaussian_splat_world_3d.h"
+#include "gs_test_pump.h"
+#include "scene/main/scene_tree.h"
+#include "scene/main/window.h"
+#include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_data_rd.h"
+#include "servers/rendering/renderer_rd/storage_rd/render_scene_data_rd.h"
+#include "servers/rendering/storage/render_scene_buffers.h"
 #include <cstring>
 
 void gs_hlod_runtime_gpu_tests_link() {}
@@ -219,5 +229,146 @@ TEST_CASE("[GaussianSplatting][HLOD][Sort][RequiresGPU] nonempty relative draw l
     }
     pipeline.unref();
     renderer.unref();
+}
+}
+
+namespace TestHlodRuntimeGpuIdentity {
+TEST_CASE("[GaussianSplatting][HLOD][World][SceneTree][RequiresGPU] resident World3D main view admits and renders its nonempty runtime cut") {
+    SceneTree *tree = SceneTree::get_singleton();
+    RenderingServer *server = RenderingServer::get_singleton();
+    ProjectSettings *ps = ProjectSettings::get_singleton();
+    RendererRD::TextureStorage *textures = RendererRD::TextureStorage::get_singleton();
+    if (!tree || !server || !ps || !textures) { FAIL("WorldSceneTree GPU harness required"); return; }
+    Window *root = tree->get_root();
+    if (!root) { FAIL("SceneTree root required"); return; }
+    struct SettingsGuard {
+        ProjectSettings *settings;
+        const String keys[4] = {
+            "rendering/gaussian_splatting/lod/hlod_runtime_cut_enabled",
+            "rendering/gaussian_splatting/streaming/route_policy",
+            "rendering/gaussian_splatting/instance_pipeline/enabled",
+            "rendering/gaussian_splatting/sorting/force_cpu_sort"
+        };
+        Variant previous[4];
+        bool existed[4] = {};
+        QuantizationConfig quantization = g_quantization_config;
+        explicit SettingsGuard(ProjectSettings *p_settings) : settings(p_settings) {
+            for (uint32_t i = 0; i < 4; ++i) {
+                existed[i] = settings->has_setting(keys[i]);
+                if (existed[i]) { previous[i] = settings->get_setting(keys[i]); }
+            }
+            settings->set_setting(keys[0], true);
+            settings->set_setting(keys[1], int64_t(gs::settings::GS_ROUTE_RESIDENT));
+            settings->set_setting(keys[2], true);
+            settings->set_setting(keys[3], false);
+            settings->emit_signal("settings_changed");
+            g_quantization_config.per_chunk_quantization = false;
+        }
+        ~SettingsGuard() {
+            for (uint32_t i = 0; i < 4; ++i) {
+                if (existed[i]) { settings->set_setting(keys[i], previous[i]); } else { settings->clear(keys[i]); }
+            }
+            settings->emit_signal("settings_changed");
+            g_quantization_config = quantization;
+        }
+    } settings(ps);
+    struct WorldFixture {
+        SceneTree *tree;
+        RendererRD::TextureStorage *textures;
+        GaussianSplatManager *owned_manager = nullptr;
+        GaussianSplatSceneDirector *owned_director = nullptr;
+        GaussianSplatWorld3D *node = nullptr;
+        RID target;
+        Ref<RenderSceneBuffersRD> buffers;
+        WorldFixture(SceneTree *p_tree, RendererRD::TextureStorage *p_textures) : tree(p_tree), textures(p_textures) {
+            if (!GaussianSplatManager::get_singleton()) { owned_manager = memnew(GaussianSplatManager); }
+            if (!GaussianSplatSceneDirector::get_singleton()) { owned_director = memnew(GaussianSplatSceneDirector); }
+        }
+        ~WorldFixture() {
+            if (node) {
+                if (node->get_parent()) { node->get_parent()->remove_child(node); }
+                memdelete(node);
+                tree->process(0.0);
+            }
+            buffers.unref();
+            if (target.is_valid()) { textures->render_target_free(target); }
+            if (owned_director) { memdelete(owned_director); }
+            if (owned_manager) { memdelete(owned_manager); }
+        }
+    } fixture(tree, textures);
+    g_quantization_config.per_chunk_quantization = false; // Also after any first-time manager initialization.
+    Ref<GaussianData> data;
+    data.instantiate();
+    LocalVector<Gaussian> splats;
+    splats.resize(2);
+    for (uint32_t i = 0; i < 2; ++i) {
+        splats[i].position = Vector3(0.125f + i * 0.25f, 0.125f, -4.0f);
+        splats[i].scale = Vector3(0.125f, 0.125f, 0.125f);
+        splats[i].rotation = Quaternion();
+        splats[i].opacity = 0.75f;
+    }
+    LocalVector<Vector3> sh;
+    data->set_gaussian_payload(splats, sh, 0u, 0u, false, false);
+    Ref<GaussianSplatWorld> world;
+    world.instantiate();
+    world->set_gaussian_data(data);
+    if (world->bake_hlod() != OK) { FAIL("actual synthetic HLOD bake failed"); return; }
+    fixture.node = memnew(GaussianSplatWorld3D);
+    fixture.node->set_auto_apply_on_ready(false);
+    fixture.node->set_world(world);
+    root->add_child(fixture.node);
+    tree->process(0.0);
+    fixture.node->apply_world();
+    Ref<GaussianSplatRenderer> renderer = fixture.node->get_renderer();
+    if (renderer.is_null()) { FAIL("World3D did not obtain its shared renderer"); return; }
+    // The test invokes the real resident main-view entry, with valid buffers and
+    // a real world submission. It never calls prepare_hlod_frame or publishes a
+    // synthetic renderer bundle; the missing instancing-loop call must fail it.
+    fixture.target = textures->render_target_create();
+    if (!fixture.target.is_valid()) { FAIL("render target allocation failed"); return; }
+    textures->render_target_set_use_hdr(fixture.target, true);
+    textures->render_target_set_transparent(fixture.target, false);
+    textures->render_target_set_size(fixture.target, 64, 64, 1);
+    fixture.buffers.instantiate();
+    Ref<RenderSceneBuffersConfiguration> config;
+    config.instantiate();
+    config->set_render_target(fixture.target);
+    config->set_internal_size(Size2i(64, 64));
+    config->set_target_size(Size2i(64, 64));
+    config->set_view_count(1);
+    fixture.buffers->configure(config.ptr());
+    if (!fixture.buffers->has_internal_texture()) { FAIL("configured main-view buffer missing"); return; }
+    RenderSceneDataRD scene;
+    scene.cam_transform = Transform3D();
+    scene.cam_projection.set_perspective(70.0f, 1.0f, 0.1f, 100.0f);
+    RenderDataRD render;
+    render.scene_data = &scene;
+    render.render_buffers = fixture.buffers;
+    const auto ready = TestGaussianSplatting::gs_pump_until([&]() {
+        tree->process(0.0);
+        renderer->render_scene_instance(&render);
+        return renderer->get_resource_state().hlod_frame_active;
+    });
+    if (!ready.ready()) {
+        FAIL("resident HLOD main view not admitted: ", renderer->get_resource_state().hlod_reason.utf8().get_data(),
+                " ", ready.describe().utf8().get_data());
+        return;
+    }
+    for (uint32_t frame = 0; frame < 2; ++frame) {
+        renderer->render_scene_instance(&render);
+        const auto &state = renderer->get_resource_state();
+        CHECK(state.hlod_frame_active);
+        CHECK(state.hlod_view_epoch > 0);
+        CHECK(state.hlod_selected_nodes == 1);
+        CHECK(state.hlod_selected_splats == 2);
+        CHECK(state.hlod_selected_parents == 0);
+        CHECK_FALSE(state.hlod_canonical.buffers.world_submission_active);
+        CHECK_FALSE(state.hlod_relative.buffers.world_submission_active);
+        CHECK(renderer->get_debug_state().sort_route_uid == String(RenderRouteUID::INSTANCE_SORT_GPU));
+        CHECK(renderer->get_sorting_state().sorted_splat_count == 2);
+        CHECK(renderer->has_rendered_content());
+        CHECK_FALSE(state.hlod_active); // Complete canonical bundle restored after the actual main-view pass.
+        CHECK(renderer->get_instance_pipeline_buffers().atlas_gaussian_buffer == state.hlod_canonical.buffers.atlas_gaussian_buffer);
+    }
 }
 }

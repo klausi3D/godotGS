@@ -1298,7 +1298,10 @@ bool hlod_build_bundle(GaussianSplatRenderer *p_renderer, RenderingDevice *p_rd,
     b.dispatch_chunk_count = chunk_count;
     b.max_visible_chunks = node_count;
     b.max_visible_splats = p_capacity;
-    b.world_submission_active = true;
+    // Both bundles belong to the resident route. Preserve its per-splat
+    // frustum/size/distance culling; the streamed-world exception is separate.
+    // Relative center reconstruction and draw-list dispatch use hlod_relative.
+    b.world_submission_active = false;
     b.hlod_relative = p_relative;
     b.hlod_source_generation = p_data.get_instance_id();
     r_bundle.generation = p_data.get_instance_id();
@@ -1443,6 +1446,8 @@ int GaussianSplatRenderer::try_publish_hlod_resident_contract(String &r_reason) 
         state.hlod_device_byte_upper_bound = after_bytes;
     }
     publish_hlod_bundle(false); // Context admission happens later, with the actual view identity.
+    state.hlod_frame_active = false;
+    state.hlod_reason = "prepared_awaiting_view_admission";
     r_reason = String();
     return 1;
 }

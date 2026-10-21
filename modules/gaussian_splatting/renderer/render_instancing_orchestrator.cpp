@@ -164,6 +164,33 @@ void RenderInstancingOrchestrator::render_instanced(RenderDataRD *p_render_data,
 		GaussianSplatRenderer::IFrameMutationAccess &frame_mutation_access = frame_provider;
 		frame_context.state_view = &frame_state_view;
 		frame_context.mutation_access = &frame_mutation_access;
+		// The nonempty resident entry executes these stages directly instead of
+		// execute_frame_entry(). Admit the cut once from this actual view context,
+		// before its plan/cull/sort borrow the selected contract. Keep the complete
+		// bundle bound through raster/composite and restore it on every exit path.
+		const bool previous_hlod_relative = renderer->get_resource_state().hlod_active;
+		struct HlodContractRestore {
+			GaussianSplatRenderer *owner;
+			bool relative;
+			~HlodContractRestore() {
+				if (owner->get_resource_state().hlod_prepared_snapshot.is_valid()) {
+					owner->publish_hlod_bundle(relative);
+				}
+			}
+		} hlod_restore{ renderer, previous_hlod_relative };
+		if (instance_count == 1 && instance_xform == Transform3D()) {
+			renderer->prepare_hlod_frame(frame_context);
+		} else if (renderer->get_resource_state().hlod_prepared_snapshot.is_valid()) {
+			// This increment admits only the resident identity shim. Preserve the
+			// caller's real transform/aggregation semantics on the canonical route.
+			renderer->publish_hlod_bundle(false);
+			auto &hlod_state = renderer->get_resource_state();
+			hlod_state.hlod_frame_active = false;
+			hlod_state.hlod_selected_nodes = hlod_state.hlod_selected_parents = hlod_state.hlod_visited_nodes = 0;
+			hlod_state.hlod_selected_splats = hlod_state.hlod_cpu_cut_usec = 0;
+			hlod_state.hlod_estimated_records = 0.0;
+			hlod_state.hlod_reason = "unsupported_instance_transform_domain";
+		}
 		const GaussianRenderPipeline::InstancePipelineBuffers *instance_buffers = renderer->has_instance_pipeline_buffers()
 				? &renderer->get_instance_pipeline_buffers()
 				: nullptr;
