@@ -1722,7 +1722,14 @@ def _check_hlod_cut_semantic_coverage(failures: list[str]) -> int:
         if not statement.strip():
             continue
         match = _FIELD_RE.fullmatch(statement.strip() + ";")
-        if match is None or (match.group("count") is not None and not match.group("count").isdigit()):
+        # _FIELD_RE alone also swallows `= 0, another_member = 0`. Allow commas
+        # only inside one complete flat braced initializer, as used by _padding2.
+        initializer = statement.partition("=")[2].strip()
+        if (
+            match is None
+            or (match.group("count") is not None and not match.group("count").isdigit())
+            or (initializer and not re.fullmatch(r"[^,{}]+|\{[^{}]*\}", initializer))
+        ):
             failures.append(f"HLOD cut oracle: unsupported Gaussian declaration: {statement.strip()}")
             return 0
         field = RawField(match.group("type"), match.group("name"), int(match.group("count")) if match.group("count") else None)

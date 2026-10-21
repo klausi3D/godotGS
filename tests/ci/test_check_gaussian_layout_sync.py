@@ -169,6 +169,18 @@ class HlodCutSemanticCoverageTests(unittest.TestCase):
         self.assertEqual(result, 1, output)
         self.assertIn("Gaussian.area is not compared", output)
 
+    def test_main_rejects_initialized_multiple_declarators(self) -> None:
+        for original, replacement in (
+            ("float area = 0.0f;", "float area = 0.0f, semantic_value = 0.0f;"),
+            ("uint32_t render_meta = 0;", "uint16_t render_meta = 0, semantic_value = 0;"),
+        ):
+            with self.subTest(replacement=replacement):
+                self.assertEqual(self.declaration.count(original), 1)
+                declaration = self.declaration.replace(original, replacement)
+                result, output = self._run_sources(declaration, self.oracle, through_main=True)
+                self.assertEqual(result, 1, output)
+                self.assertIn("HLOD cut oracle: unsupported Gaussian declaration:", output)
+
     def test_same_size_padding_repurpose_requires_comparison(self) -> None:
         for name in ("semantic_value", "_padding_future"):
             with self.subTest(name=name):
